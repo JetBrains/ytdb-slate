@@ -1,2 +1,5 @@
 node_modules/
 .pi/npm/
+# Slate runtime state (worker transcripts, episodes, pending handoff) —
+# session data must never be committed.
+.pi/slate/

@@ -22,16 +22,16 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | --- | --- | --- | --- |
 | `orchestratorModeDefault` | boolean | `false` | Start fresh interactive sessions with orchestrator mode ON. |
 | `episodeModel` | string | newest available Anthropic Sonnet, else the worker's own model | Model (`provider/id`) used to compress a finished action into an episode. |
-| `workerTools` | string[] | pi's default toolset | Tools available to worker threads. |
+| `workerTools` | string[] | `["read", "bash", "edit", "write", "grep", "find", "ls"]` | Tools available to worker threads (an empty list also falls back to the default). |
 | `maxConcurrent` | number | `4` | Maximum number of worker actions running concurrently. |
 | `pauseThresholdPercent` | number | `40` | Orchestrator context budget (percent, in `(0, 100]`) at which Slate auto-pauses and prepares a fresh-session handoff. |
-| `orchestratorPromptDocs` | string[] | `[]` | Project markdown files (paths relative to the project root) injected into the orchestrator prompt. |
-| `workerPromptDocs` | string[] | `[]` | Project markdown files injected into every worker-thread prompt. |
+| `orchestratorPromptDocs` | string[] | `[]` | Project markdown files (paths relative to the project root) whose **contents** are appended to the orchestrator system prompt. |
+| `workerPromptDocs` | string[] | `[]` | Project markdown files whose **contents** are appended to every worker-thread system prompt. |
 | `workflow.draftPRs` | boolean | `false` | Enable umbrella draft-PR publishing for tracks. |
-| `doctrineExtraPath` | string | — | Project markdown appended to the orchestrator doctrine (e.g. a satellite peer-review process). |
-| `reviewPerspectivesPath` | string | — | Project review charters; each charter declares its own finding-ID prefix. |
+| `doctrineExtraPath` | string | — | Project markdown whose **content** is appended to the orchestrator doctrine (project-specific workflow additions). |
+| `reviewPerspectivesPath` | string | — | Project review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
 
-Example `.pi/slate.json`:
+Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point them at markdown files that actually exist in **your** project):
 
 ```json
 {
@@ -39,13 +39,15 @@ Example `.pi/slate.json`:
   "episodeModel": "anthropic/claude-sonnet-5",
   "maxConcurrent": 4,
   "pauseThresholdPercent": 40,
-  "orchestratorPromptDocs": ["docs-internal/agents/orchestrator-guidelines.md"],
-  "workerPromptDocs": ["docs-internal/agents/thread-guidelines.md"],
+  "orchestratorPromptDocs": ["docs/agents/orchestrator-guidelines.md"],
+  "workerPromptDocs": ["docs/agents/thread-guidelines.md"],
   "workflow": { "draftPRs": true },
-  "doctrineExtraPath": "docs-internal/agents/peer-review.md",
-  "reviewPerspectivesPath": "docs-internal/agents/review-perspectives.md"
+  "doctrineExtraPath": "docs/agents/workflow-additions.md",
+  "reviewPerspectivesPath": "docs/agents/review-perspectives.md"
 }
 ```
+
+> **Silent skip:** the four project-file keys (`orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`, `reviewPerspectivesPath`) are silently ignored when a referenced file is missing, unreadable, or empty — nothing is injected and no error is shown. Verify your paths after copying the example.
 
 ## Trust
 
@@ -53,14 +55,17 @@ Slate reads project configuration (`.pi/slate.json`) and injects project files (
 
 ## Shipped docs
 
-The package ships its workflow doctrine as markdown, resolved at runtime from the installed package (not from your project) and injected into orchestrator prompts by the doctrine:
+In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand:
 
 - `docs/track-workflow.md` — the track-based workflow (research → design review → adversarial review → track review)
-- `docs/pr-publishing.md` — umbrella draft-PR publishing (active when `workflow.draftPRs` is `true`)
+- `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
 - `docs/review-rules.md` — review discipline and finding rules
 - `docs/design-principles.md` — Slate's own design rationale
 
-Project-specific additions layer on top via `doctrineExtraPath`, `reviewPerspectivesPath`, and the prompt-doc lists — they extend, not replace, the shipped doctrine.
+Project-specific additions layer on top — they extend, not replace, the shipped doctrine — via two distinct mechanisms:
+
+- **Content injection**: `doctrineExtraPath` (appended to the doctrine itself, re-read at each prompt assembly) and `orchestratorPromptDocs` / `workerPromptDocs` (appended to the respective system prompts).
+- **Pointer**: `reviewPerspectivesPath` is cited by path from the doctrine's review rule and read on demand, like the shipped docs.
 
 ## License
 
