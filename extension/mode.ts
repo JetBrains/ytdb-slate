@@ -15,7 +15,7 @@
  * machinery in handoff.ts (context budget → paused → fresh-session handoff).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
@@ -36,9 +36,11 @@ const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "
  * wherever the package is installed. Rules 8 and 9 carry config-dependent
  * tails (workflow.draftPRs, reviewPerspectivesPath), so the doctrine is
  * assembled per prompt rather than kept as a constant. Project-derived
- * additions (rule 9's perspectives pointer) apply only when `trusted`.
+ * additions (rule 9's perspectives pointer) apply only when `trusted` and
+ * the file exists (cwd-resolved) — missing files are skipped silently like
+ * every other project doc.
  */
-function buildDoctrine(config: SlateConfig, trusted: boolean): string {
+function buildDoctrine(cwd: string, config: SlateConfig, trusted: boolean): string {
 	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
 	// one of the gates; otherwise durable records live in the workflow log.
 	const rule8Tail =
@@ -49,7 +51,7 @@ function buildDoctrine(config: SlateConfig, trusted: boolean): string {
    log per the workflow doc.`;
 	const perspectives = config.reviewPerspectivesPath;
 	const rule9Tail =
-		trusted && typeof perspectives === "string" && perspectives
+		trusted && typeof perspectives === "string" && perspectives && existsSync(resolve(cwd, perspectives))
 			? `
    Project-specific review perspectives are defined in ${perspectives} —
    load them alongside the review rules when composing reviewers.`
@@ -96,9 +98,11 @@ threads execute. Rules:
 /**
  * Project doctrine extension (config doctrineExtraPath): read at prompt-
  * assembly time so edits are picked up live, appended AFTER the numbered
- * rules under a labeled section. Missing/unreadable/empty file or a
- * non-string path → no block, silently (matches the malformed-config
- * behavior of prompt-docs.ts). Never injected for untrusted projects.
+ * rules under a labeled section, headed by the configured (cwd-relative)
+ * path as given in config. Missing/unreadable/empty file or a non-string
+ * path → no block, silently (matches the malformed-config behavior of
+ * prompt-docs.ts). Never injected for untrusted projects. Blocks carry NO
+ * separators — the call site prefixes them, like the prompt-doc blocks.
  */
 function loadDoctrineExtra(cwd: string, config: SlateConfig, trusted: boolean): string[] {
 	const path = config.doctrineExtraPath;
@@ -106,7 +110,7 @@ function loadDoctrineExtra(cwd: string, config: SlateConfig, trusted: boolean): 
 	try {
 		const content = readFileSync(resolve(cwd, path), "utf8").trim();
 		if (!content) return [];
-		return [`\n\n# Project doctrine (injected from ${path})\n\n${content}`];
+		return [`# Project doctrine (injected from ${path})\n\n${content}`];
 	} catch {
 		return [];
 	}
@@ -225,8 +229,8 @@ export function registerSlateMode(
 		// addendum goes LAST so the pause directive is the final word in the
 		// prompt, undiluted by the role guidelines.
 		const parts = [
-			buildDoctrine(config, trusted),
-			...loadDoctrineExtra(ctx.cwd, config, trusted),
+			buildDoctrine(ctx.cwd, config, trusted),
+			...loadDoctrineExtra(ctx.cwd, config, trusted).map((d) => `\n\n${d}`),
 			...docs.map((d) => `\n\n${d}`),
 		];
 		if (store.paused) parts.push(PAUSED_ADDENDUM);

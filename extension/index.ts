@@ -40,7 +40,16 @@ import { registerSlateTools } from "./tools.ts";
 function loadConfig(cwd: string): SlateConfig {
 	const file = join(cwd, CONFIG_DIR_NAME, "slate.json");
 	try {
-		if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8")) as SlateConfig;
+		if (existsSync(file)) {
+			// JSON.parse accepts any JSON value; only a non-null plain object is a
+			// usable config — a literal `null`, array, or scalar would crash
+			// consumers, so anything else falls through to defaults, silently,
+			// like any other malformed config.
+			const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+			if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+				return parsed as SlateConfig;
+			}
+		}
 	} catch {
 		/* invalid config → defaults */
 	}

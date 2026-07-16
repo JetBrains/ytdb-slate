@@ -3,7 +3,10 @@
  *
  * A worker loads NO extensions, skills, prompt templates, or themes
  * (DefaultResourceLoader no* options) — so a worker can never see slate tools
- * (ExecPlan D7, depth-1 guard). Worker conversations persist under
+ * (ExecPlan D7, depth-1 guard) — and inherits the HOST session's project-trust
+ * state via an explicit SettingsManager, so untrusted projects get neither
+ * project-local settings nor the project SYSTEM.md override in workers.
+ * Worker conversations persist under
  * <config dir>/slate/threads/*.jsonl (CONFIG_DIR_NAME, ".pi" by default)
  * and are reopened via SessionManager.open.
  */
@@ -18,6 +21,7 @@ import {
 	getAgentDir,
 	ModelRegistry,
 	SessionManager,
+	SettingsManager,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { loadPromptDocs } from "./prompt-docs.ts";
@@ -65,6 +69,16 @@ export async function openWorkerSession(opts: {
 	const authStorage = AuthStorage.create();
 	const modelRegistry = ModelRegistry.create(authStorage);
 
+	// Trust propagation (mirrors vanilla pi's runtime SettingsManager): when no
+	// settingsManager is passed, the SDK default-constructs one with
+	// projectTrusted=true, which would make workers honor project-local
+	// settings and the <config dir>/SYSTEM.md override even in projects the
+	// user has NOT trusted. Carry the host session's actual trust decision into
+	// both the resource loader and the session.
+	const settingsManager = SettingsManager.create(ctx.cwd, agentDir, {
+		projectTrusted: ctx.isProjectTrusted(),
+	});
+
 	// Role-guideline doc content is captured when this session object is
 	// created: a live session keeps its system prompt until disposed; a
 	// thread reopened later (e.g. after a pi restart) re-reads the docs at
@@ -75,6 +89,7 @@ export async function openWorkerSession(opts: {
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
 		agentDir,
+		settingsManager,
 		noExtensions: true, // recursion guard (D7)
 		noSkills: true,
 		noPromptTemplates: true,
@@ -98,6 +113,7 @@ export async function openWorkerSession(opts: {
 		tools: opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS,
 		resourceLoader: loader,
 		sessionManager,
+		settingsManager,
 	});
 	return session;
 }

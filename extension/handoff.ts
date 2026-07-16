@@ -77,13 +77,24 @@ function lastAssistantText(ctx: ExtensionCommandContext): string {
 // only for trusted projects; untrusted → built-in kickoff text.
 function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: string): string {
 	const template = join(cwd, CONFIG_DIR_NAME, "slate-handoff.md");
-	const base = trusted && existsSync(template)
-		? readFileSync(template, "utf8").trim()
-		: [
-				"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
-				"Orchestrator mode and all worker threads/episodes from the previous session are already restored:",
-				"use `threads` to list them and `episode` to fetch details. Continue the work.",
-			].join("\n");
+	let base: string | undefined;
+	if (trusted) {
+		// existsSync alone is not enough: the path may be a directory or
+		// unreadable, and a throw escaping here would strand the pending-handoff
+		// file startHandoff just wrote — fall back to the default kickoff text.
+		try {
+			if (existsSync(template)) base = readFileSync(template, "utf8").trim();
+		} catch {
+			/* unreadable template → default kickoff */
+		}
+	}
+	if (!base) {
+		base = [
+			"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
+			"Orchestrator mode and all worker threads/episodes from the previous session are already restored:",
+			"use `threads` to list them and `episode` to fetch details. Continue the work.",
+		].join("\n");
+	}
 	const parts = [base];
 	if (brief) parts.push("", "## Handoff brief from the previous orchestrator", "", brief);
 	if (focus) parts.push("", `Immediate focus: ${focus}`);
@@ -140,6 +151,10 @@ export function registerSlateHandoff(
 	// BEFORE mode.ts's (so its tool restriction sees the adopted mode).
 	pi.on("session_start", async (_event, ctx) => {
 		if (store.threads.size > 0 || store.orchestratorMode) return; // state already restored on this branch
+		// Trust gate: the pending-handoff file is project-local state a cloned
+		// repo could ship pre-seeded. Never adopt in an untrusted project — and
+		// leave the file untouched for a later trusted session to judge.
+		if (!ctx.isProjectTrusted()) return;
 		const file = pendingFile(ctx.cwd);
 		try {
 			if (!existsSync(file)) return;
