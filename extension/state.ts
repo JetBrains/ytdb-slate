@@ -45,7 +45,7 @@ export interface SlateSnapshot {
 export interface SlateConfig {
 	episodeModel?: string; // "provider/id" for the episode compressor (D5)
 	workerTools?: string[];
-	maxConcurrent?: number; // global cap on concurrently running worker actions (default 4, must be ≥ 1; rationale: docs/design-principles.md §5 repo-local note)
+	maxConcurrent?: number; // global cap on concurrently running worker actions (default 4; must be ≥ 1 — unenforced, ≤ 0 silently hangs all dispatches; rationale: docs/design-principles.md §5 repo-local note)
 	pauseThresholdPercent?: number; // orchestrator context budget for auto-pause (default 40)
 	orchestratorModeDefault?: boolean; // seed orchestrator mode ON for fresh interactive sessions (unsaved until first real mutation)
 	orchestratorPromptDocs?: string[]; // role-guideline docs appended to the orchestrator prompt (cwd-relative paths, default none)
