@@ -4,13 +4,15 @@
  * A worker loads NO extensions, skills, prompt templates, or themes
  * (DefaultResourceLoader no* options) — so a worker can never see slate tools
  * (ExecPlan D7, depth-1 guard). Worker conversations persist under
- * .pi/slate/threads/*.jsonl and are reopened via SessionManager.open.
+ * <config dir>/slate/threads/*.jsonl (CONFIG_DIR_NAME, ".pi" by default)
+ * and are reopened via SessionManager.open.
  */
 
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
 	AuthStorage,
+	CONFIG_DIR_NAME,
 	createAgentSession,
 	DefaultResourceLoader,
 	getAgentDir,
@@ -18,7 +20,7 @@ import {
 	SessionManager,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_WORKER_PROMPT_DOCS, loadPromptDocs } from "./prompt-docs.ts";
+import { loadPromptDocs } from "./prompt-docs.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 
@@ -32,11 +34,11 @@ const WORKER_PREAMBLE = [
 ].join(" ");
 
 export function threadsDir(cwd: string): string {
-	return resolve(cwd, ".pi/slate/threads");
+	return resolve(cwd, CONFIG_DIR_NAME, "slate", "threads");
 }
 
 export function episodesDir(cwd: string): string {
-	return resolve(cwd, ".pi/slate/episodes");
+	return resolve(cwd, CONFIG_DIR_NAME, "slate", "episodes");
 }
 
 /** Resolve a "provider/id" model string against the registry; throws a clear error if unknown. */
@@ -50,10 +52,10 @@ export function resolveModel(ctx: ExtensionContext, spec: string) {
 
 export async function openWorkerSession(opts: {
 	ctx: ExtensionContext;
-	sessionFile?: string; // resume when provided, else create new under .pi/slate/threads/
+	sessionFile?: string; // resume when provided, else create new under <config dir>/slate/threads/
 	model?: string; // "provider/id"
 	tools?: string[];
-	promptDocs?: string[]; // role-guideline doc paths (default DEFAULT_WORKER_PROMPT_DOCS)
+	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
 	const dir = threadsDir(ctx.cwd);
@@ -67,8 +69,9 @@ export async function openWorkerSession(opts: {
 	// created: a live session keeps its system prompt until disposed; a
 	// thread reopened later (e.g. after a pi restart) re-reads the docs at
 	// their then-current content. Blocks go in separator-free — pi core
-	// joins appendSystemPrompt entries with "\n\n".
-	const promptDocs = loadPromptDocs(ctx.cwd, opts.promptDocs ?? DEFAULT_WORKER_PROMPT_DOCS);
+	// joins appendSystemPrompt entries with "\n\n". Trust gate: project files
+	// are never injected into worker prompts for untrusted projects.
+	const promptDocs = ctx.isProjectTrusted() ? loadPromptDocs(ctx.cwd, opts.promptDocs ?? []) : [];
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
 		agentDir,

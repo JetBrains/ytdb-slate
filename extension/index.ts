@@ -2,7 +2,7 @@
  * Slate — thread-weaving agent architecture for pi.
  *
  * Implements the Slate architecture — design rationale and principles in
- * ./design-principles.md (module headers cite decision ids D3–D9/M1–M3 from
+ * ../docs/design-principles.md (module headers cite decision ids D3–D9/M1–M3 from
  * the original ExecPlan, which is not in-repo). An orchestrator (the main pi
  * session) dispatches bounded actions to persistent worker threads via the
  * `thread` tool; each completed action returns an episode — a compressed,
@@ -16,16 +16,21 @@
  *   tools.ts    — thread / threads / episode tools
  *   handoff.ts  — context-budget auto-pause + fresh-session handoff
  *
- * Optional config at .pi/slate.json:
+ * Optional config at <config dir>/slate.json (config dir = CONFIG_DIR_NAME,
+ * ".pi" by default), honored ONLY when the project is trusted — untrusted
+ * projects run on built-in defaults with no project file injection:
  *   { "episodeModel": "provider/id", "workerTools": [...], "maxConcurrent": 4,
  *     "pauseThresholdPercent": 40, "orchestratorModeDefault": true,
- *     "orchestratorPromptDocs": ["docs-internal/agents/orchestrator-guidelines.md"],
- *     "workerPromptDocs": ["docs-internal/agents/thread-guidelines.md"] }
+ *     "orchestratorPromptDocs": ["docs/orchestrator-guidelines.md"],
+ *     "workerPromptDocs": ["docs/thread-guidelines.md"],
+ *     "workflow": { "draftPRs": false },
+ *     "doctrineExtraPath": "docs/project-doctrine.md",
+ *     "reviewPerspectivesPath": "docs/review-perspectives.md" }
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerSlateHandoff } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
 import { SlateStore, type SlateConfig } from "./state.ts";
@@ -33,7 +38,7 @@ import { ThreadManager } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
 
 function loadConfig(cwd: string): SlateConfig {
-	const file = join(cwd, ".pi", "slate.json");
+	const file = join(cwd, CONFIG_DIR_NAME, "slate.json");
 	try {
 		if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8")) as SlateConfig;
 	} catch {
@@ -50,7 +55,9 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		manager.disposeAll();
-		manager = new ThreadManager(store, loadConfig(ctx.cwd));
+		// Trust gate: project config steers prompts, models, and tool lists, so
+		// it is honored only for trusted projects; untrusted → built-in defaults.
+		manager = new ThreadManager(store, ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {});
 		store.restore(ctx);
 	});
 

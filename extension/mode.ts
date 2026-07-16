@@ -7,7 +7,7 @@
  *   - the thread-weaving doctrine is appended to the system prompt each turn;
  *   - a widget above the editor shows live thread status;
  *   - the mode persists in slate state and is re-applied on session restore;
- *   - with config `orchestratorModeDefault` (.pi/slate.json), genuinely fresh
+ *   - with config `orchestratorModeDefault` (slate.json), genuinely fresh
  *     interactive sessions are seeded with the mode ON (unsaved until the
  *     first real state mutation).
  *
@@ -15,14 +15,46 @@
  * machinery in handoff.ts (context budget → paused → fresh-session handoff).
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
-import { DEFAULT_ORCHESTRATOR_PROMPT_DOCS, loadPromptDocs } from "./prompt-docs.ts";
+import {
+	DESIGN_PRINCIPLES_DOC,
+	PR_PUBLISHING_DOC,
+	REVIEW_RULES_DOC,
+	TRACK_WORKFLOW_DOC,
+} from "./paths.ts";
+import { loadPromptDocs } from "./prompt-docs.ts";
 import { orchestratorCostUsd, type SlateConfig, type SlateStore } from "./state.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
 
-const DOCTRINE = `
+/**
+ * Build the orchestrator doctrine. Rules 8–10 reference the package-shipped
+ * workflow/review/design docs by ABSOLUTE path (paths.ts) so they resolve
+ * wherever the package is installed. Rules 8 and 9 carry config-dependent
+ * tails (workflow.draftPRs, reviewPerspectivesPath), so the doctrine is
+ * assembled per prompt rather than kept as a constant. Project-derived
+ * additions (rule 9's perspectives pointer) apply only when `trusted`.
+ */
+function buildDoctrine(config: SlateConfig, trusted: boolean): string {
+	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
+	// one of the gates; otherwise durable records live in the workflow log.
+	const rule8Tail =
+		config.workflow?.draftPRs === true
+			? `An umbrella draft PR is part of the pre-implementation gates; PR
+   publishing mechanics are in ${PR_PUBLISHING_DOC}.`
+			: `Durable workflow records anchor in the retained repo-root workflow
+   log per the workflow doc.`;
+	const perspectives = config.reviewPerspectivesPath;
+	const rule9Tail =
+		trusted && typeof perspectives === "string" && perspectives
+			? `
+   Project-specific review perspectives are defined in ${perspectives} —
+   load them alongside the review rules when composing reviewers.`
+			: "";
+	return `
 
 # Slate orchestrator mode
 
@@ -43,21 +75,42 @@ threads execute. Rules:
 6. After every episode, update your strategy. Episodes marked STATUS: FAILED
    require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.
-8. Repository changes — including .pi/ tooling, extensions, and docs —
-   follow the track-based workflow (docs-internal/dev-workflow/track-development.md).
-   Before the FIRST dispatch that modifies files, confirm the
-   pre-implementation gates ran (user design review, adversarial review,
-   umbrella draft PR, user-approved scope) or name the lighter tier that
-   applies per that doc.
+8. Repository changes follow the slate track-based workflow — read
+   ${TRACK_WORKFLOW_DOC}
+   (skip the read if it is already in your context). Before the FIRST
+   dispatch that modifies files, confirm the pre-implementation gates ran
+   (user design review, adversarial review, user-approved scope).
+   ${rule8Tail}
 9. Every non-trivial change gets reviewed before it is declared done.
    Before dispatching review threads, read
-   .pi/extensions/slate/review-rules.md (skip the read if it is already
-   in your context) and follow it.
+   ${REVIEW_RULES_DOC}
+   (skip the read if it is already in your context) and follow it.${rule9Tail}
 10. The design principles behind this architecture are documented in
-   .pi/extensions/slate/design-principles.md. Read that file only when you
-   must reason about slate itself (explaining it, changing the extension,
-   or an unusual routing/compaction decision) — never for routine
-   dispatching. Skip the read if it is already in your context.`;
+   ${DESIGN_PRINCIPLES_DOC}.
+   Read that file only when you must reason about slate itself (explaining
+   it, changing the extension, or an unusual routing/compaction decision) —
+   never for routine dispatching. Skip the read if it is already in your
+   context.`;
+}
+
+/**
+ * Project doctrine extension (config doctrineExtraPath): read at prompt-
+ * assembly time so edits are picked up live, appended AFTER the numbered
+ * rules under a labeled section. Missing/unreadable/empty file or a
+ * non-string path → no block, silently (matches the malformed-config
+ * behavior of prompt-docs.ts). Never injected for untrusted projects.
+ */
+function loadDoctrineExtra(cwd: string, config: SlateConfig, trusted: boolean): string[] {
+	const path = config.doctrineExtraPath;
+	if (!trusted || typeof path !== "string" || !path) return [];
+	try {
+		const content = readFileSync(resolve(cwd, path), "utf8").trim();
+		if (!content) return [];
+		return [`\n\n# Project doctrine (injected from ${path})\n\n${content}`];
+	} catch {
+		return [];
+	}
+}
 
 const PAUSED_ADDENDUM = `
 
@@ -158,14 +211,24 @@ export function registerSlateMode(
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (!store.orchestratorMode) return;
+		const config = getConfig();
+		// Trust gate: project-derived prompt content (role docs, doctrine extra,
+		// review-perspectives pointer) is injected only for trusted projects.
+		// Config itself is already trust-gated at load (index.ts); checking again
+		// here keeps the file reads safe regardless of where config came from.
+		const trusted = ctx.isProjectTrusted();
 		// Doc CONTENTS are re-read from disk on every agent start, so edits are
 		// picked up live; the doc PATH LIST comes from config, which reloads
 		// only on session_start (index.ts).
-		const docs = loadPromptDocs(ctx.cwd, getConfig().orchestratorPromptDocs ?? DEFAULT_ORCHESTRATOR_PROMPT_DOCS);
+		const docs = trusted ? loadPromptDocs(ctx.cwd, config.orchestratorPromptDocs ?? []) : [];
 		// Blocks carry no separators — prefix each here. When paused, the
 		// addendum goes LAST so the pause directive is the final word in the
 		// prompt, undiluted by the role guidelines.
-		const parts = [DOCTRINE, ...docs.map((d) => `\n\n${d}`)];
+		const parts = [
+			buildDoctrine(config, trusted),
+			...loadDoctrineExtra(ctx.cwd, config, trusted),
+			...docs.map((d) => `\n\n${d}`),
+		];
 		if (store.paused) parts.push(PAUSED_ADDENDUM);
 		return { systemPrompt: event.systemPrompt + parts.join("") };
 	});

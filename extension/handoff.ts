@@ -7,7 +7,7 @@
  * orchestrator is steered to produce a handoff brief for the user.
  *
  * /slate handoff [focus] → startHandoff(): captures the orchestrator's last
- * assistant message as the brief, writes .pi/slate/pending-handoff.json
+ * assistant message as the brief, writes <config dir>/slate/pending-handoff.json
  * (state snapshot + brief + parent session), and opens a fresh session.
  *
  * Adoption: session replacement tears down this extension instance, so
@@ -19,7 +19,12 @@
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+	CONFIG_DIR_NAME,
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { orchestratorCostUsd, type SlateConfig, type SlateSnapshot, type SlateStore } from "./state.ts";
 
 const DEFAULT_PAUSE_THRESHOLD_PERCENT = 40;
@@ -39,7 +44,7 @@ export interface SlateHandoffHooks {
 }
 
 function pendingFile(cwd: string): string {
-	return join(cwd, ".pi/slate/pending-handoff.json");
+	return join(cwd, CONFIG_DIR_NAME, "slate", "pending-handoff.json");
 }
 
 /** Last assistant message text on the current branch (the handoff brief). */
@@ -67,9 +72,12 @@ function lastAssistantText(ctx: ExtensionCommandContext): string {
 	return text.length > BRIEF_MAX_CHARS ? `${text.slice(0, BRIEF_MAX_CHARS)}\n[... brief truncated]` : text;
 }
 
-function buildKickoff(cwd: string, brief: string, focus?: string): string {
-	const template = join(cwd, ".pi/slate-handoff.md");
-	const base = existsSync(template)
+// Trust gate: the project-supplied kickoff template is a project-derived
+// read injected into the fresh session's first prompt, so it is honored
+// only for trusted projects; untrusted → built-in kickoff text.
+function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: string): string {
+	const template = join(cwd, CONFIG_DIR_NAME, "slate-handoff.md");
+	const base = trusted && existsSync(template)
 		? readFileSync(template, "utf8").trim()
 		: [
 				"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
@@ -91,7 +99,7 @@ export function registerSlateHandoff(
 		if (!store.orchestratorMode || store.paused) return;
 		const percent = ctx.getContextUsage()?.percent;
 		if (percent == null) return;
-		// .pi/slate.json is user-edited: accept only finite (0, 100] thresholds.
+		// slate.json is user-edited: accept only finite (0, 100] thresholds.
 		const configured = getConfig().pauseThresholdPercent;
 		const threshold =
 			typeof configured === "number" && Number.isFinite(configured) && configured > 0 && configured <= 100
@@ -116,7 +124,7 @@ export function registerSlateHandoff(
 					"Finish nothing new. Reply to the user with:",
 					"(1) a concise HANDOFF BRIEF — overall goal, per-thread state with episode ids, immediate next actions;",
 					"(2) instructions: run /slate handoff [optional focus] to continue in a fresh session where all threads and episodes are restored automatically;",
-					"alternatively, start a new pi session manually, run /slate on, and have the new orchestrator read the episode files under .pi/slate/episodes/.",
+					`alternatively, start a new pi session manually, run /slate on, and have the new orchestrator read the episode files under ${CONFIG_DIR_NAME}/slate/episodes/.`,
 				].join("\n"),
 				display: true,
 			},
@@ -187,7 +195,7 @@ export function registerSlateHandoff(
 		mkdirSync(dirname(file), { recursive: true });
 		writeFileSync(file, `${JSON.stringify(pending, null, 2)}\n`, "utf8");
 
-		const kickoff = buildKickoff(ctx.cwd, brief, focus);
+		const kickoff = buildKickoff(ctx.cwd, ctx.isProjectTrusted(), brief, focus);
 		// catch, NOT finally: on success the NEW session's adoption handler has
 		// already consumed and deleted the pending file (session_start fires
 		// inside newSession) — cleaning up there would be wrong.

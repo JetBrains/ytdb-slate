@@ -5,7 +5,8 @@
  * custom session entry ("slate-state") via pi.appendEntry. On session_start the
  * store rebuilds from the LAST such entry on the current branch, so state
  * follows pi's session tree across restart/resume/fork. Thread session files
- * and episode files live on disk under .pi/slate/ and are validated on restore.
+ * and episode files live on disk under <config dir>/slate/ and are validated
+ * on restore.
  */
 
 import { existsSync } from "node:fs";
@@ -47,8 +48,11 @@ export interface SlateConfig {
 	maxConcurrent?: number;
 	pauseThresholdPercent?: number; // orchestrator context budget for auto-pause (default 40)
 	orchestratorModeDefault?: boolean; // seed orchestrator mode ON for fresh interactive sessions (unsaved until first real mutation)
-	orchestratorPromptDocs?: string[]; // role-guideline docs appended to the orchestrator prompt (paths, cwd-relative)
-	workerPromptDocs?: string[]; // role-guideline docs appended to worker system prompts (paths, cwd-relative)
+	orchestratorPromptDocs?: string[]; // role-guideline docs appended to the orchestrator prompt (cwd-relative paths, default none)
+	workerPromptDocs?: string[]; // role-guideline docs appended to worker system prompts (cwd-relative paths, default none)
+	workflow?: { draftPRs?: boolean }; // draftPRs: umbrella draft PRs are part of the pre-implementation gates (default false)
+	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
+	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
 }
 
 export class SlateStore {

@@ -3,7 +3,7 @@
  *
  * An episode is the compressed, structured record of ONE completed thread
  * action. It is produced by a single LLM call over the messages generated
- * during that action, stored at .pi/slate/episodes/<id>.md, and returned to
+ * during that action, stored at <config dir>/slate/episodes/<id>.md, and returned to
  * the orchestrator as the tool result — it IS the synchronization mechanism.
  *
  * Compressor model resolution (D5): config episodeModel → newest available
@@ -14,6 +14,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { complete } from "@earendil-works/pi-ai/compat";
 import {
+	CONFIG_DIR_NAME,
 	convertToLlm,
 	serializeConversation,
 	type ExtensionContext,
@@ -114,7 +115,7 @@ function lastAssistantText(messages: unknown[]): string {
 
 export async function compressEpisode(opts: CompressEpisodeOptions): Promise<CompressedEpisode> {
 	const { ctx } = opts;
-	const dir = join(ctx.cwd, ".pi/slate/episodes");
+	const dir = join(ctx.cwd, CONFIG_DIR_NAME, "slate", "episodes");
 	mkdirSync(dir, { recursive: true });
 	const file = join(dir, `${opts.episodeId}.md`);
 
