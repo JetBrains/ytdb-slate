@@ -90,7 +90,9 @@ bullet below is that perspective's charter:
   the built-in roster wins: the orchestrator assigns the colliding
   charter a fresh non-colliding prefix at dispatch, records the
   substitution in the ledger, and uses the substitute everywhere — the
-  declared prefix is never used.
+  declared prefix is never used. When two project charters collide
+  with each other, the charter appearing first in the perspectives
+  file keeps its declared prefix; later ones are reassigned.
 - The orchestrator owns the cumulative finding-ID ledger: when
   spawning a later-iteration reviewer or gate thread, tell it the next
   free number for its prefix.

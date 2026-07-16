@@ -14,7 +14,8 @@
  * in-memory state cannot cross over; and the fresh session's own file has no
  * slate-state entries for restore() to find (they live in the parent's file).
  * The pending file bridges the gap: the NEW instance's session_start handler
- * adopts the snapshot when the fresh session's parentSession header matches.
+ * adopts the snapshot when the fresh session's parentSession header matches
+ * (trusted projects only; stale files are reaped regardless of trust).
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -88,12 +89,22 @@ function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: stri
 			/* unreadable template → default kickoff */
 		}
 	}
+	// The "already restored" claim is only valid when the successor session
+	// will actually adopt the pending state — adoption is trust-gated, and the
+	// successor (same process, same cwd) shares this session's trust state, so
+	// `trusted` decides which default text is honest here.
 	if (!base) {
-		base = [
-			"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
-			"Orchestrator mode and all worker threads/episodes from the previous session are already restored:",
-			"use `threads` to list them and `episode` to fetch details. Continue the work.",
-		].join("\n");
+		base = trusted
+			? [
+					"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
+					"Orchestrator mode and all worker threads/episodes from the previous session are already restored:",
+					"use `threads` to list them and `episode` to fetch details. Continue the work.",
+				].join("\n")
+			: [
+					"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
+					"NOTE: this project is untrusted, so slate did NOT auto-restore the previous session's threads/episodes.",
+					`Run /slate on if needed, then reconstruct context from the episode files under ${CONFIG_DIR_NAME}/slate/episodes/ and continue the work.`,
+				].join("\n");
 	}
 	const parts = [base];
 	if (brief) parts.push("", "## Handoff brief from the previous orchestrator", "", brief);
@@ -151,23 +162,26 @@ export function registerSlateHandoff(
 	// BEFORE mode.ts's (so its tool restriction sees the adopted mode).
 	pi.on("session_start", async (_event, ctx) => {
 		if (store.threads.size > 0 || store.orchestratorMode) return; // state already restored on this branch
-		// Trust gate: the pending-handoff file is project-local state a cloned
-		// repo could ship pre-seeded. Never adopt in an untrusted project — and
-		// leave the file untouched for a later trusted session to judge.
-		if (!ctx.isProjectTrusted()) return;
 		const file = pendingFile(ctx.cwd);
 		try {
 			if (!existsSync(file)) return;
 			const pending = JSON.parse(readFileSync(file, "utf8")) as PendingHandoff;
 			const age = Date.now() - (pending.createdAt ?? 0);
-			const stale = age >= PENDING_MAX_AGE_MS;
-			const matches = !!pending.parentSession && pending.parentSession === ctx.sessionManager.getHeader()?.parentSession;
-			if (!matches || stale) {
-				// Never adopt into an unrelated session; reap the file only once it
-				// can no longer belong to an in-flight handoff.
-				if (stale) rmSync(file, { force: true });
+			// STALE reap runs regardless of trust: it deletes an abandoned runtime
+			// file without injecting any content into prompts or state, and keeps
+			// the file from lingering forever in a never-trusted project.
+			if (age >= PENDING_MAX_AGE_MS) {
+				rmSync(file, { force: true });
 				return;
 			}
+			// Trust gate (ADOPTION only): the pending file is project-local state a
+			// cloned repo could ship pre-seeded. Never adopt its content in an
+			// untrusted project — but leave a FRESH file untouched: the user may
+			// grant trust shortly after, within the handoff window.
+			if (!ctx.isProjectTrusted()) return;
+			// Never adopt into an unrelated session.
+			const matches = !!pending.parentSession && pending.parentSession === ctx.sessionManager.getHeader()?.parentSession;
+			if (!matches) return;
 			store.adoptSnapshot(pending.snapshot, ctx);
 			store.paused = false;
 			store.save();

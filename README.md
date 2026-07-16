@@ -47,7 +47,7 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
 }
 ```
 
-> **Silent skip:** the four project-file keys (`orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`, `reviewPerspectivesPath`) are silently ignored when a referenced file is missing, unreadable, or empty — nothing is injected and no error is shown. Verify your paths after copying the example.
+> **Silent skip:** the project-file keys fail silently — no error is shown. For the content-injected keys (`orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`) a missing, unreadable, or empty file is skipped and nothing is injected. For `reviewPerspectivesPath` the pointer is omitted only when the file is missing — the file is not read at injection time, so an unreadable or empty file is still cited. Verify your paths after copying the example.
 
 ## Trust
 
