@@ -1,0 +1,4 @@
+{
+  "orchestratorModeDefault": true,
+  "workflow": { "draftPRs": true }
+}
