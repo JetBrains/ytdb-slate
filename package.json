@@ -1,0 +1,30 @@
+{
+  "name": "ytdb-slate",
+  "version": "0.1.0",
+  "description": "Slate: a thread-weaving orchestration extension for the pi coding agent — bounded worker actions, compressed episodes, mandatory research/design/adversarial/track review workflow, optional draft-PR publishing.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andrii0lomakin/ytdb-slate.git"
+  },
+  "keywords": [
+    "pi-package"
+  ],
+  "files": [
+    "extension",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./extension/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  }
+}
