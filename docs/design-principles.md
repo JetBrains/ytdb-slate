@@ -151,6 +151,19 @@ or two problems for the others:
 | P9 parallelism | `threads.ts` `maxConcurrent` queueing; doctrine rule 2 in `mode.ts` |
 | P10 context as RAM | `handoff.ts` context-budget auto-pause + fresh-session handoff |
 
+Repo-local note (not from the report): the `maxConcurrent` cap defaults
+to 4. Its failure modes are asymmetric: excess dispatches wait for a
+slot (actions on the same thread additionally serialize in dispatch
+order), so a low cap costs only latency, while a cap above the
+provider's effective rate limits turns rate-limit exhaustion into
+FAILED episodes and raises the unattended cost burn rate. Over its
+lifetime a slot covers a multi-turn worker conversation followed by its
+episode-compression call. The default is sized to cover typical
+parallel batches (recon fan-outs, a review wave of a few perspectives)
+while staying safe on common consumer API tiers; wider fan-outs only
+pay tail latency, and projects with higher-tier keys raise the cap in
+`slate.json`.
+
 ## 6. Runtime knowledge: what the orchestrator knows, and when
 
 The orchestrator's knowledge of these principles is two-tier, following
