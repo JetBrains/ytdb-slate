@@ -153,26 +153,28 @@ or two problems for the others:
 
 ## 6. Runtime knowledge: what the orchestrator knows, and when
 
-The orchestrator's knowledge of these principles is two-tier, following the
-project's load-on-demand guidance (AGENTS.md):
+The orchestrator's knowledge of these principles is two-tier, following
+the load-on-demand discipline the extension itself prescribes:
 
 - **Tier 1 — always loaded.** The doctrine in `mode.ts` is the operational
   distillation of P1–P10, the review discipline defined in
-  `review-rules.md`, and a pointer to the repository's track-based
-  workflow gates (`docs-internal/dev-workflow/track-development.md`), appended to
-  the system prompt every turn while orchestrator mode is on. It costs a
-  few hundred tokens and covers everything routine dispatching needs.
+  `review-rules.md`, and a pointer to the track-based workflow protocol
+  that ships with this package (`track-workflow.md` in this directory),
+  appended to the system prompt every turn while orchestrator mode is
+  on. It costs a few hundred tokens and covers everything routine
+  dispatching needs.
 - **Tier 2 — on demand.** This document. The doctrine carries a short
   pointer to it (doctrine rule 10); the orchestrator reads it only when
   reasoning about the architecture itself — explaining slate, modifying
   the extension, or making a non-obvious routing/compaction decision.
 
-The same discipline applies to role guidance extracted from AGENTS.md:
+The same discipline applies to consuming-project role guidance:
 `prompt-docs.ts` injects per-role guideline docs (orchestrator via
 `before_agent_start`, workers via `appendSystemPrompt`). Defaults are
-compiled into `prompt-docs.ts`; the optional `.pi/slate.json` keys
-`orchestratorPromptDocs` / `workerPromptDocs` override them. Each role's
-always-loaded surface carries only its own rules; the rest stays on demand.
+compiled into `prompt-docs.ts`; a consuming project supplies its own
+documents through the optional `slate.json` keys `orchestratorPromptDocs`
+/ `workerPromptDocs`. Each role's always-loaded surface carries only its
+own rules; the rest stays on demand.
 
 Injecting this full document every turn would be self-defeating: it would
 spend the working memory the architecture exists to protect, and most of

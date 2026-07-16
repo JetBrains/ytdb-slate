@@ -48,14 +48,18 @@ bullet below is that perspective's charter:
 - **Specialists**, added when the change touches their domain:
   - concurrency — any defect requiring reasoning about thread
     interleavings (locks, shared state, atomicity);
-  - crash safety / durability — WAL, storage engine, page cache,
-    recovery, atomic operations;
   - security — public API surface, authentication, user input,
     network, (de)serialization;
   - performance — hot paths, lock contention, caching, algorithmic
     complexity, large data structures;
   - test structure — complex fixtures, shared state between tests,
     isolation and lifecycle concerns.
+- **Project-supplied perspectives**: a consuming project may add
+  review perspectives via the `reviewPerspectivesPath` key in its
+  `slate.json` — a markdown file of additional charters (typically
+  domain specialists). Each charter in that file MUST declare its own
+  stable finding-ID prefix (§4). Compose them per change exactly like
+  the built-in perspectives above.
 - **Non-code artifacts** (docs, prompts, process rules, extension
   guidance like this file) get their own perspectives INSTEAD of the
   code baseline: internal consistency & cross-references; instruction
@@ -72,12 +76,15 @@ bullet below is that perspective's charter:
 
 - Each reviewer emits findings with stable IDs prefixed by perspective
   (BG = bugs, CQ = code quality, TQ = test quality, CN = concurrency,
-  CS = crash safety, SE = security, PF = performance, TS = test
-  structure, WC = consistency, WI = completeness, WB = context budget,
+  SE = security, PF = performance, TS = test structure,
+  WC = consistency, WI = completeness, WB = context budget,
   WS = writing style, WH = script/hook/config safety, RG = regression
   (filed by gate threads)). IDs are cumulative across iterations and
   are never renumbered — they are the sole addressing key for fixes
   and verification.
+- Project-supplied perspectives (§3) emit findings under the prefix
+  their charter declares; those prefixes join the orchestrator's
+  cumulative ledger exactly like the built-in ones.
 - The orchestrator owns the cumulative finding-ID ledger: when
   spawning a later-iteration reviewer or gate thread, tell it the next
   free number for its prefix.
