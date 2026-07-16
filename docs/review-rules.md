@@ -58,8 +58,8 @@ bullet below is that perspective's charter:
   review perspectives via the `reviewPerspectivesPath` key in its
   `slate.json` — a markdown file of additional charters (typically
   domain specialists). Each charter in that file MUST declare its own
-  stable finding-ID prefix (§4). Compose them per change exactly like
-  the built-in perspectives above.
+  stable finding-ID prefix (uniqueness rules in §4). Compose them per
+  change exactly like the built-in perspectives above.
 - **Non-code artifacts** (docs, prompts, process rules, extension
   guidance like this file) get their own perspectives INSTEAD of the
   code baseline: internal consistency & cross-references; instruction
@@ -84,7 +84,13 @@ bullet below is that perspective's charter:
   and verification.
 - Project-supplied perspectives (§3) emit findings under the prefix
   their charter declares; those prefixes join the orchestrator's
-  cumulative ledger exactly like the built-in ones.
+  cumulative ledger exactly like the built-in ones. Declared prefixes
+  MUST NOT collide with the built-in roster above (BG, CQ, TQ, CN, SE,
+  PF, TS, WC, WI, WB, WS, WH, RG) nor with each other. On collision
+  the built-in roster wins: the orchestrator assigns the colliding
+  charter a fresh non-colliding prefix at dispatch, records the
+  substitution in the ledger, and uses the substitute everywhere — the
+  declared prefix is never used.
 - The orchestrator owns the cumulative finding-ID ledger: when
   spawning a later-iteration reviewer or gate thread, tell it the next
   free number for its prefix.

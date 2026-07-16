@@ -3,9 +3,9 @@
 Umbrella draft PR mechanics for the track-based workflow (see
 track-workflow.md in this directory). This document applies ONLY when
 `workflow.draftPRs` is enabled in the project's `slate.json` (default:
-false). When it is disabled, the workflow creates no PR and the
-repo-root workflow log carries the durable record instead — see
-track-workflow.md § Research log.
+false). When it is disabled, the workflow creates no PR; the
+workflow-log lifecycle in that mode is owned by track-workflow.md
+§ Research log.
 
 ## Creation
 
@@ -61,9 +61,9 @@ the change. Write it accordingly.
 
 ## Tracks table
 
-A display-only index of the track split: track names, one-line scopes,
-statuses — never commit SHAs. Marker commits are the sole source of
-truth for track boundaries (see track-workflow.md § Marker commits).
+The description's Tracks section holds the track table; its
+constraints (display-only, no SHAs, never the source of truth for
+track boundaries) are owned by track-workflow.md § Track table.
 Single-track changes carry an "N/A (single-track)" placeholder instead
 of a table.
 

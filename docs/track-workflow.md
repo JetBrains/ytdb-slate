@@ -10,11 +10,10 @@ delivery.
 Publishing is conditional on `workflow.draftPRs` in the project's
 `slate.json` (default: false). When it is ENABLED, an umbrella draft
 PR is created after both reviews pass and before implementation
-starts, and the research log folds into its description — see
-pr-publishing.md in this directory for all PR mechanics. When it is
-DISABLED, the research log is RETAINED as the repo-root workflow log
-until the change is delivered: verdict lines, the track table, and
-post-design decisions anchor there, and marker commits work unchanged.
+starts — see pr-publishing.md in this directory for all PR mechanics.
+When it is DISABLED, the workflow log is the change's durable record;
+its lifecycle is defined in § Research log below. Marker commits work
+identically in both modes.
 
 The flow scales with change size:
 
@@ -60,7 +59,7 @@ while they are still in context.
 
 ### Log format
 
-Four sections:
+Four sections, opened with the log:
 
 - **Initial request** — verbatim, written once.
 - **Decision Log** — append-only. Each entry is at most 4 lines: the
@@ -70,19 +69,44 @@ Four sections:
 - **Surprises & Discoveries**
 - **Open Questions**
 
+Two more named sections join as the corresponding phase begins:
+
+- **Planned changes** — the planned-changes statement, added when the
+  design converges; the design review and adversarial review verdict
+  lines are appended at its end. (With publishing enabled this section
+  feeds the PR description at umbrella-PR creation.)
+- **Track table** — publishing disabled only: added when the user
+  approves the track split (constraints in § Track table). With
+  publishing enabled the table lives in the PR description from
+  creation instead.
+
 ### Persistence
 
 During research the log lives as an untracked file `research-log.md`
 at the repo root. What happens next depends on `workflow.draftPRs`:
 
-- **Enabled** — at umbrella-PR creation the log's content folds into
-  the PR description and the file is deleted; decisions made after PR
-  creation are appended to the description directly (see
-  pr-publishing.md in this directory).
+- **Enabled** — the log's life ends at umbrella-PR creation: its
+  content folds into the PR description and the file is deleted
+  (mechanics owned by pr-publishing.md § Creation).
 - **Disabled (default)** — the log is RETAINED at the repo root as the
-  change's workflow log until the change is delivered. The design and
-  adversarial verdict lines, the track table, and post-design
-  decisions all anchor there, and marker commits work unchanged.
+  change's workflow log until the change is delivered (§ Delivery
+  below). The planned-changes statement and both verdict lines anchor
+  in its Planned changes section, the track table in its Track table
+  section (§ Log format), and post-design decisions keep appending to
+  the Decision Log.
+
+### Delivery (publishing disabled)
+
+A change is DELIVERED when its final squashed commit lands on the
+repository's default development branch, or when the user explicitly
+abandons it. At delivery the agent folds the log into the delivery
+commit's message body — the motivation, the planned-changes statement,
+and both verdict lines: the same content that would have become the PR
+description — strips the track table (track numbers are ephemeral
+branch-life identifiers and would dangle in history), resolves or
+explicitly hands any remaining Open Questions to the user, then
+deletes the log file. On abandonment the agent deletes the log file
+after offering its content to the user for archiving.
 
 ### Under-trigger guardrail
 
@@ -117,10 +141,10 @@ Design review: user-approved — YYYY-MM-DD
 
 With no log, append the line to the draft planned-changes statement
 instead. With publishing enabled it travels into the PR description at
-umbrella-PR creation; with publishing disabled the workflow log is the
-verdict line's only durable home — writing the first verdict line
-opens the log if none exists, seeded with the planned-changes
-statement. (Crossing a session boundary before the change is published
+umbrella-PR creation (pr-publishing.md § Creation); with publishing
+disabled the workflow log's Planned changes section is the verdict
+line's only durable home — writing the first verdict line opens the
+log if none exists, seeded with the planned-changes statement. (Crossing a session boundary before the change is published
 or delivered is research-log trigger #4.) The verdict line is written
 at every tier; at the trivial tier it is appended after the
 planned-changes paragraph, which stands in for the Risks & accepted
@@ -222,11 +246,12 @@ Per-track sequence:
 
 ### Track table
 
-A display-only index of the split: track names, one-line scopes,
-statuses — never commit SHAs. It lives in the umbrella PR description
-when publishing is enabled and in the workflow log when it is
-disabled. It is never the source of truth for track boundaries —
-marker commits are.
+This section owns the track-table constraints. The table is a
+display-only index of the split: track names, one-line scopes,
+statuses — never commit SHAs, and never the source of truth for track
+boundaries (marker commits are, see § Marker commits). It lives in the
+umbrella PR description when publishing is enabled and in the workflow
+log's Track table section when it is disabled.
 
 ## Marker commits (source of truth for track boundaries)
 
@@ -252,8 +277,8 @@ Properties:
   they move with it.
 - **Zero cleanup** — delivering the change as a single squashed unit
   erases them.
-- The track table is a display-only index; it is never the source of
-  truth for track boundaries.
+- The track table is never an alternative source of truth for
+  boundaries (constraints owned by § Track table).
 
 Single-track changes land no markers — the whole branch diff is the
 track.
