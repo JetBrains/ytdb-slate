@@ -83,7 +83,7 @@ export class ThreadManager {
 		private store: SlateStore,
 		private config: SlateConfig,
 	) {
-		this.semaphore = new Semaphore(config.maxConcurrent ?? 4);
+		this.semaphore = new Semaphore(config.maxConcurrent ?? 4); // default rationale: docs/design-principles.md §5 repo-local note
 	}
 
 	getConfig(): SlateConfig {
