@@ -12,14 +12,15 @@ This repo is a [pi package](https://github.com/earendil-works/pi-coding-agent) p
 
 This repo runs slate on itself:
 
-- `.pi/settings.json` references the package by local path (`".."` — relative entries resolve against the `.pi` dir, so `".."` is the repo root). The extension you edit is the extension you run.
+- `.pi/settings.json` pins the published package (`npm:ytdb-slate@<version>`). A session in this repo runs the released extension — the same thing consumers run. Bump the pin as part of each release (see § Release & versioning).
+- Local edits to `extension/` are NOT live in a dogfooding session. Smoke-test them in isolation with `pi --no-extensions -e .` from the repo root — without `--no-extensions`, the pinned npm copy loads alongside your edits and can mask failures. Do not add a local-path package entry to `.pi/settings.json` next to the npm pin: loading the same package from two settings sources has broken pi startup with a file conflict in practice.
 - Development follows the package's own `docs/track-workflow.md`, with `workflow.draftPRs` enabled in `.pi/slate.json`.
 
 ## Build & verification
 
 - **No build step.** pi loads raw TypeScript via jiti; `extension/index.ts` is consumed as-is.
 - **No test suite yet.** Verification is manual:
-  1. Load the extension in pi (open a session in this repo — dogfooding picks up your edits) and smoke-test the tools (`thread`, `threads`, `episode`) and doctrine injection.
+  1. Load the extension in isolation with `pi --no-extensions -e .` from the repo root (an installed session runs the pinned published package, not your edits) and smoke-test the tools (`thread`, `threads`, `episode`) and doctrine injection.
   2. Carefully re-read the full diff before committing.
 
 ## Packaging rules
@@ -32,4 +33,5 @@ This repo runs slate on itself:
 
 1. Bump `version` in `package.json`.
 2. `npm publish`.
-3. Consumers install pinned (`pi install -l npm:ytdb-slate@<version>`); pinned specs are skipped by `pi update`, so consumers bump their pin deliberately — and on every bump they must re-review their project delta docs (`doctrineExtraPath`, `reviewPerspectivesPath`, prompt-doc lists) against the shipped doctrine for drift.
+3. Bump the pin in `.pi/settings.json` (`npm:ytdb-slate@<version>`) so this repo dogfoods the new release.
+4. Consumers install pinned (`pi install -l npm:ytdb-slate@<version>`); pinned specs are skipped by `pi update`, so consumers bump their pin deliberately — and on every bump they must re-review their project delta docs (`doctrineExtraPath`, `reviewPerspectivesPath`, prompt-doc lists) against the shipped doctrine for drift.
