@@ -14,12 +14,10 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-	AuthStorage,
 	CONFIG_DIR_NAME,
 	createAgentSession,
 	DefaultResourceLoader,
 	getAgentDir,
-	ModelRegistry,
 	SessionManager,
 	SettingsManager,
 	type ExtensionContext,
@@ -66,8 +64,6 @@ export async function openWorkerSession(opts: {
 	mkdirSync(dir, { recursive: true });
 
 	const agentDir = getAgentDir();
-	const authStorage = AuthStorage.create();
-	const modelRegistry = ModelRegistry.create(authStorage);
 
 	// Trust propagation (mirrors vanilla pi's runtime SettingsManager): when no
 	// settingsManager is passed, the SDK default-constructs one with
@@ -104,11 +100,16 @@ export async function openWorkerSession(opts: {
 		? SessionManager.open(opts.sessionFile)
 		: SessionManager.create(ctx.cwd, dir);
 
+	// No modelRuntime passed: createAgentSession (pi >= 0.80.8) defaults to a
+	// ModelRuntime replacing the AuthStorage + ModelRegistry setup this code
+	// hand-built before those SDK options were removed. Credential/config
+	// sources are unchanged — global agentDir auth.json + models.json, never
+	// project-local — but the default is a superset: it also reads/writes
+	// agentDir/models-store.json and may run a throttled (~4h-cached)
+	// create-time network catalog refresh (disabled by PI_OFFLINE).
 	const { session } = await createAgentSession({
 		cwd: ctx.cwd,
 		agentDir,
-		authStorage,
-		modelRegistry,
 		model: model ?? undefined,
 		tools: opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS,
 		resourceLoader: loader,
