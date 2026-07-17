@@ -13,14 +13,14 @@ This repo is a [pi package](https://github.com/earendil-works/pi-coding-agent) p
 This repo runs slate on itself:
 
 - `.pi/settings.json` pins the published package (`npm:ytdb-slate@<version>`). A session in this repo runs the released extension — the same thing consumers run. Bump the pin as part of each release (see § Release & versioning).
-- Local edits to `extension/` are NOT live in a dogfooding session. Smoke-test them with an ad-hoc load: `pi -e .` from the repo root. Do not add a local-path package entry alongside the npm pin — loading both registers the same package twice and pi fails to start on a file conflict.
+- Local edits to `extension/` are NOT live in a dogfooding session. Smoke-test them in isolation with `pi --no-extensions -e .` from the repo root — without `--no-extensions`, the pinned npm copy loads alongside your edits and can mask failures. Do not add a local-path package entry to `.pi/settings.json` next to the npm pin: loading the same package from two settings sources has broken pi startup with a file conflict in practice.
 - Development follows the package's own `docs/track-workflow.md`, with `workflow.draftPRs` enabled in `.pi/slate.json`.
 
 ## Build & verification
 
 - **No build step.** pi loads raw TypeScript via jiti; `extension/index.ts` is consumed as-is.
 - **No test suite yet.** Verification is manual:
-  1. Load the extension in pi with an ad-hoc local load (`pi -e .` from the repo root — an installed session runs the pinned published package, not your edits) and smoke-test the tools (`thread`, `threads`, `episode`) and doctrine injection.
+  1. Load the extension in isolation with `pi --no-extensions -e .` from the repo root (an installed session runs the pinned published package, not your edits) and smoke-test the tools (`thread`, `threads`, `episode`) and doctrine injection.
   2. Carefully re-read the full diff before committing.
 
 ## Packaging rules
