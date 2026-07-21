@@ -32,6 +32,21 @@ Characterizations of third-party systems reflect their publicly described design
 
 Full rationale: [`docs/design-principles.md`](docs/design-principles.md), shipped in the package — if this summary and that document disagree, the document wins.
 
+## Feature development workflow
+
+In orchestrator mode, Slate injects a track-based development workflow as doctrine — it is not optional; project configuration can extend it (`doctrineExtraPath`) but never replace it. The flow:
+
+1. **Research** — interactive exploration; a research log opens lazily when defined triggers fire (non-trivial decisions, surprises, risky invariants, session boundaries).
+2. **User design review** — the user approves the design direction before any machine review.
+3. **Adversarial review** — a fresh-context reviewer attacks the design pre-implementation; findings are triaged with the user.
+4. **Track split approval** — the user approves how the change splits into independently reviewable tracks.
+5. **Per-track loop** — implement → agent code review → fixes → mandatory user review → marker commit (an empty commit marking the track's boundary in history).
+6. **Delivery** — with draft-PR publishing enabled, the squash-merge is performed by the user; the agent never merges. With it disabled (the default), the change lands as a squashed commit that carries the workflow log's key content in its message.
+
+The workflow scales with change size: multi-track changes get the full flow, single-track changes skip the split and the marker commits, and trivial changes shrink the pre-implementation reviews to consent plus a micro-review (skippable with explicit user consent) — the agent code review and the mandatory user review still apply at every tier. Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
+
+This summary is orientation only; the shipped docs listed below are normative.
+
 ## Install
 
 Install into a project (pinned, project-scoped — recorded in `.pi/settings.json`):
@@ -80,21 +95,6 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
 ## Trust
 
 Slate reads project configuration (`.pi/slate.json`) and injects project files (`orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`, `reviewPerspectivesPath`) **only in trusted projects**. In untrusted projects Slate runs with built-in defaults and injects nothing from the working tree.
-
-## Feature development workflow
-
-In orchestrator mode, Slate injects a track-based development workflow as doctrine — it is not optional; project configuration can extend it (`doctrineExtraPath`) but never replace it. The flow:
-
-1. **Research** — interactive exploration; a research log opens lazily when defined triggers fire (non-trivial decisions, surprises, risky invariants, session boundaries).
-2. **User design review** — the user approves the design direction before any machine review.
-3. **Adversarial review** — a fresh-context reviewer attacks the design pre-implementation; findings are triaged with the user.
-4. **Track split approval** — the user approves how the change splits into independently reviewable tracks.
-5. **Per-track loop** — implement → agent code review → fixes → mandatory user review → marker commit (an empty commit marking the track's boundary in history).
-6. **Delivery** — with draft-PR publishing enabled, the squash-merge is performed by the user; the agent never merges. With it disabled (the default), the change lands as a squashed commit that carries the workflow log's key content in its message.
-
-The workflow scales with change size: multi-track changes get the full flow, single-track changes skip the split and the marker commits, and trivial changes shrink the pre-implementation reviews to consent plus a micro-review (skippable with explicit user consent) — the agent code review and the mandatory user review still apply at every tier. Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
-
-This summary is orientation only; the shipped docs listed below are normative.
 
 ## Shipped docs
 
