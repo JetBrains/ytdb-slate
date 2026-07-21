@@ -4,6 +4,34 @@ Slate is a thread-weaving orchestration extension for the [pi coding agent](http
 
 The orchestrator (your main pi session) dispatches **bounded actions** to persistent **worker threads**. Each completed action is compressed by an LLM into an **episode** — a durable, structured record (intent, actions, findings, artifacts, open issues, handoff notes) that the orchestrator composes into further dispatches instead of re-reading raw transcripts. On top of that, Slate injects a mandatory workflow doctrine: research before design, design review, adversarial review, and track review — with optional umbrella **draft-PR publishing** for tracks.
 
+## Why Slate?
+
+Long-horizon agentic work fails on context management, not model capability. Existing architectures each solve a piece of the problem and trade away the rest: compaction is unpredictably lossy; naive subagents isolate context but hand back only a single response string; markdown plans go stale and get under-executed; rigid task trees can't adapt to information discovered mid-task; and planner/executor stacks synchronize through compress-and-return boundaries that risk dropping critical state.
+
+Slate's answer is the **thread**: the orchestrator dispatches one bounded action at a time; the worker executes it and returns an **episode**. The orchestrator keeps the reactivity of a plain agent loop while gaining the context isolation, compaction, and parallelism that the single-context loop lacks.
+
+| Aspect | ReAct | Markdown plan | Task trees | RLM (Recursive Language Models) | Devin / Manus / Altera | Claude Code / Codex subagents | Slate |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Planning | implicit | file | explicit tree | REPL | planning agent | plan mode | implicit / adaptive — no upfront static plan |
+| Decomposition | none | none | direct tree | REPL functions | task-based | subagent delegation | implicit |
+| Synchronization | single thread | single thread | gated steps | REPL return | reduce & return | message passing | episodes |
+| Intermediate feedback | per step | per step | on task failure | on execution end | after compress | message passing | per episode |
+| Context isolation | n/a | n/a | per subtask | per subcall | subagent | subagent | per thread |
+| Context compaction | n/a | n/a | task-based | REPL slicing | subagent compress | compaction | episode compress |
+| Parallel execution | n/a | n/a | n/a | in REPL | Altera only | native | native |
+| Expressivity | high | high | low | high | medium | medium | high |
+| Adaptability | yes | if plan updated | no | yes | yes | limited by message passing | yes |
+
+Characterizations of third-party systems reflect their publicly described designs at the time of writing. The taxonomy is adapted from the Random Labs technical report introducing the thread-weaving "Slate" architecture (published as the npm package `@randomlabs/slate`); ytdb-slate is an independent implementation of that architecture for pi.
+
+**Threads are not subagents:**
+
+- **Per-episode feedback.** Each thread executes one bounded action and hands control back. The orchestrator adapts after every episode — reactive like a ReAct loop — instead of firing off a subagent and hoping the result comes back usable.
+- **Compaction at a chosen boundary.** Compression happens at a predictable point — action completion — instead of mid-stream when context overflows. The compression itself is still LLM-performed and lossy, but the boundary is chosen, not forced.
+- **Episodes compose.** One thread's episode can seed another thread's context, so conclusions travel across the system by reference. Subagents pass back a single response string; episodes are durable, structured, reusable records.
+
+Full rationale: [`docs/design-principles.md`](docs/design-principles.md) (shipped in the package) is the authoritative source for this comparison.
+
 ## Install
 
 Install into a project (pinned, project-scoped — recorded in `.pi/settings.json`):
@@ -52,6 +80,21 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
 ## Trust
 
 Slate reads project configuration (`.pi/slate.json`) and injects project files (`orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`, `reviewPerspectivesPath`) **only in trusted projects**. In untrusted projects Slate runs with built-in defaults and injects nothing from the working tree.
+
+## Feature development workflow
+
+In orchestrator mode, Slate injects a track-based development workflow as doctrine — it is not optional; project configuration can *extend* it (`doctrineExtraPath`) but never replace it. The flow:
+
+1. **Research** — interactive exploration; a research log opens lazily when decisions accumulate.
+2. **User design review** — the user approves the design direction before any machine review.
+3. **Adversarial review** — a fresh-context reviewer attacks the design pre-implementation; findings are triaged with the user.
+4. **Track split approval** — the user approves how the change splits into independently reviewable tracks.
+5. **Per-track loop** — implement → agent code review → fixes → mandatory user review → marker commit.
+6. **Delivery** — with draft-PR publishing enabled, the squash-merge is performed by the user; the agent never merges.
+
+The workflow scales with change size: multi-track changes get the full flow, single-track changes skip the split and the marker commits, and trivial changes collapse the reviews into a short consent-plus-micro-review. Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
+
+This summary is orientation only — the shipped docs listed below are the source of truth, and if this summary ever disagrees with them, the docs win.
 
 ## Shipped docs
 
