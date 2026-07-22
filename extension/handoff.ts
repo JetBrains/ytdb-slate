@@ -17,9 +17,11 @@
  * The pending file bridges the gap: the NEW instance's session_start handler
  * adopts the snapshot when the fresh session's parentSession header matches
  * (trusted projects only; stale files are reaped regardless of trust), and
- * then restores the captured model/thinking level — the fresh session
- * re-resolves both from the settings DEFAULTS, silently dropping a live
- * /model or thinking change made in the parent.
+ * then restores the captured model/thinking level — the fresh session does
+ * not inherit them: startup CLI flags (-m/--thinking) are re-applied to the
+ * replacement runtime, enabledModels scoping picks its first entry, and a
+ * parent resumed with a non-default session-file model falls back to the
+ * settings default.
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -58,6 +60,15 @@ export interface SlateHandoffHooks {
 
 function pendingFile(cwd: string): string {
 	return join(cwd, CONFIG_DIR_NAME, "slate", "pending-handoff.json");
+}
+
+// Strings from the pending file (and error messages derived from them) reach
+// ctx.ui.notify, and pi-tui renders control/ANSI codes verbatim — a seeded
+// pending file could inject terminal escapes. Strip control characters and
+// cap the length before display.
+function sanitizeForNotify(s: string, max = 120): string {
+	const clean = s.replace(/[\u0000-\u001f\u007f\u009b]/g, "");
+	return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
 
 /** Last assistant message text on the current branch (the handoff brief). */
@@ -182,7 +193,10 @@ export function registerSlateHandoff(
 			// STALE reap runs regardless of trust: it deletes an abandoned runtime
 			// file without injecting any content into prompts or state, and keeps
 			// the file from lingering forever in a never-trusted project.
-			if (age >= PENDING_MAX_AGE_MS) {
+			// Out-of-range timestamps are stale too: a future createdAt (negative
+			// age) or a non-numeric one (NaN age) would otherwise dodge the reap
+			// forever — a real in-flight handoff is at most minutes old.
+			if (!(age >= 0 && age < PENDING_MAX_AGE_MS)) {
 				rmSync(file, { force: true });
 				return;
 			}
@@ -206,13 +220,29 @@ export function registerSlateHandoff(
 					"info",
 				);
 			}
-			// Restore the parent's live model + thinking level: the fresh session
-			// re-resolved both from the settings DEFAULTS. This sits AFTER the
-			// adoption commit above, in its own try/catch, because pi.setModel can
-			// THROW on a failed live auth check despite its Promise<boolean>
-			// contract — a restore failure must never unwind a committed adoption.
-			if (pending.model) {
-				const { provider, id } = pending.model;
+			// Restore the parent's live model + thinking level. The fresh session
+			// does not inherit them: startup CLI flags (-m/--thinking) are
+			// re-applied to the replacement runtime, enabledModels scoping picks
+			// its first entry, and a parent resumed with a non-default
+			// session-file model falls back to the settings default. This sits
+			// AFTER the adoption commit above, in its own try/catch, because
+			// pi.setModel can THROW on a failed live auth check despite its
+			// Promise<boolean> contract — a restore failure must never unwind a
+			// committed adoption.
+			// The pending file is disk JSON: honor the captured model only as an
+			// object with non-empty string provider/id — a malformed {"model":{}}
+			// must not count as "already live" via undefined === undefined.
+			const spec = pending.model;
+			if (
+				typeof spec === "object" &&
+				spec !== null &&
+				typeof spec.provider === "string" &&
+				spec.provider !== "" &&
+				typeof spec.id === "string" &&
+				spec.id !== ""
+			) {
+				const { provider, id } = spec;
+				const label = sanitizeForNotify(`${provider}/${id}`);
 				try {
 					// Equality guard: setModel persists the model as the user's GLOBAL
 					// default as a side effect, so only call it when the fresh session
@@ -224,20 +254,25 @@ export function registerSlateHandoff(
 					}
 					if (restored) {
 						// Thinking level rides only on a matching/restored model, and only
-						// AFTER setModel (which re-derives thinking internally): clamping
-						// and persisting the old level against an unrelated fallback model
-						// would corrupt that model's default.
-						if (pending.thinkingLevel != null) pi.setThinkingLevel(pending.thinkingLevel);
+						// AFTER setModel (which re-derives thinking internally). Like
+						// setModel, setThinkingLevel persists to the user's ONE GLOBAL
+						// default thinking level (not a per-model value), so clamping the
+						// old level against an unrelated fallback model would persist
+						// garbage there. Non-strings are never passed on; pi clamps
+						// unknown string levels itself.
+						if (typeof pending.thinkingLevel === "string") pi.setThinkingLevel(pending.thinkingLevel);
 					} else if (ctx.hasUI) {
 						ctx.ui.notify(
-							`slate: could not restore model ${provider}/${id} (unknown or no auth) — keeping the session default.`,
+							`slate: could not restore model ${label} (unknown or no auth) — keeping the session default.`,
 							"warning",
 						);
 					}
 				} catch (error) {
 					if (ctx.hasUI) {
 						ctx.ui.notify(
-							`slate: could not restore model ${provider}/${id} — ${error instanceof Error ? error.message : String(error)}. Keeping the session default.`,
+							`slate: could not restore model ${label} — ${sanitizeForNotify(
+								error instanceof Error ? error.message : String(error),
+							)}. Keeping the session default.`,
 							"warning",
 						);
 					}
