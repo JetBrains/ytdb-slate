@@ -214,7 +214,17 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 				// Model failover — single hop, at most ONCE: retry iff the mapped
 				// model resolves, is authed, and differs from the attempt-1 model.
 				const mapped = await resolveMappedModel(ctx, opts.modelFailover ?? {}, model.provider, model.id);
-				if (mapped && (mapped.provider !== model.provider || mapped.id !== model.id)) {
+				// CQ4: resolveMappedModel keeps the looser auth.ok semantics shared
+				// with the setModel-based sites, but attemptCompression additionally
+				// requires an explicit apiKey — pre-check it so an env/header-auth
+				// mapped model does not buy a guaranteed-futile retry.
+				const mappedAuth = mapped ? await ctx.modelRegistry.getApiKeyAndHeaders(mapped) : undefined;
+				if (
+					mapped &&
+					mappedAuth?.ok &&
+					mappedAuth.apiKey &&
+					(mapped.provider !== model.provider || mapped.id !== model.id)
+				) {
 					const second = await attemptCompression(ctx, mapped, promptText, opts.signal);
 					costUsd += second.costUsd;
 					if (second.kind === "ok") {

@@ -19,8 +19,13 @@
  *    orchestrator cancellation must not be answered with a retry.
  */
 
-import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isContextOverflow, isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
+import {
+	getAgentDir,
+	SettingsManager,
+	type ExtensionAPI,
+	type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import type { SlateConfig } from "./state.ts";
 
 type RegistryModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
@@ -61,7 +66,9 @@ export function sanitizeModelFailover(
 		if (isModelSpec(key) && isModelSpec(value) && key !== value) {
 			map[key] = value;
 		} else {
-			dropped.push(`"${key}": ${JSON.stringify(value)}`);
+			// CQ1: keys/values come from user-edited slate.json and reach
+			// ctx.ui.notify — strip control/ANSI codes before display.
+			dropped.push(sanitizeForNotify(`"${key}": ${JSON.stringify(value)}`));
 		}
 	}
 	if (dropped.length > 0) {
@@ -138,14 +145,35 @@ export async function isAuthFailure(ctx: ExtensionContext, model: RegistryModel)
  * no payload, so the final assistant message of the last turn is cached from
  * `turn_end` (which fires even for errored/aborted runs).
  *
- * One-shot guard (AF1): set BEFORE the model switch/steer, so that a retry
- * that fails again — or a setModel/steer that throws mid-way — can never
- * loop. It re-arms only on (a) an agent run settling with a non-error final
- * message, or (b) a genuine new user prompt via the `input` event. The
- * `input` event fires for interactive/rpc prompts and sendUserMessage, but
- * NOT for pi.sendMessage custom steers (verified: sendCustomMessage skips
- * the input-event path), so slate's own failover/pause steers cannot re-arm
- * the guard.
+ * One-shot guard (AF1): armed synchronously BEFORE the handler's first await
+ * (CN3 — a second, independent run can settle and enter this handler while
+ * the first invocation is parked at an await; the pre-await arm makes the
+ * second invocation bail on the guard check). The guard deliberately STAYS
+ * armed on the no-map/no-auth/setModel-failed early-outs: failover cannot
+ * succeed right now anyway, and the guard re-arms on the next non-error
+ * settle or user prompt. Re-arm rules: (a) an agent run settling with a
+ * non-error final message, or (b) a genuine new user prompt via the `input`
+ * event. The `input` event fires for interactive/rpc prompts and
+ * sendUserMessage, but NOT for pi.sendMessage custom steers (verified:
+ * sendCustomMessage skips the input-event path), so slate's own
+ * failover/pause steers cannot re-arm the guard.
+ *
+ * BG2 (cancel during pi's auto-retry backoff): cancelling during the backoff
+ * sleep emits NO extension-visible event — `auto_retry_end` is a
+ * session-subscriber event only, no fresh turn_end fires, and agent.abort()
+ * no-ops because the agent loop already returned — so the settle after a
+ * cancel is indistinguishable by event shape from "retries exhausted". The
+ * guard below reconstructs the distinction: pi retries an error iff
+ * isRetryableAssistantError(msg) (agent-session's _isRetryableError minus
+ * the overflow case, which isFailoverCandidate already excluded), so for a
+ * retryable error "exhausted" means exactly maxRetries+1 consecutive errored
+ * turns, while a backoff cancel settles with ≤ maxRetries of them. The
+ * consecutive counter mirrors pi's own _retryAttempt reset-on-success rule.
+ * RESIDUAL GAP: the retry settings are re-read here at settle time, so a
+ * mid-flight settings change — or a pi release changing its retry semantics
+ * (peer dep "*") — can desync the threshold; the failure mode is a skipped
+ * failover (conservative), or a failover on a cancelled run only if
+ * maxRetries was LOWERED mid-cycle.
  *
  * Deliberately NOT gated on store.paused: failover must run while slate is
  * paused for handoff, so the handoff brief is written by a working model.
@@ -153,21 +181,36 @@ export async function isAuthFailure(ctx: ExtensionContext, model: RegistryModel)
 export function registerOrchestratorFailover(pi: ExtensionAPI, getConfig: () => SlateConfig): void {
 	/** Final assistant message of the last turn (agent_settled has no payload). */
 	let lastAssistant: { stopReason?: string; errorMessage?: string; usage?: unknown } | undefined;
+	/** Consecutive errored assistant turns in the current settle cycle (BG2). */
+	let consecutiveErrors = 0;
 	/** One-shot guard (AF1). */
 	let failedOver = false;
 
 	pi.on("turn_end", async (event) => {
 		const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string; usage?: unknown };
-		if (msg?.role === "assistant") lastAssistant = msg;
+		if (msg?.role !== "assistant") return;
+		lastAssistant = msg;
+		// Mirrors pi's auto-retry counter: any non-error assistant message resets
+		// it (agent-session resets _retryAttempt on success the same way).
+		if (msg.stopReason === "error") consecutiveErrors++;
+		else consecutiveErrors = 0;
 	});
 
-	// Genuine new user prompt → re-arm (rule (b) above).
+	// Genuine new user prompt → re-arm (rule (b) above) and drop stale caches.
 	pi.on("input", async () => {
 		failedOver = false;
+		lastAssistant = undefined;
+		consecutiveErrors = 0;
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
 		const msg = lastAssistant;
+		const errors = consecutiveErrors;
+		// BG3/CN5: consume the caches — a later settle that produced no fresh
+		// turn_end (e.g. a run throwing before its first turn completes) must
+		// never re-classify this run's message.
+		lastAssistant = undefined;
+		consecutiveErrors = 0;
 		if (!msg || msg.stopReason !== "error") {
 			// Non-error settle (including aborts — never fail over on abort):
 			// the model works, re-arm the guard (rule (a) above).
@@ -178,11 +221,31 @@ export function registerOrchestratorFailover(pi: ExtensionAPI, getConfig: () => 
 		const current = ctx.model;
 		if (!current) return;
 		if (!isFailoverCandidate(msg, current.contextWindow)) return;
+
+		// BG2 guard (see header): for a retryable error, only pi exhausting its
+		// auto-retries reaches settle with maxRetries+1 consecutive errored
+		// turns; fewer means the user cancelled during a backoff sleep — a
+		// cancelled run must NEVER fail over. Non-retryable errors (quota,
+		// billing, auth…) fail fast with no backoff to cancel, so they pass.
+		// SettingsManager.create is a synchronous, lock-protected read of the
+		// same merged settings pi uses.
+		if (isRetryableAssistantError(msg as AssistantMessage)) {
+			try {
+				const retry = SettingsManager.create(ctx.cwd, getAgentDir(), {
+					projectTrusted: ctx.isProjectTrusted(),
+				}).getRetrySettings();
+				if (retry.enabled && errors <= retry.maxRetries) return;
+			} catch {
+				return; // cannot read retry settings ⇒ cannot rule out a cancel → stand down
+			}
+		}
+
+		// AF1/CN3: arm the guard BEFORE the first await — a concurrent settle
+		// entering this handler while we are parked below must bail above. Stays
+		// armed on every early-out (see header).
+		failedOver = true;
 		const mapped = await resolveMappedModel(ctx, getConfig().modelFailover ?? {}, current.provider, current.id);
 		if (!mapped) return; // no mapping / unknown / unauthed → the original failure stands
-
-		// AF1: arm the guard BEFORE any side effect (setModel or steering).
-		failedOver = true;
 		const from = `${current.provider}/${current.id}`;
 		const to = `${mapped.provider}/${mapped.id}`;
 		try {

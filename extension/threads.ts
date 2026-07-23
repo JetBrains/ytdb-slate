@@ -123,9 +123,13 @@ export class ThreadManager {
 
 	/**
 	 * The "provider/id" a thread's LIVE session runs after a model failover,
-	 * undefined when none happened or the session has since been disposed —
-	 * failover is deliberately NOT persisted to ThreadRecord.model, so a reopen
-	 * reverts to the configured model (per-session stickiness only).
+	 * undefined when none happened or the session has since been disposed.
+	 * Failover is deliberately NOT persisted to ThreadRecord.model. A reopen
+	 * normally reverts to the configured model because worker.ts passes an
+	 * explicit model (thread.model, else the host's current model) which
+	 * overrides the session file — EXCEPT when both are absent (no thread.model
+	 * and a model-less host session): the SDK then restores the session file's
+	 * last model_change, which can be the mapped model (CQ3).
 	 */
 	liveFailoverModel(threadId: string): string | undefined {
 		return this.live.has(threadId) ? this.failoverLive.get(threadId) : undefined;
@@ -276,6 +280,10 @@ export class ThreadManager {
 					promptDocs: this.config.workerPromptDocs,
 				});
 				this.live.set(thread.id, session);
+				// A freshly opened session starts on its configured model — drop any
+				// stale failover marker (possible if a previous live session was
+				// disposed mid-dispatch after its marker was set).
+				this.failoverLive.delete(thread.id);
 				if (!thread.sessionFile && session.sessionFile) {
 					thread.sessionFile = session.sessionFile;
 					this.store.save();
@@ -331,13 +339,21 @@ export class ThreadManager {
 			// unchanged (same session), so the episode covers both attempts.
 			const current = session.model;
 			if (status === "failed" && !signal?.aborted && current) {
+				// CN1/BG1 + CN2: every await below is a window in which the dispatch
+				// can be aborted or this manager disposed. The abort listener cannot
+				// cover it — session.abort() no-ops on an idle session — and a
+				// DISPOSED worker session does not throw on setModel/prompt (workers
+				// load no extensions, so the SDK's assertActive guard never fires on
+				// this path). Re-check both hazards before each side effect; an abort
+				// or disposal anywhere in the window means NO retry.
+				const retryBlocked = () => signal?.aborted === true || this.live.get(thread.id) !== session;
 				const candidate =
 					isFailoverCandidate(outcome.final, current.contextWindow) ||
 					(thrown !== undefined && (await isAuthFailure(ctx, current)));
 				const mapped = candidate
 					? await resolveMappedModel(ctx, this.config.modelFailover ?? {}, current.provider, current.id)
 					: undefined;
-				if (mapped) {
+				if (mapped && !retryBlocked()) {
 					lines.push(`⚠ failover ${current.provider}/${current.id} ⇒ ${mapped.provider}/${mapped.id}`);
 					emit(false);
 					let switched = false;
@@ -352,6 +368,13 @@ export class ThreadManager {
 						// session is disposed (ThreadRecord.model stays as configured);
 						// record it for the threads listing (AF12).
 						this.failoverLive.set(thread.id, `${mapped.provider}/${mapped.id}`);
+					}
+					// Re-check after the setModel await. If the signal has NOT fired,
+					// the once-listener is still armed, so a retry that does start
+					// remains abortable (a fire in the microtask gap between this check
+					// and prompt() startup is the residual race inherent to
+					// AbortSignal listeners).
+					if (switched && !retryBlocked()) {
 						thrown = undefined;
 						try {
 							await session.prompt(FAILOVER_NUDGE);
@@ -360,11 +383,17 @@ export class ThreadManager {
 						}
 						outcome = deriveOutcome(thrown);
 						({ status, diagnostics } = outcome);
-						if (status === "failed") {
+						// CQ2: an aborted retry is an abort, not a failover failure.
+						if (status === "failed" && !signal?.aborted) {
 							diagnostics = `${diagnostics} (failover to ${mapped.provider}/${mapped.id} also failed)`;
 						}
 					}
 				}
+				// CQ2: an abort that landed anywhere in this failover window surfaces
+				// as an abort (deriveOutcome checks the signal first) — never as the
+				// stale attempt-1 error or a "failover also failed". Disposal without
+				// abort keeps the attempt-1 outcome.
+				if (signal?.aborted) ({ status, diagnostics } = deriveOutcome(thrown));
 			}
 		} catch (error) {
 			status = "failed";
@@ -423,6 +452,6 @@ export class ThreadManager {
 			}
 		}
 		this.live.clear();
-		this.failoverLive.clear(); // disposed sessions revert to the configured model on reopen
+		this.failoverLive.clear(); // markers describe live sessions only (see liveFailoverModel)
 	}
 }

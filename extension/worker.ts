@@ -11,8 +11,8 @@
  * and are reopened via SessionManager.open.
  */
 
-import { mkdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 import {
 	CONFIG_DIR_NAME,
 	createAgentSession,
@@ -34,14 +34,6 @@ const WORKER_PREAMBLE = [
 	"Your final message must state: what you did, what you found, files you touched,",
 	"and anything the orchestrator must know.",
 ].join(" ");
-
-function readFileOr(path: string): string | undefined {
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		return undefined;
-	}
-}
 
 export function threadsDir(cwd: string): string {
 	return resolve(cwd, CONFIG_DIR_NAME, "slate", "threads");
@@ -84,22 +76,31 @@ export async function openWorkerSession(opts: {
 	// live worker, and setModel persists the new model as the default via
 	// SettingsManager (setThinkingLevel likewise). A file-backed manager would
 	// write a worker's failover model into the USER'S global settings.json.
-	// Instead, serve the same two files SettingsManager.create would read
-	// (FileSettingsStorage paths: <agentDir>/settings.json and
-	// <cwd>/<CONFIG_DIR_NAME>/settings.json), captured once here, through a
-	// custom SettingsStorage whose withLock discards the callback's return
-	// value — the supported no-op write path (persistScopedSettings only hands
-	// the new JSON back as that return value; there is no error path). Reads,
-	// merge semantics, and trust gating are identical to a file-backed manager.
-	const globalJson = readFileOr(join(agentDir, "settings.json"));
-	const projectJson = readFileOr(join(ctx.cwd, CONFIG_DIR_NAME, "settings.json"));
+	// Instead, snapshot the settings once here and serve them through a custom
+	// SettingsStorage whose withLock discards the callback's return value —
+	// the supported no-op write path (persistScopedSettings only hands the new
+	// JSON back as that return value; there is no error path). Reads, merge
+	// semantics, and trust gating are identical to a file-backed manager.
+	//
+	// CN4: the snapshot is taken via a throwaway file-backed SettingsManager,
+	// NOT a raw readFileSync — pi's settings writer holds a lockfile during
+	// its non-atomic writes (e.g. the orchestrator's own failover setModel
+	// persisting a new global default), so an unlocked read could tear. The
+	// throwaway does the locked, error-tolerant read; its per-scope snapshots
+	// are re-serialized for the storage below (fromStorage re-parses and
+	// re-migrates them — idempotent), and it never writes: no setter is ever
+	// called on it.
+	const trusted = ctx.isProjectTrusted();
+	const snapshot = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: trusted });
+	const globalJson = JSON.stringify(snapshot.getGlobalSettings());
+	const projectJson = JSON.stringify(snapshot.getProjectSettings());
 	const settingsManager = SettingsManager.fromStorage(
 		{
 			withLock(scope, fn) {
 				fn(scope === "global" ? globalJson : projectJson); // return discarded → writes dropped
 			},
 		},
-		{ projectTrusted: ctx.isProjectTrusted() },
+		{ projectTrusted: trusted },
 	);
 
 	// Role-guideline doc content is captured when this session object is
