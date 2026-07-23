@@ -71,9 +71,37 @@ export async function openWorkerSession(opts: {
 	// settings and the <config dir>/SYSTEM.md override even in projects the
 	// user has NOT trusted. Carry the host session's actual trust decision into
 	// both the resource loader and the session.
-	const settingsManager = SettingsManager.create(ctx.cwd, agentDir, {
-		projectTrusted: ctx.isProjectTrusted(),
-	});
+	//
+	// READ-ONLY view (AF8/AF9): model failover may call session.setModel on a
+	// live worker, and setModel persists the new model as the default via
+	// SettingsManager (setThinkingLevel likewise). A file-backed manager would
+	// write a worker's failover model into the USER'S global settings.json.
+	// Instead, snapshot the settings once here and serve them through a custom
+	// SettingsStorage whose withLock discards the callback's return value —
+	// the supported no-op write path (persistScopedSettings only hands the new
+	// JSON back as that return value; there is no error path). Reads, merge
+	// semantics, and trust gating are identical to a file-backed manager.
+	//
+	// CN4: the snapshot is taken via a throwaway file-backed SettingsManager,
+	// NOT a raw readFileSync — pi's settings writer holds a lockfile during
+	// its non-atomic writes (e.g. the orchestrator's own failover setModel
+	// persisting a new global default), so an unlocked read could tear. The
+	// throwaway does the locked, error-tolerant read; its per-scope snapshots
+	// are re-serialized for the storage below (fromStorage re-parses and
+	// re-migrates them — idempotent), and it never writes: no setter is ever
+	// called on it.
+	const trusted = ctx.isProjectTrusted();
+	const snapshot = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: trusted });
+	const globalJson = JSON.stringify(snapshot.getGlobalSettings());
+	const projectJson = JSON.stringify(snapshot.getProjectSettings());
+	const settingsManager = SettingsManager.fromStorage(
+		{
+			withLock(scope, fn) {
+				fn(scope === "global" ? globalJson : projectJson); // return discarded → writes dropped
+			},
+		},
+		{ projectTrusted: trusted },
+	);
 
 	// Role-guideline doc content is captured when this session object is
 	// created: a live session keeps its system prompt until disposed; a
@@ -111,6 +139,15 @@ export async function openWorkerSession(opts: {
 		cwd: ctx.cwd,
 		agentDir,
 		model: model ?? undefined,
+		// Explicit thinkingLevel (AF9): a live failover to a weaker model
+		// re-clamps the thinking level and appends thinking_level_change to the
+		// worker's session file; on reopen the SDK restores that clamped value
+		// (resolution: explicit option > session file > settings default), which
+		// would permanently downgrade the thread after the mapped model is
+		// abandoned. Passing the settings default explicitly on every open makes
+		// the SDK re-clamp against the CURRENT model instead. "medium" mirrors
+		// the SDK's DEFAULT_THINKING_LEVEL (not exported).
+		thinkingLevel: settingsManager.getDefaultThinkingLevel() ?? "medium",
 		tools: opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS,
 		resourceLoader: loader,
 		sessionManager,

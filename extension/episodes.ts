@@ -19,6 +19,9 @@ import {
 	serializeConversation,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { isFailoverCandidate, resolveMappedModel } from "./failover.ts";
+
+type CompressorModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
 
 const MAX_TRANSCRIPT_CHARS = 300_000;
 const COMPRESSOR_MAX_TOKENS = 4096;
@@ -88,6 +91,7 @@ export interface CompressEpisodeOptions {
 	messages: unknown[]; // AgentMessages produced during this action
 	workerModel?: { provider: string; id: string };
 	configuredModel?: string;
+	modelFailover?: Record<string, string>; // "provider/id" → "provider/id" retry map (single hop, one retry)
 	signal?: AbortSignal;
 }
 
@@ -96,6 +100,71 @@ export interface CompressedEpisode {
 	file: string;
 	compressor: string; // model used, or "(uncompressed fallback)"
 	costUsd: number; // USD cost of the compression LLM call (0 on fallback)
+}
+
+type CompressionAttempt =
+	| { kind: "ok"; body: string; costUsd: number }
+	| { kind: "failed"; costUsd: number; retriable: boolean }
+	| { kind: "aborted"; costUsd: number };
+
+/**
+ * ONE compression attempt on ONE model. Failure classification (AF7/AF11):
+ * - stopReason "error" → failed; treated as failed even when partial text came
+ *   back (a half-written episode is worse than the uncompressed fallback);
+ *   retriable unless it is a context overflow — a mapped model cannot shrink
+ *   the prompt (isFailoverCandidate).
+ * - stopReason "aborted" (or a throw with the signal already aborted) →
+ *   aborted; NEVER retried — cancellation must not spend a mapped attempt.
+ * - missing auth or a thrown preflight error → failed & retriable (state-based
+ *   classification, AF10: the mapped model may be authed when this one isn't).
+ * - empty text on a clean stop → failed, not retriable (nothing suggests the
+ *   mapped model would answer differently).
+ */
+async function attemptCompression(
+	ctx: ExtensionContext,
+	model: CompressorModel,
+	promptText: string,
+	signal: AbortSignal | undefined,
+): Promise<CompressionAttempt> {
+	let costUsd = 0;
+	try {
+		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+		if (!auth.ok || !auth.apiKey) return { kind: "failed", costUsd, retriable: true };
+		const response = await complete(
+			model,
+			{
+				messages: [
+					{
+						role: "user" as const,
+						content: [{ type: "text" as const, text: promptText }],
+						timestamp: Date.now(),
+					},
+				],
+			},
+			{
+				apiKey: auth.apiKey,
+				headers: auth.headers,
+				env: auth.env,
+				maxTokens: COMPRESSOR_MAX_TOKENS,
+				signal,
+			},
+		);
+		costUsd = response.usage?.cost?.total ?? 0;
+		if (response.stopReason === "aborted") return { kind: "aborted", costUsd };
+		if (response.stopReason === "error") {
+			return { kind: "failed", costUsd, retriable: isFailoverCandidate(response, model.contextWindow) };
+		}
+		const text = response.content
+			.filter((c: { type: string }): c is { type: "text"; text: string } => c.type === "text")
+			.map((c: { text: string }) => c.text)
+			.join("\n")
+			.trim();
+		if (!text) return { kind: "failed", costUsd, retriable: false };
+		return { kind: "ok", body: text, costUsd };
+	} catch {
+		if (signal?.aborted) return { kind: "aborted", costUsd };
+		return { kind: "failed", costUsd, retriable: true };
+	}
 }
 
 function lastAssistantText(messages: unknown[]): string {
@@ -126,43 +195,44 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	try {
 		const model = await resolveCompressorModel(ctx, opts.configuredModel, opts.workerModel);
 		if (model) {
-			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-			if (auth.ok && auth.apiKey) {
-				let transcript = serializeConversation(convertToLlm(opts.messages as never));
-				if (transcript.length > MAX_TRANSCRIPT_CHARS) {
-					transcript = `[transcript head truncated]\n...${transcript.slice(-MAX_TRANSCRIPT_CHARS)}`;
-				}
-				if (opts.diagnostics) {
-					transcript += `\n\n[dispatch diagnostics: ${opts.diagnostics}]`;
-				}
-				const response = await complete(
-					model,
-					{
-						messages: [
-							{
-								role: "user" as const,
-								content: [{ type: "text" as const, text: compressorPrompt(opts.task, transcript) }],
-								timestamp: Date.now(),
-							},
-						],
-					},
-					{
-						apiKey: auth.apiKey,
-						headers: auth.headers,
-						env: auth.env,
-						maxTokens: COMPRESSOR_MAX_TOKENS,
-						signal: opts.signal,
-					},
-				);
-				costUsd = response.usage?.cost?.total ?? 0;
-				const text = response.content
-					.filter((c: { type: string }): c is { type: "text"; text: string } => c.type === "text")
-					.map((c: { text: string }) => c.text)
-					.join("\n")
-					.trim();
-				if (text) {
-					body = text;
-					compressor = `${model.provider}/${model.id}`;
+			let transcript = serializeConversation(convertToLlm(opts.messages as never));
+			if (transcript.length > MAX_TRANSCRIPT_CHARS) {
+				transcript = `[transcript head truncated]\n...${transcript.slice(-MAX_TRANSCRIPT_CHARS)}`;
+			}
+			if (opts.diagnostics) {
+				transcript += `\n\n[dispatch diagnostics: ${opts.diagnostics}]`;
+			}
+			const promptText = compressorPrompt(opts.task, transcript);
+
+			const first = await attemptCompression(ctx, model, promptText, opts.signal);
+			// Cost ACCUMULATES across attempts — a failed first attempt may still bill.
+			costUsd += first.costUsd;
+			if (first.kind === "ok") {
+				body = first.body;
+				compressor = `${model.provider}/${model.id}`;
+			} else if (first.kind === "failed" && first.retriable && !opts.signal?.aborted) {
+				// Model failover — single hop, at most ONCE: retry iff the mapped
+				// model resolves, is authed, and differs from the attempt-1 model.
+				const mapped = await resolveMappedModel(ctx, opts.modelFailover ?? {}, model.provider, model.id);
+				// CQ4: resolveMappedModel keeps the looser auth.ok semantics shared
+				// with the setModel-based sites, but attemptCompression additionally
+				// requires an explicit apiKey — pre-check it so an env/header-auth
+				// mapped model does not buy a guaranteed-futile retry.
+				const mappedAuth = mapped ? await ctx.modelRegistry.getApiKeyAndHeaders(mapped) : undefined;
+				if (
+					mapped &&
+					mappedAuth?.ok &&
+					mappedAuth.apiKey &&
+					(mapped.provider !== model.provider || mapped.id !== model.id)
+				) {
+					const second = await attemptCompression(ctx, mapped, promptText, opts.signal);
+					costUsd += second.costUsd;
+					if (second.kind === "ok") {
+						body = second.body;
+						// The header's compressor line shows whichever model actually
+						// produced the episode — that is where failover stays visible.
+						compressor = `${mapped.provider}/${mapped.id}`;
+					}
 				}
 			}
 		}

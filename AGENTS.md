@@ -21,7 +21,8 @@ This repo runs slate on itself:
 - **No build step.** pi loads raw TypeScript via jiti; `extension/index.ts` is consumed as-is.
 - **No test suite yet.** Verification is manual:
   1. Load the extension in isolation with `pi --no-extensions -e .` from the repo root (an installed session runs the pinned published package, not your edits) and smoke-test the tools (`thread`, `threads`, `episode`) and doctrine injection.
-  2. Carefully re-read the full diff before committing.
+  2. Judge extension load by output, not exit code: pi exits 0 even when extension loading fails — success is the ABSENCE of a `Failed to load extension` line on stderr. A bare `pi --no-extensions -e . -p "exit"` run exercises only extension registration and `session_start` (config load/validation); it touches no tool execution or failover paths — exercise those explicitly when they change.
+  3. Carefully re-read the full diff before committing.
 
 ## Packaging rules
 
