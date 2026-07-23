@@ -2,7 +2,7 @@
 
 Slate is a thread-weaving orchestration extension for the [pi coding agent](https://github.com/earendil-works/pi-coding-agent).
 
-The orchestrator (your main pi session) dispatches **bounded actions** to persistent **worker threads**. Each completed action is compressed by an LLM into an **episode** — a durable, structured record (intent, actions, findings, artifacts, open issues, handoff notes) that the orchestrator composes into further dispatches instead of re-reading raw transcripts. On top of that, Slate injects a mandatory workflow doctrine: research before design, design review, adversarial review, and track review — with optional umbrella **draft-PR publishing** for tracks.
+The orchestrator (your main pi session) dispatches **bounded actions** to persistent **worker threads**. Each completed action is compressed by an LLM into an **episode** — a durable, structured record (intent, actions, findings, artifacts, open issues, handoff notes) that the orchestrator composes into further dispatches instead of re-reading raw transcripts. On top of that, Slate injects a mandatory workflow doctrine: research before design, design review, adversarial review, and track review — with optional umbrella **draft-PR publishing** for tracks. An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative.
 
 ## Why Slate?
 
@@ -73,6 +73,7 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `workflow.draftPRs` | boolean | `false` | Enable umbrella draft-PR publishing for tracks. |
 | `doctrineExtraPath` | string | — | Project markdown whose **content** is appended to the orchestrator doctrine (project-specific workflow additions). |
 | `reviewPerspectivesPath` | string | — | Project review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
+| `modelFailover` | object (string → string) | — (empty, failover off) | Map of `provider/id` → equal-quality alternative model; on a model API failure (after pi's own retries) the affected site retries once on the mapped model — see [`docs/model-failover.md`](docs/model-failover.md). |
 
 Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point them at markdown files that actually exist in **your** project):
 
@@ -86,7 +87,8 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
   "workerPromptDocs": ["docs/agents/thread-guidelines.md"],
   "workflow": { "draftPRs": true },
   "doctrineExtraPath": "docs/agents/workflow-additions.md",
-  "reviewPerspectivesPath": "docs/agents/review-perspectives.md"
+  "reviewPerspectivesPath": "docs/agents/review-perspectives.md",
+  "modelFailover": { "anthropic/claude-sonnet-5": "openai/gpt-5.2" }
 }
 ```
 
@@ -104,6 +106,7 @@ In orchestrator mode, Slate appends a short **doctrine** (a block of numbered ru
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
 - `docs/review-rules.md` — review discipline and finding rules
 - `docs/design-principles.md` — Slate's own design rationale
+- `docs/model-failover.md` — the opt-in `modelFailover` map (**reference documentation** — unlike the entries above it is not workflow doctrine and is not cited by the doctrine)
 
 Project-specific additions layer on top — they extend, not replace, the shipped doctrine — via two distinct mechanisms:
 
