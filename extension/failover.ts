@@ -1,7 +1,8 @@
 /**
  * Model failover: shared helpers for the `modelFailover` config map
  * ("provider/id" → "provider/id"), consumed by the three retry sites
- * (worker dispatch, episode compression, orchestrator turn end).
+ * (worker dispatch, episode compression, orchestrator), plus the
+ * orchestrator-side registration itself (registerOrchestratorFailover).
  *
  * Rules baked in here:
  *  - SINGLE HOP: a mapping's target is never itself re-looked-up in the map,
@@ -19,9 +20,18 @@
  */
 
 import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { SlateConfig } from "./state.ts";
 
 type RegistryModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
+
+// Error messages reach ctx.ui.notify, and pi-tui renders control/ANSI codes
+// verbatim — strip control characters and cap length before display (same
+// pattern as handoff.ts's sanitizeForNotify).
+function sanitizeForNotify(s: string, max = 120): string {
+	const clean = s.replace(/[\u0000-\u001f\u007f\u009b]/g, "");
+	return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
 
 /** "provider/id": slash at index > 0 with a non-empty id after it. */
 function isModelSpec(value: unknown): value is string {
@@ -117,4 +127,98 @@ export async function isAuthFailure(ctx: ExtensionContext, model: RegistryModel)
 	} catch {
 		return true;
 	}
+}
+
+/**
+ * Orchestrator-side model failover.
+ *
+ * Trigger point is `agent_settled`: pi fires it only after its own retry,
+ * compaction, and queued-continuation logic is fully done — so a mapped
+ * retry never races or duplicates pi's built-in retries. The event carries
+ * no payload, so the final assistant message of the last turn is cached from
+ * `turn_end` (which fires even for errored/aborted runs).
+ *
+ * One-shot guard (AF1): set BEFORE the model switch/steer, so that a retry
+ * that fails again — or a setModel/steer that throws mid-way — can never
+ * loop. It re-arms only on (a) an agent run settling with a non-error final
+ * message, or (b) a genuine new user prompt via the `input` event. The
+ * `input` event fires for interactive/rpc prompts and sendUserMessage, but
+ * NOT for pi.sendMessage custom steers (verified: sendCustomMessage skips
+ * the input-event path), so slate's own failover/pause steers cannot re-arm
+ * the guard.
+ *
+ * Deliberately NOT gated on store.paused: failover must run while slate is
+ * paused for handoff, so the handoff brief is written by a working model.
+ */
+export function registerOrchestratorFailover(pi: ExtensionAPI, getConfig: () => SlateConfig): void {
+	/** Final assistant message of the last turn (agent_settled has no payload). */
+	let lastAssistant: { stopReason?: string; errorMessage?: string; usage?: unknown } | undefined;
+	/** One-shot guard (AF1). */
+	let failedOver = false;
+
+	pi.on("turn_end", async (event) => {
+		const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string; usage?: unknown };
+		if (msg?.role === "assistant") lastAssistant = msg;
+	});
+
+	// Genuine new user prompt → re-arm (rule (b) above).
+	pi.on("input", async () => {
+		failedOver = false;
+	});
+
+	pi.on("agent_settled", async (_event, ctx) => {
+		const msg = lastAssistant;
+		if (!msg || msg.stopReason !== "error") {
+			// Non-error settle (including aborts — never fail over on abort):
+			// the model works, re-arm the guard (rule (a) above).
+			failedOver = false;
+			return;
+		}
+		if (failedOver) return;
+		const current = ctx.model;
+		if (!current) return;
+		if (!isFailoverCandidate(msg, current.contextWindow)) return;
+		const mapped = await resolveMappedModel(ctx, getConfig().modelFailover ?? {}, current.provider, current.id);
+		if (!mapped) return; // no mapping / unknown / unauthed → the original failure stands
+
+		// AF1: arm the guard BEFORE any side effect (setModel or steering).
+		failedOver = true;
+		const from = `${current.provider}/${current.id}`;
+		const to = `${mapped.provider}/${mapped.id}`;
+		try {
+			// pi.setModel returns false when no API key is available, but can ALSO
+			// throw on a failed live auth check despite the Promise<boolean>
+			// contract — handle both. NOTE: on success it persists the mapped model
+			// as the user's GLOBAL default (pi semantics; documented caveat).
+			if (!(await pi.setModel(mapped))) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(`slate: model failover to ${to} skipped — no API key. Keeping ${from}.`, "warning");
+				}
+				return;
+			}
+		} catch (error) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`slate: model failover to ${to} failed — ${sanitizeForNotify(
+						error instanceof Error ? error.message : String(error),
+					)}. Keeping ${from}.`,
+					"warning",
+				);
+			}
+			return;
+		}
+		if (ctx.hasUI) {
+			ctx.ui.notify(`slate: model failover ${from} ⇒ ${to} — retrying the failed turn`, "warning");
+		}
+		pi.sendMessage(
+			{
+				customType: "slate-failover",
+				content:
+					`[slate] The previous turn failed due to a model API failure. The model has been switched to ${to}. ` +
+					"The conversation context is intact — re-issue the failed action and continue.",
+				display: true,
+			},
+			{ deliverAs: "steer", triggerTurn: true },
+		);
+	});
 }

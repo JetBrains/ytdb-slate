@@ -32,7 +32,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { sanitizeModelFailover } from "./failover.ts";
+import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.ts";
 import { registerSlateHandoff } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
 import { SlateStore, type SlateConfig } from "./state.ts";
@@ -88,6 +88,10 @@ export default function (pi: ExtensionAPI) {
 	// between the restore handler above and registerSlateMode below.
 	// getConfig reads the CURRENT `manager` (reassigned on session_start).
 	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig());
+
+	// Orchestrator model failover (turn_end/agent_settled/input) — not
+	// order-critical relative to the handlers above (different trigger events).
+	registerOrchestratorFailover(pi, () => manager.getConfig());
 
 	registerSlateMode(pi, store, handoff, () => manager.getConfig());
 }

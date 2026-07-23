@@ -84,8 +84,9 @@ Failover applies at three sites:
   uncompressed fallback applies exactly as today.
 - **Orchestrator.** Once pi's retries are exhausted, Slate switches
   the session to the mapped model and automatically re-issues the
-  failed turn. A one-shot guard prevents loops; it resets only on a
-  clean settle or a genuine new user prompt. The session STAYS on the
+  failed turn. A one-shot guard prevents loops; it re-arms only when
+  a run settles without a model error (an abort also re-arms it) or
+  on a genuine new user prompt. The session STAYS on the
   mapped model afterwards. Failover runs even while Slate is paused
   for handoff, so the handoff brief is written by a working model.
 
