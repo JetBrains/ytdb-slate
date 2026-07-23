@@ -13,6 +13,7 @@
 import { readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { compressEpisode } from "./episodes.ts";
+import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 import type { EpisodeRecord, SlateConfig, SlateStore, ThreadRecord } from "./state.ts";
 import { openWorkerSession, type WorkerSession } from "./worker.ts";
 
@@ -49,6 +50,34 @@ export interface DispatchResult {
 	usage: UsageStats;
 }
 
+/** Loose shape of an assistant message as seen in session.messages / message_end. */
+interface WorkerAssistantMsg {
+	role?: string;
+	stopReason?: string;
+	errorMessage?: string;
+	usage?: { input?: number; output?: number; totalTokens?: number; cost?: { total?: number } };
+	content?: Array<{ type: string; text?: string }>;
+}
+
+/**
+ * Final assistant message of THIS action (AF3): backward scan, because the
+ * last array element can be a toolResult (e.g. after a tool abort), and pi's
+ * internal retry strips recovered errored attempts from session.messages
+ * entirely — so the last assistant message is the authoritative outcome.
+ */
+function lastAssistantMessage(messages: unknown[]): WorkerAssistantMsg | undefined {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i] as WorkerAssistantMsg;
+		if (m.role === "assistant") return m;
+	}
+	return undefined;
+}
+
+/** Continuation nudge for the post-failover re-prompt (same live session, context intact). */
+const FAILOVER_NUDGE =
+	"The previous attempt was interrupted by a model API failure. The conversation context is intact " +
+	"and partial changes may exist — verify the current state, then complete the original action.";
+
 class Semaphore {
 	private waiters: Array<() => void> = [];
 	private active = 0;
@@ -76,6 +105,8 @@ class Semaphore {
 
 export class ThreadManager {
 	private live = new Map<string, WorkerSession>();
+	/** threadId → "provider/id" a LIVE session was switched to by model failover (AF12). */
+	private failoverLive = new Map<string, string>();
 	private queues = new Map<string, Promise<unknown>>();
 	private semaphore: Semaphore;
 
@@ -88,6 +119,16 @@ export class ThreadManager {
 
 	getConfig(): SlateConfig {
 		return this.config;
+	}
+
+	/**
+	 * The "provider/id" a thread's LIVE session runs after a model failover,
+	 * undefined when none happened or the session has since been disposed —
+	 * failover is deliberately NOT persisted to ThreadRecord.model, so a reopen
+	 * reverts to the configured model (per-session stickiness only).
+	 */
+	liveFailoverModel(threadId: string): string | undefined {
+		return this.live.has(threadId) ? this.failoverLive.get(threadId) : undefined;
 	}
 
 	async dispatch(
@@ -191,6 +232,34 @@ export class ThreadManager {
 		let status: "ok" | "failed" = "ok";
 		let diagnostics: string | undefined;
 
+		// AF3: status/diagnostics derive from the FINAL assistant message of this
+		// action after prompt() settles — not from a sticky message_end flag. This
+		// fixes a latent bug: pi retries transient provider errors internally and
+		// strips the recovered errored attempts from session.messages, so an
+		// errored message_end mid-run does NOT mean the action failed. Thrown
+		// prompt() exceptions and orchestrator aborts still mean failed.
+		const deriveOutcome = (thrown?: { error: unknown }) => {
+			const final = lastAssistantMessage(session ? session.messages.slice(messagesBefore) : []);
+			if (signal?.aborted) {
+				return { status: "failed" as const, diagnostics: "aborted by orchestrator", final };
+			}
+			if (thrown) {
+				const msg = thrown.error instanceof Error ? thrown.error.message : String(thrown.error);
+				return { status: "failed" as const, diagnostics: msg, final };
+			}
+			if (!final) {
+				return { status: "failed" as const, diagnostics: "worker produced no assistant message", final };
+			}
+			if (final.stopReason === "error" || final.stopReason === "aborted") {
+				return {
+					status: "failed" as const,
+					diagnostics: final.errorMessage ?? `worker stopReason: ${final.stopReason}`,
+					final,
+				};
+			}
+			return { status: "ok" as const, diagnostics: undefined, final };
+		};
+
 		try {
 			thread.status = "running";
 			thread.updatedAt = Date.now();
@@ -220,7 +289,9 @@ export class ThreadManager {
 					lines.push(`→ ${(event as unknown as { toolName: string }).toolName}`);
 					emit(false);
 				} else if (event.type === "message_end") {
-					const msg = (event as unknown as { message: { role: string; content?: Array<{ type: string; text?: string }>; usage?: { input?: number; output?: number; totalTokens?: number; cost?: { total?: number } }; stopReason?: string; errorMessage?: string } }).message;
+					// Usage accumulation + progress lines ONLY — outcome is derived
+					// after prompt() settles (see deriveOutcome above, AF3).
+					const msg = (event as unknown as { message: WorkerAssistantMsg }).message;
 					if (msg.role !== "assistant") return;
 					usage.turns++;
 					usage.input += msg.usage?.input ?? 0;
@@ -233,10 +304,6 @@ export class ThreadManager {
 						.join(" ")
 						.trim();
 					if (text) lines.push(text.length > 120 ? `${text.slice(0, 120)}...` : text);
-					if (msg.stopReason === "error" || msg.stopReason === "aborted") {
-						status = "failed";
-						diagnostics = msg.errorMessage ?? `worker stopReason: ${msg.stopReason}`;
-					}
 					emit(false);
 				}
 			});
@@ -245,11 +312,59 @@ export class ThreadManager {
 			onAbort = () => void session?.abort();
 			signal?.addEventListener("abort", onAbort, { once: true });
 
-			await session.prompt(prompt);
+			// Attempt 1.
+			let thrown: { error: unknown } | undefined;
+			try {
+				await session.prompt(prompt);
+			} catch (error) {
+				thrown = { error };
+			}
+			let outcome = deriveOutcome(thrown);
+			({ status, diagnostics } = outcome);
 
-			if (signal?.aborted) {
-				status = "failed";
-				diagnostics = diagnostics ?? "aborted by orchestrator";
+			// Model failover — single hop, at most ONCE per dispatch: when the
+			// attempt failed with a model-API error (never an abort or a context
+			// overflow — see failover.ts) or prompt() threw AND the current model
+			// now fails its auth check (state-based classification, AF10), switch
+			// the LIVE session to the mapped model and re-prompt once. Usage keeps
+			// accumulating through the same subscriber, and messagesBefore is
+			// unchanged (same session), so the episode covers both attempts.
+			const current = session.model;
+			if (status === "failed" && !signal?.aborted && current) {
+				const candidate =
+					isFailoverCandidate(outcome.final, current.contextWindow) ||
+					(thrown !== undefined && (await isAuthFailure(ctx, current)));
+				const mapped = candidate
+					? await resolveMappedModel(ctx, this.config.modelFailover ?? {}, current.provider, current.id)
+					: undefined;
+				if (mapped) {
+					lines.push(`⚠ failover ${current.provider}/${current.id} ⇒ ${mapped.provider}/${mapped.id}`);
+					emit(false);
+					let switched = false;
+					try {
+						await session.setModel(mapped); // can throw on a failed live auth check
+						switched = true;
+					} catch {
+						/* keep the original failure */
+					}
+					if (switched) {
+						// The live session now runs the mapped model — sticky until the
+						// session is disposed (ThreadRecord.model stays as configured);
+						// record it for the threads listing (AF12).
+						this.failoverLive.set(thread.id, `${mapped.provider}/${mapped.id}`);
+						thrown = undefined;
+						try {
+							await session.prompt(FAILOVER_NUDGE);
+						} catch (error) {
+							thrown = { error };
+						}
+						outcome = deriveOutcome(thrown);
+						({ status, diagnostics } = outcome);
+						if (status === "failed") {
+							diagnostics = `${diagnostics} (failover to ${mapped.provider}/${mapped.id} also failed)`;
+						}
+					}
+				}
 			}
 		} catch (error) {
 			status = "failed";
@@ -273,6 +388,7 @@ export class ThreadManager {
 			messages: actionMessages as unknown[],
 			workerModel: session?.model ? { provider: session.model.provider, id: session.model.id } : undefined,
 			configuredModel: this.config.episodeModel,
+			modelFailover: this.config.modelFailover,
 			signal: signal?.aborted ? undefined : signal,
 		});
 
@@ -307,5 +423,6 @@ export class ThreadManager {
 			}
 		}
 		this.live.clear();
+		this.failoverLive.clear(); // disposed sessions revert to the configured model on reopen
 	}
 }

@@ -105,7 +105,19 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			}
 			const lines = threads.map((t) => {
 				const episodes = t.episodeIds.length > 0 ? t.episodeIds.join(", ") : "(none)";
-				return `${t.id} "${t.name}" [${t.status}]${t.model ? ` model=${t.model}` : ""} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
+				// AF12: after a model failover the LIVE cached session runs a
+				// different model than configured — show "model=A ⇒B (live)", or
+				// "model=B (live)" when no model was configured (the live model is
+				// otherwise just the host default and not worth showing). The marker
+				// disappears when the session is disposed: a reopen reverts to the
+				// configured model because failover is not persisted.
+				const live = getManager().liveFailoverModel(t.id);
+				const model = live
+					? ` model=${t.model ? `${t.model} ⇒` : ""}${live} (live)`
+					: t.model
+						? ` model=${t.model}`
+						: "";
+				return `${t.id} "${t.name}" [${t.status}]${model} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
 			});
 			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length } };
 		},
