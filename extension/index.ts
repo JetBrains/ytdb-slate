@@ -24,6 +24,7 @@
  *     "orchestratorPromptDocs": ["docs/orchestrator-guidelines.md"],
  *     "workerPromptDocs": ["docs/thread-guidelines.md"],
  *     "workflow": { "draftPRs": false },
+ *     "modelFailover": { "provider/id": "provider/id" },
  *     "doctrineExtraPath": "docs/project-doctrine.md",
  *     "reviewPerspectivesPath": "docs/review-perspectives.md" }
  */
@@ -31,6 +32,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { sanitizeModelFailover } from "./failover.ts";
 import { registerSlateHandoff } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
 import { SlateStore, type SlateConfig } from "./state.ts";
@@ -66,7 +68,14 @@ export default function (pi: ExtensionAPI) {
 		manager.disposeAll();
 		// Trust gate: project config steers prompts, models, and tool lists, so
 		// it is honored only for trusted projects; untrusted → built-in defaults.
-		manager = new ThreadManager(store, ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {});
+		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
+		// modelFailover is the one config value validated eagerly: a malformed
+		// entry would otherwise fail silently mid-dispatch, exactly when the
+		// mapped retry was supposed to save the action.
+		config.modelFailover = sanitizeModelFailover(config.modelFailover, (msg) =>
+			ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg),
+		);
+		manager = new ThreadManager(store, config);
 		store.restore(ctx);
 	});
 

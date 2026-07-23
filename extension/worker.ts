@@ -11,8 +11,8 @@
  * and are reopened via SessionManager.open.
  */
 
-import { mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
 	CONFIG_DIR_NAME,
 	createAgentSession,
@@ -34,6 +34,14 @@ const WORKER_PREAMBLE = [
 	"Your final message must state: what you did, what you found, files you touched,",
 	"and anything the orchestrator must know.",
 ].join(" ");
+
+function readFileOr(path: string): string | undefined {
+	try {
+		return readFileSync(path, "utf8");
+	} catch {
+		return undefined;
+	}
+}
 
 export function threadsDir(cwd: string): string {
 	return resolve(cwd, CONFIG_DIR_NAME, "slate", "threads");
@@ -71,9 +79,28 @@ export async function openWorkerSession(opts: {
 	// settings and the <config dir>/SYSTEM.md override even in projects the
 	// user has NOT trusted. Carry the host session's actual trust decision into
 	// both the resource loader and the session.
-	const settingsManager = SettingsManager.create(ctx.cwd, agentDir, {
-		projectTrusted: ctx.isProjectTrusted(),
-	});
+	//
+	// READ-ONLY view (AF8/AF9): model failover may call session.setModel on a
+	// live worker, and setModel persists the new model as the default via
+	// SettingsManager (setThinkingLevel likewise). A file-backed manager would
+	// write a worker's failover model into the USER'S global settings.json.
+	// Instead, serve the same two files SettingsManager.create would read
+	// (FileSettingsStorage paths: <agentDir>/settings.json and
+	// <cwd>/<CONFIG_DIR_NAME>/settings.json), captured once here, through a
+	// custom SettingsStorage whose withLock discards the callback's return
+	// value — the supported no-op write path (persistScopedSettings only hands
+	// the new JSON back as that return value; there is no error path). Reads,
+	// merge semantics, and trust gating are identical to a file-backed manager.
+	const globalJson = readFileOr(join(agentDir, "settings.json"));
+	const projectJson = readFileOr(join(ctx.cwd, CONFIG_DIR_NAME, "settings.json"));
+	const settingsManager = SettingsManager.fromStorage(
+		{
+			withLock(scope, fn) {
+				fn(scope === "global" ? globalJson : projectJson); // return discarded → writes dropped
+			},
+		},
+		{ projectTrusted: ctx.isProjectTrusted() },
+	);
 
 	// Role-guideline doc content is captured when this session object is
 	// created: a live session keeps its system prompt until disposed; a
@@ -111,6 +138,15 @@ export async function openWorkerSession(opts: {
 		cwd: ctx.cwd,
 		agentDir,
 		model: model ?? undefined,
+		// Explicit thinkingLevel (AF9): a live failover to a weaker model
+		// re-clamps the thinking level and appends thinking_level_change to the
+		// worker's session file; on reopen the SDK restores that clamped value
+		// (resolution: explicit option > session file > settings default), which
+		// would permanently downgrade the thread after the mapped model is
+		// abandoned. Passing the settings default explicitly on every open makes
+		// the SDK re-clamp against the CURRENT model instead. "medium" mirrors
+		// the SDK's DEFAULT_THINKING_LEVEL (not exported).
+		thinkingLevel: settingsManager.getDefaultThinkingLevel() ?? "medium",
 		tools: opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS,
 		resourceLoader: loader,
 		sessionManager,
