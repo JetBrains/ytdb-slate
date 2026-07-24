@@ -47,6 +47,10 @@ The workflow scales with change size: multi-track changes get the full flow, sin
 
 This summary is orientation only; the shipped docs listed below are normative.
 
+## Model failover
+
+Slate can ride through model API outages. The opt-in `modelFailover` map in `.pi/slate.json` (trusted projects only) maps a model (`provider/id`) to an equal-quality alternative; on an eligible model API failure — not an abort or a context overflow, and for the orchestrator and worker sites only after pi's own retries are exhausted — the affected site (orchestrator, worker thread, or episode compression) retries once on the mapped model (single hop, never chained). An orchestrator failover also persists the mapped model as pi's global default — switch back with `/model` after the outage. The map is empty by default (feature off) and read once at session start. Full semantics: the `modelFailover` row in [Configuration](#configuration) and the shipped [`docs/model-failover.md`](docs/model-failover.md) — if they disagree, that document wins.
+
 ## Install
 
 Install into a project (pinned, project-scoped — recorded in `.pi/settings.json`):
