@@ -106,6 +106,7 @@ In orchestrator mode, Slate appends a short **doctrine** (a block of numbered ru
 - `docs/review-rules.md` — review discipline and finding rules
 - `docs/design-principles.md` — Slate's own design rationale
 - `docs/model-failover.md` — the opt-in `modelFailover` map (**reference documentation** — unlike the entries above it is not workflow doctrine and is not cited by the doctrine)
+- `docs/context-budget.md` — the orchestrator `contextBudget`: defaults, per-model overrides, the window clamp, and the pricing rationale (also **reference documentation**, not cited by the doctrine)
 
 Project-specific additions layer on top — they extend, not replace, the shipped doctrine — via two distinct mechanisms:
 

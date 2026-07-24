@@ -21,9 +21,12 @@ model.
 
 OpenAI long-context pricing is request-wide: a request whose total
 input exceeds 272K tokens bills the ENTIRE request at long-context
-rates — 2× input ($5→$10/M), 1.5× output ($30→$45/M), 2× cache read
-($0.5→$1/M), 2× cache write ($6.25→$12.5/M). In an agent loop the
-whole conversation is resent every turn, so once the boundary is
+rates. The multipliers are the tier pattern — 2× input, 1.5×
+output, 2× cache read, 2× cache write; the dollar figures are
+`gpt-5.6-sol`'s registered rates (absolute rates vary per model):
+input $5→$10/M, output $30→$45/M, cache read $0.5→$1/M, cache
+write $6.25→$12.5/M. In an agent loop the whole conversation is
+resent every turn, so once the boundary is
 crossed, every subsequent turn stays at those rates. The budget's
 job is to stop the orchestrator before that happens.
 
@@ -38,8 +41,11 @@ job is to stop the orchestrator before that happens.
 
 ## Configuration (`.pi/slate.json`)
 
-`contextBudget` accepts a bare positive integer — shorthand for
-`{"tokens": N}` — or an object:
+`contextBudget` lives in `.pi/slate.json` and, like the rest of
+that file, is honored **only in trusted projects** — untrusted
+projects load no project config, so the built-in defaults apply. It
+accepts a bare positive integer — shorthand for `{"tokens": N}` —
+or an object:
 
 ```json
 {
@@ -56,12 +62,26 @@ job is to stop the orchestrator before that happens.
 Each override's `match` is an anchored regex tested against the full
 `provider/id` spec. The FIRST matching override wins, in config
 order. Precedence overall: user override → user scalar (`tokens`) →
-built-in `anthropic/.*` rule → built-in default. Invalid shapes and
-invalid entries are warned about and ignored — an invalid budget
-never silently changes behavior.
+built-in `anthropic/.*` rule → built-in default. Invalid input is
+warned about and never silently changes behavior; what applies
+afterwards depends on where the damage is:
 
-Legacy note: `pauseThresholdPercent` is deprecated; it is honored,
-with its exact old semantics, only when `contextBudget` is absent.
+- An invalid WHOLE value (bad number, wrong type) is treated as if
+  `contextBudget` were unset: legacy percent mode if
+  `pauseThresholdPercent` is configured, built-in budget defaults
+  otherwise.
+- An invalid `tokens` inside an otherwise valid object is dropped —
+  the object still opts into budget mode, so the built-in defaults
+  fill the scalar layer.
+- An invalid override entry is skipped — the next layer of the
+  precedence chain applies.
+
+Legacy note: `pauseThresholdPercent` is deprecated; it keeps its
+exact old semantics only when it is set AND `contextBudget` is
+absent or entirely invalid — an invalid budget sanitizes to absent
+and never disables the percent. A PARTIALLY invalid object (e.g.
+`{"tokens": -1}`) remains a valid budget object: budget mode with
+built-in defaults, percent ignored.
 
 ## The clamp
 
@@ -100,8 +120,9 @@ touched.
 
 ## Using GPT-5.6's full 1.05M window
 
-Two deliberate steps. First, raise the registry window in pi
-settings:
+Two deliberate steps. First, raise the registry window in
+`~/.pi/agent/models.json` (pi's custom-models file — NOT
+`settings.json`, where this block is silently ignored):
 
 ```json
 {
@@ -116,10 +137,19 @@ settings:
 ```
 
 (repeat for `gpt-5.6-terra` / `gpt-5.6-luna`). Second, raise the
-Slate budget with an override such as:
+Slate budget with an override in `.pi/slate.json` — the full nested
+form matters: a bare `{"match": …, "tokens": …}` pasted as the
+`contextBudget` value becomes a global scalar with `match` silently
+dropped:
 
 ```json
-{ "match": "openai/gpt-5\\.6-.*", "tokens": 900000 }
+{
+  "contextBudget": {
+    "overrides": [
+      { "match": "openai/gpt-5\\.6-.*", "tokens": 900000 }
+    ]
+  }
+}
 ```
 
 WARNING: beyond 272K total input every request bills at the
@@ -137,7 +167,10 @@ long-context rates listed above.
   off earlier or set a lower override when running tier-priced
   models hard.
 - The pause-fires-before-compaction guarantee holds for single-turn
-  ingestion under 32,768 tokens; beyond that a pass-through
+  ingestion under 32,768 tokens — and only where the margin branch
+  of the clamp binds (context window ≥ ~98K with the default
+  16,384-token reserve); on smaller, floor-clamped windows the
+  pre-compaction margin is narrower. Beyond the margin a pass-through
   compaction can land in the same cycle and the handoff brief is
   written from compacted context — episodes and thread state survive
   on disk, so handoff still functions.
