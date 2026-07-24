@@ -125,11 +125,28 @@ export function sanitizeContextBudget(raw: unknown, warn: (msg: string) => void)
 	}
 	const obj = raw as { tokens?: unknown; overrides?: unknown };
 	const result: ContextBudgetObject = {};
+	// CQ1: a typo like {"token": 50000} would otherwise silently fall back to
+	// the built-in defaults — surface unknown keys (they are user-edited
+	// slate.json content headed for ctx.ui.notify, so sanitize for display).
+	const unknownKeys = Object.keys(obj).filter((k) => k !== "tokens" && k !== "overrides");
+	if (unknownKeys.length > 0) {
+		warn(
+			`slate: ignoring unknown contextBudget key(s): ${sanitizeForNotify(unknownKeys.join(", "))} (known: "tokens", "overrides")`,
+		);
+	}
 	if (obj.tokens !== undefined) {
 		if (isBudgetTokens(obj.tokens)) result.tokens = obj.tokens;
 		// Dropping just the scalar keeps the object valid — the user still opted
 		// into budget mode, so built-in defaults apply rather than legacy percent.
-		else warn(`slate: dropping contextBudget.tokens — expected a positive integer, got ${JSON.stringify(obj.tokens)}`);
+		// BG1: the value reaches ctx.ui.notify — sanitize like the sibling
+		// overrides path (a crafted string could inject ANSI/CSI codes).
+		else {
+			warn(
+				`slate: dropping contextBudget.tokens — expected a positive integer, got ${sanitizeForNotify(
+					JSON.stringify(obj.tokens),
+				)}`,
+			);
+		}
 	}
 	if (obj.overrides !== undefined) {
 		if (!Array.isArray(obj.overrides)) {
@@ -151,7 +168,9 @@ export function sanitizeContextBudget(raw: unknown, warn: (msg: string) => void)
 				}
 				if (ok) kept.push({ match: o?.match as string, tokens: o?.tokens as number });
 				// Entries come from user-edited slate.json and reach ctx.ui.notify —
-				// strip control/ANSI codes before display (same rationale as CQ1).
+				// strip control/ANSI codes before display (same rationale as
+				// failover.ts's CQ1 comment; this round's BG1 fixed the sibling
+				// tokens path above to match).
 				else dropped.push(sanitizeForNotify(JSON.stringify(entry)));
 			}
 			if (dropped.length > 0) {
@@ -334,8 +353,16 @@ export function registerSlateHandoff(
 			if (usage.tokens < effective) return;
 			const used = usage.tokens.toLocaleString("en-US");
 			const cap = effective.toLocaleString("en-US");
-			notifyText = `slate: context at ${used} tokens (budget ${cap}) — paused. Run /slate handoff [focus] to continue in a fresh session.`;
-			headline = `[slate] Context is at ${used} tokens — over the ${cap}-token budget. Slate auto-paused: the thread tool now REJECTS new dispatches.`;
+			// CQ2: when the clamp engaged, the effective number alone is
+			// untraceable to the configured budget — name both, so "budget
+			// 150,848" against a configured 500,000 explains itself. Phrasing is
+			// unchanged when no clamping occurred.
+			const clampNote =
+				effective < configured
+					? ` (configured ${configured.toLocaleString("en-US")}, clamped for this model's context window)`
+					: "";
+			notifyText = `slate: context at ${used} tokens (budget ${cap}${clampNote}) — paused. Run /slate handoff [focus] to continue in a fresh session.`;
+			headline = `[slate] Context is at ${used} tokens — over the ${cap}-token budget${clampNote}. Slate auto-paused: the thread tool now REJECTS new dispatches.`;
 		}
 
 		store.paused = true;
@@ -371,19 +398,30 @@ export function registerSlateHandoff(
 				"warning",
 			);
 		}
-		// deliverAs "nextTurn" WITHOUT triggerTurn — CRITICAL: pi also fires this
-		// event at a pre-prompt site where nothing is streaming, and a triggering
-		// steer there would START a nested agent run. The instructions ride into
-		// the next real turn instead.
+		// deliverAs "steer" WITHOUT triggerTurn (CN1/CN2/CN3) — traced against
+		// BOTH pi call sites of session_before_compact (agent-session.js):
+		//  - post-run site (_handlePostAgentRun → _checkCompaction), streaming:
+		//    the steer queues on the agent; _handlePostAgentRun then sees
+		//    hasQueuedMessages() and continues the run, so the model writes the
+		//    handoff brief THIS settle — before the escape-valve compaction can
+		//    fire (CN2) and before a user steer slips in uninstructed (CN3).
+		//  - idle pre-prompt site (prompt() preflight), not streaming: the
+		//    message is appended directly to state/session and rides into the
+		//    imminent turn — no turn starts. triggerTurn stays OFF: a
+		//    triggering send at this site is what would start a nested agent
+		//    run (the original hazard was triggerTurn specifically).
+		// Unlike "nextTurn" (an unretractable _pendingNextTurnMessages queue
+		// that survives /slate resume — CN1), a steer lands in the transcript
+		// at pause time; the disregard clause below is defense in depth.
 		pi.sendMessage(
 			{
 				customType: "slate-pause",
-				content: pauseInstructions(
+				content: `${pauseInstructions(
 					"[slate] pi hit its auto-compaction threshold; slate cancelled the compaction and auto-paused instead: the thread tool now REJECTS new dispatches. (While paused, a repeat compaction passes through as the escape valve.)",
-				),
+				)}\n(If slate has since been resumed or unpaused, disregard this message.)`,
 				display: true,
 			},
-			{ deliverAs: "nextTurn" },
+			{ deliverAs: "steer" },
 		);
 		return { cancel: true };
 	});
