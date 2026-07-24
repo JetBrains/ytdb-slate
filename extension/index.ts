@@ -14,26 +14,32 @@
  *   episodes.ts — episode compression (Sonnet-default, D5)
  *   threads.ts  — ThreadManager: queueing, dispatch lifecycle
  *   tools.ts    — thread / threads / episode tools
- *   handoff.ts  — context-budget auto-pause + fresh-session handoff
+ *   handoff.ts  — absolute-token context-budget auto-pause (with threshold-
+ *                 compaction intercept) + fresh-session handoff
  *
  * Optional config at <config dir>/slate.json (config dir = CONFIG_DIR_NAME,
  * ".pi" by default), honored ONLY when the project is trusted — untrusted
  * projects run on built-in defaults with no project file injection:
  *   { "episodeModel": "provider/id", "workerTools": [...], "maxConcurrent": 4,
- *     "pauseThresholdPercent": 40, "orchestratorModeDefault": true,
+ *     "contextBudget": 256000, "orchestratorModeDefault": true,
  *     "orchestratorPromptDocs": ["docs/orchestrator-guidelines.md"],
  *     "workerPromptDocs": ["docs/thread-guidelines.md"],
  *     "workflow": { "draftPRs": false },
  *     "modelFailover": { "provider/id": "provider/id" },
  *     "doctrineExtraPath": "docs/project-doctrine.md",
  *     "reviewPerspectivesPath": "docs/review-perspectives.md" }
+ * contextBudget also takes { "tokens": N, "overrides": [{ "match": "regex",
+ * "tokens": N }] } (match is anchored against "provider/id"); absent, the
+ * built-in defaults apply (256k tokens; 400k for anthropic/*). The DEPRECATED
+ * pauseThresholdPercent keeps its legacy percent behavior only when
+ * contextBudget is absent.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.ts";
-import { registerSlateHandoff } from "./handoff.ts";
+import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
 import { SlateStore, type SlateConfig } from "./state.ts";
 import { ThreadManager } from "./threads.ts";
@@ -69,12 +75,15 @@ export default function (pi: ExtensionAPI) {
 		// Trust gate: project config steers prompts, models, and tool lists, so
 		// it is honored only for trusted projects; untrusted → built-in defaults.
 		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
-		// modelFailover is the one config value validated eagerly: a malformed
-		// entry would otherwise fail silently mid-dispatch, exactly when the
-		// mapped retry was supposed to save the action.
-		config.modelFailover = sanitizeModelFailover(config.modelFailover, (msg) =>
-			ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg),
-		);
+		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
+		// modelFailover and contextBudget are validated eagerly: a malformed
+		// value would otherwise fail silently mid-dispatch / exactly when the
+		// auto-pause was supposed to save the orchestrator's context.
+		config.modelFailover = sanitizeModelFailover(config.modelFailover, warn);
+		config.contextBudget = sanitizeContextBudget(config.contextBudget, warn);
+		if (config.contextBudget !== undefined && config.pauseThresholdPercent !== undefined) {
+			warn("slate: contextBudget is set — the deprecated pauseThresholdPercent is ignored");
+		}
 		manager = new ThreadManager(store, config);
 		store.restore(ctx);
 	});
