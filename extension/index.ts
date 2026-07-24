@@ -31,8 +31,9 @@
  * contextBudget also takes { "tokens": N, "overrides": [{ "match": "regex",
  * "tokens": N }] } (match is anchored against "provider/id"); absent, the
  * built-in defaults apply (256k tokens; 400k for anthropic/*). The DEPRECATED
- * pauseThresholdPercent keeps its legacy percent behavior only when
- * contextBudget is absent.
+ * pauseThresholdPercent keeps its legacy percent behavior only when it is set
+ * AND contextBudget is absent or entirely invalid (invalid sanitizes to
+ * absent — a partially invalid object stays budget mode).
  */
 
 import { existsSync, readFileSync } from "node:fs";
