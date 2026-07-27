@@ -26,6 +26,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import type { SlateConfig } from "./state.ts";
 
 type RegistryModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
@@ -36,6 +37,20 @@ type RegistryModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["f
 function sanitizeForNotify(s: string, max = 120): string {
 	const clean = s.replace(/[\u0000-\u001f\u007f\u009b]/g, "");
 	return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
+
+// Console-first reporting: the console line is unconditional, so a failover
+// message survives headless runs and teardown — the has-UI branch is exactly
+// the one that vanishes there — and the UI notification is the extra.
+// ctx.hasUI is a getter that THROWS on a stale context, so it is guarded:
+// an unguarded check would be a crash, not a test.
+function notifyWarning(ctx: ExtensionContext, message: string): void {
+	console.warn(message);
+	try {
+		if (ctx.hasUI) ctx.ui.notify(message, "warning");
+	} catch {
+		/* stale ctx — the console line above stands */
+	}
 }
 
 /** "provider/id": slash at index > 0 with a non-empty id after it. */
@@ -228,7 +243,10 @@ export function registerOrchestratorFailover(pi: ExtensionAPI, getConfig: () => 
 		// cancelled run must NEVER fail over. Non-retryable errors (quota,
 		// billing, auth…) fail fast with no backoff to cancel, so they pass.
 		// SettingsManager.create is a synchronous, lock-protected read of the
-		// same merged settings pi uses.
+		// same merged settings pi uses. READ-ONLY, and it must stay that way: a
+		// setter call on this throwaway instance would write straight into the
+		// user's GLOBAL settings unmediated — every write goes through
+		// model-default.ts instead.
 		if (isRetryableAssistantError(msg as AssistantMessage)) {
 			try {
 				const retry = SettingsManager.create(ctx.cwd, getAgentDir(), {
@@ -248,31 +266,36 @@ export function registerOrchestratorFailover(pi: ExtensionAPI, getConfig: () => 
 		if (!mapped) return; // no mapping / unknown / unauthed → the original failure stands
 		const from = `${current.provider}/${current.id}`;
 		const to = `${mapped.provider}/${mapped.id}`;
-		try {
-			// pi.setModel returns false when no API key is available, but can ALSO
-			// throw on a failed live auth check despite the Promise<boolean>
-			// contract — handle both. NOTE: on success it persists the mapped model
-			// as the user's GLOBAL default (pi semantics; documented caveat).
-			if (!(await pi.setModel(mapped))) {
-				if (ctx.hasUI) {
-					ctx.ui.notify(`slate: model failover to ${to} skipped — no API key. Keeping ${from}.`, "warning");
+		// pi.setModel persists the switch into the user's GLOBAL settings
+		// (defaultProvider, defaultModel and, through its thinking cascade,
+		// defaultThinkingLevel) — a session-scoped failover must not leave that
+		// behind, so the switch runs inside the shared restore wrapper, which
+		// puts back exactly what THIS switch changed (model-default.ts).
+		// Sequencing matters: the wrapper completes the restore BEFORE the
+		// steer below, so settings are already clean even if the steer then
+		// fails on a stale context.
+		const switched = await withGlobalModelDefaultRestored(pi, ctx, getConfig(), mapped, async () => {
+			try {
+				// pi.setModel returns false when no API key is available, but can ALSO
+				// throw on a failed live auth check despite the Promise<boolean>
+				// contract — handle both.
+				if (!(await pi.setModel(mapped))) {
+					notifyWarning(ctx, `slate: model failover to ${to} skipped — no API key. Keeping ${from}.`);
+					return false;
 				}
-				return;
-			}
-		} catch (error) {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
+			} catch (error) {
+				notifyWarning(
+					ctx,
 					`slate: model failover to ${to} failed — ${sanitizeForNotify(
 						error instanceof Error ? error.message : String(error),
 					)}. Keeping ${from}.`,
-					"warning",
 				);
+				return false;
 			}
-			return;
-		}
-		if (ctx.hasUI) {
-			ctx.ui.notify(`slate: model failover ${from} ⇒ ${to} — retrying the failed turn`, "warning");
-		}
+			return true;
+		});
+		if (!switched) return;
+		notifyWarning(ctx, `slate: model failover ${from} ⇒ ${to} — retrying the failed turn`);
 		pi.sendMessage(
 			{
 				customType: "slate-failover",
