@@ -103,12 +103,15 @@ function sanitizeForNotify(s: string, max = 120): string {
 	return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
 
-// Console-first reporting for the model-adoption block below: the console line
-// is unconditional, so the failure surfaces in headless runs and at teardown
-// too — the has-UI branch is exactly the one that vanishes there — and the UI
-// notification is the extra. ctx.hasUI is a getter that THROWS on a stale
-// context, so it is guarded: an unguarded check would be a crash, not a test.
-function notifyWarning(ctx: ExtensionContext, message: string): void {
+// Console-first reporting for the model-adoption block below, and for FAILURES
+// ONLY: the console line is unconditional, so the failure surfaces in headless
+// runs and at teardown too — the has-UI branch is exactly the one that vanishes
+// there — and the UI notification is the extra. Informational notices (the
+// "handoff state restored" line, the pause notices) keep their plain has-UI
+// gate, since an unconditional stderr write scribbles pi-tui's differentially
+// rendered frame. ctx.hasUI is a getter that THROWS on a stale context, so it
+// is guarded: an unguarded check would be a crash, not a test.
+function reportFailure(ctx: ExtensionContext, message: string): void {
 	console.warn(message);
 	try {
 		if (ctx.hasUI) ctx.ui.notify(message, "warning");
@@ -513,40 +516,64 @@ export function registerSlateHandoff(
 				// the equality guard below short-circuits the model setter — so the
 				// wrapper's yield and post-switch read must follow the LAST write here
 				// (model-default.ts).
-				await withGlobalModelDefaultRestored(pi, ctx, getConfig(), { provider, id }, async () => {
-					try {
-						// Equality guard: setModel persists the model as the user's GLOBAL
-						// default as a side effect, so only call it when the fresh session
-						// actually resolved to something else.
-						let restored = ctx.model?.provider === provider && ctx.model?.id === id;
-						if (!restored) {
-							const model = ctx.modelRegistry.find(provider, id);
-							restored = !!model && (await pi.setModel(model));
-						}
-						if (restored) {
-							// Thinking level rides only on a matching/restored model, and only
-							// AFTER setModel (which re-derives thinking internally). Like
-							// setModel, setThinkingLevel persists to the user's ONE GLOBAL
-							// default thinking level (not a per-model value), so clamping the
-							// old level against an unrelated fallback model would persist
-							// garbage there. Non-strings are never passed on; pi clamps
-							// unknown string levels itself.
-							if (typeof pending.thinkingLevel === "string") pi.setThinkingLevel(pending.thinkingLevel);
-						} else {
-							notifyWarning(
+				await withGlobalModelDefaultRestored(
+					pi,
+					ctx,
+					getConfig(),
+					{ provider, id },
+					async () => {
+						// True once a pi setter has actually been CALLED — only then can pi
+						// have persisted anything, and only then does the wrapper need to do
+						// its post-switch work.
+						let calledSetter = false;
+						try {
+							// Equality guard: setModel persists the model as the user's GLOBAL
+							// default as a side effect, so only call it when the fresh session
+							// actually resolved to something else.
+							let restored = ctx.model?.provider === provider && ctx.model?.id === id;
+							if (!restored) {
+								const model = ctx.modelRegistry.find(provider, id);
+								if (model) {
+									calledSetter = true;
+									restored = await pi.setModel(model);
+								}
+							}
+							if (restored) {
+								// Thinking level rides only on a matching/restored model, and only
+								// AFTER setModel (which re-derives thinking internally). Like
+								// setModel, setThinkingLevel persists to the user's ONE GLOBAL
+								// default thinking level (not a per-model value), so clamping the
+								// old level against an unrelated fallback model would persist
+								// garbage there. Non-strings are never passed on; pi clamps
+								// unknown string levels itself.
+								if (typeof pending.thinkingLevel === "string") {
+									calledSetter = true;
+									pi.setThinkingLevel(pending.thinkingLevel);
+								}
+							} else {
+								reportFailure(
+									ctx,
+									`slate: could not restore model ${label} (unknown or no auth) — keeping the session default.`,
+								);
+							}
+						} catch (error) {
+							// A throw can land AFTER a completed write (pi persists the pair
+							// before the cascade that can throw), so this counts as "a setter
+							// ran" — the safe direction.
+							calledSetter = true;
+							reportFailure(
 								ctx,
-								`slate: could not restore model ${label} (unknown or no auth) — keeping the session default.`,
+								`slate: could not restore model ${label} — ${sanitizeForNotify(
+									error instanceof Error ? error.message : String(error),
+								)}. Keeping the session default.`,
 							);
 						}
-					} catch (error) {
-						notifyWarning(
-							ctx,
-							`slate: could not restore model ${label} — ${sanitizeForNotify(
-								error instanceof Error ? error.message : String(error),
-							)}. Keeping the session default.`,
-						);
-					}
-				});
+						return calledSetter;
+					},
+					// No setter was called ⇒ pi cannot have written anything ⇒ skip the
+					// wrapper's post-switch reads, retries and reporting entirely.
+					(calledSetter) => calledSetter,
+				);
 			}
 		} catch {
 			/* a broken pending file must never break session start */

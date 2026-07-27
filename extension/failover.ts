@@ -39,17 +39,31 @@ function sanitizeForNotify(s: string, max = 120): string {
 	return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
 
-// Console-first reporting: the console line is unconditional, so a failover
-// message survives headless runs and teardown — the has-UI branch is exactly
-// the one that vanishes there — and the UI notification is the extra.
-// ctx.hasUI is a getter that THROWS on a stale context, so it is guarded:
-// an unguarded check would be a crash, not a test.
-function notifyWarning(ctx: ExtensionContext, message: string): void {
+// Console-first reporting, for FAILURES ONLY: the console line is
+// unconditional, so a failover that could not happen still surfaces in
+// headless runs and at teardown — the has-UI branch is exactly the one that
+// vanishes there — and the UI notification is the extra. Success notices keep
+// their has-UI gate: an unconditional stderr write during an interactive turn
+// scribbles pi-tui's differentially rendered frame, and a failover that worked
+// is not news worth that cost. ctx.hasUI is a getter that THROWS on a stale
+// context, so it is guarded: an unguarded check would be a crash, not a test.
+function reportFailure(ctx: ExtensionContext, message: string): void {
 	console.warn(message);
 	try {
 		if (ctx.hasUI) ctx.ui.notify(message, "warning");
 	} catch {
 		/* stale ctx — the console line above stands */
+	}
+}
+
+// UI-only notice, as before this module gained a restore mechanism: shown when
+// a UI exists, silent otherwise — only the guard is new, since ctx.hasUI throws
+// on a stale context.
+function notifyUi(ctx: ExtensionContext, message: string): void {
+	try {
+		if (ctx.hasUI) ctx.ui.notify(message, "warning");
+	} catch {
+		/* stale ctx — a cosmetic notice is not worth unwinding the handler */
 	}
 }
 
@@ -274,28 +288,46 @@ export function registerOrchestratorFailover(pi: ExtensionAPI, getConfig: () => 
 		// Sequencing matters: the wrapper completes the restore BEFORE the
 		// steer below, so settings are already clean even if the steer then
 		// fails on a stale context.
-		const switched = await withGlobalModelDefaultRestored(pi, ctx, getConfig(), mapped, async () => {
-			try {
-				// pi.setModel returns false when no API key is available, but can ALSO
-				// throw on a failed live auth check despite the Promise<boolean>
-				// contract — handle both.
-				if (!(await pi.setModel(mapped))) {
-					notifyWarning(ctx, `slate: model failover to ${to} skipped — no API key. Keeping ${from}.`);
+		// Set when pi.setModel THREW: the throw can land after pi already wrote the
+		// pair (it persists before the thinking cascade and the model-select
+		// emission), so that case must still be treated as "may have persisted"
+		// even though the switch failed. Read by the predicate below, which runs
+		// after the callback has resolved.
+		let mayHaveWritten = false;
+		const switched = await withGlobalModelDefaultRestored(
+			pi,
+			ctx,
+			getConfig(),
+			mapped,
+			async () => {
+				try {
+					// pi.setModel returns false when no API key is available, but can ALSO
+					// throw on a failed live auth check despite the Promise<boolean>
+					// contract — handle both.
+					if (!(await pi.setModel(mapped))) {
+						reportFailure(ctx, `slate: model failover to ${to} skipped — no API key. Keeping ${from}.`);
+						return false;
+					}
+				} catch (error) {
+					mayHaveWritten = true;
+					reportFailure(
+						ctx,
+						`slate: model failover to ${to} failed — ${sanitizeForNotify(
+							error instanceof Error ? error.message : String(error),
+						)}. Keeping ${from}.`,
+					);
 					return false;
 				}
-			} catch (error) {
-				notifyWarning(
-					ctx,
-					`slate: model failover to ${to} failed — ${sanitizeForNotify(
-						error instanceof Error ? error.message : String(error),
-					)}. Keeping ${from}.`,
-				);
-				return false;
-			}
-			return true;
-		});
+				return true;
+			},
+			// A plain false return means pi.setModel bailed on its own auth check
+			// BEFORE touching settings (the extension-facing setModel returns false
+			// ahead of the session setter), so nothing can have been persisted and
+			// the whole post-switch phase is skipped — unless it failed by THROWING.
+			(ok) => ok || mayHaveWritten,
+		);
 		if (!switched) return;
-		notifyWarning(ctx, `slate: model failover ${from} ⇒ ${to} — retrying the failed turn`);
+		notifyUi(ctx, `slate: model failover ${from} ⇒ ${to} — retrying the failed turn`);
 		pi.sendMessage(
 			{
 				customType: "slate-failover",
