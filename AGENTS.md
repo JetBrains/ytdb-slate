@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repo is a [pi package](https://github.com/earendil-works/pi-coding-agent) providing the **slate** extension: thread-weaving orchestration for pi (orchestrator dispatches bounded actions to persistent worker threads; results come back as compressed episodes; a shipped doctrine enforces the research/design-review/adversarial-review/track-review workflow, with optional draft-PR publishing).
+This repo is a [pi package](https://pi.dev/docs/latest/packages) providing the **slate** extension: thread-weaving orchestration for pi (orchestrator dispatches bounded actions to persistent worker threads; results come back as compressed episodes; a shipped doctrine enforces the research/design-review/adversarial-review/track-review workflow, with optional draft-PR publishing).
 
 - Extension entry point: `extension/index.ts`
 - Shipped doctrine docs: `docs/`
