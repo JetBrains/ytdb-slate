@@ -24,6 +24,13 @@ This repo runs slate on itself:
   2. Judge extension load by output, not exit code: pi exits 0 even when extension loading fails — success is the ABSENCE of a `Failed to load extension` line on stderr. A bare `pi --no-extensions -e . -p "exit"` run exercises only extension registration and `session_start` (config load/validation); it touches no tool execution or failover paths — exercise those explicitly when they change.
   3. Carefully re-read the full diff before committing.
 
+### Verification ladder (global model-default restore)
+
+`verification/run-ladder.sh` is the one automated regression net in the repo. It covers `extension/model-default.ts` and both switch sites (`extension/failover.ts` failover, `extension/handoff.ts` handoff adoption): the per-key restore rule, the untrustworthy-read stand-downs, the retry budget and the reporting channels — against fake offline providers in a throwaway agent directory, so real pi settings are never touched.
+
+- Run it with `bash verification/run-ladder.sh --repo .` (~3 min; `--only <ids>` for a subset). Not as root, and needs GNU coreutils. Exit 0 means nothing failed and the real settings file is unchanged — rungs can still report NOT RUN, so read the lines; automation should pass `--strict`, which makes any NOT RUN fatal.
+- **Re-run it after any change to `extension/model-default.ts` or to either switch site** — that mechanism fails silently when it regresses, so a passing smoke test proves nothing about it. Details, rung table and the timing-sensitive rungs: `verification/README.md`.
+
 ## Packaging rules
 
 - Pi-bundled SDK packages (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `typebox`) must stay in `peerDependencies` with version `"*"` — never bundle them.
