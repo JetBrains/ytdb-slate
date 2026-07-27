@@ -114,8 +114,17 @@ const RESTORE_BUDGET_MS = 500;
  */
 const RETRY_PACING_MS = 25;
 
-/** Cap for a whole composed report line (the per-fragment cap is sanitizeForNotify's). */
+/**
+ * Cap for a whole composed report line (the per-fragment cap is
+ * sanitizeForNotify's). The report is the ONLY trace an abandoned restore
+ * leaves, so it is bounded but never cut mid-word: report lines are built
+ * diagnostics-first (what failed, which keys, which file) with the advisory
+ * tail last, so the cap eats boilerplate rather than evidence, and the cut is
+ * marked so a truncated line cannot be mistaken for a crash mid-sentence.
+ */
 const REPORT_MAX_CHARS = 500;
+/** Explicit end-marker for a truncated report line. */
+const REPORT_TRUNCATION_MARK = " […truncated]";
 
 /** The three global keys pi's model setter can write. */
 interface GlobalDefaults {
@@ -149,12 +158,34 @@ type WriteResult = { ok: true } | { ok: false; reason: string };
 
 // Everything this module displays can carry attacker-influenced bytes: pi's
 // JSON parse error embeds a raw snippet of the settings file, and pi-tui
-// renders control/ANSI codes verbatim — strip control characters and cap the
-// length before display (same pattern as failover.ts / handoff.ts's
-// sanitizeForNotify).
+// renders control/ANSI codes verbatim.
+function stripControlChars(s: string): string {
+	return s.replace(/[\u0000-\u001f\u007f\u009b]/g, "");
+}
+
+// Per-FRAGMENT sanitizer for text spliced into a message — same pattern and
+// same 120-char default as failover.ts / handoff.ts's sanitizeForNotify.
 function sanitizeForNotify(s: string, max = 120): string {
-	const clean = s.replace(/[\u0000-\u001f\u007f\u009b]/g, "");
+	const clean = stripControlChars(s);
 	return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
+
+/**
+ * Bound a whole composed report line. Unlike the per-fragment cap this cuts at
+ * a WORD boundary and marks the cut explicitly, so a truncated report reads as
+ * deliberately shortened rather than as a message that died mid-sentence. A
+ * single unbroken token longer than the tail allowance is cut mid-token rather
+ * than discarded wholesale — the marker still says so.
+ */
+function truncateForReport(message: string): string {
+	const clean = stripControlChars(message);
+	if (clean.length <= REPORT_MAX_CHARS) return clean;
+	const room = REPORT_MAX_CHARS - REPORT_TRUNCATION_MARK.length;
+	const cut = clean.slice(0, room);
+	const lastSpace = cut.lastIndexOf(" ");
+	const kept = lastSpace >= room - 40 ? cut.slice(0, lastSpace) : cut;
+	// Drop trailing separators so the marker does not read as ", […truncated]".
+	return `${kept.replace(/[\s,;:—-]+$/u, "")}${REPORT_TRUNCATION_MARK}`;
 }
 
 /** Display text for a caught value — sanitized HERE, since every reason string below is built from it. */
@@ -198,8 +229,9 @@ function globalSettingsPath(): string {
  */
 function report(ctx: ExtensionContext, message: string): void {
 	// Belt and braces: every fragment is sanitized where it is built, and the
-	// composed line is sanitized again before it can reach a terminal.
-	const text = sanitizeForNotify(message, REPORT_MAX_CHARS);
+	// composed line is stripped again — and bounded — before it can reach a
+	// terminal.
+	const text = truncateForReport(message);
 	console.warn(text);
 	try {
 		// ctx.hasUI is a getter that THROWS on a stale context — an unguarded
@@ -250,10 +282,10 @@ function readGlobalDefaults(cwd: string): ReadResult {
 	// default); a zero-byte one is inconclusive.
 	try {
 		if (existsSync(path) && statSync(path).size === 0) {
-			return { ok: false, reason: `${path} is empty` };
+			return { ok: false, reason: "the settings file is empty" };
 		}
 	} catch (error) {
-		return { ok: false, reason: `${path} is unreadable — ${errorText(error)}` };
+		return { ok: false, reason: `the settings file is unreadable — ${errorText(error)}` };
 	}
 	let manager: SettingsManager;
 	try {
@@ -261,13 +293,13 @@ function readGlobalDefaults(cwd: string): ReadResult {
 		// the module header): never reused, never reloaded, discarded below.
 		manager = SettingsManager.create(cwd, getAgentDir(), { projectTrusted: false });
 	} catch (error) {
-		return { ok: false, reason: `cannot read ${path} — ${errorText(error)}` };
+		return { ok: false, reason: `cannot read the settings file — ${errorText(error)}` };
 	}
 	// Construction IS the read: a held lock, an unreadable file or a parse error
 	// is RECORDED here rather than thrown, so the channel must be drained before
 	// the values are trusted.
 	const errors = manager.drainErrors();
-	if (errors.length > 0) return { ok: false, reason: `cannot read ${path} — ${settingsErrorText(errors)}` };
+	if (errors.length > 0) return { ok: false, reason: `cannot read the settings file — ${settingsErrorText(errors)}` };
 	// getGlobalSettings, never getDefaultProvider/Model/ThinkingLevel: those read
 	// the MERGED view (module header). Absence is decided on the VALUE — the
 	// accessor returns a structured clone and cloning RETAINS keys whose value is
@@ -340,12 +372,11 @@ function planRestore(pre: GlobalDefaults, post: GlobalDefaults, expected: Expect
 
 /** One write attempt: write, flush, drain, verify. */
 async function applyRestore(cwd: string, plan: RestorePlan): Promise<WriteResult> {
-	const path = globalSettingsPath();
 	let manager: SettingsManager;
 	try {
 		manager = SettingsManager.create(cwd, getAgentDir(), { projectTrusted: false });
 	} catch (error) {
-		return { ok: false, reason: `cannot open ${path} for writing — ${errorText(error)}` };
+		return { ok: false, reason: `cannot open the settings file for writing — ${errorText(error)}` };
 	}
 	// A CONSTRUCTION-TIME load error is itself an untrustworthy read, and it is
 	// checked BEFORE any write because the channel cannot reveal it afterwards:
@@ -356,7 +387,7 @@ async function applyRestore(cwd: string, plan: RestorePlan): Promise<WriteResult
 	// regardless.
 	const loadErrors = manager.drainErrors();
 	if (loadErrors.length > 0) {
-		return { ok: false, reason: `cannot open ${path} for writing — ${settingsErrorText(loadErrors)}` };
+		return { ok: false, reason: `cannot open the settings file for writing — ${settingsErrorText(loadErrors)}` };
 	}
 	if (plan.pair) {
 		// TYPE-UNSOUND ON PURPOSE, and nothing in this repo typechecks it (pi
@@ -379,16 +410,16 @@ async function applyRestore(cwd: string, plan: RestorePlan): Promise<WriteResult
 	// unexpected rejection from a future pi is caught by the wrapper's guard.)
 	await manager.flush();
 	const writeErrors = manager.drainErrors();
-	if (writeErrors.length > 0) return { ok: false, reason: `writing ${path} failed — ${settingsErrorText(writeErrors)}` };
+	if (writeErrors.length > 0) return { ok: false, reason: `the write failed — ${settingsErrorText(writeErrors)}` };
 	// Verify against a FRESH read: this manager's own accessor would serve the
 	// object its setters just mutated, so a read-back through it is vacuous.
 	const check = readGlobalDefaults(cwd);
 	if (!check.ok) return { ok: false, reason: `cannot verify the restore — ${check.reason}` };
 	if (plan.pair && (check.values.provider !== plan.pair.provider || check.values.model !== plan.pair.model)) {
-		return { ok: false, reason: `${path} does not hold the restored defaultProvider/defaultModel` };
+		return { ok: false, reason: "the file does not hold the restored defaultProvider/defaultModel" };
 	}
 	if (plan.thinkingLevel && check.values.thinkingLevel !== plan.thinkingLevel.value) {
-		return { ok: false, reason: `${path} does not hold the restored defaultThinkingLevel` };
+		return { ok: false, reason: "the file does not hold the restored defaultThinkingLevel" };
 	}
 	return { ok: true };
 }
@@ -412,6 +443,8 @@ async function restoreAfterSwitch(
 	};
 	const deadline = nowMs() + RESTORE_BUDGET_MS;
 	let failure = "";
+	/** Keys of the LAST attempt that got as far as deciding — "" when none did. */
+	let failureKeys = "";
 	/** True once a post-switch read succeeded — i.e. once divergence is KNOWN, either way. */
 	let sawPost = false;
 	let warnedThinking = false;
@@ -440,28 +473,35 @@ async function restoreAfterSwitch(
 			if (!plan) return; // nothing diverged ⇒ write nothing at all, say nothing
 			const outcome = await applyRestore(cwd, plan);
 			if (outcome.ok) return;
-			failure = `${outcome.reason} (keys: ${plan.keys.join(", ")})`;
+			failure = outcome.reason;
+			failureKeys = plan.keys.join(", ");
 		} else {
 			// Unlike the pre-switch read, an inconclusive post-switch read is
 			// RETRYABLE while the budget lasts — lock contention is exactly the
 			// transient condition a retry exists for.
 			failure = post.reason;
+			failureKeys = "";
 		}
 		// The budget gates whether a NEW attempt starts; it cannot preempt a lock
 		// spin already in flight (see RESTORE_BUDGET_MS for the real ceiling).
 		if (nowMs() >= deadline) break;
 		await macrotaskDelay(RETRY_PACING_MS);
 	}
+	// Diagnostics FIRST (what failed, which keys, which file), advisory tail LAST:
+	// REPORT_MAX_CHARS then eats boilerplate rather than evidence.
 	const path = globalSettingsPath();
+	const keysClause = failureKeys === "" ? "" : ` (keys: ${failureKeys})`;
 	report(
 		ctx,
 		sawPost
-			? `slate: could not restore the global model defaults within ${RESTORE_BUDGET_MS} ms — ${failure}. ` +
-					`This switch's values stay in ${path} and will apply to later sessions; slate will not retry.`
+			? `slate: could not restore the global model defaults${keysClause} in ${path} — ${failure}. ` +
+					`Retried for ${RESTORE_BUDGET_MS} ms; this switch's values stay there and will apply to later pi ` +
+					"sessions; slate will not retry."
 			: // Divergence was never established: claiming a leak here would be a
 				// guess, and when the switch wrote nothing it would be a false one.
-				`slate: could not check the global model defaults within ${RESTORE_BUDGET_MS} ms — ${failure}. ` +
-					`If this switch changed them, the change stays in ${path}; slate will not retry.`,
+				`slate: could not check the global model defaults in ${path} — ${failure}. ` +
+					`Retried for ${RESTORE_BUDGET_MS} ms; if this switch changed them, the change stays there; ` +
+					"slate will not retry.",
 	);
 }
 
@@ -527,7 +567,9 @@ export async function withGlobalModelDefaultRestored<T>(
 				// Stand down: restore NOTHING, warn. A pre-switch read failure is
 				// terminal rather than retryable — there is no trustworthy reference
 				// to retry against — and acting on it could delete real settings.
-				report(ctx, `slate: not restoring the global model defaults — ${pre.reason}.`);
+				// The path is named HERE rather than inside every reason: one mention,
+				// in the fixed prefix that truncation cannot reach.
+				report(ctx, `slate: not restoring the global model defaults in ${globalSettingsPath()} — ${pre.reason}.`);
 			} else {
 				try {
 					await restoreAfterSwitch(pi, ctx, cwd, pre.values, target);
