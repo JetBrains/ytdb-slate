@@ -38,13 +38,16 @@ rule below.
 
 The map is read ONCE, at session start. Editing `slate.json`
 mid-session — e.g. adding a mapping in the middle of an outage —
-takes effect only in a NEW pi session.
+takes effect only in a NEW pi session. The same holds for
+`preserveGlobalModelDefault` (see the caveats), which lives in the
+same file under the same trust rule.
 
 Configuring the map is the whole opt-in: in a trusted project with a
 `modelFailover` entry, ORCHESTRATOR failover is active in every pi
 session regardless of whether Slate's orchestrator mode is on — a
-matching model failure switches the session's model (and pi's global
-default, see the caveats) even if you never use threads.
+matching model failure switches the session's model (and, as a side
+effect, pi's global model defaults, which Slate restores by default —
+see the caveats) even if you never use threads.
 
 ## When failover fires
 
@@ -123,11 +126,49 @@ Failover applies at three sites:
 
 ## Caveats & accepted limitations
 
-- Orchestrator failover persists the mapped model as the user's
-  **global default model** — that is pi's `setModel` semantics. Switch
-  back with `/model` once the outage is over.
+- Slate switches the live model at two sites: orchestrator failover,
+  and the handoff adoption that re-applies a parent session's model
+  and thinking level. Both switches persist into the user's **global**
+  settings (`~/.pi/agent/settings.json`) — that is pi's `setModel` /
+  `setThinkingLevel` semantics — affecting `defaultProvider`,
+  `defaultModel`, and, through pi's thinking-level cascade,
+  `defaultThinkingLevel`. Slate puts them back: it reads the global
+  scope fresh immediately before and immediately after its own switch
+  and reverts a key only if that switch changed it, and only to
+  exactly the value that switch should have produced (a key that had
+  no value beforehand is restored to absence). Keys the switch did not
+  change are never touched. The live session still runs the switched
+  model, and resume is unaffected — the restore rewrites the settings
+  file, not the running session.
+- `preserveGlobalModelDefault` (boolean, default `true`) disables that
+  restore when set to `false`, at BOTH sites; with it off, the
+  switched values stay in the global settings as they did before the
+  mechanism existed.
+- **A restore can be abandoned.** Slate verifies that its restoring
+  write landed and retries within a wall-clock budget; if the restore
+  is still unconfirmed when the budget runs out, Slate gives up with a
+  loud console warning and does NOT retry later. The switched
+  provider, model, or thinking level then persists in the global
+  settings for that session and every session afterwards, exactly as
+  it did before this mechanism existed, and the warning is the only
+  trace. Putting it back is manual — `/model` for the provider/model
+  pair, re-selecting your thinking level for the third key.
+- The comparison cannot tell a third party's write from pi's own. Any
+  write to one of those three keys that lands between Slate's
+  pre-switch read and its own restoring write is reverted
+  indistinguishably. Conversely, a second concurrent pi session
+  writing one of them after the switch makes the comparison fail, so
+  Slate stands down and its own residue survives — a deliberate trade:
+  a missed cleanup over a reverted user change.
+- The mechanism reads and writes the GLOBAL scope only, and only those
+  three keys — but any settings write re-serialises the file through
+  pi's own migration, which can rename or drop legacy keys. pi does
+  that on its own writes too; Slate's restore can only make it happen
+  earlier.
 - Worker sessions use a read-only settings view, so worker failover
-  persists nothing.
+  persists nothing; episode compression invokes the mapped model
+  directly for the one request instead of switching the session's
+  model, so it persists nothing either.
 - Orchestrator **preflight** auth failures (e.g. an OAuth token that
   expired before any run starts) bypass failover — pi surfaces the
   error itself; recover manually with `/model`.
