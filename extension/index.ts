@@ -26,6 +26,7 @@
  *     "workerPromptDocs": ["docs/thread-guidelines.md"],
  *     "workflow": { "draftPRs": false },
  *     "modelFailover": { "provider/id": "provider/id" },
+ *     "preserveGlobalModelDefault": true,
  *     "doctrineExtraPath": "docs/project-doctrine.md",
  *     "reviewPerspectivesPath": "docs/review-perspectives.md" }
  * contextBudget also takes { "tokens": N, "overrides": [{ "match": "regex",
