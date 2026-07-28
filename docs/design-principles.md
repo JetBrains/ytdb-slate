@@ -125,8 +125,11 @@ or two problems for the others:
   not blind retry.
 - **P6 — Make desired behavior the natural behavior.** In orchestrator
   mode, tactical tools are removed, so delegation is the only way to act.
-- **P7 — Guard against over-decomposition.** Workers cannot spawn threads
-  (depth-1); recursion is structurally impossible.
+- **P7 — Guard against over-decomposition.** Workers never receive
+  Slate's dispatch tools (`thread`/`threads`/`episode`), so no worker can
+  spawn a Slate thread — Slate's own recursion stays depth-1. That is a
+  narrow load-time invariant, not a general delegation bound (see the
+  recursion-guard note in §5).
 - **P8 — Per-episode feedback beats blind N-step execution.** Bounded
   actions return before the next decision, so course correction is always
   possible.
@@ -146,7 +149,7 @@ or two problems for the others:
 | P4 context by reference | `tools.ts` `context` parameter injects prior episodes by id |
 | P5 adaptive decomposition | doctrine rule 6 in `mode.ts`; no plan structure imposed anywhere |
 | P6 natural behavior | `mode.ts` `ORCHESTRATOR_TOOLS` restriction (read-only + slate tools) |
-| P7 over-decomposition guard | `worker.ts` recursion guard — workers load no extensions, so the `thread` tool never exists for them |
+| P7 over-decomposition guard | `worker.ts` recursion guard — load-scoped barriers keep Slate's `thread`/`threads`/`episode` tools out of every worker (recursion-guard note below) |
 | P8 per-episode feedback | `threads.ts` synchronous dispatch; episode returned to orchestrator |
 | P9 parallelism | `threads.ts` `maxConcurrent` queueing; doctrine rule 2 in `mode.ts` |
 | P10 context as RAM | `handoff.ts` context-budget auto-pause + fresh-session handoff |
@@ -163,6 +166,75 @@ parallel batches (recon fan-outs, a review wave of a few perspectives)
 while staying safe on common consumer API tiers; wider fan-outs only
 pay tail latency, and projects with higher-tier keys raise the cap in
 `slate.json`.
+
+Repo-local note (not from the report): the P7 guard was originally
+absolute — workers loaded no extensions, so Slate's `thread` tool simply
+never existed for them. The optional `workerExtensions` key (`slate.json`,
+trusted projects only — see the README config reference) relaxes that: it
+whitelists extensions the host session has ALREADY loaded and loads them
+into every worker. The guard therefore no longer rests on "workers load
+nothing" but on a narrower, honestly-stated invariant: no worker can ever
+obtain SLATE's dispatch tools (`thread`/`threads`/`episode`).
+
+Three load-scoped barriers buy that invariant, all applied per LOAD UNIT
+— the owning package directory when the extension is package-originated
+and that package's manifest declares its pi entries, otherwise the
+extension's own entry file:
+
+1. Only whitelisted units load, through pi's resource loader in allowlist
+   mode; a worker's extension set is exactly the allowlist and no
+   non-whitelisted module is ever imported (load errors surface as
+   warnings). Candidates are only what the host session already loaded,
+   enumerated from its tool registry — so an extension registering no
+   tools is invisible, and a host started with extensions disabled yields
+   an empty candidate set.
+2. Any unit that contains Slate's own package root is dropped whatever the
+   patterns say.
+3. Any unit whose tools collide with Slate's `thread`/`threads`/`episode`
+   or with pi's built-ins (`read`/`bash`/`edit`/`write`/`grep`/`find`/`ls`)
+   is dropped WHOLE — pi's registry lets an extension tool overwrite a
+   same-named built-in, so a partial load could shadow the very tools the
+   guard protects.
+
+Exclusion has to happen at load time, at unit granularity, rather than by
+loading everything and filtering the tool list afterwards: a
+worker-loaded extension is not tools-only. Its event handlers, tools, and
+flags all go live on load, so once a unit has loaded its side effects have
+already run and dropping its tools afterwards would leave its handlers and
+flags active. Dropping the whole unit before it loads is the only clean
+cut — which is also why barrier 3 rejects a colliding unit entirely
+instead of suppressing just the offending tool. (Because handing pi the
+package directory lets pi's own manifest resolution expand the declared
+entries — globs and override forms included — companion entries that
+register no tools load alongside the tool-bearing one.)
+
+The orchestrator does NOT get the whitelisted tools; orchestrator mode
+keeps its restricted set. Instead its doctrine gains a rule listing each
+whitelisted extension with its tool names and descriptions, so it knows
+what it can delegate. That doctrine rule and the worker allowlists come
+from a single memoized resolution per session, so the two cannot drift.
+
+The invariant bought is exactly that: no worker gets Slate's dispatch
+tools. It is NOT a general recursion or delegation bound, and the accepted
+risks that follow are the operator's to weigh:
+
+- A whitelisted extension that registers its OWN sub-agent or delegation
+  tool under any other name gives workers unbounded delegation that Slate
+  can neither detect nor bound, outside Slate's episode and cost
+  accounting. Whitelisting such an extension is a deliberate operator
+  decision.
+- Inside a worker a whitelisted extension has the same filesystem and
+  credential reach it has in the host; Slate's read-only settings snapshot
+  blocks pi-settings writes and nothing else.
+- Worker sessions never fire the session-start event, so an extension
+  whose model-scoped tool manager depends on it stays unsynced and may
+  offer a tool the worker's model cannot serve — the call simply fails and
+  the episode records it.
+- Third-party extensions may ignore the abort signal, so their network
+  activity can outlive an abort or a context-budget pause.
+- Host and worker copies of the same extension share module-level state
+  through pi's process-global module cache.
+- Provider-native tool billing may escape Slate's worker cost accounting.
 
 ## 6. Runtime knowledge: what the orchestrator knows, and when
 

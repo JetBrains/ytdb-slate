@@ -1,11 +1,23 @@
 /**
  * Worker sessions: in-process pi SDK AgentSessions with the recursion guard.
  *
- * A worker loads NO extensions, skills, prompt templates, or themes
- * (DefaultResourceLoader no* options) — so a worker can never see slate tools
- * (ExecPlan D7, depth-1 guard) — and inherits the HOST session's project-trust
- * state via an explicit SettingsManager, so untrusted projects get neither
- * project-local settings nor the project SYSTEM.md override in workers.
+ * A worker loads NO skills, prompt templates, or themes (DefaultResourceLoader
+ * no* options), and by default NO extensions either — so a worker can never see
+ * slate tools (ExecPlan D7, depth-1 guard). It inherits the HOST session's
+ * project-trust state via an explicit SettingsManager, so untrusted projects get
+ * neither project-local settings nor the project SYSTEM.md override in workers.
+ *
+ * When the host resolved a `workerExtensions` whitelist (worker-extensions.ts),
+ * the loader runs in ALLOWLIST mode: noExtensions STAYS true — so auto-discovery
+ * (slate itself included) never runs — while additionalExtensionPaths adds back
+ * EXACTLY the resolved units and nothing else. The depth-1 guard survives because
+ * the resolver's load-scoped barriers already excluded slate's own package and
+ * any name-colliding unit; this file re-checks collisions post-load (RG2 below).
+ * Load units are ABSOLUTE paths (package directories or entry files), NEVER npm/
+ * git specs (AD20): a spec resolves at temporary scope against a separate install
+ * root, which would not reuse the host's installed copy and would attempt a
+ * network install.
+ *
  * Worker conversations persist under
  * <config dir>/slate/threads/*.jsonl (CONFIG_DIR_NAME, ".pi" by default)
  * and are reopened via SessionManager.open.
@@ -23,6 +35,7 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 
@@ -58,6 +71,7 @@ export async function openWorkerSession(opts: {
 	model?: string; // "provider/id"
 	tools?: string[];
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
+	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
 	const dir = threadsDir(ctx.cwd);
@@ -110,17 +124,67 @@ export async function openWorkerSession(opts: {
 	// joins appendSystemPrompt entries with "\n\n". Trust gate: project files
 	// are never injected into worker prompts for untrusted projects.
 	const promptDocs = ctx.isProjectTrusted() ? loadPromptDocs(ctx.cwd, opts.promptDocs ?? []) : [];
+	// Absolute load units resolved by the host (worker-extensions.ts); empty =
+	// feature off, the historical no-extensions worker.
+	const extensionPaths = opts.extensionPaths ?? [];
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
 		agentDir,
 		settingsManager,
-		noExtensions: true, // recursion guard (D7)
+		// Recursion guard (D7): auto-discovery stays OFF. additionalExtensionPaths
+		// runs the loader in allowlist mode — noExtensions keeps every
+		// auto-discovered extension out (slate included) while these absolute units
+		// are the only ones added back (AD20 — see the module header on why paths,
+		// never specs). undefined when empty so the default worker is untouched.
+		noExtensions: true,
+		additionalExtensionPaths: extensionPaths.length > 0 ? extensionPaths : undefined,
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
 		appendSystemPrompt: [WORKER_PREAMBLE, ...promptDocs],
 	});
 	await loader.reload();
+
+	// Extension tool names actually registered by the whitelisted units — needed
+	// both for the collision re-check and for the tools allowlist below. Stays
+	// empty (and this whole block is skipped) unless a whitelist was resolved.
+	const extensionToolNames: string[] = [];
+	if (extensionPaths.length > 0) {
+		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
+		const loaded = loader.getExtensions();
+		// A whitelisted extension that failed to load must not vanish silently —
+		// surface every loader error naming the path (missing path, parse/throw, …).
+		for (const err of loaded.errors ?? []) {
+			warn(`slate: worker extension failed to load — ${err.path}: ${err.error}`);
+		}
+		// Collect the tool names each loaded extension actually registered. Loose
+		// cast + Map guard: tolerate a malformed extensions/tools shape (state.ts
+		// pattern).
+		const collisions: string[] = [];
+		for (const ext of loaded.extensions ?? []) {
+			const e = ext as unknown as { path?: unknown; tools?: unknown };
+			if (!(e.tools instanceof Map)) continue;
+			for (const name of e.tools.keys()) {
+				if (typeof name !== "string" || name === "") continue;
+				extensionToolNames.push(name);
+				// POST-LOAD COLLISION RE-CHECK (RG2): the host registry the resolver saw
+				// cannot reveal a tool an extension registers only CONDITIONALLY, and
+				// pi's tool registry lets an extension tool OVERWRITE a same-named
+				// built-in — so a worker's `read` could silently become someone else's.
+				// Fail the dispatch CLOSED rather than run that worker.
+				if (SLATE_TOOL_NAMES.includes(name) || PI_BUILTIN_TOOL_NAMES.includes(name)) {
+					const path = typeof e.path === "string" ? e.path : "extension";
+					collisions.push(`${path} → "${name}"`);
+				}
+			}
+		}
+		if (collisions.length > 0) {
+			// Thrown BEFORE createAgentSession below, so no worker session is leaked.
+			throw new Error(
+				`slate: refusing to open worker — whitelisted extension(s) register tool(s) that would overwrite a slate or pi built-in tool: ${collisions.join(", ")}`,
+			);
+		}
+	}
 
 	const model = opts.model ? resolveModel(ctx, opts.model) : ctx.model;
 
@@ -148,7 +212,14 @@ export async function openWorkerSession(opts: {
 		// the SDK re-clamp against the CURRENT model instead. "medium" mirrors
 		// the SDK's DEFAULT_THINKING_LEVEL (not exported).
 		thinkingLevel: settingsManager.getDefaultThinkingLevel() ?? "medium",
-		tools: opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS,
+		// workerTools / the per-dispatch `tools` argument govern the BUILT-IN tools
+		// only; pi's allowlist gates extension tools too, so the whitelisted
+		// extensions' registered tool names are unioned in (de-duplicated) — without
+		// this the extensions would load but stay inert (present in the registry,
+		// absent from the active set). A colliding built-in name was rejected above.
+		tools: [
+			...new Set([...(opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS), ...extensionToolNames]),
+		],
 		resourceLoader: loader,
 		sessionManager,
 		settingsManager,

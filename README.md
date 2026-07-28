@@ -70,6 +70,7 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `orchestratorModeDefault` | boolean | `false` | Start fresh interactive sessions with orchestrator mode ON. |
 | `episodeModel` | string | newest available Anthropic Sonnet, else the worker's own model | Model (`provider/id`) used to compress a finished action into an episode. |
 | `workerTools` | string[] | `["read", "bash", "edit", "write", "grep", "find", "ls"]` | Tools available to worker threads (an empty list also falls back to the default). |
+| `workerExtensions` | string[] | `[]` | Regex patterns (matched **unanchored**) selecting which of the host session's already-loaded extensions also load into every worker thread; each matched extension's tools are added **on top of** `workerTools`. Empty (default) means workers load no extensions. The orchestrator keeps its restricted tool set but its doctrine is told what was whitelisted. Invalid patterns are dropped with a warning at session start. |
 | `maxConcurrent` | number | `4` | Maximum number of worker actions running concurrently (must be ≥ 1 — unenforced: a value of 0 or less silently hangs all dispatches). Excess dispatches wait in a queue; actions on the same thread always run in dispatch order. Default rationale: shipped `docs/design-principles.md` §5 (repo-local note). |
 | `contextBudget` | number \| object | `256000` (Anthropic models: `400000`) | Absolute orchestrator context budget (tokens) at which Slate auto-pauses and prepares a fresh-session handoff — semantics, defaults, per-model overrides, and rationale in [`docs/context-budget.md`](docs/context-budget.md). |
 | `orchestratorPromptDocs` | string[] | `[]` | Project markdown files (paths relative to the project root) whose **contents** are appended to the orchestrator system prompt. |
@@ -97,6 +98,26 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
 ```
 
 > **Silent skip:** the project-file keys fail silently — no error is shown. For the content-injected keys (`orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`) a missing, unreadable, or empty file is skipped and nothing is injected. For `reviewPerspectivesPath` the pointer is omitted only when the file is missing — the file is not read at injection time, so an unreadable or empty file is still cited. Verify your paths after copying the example.
+
+**Worker extensions (`workerExtensions`).** By default worker threads load no extensions. This key is a list of regex patterns that select extensions the **host session has already loaded** and load them into every worker too. Each pattern is matched **unanchored** (unlike `contextBudget.overrides`, which is anchored) against a loaded extension's recorded source spec (e.g. `npm:pi-web-search@1.3.1`), its absolute entry path, and its load-unit path, so a bare package name matches:
+
+```json
+{
+  "workerExtensions": ["pi-smart-fetch", "pi-web-search"]
+}
+```
+
+Every worker then gets the fetch and web-search tools **on top of** `workerTools` (and on top of the per-dispatch `tools` argument of the `thread` tool — those two govern the built-in tools only). The orchestrator itself does **not** gain these tools — orchestrator mode keeps its restricted set — but its doctrine gains a rule naming each whitelisted extension and its tools, so it knows what it can delegate. pi's discovery, project-trust gating, and dedup remain the only ingress: a worker can never load an extension the host is not running, an extension that registers no tools cannot be whitelisted, and a host started with extensions disabled offers nothing to whitelist.
+
+**What to know before whitelisting** — it reaches past Slate's isolation, so it is an operator decision:
+
+- **Delegation is unbounded.** Slate guarantees only that no worker obtains Slate's own `thread`/`threads`/`episode` tools. A whitelisted extension that ships its own sub-agent or delegation tool under any other name gives workers delegation Slate can neither detect, bound, nor account for.
+- **Credential and filesystem reach.** Inside a worker the extension has the same filesystem and credential access it has in the host; Slate's read-only settings snapshot blocks pi-settings writes and nothing else.
+- **Unsynced model-scoped tools.** Worker sessions never fire the session-start event, so an extension whose tool set is model-scoped stays unsynced and may offer a tool the worker's model cannot serve (e.g. pi-web-search's `url_context` on a non-Google worker model) — the call simply fails and the episode records it.
+- **Abort.** A third-party extension may ignore the abort signal, so its network activity can outlive an abort or a context-budget pause.
+- **Cost.** Provider-native tool billing can escape Slate's worker cost accounting.
+
+The load-time recursion guard behind this — and the risks it does and does not cover — is in [`docs/design-principles.md`](docs/design-principles.md).
 
 ## Trust
 

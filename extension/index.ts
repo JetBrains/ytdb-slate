@@ -20,7 +20,8 @@
  * Optional config at <config dir>/slate.json (config dir = CONFIG_DIR_NAME,
  * ".pi" by default), honored ONLY when the project is trusted — untrusted
  * projects run on built-in defaults with no project file injection:
- *   { "episodeModel": "provider/id", "workerTools": [...], "maxConcurrent": 4,
+ *   { "episodeModel": "provider/id", "workerTools": [...],
+ *     "workerExtensions": ["regex", ...], "maxConcurrent": 4,
  *     "contextBudget": 256000, "orchestratorModeDefault": true,
  *     "orchestratorPromptDocs": ["docs/orchestrator-guidelines.md"],
  *     "workerPromptDocs": ["docs/thread-guidelines.md"],
@@ -46,6 +47,12 @@ import { registerSlateMode } from "./mode.ts";
 import { SlateStore, type SlateConfig } from "./state.ts";
 import { ThreadManager } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
+import {
+	createWorkerExtensionResolver,
+	EMPTY_WORKER_EXTENSION_SET,
+	sanitizeWorkerExtensions,
+	type WorkerExtensionSet,
+} from "./worker-extensions.ts";
 
 function loadConfig(cwd: string): SlateConfig {
 	const file = join(cwd, CONFIG_DIR_NAME, "slate.json");
@@ -68,7 +75,14 @@ function loadConfig(cwd: string): SlateConfig {
 
 export default function (pi: ExtensionAPI) {
 	const store = new SlateStore(pi);
-	let manager = new ThreadManager(store, {});
+	// One worker-extension resolver per session (AD41), reassigned every
+	// session_start below. Consumers reach it ONLY through the
+	// `() => resolveWorkerExtensionSet()` indirection, never by capturing the
+	// resolver value: registerSlate* run once at load while this var is replaced
+	// per session, so a captured value would go stale and break the freeze-per-
+	// session guarantee. Starts as the empty set (feature off) until session_start.
+	let resolveWorkerExtensionSet: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET;
+	let manager = new ThreadManager(store, {}, () => resolveWorkerExtensionSet());
 
 	registerSlateTools(pi, store, () => manager);
 
@@ -78,15 +92,22 @@ export default function (pi: ExtensionAPI) {
 		// it is honored only for trusted projects; untrusted → built-in defaults.
 		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
 		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
-		// modelFailover and contextBudget are validated eagerly: a malformed
-		// value would otherwise fail silently mid-dispatch / exactly when the
-		// auto-pause was supposed to save the orchestrator's context.
+		// modelFailover, contextBudget and workerExtensions are validated eagerly:
+		// a malformed value would otherwise fail silently mid-dispatch / exactly
+		// when the auto-pause was supposed to save the orchestrator's context.
 		config.modelFailover = sanitizeModelFailover(config.modelFailover, warn);
 		config.contextBudget = sanitizeContextBudget(config.contextBudget, warn);
+		config.workerExtensions = sanitizeWorkerExtensions(config.workerExtensions, warn);
 		if (config.contextBudget !== undefined && config.pauseThresholdPercent !== undefined) {
 			warn("slate: contextBudget is set — the deprecated pauseThresholdPercent is ignored");
 		}
-		manager = new ThreadManager(store, config);
+		// Fresh resolver AFTER sanitization (reads the cleaned patterns) and per
+		// session_start (a restart re-resolves). Same warn as the sanitizers so a
+		// withheld colliding unit surfaces the same way. First use is later, in a
+		// worker open or a doctrine build — after session_start finishes, so tools
+		// registered during session_start are captured (AD41).
+		resolveWorkerExtensionSet = createWorkerExtensionResolver(pi, () => config.workerExtensions ?? [], warn);
+		manager = new ThreadManager(store, config, () => resolveWorkerExtensionSet());
 		store.restore(ctx);
 	});
 
@@ -104,5 +125,5 @@ export default function (pi: ExtensionAPI) {
 	// order-critical relative to the handlers above (different trigger events).
 	registerOrchestratorFailover(pi, () => manager.getConfig());
 
-	registerSlateMode(pi, store, handoff, () => manager.getConfig());
+	registerSlateMode(pi, store, handoff, () => manager.getConfig(), () => resolveWorkerExtensionSet());
 }

@@ -27,6 +27,7 @@ import {
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { orchestratorCostUsd, type SlateConfig, type SlateStore } from "./state.ts";
+import type { WorkerExtensionSet, WorkerExtensionUnit } from "./worker-extensions.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
 
@@ -40,7 +41,47 @@ const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "
  * the file exists (cwd-resolved) — missing files are skipped silently like
  * every other project doc.
  */
-function buildDoctrine(cwd: string, config: SlateConfig, trusted: boolean): string {
+// A source spec that names WHICH extension (e.g. "npm:foo") is worth showing;
+// the generic scope-ish sources are not, so rule 11 falls back to the unit path.
+const UNINFORMATIVE_SOURCES = new Set(["", "auto", "local", "cli", "project", "user", "temporary", "builtin", "sdk"]);
+
+function unitLabel(unit: WorkerExtensionUnit): string {
+	return UNINFORMATIVE_SOURCES.has(unit.source) ? unit.path : unit.source;
+}
+
+// One-line descriptions for the doctrine: collapse all whitespace and truncate
+// to ~140 chars so a verbose tool description cannot bloat the system prompt.
+function oneLineDescription(description: string, max = 140): string {
+	const collapsed = description.replace(/\s+/g, " ").trim();
+	return collapsed.length > max ? `${collapsed.slice(0, max - 1)}\u2026` : collapsed;
+}
+
+/**
+ * Rule 11 (worker-extension awareness): appended ONLY when workers load extra
+ * pi extensions. With no units it returns "" so the doctrine is byte-identical
+ * to the pre-feature output. Rendered in the doctrine's imperative voice; the
+ * orchestrator is told these tools live in the WORKERS, not in itself.
+ */
+function buildWorkerExtensionsRule(extensions: WorkerExtensionSet): string {
+	if (extensions.units.length === 0) return "";
+	const lines = [
+		"11. Worker threads additionally load these pi extensions — you do NOT have",
+		"   their tools yourself; delegate work that needs them to a thread:",
+	];
+	for (const unit of extensions.units) {
+		lines.push(`   - ${unitLabel(unit)}`);
+		for (const tool of unit.tools) {
+			lines.push(`     ${tool.name}: ${oneLineDescription(tool.description)}`);
+		}
+	}
+	lines.push(
+		"   These tools are active in EVERY worker thread, on top of whatever `tools`",
+		"   allowlist you pass to the thread tool.",
+	);
+	return `\n${lines.join("\n")}`;
+}
+
+function buildDoctrine(cwd: string, config: SlateConfig, trusted: boolean, extensions: WorkerExtensionSet): string {
 	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
 	// one of the gates; otherwise durable records live in the workflow log.
 	const rule8Tail =
@@ -92,7 +133,7 @@ threads execute. Rules:
    Read that file only when you must reason about slate itself (explaining
    it, changing the extension, or an unusual routing/compaction decision) —
    never for routine dispatching. Skip the read if it is already in your
-   context.`;
+   context.${buildWorkerExtensionsRule(extensions)}`;
 }
 
 /**
@@ -130,6 +171,7 @@ export function registerSlateMode(
 	store: SlateStore,
 	hooks: SlateHandoffHooks,
 	getConfig: () => SlateConfig,
+	getExtensions: () => WorkerExtensionSet,
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
@@ -229,7 +271,7 @@ export function registerSlateMode(
 		// addendum goes LAST so the pause directive is the final word in the
 		// prompt, undiluted by the role guidelines.
 		const parts = [
-			buildDoctrine(ctx.cwd, config, trusted),
+			buildDoctrine(ctx.cwd, config, trusted, getExtensions()),
 			...loadDoctrineExtra(ctx.cwd, config, trusted).map((d) => `\n\n${d}`),
 			...docs.map((d) => `\n\n${d}`),
 		];
