@@ -10,9 +10,15 @@
  * When the host resolved a `workerExtensions` whitelist (worker-extensions.ts),
  * the loader runs in ALLOWLIST mode: noExtensions STAYS true — so auto-discovery
  * (slate itself included) never runs — while additionalExtensionPaths adds back
- * EXACTLY the resolved units and nothing else. The depth-1 guard survives because
- * the resolver's load-scoped barriers already excluded slate's own package and
- * any name-colliding unit; this file re-checks collisions post-load (RG2 below).
+ * EXACTLY the resolved units and nothing else. The depth-1 guard is STRUCTURAL
+ * (SE20): createAgentSession is given an excludeTools denylist of slate's
+ * dispatch tools (thread/threads/episode), and the SDK re-applies that denylist
+ * on every tool-registry refresh, so no worker can call them no matter when or
+ * by whom they are registered — even a deferred before_agent_start registration.
+ * The resolver's load-scoped barriers plus a best-effort post-load scan (RG2
+ * below) additionally reject a unit that shadows a pi BUILT-IN at load time; a
+ * deferred built-in shadow cannot be prevented from slate's side, exactly as it
+ * cannot be for any extension in the host session.
  * Load units are ABSOLUTE paths (package directories or entry files), NEVER npm/
  * git specs (AD20): a spec resolves at temporary scope against a separate install
  * root, which would not reuse the host's installed copy and would attempt a
@@ -34,6 +40,7 @@ import {
 	SettingsManager,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { sanitizeForNotify } from "./notify.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
@@ -125,8 +132,12 @@ export async function openWorkerSession(opts: {
 	// are never injected into worker prompts for untrusted projects.
 	const promptDocs = ctx.isProjectTrusted() ? loadPromptDocs(ctx.cwd, opts.promptDocs ?? []) : [];
 	// Absolute load units resolved by the host (worker-extensions.ts); empty =
-	// feature off, the historical no-extensions worker.
-	const extensionPaths = opts.extensionPaths ?? [];
+	// feature off, the historical no-extensions worker. Defense in depth (CQ23):
+	// re-gate on project trust here even though the config that produced these
+	// paths is itself only loaded for trusted projects (index.ts) — an untrusted
+	// project must never load extensions into a worker, whatever a future caller
+	// passes.
+	const extensionPaths = ctx.isProjectTrusted() ? (opts.extensionPaths ?? []) : [];
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
 		agentDir,
@@ -153,9 +164,11 @@ export async function openWorkerSession(opts: {
 		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
 		const loaded = loader.getExtensions();
 		// A whitelisted extension that failed to load must not vanish silently —
-		// surface every loader error naming the path (missing path, parse/throw, …).
+		// surface every loader error naming the path. Paths and messages are
+		// extension-supplied and flow to the UI, the console and the persisted
+		// episode, so sanitize them (SE22) like every other displayed string.
 		for (const err of loaded.errors ?? []) {
-			warn(`slate: worker extension failed to load — ${err.path}: ${err.error}`);
+			warn(`slate: worker extension failed to load — ${sanitizeForNotify(String(err.path))}: ${sanitizeForNotify(String(err.error))}`);
 		}
 		// Collect the tool names each loaded extension actually registered. Loose
 		// cast + Map guard: tolerate a malformed extensions/tools shape (state.ts
@@ -167,14 +180,21 @@ export async function openWorkerSession(opts: {
 			for (const name of e.tools.keys()) {
 				if (typeof name !== "string" || name === "") continue;
 				extensionToolNames.push(name);
-				// POST-LOAD COLLISION RE-CHECK (RG2): the host registry the resolver saw
-				// cannot reveal a tool an extension registers only CONDITIONALLY, and
-				// pi's tool registry lets an extension tool OVERWRITE a same-named
-				// built-in — so a worker's `read` could silently become someone else's.
-				// Fail the dispatch CLOSED rather than run that worker.
+				// LOAD-TIME collision scan (RG2), BEST-EFFORT: it sees only what the
+				// extensions registered DURING loader.reload(). A deferred registration
+				// (e.g. from a before_agent_start handler on the worker's first prompt)
+				// is invisible here — and is equally available to any extension the host
+				// session runs, so it is outside slate's control. slate's OWN invariant
+				// does NOT rely on this scan: thread/threads/episode are denied
+				// structurally by the excludeTools denylist on createAgentSession below
+				// (re-applied on every tool-registry refresh), so no worker can call them
+				// whenever they are registered. For a pi BUILT-IN there is no such
+				// gap-closer (the worker needs the real built-in), so this scan catches a
+				// LOAD-TIME shadow and fails the dispatch closed; a deferred shadow cannot
+				// be prevented.
 				if (SLATE_TOOL_NAMES.includes(name) || PI_BUILTIN_TOOL_NAMES.includes(name)) {
 					const path = typeof e.path === "string" ? e.path : "extension";
-					collisions.push(`${path} → "${name}"`);
+					collisions.push(`${sanitizeForNotify(path)} → "${sanitizeForNotify(name)}"`);
 				}
 			}
 		}
@@ -220,6 +240,13 @@ export async function openWorkerSession(opts: {
 		tools: [
 			...new Set([...(opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS), ...extensionToolNames]),
 		],
+		// STRUCTURAL depth-1 guard (SE20): slate's dispatch tools are denied to EVERY
+		// worker session. excludeTools applies AFTER the allowlist and the SDK
+		// re-applies it on every tool-registry refresh, so a tool named
+		// thread/threads/episode is filtered out no matter when it is registered
+		// (including a deferred before_agent_start registration) — a worker can never
+		// re-enter the orchestrator's dispatch surface (D7).
+		excludeTools: SLATE_TOOL_NAMES,
 		resourceLoader: loader,
 		sessionManager,
 		settingsManager,

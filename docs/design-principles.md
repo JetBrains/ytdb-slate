@@ -173,13 +173,13 @@ never existed for them. The optional `workerExtensions` key (`slate.json`,
 trusted projects only — see the README config reference) relaxes that: it
 whitelists extensions the host session has ALREADY loaded and loads them
 into every worker. The guard therefore no longer rests on "workers load
-nothing" but on a narrower, honestly-stated invariant: no worker can ever
+nothing" but on a narrower, more precise invariant: no worker can ever
 obtain SLATE's dispatch tools (`thread`/`threads`/`episode`).
 
 Three load-scoped barriers buy that invariant, all applied per LOAD UNIT
 — the owning package directory when the extension is package-originated
-and that package's manifest declares its pi entries, otherwise the
-extension's own entry file:
+and the package's declared entries provably match what the host loaded
+(BG20, below), otherwise the extension's own entry file:
 
 1. Only whitelisted units load, through pi's resource loader in allowlist
    mode; a worker's extension set is exactly the allowlist and no
@@ -203,10 +203,32 @@ flags all go live on load, so once a unit has loaded its side effects have
 already run and dropping its tools afterwards would leave its handlers and
 flags active. Dropping the whole unit before it loads is the only clean
 cut — which is also why barrier 3 rejects a colliding unit entirely
-instead of suppressing just the offending tool. (Because handing pi the
-package directory lets pi's own manifest resolution expand the declared
-entries — globs and override forms included — companion entries that
-register no tools load alongside the tool-bearing one.)
+instead of suppressing just the offending tool. (A package directory is
+handed to pi whole — letting pi's own manifest resolution expand it, so
+no-tool companion entries load alongside the tool-bearing ones — only when
+the manifest's declared entries are ALL literal relative paths AND the
+host loaded every one of them. A glob or override-form entry, or a host
+running only a filtered subset, fails that equivalence check and drops the
+unit to exactly the entry files the host loaded; that fallback loses the
+package's no-tool companion entries, since an entry that registered no
+tool cannot be shown to be running.)
+
+That collision barrier is best-effort and load-time only: it runs before a
+unit loads, against its tools as the HOST registry reports them, and once
+more after the load, against the tools the units actually registered — a
+post-load collision fails the dispatch CLOSED rather than opening the
+worker. Neither pass can see a tool an extension registers only LATER, on
+the worker's first turn (a `before_agent_start` handler, say). Slate's own
+dispatch tools do not depend on that scan: `createAgentSession` is given
+an `excludeTools` denylist of `thread`/`threads`/`episode` that pi applies
+AFTER the tool allowlist and re-applies on every tool-registry refresh, so
+they can never be active in a worker no matter when or by whom they are
+registered — a deferred registration included. A deferred registration
+that shadows a pi BUILT-IN (`read`, `bash`, …) has no such gap-closer —
+the worker needs the real built-in — so it stays outside Slate's control,
+exactly as available to any extension the host session runs. The guard
+bounds Slate's dispatch tools, not every tool an extension might register
+at runtime.
 
 The orchestrator does NOT get the whitelisted tools; orchestrator mode
 keeps its restricted set. Instead its doctrine gains a rule listing each

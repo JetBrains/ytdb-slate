@@ -114,9 +114,11 @@ export class ThreadManager {
 	constructor(
 		private store: SlateStore,
 		private config: SlateConfig,
-		// The frozen worker-extension set (AD41), read lazily per new worker. Defaults
-		// to the empty-set function so existing construction sites and test harnesses
-		// keep working with the feature off.
+		// This session's frozen worker-extension resolver (AD41), bound BY VALUE at
+		// construction (CN20) so a manager orphaned by a session swap keeps its own
+		// session's set instead of resolving against a later one's. Read lazily per
+		// new worker. Defaults to the empty-set function so existing construction
+		// sites and test harnesses keep working with the feature off.
 		private resolveExtensions: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET,
 	) {
 		this.semaphore = new Semaphore(config.maxConcurrent ?? 4); // default rationale: docs/design-principles.md §5 repo-local note

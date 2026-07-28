@@ -76,13 +76,15 @@ function loadConfig(cwd: string): SlateConfig {
 export default function (pi: ExtensionAPI) {
 	const store = new SlateStore(pi);
 	// One worker-extension resolver per session (AD41), reassigned every
-	// session_start below. Consumers reach it ONLY through the
-	// `() => resolveWorkerExtensionSet()` indirection, never by capturing the
-	// resolver value: registerSlate* run once at load while this var is replaced
-	// per session, so a captured value would go stale and break the freeze-per-
-	// session guarantee. Starts as the empty set (feature off) until session_start.
+	// session_start below. The DOCTRINE consumer (registerSlateMode) reads it
+	// through the live `() => resolveWorkerExtensionSet()` indirection because it
+	// always belongs to the CURRENT session. ThreadManager instead binds the
+	// resolver instance BY VALUE at construction (CN20): a manager orphaned by a
+	// session swap must keep resolving against ITS OWN session's frozen set, not a
+	// later session's — the live indirection would leak the newer set into the
+	// stale manager. Starts as the empty set (feature off) until session_start.
 	let resolveWorkerExtensionSet: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET;
-	let manager = new ThreadManager(store, {}, () => resolveWorkerExtensionSet());
+	let manager = new ThreadManager(store, {}, resolveWorkerExtensionSet);
 
 	registerSlateTools(pi, store, () => manager);
 
@@ -107,7 +109,9 @@ export default function (pi: ExtensionAPI) {
 		// worker open or a doctrine build — after session_start finishes, so tools
 		// registered during session_start are captured (AD41).
 		resolveWorkerExtensionSet = createWorkerExtensionResolver(pi, () => config.workerExtensions ?? [], warn);
-		manager = new ThreadManager(store, config, () => resolveWorkerExtensionSet());
+		// Bound BY VALUE (CN20): this manager keeps this session's resolver even if a
+		// later session_start replaces the module variable above.
+		manager = new ThreadManager(store, config, resolveWorkerExtensionSet);
 		store.restore(ctx);
 	});
 

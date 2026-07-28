@@ -49,34 +49,55 @@ function unitLabel(unit: WorkerExtensionUnit): string {
 	return UNINFORMATIVE_SOURCES.has(unit.source) ? unit.path : unit.source;
 }
 
-// One-line descriptions for the doctrine: collapse all whitespace and truncate
-// to ~140 chars so a verbose tool description cannot bloat the system prompt.
-function oneLineDescription(description: string, max = 140): string {
-	const collapsed = description.replace(/\s+/g, " ").trim();
-	return collapsed.length > max ? `${collapsed.slice(0, max - 1)}\u2026` : collapsed;
+// Per-field caps for the doctrine interpolations (WB21): a tool name is an
+// identifier, a unit label is a package spec or path, a description is a
+// sentence. Caps keep a pathological 2000-char value from bloating every turn.
+const DOCTRINE_NAME_MAX = 64;
+const DOCTRINE_LABEL_MAX = 128;
+const DOCTRINE_DESC_MAX = 140;
+
+// ONE sanitizer for every extension-supplied string interpolated into the
+// orchestrator doctrine — tool names, unit labels and descriptions (WB20/WB21/
+// WB22). The doctrine is a numbered, indented plain-text block inside the
+// system prompt, so a raw value must not be able to: (WB20) inject a newline
+// that forges a new numbered directive; (WB21) run on for thousands of
+// characters; or (WB22) carry backticks/markdown that break the block's
+// structure or read as an instruction. Control characters and newlines collapse
+// to spaces, backticks and markdown structural markers are dropped, remaining
+// whitespace is collapsed, and the result is capped with an ellipsis.
+function sanitizeForDoctrine(value: string, max: number): string {
+	const cleaned = value
+		.replace(/[\u0000-\u001f\u007f\u009b]/g, " ") // control chars + newlines → space (WB20)
+		.replace(/[`*_~#>|]/g, " ") // code fences / markdown structure → space (WB22)
+		.replace(/\s+/g, " ")
+		.trim();
+	return cleaned.length > max ? `${cleaned.slice(0, max - 1)}\u2026` : cleaned;
 }
 
 /**
  * Rule 11 (worker-extension awareness): appended ONLY when workers load extra
  * pi extensions. With no units it returns "" so the doctrine is byte-identical
- * to the pre-feature output. Rendered in the doctrine's imperative voice; the
- * orchestrator is told these tools live in the WORKERS, not in itself.
+ * to the pre-feature output (feature-off is unchanged). Phrased to match the
+ * imperative register of rules 1–10 (WS20/WS21/WS22): it LEADS with the action
+ * (delegate to a thread), states the constraint in the doctrine's own "cannot"
+ * voice, and CLOSES with an instruction. The extension/tool listing in the
+ * middle is data and renders verbatim.
  */
 function buildWorkerExtensionsRule(extensions: WorkerExtensionSet): string {
 	if (extensions.units.length === 0) return "";
 	const lines = [
-		"11. Worker threads additionally load these pi extensions — you do NOT have",
-		"   their tools yourself; delegate work that needs them to a thread:",
+		"11. Delegate any action that needs one of these worker-loaded pi extensions to a",
+		"   thread; you cannot call their tools yourself:",
 	];
 	for (const unit of extensions.units) {
-		lines.push(`   - ${unitLabel(unit)}`);
+		lines.push(`   - ${sanitizeForDoctrine(unitLabel(unit), DOCTRINE_LABEL_MAX)}`);
 		for (const tool of unit.tools) {
-			lines.push(`     ${tool.name}: ${oneLineDescription(tool.description)}`);
+			lines.push(`     ${sanitizeForDoctrine(tool.name, DOCTRINE_NAME_MAX)}: ${sanitizeForDoctrine(tool.description, DOCTRINE_DESC_MAX)}`);
 		}
 	}
 	lines.push(
-		"   These tools are active in EVERY worker thread, on top of whatever `tools`",
-		"   allowlist you pass to the thread tool.",
+		"   Assume every worker already has them — you need not pass them in a thread's",
+		"   `tools` allowlist.",
 	);
 	return `\n${lines.join("\n")}`;
 }

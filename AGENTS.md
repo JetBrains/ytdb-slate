@@ -31,6 +31,13 @@ This repo runs slate on itself:
 - Run it with `bash verification/run-ladder.sh --repo .` (~3 min; `--only <ids>` for a subset). Not as root, and needs GNU coreutils. Exit 0 means nothing failed and the real settings file is unchanged — rungs can still report NOT RUN, so read the lines; automation should pass `--strict`, which makes any NOT RUN fatal.
 - **Re-run it after any change to `extension/model-default.ts` or to either switch site** — that mechanism fails silently when it regresses, so a passing smoke test proves nothing about it. Details, rung table and the timing-sensitive rungs: `verification/README.md`.
 
+### Worker-extension resolver checks
+
+`verification/run-resolver-checks.sh` is the automated net for the worker-extension feature: the pure resolver in `extension/worker-extensions.ts` (candidate filtering, load-unit selection, barriers, matching, memoization) and the doctrine rule it feeds in `extension/mode.ts`. It runs the real code against fabricated in-memory registries — no pi session, no real state — in ~1 second.
+
+- Run it with `bash verification/run-resolver-checks.sh --repo .` (needs `pi` and `node` on `PATH`). One line per check; exit 0 = all passed, 1 = a check failed.
+- **Re-run it after any change to `extension/worker-extensions.ts` or either of its consumers (`extension/worker.ts`, `extension/mode.ts`).** Details and the check table: `verification/README.md`.
+
 ## Packaging rules
 
 - Pi-bundled SDK packages (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `typebox`) must stay in `peerDependencies` with version `"*"` — never bundle them.

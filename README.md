@@ -99,7 +99,7 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
 
 > **Silent skip:** the project-file keys fail silently — no error is shown. For the content-injected keys (`orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`) a missing, unreadable, or empty file is skipped and nothing is injected. For `reviewPerspectivesPath` the pointer is omitted only when the file is missing — the file is not read at injection time, so an unreadable or empty file is still cited. Verify your paths after copying the example.
 
-**Worker extensions (`workerExtensions`).** By default worker threads load no extensions. This key is a list of regex patterns that select extensions the **host session has already loaded** and load them into every worker too. Each pattern is matched **unanchored** (unlike `contextBudget.overrides`, which is anchored) against a loaded extension's recorded source spec (e.g. `npm:pi-web-search@1.3.1`), its absolute entry path, and its load-unit path, so a bare package name matches:
+**Worker extensions (`workerExtensions`).** By default worker threads load no extensions. This key is a list of regex patterns that select extensions the **host session has already loaded** and load them into every worker too. Each pattern is matched **unanchored** (unlike `contextBudget.overrides`, which is anchored) against a load unit's recorded source spec (e.g. `npm:pi-web-search@1.3.1`), its load-unit path, or the entry path of any tool that unit contributes, so a bare package name matches:
 
 ```json
 {
@@ -116,6 +116,7 @@ Every worker then gets the fetch and web-search tools **on top of** `workerTools
 - **Unsynced model-scoped tools.** Worker sessions never fire the session-start event, so an extension whose tool set is model-scoped stays unsynced and may offer a tool the worker's model cannot serve (e.g. pi-web-search's `url_context` on a non-Google worker model) — the call simply fails and the episode records it.
 - **Abort.** A third-party extension may ignore the abort signal, so its network activity can outlive an abort or a context-budget pause.
 - **Cost.** Provider-native tool billing can escape Slate's worker cost accounting.
+- **Pathological patterns.** The patterns are regexes from your own trusted config — the same file that already steers models, prompts, and tool lists — matched with no time bound while the extension set is resolved once per session. A pattern with catastrophic backtracking can stall that resolution; treat it as a footgun to avoid, not a privilege boundary.
 
 The load-time recursion guard behind this — and the risks it does and does not cover — is in [`docs/design-principles.md`](docs/design-principles.md).
 

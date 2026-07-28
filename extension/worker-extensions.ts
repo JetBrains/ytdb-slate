@@ -56,9 +56,10 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { sanitizeForNotify } from "./notify.ts";
 
 export interface WorkerExtensionTool {
 	name: string;
@@ -81,9 +82,15 @@ export interface WorkerExtensionSet {
 /**
  * The empty result — the off-by-default state. Shared so every consumer's
  * feature-off path (index.ts's initial resolver, ThreadManager's default,
- * the fast paths below) allocates nothing meaningful. Read-only by contract.
+ * the fast paths below) allocates nothing meaningful. DEEP-FROZEN (CQ22) so a
+ * stray `.push`/reassignment from any one consumer cannot corrupt the object
+ * every other feature-off consumer reads.
  */
-export const EMPTY_WORKER_EXTENSION_SET: WorkerExtensionSet = { units: [], paths: [], toolNames: [] };
+export const EMPTY_WORKER_EXTENSION_SET: WorkerExtensionSet = Object.freeze({
+	units: Object.freeze([]),
+	paths: Object.freeze([]),
+	toolNames: Object.freeze([]),
+}) as unknown as WorkerExtensionSet;
 
 /** Slate's own model-facing tools — a unit registering any of these is withheld (AD44/RG2). */
 export const SLATE_TOOL_NAMES = ["thread", "threads", "episode"];
@@ -102,14 +109,6 @@ const COLLISION_NAMES = new Set([...SLATE_TOOL_NAMES, ...PI_BUILTIN_TOOL_NAMES])
  * resolve to a different slate copy than the one executing).
  */
 const SLATE_PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-
-// Warnings can carry user-authored regex strings and reach ctx.ui.notify, and
-// pi-tui renders control/ANSI codes verbatim — strip control characters and cap
-// length before display (same pattern as failover.ts's sanitizeForNotify).
-function sanitizeForNotify(s: string, max = 120): string {
-	const clean = s.replace(/[\u0000-\u001f\u007f\u009b]/g, "");
-	return clean.length > max ? `${clean.slice(0, max)}…` : clean;
-}
 
 /**
  * Separator-aware containment: true iff `child` is `parent` or lies under it.
@@ -152,26 +151,60 @@ interface WorkingUnit {
 	toolPaths: string[];
 }
 
+/** The `pi.extensions` array from a package.json, or undefined when absent/invalid/not a manifest. */
+type ManifestEntries = string[] | undefined;
+
 /**
- * RG1: the DIRECTORY load unit for a candidate, or undefined for a file unit.
- * Requires a package-origin sourceInfo whose baseDir holds a package.json that
- * parses and declares a `pi.extensions` ARRAY. Anything short of that — wrong
- * origin, no baseDir, missing/unreadable/invalid manifest, no extensions array
- * — falls back to the file unit. Parent directories are never consulted.
+ * Read and parse <baseDir>/package.json, returning its `pi.extensions` array.
+ * CACHED per directory for the whole resolution (CQ21 — the manifest was
+ * previously re-read and re-parsed once per candidate tool). undefined when the
+ * file is missing, unreadable, invalid JSON, or lacks a `pi.extensions` array.
  */
-function packageBaseDir(info: LooseSourceInfo): string | undefined {
+function readPackageExtensions(baseDir: string, cache: Map<string, ManifestEntries>): ManifestEntries {
+	if (cache.has(baseDir)) return cache.get(baseDir);
+	let entries: ManifestEntries;
+	const manifest = join(baseDir, "package.json");
+	if (existsSync(manifest)) {
+		try {
+			const parsed = JSON.parse(readFileSync(manifest, "utf8")) as { pi?: { extensions?: unknown } } | null;
+			const ext = parsed?.pi?.extensions;
+			if (Array.isArray(ext)) entries = ext as string[];
+		} catch {
+			/* unreadable/invalid manifest → undefined (fall back to file units) */
+		}
+	}
+	cache.set(baseDir, entries);
+	return entries;
+}
+
+/**
+ * RG1: is `info` a package-origin tool whose baseDir carries a valid extension
+ * manifest? Returns that baseDir (a directory-unit CANDIDATE) or undefined (a
+ * file unit). Whether the directory form is actually USED is decided later by
+ * the BG20 equivalence check, once all candidates are known. Anything short of
+ * a package origin with a `pi.extensions` manifest — wrong origin, no baseDir,
+ * missing/unreadable/invalid manifest — is a file unit. Parents are never
+ * consulted.
+ */
+function packageBaseDir(info: LooseSourceInfo, cache: Map<string, ManifestEntries>): string | undefined {
 	if (info.origin !== "package") return undefined;
 	const baseDir = info.baseDir;
 	if (typeof baseDir !== "string" || baseDir === "") return undefined;
-	const manifest = join(baseDir, "package.json");
-	if (!existsSync(manifest)) return undefined;
-	try {
-		const parsed = JSON.parse(readFileSync(manifest, "utf8")) as { pi?: { extensions?: unknown } } | null;
-		if (Array.isArray(parsed?.pi?.extensions)) return baseDir;
-	} catch {
-		/* unreadable/invalid manifest → fall back to the file unit */
-	}
-	return undefined;
+	return readPackageExtensions(baseDir, cache) !== undefined ? baseDir : undefined;
+}
+
+/**
+ * BG20: a manifest entry is safe to hand to pi via the DIRECTORY form only if it
+ * is a plain literal relative path — no glob metacharacters and none of the
+ * !/+/- override prefixes pi's manifest matcher understands. A glob can expand
+ * differently in the worker than it did in the host, and an override prefix
+ * changes which declared entries load; either way the directory form risks
+ * loading a SUPERSET of what the host runs, so such a unit falls back to
+ * explicit file units.
+ */
+function isLiteralManifestEntry(entry: string): boolean {
+	if (entry === "" || /^[!+\-]/.test(entry)) return false;
+	return !/[*?[\]{}()!]/.test(entry);
 }
 
 /**
@@ -218,6 +251,9 @@ export function resolveWorkerExtensions(
 ): WorkerExtensionSet {
 	if (patterns.length === 0) return EMPTY_WORKER_EXTENSION_SET;
 
+	// One manifest read per package directory for this whole resolution (CQ21).
+	const manifestCache = new Map<string, ManifestEntries>();
+
 	// 1. CANDIDATES (AD25): extension-owned tools with a real on-disk entry path.
 	const candidates: Candidate[] = [];
 	for (const raw of pi.getAllTools()) {
@@ -231,17 +267,39 @@ export function resolveWorkerExtensions(
 		const name = typeof tool.name === "string" ? tool.name : "";
 		if (name === "") continue;
 		const description = typeof tool.description === "string" ? tool.description : "";
-		candidates.push({ name, description, source, path, baseDir: packageBaseDir(info) });
+		candidates.push({ name, description, source, path, baseDir: packageBaseDir(info, manifestCache) });
 	}
 	if (candidates.length === 0) return EMPTY_WORKER_EXTENSION_SET;
 
-	// 2/3. GROUP candidates into units. Directory units (RG1) come first; a
-	// candidate whose entry path lies inside a directory unit joins it (most
-	// specific wins), everything else becomes a file unit keyed by its own path.
+	// 2. DIRECTORY UNITS (RG1 + BG20): a package baseDir becomes a directory unit
+	// — handed to pi WHOLE so pi's own manifest resolution expands the entries —
+	// ONLY when that is provably equivalent to what the host loaded: every manifest
+	// entry is a literal relative path AND every one of them is an entry the host
+	// actually loaded (a tool we saw). Otherwise the host may be running a filtered
+	// subset (a settings package entry can carry its own extensions filter) or a
+	// glob could expand differently in the worker, so the unit falls back to file
+	// units below. TRADE-OFF: the fallback drops a package's no-tool companion
+	// entries — correct, because an entry that registered no tool is one we cannot
+	// prove the host is running.
 	const dirUnits: string[] = [];
+	const seenDirs = new Set<string>();
 	for (const c of candidates) {
-		if (c.baseDir && !dirUnits.includes(c.baseDir)) dirUnits.push(c.baseDir);
+		if (!c.baseDir || seenDirs.has(c.baseDir)) continue;
+		seenDirs.add(c.baseDir);
+		const baseDir = c.baseDir;
+		const entries = readPackageExtensions(baseDir, manifestCache);
+		if (!entries || entries.length === 0) continue;
+		const loadedEntryPaths = new Set(candidates.filter((o) => pathContains(baseDir, o.path)).map((o) => resolve(o.path)));
+		const equivalent = entries.every(
+			(e) => typeof e === "string" && isLiteralManifestEntry(e) && loadedEntryPaths.has(resolve(baseDir, e)),
+		);
+		if (equivalent) dirUnits.push(baseDir);
 	}
+
+	// 3. GROUP candidates into units. A candidate whose entry path lies inside a
+	// validated directory unit joins it (most specific wins); everything else
+	// (including candidates whose package failed the BG20 check) becomes a file
+	// unit keyed by its own path.
 	const working = new Map<string, WorkingUnit>();
 	for (const c of candidates) {
 		let unitPath: string | undefined;

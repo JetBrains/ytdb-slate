@@ -42,6 +42,7 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
+import { sanitizeForNotify } from "./notify.ts";
 import {
 	orchestratorCostUsd,
 	type ContextBudgetObject,
@@ -92,15 +93,6 @@ export interface SlateHandoffHooks {
 
 function pendingFile(cwd: string): string {
 	return join(cwd, CONFIG_DIR_NAME, "slate", "pending-handoff.json");
-}
-
-// Strings from the pending file (and error messages derived from them) reach
-// ctx.ui.notify, and pi-tui renders control/ANSI codes verbatim — a seeded
-// pending file could inject terminal escapes. Strip control characters and
-// cap the length before display.
-function sanitizeForNotify(s: string, max = 120): string {
-	const clean = s.replace(/[\u0000-\u001f\u007f\u009b]/g, "");
-	return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
 
 // Console-first reporting for the model-adoption block below, and for FAILURES

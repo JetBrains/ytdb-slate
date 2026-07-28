@@ -27,17 +27,10 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
+import { sanitizeForNotify } from "./notify.ts";
 import type { SlateConfig } from "./state.ts";
 
 type RegistryModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
-
-// Error messages reach ctx.ui.notify, and pi-tui renders control/ANSI codes
-// verbatim — strip control characters and cap length before display (same
-// pattern as handoff.ts's sanitizeForNotify).
-function sanitizeForNotify(s: string, max = 120): string {
-	const clean = s.replace(/[\u0000-\u001f\u007f\u009b]/g, "");
-	return clean.length > max ? `${clean.slice(0, max)}…` : clean;
-}
 
 // Console-first reporting, for FAILURES ONLY: the console line is
 // unconditional, so a failover that could not happen still surfaces in
