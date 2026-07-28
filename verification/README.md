@@ -431,3 +431,67 @@ Also expected, and not a harness problem:
   `verification: cannot create …` abort — that is a guard doing its job.
 - The default scratch directory is **kept**, not cleaned up, and so is a reused
   `--lab`. Old `out/` artifacts survive; see § Requirements and hard constraints.
+
+# Worker-extension resolver checks — `run-resolver-checks.sh`
+
+A second, much smaller net, for a different mechanism: the worker-extension
+resolver in `extension/worker-extensions.ts` and the doctrine rule it feeds in
+`extension/mode.ts`. The ladder above covers only the model-default machinery
+and says nothing about this feature.
+
+Unlike the ladder, this pipeline is **pure and deterministic** — it maps a host
+tool registry and a list of regex patterns to a set of load units — so the
+checks need no pi session and no real state at all. They run the real resolver
+and the real doctrine builder (loaded through the jiti that ships with pi,
+because node's strip-only TypeScript mode cannot load `state.ts`'s constructor
+parameter property) against **fabricated in-memory registries** and temp-dir
+package fixtures, and assert the observable result.
+
+## Running it
+
+```sh
+bash verification/run-resolver-checks.sh --repo .   # ~1 s; --repo defaults to "."
+```
+
+One line per check, then a summary:
+
+```
+CHECK off-inert        PASS — empty pattern list → shared empty set, registry never walked
+CHECK unit-directory   PASS — package with a single literal entry the host runs → the package DIRECTORY is the unit
+== summary: 16 pass, 0 fail ==
+```
+
+Exit status: **0** every check passed · **1** a check failed · **2** refused to
+start (a missing tool, a bad `--repo`, or jiti could not be located). `pi` and
+`node` must be on `PATH`; there is no network and no writing outside a throwaway
+temp dir the script removes on exit.
+
+## What it covers
+
+| id | what it proves |
+| --- | --- |
+| `off-inert` / `off-doctrine` | an empty pattern list resolves to the shared empty set without walking the registry, and the doctrine is byte-identical to the feature-off baseline |
+| `cand-builtin-sdk` / `cand-missing-path` | builtin- and sdk-sourced tools, and a tool whose entry path is absent, are never candidates |
+| `unit-directory` / `unit-glob-fallback` / `unit-unrun-fallback` | a single literal manifest entry the host runs yields the package directory; a glob, or a declared entry the host is not running, fall back to entry-file paths |
+| `bar-self-exclude` / `bar-collision` | a unit under slate's own root is dropped even under `.*`; a unit registering a slate dispatch name or a pi built-in is dropped whole and warned, survivors intact |
+| `match-*` | patterns test unanchored against source spec, unit path and each tool entry path; a non-match yields nothing; an invalid regex is dropped with a warning while its valid siblings apply |
+| `inject-safety` | a newline-bearing tool name, a 2000-char label and a backtick/markdown description all render into the doctrine without breaking its structure or exceeding the caps |
+| `memoization` | the memoizing resolver walks the registry exactly once across repeated calls |
+
+It loads only those two modules, so it does **not** exercise
+`extension/worker.ts`'s worker-session load path — the allowlist-mode extension
+load, the `excludeTools` deny list that structurally keeps slate's dispatch
+tools out of a worker, and the post-load collision re-check. Those need a live
+loader and session, so the manual isolated-load smoke test
+(`pi --no-extensions -e .`, see `AGENTS.md`) covers them instead; a passing run
+here says nothing about them.
+
+## Files
+
+| file | role |
+| --- | --- |
+| `run-resolver-checks.sh` | the entry point: tool checks, jiti location, temp dir, exit code |
+| `resolver-checks.mjs` | the driver: imports the modules through jiti, builds fixtures, runs the checks |
+
+Like the ladder, `verification/` is not shipped (`package.json`'s `files`
+whitelist is `extension`, `docs`, `README.md`, `LICENSE`).

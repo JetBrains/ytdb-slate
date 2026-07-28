@@ -163,8 +163,12 @@ function stripControlChars(s: string): string {
 	return s.replace(/[\u0000-\u001f\u007f\u009b]/g, "");
 }
 
-// Per-FRAGMENT sanitizer for text spliced into a message — same pattern and
-// same 120-char default as failover.ts / handoff.ts's sanitizeForNotify.
+// Per-FRAGMENT sanitizer for text spliced into a message: the same logic as the
+// shared helper in notify.ts (control-char strip + 120-char cap), kept LOCAL on
+// purpose. This module also needs the bare stripControlChars primitive above for
+// truncateForReport's word-boundary report cap, which notify.ts does not
+// provide; keeping the fragment cap here lets both caps share that one strip
+// primitive rather than importing one function and re-deriving its dependency.
 function sanitizeForNotify(s: string, max = 120): string {
 	const clean = stripControlChars(s);
 	return clean.length > max ? `${clean.slice(0, max)}…` : clean;

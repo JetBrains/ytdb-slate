@@ -16,6 +16,7 @@ import { compressEpisode } from "./episodes.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 import type { EpisodeRecord, SlateConfig, SlateStore, ThreadRecord } from "./state.ts";
 import { openWorkerSession, type WorkerSession } from "./worker.ts";
+import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 
 export interface DispatchOptions {
 	threadId?: string;
@@ -113,6 +114,12 @@ export class ThreadManager {
 	constructor(
 		private store: SlateStore,
 		private config: SlateConfig,
+		// This session's frozen worker-extension resolver (AD41), bound BY VALUE at
+		// construction (CN20) so a manager orphaned by a session swap keeps its own
+		// session's set instead of resolving against a later one's. Read lazily per
+		// new worker. Defaults to the empty-set function so existing construction
+		// sites and test harnesses keep working with the feature off.
+		private resolveExtensions: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET,
 	) {
 		this.semaphore = new Semaphore(config.maxConcurrent ?? 4); // default rationale: docs/design-principles.md §5 repo-local note
 	}
@@ -272,12 +279,17 @@ export class ThreadManager {
 
 			session = this.live.get(thread.id);
 			if (!session) {
+				// A NEW session gets the CURRENT frozen worker-extension set. A LIVE
+				// cached session (reused when present) keeps whatever set it was opened
+				// with — which is precisely why the resolution is frozen per session
+				// (AD41): every worker in this session then shares one extension set.
 				session = await openWorkerSession({
 					ctx,
 					sessionFile: thread.sessionFile || undefined,
 					model: thread.model,
 					tools: opts.tools ?? this.config.workerTools,
 					promptDocs: this.config.workerPromptDocs,
+					extensionPaths: this.resolveExtensions().paths,
 				});
 				this.live.set(thread.id, session);
 				// A freshly opened session starts on its configured model — drop any

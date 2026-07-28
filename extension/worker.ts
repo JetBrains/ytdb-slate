@@ -1,11 +1,29 @@
 /**
  * Worker sessions: in-process pi SDK AgentSessions with the recursion guard.
  *
- * A worker loads NO extensions, skills, prompt templates, or themes
- * (DefaultResourceLoader no* options) — so a worker can never see slate tools
- * (ExecPlan D7, depth-1 guard) — and inherits the HOST session's project-trust
- * state via an explicit SettingsManager, so untrusted projects get neither
- * project-local settings nor the project SYSTEM.md override in workers.
+ * A worker loads NO skills, prompt templates, or themes (DefaultResourceLoader
+ * no* options), and by default NO extensions either — so a worker can never see
+ * slate tools (ExecPlan D7, depth-1 guard). It inherits the HOST session's
+ * project-trust state via an explicit SettingsManager, so untrusted projects get
+ * neither project-local settings nor the project SYSTEM.md override in workers.
+ *
+ * When the host resolved a `workerExtensions` whitelist (worker-extensions.ts),
+ * the loader runs in ALLOWLIST mode: noExtensions STAYS true — so auto-discovery
+ * (slate itself included) never runs — while additionalExtensionPaths adds back
+ * EXACTLY the resolved units and nothing else. The depth-1 guard is STRUCTURAL
+ * (SE20): createAgentSession is given an excludeTools denylist of slate's
+ * dispatch tools (thread/threads/episode), and the SDK re-applies that denylist
+ * on every tool-registry refresh, so no worker can call them no matter when or
+ * by whom they are registered — even a deferred before_agent_start registration.
+ * The resolver's load-scoped barriers plus a best-effort post-load scan (RG2
+ * below) additionally reject a unit that shadows a pi BUILT-IN at load time; a
+ * deferred built-in shadow cannot be prevented from slate's side, exactly as it
+ * cannot be for any extension in the host session.
+ * Load units are ABSOLUTE paths (package directories or entry files), NEVER npm/
+ * git specs (AD20): a spec resolves at temporary scope against a separate install
+ * root, which would not reuse the host's installed copy and would attempt a
+ * network install.
+ *
  * Worker conversations persist under
  * <config dir>/slate/threads/*.jsonl (CONFIG_DIR_NAME, ".pi" by default)
  * and are reopened via SessionManager.open.
@@ -22,7 +40,9 @@ import {
 	SettingsManager,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { sanitizeForNotify } from "./notify.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 
@@ -58,6 +78,7 @@ export async function openWorkerSession(opts: {
 	model?: string; // "provider/id"
 	tools?: string[];
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
+	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
 	const dir = threadsDir(ctx.cwd);
@@ -110,17 +131,80 @@ export async function openWorkerSession(opts: {
 	// joins appendSystemPrompt entries with "\n\n". Trust gate: project files
 	// are never injected into worker prompts for untrusted projects.
 	const promptDocs = ctx.isProjectTrusted() ? loadPromptDocs(ctx.cwd, opts.promptDocs ?? []) : [];
+	// Absolute load units resolved by the host (worker-extensions.ts); empty =
+	// feature off, the historical no-extensions worker. Defense in depth (CQ23):
+	// re-gate on project trust here even though the config that produced these
+	// paths is itself only loaded for trusted projects (index.ts) — an untrusted
+	// project must never load extensions into a worker, whatever a future caller
+	// passes.
+	const extensionPaths = ctx.isProjectTrusted() ? (opts.extensionPaths ?? []) : [];
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
 		agentDir,
 		settingsManager,
-		noExtensions: true, // recursion guard (D7)
+		// Recursion guard (D7): auto-discovery stays OFF. additionalExtensionPaths
+		// runs the loader in allowlist mode — noExtensions keeps every
+		// auto-discovered extension out (slate included) while these absolute units
+		// are the only ones added back (AD20 — see the module header on why paths,
+		// never specs). undefined when empty so the default worker is untouched.
+		noExtensions: true,
+		additionalExtensionPaths: extensionPaths.length > 0 ? extensionPaths : undefined,
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
 		appendSystemPrompt: [WORKER_PREAMBLE, ...promptDocs],
 	});
 	await loader.reload();
+
+	// Extension tool names actually registered by the whitelisted units — needed
+	// both for the collision re-check and for the tools allowlist below. Stays
+	// empty (and this whole block is skipped) unless a whitelist was resolved.
+	const extensionToolNames: string[] = [];
+	if (extensionPaths.length > 0) {
+		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
+		const loaded = loader.getExtensions();
+		// A whitelisted extension that failed to load must not vanish silently —
+		// surface every loader error naming the path. Paths and messages are
+		// extension-supplied and flow to the UI, the console and the persisted
+		// episode, so sanitize them (SE22) like every other displayed string.
+		for (const err of loaded.errors ?? []) {
+			warn(`slate: worker extension failed to load — ${sanitizeForNotify(String(err.path))}: ${sanitizeForNotify(String(err.error))}`);
+		}
+		// Collect the tool names each loaded extension actually registered. Loose
+		// cast + Map guard: tolerate a malformed extensions/tools shape (state.ts
+		// pattern).
+		const collisions: string[] = [];
+		for (const ext of loaded.extensions ?? []) {
+			const e = ext as unknown as { path?: unknown; tools?: unknown };
+			if (!(e.tools instanceof Map)) continue;
+			for (const name of e.tools.keys()) {
+				if (typeof name !== "string" || name === "") continue;
+				extensionToolNames.push(name);
+				// LOAD-TIME collision scan (RG2), BEST-EFFORT: it sees only what the
+				// extensions registered DURING loader.reload(). A deferred registration
+				// (e.g. from a before_agent_start handler on the worker's first prompt)
+				// is invisible here — and is equally available to any extension the host
+				// session runs, so it is outside slate's control. slate's OWN invariant
+				// does NOT rely on this scan: thread/threads/episode are denied
+				// structurally by the excludeTools denylist on createAgentSession below
+				// (re-applied on every tool-registry refresh), so no worker can call them
+				// whenever they are registered. For a pi BUILT-IN there is no such
+				// gap-closer (the worker needs the real built-in), so this scan catches a
+				// LOAD-TIME shadow and fails the dispatch closed; a deferred shadow cannot
+				// be prevented.
+				if (SLATE_TOOL_NAMES.includes(name) || PI_BUILTIN_TOOL_NAMES.includes(name)) {
+					const path = typeof e.path === "string" ? e.path : "extension";
+					collisions.push(`${sanitizeForNotify(path)} → "${sanitizeForNotify(name)}"`);
+				}
+			}
+		}
+		if (collisions.length > 0) {
+			// Thrown BEFORE createAgentSession below, so no worker session is leaked.
+			throw new Error(
+				`slate: refusing to open worker — whitelisted extension(s) register tool(s) that would overwrite a slate or pi built-in tool: ${collisions.join(", ")}`,
+			);
+		}
+	}
 
 	const model = opts.model ? resolveModel(ctx, opts.model) : ctx.model;
 
@@ -148,7 +232,21 @@ export async function openWorkerSession(opts: {
 		// the SDK re-clamp against the CURRENT model instead. "medium" mirrors
 		// the SDK's DEFAULT_THINKING_LEVEL (not exported).
 		thinkingLevel: settingsManager.getDefaultThinkingLevel() ?? "medium",
-		tools: opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS,
+		// workerTools / the per-dispatch `tools` argument govern the BUILT-IN tools
+		// only; pi's allowlist gates extension tools too, so the whitelisted
+		// extensions' registered tool names are unioned in (de-duplicated) — without
+		// this the extensions would load but stay inert (present in the registry,
+		// absent from the active set). A colliding built-in name was rejected above.
+		tools: [
+			...new Set([...(opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS), ...extensionToolNames]),
+		],
+		// STRUCTURAL depth-1 guard (SE20): slate's dispatch tools are denied to EVERY
+		// worker session. excludeTools applies AFTER the allowlist and the SDK
+		// re-applies it on every tool-registry refresh, so a tool named
+		// thread/threads/episode is filtered out no matter when it is registered
+		// (including a deferred before_agent_start registration) — a worker can never
+		// re-enter the orchestrator's dispatch surface (D7).
+		excludeTools: SLATE_TOOL_NAMES,
 		resourceLoader: loader,
 		sessionManager,
 		settingsManager,

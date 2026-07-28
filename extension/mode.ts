@@ -27,6 +27,7 @@ import {
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { orchestratorCostUsd, type SlateConfig, type SlateStore } from "./state.ts";
+import type { WorkerExtensionSet, WorkerExtensionUnit } from "./worker-extensions.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
 
@@ -40,7 +41,68 @@ const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "
  * the file exists (cwd-resolved) — missing files are skipped silently like
  * every other project doc.
  */
-function buildDoctrine(cwd: string, config: SlateConfig, trusted: boolean): string {
+// A source spec that names WHICH extension (e.g. "npm:foo") is worth showing;
+// the generic scope-ish sources are not, so rule 11 falls back to the unit path.
+const UNINFORMATIVE_SOURCES = new Set(["", "auto", "local", "cli", "project", "user", "temporary", "builtin", "sdk"]);
+
+function unitLabel(unit: WorkerExtensionUnit): string {
+	return UNINFORMATIVE_SOURCES.has(unit.source) ? unit.path : unit.source;
+}
+
+// Per-field caps for the doctrine interpolations (WB21): a tool name is an
+// identifier, a unit label is a package spec or path, a description is a
+// sentence. Caps keep a pathological 2000-char value from bloating every turn.
+const DOCTRINE_NAME_MAX = 64;
+const DOCTRINE_LABEL_MAX = 128;
+const DOCTRINE_DESC_MAX = 140;
+
+// ONE sanitizer for every extension-supplied string interpolated into the
+// orchestrator doctrine — tool names, unit labels and descriptions (WB20/WB21/
+// WB22). The doctrine is a numbered, indented plain-text block inside the
+// system prompt, so a raw value must not be able to: (WB20) inject a newline
+// that forges a new numbered directive; (WB21) run on for thousands of
+// characters; or (WB22) carry backticks/markdown that break the block's
+// structure or read as an instruction. Control characters and newlines collapse
+// to spaces, backticks and markdown structural markers are dropped, remaining
+// whitespace is collapsed, and the result is capped with an ellipsis.
+function sanitizeForDoctrine(value: string, max: number): string {
+	const cleaned = value
+		.replace(/[\u0000-\u001f\u007f\u009b]/g, " ") // control chars + newlines → space (WB20)
+		.replace(/[`*_~#>|]/g, " ") // code fences / markdown structure → space (WB22)
+		.replace(/\s+/g, " ")
+		.trim();
+	return cleaned.length > max ? `${cleaned.slice(0, max - 1)}\u2026` : cleaned;
+}
+
+/**
+ * Rule 11 (worker-extension awareness): appended ONLY when workers load extra
+ * pi extensions. With no units it returns "" so the doctrine is byte-identical
+ * to the pre-feature output (feature-off is unchanged). Phrased to match the
+ * imperative register of rules 1–10 (WS20/WS21/WS22): it LEADS with the action
+ * (delegate to a thread), states the constraint in the doctrine's own "cannot"
+ * voice, and CLOSES with an instruction. The extension/tool listing in the
+ * middle is data and renders verbatim.
+ */
+function buildWorkerExtensionsRule(extensions: WorkerExtensionSet): string {
+	if (extensions.units.length === 0) return "";
+	const lines = [
+		"11. Delegate any action that needs one of these worker-loaded pi extensions to a",
+		"   thread; you cannot call their tools yourself:",
+	];
+	for (const unit of extensions.units) {
+		lines.push(`   - ${sanitizeForDoctrine(unitLabel(unit), DOCTRINE_LABEL_MAX)}`);
+		for (const tool of unit.tools) {
+			lines.push(`     ${sanitizeForDoctrine(tool.name, DOCTRINE_NAME_MAX)}: ${sanitizeForDoctrine(tool.description, DOCTRINE_DESC_MAX)}`);
+		}
+	}
+	lines.push(
+		"   Assume every worker already has them — you need not pass them in a thread's",
+		"   `tools` allowlist.",
+	);
+	return `\n${lines.join("\n")}`;
+}
+
+function buildDoctrine(cwd: string, config: SlateConfig, trusted: boolean, extensions: WorkerExtensionSet): string {
 	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
 	// one of the gates; otherwise durable records live in the workflow log.
 	const rule8Tail =
@@ -92,7 +154,7 @@ threads execute. Rules:
    Read that file only when you must reason about slate itself (explaining
    it, changing the extension, or an unusual routing/compaction decision) —
    never for routine dispatching. Skip the read if it is already in your
-   context.`;
+   context.${buildWorkerExtensionsRule(extensions)}`;
 }
 
 /**
@@ -130,6 +192,7 @@ export function registerSlateMode(
 	store: SlateStore,
 	hooks: SlateHandoffHooks,
 	getConfig: () => SlateConfig,
+	getExtensions: () => WorkerExtensionSet,
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
@@ -229,7 +292,7 @@ export function registerSlateMode(
 		// addendum goes LAST so the pause directive is the final word in the
 		// prompt, undiluted by the role guidelines.
 		const parts = [
-			buildDoctrine(ctx.cwd, config, trusted),
+			buildDoctrine(ctx.cwd, config, trusted, getExtensions()),
 			...loadDoctrineExtra(ctx.cwd, config, trusted).map((d) => `\n\n${d}`),
 			...docs.map((d) => `\n\n${d}`),
 		];
