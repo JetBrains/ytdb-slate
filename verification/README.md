@@ -478,6 +478,14 @@ temp dir the script removes on exit.
 | `inject-safety` | a newline-bearing tool name, a 2000-char label and a backtick/markdown description all render into the doctrine without breaking its structure or exceeding the caps |
 | `memoization` | the memoizing resolver walks the registry exactly once across repeated calls |
 
+It loads only those two modules, so it does **not** exercise
+`extension/worker.ts`'s worker-session load path — the allowlist-mode extension
+load, the `excludeTools` deny list that structurally keeps slate's dispatch
+tools out of a worker, and the post-load collision re-check. Those need a live
+loader and session, so the manual isolated-load smoke test
+(`pi --no-extensions -e .`, see `AGENTS.md`) covers them instead; a passing run
+here says nothing about them.
+
 ## Files
 
 | file | role |

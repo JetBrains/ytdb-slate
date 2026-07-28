@@ -20,7 +20,10 @@
 # session. The only writes land in a throwaway temp dir this script creates and
 # removes on exit; it never touches real pi state or the repository. The TS is
 # loaded through the jiti bundled with pi (node's strip-only TypeScript mode
-# cannot load the modules), so `pi` and `node` must both be on PATH.
+# cannot load the modules), so `pi` and `node` must both be on PATH. Unlike the
+# ladder this script uses only POSIX shell plus node — no GNU coreutils — so it
+# runs on non-GNU platforms too (symlink canonicalisation is done by node's
+# realpathSync, not the GNU-only `readlink -f`).
 # =============================================================================
 set -uo pipefail
 
@@ -36,7 +39,7 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-for t in pi node mktemp readlink; do
+for t in pi node mktemp; do
 	command -v "$t" >/dev/null 2>&1 || die "missing required tool: $t"
 done
 
@@ -44,10 +47,14 @@ REPO="$(cd "$REPO" 2>/dev/null && pwd -P)" || die "bad --repo: not a directory"
 [ -f "$REPO/extension/worker-extensions.ts" ] || die "not a slate checkout: $REPO/extension/worker-extensions.ts is missing"
 
 # Locate the jiti bundled with pi, the way pi's own module graph resolves it, so
-# this works regardless of where pi is installed or how deps are hoisted.
-PI_CLI="$(readlink -f "$(command -v pi)")" || die "could not resolve the pi binary"
-JITI="$(node -e 'const {createRequire}=require("node:module"); try { console.log(createRequire(process.argv[1]).resolve("jiti")); } catch { process.exit(9); }' "$PI_CLI")" \
-	|| die "could not locate jiti (it ships with pi) from $PI_CLI"
+# this works regardless of where pi is installed or how deps are hoisted. The pi
+# launcher is usually a symlink; node's realpathSync canonicalises it (portable —
+# `readlink -f` is GNU-only) so createRequire walks up into the pi package's own
+# node_modules where jiti lives. node prints the underlying error, so a failure
+# here names its real cause rather than blaming the pi binary.
+PI_BIN="$(command -v pi)" || die "pi not found on PATH"
+JITI="$(node -e 'const {realpathSync}=require("node:fs");const {createRequire}=require("node:module");try{console.log(createRequire(realpathSync(process.argv[1])).resolve("jiti"))}catch(e){console.error(e&&e.message?e.message:String(e));process.exit(9)}' "$PI_BIN")" \
+	|| die "could not locate jiti (it ships with pi) via $PI_BIN — see the node error above"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/slate-resolver.XXXXXX")" || die "could not create a scratch directory"
 trap 'rm -rf "$WORK"' EXIT INT TERM
