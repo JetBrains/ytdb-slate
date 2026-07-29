@@ -22,7 +22,7 @@
 // piped output): 1 if anything failed, or if a NOT RUN happened under --strict.
 // See verification/README.md.
 // =============================================================================
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -204,6 +204,19 @@ const ROUTER_IDS = [
 	"router-shipped-default",
 ];
 const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta"];
+/** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
+const STATE_IDS = ["spec-invisible", "spec-config-key"];
+/**
+ * The NOT RUN lists, paired with the load check that voids them. The roster in
+ * the `finally` block audits EXPECTED against this table, so a new check whose id
+ * shares a prefix but is missing from its list fails the run instead of quietly
+ * turning into a roster "missing" line when its module cannot be loaded (TS3).
+ */
+const VOIDABLE = [
+	["router-", ROUTER_IDS, "router-load"],
+	["profiles-", PROFILE_IDS, "profiles-load"],
+	["spec-", STATE_IDS, "state-load"],
+];
 
 // ------------------------------------------------------------------ fixtures --
 const A = mkpkg("pkgA", ["./extension/index.ts"], ["extension/index.ts"]); // single literal entry, host runs it
@@ -426,6 +439,7 @@ try {
 
 	check("router-load", router !== undefined, "extension/model-router.ts loads", routerLoad.error?.message);
 	check("profiles-load", table !== undefined, "extension/model-profiles.ts loads", profilesLoad.error?.message);
+	check("state-load", state !== undefined, "extension/state.ts loads", stateLoad.error?.message);
 
 	if (!router) {
 		for (const id of ROUTER_IDS) skip(id, "extension/model-router.ts could not be loaded");
@@ -1161,6 +1175,128 @@ try {
 	}
 
 	// =========================================================================
+	// Config-sanitizer WIRING (extension/index.ts) — a TEXT check, deliberately
+	// =========================================================================
+	// A sanitizer that exists but is never called is the exact silent failure this
+	// repo keeps re-learning (RG20 was one). index.ts cannot be LOADED here — it
+	// reaches @earendil-works/pi-ai through threads.ts → episodes.ts, a peer
+	// dependency that is not installed in this repo — so the wiring is asserted
+	// against the source text instead. That is weaker than execution, and it is
+	// still the difference between "the fix is wired" and "the fix compiles".
+	await section("wiring", async () => {
+		const src = readFileSync(join(REPO, "extension", "index.ts"), "utf8");
+		const required = [
+			["modelFailover", "sanitizeModelFailover"],
+			["contextBudget", "sanitizeContextBudget"],
+			["workerExtensions", "sanitizeWorkerExtensions"],
+			["router", "sanitizeRouterConfig"],
+			["episodeModel", "sanitizeEpisodeModel"],
+		];
+		const notAssigned = required.filter(([key, fn]) => !new RegExp(`config\\.${key}\\s*=\\s*${fn}\\(`).test(src)).map(([key]) => key);
+		// The sink matters as much as the call: a sanitizer wired with a throwaway
+		// callback would validate and then swallow every diagnostic.
+		const notWarned = required.filter(([key, fn]) => !new RegExp(`${fn}\\(config\\.${key},\\s*warn\\)`).test(src)).map(([key]) => key);
+		const notImported = required.filter(([, fn]) => !new RegExp(`import\\s*\\{[^}]*\\b${fn}\\b`).test(src)).map(([, fn]) => fn);
+		const warnSink = /const warn = \(msg: string\) => \(ctx\.hasUI \? ctx\.ui\.notify\(msg, "warning"\) : console\.warn\(msg\)\)/.test(src);
+		checkAll("wiring", "every config sanitizer is imported by index.ts AND called at session_start with its own key and the shared warn sink — a sanitizer that exists but is never wired is the silent failure RG20 was", [
+			["all assigned back to their key", notAssigned.length === 0, notAssigned],
+			["all given the shared warn sink", notWarned.length === 0, notWarned],
+			["all imported", notImported.length === 0, notImported],
+			["the warn sink still reaches the UI or the console", warnSink, warnSink],
+		]);
+	});
+
+	// =========================================================================
+	// Model-spec vocabulary (extension/state.ts)
+	// =========================================================================
+	// The canonical predicate/splitter/reasons that failover.ts, episodes.ts,
+	// worker.ts and the router all share (CQ2), plus the config-key sanitizer that
+	// keeps an unusable single-spec key from failing silently (RG20).
+	if (!state) {
+		for (const id of STATE_IDS) skip(id, "extension/state.ts could not be loaded");
+	} else {
+		await section("spec-invisible", async () => {
+			// BG2 and its residual. Every one of these is invisible or
+			// direction-changing, so it must be REJECTED (not merely annotated as a
+			// confusable), with the reason naming its code point. The last three rows
+			// are the classes the first BG2 fix missed: variation selectors (including
+			// the astral ones), tag characters and Hangul fillers.
+			const invisible = [
+				["U+000A", "p/mo\ndel"],
+				["U+200B", "p/mo\u200bdel"],
+				["U+202E", "p/\u202emodel"],
+				["U+00AD", "p/mo\u00addel"],
+				["U+FEFF", "p/mo\ufeffdel"],
+				["U+FE00", "p/mo\ufe00del"],
+				["U+FE0F", "p/mo\ufe0fdel"],
+				["U+E0100", "p/mo\u{e0100}del"],
+				["U+E0041", "p/mo\u{e0041}del"],
+				["U+3164", "p/mo\u3164del"],
+				["U+115F", "p/mo\u115fdel"],
+				["U+FFA0", "p/mo\uffa0del"],
+			];
+			const accepted = invisible.filter(([, spec]) => state.isModelSpec(spec)).map(([point]) => point);
+			// The reason must name the code point ITSELF, not merely say "invisible":
+			// `U+200B` → /invisible or control characters \([^)]*U\+200B/
+			const namesPoint = (point, text) => new RegExp(`invisible or control characters \\([^)]*${point.replace("+", "\\+")}`).test(text);
+			const unnamed = invisible.filter(([point, spec]) => !namesPoint(point, state.describeSpecDefect(spec))).map(([point]) => point);
+			const split = invisible.filter(([, spec]) => state.splitModelSpec(spec) !== undefined).map(([point]) => point);
+			checkAll("spec-invisible", "every zero-width or direction-changing character is rejected by the shared predicate — controls, bidi, soft hyphen, BOM, variation selectors (BMP and astral), tag characters and Hangul fillers — with the reason naming its code point, while a VISIBLE non-ASCII spec is accepted and merely annotated", [
+				["none accepted", accepted.length === 0, accepted],
+				["each named by code point", unnamed.length === 0, unnamed],
+				["none splits", split.length === 0, split],
+				["a non-breaking space reports as whitespace", /whitespace/.test(state.describeSpecDefect("p/mo\u00a0del")), state.describeSpecDefect("p/mo\u00a0del")],
+				["a plain ASCII spec is accepted with no note", state.isModelSpec("openai/gpt-5.6-luna") && state.describeConfusables("openai/gpt-5.6-luna") === undefined, state.describeConfusables("openai/gpt-5.6-luna")],
+				["a homoglyph is accepted and annotated", state.isModelSpec("openai/lun\u0430") && /U\+0430/.test(state.describeConfusables("openai/lun\u0430") ?? ""), state.describeConfusables("openai/lun\u0430")],
+				["the annotation is about non-ASCII, not a homoglyph table", /non-ASCII/.test(state.describeConfusables("openai/gpt-\u2764") ?? ""), state.describeConfusables("openai/gpt-\u2764")],
+				["a valid spec still splits on the FIRST slash", JSON.stringify(state.splitModelSpec("openrouter/anthropic/claude")) === '{"provider":"openrouter","id":"anthropic/claude"}', state.splitModelSpec("openrouter/anthropic/claude")],
+			]);
+		});
+
+		await section("spec-config-key", async () => {
+			// RG20: an unusable single-spec config key must be REPORTED, not silently
+			// swallowed — while the fallback itself stays exactly as it was (undefined).
+			const run = (raw) => {
+				const warned = [];
+				const value = state.sanitizeEpisodeModel(raw, (m) => warned.push(m));
+				return { value, warned };
+			};
+			const absent = run(undefined);
+			const good = run("anthropic/claude-sonnet-5");
+			const spaced = run("anthropic/claude sonnet");
+			const zeroWidth = run("anthropic/claude\u200b5");
+			const noSlash = run("sonnet");
+			const wrongType = run(42);
+			const cyclic = {};
+			cyclic.self = cyclic;
+			let survivedCyclic = false;
+			let cyclicRun;
+			try {
+				cyclicRun = run(cyclic);
+				survivedCyclic = true;
+			} catch {
+				survivedCyclic = false;
+			}
+			const bad = [spaced, zeroWidth, noSlash, wrongType];
+			const allWarnings = bad.flatMap((r) => r.warned);
+			checkAll("spec-config-key", "an unusable episodeModel is dropped WITH a warning that names the key, the reason and the fallback (RG20) — absent and valid values stay silent, the returned value is unchanged from the old silent behaviour, and an unstringifiable value does not throw", [
+				["absent → undefined, silent", absent.value === undefined && absent.warned.length === 0, absent],
+				["valid → returned unchanged, silent", good.value === "anthropic/claude-sonnet-5" && good.warned.length === 0, good],
+				["every unusable value → undefined (fallback unchanged)", bad.every((r) => r.value === undefined), bad.map((r) => r.value)],
+				["exactly one warning each", bad.every((r) => r.warned.length === 1), bad.map((r) => r.warned.length)],
+				["each warning names the key", allWarnings.every((m) => m.includes("episodeModel")), allWarnings],
+				["each warning names the fallback", allWarnings.every((m) => /built-in default model/.test(m)), allWarnings],
+				["whitespace reason", /whitespace/.test(spaced.warned[0] ?? ""), spaced.warned],
+				["invisible reason names the code point", /U\+200B/.test(zeroWidth.warned[0] ?? ""), zeroWidth.warned],
+				["shape reason", /no "\/"/.test(noSlash.warned[0] ?? ""), noSlash.warned],
+				["type reason", /got number/.test(wrongType.warned[0] ?? ""), wrongType.warned],
+				["display-safe: no control bytes, bounded length", allWarnings.every((m) => !/[\u0000-\u001f\u007f\u009b]/.test(m) && m.length <= 400), allWarnings.map((m) => m.length)],
+				["an unstringifiable value warns instead of throwing", survivedCyclic === true && cyclicRun?.value === undefined && cyclicRun?.warned.length === 1, [survivedCyclic, cyclicRun?.warned]],
+			]);
+		});
+	}
+
+	// =========================================================================
 	// Shipped profile table (extension/model-profiles.ts) — STRUCTURAL only
 	// =========================================================================
 	// TQ11. These assert SHAPE and internal consistency, never a research
@@ -1300,7 +1436,7 @@ try {
 		"bar-self-exclude", "bar-collision",
 		"match-source", "match-path", "match-toolpath", "match-none", "match-invalid-regex",
 		"inject-safety", "memoization",
-		"router-load", "profiles-load",
+		"router-load", "profiles-load", "state-load",
 		"router-off", "router-unprofiled", "router-malformed", "router-unroutable", "router-alias-duplicate",
 		"router-all-dropped", "router-order", "router-order-ties", "router-cheapest", "router-cheapest-fallback",
 		"router-price-date", "router-price-rows",
@@ -1309,6 +1445,7 @@ try {
 		"router-effort", "router-effort-gap", "router-effort-hard", "router-ladder-validation", "router-effort-off",
 		"router-hostile", "router-robust",
 		"router-config-default", "router-config-invalid", "router-shipped-default",
+		"wiring", "spec-invisible", "spec-config-key",
 		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta",
 	];
 	const seen = new Set(reported);
@@ -1319,10 +1456,9 @@ try {
 	// missing from ROUTER_IDS/PROFILE_IDS would surface as a roster "missing" line
 	// when the module fails to load instead of an honest NOT RUN, so the lists are
 	// audited against the roster here rather than trusted.
-	const uncovered = [
-		...EXPECTED.filter((id) => id.startsWith("router-") && id !== "router-load" && !ROUTER_IDS.includes(id)),
-		...EXPECTED.filter((id) => id.startsWith("profiles-") && id !== "profiles-load" && !PROFILE_IDS.includes(id)),
-	];
+	const uncovered = VOIDABLE.flatMap(([prefix, list, loadId]) =>
+		EXPECTED.filter((id) => id.startsWith(prefix) && id !== loadId && !list.includes(id)),
+	);
 	check(
 		"roster",
 		missing.length === 0 && duplicated.length === 0 && unexpected.length === 0 && uncovered.length === 0,

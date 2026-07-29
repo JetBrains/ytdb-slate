@@ -439,9 +439,11 @@ A second, much smaller net, for three subjects:
 - the **worker-extension resolver** in `extension/worker-extensions.ts` and the
   doctrine rule it feeds in `extension/mode.ts`;
 - the **model router** in `extension/model-router.ts` — its config sanitizer, its
-  candidate resolution and warnings, and its dispatch-side effort predicate —
-  together with the canonical model-spec helpers it shares with `failover.ts`,
-  `episodes.ts` and `worker.ts`, which live in `extension/state.ts`;
+  candidate resolution and warnings, and its dispatch-side effort predicate;
+- the **model-spec vocabulary** in `extension/state.ts` (`spec-*`) — the canonical
+  predicate, splitter, defect reasons and confusable annotation that the router
+  shares with `failover.ts`, `episodes.ts` and `worker.ts`, plus the
+  single-spec config-key sanitizer (`episodeModel`);
 - **structural invariants of the shipped profile table** in
   `extension/model-profiles.ts` (`profiles-*`) — shape and internal consistency
   only, never a research number.
@@ -488,8 +490,8 @@ CHECK off-inert        PASS    — empty pattern list → shared empty set, regi
 CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
 CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
       observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
-CHECK roster           PASS    — all 53 expected checks reported exactly once (a crashed or deleted check cannot pass silently)
-== summary: 53 pass, 1 fail, 0 not run ==
+CHECK roster           PASS    — all 57 expected checks reported exactly once, and every module-dependent check is covered by a NOT RUN list …
+== summary: 57 pass, 1 fail, 0 not run ==
 ```
 
 Three output rules exist because earlier versions of this suite could pass
@@ -529,7 +531,7 @@ Model router (`extension/model-router.ts`):
 
 | id | what it proves |
 | --- | --- |
-| `router-load` / `profiles-load` | the two modules load at all; a failure here converts the checks below into explicit NOT RUN lines |
+| `router-load` / `profiles-load` | the modules load at all; a failure here converts the checks below into explicit NOT RUN lines |
 | `router-off` | an empty *or* absent model list yields the shared `ROUTER_OFF` result with zero warnings and without consulting the registry — the default, behaviourally identical to the pre-router extension |
 | `router-unprofiled` | a model with no profile is warned about **by name** (no benchmark data ⇒ excluded) and kept out of the candidates |
 | `router-malformed` | a spec that is not canonical `provider/id` is dropped with a warning that names the **reason** — including "control characters" and "leading or trailing whitespace", which the display sanitizer would otherwise strip, leaving a warning that reads like a valid name (BG2) |
@@ -554,6 +556,20 @@ Model router (`extension/model-router.ts`):
 | `router-robust` | hostile inputs degrade instead of crashing: a throwing warn sink still leaves the memo intact, a throwing registry/profile source and a throwing `getInput` turn the router OFF (once, cached), a cyclic or 30 000-deep config value is dropped with a warning, `allowUnmeasuredEffort: false` survives, `null` config falls back to the defaults, and a non-array model list is treated as empty |
 | `router-config-default` / `router-config-invalid` | an absent `router` config silently yields `{ models: [], allowUnmeasuredEffort: true }`; a wrong-shape value warns once and falls back to those defaults; invalid `models` entries are dropped one warning each; a non-boolean `allowUnmeasuredEffort` warns and stays `true`; **unknown keys are reported**, so a typo'd `"model"` cannot masquerade as an empty list (CQ1) |
 | `router-shipped-default` | with `profiles` omitted the resolver really does use the shipped table — tier, ladder and price all arrive from it — and an unprofiled spec is still excluded |
+
+Config-sanitizer wiring (`extension/index.ts`) — a **text** check:
+
+| id | what it proves |
+| --- | --- |
+| `wiring` | every config sanitizer is imported by `index.ts` and called at `session_start` with its own key **and the shared warn sink**. A sanitizer that exists but is never wired, or is wired with a sink that swallows its diagnostics, is precisely the silent failure RG20 was. `index.ts` cannot be *loaded* here (it reaches `@earendil-works/pi-ai` through `threads.ts` → `episodes.ts`, a peer dependency not installed in this repo), so this one asserts against the source text — weaker than execution, and still the difference between "the fix is wired" and "the fix compiles" |
+
+Model-spec vocabulary (`extension/state.ts`):
+
+| id | what it proves |
+| --- | --- |
+| `state-load` | the module loads; a failure converts the `spec-*` checks into explicit NOT RUN lines |
+| `spec-invisible` | every zero-width or direction-changing character is **rejected** by the shared predicate — controls, bidi, soft hyphen, BOM, **variation selectors** (BMP *and* astral), **tag characters** and **Hangul fillers**, the three classes the first BG2 fix missed — each named by code point in the reason; a non-breaking space reports as whitespace; a *visible* non-ASCII spec (homoglyph, emoji) is accepted and merely annotated; a valid spec still splits on the first slash |
+| `spec-config-key` | an unusable `episodeModel` is dropped **with** a warning naming the key, the reason and the fallback (RG20), while absent and valid values stay silent and the returned value is unchanged from the old silent behaviour; an unstringifiable value warns instead of throwing |
 
 Shipped profile table (`extension/model-profiles.ts`) — **structural only**:
 

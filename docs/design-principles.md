@@ -8,11 +8,16 @@ for its content. This document records the reasoning behind the
 extension's design so maintainers — and the orchestrator itself, on
 demand — can check changes and behavior against the original intent.
 
-Note: module headers cite decision ids from design records that are not part of
-this repository — the original implementation plan (ExecPlan: D3–D9, M1–M3),
-later design rounds (higher-numbered D ids), and per-round review findings
-(AD/BG/CQ/RG/W/DF prefixes). This document is the in-repo source for the
-architecture rationale.
+Note: module headers cite ids from design records that are not part of this
+repository — the original implementation plan (ExecPlan: D3–D9, M1–M3), later
+design rounds (higher-numbered D ids, and W ids for named warnings), and
+per-round review findings, whose prefix says which review raised them:
+AD (adversarial), AF (agent-failure), BG (blocker/bug), CN (concurrency),
+CQ (code quality), DF (data fidelity), N (numeric), RG (regression),
+RI (research integrity), SE (security), WB (worker boundary) and WS (worker
+safety). `extension/model-profiles.ts` additionally cites research TRACE keys
+(`G1a`, `GM3`, `O4.2`, `A4b`, …) which ARE in-repo, in `research/`. This document
+is the in-repo source for the architecture rationale.
 
 ## 1. The problems Slate is built to solve
 

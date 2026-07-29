@@ -2,10 +2,11 @@
  * Slate — thread-weaving agent architecture for pi.
  *
  * Implements the Slate architecture — design rationale and principles in
- * ../docs/design-principles.md (module headers cite decision ids from records
- * that are not in-repo: the original ExecPlan's D3–D9/M1–M3, later design rounds'
- * higher-numbered D ids, and review-finding ids such as AD/BG/CQ/DF).
- * An orchestrator (the main pi
+ * ../docs/design-principles.md — module headers cite ids from records that are
+ * NOT in-repo: the original ExecPlan's D3–D9/M1–M3, later design rounds'
+ * higher-numbered D and W ids, and review findings prefixed by the review that
+ * raised them (AD, AF, BG, CN, CQ, DF, N, RG, RI, SE, WB, WS); that doc carries
+ * the full key. An orchestrator (the main pi
  * session) dispatches bounded actions to persistent worker threads via the
  * `thread` tool; each completed action returns an episode — a compressed,
  * structured record that the orchestrator composes into further dispatches.
@@ -51,7 +52,7 @@ import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
 import { sanitizeRouterConfig } from "./model-router.ts";
-import { SlateStore, type SlateConfig } from "./state.ts";
+import { sanitizeEpisodeModel, SlateStore, type SlateConfig } from "./state.ts";
 import { ThreadManager } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
 import {
@@ -110,6 +111,9 @@ export default function (pi: ExtensionAPI) {
 		// router likewise: a malformed model list must surface at session start, not
 		// when a dispatch is refused for naming a model the list silently dropped.
 		config.router = sanitizeRouterConfig(config.router, warn);
+		// episodeModel too (RG20): an unusable value falls back to the built-in
+		// compressor, and until this ran it did so without saying anything at all.
+		config.episodeModel = sanitizeEpisodeModel(config.episodeModel, warn);
 		if (config.contextBudget !== undefined && config.pauseThresholdPercent !== undefined) {
 			warn("slate: contextBudget is set — the deprecated pauseThresholdPercent is ignored");
 		}

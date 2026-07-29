@@ -37,10 +37,13 @@
  *    default pick there is (BG1). If every candidate is non-preferred the
  *    cheapest one is still chosen — D48 needs *a* base model — and that fallback
  *    is warned about and flagged on the result. The ORDERED LIST honours the same
- *    markers (DF4): non-preferred candidates, and candidates whose tier is not a
- *    sourced ordinal, sort after their comparable preferred/sourced siblings, so a
- *    consumer that walks the list rather than reading `cheapest` cannot meet an
- *    evidentially-thin model first just because it is cheap.
+ *    markers (DF4), and does so ABSOLUTELY rather than within a tier: EVERY
+ *    preferred candidate precedes every non-preferred one whatever their tiers or
+ *    prices, and within one preference class every sourced-tier candidate precedes
+ *    every unsourced-tier one — so a consumer that walks the list rather than
+ *    reading `cheapest` cannot meet an evidentially-thin model first just because
+ *    it is cheap. Tier and price only order candidates that are equal on both
+ *    markers.
  *
  *  - THE REGISTRY IS THE AUTHORITY for capacity. A profile's `contextWindow` is
  *    documentation-only; W1 (D55) cross-checks it against the registry and warns
@@ -647,11 +650,13 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 	);
 
 	// D48 + BG1: the default base model is the cheapest PREFERRED candidate.
-	// Scanned over the ALREADY-ORDERED list with a strict <, so a price tie
-	// resolves to the lower tier and then the earlier spec, and an all-unpriced
-	// list still yields a defined base model. If nothing is preferred, D48 still
-	// needs a base model (a dispatch that omits a model must never be rejected by
-	// the list guard), so the cheapest overall is taken — loudly.
+	// Scanned over the ALREADY-SORTED pool with a strict <, so the sort's own keys
+	// break a price tie: the earlier of the tied candidates wins, which after the
+	// sort above means sourced tier first, then lower tier, then earlier spec. An
+	// all-unpriced pool still yields a defined base model (every price compares
+	// equal, so the first stands). If nothing is preferred, D48 still needs a base
+	// model (a dispatch that omits a model must never be rejected by the list
+	// guard), so the cheapest overall is taken — loudly.
 	const preferred = candidates.filter((c) => c.nonPreferred === null);
 	const pool = preferred.length > 0 ? preferred : candidates;
 	let cheapest = pool[0];

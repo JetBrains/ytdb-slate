@@ -62,7 +62,8 @@ async function resolveCompressorModel(
 	workerModel: { provider: string; id: string } | undefined,
 ) {
 	// Shared spec parsing (CQ2). A malformed episodeModel falls through to the
-	// Sonnet default below, silently, exactly as the inline split did.
+	// Sonnet default below — sanitizeEpisodeModel above reports it at session_start
+	// (RG20), so the fall-through here is no longer silent.
 	const spec = splitModelSpec(configured);
 	if (spec) {
 		const m = ctx.modelRegistry.find(spec.provider, spec.id);

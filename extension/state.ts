@@ -11,6 +11,7 @@
 
 import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { sanitizeForNotify } from "./notify.ts";
 
 export interface ThreadRecord {
 	id: string; // "t1", "t2", ...
@@ -63,27 +64,38 @@ export interface SlateSnapshot {
  * slash inside the model id ("openrouter/anthropic/claude-..."), so provider is
  * everything before the first slash and id is all the rest.
  *
- * Whitespace, control characters and INVISIBLE/BIDI formatting characters are
- * REJECTED rather than trimmed (BG2). Such a spec resolves nowhere in pi's
- * registry, yet renders in a warning as a byte-identical twin of the valid name
- * once the display sanitizer strips the offending character — a zero-width space
- * or a right-to-left override is worse still, since it survives sanitization and
- * displays as nothing at all. Rejecting them lets the caller say what is
- * actually wrong (describeSpecDefect), and the remaining confusable case —
- * legitimate-looking non-ASCII homoglyphs, which cannot simply be rejected
- * because an exotic provider id may be genuinely non-ASCII — is handled at
- * DISPLAY time by describeConfusables.
+ * Whitespace, control characters and every ZERO-WIDTH or DIRECTION-CHANGING
+ * character are REJECTED rather than trimmed (BG2). Such a spec resolves nowhere
+ * in pi's registry, yet renders in a warning as a byte-identical twin of the
+ * valid name once the display sanitizer strips the offending character — a
+ * zero-width space, a variation selector or a right-to-left override is worse
+ * still, since it survives sanitization and displays as nothing at all.
+ * Rejecting them lets the caller say what is actually wrong
+ * (describeSpecDefect). What is left after that is the VISIBLE confusable case —
+ * a homoglyph such as Cyrillic "а" for Latin "a" — which cannot be rejected,
+ * because an exotic provider id may be genuinely non-ASCII, so it is ANNOTATED
+ * at display time instead (describeConfusables).
  */
 
 /**
- * Characters that are never part of a real model spec and are invisible or
- * direction-changing when displayed: C0/C1 controls, soft hyphen, Arabic letter
- * mark, Mongolian vowel separator, zero-width space/joiners, LRM/RLM, the bidi
- * embedding/override/isolate controls, word joiner and invisible operators,
- * interlinear annotation marks, and the BOM.
+ * Characters that are never part of a real model spec because they occupy no
+ * visible width, or change the direction of what follows.
+ *
+ * The two Unicode categories carry most of it — `Cc` (C0/C1 controls) and `Cf`
+ * (format: soft hyphen, Arabic letter mark, Mongolian vowel separator,
+ * zero-width space/joiners, LRM/RLM, the bidi embedding/override/isolate
+ * controls, word joiner and invisible operators, interlinear annotation marks,
+ * the tag characters, and the BOM) — plus `Cs` (a lone surrogate is broken text,
+ * never an identifier).
+ *
+ * Three invisible classes are NOT in those categories and must be listed
+ * explicitly (the residual BG2 finding): VARIATION SELECTORS (`Mn`: U+FE00–FE0F
+ * and U+E0100–E01EF) and HANGUL FILLERS (`Lo`, and therefore "letters" as far as
+ * any category test is concerned: U+115F, U+1160, U+3164, U+FFA0). Unicode
+ * property escapes need the `u` flag; every use below tests one code point at a
+ * time, which is why `codePointList` iterates with for…of rather than by index.
  */
-const INVISIBLE_SPEC_CHARS =
-	/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\ufff9-\ufffb]/;
+const INVISIBLE_SPEC_CHARS = /[\p{Cc}\p{Cf}\p{Cs}\u115f\u1160\u3164\ufe00-\ufe0f\uffa0]|[\u{e0100}-\u{e01ef}]/u;
 
 /** "U+XXXX" list of the first few characters of `value` that match `pattern`, de-duplicated. */
 function codePointList(value: string, pattern: RegExp, max = 3): string {
@@ -133,10 +145,13 @@ export function describeSpecDefect(value: unknown): string {
 
 /**
  * Display-time note for a spec that PASSES validation but contains non-ASCII
- * characters (BG2's remaining confusable class). A Cyrillic "а" in an otherwise
- * valid spec renders exactly like the Latin one, so a warning about it would
- * otherwise look like a warning about the model the user meant. Returns
- * undefined for a pure printable-ASCII spec, which is the normal case.
+ * characters (BG2's remaining case: VISIBLE confusables, not invisible ones —
+ * those are rejected outright above). A Cyrillic "а" in an otherwise valid spec
+ * renders exactly like the Latin one, so a warning about it would otherwise look
+ * like a warning about the model the user meant. The note is deliberately about
+ * non-ASCII in general rather than a curated homoglyph table: any non-ASCII
+ * character in a spec is worth pointing at, and enumerating confusables is a
+ * losing game. Returns undefined for a pure printable-ASCII spec, the normal case.
  */
 export function describeConfusables(value: string): string | undefined {
 	// Printable-ASCII complement. Neither this nor INVISIBLE_SPEC_CHARS carries the
@@ -145,6 +160,53 @@ export function describeConfusables(value: string): string | undefined {
 	const nonAscii = /[^\u0020-\u007e]/;
 	if (!nonAscii.test(value)) return undefined;
 	return `contains non-ASCII characters: ${codePointList(value, nonAscii)}`;
+}
+
+/**
+ * Validate an optional single-spec config key — today `episodeModel` (RG20).
+ *
+ * Every other config key is checked eagerly at session_start; this one was not,
+ * so a value the spec rules reject — a stray trailing newline, a zero-width
+ * character pasted from a web page — made the episode compressor fall back to
+ * its built-in default with NO diagnostic at all. The configured model simply
+ * never ran, and the only visible symptom was a compression bill on a model the
+ * user did not choose.
+ *
+ * The FALLBACK IS UNCHANGED: an unusable value still yields undefined, and the
+ * consumer (episodes.ts's resolveCompressorModel) handles that exactly as
+ * before — newest available Sonnet, then the worker's own model. Only the
+ * diagnostic is new.
+ *
+ * It lives HERE rather than in episodes.ts, which owns the feature, for two
+ * reasons: the whole question it answers is the spec vocabulary defined in this
+ * module (it holds no episode logic beyond one clause of prose), and episodes.ts
+ * cannot be loaded by the pure verification harness — it imports
+ * `@earendil-works/pi-ai`, a peer dependency that is not installed in this repo
+ * — so a sanitizer placed there would be unverifiable by the only automated net
+ * that covers this class of silent failure.
+ *
+ * Validation is shape-only on purpose: whether the registry knows the model is a
+ * resolve-time question with its own fallback chain, and re-answering it here
+ * would duplicate that logic against a registry that may not be refreshed yet.
+ */
+export function sanitizeModelSpecKey(key: string, raw: unknown, warn: (msg: string) => void, fallback: string): string | undefined {
+	if (raw === undefined) return undefined; // absent ⇒ the built-in default, silently
+	if (!isModelSpec(raw)) {
+		let shown: string | undefined;
+		try {
+			shown = JSON.stringify(raw);
+		} catch {
+			shown = undefined; // cyclic / too deep to stringify
+		}
+		warn(`slate: ignoring ${key} ${sanitizeForNotify(shown ?? String(raw))} — ${describeSpecDefect(raw)}; ${fallback}`);
+		return undefined;
+	}
+	return raw;
+}
+
+/** RG20: `episodeModel`, with the compressor's own fallback named in the warning. */
+export function sanitizeEpisodeModel(raw: unknown, warn: (msg: string) => void): string | undefined {
+	return sanitizeModelSpecKey("episodeModel", raw, warn, "compressing with the built-in default model instead");
 }
 
 /** One contextBudget override. `match` is a regex tested ANCHORED (^(?:match)$) against "provider/id". */
