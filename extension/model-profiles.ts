@@ -33,13 +33,20 @@
  *    costs money, it does not fail (digest §W, §D.3).
  *  - PRICES ARE A REDUCTION of the digest's schedule, and the reduction is
  *    the point of this paragraph. Each row is the provider's FIRST-PARTY
- *    STANDARD tier, now WITH the cache-read and cache-write prices where the
- *    digest traces them — on a long thread those dominate the bill, since
- *    traced threads run 84.7-96.4% cache reads [G1a]. NOT carried: the batch /
- *    flex / priority / fastMode tiers, and every regional or geo uplift
- *    (OpenAI +10% for models released on/after 2026-03-05 [GM12]; Anthropic
- *    `inference_geo us` ×1.1 and Bedrock / Google Cloud +10% [A2]). A dispatch
- *    on any of those surfaces bills ABOVE these numbers.
+ *    STANDARD tier, now WITH the cache-read and cache-write prices wherever the
+ *    research corpus publishes them — on a long thread those dominate the bill,
+ *    since traced threads run 84.7-96.4% cache reads [G1a]. Where digest-v5
+ *    abbreviates a price row, the figures come from the underlying source row it
+ *    cites (`gaps.md` / `openai.md` / `anthropic.md`), not from arithmetic: that
+ *    is how claude-haiku-4-5's two cache-write prices got here [G3], after
+ *    iteration 1 of this file wrongly recorded them as unpublished. A cache
+ *    price this corpus does not publish is ABSENT and named in
+ *    `unknownRoutingCriticalFields`, never derived from another model's rule.
+ *    NOT carried: the batch / flex / priority / fastMode tiers, and every
+ *    regional or geo uplift (OpenAI +10% for models released on/after
+ *    2026-03-05 [GM12]; Anthropic `inference_geo us` ×1.1 and Bedrock / Google
+ *    Cloud +10% [A2]). A dispatch on any of those surfaces bills ABOVE these
+ *    numbers.
  *  - `from: null` on a price row means the effective date is UNKNOWN. It does
  *    NOT mean "in effect since publication": the digest publishes no start
  *    date for any row here. What it does publish is that every row was
@@ -507,7 +514,11 @@ const PROFILES: ModelProfile[] = [
 				until: null,
 				inUsdPerMTok: 0.2,
 				outUsdPerMTok: 1.25,
-				cachedInUsdPerMTok: 0.02, // cache read [G3]; no cache-WRITE figure is published → field absent
+				// [G3] publishes in / cached / out for this model and nothing else. Its
+				// cache-WRITE price is therefore ABSENT-because-UNPUBLISHED (named as
+				// unknown below), NOT zero: OpenAI's 1.25× write rule appears only in the
+				// GPT-5.6 price table [O2], so nothing is derived for a 5.4-class model.
+				cachedInUsdPerMTok: 0.02, // cache read [G3]
 			},
 		],
 		contextWindow: null, // no capacity row in the corpus for this model [G3]
@@ -535,6 +546,7 @@ const PROFILES: ModelProfile[] = [
 			"pi effort ladder — unverified in this pass [§E.7]",
 			"contextWindow / maxOutput — no capacity row in the corpus [G3]",
 			"longContextThreshold / longContextMultipliers — §E.5 reports only that no long-context price row is published; that is an absent row, not a statement that no premium exists [G3]",
+			"cache-WRITE price — not published for this model; [G3] gives in / cached / out only, and nothing is derived from the GPT-5.6 table's 1.25× rule [O2]",
 			"SWE-rebench resolve rate — does not appear on the board at all [G3]",
 			"price effectiveFrom — UNKNOWN; the corpus publishes no start date [G3]",
 		],
@@ -551,7 +563,10 @@ const PROFILES: ModelProfile[] = [
 				until: null,
 				inUsdPerMTok: 0.75,
 				outUsdPerMTok: 4.5,
-				cachedInUsdPerMTok: 0.075, // cache read [G3]; no cache-WRITE figure is published → field absent
+				// cache-WRITE price ABSENT-because-UNPUBLISHED, as for nano above: [G3]
+				// gives in / cached / out only, and OpenAI's 1.25× write rule is stated
+				// for the GPT-5.6 table alone [O2]. Named as unknown below.
+				cachedInUsdPerMTok: 0.075, // cache read [G3]
 			},
 		],
 		contextWindow: null, // no capacity row in the corpus [G3]
@@ -578,6 +593,7 @@ const PROFILES: ModelProfile[] = [
 			"pi effort ladder — unverified in this pass [§E.7]",
 			"contextWindow / maxOutput — no capacity row in the corpus [G3]",
 			"longContextThreshold / longContextMultipliers — §E.5 reports only that no long-context price row is published; that is an absent row, not a statement that no premium exists [G3]",
+			"cache-WRITE price — not published for this model; [G3] gives in / cached / out only, and nothing is derived from the GPT-5.6 table's 1.25× rule [O2]",
 			"SWE-rebench resolve rate — does not appear on the board at all [G3]",
 			"price effectiveFrom — UNKNOWN; the corpus publishes no start date [G3]",
 		],
@@ -594,7 +610,14 @@ const PROFILES: ModelProfile[] = [
 				until: null,
 				inUsdPerMTok: 1.0,
 				outUsdPerMTok: 5.0,
-				cachedInUsdPerMTok: 0.1, // cache read [G3]; no cache-WRITE figure is published → field absent
+				// gaps.md GOAL 3 publishes all three cache figures for this model in the
+				// same row as the base prices — "$1.00 / $0.10 / $5.00 (5m write $1.25,
+				// 1h write $2.00)" [G3]. digest-v5 §E carries only the cache-READ figure,
+				// and iteration 1 of this file wrongly recorded the writes as unpublished
+				// (review finding N1); they are transcribed from [G3] here.
+				cachedInUsdPerMTok: 0.1, // cache read / "cache hit" [G3]
+				cacheWrite5mUsdPerMTok: 1.25, // [G3]
+				cacheWrite1hUsdPerMTok: 2.0, // [G3]
 			},
 		],
 		contextWindow: 200000, // doc-only, like every window here [G3, registry]
@@ -678,21 +701,27 @@ const ANTHROPIC_THINKING_ALWAYS_ON_LADDER: readonly ThinkingLevel[] = Object.fre
  * Per-id ladders rather than a prefix rule: fable-5 breaks its family's shape
  * (no `off`), and the cheap tier's ladders are UNVERIFIED assumptions [§E.7],
  * so each entry is stated explicitly and traceably instead of derived.
+ *
+ * A MAP, not an object literal (review finding CQ6): an object lookup keyed by
+ * a caller-supplied id answers for `Object.prototype` property names too, so an
+ * id of "constructor" or "toString" would have returned a FUNCTION where a
+ * ladder belongs — the accessor's contract broken by the table's own prototype.
+ * Map.get answers only for keys actually inserted.
  */
-const LADDER_BY_ID: Readonly<Partial<Record<string, readonly ThinkingLevel[]>>> = Object.freeze({
-	"openai/gpt-5.6-sol": OPENAI_GPT_5_LADDER,
-	"openai/gpt-5.6-terra": OPENAI_GPT_5_LADDER,
-	"openai/gpt-5.6-luna": OPENAI_GPT_5_LADDER,
-	"anthropic/claude-sonnet-5": ANTHROPIC_FULL_LADDER,
-	"anthropic/claude-opus-5": ANTHROPIC_FULL_LADDER,
-	"anthropic/claude-fable-5": ANTHROPIC_THINKING_ALWAYS_ON_LADDER,
+const LADDER_BY_ID: ReadonlyMap<string, readonly ThinkingLevel[]> = new Map<string, readonly ThinkingLevel[]>([
+	["openai/gpt-5.6-sol", OPENAI_GPT_5_LADDER],
+	["openai/gpt-5.6-terra", OPENAI_GPT_5_LADDER],
+	["openai/gpt-5.6-luna", OPENAI_GPT_5_LADDER],
+	["anthropic/claude-sonnet-5", ANTHROPIC_FULL_LADDER],
+	["anthropic/claude-opus-5", ANTHROPIC_FULL_LADDER],
+	["anthropic/claude-fable-5", ANTHROPIC_THINKING_ALWAYS_ON_LADDER],
 	// The three below are ASSUMED family shapes, unverified [§E.7]; their
 	// profiles carry `ladderAssumed: true` so a consumer can tell them apart
 	// from a traced ladder without re-deriving it here.
-	"openai/gpt-5.4-nano-2026-03-17": OPENAI_GPT_5_LADDER,
-	"openai/gpt-5.4-mini-2026-03-17": OPENAI_GPT_5_LADDER,
-	"anthropic/claude-haiku-4-5": ANTHROPIC_FULL_LADDER,
-});
+	["openai/gpt-5.4-nano-2026-03-17", OPENAI_GPT_5_LADDER],
+	["openai/gpt-5.4-mini-2026-03-17", OPENAI_GPT_5_LADDER],
+	["anthropic/claude-haiku-4-5", ANTHROPIC_FULL_LADDER],
+]);
 
 /**
  * The pi thinking-level ladder a model actually supports (digest §V). Every
@@ -703,7 +732,11 @@ const LADDER_BY_ID: Readonly<Partial<Record<string, readonly ThinkingLevel[]>>> 
  * The answer is TRACED unless the profile sets `ladderAssumed`, in which case
  * it is this module's provider-family assumption [§E.7]. A level on the ladder
  * may still be rejected by the provider — see `apiRejectedLevels`.
+ *
+ * ALWAYS a frozen array of ThinkingLevel, for every possible `id` — including
+ * prototype property names such as "constructor" or "__proto__", which the
+ * previous object-literal table answered with a function or an object (CQ6).
  */
 export function ladderFor(profile: ModelProfile): readonly ThinkingLevel[] {
-	return LADDER_BY_ID[profile.id] ?? ANTHROPIC_FULL_LADDER;
+	return LADDER_BY_ID.get(profile.id) ?? ANTHROPIC_FULL_LADDER;
 }
