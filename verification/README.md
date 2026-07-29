@@ -563,16 +563,35 @@ CHECK off-inert        PASS    — empty pattern list → shared empty set, regi
 CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
 CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
       observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
-CHECK roster           PASS    — all 57 expected checks reported exactly once, and every module-dependent check is covered by a NOT RUN list …
-== summary: 57 pass, 1 fail, 0 not run ==
+CHECK roster           PASS    — all 84 expected checks reported exactly once and the counters agree …
+== summary: 84 pass, 1 fail, 0 not run (85 result lines = 84 expected checks + this roster audit) ==
 ```
+
+### Why the summary counts one more than the roster
+
+The `roster` line counts **expected checks**; the summary counts **result lines**,
+and the roster audit is itself a result line while deliberately *not* an expected
+check — it cannot appear in its own expected list, because the audit is computed
+before it reports, so listing it would make it permanently "missing". A clean run
+therefore prints `EXPECTED + 1` result lines.
+
+That is the whole of the old off-by-one, and it is now **stated in the output**
+rather than left to be re-derived: the summary prints the identity
+(`85 result lines = 84 expected checks + this roster audit`), and on a run where it
+does not hold — a deleted check, a duplicate report, a crashed section adding an id
+— it prints the residual as `±N unaccounted — see the roster line`. The roster
+additionally asserts the identity it *can* own: `pass + fail + notrun` equals the
+number of rostered ids, so the counters and the roster can never drift apart
+silently (they are written by the same three functions but are separate state).
 
 Three output rules exist because earlier versions of this suite could pass
 vacuously (findings TS1–TS3 of the Track 01 review):
 
-- **`roster`** asserts that every expected check id reported **exactly once**. A
-  section that crashes mid-way, a check that was deleted, and a check whose id
-  was mistyped all surface here instead of vanishing into a clean exit.
+- **`roster`** asserts that every expected check id reported **exactly once**, that
+  no unexpected id reported, that every module-dependent check is on a NOT RUN
+  list, and that the counters match the roster. A section that crashes mid-way, a
+  check that was deleted, a check that reports twice and a check whose id was
+  mistyped all surface here instead of vanishing into a clean exit.
 - **Every section is guarded.** A throwing oracle becomes a `<section>-crash`
   FAIL and the checks after it still run; the summary line is printed from a
   `finally`, so it appears even then.
@@ -654,16 +673,40 @@ session's frozen resolution carries:
 | `route-long-context` | the long-context **billing** notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a substitution the notice belongs to the model the action actually runs on |
 | `route-failover` | a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a **non-substituting** window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-off session keeps its pre-router failover behaviour exactly |
 | `route-lowest-effort` | the base-effort seed is the **lowest measured, non-provider-rejected** level on that model's ladder — never an evidence gap — ascending from pi's vocabulary rather than the table's authoring order, and `undefined` (pi's own default) when there is no measured level, the model is unlisted, the router is off, or the resolution is junk |
+| `route-off-ladder-source` | with the router **OFF** the ladder used for effort validation comes from the caller's **injected** profile source and nothing else: it is consulted by spec, it is authoritative (a level off it is refused even for a spec the shipped table has never heard of — the discriminating direction), a spec it **declines** is not judged at all, an absent source or a throwing lookup is inert, a foreign level is filtered out of the quoted ladder, and the module imports the shipped table **only as an erased type** (a text term, like `wiring`: it is what catches a runtime import of `findProfile` as a back door). It also **pins, without endorsing**, one current behaviour: an unusable *ladder* (throwing or non-array) refuses the level with an empty ladder instead of going inert — see the note below |
 | `route-hostile` | a hostile `model` or `effort` argument is stripped of control/ANSI bytes and length-capped before it reaches a rejection reason — that text goes to the orchestrator *and* to pi-tui, which renders escapes verbatim — while the rejection itself still happens |
 
-What the `route-*` checks deliberately do **not** cover, because it is not in the
-pure module: what `threads.ts` then *does* with a verdict (applying the switch to a
-worker session, turning an early rejection into a tool error and an apply-time one
-into an episode-less abort, recording guard 6's once-per-pair memory), and the
-composition that feeds the planner — pi's real compaction settings, and the
-registry/auth vetting behind the router-off ladder source. The ladder's `WK1` rung
-covers the settings-isolation half of applying a switch; the rest needs a live
-session.
+#### Documented coverage boundary of the `route-*` checks
+
+What they deliberately do **not** cover, because it is not in the pure module —
+listed so a reader never has to infer it:
+
+- **What `threads.ts` does with a verdict**: applying the switch to a worker
+  session, turning an early rejection into a tool error and an apply-time one into
+  an episode-less abort, and recording guard 6's once-per-pair memory. The ladder's
+  `WK1` rung covers the settings-isolation half of applying a switch; the rest
+  needs a live session.
+- **pi's real compaction settings** behind `wouldCompact` / `reserveTokens`. The
+  checks inject a fabricated predicate, which is the point — but it means the
+  *reading* of pi's settings is unverified here.
+- **The registry-and-auth vetting behind the router-off ladder source.** This is
+  the one property that was previously covered by a throwaway check
+  (`off-unservable-allows`) and is now split in two. The planner's half — that the
+  injected source is the sole authority and a declined spec is not judged — IS
+  covered, by `route-off-ladder-source` above. The *composition* is not: that
+  `threads.ts` builds that source by asking pi's registry whether the model exists
+  and has configured auth (`routerOffProfiles` / `registryCanServe`) lives in a
+  module this harness cannot load, so **it remains a known uncovered property**. A
+  regression there — handing the planner the shipped table unvetted — would make
+  the planner refuse effort levels for models the session cannot even run, and only
+  a live session would show it.
+- **A flagged behaviour, pinned but not endorsed**: with the router off, an
+  injected source that profiles a spec but cannot produce a ladder (a throwing or
+  non-array `ladderFor`) currently makes the planner **refuse** the level with an
+  empty ladder, where the module's own stated rule for that path is "no ladder data
+  ⇒ no basis to refuse" (pi clamps). `route-off-ladder-source` pins today's
+  behaviour so a deliberate fix shows up as a failing term rather than passing
+  unnoticed; the fix itself belongs to `extension/route.ts`.
 
 Config-sanitizer wiring (`extension/index.ts`) — a **text** check:
 
@@ -742,9 +785,9 @@ written to avoid (`base-throwing-switch`). Three of those mutations also killed
 other `base-*` checks, which is expected: the requirement is that every check is
 killed by at least one mutation, not that a mutation kills only one check.
 
-The `route-*` checks likewise, **17 mutations, 17 killed** — one per check, plus a
+The `route-*` checks likewise, **20 mutations, 20 killed** — one per check, plus a
 second one for `route-resolved-pair`, whose model half and effort half are
-independent. Each one is a defect that would leave the dispatch working: disabling the
+independent, and three for `route-off-ladder-source` (below). Each one is a defect that would leave the dispatch working: disabling the
 vocabulary guard (the level then reaches the ladder guard and is complained about
 for the wrong reason); disabling the list guard; making the list guard ignore the
 router-OFF state; letting an `on: true` resolution with no candidates stay "on";
@@ -759,8 +802,32 @@ long-context billing on every dispatch instead of once; letting failover select 
 model that just failed; seeding a base effort from an evidence gap; and dropping
 the display sanitizer from a rejection reason. One further mutation makes
 `route.ts` unloadable, which is how the NOT RUN registration itself was verified:
-`route-load` FAILs and all 15 `route-*` checks report NOT RUN by name, with the
+`route-load` FAILs and all `route-*` checks report NOT RUN by name, with the
 roster still passing.
+
+`route-off-ladder-source` was proven three ways, because its text term and its
+behavioural terms catch different defects: making the module fall back to the
+**shipped table** when no source is injected (caught by the text term alone — which
+is exactly why that term exists); judging a spec the injected source **declined**;
+and ignoring the injected **ladder** in favour of pi's whole vocabulary.
+
+### The roster's own teeth
+
+The roster is the only mechanism standing between a vanished check and a clean
+exit, so it is mutation-tested too — four ways a check can disappear or lie, all
+caught:
+
+| mutation | result |
+| --- | --- |
+| a check **deleted** (its report call suppressed) | `roster` FAIL, `none missing → ["memoization"]`, exit 1, and the summary prints `−1 unaccounted — see the roster line` |
+| a check **reporting twice** | `roster` FAIL, `none reported twice → ["memoization"]`, exit 1, summary `+1 unaccounted` |
+| a check **renamed** to an id absent from the expected list | `roster` FAIL naming **both** halves — `none missing → ["memoization"]` and `none unexpected → ["memoisation"]` — exit 1. Note the counts still reconcile here: identity, not arithmetic, is what catches a rename |
+| a whole **module unloadable** (`base-model.ts`) | its load check FAILs, its 9 checks report **NOT RUN by name**, `roster` still PASSes (they *did* report), exit 1 |
+
+And the strict semantics were verified in isolation, on a copy where one check
+stands down with **no** FAIL anywhere: plain run exits **0** with `1 not run`, the
+same run with `--strict` exits **1**. So a run that quietly skipped coverage cannot
+read as success in automation.
 
 Two of those mutations initially made a check **crash** rather than fail (a term
 read `.reason` off a verdict that was suddenly a *proceed*). That is a worse signal

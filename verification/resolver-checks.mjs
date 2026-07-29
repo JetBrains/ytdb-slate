@@ -239,6 +239,7 @@ const ROUTE_IDS = [
 	"route-long-context",
 	"route-failover",
 	"route-lowest-effort",
+	"route-off-ladder-source",
 	"route-hostile",
 ];
 /** Checks that need extension/base-model.ts — the orchestrator base-model tracker. */
@@ -1707,6 +1708,121 @@ try {
 			]);
 		});
 
+		await section("route-off-ladder-source", async () => {
+			// ROUTER-OFF LADDER SOURCE. With the router off there is no candidate list, so
+			// the ladder used for effort validation comes from the `profiles` source the
+			// CALLER injects — and threads.ts injects a REGISTRY- AND AUTH-VETTED one: a
+			// model pi cannot actually serve yields no profile, so its levels are not
+			// judged and pi's own clamp decides, exactly as before the router existed.
+			// Reading the shipped profile table directly instead would judge (and refuse)
+			// levels for models the session cannot even run.
+			//
+			// The VETTING ITSELF is composed in threads.ts and is not observable from here
+			// (verification/README.md records it as a known uncovered property). What IS
+			// observable, and what this check pins, is the planner's half of that contract:
+			// the injected source is consulted, it is the ONLY authority, a spec it declines
+			// is not judged at all, and the module carries no runtime dependency on the
+			// shipped table that could serve as a back door.
+			const calls = [];
+			const LADDERS = { "p/offrouter": ["medium"] };
+			const served = (spec) => ({ id: spec, capabilityMeasuredAt: ["medium"], evidenceGapAt: [] });
+			const vetted = {
+				findProfile: (spec) => {
+					calls.push(`findProfile:${spec}`);
+					// Stands in for "pi's registry knows it AND there are credentials": a spec
+					// outside this table is one the session cannot serve.
+					return LADDERS[spec] ? served(spec) : undefined;
+				},
+				ladderFor: (p) => {
+					calls.push(`ladderFor:${p?.id}`);
+					return LADDERS[p?.id] ?? [];
+				},
+			};
+			const off = router.ROUTER_OFF;
+			// "high" is OFF the injected ladder ⇒ refused. The shipped table does not
+			// profile this spec at all, so a planner reading the table would have been inert
+			// here and let it through: this is the discriminating direction.
+			const judged = plan({ resolution: off, requestedModel: "p/offrouter", requestedEffort: "high", profiles: vetted });
+			const measured = plan({ resolution: off, requestedModel: "p/offrouter", requestedEffort: "medium", profiles: vetted });
+			// A spec the vetted source DECLINES (unknown to pi's registry, or no
+			// credentials): nothing to judge ⇒ inert, pi clamps — the pre-router behaviour.
+			const declined = plan({ resolution: off, requestedModel: "p/unserved", requestedEffort: "high", profiles: vetted });
+			const noSource = plan({ resolution: off, requestedModel: "p/offrouter", requestedEffort: "high" });
+			const throwingFind = plan({
+				resolution: off,
+				requestedModel: "p/offrouter",
+				requestedEffort: "high",
+				profiles: {
+					findProfile() {
+						throw new Error("registry exploded");
+					},
+					ladderFor: () => ["medium"],
+				},
+			});
+			// A source that PROFILES the spec but cannot produce a ladder (throwing, or
+			// handing back a non-array — what a prototype-key lookup returns). Today both
+			// yield an EMPTY ladder, which guard 2 then treats as "nothing is on the ladder"
+			// and REFUSES the level. Pinned below as current behaviour, and flagged: the
+			// module's own rule for the router-off path is "no ladder data ⇒ no basis to
+			// refuse" (pi clamps), which would make these inert like the two cases above.
+			// A deliberate fix in route.ts will fail that term, which is the point.
+			const throwingLadder = plan({
+				resolution: off,
+				requestedModel: "p/offrouter",
+				requestedEffort: "high",
+				profiles: {
+					findProfile: (spec) => served(spec),
+					ladderFor() {
+						throw new Error("ladder exploded");
+					},
+				},
+			});
+			const nonArrayLadder = plan({
+				resolution: off,
+				requestedModel: "p/offrouter",
+				requestedEffort: "high",
+				profiles: { findProfile: (spec) => served(spec), ladderFor: () => "medium" },
+			});
+			// CQ6: whatever the injected source hands back is filtered to pi's own effort
+			// vocabulary rather than trusted verbatim — a foreign level must not appear in
+			// the ladder the rejection quotes, nor make a foreign level dispatchable.
+			const foreign = plan({
+				resolution: off,
+				requestedModel: "p/offrouter",
+				requestedEffort: "high",
+				profiles: { findProfile: (spec) => served(spec), ladderFor: () => ["medium", "LOUD", "fast", "medium"] },
+			});
+			// The module must not reach the shipped table at RUNTIME at all: its only
+			// reference to it is the ERASED `import type` of the level union. A text check,
+			// like `wiring`, and for the same reason — it is the difference between "the
+			// ladder source is injected" and "the ladder source happens to be injected on
+			// the paths a check exercised".
+			const src = readFileSync(join(REPO, "extension", "route.ts"), "utf8");
+			const tableImports = [...src.matchAll(/^import\s+(type\s+)?[^;]*from\s+"\.\/model-profiles\.ts";/gm)];
+			checkAll("route-off-ladder-source", "with the router OFF the effort ladder comes from the CALLER's injected profile source and nothing else: it is consulted by spec, it is authoritative (a level off it is refused even for a spec the shipped table has never heard of), a spec it DECLINES is not judged at all, an absent source or a throwing lookup is inert while an unusable LADDER currently refuses (pinned, not endorsed), a foreign level is filtered out, and the module imports the shipped table only as an erased type", [
+				["the injected source is consulted, by spec", calls.includes("findProfile:p/offrouter"), calls],
+				["...and asked for that profile's ladder", calls.includes("ladderFor:p/offrouter"), calls],
+				["authoritative: a level off the injected ladder is refused", judged.kind === "reject" && /p\/offrouter's effort ladder \(medium\)/.test(why(judged)), verdict(judged)],
+				["...while a level on it proceeds", verdict(measured) === "proceed:p/offrouter@medium", verdict(measured)],
+				["a DECLINED spec is not judged at all (pi clamps)", verdict(declined) === "proceed:p/unserved@high", verdict(declined)],
+				["...silently", declined.warnings.length === 0, declined.warnings],
+				["no source at all ⇒ inert", verdict(noSource) === "proceed:p/offrouter@high", verdict(noSource)],
+				["a throwing profile LOOKUP ⇒ inert (no profile ⇒ no basis to refuse)", verdict(throwingFind) === "proceed:p/offrouter@high", verdict(throwingFind)],
+				// PINNED, NOT ENDORSED (see the note above the fixture): an unusable LADDER
+				// currently refuses the level instead of going inert. Neither case crashes.
+				[
+					"an unusable LADDER (throwing or non-array) currently REFUSES the level with an empty ladder — pinned; the module's 'no ladder data ⇒ no basis to refuse' rule would make it inert",
+					throwingLadder.kind === "reject" &&
+						nonArrayLadder.kind === "reject" &&
+						/effort ladder \(\(none recorded\)\)/.test(why(throwingLadder)) &&
+						/effort ladder \(\(none recorded\)\)/.test(why(nonArrayLadder)),
+					[verdict(throwingLadder), verdict(nonArrayLadder)],
+				],
+				["a foreign level never reaches the quoted ladder", foreign.kind === "reject" && /effort ladder \(medium\)/.test(why(foreign)) && !/LOUD|fast/.test(why(foreign)), why(foreign)],
+				["the shipped table is imported only as an erased type", tableImports.length > 0 && tableImports.every((m) => m[1] !== undefined), tableImports.map((m) => m[0])],
+			]);
+		});
+
 		await section("route-hostile", async () => {
 			// A rejection REASON is user- and orchestrator-facing text built from the
 			// dispatch's own arguments, and it reaches pi-tui, which renders control bytes
@@ -2390,7 +2506,7 @@ try {
 		"route-load", "route-vocabulary", "route-list-on", "route-list-off", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
-		"route-failover", "route-lowest-effort", "route-hostile",
+		"route-failover", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
 		"wiring", "spec-invisible", "spec-config-key",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
@@ -2407,14 +2523,43 @@ try {
 	const uncovered = VOIDABLE.flatMap(([prefix, list, loadId]) =>
 		EXPECTED.filter((id) => id.startsWith(prefix) && id !== loadId && !list.includes(id)),
 	);
-	check(
+	// THE COUNTERS AGAINST THE ROSTER. `reported` and pass/fail/notrun are written by
+	// the same three functions (check, checkAll, skip) but are separate state, so
+	// this term pins them together: every counted verdict is a rostered id and every
+	// rostered id was counted. Read BEFORE the roster reports itself, so both sides
+	// exclude it.
+	const counted = pass + fail + notrun;
+	const countsAgree = counted === reported.length;
+	// WHY THE TWO NUMBERS IN THE OUTPUT DIFFER BY ONE, stated here and in the summary
+	// line so nobody has to re-derive it: this line counts EXPECTED CHECKS, the
+	// summary counts RESULT LINES, and the roster audit is itself a result line while
+	// deliberately NOT an expected check (it cannot appear in its own EXPECTED list —
+	// the audit runs before it reports, so listing it would make it permanently
+	// "missing"). A clean run therefore prints EXPECTED.length + 1 result lines, and
+	// the summary line below states that identity rather than leaving it as an
+	// unexplained off-by-one in the one mechanism whose whole job is counting.
+	checkAll(
 		"roster",
-		missing.length === 0 && duplicated.length === 0 && unexpected.length === 0 && uncovered.length === 0,
-		`all ${EXPECTED.length} expected checks reported exactly once, and every module-dependent check is covered by a NOT RUN list (a crashed, deleted or unlisted check cannot pass silently)`,
-		{ missing, duplicated, unexpected, uncovered },
+		`all ${EXPECTED.length} expected checks reported exactly once and the counters agree, and every module-dependent check is covered by a NOT RUN list (a crashed, deleted, duplicated or unlisted check cannot pass silently)`,
+		[
+			["none missing", missing.length === 0, missing],
+			["none reported twice", duplicated.length === 0, duplicated],
+			["none unexpected", unexpected.length === 0, unexpected],
+			["every voidable check is on a NOT RUN list", uncovered.length === 0, uncovered],
+			["pass+fail+notrun equals the number of rostered ids", countsAgree, { counted, rostered: reported.length }],
+		],
 	);
 
-	console.log(`== summary: ${pass} pass, ${fail} fail, ${notrun} not run ==`);
+	// The reconciliation is COMPUTED, never claimed: on a failing run (a crashed
+	// section adds an id, a deleted check removes one) the residual is printed as
+	// "unaccounted" and points at the roster line instead of silently going wrong.
+	const resultLines = pass + fail + notrun;
+	const unaccounted = resultLines - (EXPECTED.length + 1); // +1: the roster audit reports itself
+	console.log(
+		`== summary: ${pass} pass, ${fail} fail, ${notrun} not run ` +
+			`(${resultLines} result lines = ${EXPECTED.length} expected checks + this roster audit` +
+			`${unaccounted === 0 ? "" : `, ${unaccounted > 0 ? "+" : "−"}${Math.abs(unaccounted)} unaccounted — see the roster line`}) ==`,
+	);
 	// process.exitCode, never process.exit: the latter can truncate piped stdout
 	// before the summary above is flushed.
 	process.exitCode = fail > 0 || (STRICT && notrun > 0) ? 1 : 0;
