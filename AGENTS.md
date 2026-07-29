@@ -24,6 +24,8 @@ This repo runs slate on itself:
   2. Judge extension load by output, not exit code: pi exits 0 even when extension loading fails — success is the ABSENCE of a `Failed to load extension` line on stderr. A bare `pi --no-extensions -e . -p "exit"` run exercises only extension registration and `session_start` (config load/validation); it touches no tool execution or failover paths — exercise those explicitly when they change.
   3. Carefully re-read the full diff before committing.
 
+  Two automated nets do exist for the mechanisms that fail silently — the verification ladder and the pure-resolver checks below; run the one that covers what you touched.
+
 ### Verification ladder (global model-default restore)
 
 `verification/run-ladder.sh` is the one automated regression net in the repo. It covers `extension/model-default.ts` and both switch sites (`extension/failover.ts` failover, `extension/handoff.ts` handoff adoption): the per-key restore rule, the untrustworthy-read stand-downs, the retry budget and the reporting channels — against fake offline providers in a throwaway agent directory, so real pi settings are never touched.
@@ -31,13 +33,17 @@ This repo runs slate on itself:
 - Run it with `bash verification/run-ladder.sh --repo .` (~3 min; `--only <ids>` for a subset). Not as root, and needs GNU coreutils. Exit 0 means nothing failed and the real settings file is unchanged — rungs can still report NOT RUN, so read the lines; automation should pass `--strict`, which makes any NOT RUN fatal.
 - **Re-run it after any change to `extension/model-default.ts` or to either switch site** — that mechanism fails silently when it regresses, so a passing smoke test proves nothing about it. Details, rung table and the timing-sensitive rungs: `verification/README.md`.
 
-### Worker-extension resolver checks
+### Pure-resolver checks (worker extensions + model router + profile table)
 
-`verification/run-resolver-checks.sh` is the automated net for the worker-extension feature. It loads and exercises exactly two modules against fabricated in-memory registries — no pi session, no real state — in ~1 second: the pure resolver in `extension/worker-extensions.ts` (candidate filtering, load-unit selection, barriers, matching, memoization) and the doctrine rule it feeds in `extension/mode.ts`.
+`verification/run-resolver-checks.sh` is the automated net for the repo's two PURE pipelines. It loads and exercises four modules against fabricated in-memory registries and fabricated profile tables — no pi session, no real state — in ~1 second:
 
-- Run it with `bash verification/run-resolver-checks.sh --repo .` (needs `pi` and `node` on `PATH`). One line per check; exit 0 = all passed, 1 = a check failed.
-- **Re-run it after any change to `extension/worker-extensions.ts` (the resolver) or `extension/mode.ts` (the doctrine rule)** — those are the modules it loads. Details and the check table: `verification/README.md`.
-- It does NOT touch `extension/worker.ts`: the worker-session load path — the allowlist-mode extension load, the `excludeTools` deny list that keeps slate's dispatch tools out of a worker, and the post-load collision re-check — is out of its scope. Exercise those with the isolated-load smoke test (`pi --no-extensions -e .`) above after changing `extension/worker.ts`.
+- `extension/worker-extensions.ts` — the worker-extension resolver (candidate filtering, load-unit selection, barriers, matching, memoization) and the doctrine rule it feeds in `extension/mode.ts`;
+- `extension/model-router.ts` — the model router: the `router` config sanitizer, candidate resolution (drops, ordering, the `nonPreferred`-aware base-model pick, the W1/W3/failover-coverage warnings, dedup, memoization) and the dispatch-side effort predicate;
+- `extension/model-profiles.ts` — STRUCTURAL invariants of the shipped table only (id/alias resolvability, ladder vs measured/gap coverage, price-schedule shape, tier range, freezing). Never a research number: those are a review concern, and a refresh must not have to touch this suite.
+
+- Run it with `bash verification/run-resolver-checks.sh --repo .` (needs `pi` and `node` on `PATH`). One line per check, an `observed:` line under a failure, a `roster` check that every expected check reported, then a summary. Exit 0 = all passed, 1 = a check failed or went missing, 2 = refused to start. Automation should pass `--strict`, which makes any NOT RUN fatal.
+- **Re-run it after any change to `extension/worker-extensions.ts`, `extension/mode.ts`'s doctrine rule, `extension/model-router.ts`, or `extension/model-profiles.ts`** — those are the modules it loads. A router change is the same class of hazard as the model-default mechanism: a wrong candidate list or a suppressed warning still "works", so a smoke test proves nothing about it. Details, the check table and the mutation-testing method that gives these checks teeth: `verification/README.md`.
+- It does NOT touch `extension/worker.ts`: the worker-session load path — the allowlist-mode extension load, the `excludeTools` deny list that keeps slate's dispatch tools out of a worker, and the post-load collision re-check — is out of its scope. Exercise those with the isolated-load smoke test (`pi --no-extensions -e .`) above after changing `extension/worker.ts`. It likewise stops at the router's boundary: dispatch-side enforcement and the doctrine's routing rule are separate mechanisms.
 
 ## Packaging rules
 

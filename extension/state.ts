@@ -42,6 +42,44 @@ export interface SlateSnapshot {
 	carriedCostUsd: number; // orchestrator spend banked from ancestor sessions at handoff
 }
 
+/**
+ * Canonical "provider/id" model-spec parsing — the ONE definition (CQ2).
+ *
+ * The pattern (validate, then split on the FIRST slash) had grown four
+ * near-identical copies: failover.ts's local `isModelSpec`, and the inline
+ * `indexOf("/")` splits in episodes.ts, worker.ts and the model router. It lives
+ * here because state.ts is where the config vocabulary that uses it is defined
+ * (`episodeModel`, `modelFailover`, `router.models`, the contextBudget override
+ * `match`), and because state.ts imports nothing from those modules, so no call
+ * site can create an import cycle by adopting it. model-router.ts is the first
+ * adopter; failover.ts, episodes.ts and worker.ts still carry their copies and
+ * should be switched over by whoever next touches them (they were outside the
+ * file ownership of the change that added this).
+ *
+ * The FIRST slash splits, deliberately: proxy providers legitimately carry a
+ * slash inside the model id ("openrouter/anthropic/claude-..."), so provider is
+ * everything before the first slash and id is all the rest.
+ *
+ * Whitespace and control characters are REJECTED rather than trimmed: a spec
+ * with a trailing newline resolves nowhere in pi's registry, yet renders in a
+ * warning as a byte-identical twin of the valid name once the display sanitizer
+ * strips the offending character (BG2). Rejecting it lets the caller say what is
+ * actually wrong.
+ */
+export function isModelSpec(value: unknown): value is string {
+	if (typeof value !== "string") return false;
+	if (/[\s\u0000-\u001f\u007f\u009b]/.test(value)) return false;
+	const slash = value.indexOf("/");
+	return slash > 0 && slash < value.length - 1;
+}
+
+/** Split a validated spec into provider + id (first slash wins); undefined when it is not a spec. */
+export function splitModelSpec(value: unknown): { provider: string; id: string } | undefined {
+	if (!isModelSpec(value)) return undefined;
+	const slash = value.indexOf("/");
+	return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
+}
+
 /** One contextBudget override. `match` is a regex tested ANCHORED (^(?:match)$) against "provider/id". */
 export interface ContextBudgetOverride {
 	match: string;

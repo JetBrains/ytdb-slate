@@ -434,17 +434,20 @@ Also expected, and not a harness problem:
 
 # Pure-resolver checks — `run-resolver-checks.sh`
 
-A second, much smaller net, for two different mechanisms:
+A second, much smaller net, for three subjects:
 
 - the **worker-extension resolver** in `extension/worker-extensions.ts` and the
   doctrine rule it feeds in `extension/mode.ts`;
 - the **model router** in `extension/model-router.ts` — its config sanitizer, its
-  candidate resolution and warnings, and its dispatch-side effort predicate.
+  candidate resolution and warnings, and its dispatch-side effort predicate;
+- **structural invariants of the shipped profile table** in
+  `extension/model-profiles.ts` (`profiles-*`) — shape and internal consistency
+  only, never a research number.
 
 The ladder above covers only the model-default machinery and says nothing about
-either feature.
+any of them.
 
-Unlike the ladder, both pipelines are **pure and deterministic** — one maps a
+Unlike the ladder, these pipelines are **pure and deterministic** — one maps a
 host tool registry and a list of regex patterns to a set of load units, the other
 maps a configured model list plus a model registry plus a profile table to an
 ordered candidate set — so the checks need no pi session and no real state at
@@ -454,32 +457,56 @@ parameter property) against **fabricated in-memory registries, fabricated
 profile tables** and temp-dir package fixtures, and assert the observable result.
 
 Every router check injects **its own** registry *and* **its own** profile table,
-so none of them depends on the data in `extension/model-profiles.ts` — only on
-that module being loadable. If it cannot be loaded, the router checks collapse
-into one `router-load` **FAIL** naming the loader error, and the
-worker-extension checks still run.
+so none of them depends on the *data* in `extension/model-profiles.ts` — with two
+deliberate exceptions: `router-shipped-default`, which exists precisely to prove
+the shipped table really is the default of the injected `profiles` parameter (it
+reads the first profile's id *from the table*, so a research refresh cannot stale
+it), and the `profiles-*` block, whose subject **is** the table. If the router or
+the table cannot be loaded, `router-load` / `profiles-load` **FAIL** and every
+check they void reports **NOT RUN** by name — the rest of the suite still runs.
 
 ## Running it
 
 ```sh
-bash verification/run-resolver-checks.sh --repo .   # ~1 s; --repo defaults to "."
+bash verification/run-resolver-checks.sh --repo .            # ~1 s; --repo defaults to "."
+bash verification/run-resolver-checks.sh --repo . --strict   # CI: NOT RUN is fatal
 ```
 
-One line per check, then a summary:
+One line per check, an `observed:` line under any failure, a `roster` check, then
+a summary (the sample below deliberately shows a **failing** run, to show the
+shape of a failure):
 
 ```
-CHECK off-inert        PASS — empty pattern list → shared empty set, registry never walked
-CHECK unit-directory   PASS — package with a single literal entry the host runs → the package DIRECTORY is the unit
-CHECK router-cheapest  PASS — the cheapest candidate is the lowest effective input price even when a costlier model sorts first by tier (D48 base model)
-== summary: 32 pass, 0 fail ==
+CHECK off-inert        PASS    — empty pattern list → shared empty set, registry never walked
+CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
+CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
+      observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
+CHECK roster           PASS    — all 52 expected checks reported exactly once (a crashed or deleted check cannot pass silently)
+== summary: 52 pass, 1 fail, 0 not run ==
 ```
 
-Exit status: **0** every check passed · **1** a check failed · **2** refused to
+Three output rules exist because earlier versions of this suite could pass
+vacuously (findings TS1–TS3 of the Track 01 review):
+
+- **`roster`** asserts that every expected check id reported **exactly once**. A
+  section that crashes mid-way, a check that was deleted, and a check whose id
+  was mistyped all surface here instead of vanishing into a clean exit.
+- **Every section is guarded.** A throwing oracle becomes a `<section>-crash`
+  FAIL and the checks after it still run; the summary line is printed from a
+  `finally`, so it appears even then.
+- **A FAIL prints what it observed**, and a multi-term oracle names the term that
+  failed — `observed: <label> → <value>` — so a failure localises itself instead
+  of restating the claim.
+
+Exit status: **0** every check passed · **1** a check failed, a check went
+missing, or `--strict` was given and a check reported NOT RUN · **2** refused to
 start (a missing tool, a bad `--repo`, or jiti could not be located). `pi` and
 `node` must be on `PATH`; there is no network and no writing outside a throwaway
 temp dir the script removes on exit.
 
 ## What it covers
+
+Worker-extension resolver:
 
 | id | what it proves |
 | --- | --- |
@@ -495,23 +522,62 @@ Model router (`extension/model-router.ts`):
 
 | id | what it proves |
 | --- | --- |
-| `router-load` | printed **only on failure**: the module could not be loaded (usually a missing or broken `extension/model-profiles.ts`), so every router check below is void |
+| `router-load` / `profiles-load` | the two modules load at all; a failure here converts the checks below into explicit NOT RUN lines |
 | `router-off` | an empty *or* absent model list yields the shared `ROUTER_OFF` result with zero warnings and without consulting the registry — the default, behaviourally identical to the pre-router extension |
 | `router-unprofiled` | a model with no profile is warned about **by name** (no benchmark data ⇒ excluded) and kept out of the candidates |
-| `router-malformed` | a spec that is not canonical `provider/id` is warned about and dropped, its valid sibling surviving |
+| `router-malformed` | a spec that is not canonical `provider/id` is dropped with a warning that names the **reason** — including "control characters" and "leading or trailing whitespace", which the display sanitizer would otherwise strip, leaving a warning that reads like a valid name (BG2) |
 | `router-unroutable` | a model pi's registry does not know, and one with no configured credentials, are each warned about and dropped — routing there could only produce billed failures |
+| `router-alias-duplicate` | two specs resolving to the same profile (canonical id + alias) yield **one** candidate, the later one warned about and dropped |
 | `router-all-dropped` | when every entry is dropped the router is OFF with **exactly one** summary warning on top of the per-entry ones |
-| `router-order` | candidates are ordered by tier ascending, then by current effective input price ascending |
-| `router-cheapest` | the cheapest candidate is the lowest effective input price even when a costlier model sorts first by tier — the D48 default base model, exposed separately from the ordering |
-| `router-price-date` | the effective price is the dated row in force on the resolution date, not the first or last row of the schedule |
+| `router-order` / `router-order-ties` | ordering is tier ascending then effective input price ascending; a tier+price tie is broken by spec; a candidate with no usable price row sorts **last**, is warned about, and stays routable; a non-numeric tier sorts last instead of poisoning the comparator with `NaN` |
+| `router-cheapest` | the default base model (D48) is the cheapest **preferred** candidate: a profile carrying a `nonPreferred` reason is skipped even when it is the cheapest thing on the list, while remaining a routable candidate (BG1) |
+| `router-cheapest-fallback` | when *every* candidate is non-preferred a base model is still chosen (D48 requires one), the result flags it, and exactly one warning explains it with the profile's own reason |
+| `router-price-date` / `router-price-rows` | the effective row is the one in force on the resolution date; overlapping rows resolve to the greatest `from`; an expired or future-only schedule falls back to the most recent past row, else the first; non-ISO dates — including a **timestamp** where a date belongs, which string comparison would accept as a valid past bound and let win the pick — are treated as absent bounds instead of being compared lexicographically |
 | `router-w1-canary` | a profile/registry context-window divergence warns with both values and the profile `asOf` date, and the candidate carries the **registry** value (W1/D55: the registry is the authority) |
+| `router-w1-guards` | an absent window on either side is **not** a divergence, and neither is a registry value equal to the profile's recorded `contextWindowKnownDivergence` figure — while a third, unrecorded value still warns |
 | `router-w3-unknown` | a candidate with `unknownRoutingCriticalFields` warns once, naming the model and the fields (W3/D57) |
-| `router-failover-coverage` | a candidate missing from the `modelFailover` map is warned about as uncovered, while a fully covered, window-aligned candidate warns about nothing at all |
-| `router-dedup` | the memoizing resolver resolves once across repeated consultation and every warning is emitted at most once (D58) |
-| `router-effort` / `router-effort-off` | the effort predicate returns `ok`, `not-listed`, `off-ladder` and `evidence-gap` correctly and carries the model's ladder; with the router off it is inert, and an omitted effort is never a ladder complaint |
-| `router-config-default` / `router-config-invalid` | an absent `router` config silently yields `{ models: [], allowUnmeasuredEffort: true }`; a wrong-shape value warns once and falls back to those defaults; invalid `models` entries are dropped one warning each; a non-boolean `allowUnmeasuredEffort` warns and stays `true` |
+| `router-failover-coverage` | uncovered candidates produce **one aggregate** warning naming them all (not one per model); a covered, window-aligned candidate warns about nothing at all; a map entry whose target is not a spec does not count as coverage |
+| `router-warnings-echo` | on the router-**ON** path the returned `warnings` are exactly what the warn sink received, in order |
+| `router-dedup` | a condition warns at most once per resolution even when its trigger repeats — exercised through the **live** duplicate path (three identical malformed specs), since a repeated *valid* spec is skipped earlier and cannot reach the dedup at all; two values sharing a JSON form but not a type (`NaN` / `null`) stay separate conditions |
+| `router-memo` | the memoizing resolver resolves once across repeated consultation, returns the same frozen object, and each warning reaches the sink once (D58) |
+| `router-ladder-validation` | the ladder handed back by the profile table is filtered to pi's own effort vocabulary and de-duplicated: a foreign level reads as `off-ladder` even when the table claims a measurement at it, and a non-array ladder (what a prototype-key lookup returns) yields an empty ladder **plus** a warning rather than silent nonsense |
+| `router-effort` / `router-effort-gap` / `router-effort-hard` / `router-effort-off` | the predicate returns `ok`, `not-listed`, `off-ladder` and `evidence-gap` and carries the ladder, `measured`, `listedGap` and `apiRejected`; a ladder level that is neither measured nor a listed gap reports `evidence-gap`, never a false `ok` (BG9); a level in `apiRejectedLevels` reports `off-ladder` even when it is measured and on the ladder; with the router off the predicate is inert, and an omitted effort is never a ladder complaint |
+| `router-hostile` | every warning — resolver and sanitizer alike — is stripped of control/ANSI bytes and length-capped, even when fed a 5000-char profile field and an escape-bearing spec |
+| `router-robust` | hostile inputs degrade instead of crashing: a throwing warn sink still leaves the memo intact, a throwing registry/profile source and a throwing `getInput` turn the router OFF (once, cached), a cyclic or 30 000-deep config value is dropped with a warning, `allowUnmeasuredEffort: false` survives, `null` config falls back to the defaults, and a non-array model list is treated as empty |
+| `router-config-default` / `router-config-invalid` | an absent `router` config silently yields `{ models: [], allowUnmeasuredEffort: true }`; a wrong-shape value warns once and falls back to those defaults; invalid `models` entries are dropped one warning each; a non-boolean `allowUnmeasuredEffort` warns and stays `true`; **unknown keys are reported**, so a typo'd `"model"` cannot masquerade as an empty list (CQ1) |
+| `router-shipped-default` | with `profiles` omitted the resolver really does use the shipped table — tier, ladder and price all arrive from it — and an unprofiled spec is still excluded |
 
-It loads only those three modules, so it does **not** exercise
+Shipped profile table (`extension/model-profiles.ts`) — **structural only**:
+
+| id | what it proves |
+| --- | --- |
+| `profiles-ids` | every id is a canonical, lower-case, unique `provider/id` spec, and every profile carries the fields the router reads |
+| `profiles-aliases` | `findProfile` resolves every id (case-insensitively) and every alias to its own profile; no alias is shared between profiles, shadows a canonical id, or is empty/padded; an unknown spec resolves to `undefined` |
+| `profiles-ladder` | each ladder is a non-empty, duplicate-free subset of pi's effort vocabulary, and `capabilityMeasuredAt` / `evidenceGapAt` are disjoint and exactly cover it. This is the canary for a **mistyped ladder key**: a wrong key silently falls back to the widest ladder, which then contains levels the profile's own lists never mention |
+| `profiles-price` | every schedule is a non-empty, ascending, non-overlapping sequence of rows with `null`-or-ISO bounds, positive prices and output ≥ input; `tier` is an integer 1–4; `nonPreferred` is `null` or a non-empty reason; and tiers do not **price-invert** (no tier is dearer at its cheapest than the next tier up) |
+| `profiles-meta` | `PROFILES_AS_OF` is an ISO date, every profile carries it, the table is deep-frozen, and the free-text fields are of the declared shape |
+
+What the `profiles-*` checks deliberately do **not** do: assert any research
+number. A price, a context window or a benchmark value may legitimately change on
+the next refresh, so only relative and structural facts are asserted. One
+consequence is worth stating plainly — **scaling every price by the same factor
+would pass**; the price-inversion invariant only catches a value that moves
+relative to its neighbours. Numeric fidelity to the research is a review
+concern, not something a structural check can own.
+
+### Teeth
+
+These checks were validated by **mutation testing**: copy the repo to a scratch
+directory outside it, apply one textual change to `extension/model-router.ts`,
+`extension/state.ts` or `extension/model-profiles.ts`, and re-run the suite
+against the copy (`--repo <copy>`). Each behaviour listed above has at least one
+mutation that it catches — including the two that used to pass vacuously (the
+dedup mechanism and the shipped-table default), the ordering tie-breaks, the
+price-row selection rules, the W1 absence guards, the `nonPreferred` rule, and
+the roster machinery itself (renaming or deleting a check fails `roster`). Never
+mutate the repository itself; the scratch copy is the point.
+
+It loads only those four modules, so it does **not** exercise
 `extension/worker.ts`'s worker-session load path — the allowlist-mode extension
 load, the `excludeTools` deny list that structurally keeps slate's dispatch
 tools out of a worker, and the post-load collision re-check. Those need a live
@@ -528,8 +594,8 @@ separate mechanisms with their own verification.
 
 | file | role |
 | --- | --- |
-| `run-resolver-checks.sh` | the entry point: tool checks, jiti location, temp dir, exit code |
-| `resolver-checks.mjs` | the driver: imports the modules through jiti, builds fixtures, runs the checks |
+| `run-resolver-checks.sh` | the entry point: tool checks, jiti location, temp dir, `--strict`, exit code |
+| `resolver-checks.mjs` | the driver: imports the modules through jiti, builds fixtures, runs the checks, prints the roster and the summary |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
 whitelist is `extension`, `docs`, `README.md`, `LICENSE`).
