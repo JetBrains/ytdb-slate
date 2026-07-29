@@ -6,8 +6,22 @@
  * during that action, stored at <config dir>/slate/episodes/<id>.md, and returned to
  * the orchestrator as the tool result — it IS the synchronization mechanism.
  *
- * Compressor model resolution (D5): config episodeModel → newest available
- * Anthropic Sonnet → the worker's own model.
+ * COMPRESSOR MODEL RESOLUTION (D5), in this order — and NEVER the model the
+ * action itself was routed to:
+ *   1. the configured `episodeModel`;
+ *   2. the newest available Anthropic Sonnet — the built-in default;
+ *   3. the ORCHESTRATOR's base model (base-model.ts), as a LAST resort;
+ *   4. nothing usable ⇒ the uncompressed fallback (raw final worker output).
+ * Each rung additionally has to be USABLE (authed) — see resolveCompressorModel.
+ *
+ * Why the action's own model is excluded (per-action routing, D4/D53): an action
+ * may legitimately be routed to a cheap, small or non-reasoning model, and the
+ * episode is read by EVERY later consumer of that thread — the orchestrator, the
+ * next action's prompt, a handoff brief. Compressing with whatever the action
+ * happened to run on would let one cheap route degrade the durable record, which
+ * is the opposite of what the episode is for. The compressor is therefore a
+ * fixed, deliberately chosen model; what the action ran on is recorded in the
+ * episode HEADER instead (see compressEpisode).
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -20,7 +34,11 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { isFailoverCandidate, resolveMappedModel } from "./failover.ts";
-import { splitModelSpec } from "./state.ts";
+// TYPE-ONLY (erased at load time): the effort vocabulary is defined once, in the
+// profile table (the CQ2 rule), so recording an effort level here adds no runtime
+// dependency on it.
+import type { ThinkingLevel } from "./model-profiles.ts";
+import { isModelSpec, splitModelSpec } from "./state.ts";
 
 type CompressorModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
 
@@ -56,30 +74,115 @@ Transcript:
 ${transcript}`;
 }
 
+/**
+ * Is this model actually USABLE for a compression call?
+ *
+ * Deliberately the SAME test attemptCompression applies below (`auth.ok` AND an
+ * explicit `apiKey`, the CQ4 rule): a rung that passes here therefore cannot
+ * fail the attempt on auth, and a rung that does not — a model configured with
+ * no credentials, or one authed only through env/headers — FALLS THROUGH to the
+ * next rung instead of spending the episode on a guaranteed-failed call and
+ * landing in the uncompressed fallback. Never throws: an unusable answer and a
+ * throwing registry are the same thing to a caller that just wants the next rung.
+ */
+async function compressorUsable(ctx: ExtensionContext, model: CompressorModel): Promise<boolean> {
+	try {
+		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+		return auth.ok === true && typeof auth.apiKey === "string" && auth.apiKey !== "";
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * THE compressor pin (D5). The order is stated in the module header and repeated
+ * here as executable comments, because the ONE thing this function must never do
+ * is compress with the model the ACTION was routed to.
+ */
 async function resolveCompressorModel(
 	ctx: ExtensionContext,
 	configured: string | undefined,
-	workerModel: { provider: string; id: string } | undefined,
-) {
-	// Shared spec parsing (CQ2). A malformed episodeModel falls through to the
-	// Sonnet default below — sanitizeEpisodeModel above reports it at session_start
-	// (RG20), so the fall-through here is no longer silent.
+	orchestratorBaseModel: string | undefined,
+): Promise<CompressorModel | undefined> {
+	// RUNG 1 — the configured `episodeModel`: an explicit choice outranks every
+	// default. Shared spec parsing (CQ2); a malformed value falls through to rung 2,
+	// and sanitizeEpisodeModel reports it at session_start (RG20), so the
+	// fall-through is not silent.
 	const spec = splitModelSpec(configured);
 	if (spec) {
 		const m = ctx.modelRegistry.find(spec.provider, spec.id);
-		if (m) return m;
+		if (m && (await compressorUsable(ctx, m))) return m;
 	}
+	// RUNG 2 — the BUILT-IN DEFAULT, previously implicit: the newest available
+	// Anthropic Sonnet. Documented rather than merely coded, because it is a
+	// judgement call the rest of the pin depends on: summarising a long transcript
+	// into a fixed schema is exactly a mid-tier model's job, Sonnet's context window
+	// swallows the 300k-char transcript cap below, and pinning ONE family keeps
+	// episode quality stable across actions routed all over the ladder. "Newest" is
+	// a descending id sort — Anthropic's ids carry their generation, so the highest
+	// id is the latest snapshot; it is a heuristic over registry data, which is why
+	// an explicit `episodeModel` (rung 1) exists. Every candidate is auth-checked in
+	// order, so an unusable newest Sonnet yields to an older usable one.
+	// This rung may coincide with the action's own model — that is FINE and not the
+	// hazard the pin guards against: it is chosen for its own properties, not
+	// because an action ran on it.
 	try {
 		const available = await ctx.modelRegistry.getAvailable();
 		const sonnets = available
 			.filter((m: { provider: string; id: string }) => m.provider === "anthropic" && m.id.includes("sonnet"))
 			.sort((a: { id: string }, b: { id: string }) => b.id.localeCompare(a.id));
-		if (sonnets.length > 0) return sonnets[0];
+		for (const sonnet of sonnets) {
+			if (await compressorUsable(ctx, sonnet)) return sonnet;
+		}
 	} catch {
 		/* fall through */
 	}
-	if (workerModel) return ctx.modelRegistry.find(workerModel.provider, workerModel.id) ?? undefined;
+	// RUNG 3 — LAST RESORT: the ORCHESTRATOR's base model (base-model.ts), i.e. the
+	// model the orchestrator would be running had slate never failed over. It is the
+	// one model in play that is neither a per-action route nor a failover fallback,
+	// so it is the closest thing to a deliberate choice left once rungs 1 and 2 are
+	// gone (an Anthropic-less setup, or one whose Sonnet credentials went away).
+	// Absent = unknown (no tracker, or a session with no resolvable model), which
+	// simply means this rung does not apply.
+	const base = splitModelSpec(orchestratorBaseModel);
+	if (base) {
+		const m = ctx.modelRegistry.find(base.provider, base.id);
+		if (m && (await compressorUsable(ctx, m))) return m;
+	}
+	// The ACTION's own model is deliberately NOT a rung here (module header).
 	return undefined;
+}
+
+/**
+ * The header's `ran:` segment: the model and effort level the action ACTUALLY
+ * ran on, plus the unmeasured-effort marker — or undefined when the model is
+ * unknown, which the header then omits entirely (absence reads as "unknown",
+ * the ThreadRecord/EpisodeRecord contract, never as a default that would be
+ * wrong).
+ *
+ * Both values are guarded before they enter the header: this text lands in a
+ * file the orchestrator reads as structure, so a spec carrying whitespace,
+ * control or invisible characters (the shared predicate rejects all three) or a
+ * level that is not a bare word would be able to forge a header line. A rejected
+ * value reads as unknown rather than being repaired.
+ */
+function describeActionRun(
+	model: { provider: string; id: string } | undefined,
+	effort: ThinkingLevel | undefined,
+	unmeasured: boolean | undefined,
+): string | undefined {
+	if (!model) return undefined;
+	const spec = `${model.provider}/${model.id}`;
+	if (!isModelSpec(spec)) return undefined;
+	// A bare lower-case word, which every level in pi's vocabulary is. Checked
+	// structurally rather than against a copy of that vocabulary: the caller already
+	// validated the level, and a fourth copy of the union is exactly the duplication
+	// CQ2 removed.
+	const level = typeof effort === "string" && /^[a-z]{1,12}$/.test(effort) ? effort : undefined;
+	if (!level) return spec; // no level ⇒ nothing for the marker to qualify either
+	// The marker qualifies the LEVEL ("this level has no capability measurement in
+	// the profile data"), so it is only shown next to one.
+	return `${spec} @ ${level}${unmeasured ? " (unmeasured level)" : ""}`;
 }
 
 export interface CompressEpisodeOptions {
@@ -91,8 +194,23 @@ export interface CompressEpisodeOptions {
 	status: "ok" | "failed";
 	diagnostics?: string; // failure diagnostics (D6)
 	messages: unknown[]; // AgentMessages produced during this action
+	/**
+	 * The model the action ACTUALLY ran on — the live worker session's own model,
+	 * so a failover switch is reflected. Recorded in the episode HEADER and NEVER
+	 * used to pick the compressor (module header).
+	 */
 	workerModel?: { provider: string; id: string };
+	/** The effort level the action ACTUALLY ran at (post-clamp). Header only. Absent = unknown. */
+	workerEffort?: ThinkingLevel;
+	/** True when that level has NO capability measurement in the profile data (header marker only). */
+	workerEffortUnmeasured?: boolean;
 	configuredModel?: string;
+	/**
+	 * The ORCHESTRATOR's base model as "provider/id" (base-model.ts's tracker —
+	 * `current()`), used as the compressor's LAST resort. Absent = unknown, which
+	 * only means that rung does not apply.
+	 */
+	orchestratorBaseModel?: string;
 	modelFailover?: Record<string, string>; // "provider/id" → "provider/id" retry map (single hop, one retry)
 	signal?: AbortSignal;
 }
@@ -195,7 +313,7 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	let costUsd = 0;
 
 	try {
-		const model = await resolveCompressorModel(ctx, opts.configuredModel, opts.workerModel);
+		const model = await resolveCompressorModel(ctx, opts.configuredModel, opts.orchestratorBaseModel);
 		if (model) {
 			let transcript = serializeConversation(convertToLlm(opts.messages as never));
 			if (transcript.length > MAX_TRANSCRIPT_CHARS) {
@@ -256,11 +374,21 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	}
 
 	const statusLabel = opts.status === "ok" ? "OK" : "FAILED";
+	// What the ACTION ran on, on the existing date/compressor line rather than a new
+	// one: the header is paid for on every episode read (by the orchestrator AND by
+	// every later action that cites the episode), so this costs ~40 characters and no
+	// extra line. It answers the question a routed action makes unavoidable — a poor
+	// episode is attributable to the model and level it was produced on, and an
+	// action that ran at a level with no capability evidence says so, instead of
+	// reading as a mysteriously weak result. The `compressor:` field beside it keeps
+	// its own meaning untouched: that one is the model that wrote the episode BODY
+	// (post-failover), a different fact from the model the action ran on.
+	const ranOn = describeActionRun(opts.workerModel, opts.workerEffort, opts.workerEffortUnmeasured);
 	const header = [
 		`# Episode ${opts.episodeId} — thread ${opts.threadId} (${opts.threadName}) — STATUS: ${statusLabel}`,
 		"",
 		`> task: ${opts.task.replace(/\s+/g, " ").slice(0, 200)}`,
-		`> date: ${new Date().toISOString()} | compressor: ${compressor}`,
+		`> date: ${new Date().toISOString()}${ranOn ? ` | ran: ${ranOn}` : ""} | compressor: ${compressor}`,
 		...(opts.status === "failed" && opts.diagnostics ? [`> failure: ${opts.diagnostics.slice(0, 300)}`] : []),
 		"",
 		"",

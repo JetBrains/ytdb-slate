@@ -51,7 +51,7 @@ die() { echo "verification: $*" >&8; exit 2; }
 
 # Every rung id the script knows. --only is validated against this, so a typo
 # cannot silently run nothing (WH7).
-ALL_RUNGS="R1 R2 R3a R3b R4a R4b R5a R5b R5c R6 R7 R8 G1 G2 G4a G4b P5a P5b P6 P7 P8 P9a P9b P10 P11 LAT"
+ALL_RUNGS="R1 R2 R3a R3b R4a R4b R5a R5b R5c R6 R7 R8 G1 G2 G4a G4b P5a P5b P6 P7 P8 P9a P9b P10 P11 WK1 LAT"
 
 # WH6: an option whose value is missing used to leave `shift 2` failing, which
 # does not shift at all — an infinite busy loop. Now it is a hard error.
@@ -553,22 +553,92 @@ out("PASS", "full report %d chars -> emitted %d (cap %d); cut on a word boundary
             % (len(full), len(real), CAP, marker, cut_len, teeth))
 P11_EOF
 
-# The probe extension is a committed file (verification/probe.ts), loaded from
-# $SCRIPT_DIR — never regenerated here, so there is one source of truth.
+# The model-default probe extension is a committed file (verification/probe.ts),
+# loaded from $SCRIPT_DIR — never regenerated here, so there is one source of
+# truth. WK1's worker probe is generated below instead, for the same reason the
+# weakened module copies are: it must import a module path chosen per run.
 
-# Module copies used for teeth-proving. The weakened one swaps the macrotask
-# yield for a microtask one; the "old" one is the pre-fix revision, used to show
-# the pair-unit rungs can actually fail.
-# Rewrites the relative ./state.ts import to an absolute one so a copy can live
+# WK1's probe: opens a REAL worker session through the module under test, performs
+# the per-dispatch model AND effort switch exactly as threads.ts's applyRoute
+# does, and reports what the session ended up on. Two phases, one file:
+#   switch — open a worker on WORKER_OPEN, switch it to WORKER_TARGET at
+#            WORKER_EFFORT, record before/after model+level, dispose;
+#   reopen — open a worker with NO model argument and record what it opens on.
+# The reopen phase runs in a SEPARATE pi process with no model on the command
+# line, so its session model is the GLOBAL DEFAULT: a worker-side switch that had
+# leaked into settings.json would surface there as a sticky default.
+#
+# It imports NOTHING from the repo statically: the module under test arrives as a
+# path in WORKER_MODULE, so the same probe drives the real extension/worker.ts and
+# the deliberately weakened copy below.
+cat > "$LAB/worker-probe.ts" <<'WKP_EOF' || die "cannot write the WK1 worker probe"
+import { writeFileSync } from "node:fs";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+const MODULE = process.env.WORKER_MODULE!;
+const RESULT = process.env.WORKER_RESULT!;
+const PHASE = process.env.WORKER_PHASE ?? "switch";
+const OPEN = process.env.WORKER_OPEN ?? "probe-a/alpha-1";
+const TARGET = process.env.WORKER_TARGET ?? "probe-c/gamma-1";
+const EFFORT = process.env.WORKER_EFFORT ?? "high";
+const log = (...a: unknown[]) => console.error("[WKPROBE]", ...a);
+const spec = (m: { provider?: string; id?: string } | undefined | null) => (m?.provider ? `${m.provider}/${m.id}` : null);
+const level = (s: { thinkingLevel?: unknown }) => {
+  try { return typeof s.thinkingLevel === "string" ? s.thinkingLevel : null; } catch { return null; }
+};
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", async (_e, ctx) => {
+    const out: Record<string, unknown> = { module: MODULE, phase: PHASE, target: TARGET, effort: EFFORT,
+      hostModel: spec(ctx.model as never), status: "failed" };
+    try {
+      const mod = (await import(MODULE)) as {
+        openWorkerSession: (o: Record<string, unknown>) => Promise<Record<string, unknown> & { setModel: (m: unknown) => Promise<unknown>; setThinkingLevel: (l: unknown) => void; dispose?: () => void }>;
+        resolveModel: (ctx: unknown, spec: string) => unknown;
+      };
+      if (PHASE === "reopen") {
+        // NO model argument: the worker opens on whatever the host session
+        // resolved, which in this phase IS the global default.
+        const s = await mod.openWorkerSession({ ctx });
+        out.reopenedModel = spec(s.model as never);
+        out.reopenedEffort = level(s);
+        log("reopened worker on", out.reopenedModel, "@", out.reopenedEffort);
+        s.dispose?.();
+      } else {
+        const s = await mod.openWorkerSession({ ctx, model: OPEN });
+        out.openedModel = spec(s.model as never);
+        out.openedEffort = level(s);
+        out.sessionFile = (s.sessionFile as string) ?? null;
+        // Exactly what threads.ts's applyRoute does per dispatch: model first
+        // (it re-derives the level internally), then the effort level.
+        await s.setModel(mod.resolveModel(ctx, TARGET));
+        s.setThinkingLevel(EFFORT);
+        out.switchedModel = spec(s.model as never);
+        out.switchedEffort = level(s);
+        log("worker", out.openedModel, "@", out.openedEffort, "=>", out.switchedModel, "@", out.switchedEffort);
+        s.dispose?.();
+      }
+      out.status = "ok";
+    } catch (e) {
+      out.error = String(e);
+      log("FAILED", out.error);
+    }
+    writeFileSync(RESULT, JSON.stringify(out, null, 2));
+  });
+}
+WKP_EOF
+
+# Module copies used for teeth-proving. The weakened model-default one swaps the
+# macrotask yield for a microtask one; the "old" one is the pre-fix revision, used
+# to show the pair-unit rungs can actually fail; WK1's is a worker.ts whose worker
+# sessions get a FILE-BACKED settings manager.
+# Rewrites every relative "./x.ts" import to an absolute one so a copy can live
 # outside the repo. Paths go in as ARGV, never interpolated into a sed program:
 # a path containing | or & would otherwise corrupt the substitution.
 mkcopy() { # $1 source content file, $2 dest
 	python3 -c '
-import sys
+import re, sys
 src, dst, repo = sys.argv[1], sys.argv[2], sys.argv[3]
 s = open(src).read()
-open(dst, "w").write(s.replace(chr(34) + "./state.ts" + chr(34),
-                               chr(34) + repo + "/extension/state.ts" + chr(34)))' "$1" "$2" "$REPO"; }
+open(dst, "w").write(re.sub(r"\"\./([A-Za-z0-9_.-]+\.ts)\"", lambda m: "\"" + repo + "/extension/" + m.group(1) + "\"", s))' "$1" "$2" "$REPO"; }
 mkcopy "$REPO/extension/model-default.ts" "$WEAK/control.ts"
 python3 - "$WEAK/control.ts" "$WEAK/microtask.ts" <<'PY'
 import sys
@@ -612,6 +682,27 @@ open(unb, "w").write(s.replace(cap, "const REPORT_MAX_CHARS = 100000; // TEETH C
 if bnd in s:
     open(nob, "w").write(s.replace(bnd, 'const lastSpace = -1; // DELIBERATELY WEAKENED: no word-boundary search', 1))
 PY3
+
+# WK1's teeth: a copy of extension/worker.ts whose worker sessions get a
+# FILE-BACKED SettingsManager instead of the read-only snapshot one (AF8/AF9).
+# That is the defect the real module exists to prevent: with it, a worker-side
+# setModel/setThinkingLevel — which every per-dispatch route performs — persists
+# into the user's GLOBAL settings. Derived from the module under test by one
+# textual transformation, like every other weakened copy, so it cannot go stale.
+mkcopy "$REPO/extension/worker.ts" "$WEAK/worker-control.ts"
+python3 - "$WEAK/worker-control.ts" "$WEAK/worker-filebacked.ts" <<'PY5'
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+s = open(src).read()
+m = re.search(r"^\tconst settingsManager = SettingsManager\.fromStorage\(.*?^\t\);\n", s, re.S | re.M)
+if not m:
+    sys.stderr.write("WARN: worker.ts's read-only SettingsManager not found in a recognisable shape\n"); sys.exit(1)
+weak = ("\t// DELIBERATELY WEAKENED (teeth proof, NOT repository code): a FILE-BACKED\n"
+        "\t// settings manager, so a worker-side setModel/setThinkingLevel persists into\n"
+        "\t// the global settings — the pre-AF8/AF9 defect WK1 exists to catch.\n"
+        "\tconst settingsManager = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: trusted });\n")
+open(dst, "w").write(s[:m.start()] + weak + s[m.end():])
+PY5
 
 # The pre-fix module for the P5a/P5b teeth proof, DERIVED FROM THE CURRENT
 # MODULE at run time, exactly like the other weakened copies. It used to be
@@ -1233,6 +1324,84 @@ if want P11; then
 			*)     fail P11 "${P11_OUT#FAIL }" ;;
 		esac
 	fi
+fi
+
+# =============================================================================
+# Part 4 — worker-side per-dispatch model/effort switching
+# =============================================================================
+
+# WK1 the gap this ladder had: no rung above opens a WORKER session at all, so the
+# guarantee that a per-dispatch worker model/effort switch cannot touch the user's
+# global defaults (extension/worker.ts's read-only SettingsManager, AF8/AF9) was
+# entirely unguarded — and it fails in exactly the silent way the restore
+# mechanism does: the switch works, the action runs, the episode is fine, and the
+# only symptom appears weeks later as "pi keeps starting on the model some worker
+# thread was routed to". Per-action routing makes that switch happen on EVERY
+# dispatch, not just on failover, which is what turns the gap into a hazard.
+#
+# Two phases, two SEPARATE pi processes, so both halves of the claim are asserted:
+#   (a) zero bytes — the global settings file is byte-identical across both runs;
+#   (b) not sticky — the second process is launched with NO model on the command
+#       line, so its session model IS the global default; its worker must open on
+#       the seeded default, not on what the first process's worker was switched to.
+# Deliberately NOT asserted here: reopening the same THREAD session file can
+# legitimately restore the switched model from its own session record (threads.ts
+# CQ3) — that is session-scoped state, not a global default, and a different
+# mechanism.
+if want WK1; then
+	wkrun() { # $1 label, $2 worker module, $3 phase, rest = extra pi args
+		local label="$1" module="$2" phase="$3"; shift 3
+		# PI_OFFLINE: createAgentSession may run a create-time catalogue refresh, and
+		# this harness has no network at all. (piexec re-verifies the redirect target.)
+		piexec WORKER_MODULE="$module" WORKER_PHASE="$phase" WORKER_RESULT="$OUT/$label.json" PI_OFFLINE=1 \
+			timeout 180 pi --no-extensions -e "$LAB/worker-probe.ts" "$@" -p "x" \
+			> "$OUT/$label.out" 2> "$OUT/$label.err"
+	}
+	wkfield() { python3 -c '
+import json,sys
+try: d=json.load(open(sys.argv[1]))
+except Exception: print("UNREADABLE"); sys.exit()
+v=d.get(sys.argv[2])
+print("none" if v is None else v)' "$1" "$2"; }
+	# No slatecfg: the probe loads worker.ts directly and reads no slate config at
+	# all, so nothing here depends on what a previous rung left in slate.json.
+	seed "$CANON"; snapshot "WK1-before.json"
+	wkrun WK1-switch "$REPO/extension/worker.ts" switch --provider probe-a --model alpha-1
+	# The mid snapshot localises a leak to ONE phase instead of the pair.
+	snapshot "WK1-mid.json"
+	wkrun WK1-reopen "$REPO/extension/worker.ts" reopen
+	snapshot "WK1-after.json"
+	WK_PHASE=both; cmp -s "$OUT/WK1-before.json" "$OUT/WK1-mid.json" && WK_PHASE="the reopen phase" || WK_PHASE="the switch phase"
+	WK_ST=$(wkfield "$OUT/WK1-switch.json" status); WK_RT=$(wkfield "$OUT/WK1-reopen.json" status)
+	WK_OPEN="$(wkfield "$OUT/WK1-switch.json" openedModel)@$(wkfield "$OUT/WK1-switch.json" openedEffort)"
+	WK_SW="$(wkfield "$OUT/WK1-switch.json" switchedModel)@$(wkfield "$OUT/WK1-switch.json" switchedEffort)"
+	WK_RE="$(wkfield "$OUT/WK1-reopen.json" reopenedModel)@$(wkfield "$OUT/WK1-reopen.json" reopenedEffort)"
+	# Teeth: the same two phases through the file-backed copy must LEAK — otherwise
+	# this rung could not fail and says so (NOT RUN), like G1 and P5a/P5b.
+	WK_TEETH=""
+	if [ -f "$WEAK/worker-filebacked.ts" ]; then
+		seed "$CANON"; snapshot "WK1-weak-before.json"
+		wkrun WK1-weak-switch "$WEAK/worker-filebacked.ts" switch --provider probe-a --model alpha-1
+		wkrun WK1-weak-reopen "$WEAK/worker-filebacked.ts" reopen
+		snapshot "WK1-weak-after.json"
+		WK_WEAK_TRIPLE=$(triple)
+		WK_WEAK_RE="$(wkfield "$OUT/WK1-weak-reopen.json" reopenedModel)@$(wkfield "$OUT/WK1-weak-reopen.json" reopenedEffort)"
+		if ! cmp -s "$OUT/WK1-weak-before.json" "$OUT/WK1-weak-after.json"; then
+			WK_TEETH="a file-backed copy of worker.ts writes the switch into the global settings ($WK_WEAK_TRIPLE) and a later session's worker then opens on $WK_WEAK_RE"
+		elif [ "$WK_WEAK_RE" != "$WK_RE" ]; then
+			WK_TEETH="a file-backed copy of worker.ts leaves a later session's worker on $WK_WEAK_RE instead of $WK_RE"
+		fi
+		# Whatever the copy wrote, the next rung must not inherit it.
+		seed "$CANON"
+	fi
+	if [ "$WK_ST" != ok ]; then fail WK1 "the switch phase did not complete: $(wkfield "$OUT/WK1-switch.json" error)"
+	elif [ "$WK_RT" != ok ]; then fail WK1 "the reopen phase did not complete: $(wkfield "$OUT/WK1-reopen.json" error)"
+	elif [ "$WK_OPEN" != "probe-a/alpha-1@medium" ]; then fail WK1 "the worker did not open on the seeded default (got $WK_OPEN) — the rung would prove nothing"
+	elif [ "$WK_SW" != "probe-c/gamma-1@high" ]; then fail WK1 "the per-dispatch model+effort switch did not take effect on the worker session (got $WK_SW) — rung vacuous"
+	elif ! cmp -s "$OUT/WK1-before.json" "$OUT/WK1-after.json"; then fail WK1 "the global settings file was written during $WK_PHASE — now $(triple) (artifacts: WK1-before/mid/after.json)"
+	elif [ "$WK_RE" != "probe-a/alpha-1@medium" ]; then fail WK1 "the switch is STICKY: a later session's worker opens on $WK_RE"
+	elif [ -z "$WK_TEETH" ]; then skip WK1 "the per-dispatch switch $WK_OPEN⇒$WK_SW wrote nothing and did not stick, but the file-backed copy could not be built or did not leak either — teeth unproven"
+	else pass WK1 "a worker-side per-dispatch switch $WK_OPEN⇒$WK_SW took effect on the worker session, wrote ZERO bytes to the global settings ($(sha "$OUT/WK1-after.json")) and did not stick — a later session's worker still opens on $WK_RE. Teeth: $WK_TEETH"; fi
 fi
 
 # ------------------------------------------------------------------- latency

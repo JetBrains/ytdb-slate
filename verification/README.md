@@ -2,7 +2,13 @@
 
 A manual regression net for the mechanism in `extension/model-default.ts` and its
 two callers, `extension/failover.ts` (orchestrator failover) and
-`extension/handoff.ts` (handoff adoption).
+`extension/handoff.ts` (handoff adoption) — plus one rung (`WK1`) for the other
+half of the same hazard: the guarantee in `extension/worker.ts` that a
+**worker-side per-dispatch** model/effort switch never reaches the user's global
+defaults at all. Same failure class (a slate-initiated switch leaving the user's
+pi configuration changed), different mechanism: the restore machinery repairs a
+write that pi has already made, while a worker session is built so the write
+cannot happen.
 
 ## Why this exists
 
@@ -87,6 +93,7 @@ prerequisite makes them report NOT RUN rather than guess:
 | `P9b` | `R7` **and** `R8` in the same run (it compares their two report verbs) |
 | `P10` | `R5a` in the same run (to confirm failure reports still reach stderr) |
 | `R4a`,`R4b`,`R5a`,`R5b`,`R5c`,`G4b`,`P8`,`P9a` | a parent session, which they create on demand — no cross-rung dependency |
+| `WK1` | nothing: it launches its own two pi processes and opens its own worker sessions — no cross-rung dependency |
 
 `LAT` is informational: it prints a median wall-clock comparison and never
 contributes to pass/fail.
@@ -126,10 +133,13 @@ alone.
 | `README.md` | this document |
 
 Everything else the harness needs — the fake model catalogue, the settings-lock
-holder, the `P11` assertion helper, and the deliberately weakened module copies —
-is **generated at run time** into `<lab>/`. Every weakened copy is derived from
-the module under test by a single textual transformation, precisely so it cannot
-go stale and start proving nothing. Nothing is recovered from git history and no
+holder, the `P11` assertion helper, `WK1`'s worker probe, and the deliberately
+weakened module copies — is **generated at run time** into `<lab>/`. (`WK1`'s
+probe is generated rather than committed for the same reason the weakened copies
+are: it imports the module under test by a path chosen per run, so the same file
+drives `extension/worker.ts` and the file-backed copy of it.) Every weakened copy
+is derived from the module under test by a single textual transformation,
+precisely so it cannot go stale and start proving nothing. Nothing is recovered from git history and no
 snapshot of an old revision is committed: both go stale or vanish (a shallow
 clone has no history to search, and a squash-merge erases the commit a history
 search would look for).
@@ -154,7 +164,7 @@ Seeded settings always carry `retry: { enabled: false }`: connection-refused is
 classified RETRYABLE, and slate's cancel guard would otherwise suppress the
 failover until pi exhausted its own retries.
 
-Three drive modes, chosen per rung:
+Four drive modes, chosen per rung:
 
 1. **End-to-end failover** — a `modelFailover` map in `<lab>/work/.pi/slate.json`
    plus `pi -e <repo> -p "say ok"`. The switch is proven from the session record
@@ -168,6 +178,14 @@ Three drive modes, chosen per rung:
    real `pi.setModel`. Only the *caller* differs from the two shipped switch
    sites, which is what makes the injection windows (write failure, lock
    contention, third-party write, write-queue depth) deterministic.
+4. **The worker probe** (`<lab>/worker-probe.ts`, generated) — opens a REAL
+   worker session through `openWorkerSession` in the module under test and
+   performs the per-dispatch model **and** effort switch exactly as
+   `threads.ts`'s `applyRoute` does (`session.setModel` then
+   `session.setThinkingLevel`). Used only by `WK1`, in two phases across two pi
+   processes; `PI_OFFLINE=1` is set for it because `createAgentSession` may
+   otherwise attempt a create-time catalogue refresh and this harness has no
+   network.
 
 ## Rungs
 
@@ -198,6 +216,7 @@ Three drive modes, chosen per rung:
 | `P9b` | when divergence could not be established, the report says "could not check", never an unfounded leak claim |
 | `P10` | success notices stay off stderr (they would scribble pi-tui's frame) while failure reports remain visible in print mode |
 | `P11` | a report that hits the length cap is cut **on a word boundary**, carries an explicit truncation marker, and keeps the headline, affected keys, settings path and cause while losing only the advisory tail |
+| `WK1` | a **worker-side per-dispatch** model *and* effort switch (a) writes **zero bytes** to the global settings file and (b) does not survive into a reopened session as a sticky default |
 | `LAT` | median wall clock, knob on vs off, n=7 each — informational, never a pass/fail |
 | `SAFE` | the real settings file is bit-for-bit unchanged across the whole run |
 
@@ -205,7 +224,43 @@ Every rung that drives a switch also asserts **positive evidence that the switch
 actually fired**, from the session record (`model_change`, or
 `thinking_level_change` for the thinking-only paths) — not from the settings file
 alone. Without that a rung passes happily when the mechanism aborted before doing
-anything, which is the exact failure mode this ladder exists to catch.
+anything, which is the exact failure mode this ladder exists to catch. `WK1` takes
+its positive evidence from the live worker session instead (`session.model` and
+`session.thinkingLevel` before and after the switch), because its subject is a
+worker session, not the host one.
+
+### What `WK1` does, and why it is here
+
+Nothing else in this repo's verification story opened a worker session, so the
+per-dispatch worker switch — which per-action routing performs on **every**
+dispatch, not just on failover — was completely unguarded. It fails silently in
+the same way the restore mechanism does: the switch works, the action runs, the
+episode is fine, and the only symptom surfaces weeks later as "pi keeps starting
+on the model some worker thread was routed to".
+
+The rung drives one worker session through the module under test, switching it
+from `probe-a/alpha-1` at `medium` to `probe-c/gamma-1` at `high` — both halves,
+because `applyRoute` performs both and only the model half goes through
+`setModel`. It then asserts, in order:
+
+1. the switch **took effect on the worker session** (`session.model` /
+   `session.thinkingLevel` moved), so the rung cannot pass on a switch that never
+   happened;
+2. the global settings file is **byte-identical** across both pi processes — the
+   zero-bytes claim, asserted on the file rather than on the absence of a
+   complaint;
+3. a **second pi process, launched with no model on the command line** (so its
+   session model *is* the global default), opens its worker on the seeded default
+   — the not-sticky claim, observed as a consequence in a real reopened session
+   rather than inferred from the byte comparison. The two are physically linked
+   (a sticky default *is* a settings write), which is the point: they are two
+   independent observations of one leak, and the second is the one a user would
+   actually notice.
+
+What it deliberately does **not** assert: reopening the same **thread** session
+file can legitimately restore the switched model from that session's own record
+(`threads.ts`, CQ3). That is session-scoped state, not a global default, and a
+different mechanism.
 
 ### What to do about a NOT RUN
 
@@ -229,6 +284,7 @@ the list of things to fix before CI goes green again.
 | `scratch path too long` (`P11`) | re-run with a shorter `--lab`. |
 | `the JSON parse error carries no raw escapes` (`P8`) | the Node version stopped embedding the raw snippet. The rung would pass vacuously, so it stands down; sanitisation must then be reviewed by reading the code. |
 | `needs the R7 and R8 artifacts` (`P9b`) / `needs the R5a artifact` (`P10`) | you used `--only` without the prerequisite. Add it (see the interdependency table above). |
+| `the file-backed copy could not be built or did not leak either` (`WK1`) | `worker.ts`'s read-only `SettingsManager.fromStorage(…)` block changed shape, so the file-backed variant could not be derived — or it was derived and did **not** leak, which would mean pi stopped persisting a session-level `setModel` at all. Fix the substitution, or the rung has no teeth. The rung's own assertions are reported first, so a FAIL still means a real leak. |
 
 ### Teeth
 
@@ -251,6 +307,12 @@ as such:
   learns the *full* message and can prove the emitted line is only a cut of it;
   and one with the word-boundary search removed, which the rung's own checks must
   **reject**. The rung claims teeth only when they do, and says so otherwise.
+
+- **`WK1`** — a copy of `worker.ts` whose worker sessions get a **file-backed**
+  `SettingsManager` instead of the read-only snapshot one, which is precisely the
+  pre-AF8/AF9 defect. It must leak — write the switch into the global settings
+  and/or leave the next session's worker on the switched model — while the real
+  module does neither; if it does not leak, the rung reports NOT RUN.
 
 `G2` carries an inline teeth check instead: it fails itself if the run finished
 too fast for the first write attempt to have failed. `P8` first confirms that
@@ -434,7 +496,7 @@ Also expected, and not a harness problem:
 
 # Pure-resolver checks — `run-resolver-checks.sh`
 
-A second, much smaller net, for three subjects:
+A second, much smaller net, for these subjects:
 
 - the **worker-extension resolver** in `extension/worker-extensions.ts` and the
   doctrine rule it feeds in `extension/mode.ts`;
@@ -444,26 +506,32 @@ A second, much smaller net, for three subjects:
   predicate, splitter, defect reasons and confusable annotation that the router
   shares with `failover.ts`, `episodes.ts` and `worker.ts`, plus the
   single-spec config-key sanitizer (`episodeModel`);
+- the **orchestrator base-model tracker** in `extension/base-model.ts` (`base-*`)
+  — the reducer that decides which model switches move the base model new worker
+  threads inherit;
 - **structural invariants of the shipped profile table** in
   `extension/model-profiles.ts` (`profiles-*`) — shape and internal consistency
   only, never a research number.
 
-Five modules are loaded: `worker-extensions.ts`, `mode.ts`, `model-router.ts`,
-`state.ts` and `model-profiles.ts`. All five are therefore re-run triggers — and
-because `state.ts`'s spec helpers are also used by `failover.ts`, a change to
-**them** additionally needs the ladder above.
+Six modules are loaded: `worker-extensions.ts`, `mode.ts`, `model-router.ts`,
+`state.ts`, `base-model.ts` and `model-profiles.ts`. All six are therefore re-run
+triggers — and because `state.ts`'s spec helpers are also used by `failover.ts`, a
+change to **them** additionally needs the ladder above.
 
-The ladder above covers only the model-default machinery and says nothing about
-any of them.
+The ladder above covers slate's model-switch machinery — the model-default
+restore and, in `WK1`, worker-session settings isolation — and says nothing about
+any of the subjects below.
 
 Unlike the ladder, these pipelines are **pure and deterministic** — one maps a
-host tool registry and a list of regex patterns to a set of load units, the other
+host tool registry and a list of regex patterns to a set of load units, the second
 maps a configured model list plus a model registry plus a profile table to an
-ordered candidate set — so the checks need no pi session and no real state at
-all. They run the real modules (loaded through the jiti that ships with pi,
-because node's strip-only TypeScript mode cannot load `state.ts`'s constructor
-parameter property) against **fabricated in-memory registries, fabricated
-profile tables** and temp-dir package fixtures, and assert the observable result.
+ordered candidate set, the third reduces a stream of model-selection events to one
+base model — so the checks need no pi session and no real state at all. They run
+the real modules (loaded through the jiti that ships with pi, because node's
+strip-only TypeScript mode cannot load `state.ts`'s constructor parameter
+property) against **fabricated in-memory registries, fabricated profile tables**,
+fabricated events with an injected clock, and temp-dir package fixtures, and
+assert the observable result.
 
 Every router check injects **its own** registry *and* **its own** profile table,
 so none of them depends on the *data* in `extension/model-profiles.ts` — with two
@@ -571,6 +639,24 @@ Model-spec vocabulary (`extension/state.ts`):
 | `spec-invisible` | every zero-width or direction-changing character is **rejected** by the shared predicate — controls, bidi, soft hyphen, BOM, **variation selectors** (BMP *and* astral), **tag characters** and **Hangul fillers**, the three classes the first BG2 fix missed — each named by code point in the reason; a non-breaking space reports as whitespace; a *visible* non-ASCII spec (homoglyph, emoji) is accepted and merely annotated; a valid spec still splits on the first slash |
 | `spec-config-key` | an unusable `episodeModel` is dropped **with** a warning naming the key, the reason and the fallback (RG20), while absent and valid values stay silent and the returned value is unchanged from the old silent behaviour; an unstringifiable value warns instead of throwing |
 
+Orchestrator base-model tracker (`extension/base-model.ts`) — driven with
+fabricated `model_select` events, fabricated declarations and an **injected
+clock**, so the TTL rule is exercised without sleeping and no timer exists to fire
+after teardown:
+
+| id | what it proves |
+| --- | --- |
+| `base-load` | the module loads; a failure converts the `base-*` checks into explicit NOT RUN lines |
+| `base-seed` | the session seed records model **and** effort; an omitted effort reads as unknown; an **absent** model is legitimate and silent (a session with no model, or none it has auth for); an unusable one is reported once, leaves no base at all, and its report is stripped of control bytes and bounded |
+| `base-own-switch` | a **declared** slate-initiated switch moves neither the base nor its effort and says nothing; the declaration is consumed by the first match and never twice (an identical repeat is a user switch); an unexpected `previousModel` still counts as slate's own with one report; a target slate never declared moves the base; an unusable declared target is reported and does not suppress the switch |
+| `base-user-switch` | an **undeclared** `set` switch moves base and effort; an unreadable effort reads as unknown rather than the previous level; an event with no usable `provider/id` decides nothing and consumes no declaration; an unrecognised source — including one that is not a string — is reported once, treated as a user switch, and still matched against declarations |
+| `base-cycle` | a `cycle`-sourced switch **always** moves the base, even when it lands exactly on a declared target, and consumes no declaration — proved by the declared switch still being recognised when its own event arrives later |
+| `base-restore` | a `restore`-sourced event moves neither the base nor its effort, is reported once per session naming the target, and consumes no declaration |
+| `base-adopt` | a handoff adoption moves the base **only on success**: a declared switch whose setter threw leaves it alone, while `adopt()` re-seeds base and effort deliberately; an unusable adopted model is reported once and changes nothing; `adopt` clears its **own** target's outstanding declaration (handoff's equality guard can skip the setter) but not another target's — a failover in flight is still recognised |
+| `base-stale-declaration` | an unmatched declaration never suppresses an unrelated user switch, and **expires** after the TTL so a genuine user switch to the model slate failed to reach still moves the base — while the same sequence inside the TTL keeps the documented residual, which is what proves the clock is deciding |
+| `base-two-in-flight` | two slate switches in flight are both recognised, chained (`A⇒B` then `B⇒C`) and out of order, with no report; beyond `MAX_PENDING` the **oldest** declaration is dropped with exactly one warning, so its switch moves the base while the retained ones still do not |
+| `base-throwing-switch` | a slate switch whose setter **throws** (pi's `setModel` does, despite its `Promise<boolean>` contract) leaves no armed state behind: every later genuine user switch still moves the base, however many throwing switches preceded it — and the documented residual (a user switch to exactly the declared target) costs at most **one** event, because the declaration is consumed by it |
+
 Shipped profile table (`extension/model-profiles.ts`) — **structural only**:
 
 | id | what it proves |
@@ -593,21 +679,37 @@ concern, not something a structural check can own.
 
 These checks were validated by **mutation testing**: copy the repo to a scratch
 directory outside it, apply one textual change to `extension/model-router.ts`,
-`extension/state.ts` or `extension/model-profiles.ts`, and re-run the suite
-against the copy (`--repo <copy>`). Each behaviour listed above has at least one
-mutation that it catches — including the two that used to pass vacuously (the
+`extension/state.ts`, `extension/base-model.ts` or `extension/model-profiles.ts`,
+and re-run the suite against the copy (`--repo <copy>`). Each behaviour listed
+above has at least one mutation that it catches — including the two that used to
+pass vacuously (the
 dedup mechanism and the shipped-table default), the ordering tie-breaks, the
 price-row selection rules, the W1 absence guards, the `nonPreferred` rule, and
 the roster machinery itself (renaming or deleting a check fails `roster`). Never
 mutate the repository itself; the scratch copy is the point.
 
-It loads only those five modules, so it does **not** exercise
+The `base-*` checks were validated the same way, one mutation per check, all nine
+killed: unguarding the seed predicate (`base-seed`); matching a declaration
+without consuming it (`base-own-switch`); defaulting a non-string `source` to
+`"set"` (`base-user-switch`); letting a `cycle` event consume a declaration
+(`base-cycle`); letting a `restore` event move the base (`base-restore`); dropping
+`adopt`'s declaration cleanup (`base-adopt`); making the declaration TTL
+effectively infinite (`base-stale-declaration`); raising `MAX_PENDING` out of
+reach (`base-two-in-flight`); and matching a declaration against **any** target,
+which is the "armed flag swallows later user switches" defect the module was
+written to avoid (`base-throwing-switch`). Three of those mutations also killed
+other `base-*` checks, which is expected: the requirement is that every check is
+killed by at least one mutation, not that a mutation kills only one check.
+
+It loads only those six modules, so it does **not** exercise
 `extension/worker.ts`'s worker-session load path — the allowlist-mode extension
 load, the `excludeTools` deny list that structurally keeps slate's dispatch
 tools out of a worker, and the post-load collision re-check. Those need a live
 loader and session, so the manual isolated-load smoke test
 (`pi --no-extensions -e .`, see `AGENTS.md`) covers them instead; a passing run
-here says nothing about them.
+here says nothing about them. One part of `worker.ts` *is* covered by an
+automated net, but by the ladder rather than this suite: the settings isolation a
+per-dispatch worker switch depends on, in rung `WK1` above.
 
 The router checks likewise stop at the resolver's boundary: they prove what the
 resolution and the effort predicate *report*, not what a dispatch then *does*

@@ -5,10 +5,12 @@
 // repo path, the bundled-jiti entry point, a throwaway work directory and an
 // optional "strict" flag as argv, imports the worker-extension resolver
 // (extension/worker-extensions.ts), the doctrine builder (extension/mode.ts),
-// the model router (extension/model-router.ts) and the profile table
-// (extension/model-profiles.ts) through jiti, and exercises them against wholly
-// fabricated in-memory inputs. No network, no real pi session; every file it
-// creates lives under the work dir the wrapper owns and removes.
+// the model router (extension/model-router.ts), the profile table
+// (extension/model-profiles.ts), the model-spec vocabulary (extension/state.ts)
+// and the orchestrator base-model tracker (extension/base-model.ts) through
+// jiti, and exercises them against wholly fabricated in-memory inputs. No
+// network, no real pi session; every file it creates lives under the work dir
+// the wrapper owns and removes.
 //
 // Output contract (TS1–TS3):
 //   · one `CHECK <id> <PASS|FAIL|NOT RUN> — <detail>` line per check, plus an
@@ -53,9 +55,14 @@ async function tryImport(rel) {
 const routerLoad = await tryImport("extension/model-router.ts");
 const profilesLoad = await tryImport("extension/model-profiles.ts");
 const stateLoad = await tryImport("extension/state.ts");
+// The base-model tracker is a PURE reducer over model-selection events (its own
+// module header says so), so it belongs here rather than in the ladder: it
+// touches no pi, no filesystem and no clock other than the injected one.
+const baseLoad = await tryImport("extension/base-model.ts");
 const router = routerLoad.module;
 const table = profilesLoad.module;
 const state = stateLoad.module;
+const tracker = baseLoad.module;
 
 // ----------------------------------------------------------------- reporting --
 let pass = 0;
@@ -206,6 +213,18 @@ const ROUTER_IDS = [
 const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta"];
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key"];
+/** Checks that need extension/base-model.ts — the orchestrator base-model tracker. */
+const BASE_IDS = [
+	"base-seed",
+	"base-own-switch",
+	"base-user-switch",
+	"base-cycle",
+	"base-restore",
+	"base-adopt",
+	"base-stale-declaration",
+	"base-two-in-flight",
+	"base-throwing-switch",
+];
 /**
  * The NOT RUN lists, paired with the load check that voids them. The roster in
  * the `finally` block audits EXPECTED against this table, so a new check whose id
@@ -216,6 +235,7 @@ const VOIDABLE = [
 	["router-", ROUTER_IDS, "router-load"],
 	["profiles-", PROFILE_IDS, "profiles-load"],
 	["spec-", STATE_IDS, "state-load"],
+	["base-", BASE_IDS, "base-load"],
 ];
 
 // ------------------------------------------------------------------ fixtures --
@@ -440,6 +460,7 @@ try {
 	check("router-load", router !== undefined, "extension/model-router.ts loads", routerLoad.error?.message);
 	check("profiles-load", table !== undefined, "extension/model-profiles.ts loads", profilesLoad.error?.message);
 	check("state-load", state !== undefined, "extension/state.ts loads", stateLoad.error?.message);
+	check("base-load", tracker !== undefined, "extension/base-model.ts loads", baseLoad.error?.message);
 
 	if (!router) {
 		for (const id of ROUTER_IDS) skip(id, "extension/model-router.ts could not be loaded");
@@ -1297,6 +1318,394 @@ try {
 	}
 
 	// =========================================================================
+	// Orchestrator base-model tracker (extension/base-model.ts)
+	// =========================================================================
+	// The tracker decides which model switches move the orchestrator's BASE model —
+	// the model new worker threads default to — and its decision rule is a pure
+	// reducer over pi's model_select events (module header), so every rule below is
+	// driven with fabricated events, fabricated declarations and an INJECTED CLOCK:
+	// no pi session, no timers, no sleeping. It needs a permanent net for the same
+	// reason the model-default ladder does: a wrong answer here is SILENT — new
+	// workers simply start defaulting to a failover fallback, which is the exact
+	// leak the module exists to prevent.
+	if (!tracker) {
+		for (const id of BASE_IDS) skip(id, "extension/base-model.ts could not be loaded");
+	} else {
+		/** A fresh tracker with a FAKE CLOCK and a capturing warn sink. */
+		const mk = () => {
+			const warned = [];
+			const clock = { ms: 1_000_000 }; // arbitrary monotonic origin — only deltas matter
+			const t = tracker.createBaseModelTracker({ warn: (m) => warned.push(m), now: () => clock.ms });
+			return { t, warned, clock };
+		};
+		/** A fabricated pi Model-like value (the tracker reads provider/id and nothing else). */
+		const mdl = (spec) => ({ provider: spec.slice(0, spec.indexOf("/")), id: spec.slice(spec.indexOf("/") + 1) });
+		/** A fabricated ModelSelectObservation: a switch to `to` from `from`, with pi's source string. */
+		const ev = (to, from, source = "set") => ({ model: mdl(to), previousModel: from === undefined ? undefined : mdl(from), source });
+		/** base + effort in one comparable string, so a check can pin BOTH in one term. */
+		const at = (t) => `${t.current()}@${t.currentEffort()}`;
+		/** The declaration TTL the module documents (DECLARATION_TTL_MS); the fake clock is stepped past it. */
+		const TTL = 10_000;
+		/** MAX_PENDING, the outstanding-declaration bound. */
+		const MAX_PENDING = 4;
+
+		await section("base-seed", async () => {
+			const good = mk();
+			good.t.seed("p/a", "high");
+			const bare = mk();
+			bare.t.seed("p/a");
+			const none = mk();
+			none.t.seed(undefined);
+			const junk = mk();
+			junk.t.seed("sonnet-5"); // no provider ⇒ not a spec
+			junk.t.seed(42); // a second unusable seed must not warn again
+			const hostile = mk();
+			hostile.t.seed(`p/\u001b[31m${"L".repeat(500)}`);
+			checkAll("base-seed", "the session seed records model AND effort; an omitted effort reads as unknown; an ABSENT model is legitimate and silent; an unusable one is reported once and leaves no base at all, with the report stripped of control bytes and bounded", [
+				["model and effort recorded", at(good.t) === "p/a@high", at(good.t)],
+				["seed is silent", good.warned.length === 0, good.warned],
+				["omitted effort is unknown, not a guess", bare.t.current() === "p/a" && bare.t.currentEffort() === undefined, at(bare.t)],
+				["absent model → no base", none.t.current() === undefined && none.t.currentEffort() === undefined, at(none.t)],
+				["absent model is SILENT (a session with no model, or none it has auth for)", none.warned.length === 0, none.warned],
+				["unusable model → no base", junk.t.current() === undefined, junk.t.current()],
+				["reported exactly once for both unusable seeds", junk.warned.length === 1, junk.warned],
+				["the report names the value and the consequence", /"sonnet-5"/.test(junk.warned[0] ?? "") && /default model/.test(junk.warned[0] ?? ""), junk.warned],
+				["display-safe: no control bytes, bounded", hostile.warned.every((m) => !/[\u0000-\u001f\u007f\u009b]/.test(m) && m.length <= 400), hostile.warned.map((m) => m.length)],
+			]);
+		});
+
+		await section("base-own-switch", async () => {
+			// The whole point of the module: a switch slate itself performs must NOT
+			// become the base new workers inherit.
+			const own = mk();
+			own.t.seed("p/a", "medium");
+			own.t.expectOwnSwitch("p/a", "p/b");
+			own.t.observe(ev("p/b", "p/a"), "low");
+			const afterOwn = at(own.t);
+			// The declaration is consumed by the FIRST match and never matched twice, so
+			// an identical LATER event is a user switch.
+			own.t.observe(ev("p/b", "p/a"), "low");
+			const afterRepeat = at(own.t);
+
+			// Target-first matching: a user switch landing between the declaration and
+			// the setter changes previousModel under slate's feet (declared p/a⇒p/b,
+			// emitted p/u⇒p/b) — still slate's own, reported once.
+			const moved = mk();
+			moved.t.seed("p/a", "medium");
+			moved.t.expectOwnSwitch("p/a", "p/b");
+			moved.t.observe(ev("p/b", "p/u"), "high");
+
+			// A target slate never named is NOT recognised — indistinguishable from a
+			// user switch at the same instant, so the base moves (the honest reading).
+			const unnamed = mk();
+			unnamed.t.seed("p/a", "medium");
+			unnamed.t.expectOwnSwitch("p/a", "p/b");
+			unnamed.t.observe(ev("p/z", "p/a"), "high");
+
+			// An unusable declared target cannot match anything: say so once, and let
+			// the switch move the base rather than pretend it was recognised.
+			const badTarget = mk();
+			badTarget.t.seed("p/a", "medium");
+			badTarget.t.expectOwnSwitch("p/a", "not-a-spec");
+			badTarget.t.observe(ev("p/b", "p/a"), "high");
+
+			checkAll("base-own-switch", "a DECLARED slate-initiated switch moves neither the base nor its effort and says nothing; the declaration is consumed once (an identical repeat is a user switch); an unexpected previousModel still counts as slate's own with one report; a target slate never declared moves the base; an unusable declared target is reported and does not suppress the switch", [
+				["base and effort unchanged", afterOwn === "p/a@medium", afterOwn],
+				["silent", own.warned.length === 0, own.warned],
+				["the repeat moves the base (declaration consumed once)", afterRepeat === "p/b@low", afterRepeat],
+				["unexpected previous → base unchanged", at(moved.t) === "p/a@medium", at(moved.t)],
+				["...and reported once, naming both models", moved.warned.length === 1 && /p\/a/.test(moved.warned[0]) && /p\/u/.test(moved.warned[0]), moved.warned],
+				["undeclared target moves the base", at(unnamed.t) === "p/z@high", at(unnamed.t)],
+				["unusable declared target reported once", badTarget.warned.length === 1 && /declared model-switch target/.test(badTarget.warned[0]), badTarget.warned],
+				["...and its switch moves the base", at(badTarget.t) === "p/b@high", at(badTarget.t)],
+			]);
+		});
+
+		await section("base-user-switch", async () => {
+			const user = mk();
+			user.t.seed("p/a", "medium");
+			user.t.observe(ev("p/b", "p/a"), "high");
+			const afterUser = at(user.t);
+			// An unreadable level must read as UNKNOWN, never as the previous base's.
+			user.t.observe(ev("p/c", "p/b"), undefined);
+			const afterUnknownEffort = at(user.t);
+
+			// An event with no usable provider/id decides nothing: it neither moves the
+			// base nor consumes a declaration (proved by the declared event that follows).
+			const junkEvent = mk();
+			junkEvent.t.seed("p/a", "medium");
+			junkEvent.t.expectOwnSwitch("p/a", "p/b");
+			junkEvent.t.observe({ model: { provider: "p" }, source: "set" }, "high");
+			junkEvent.t.observe({}, "high");
+			const afterJunk = at(junkEvent.t);
+			junkEvent.t.observe(ev("p/b", "p/a"), "high");
+			const declaredStillMatched = at(junkEvent.t);
+
+			// An unrecognised source is treated as "set": reported once, matched against
+			// declarations, and moving the base when nothing matches.
+			const weird = mk();
+			weird.t.seed("p/a", "medium");
+			weird.t.observe(ev("p/b", "p/a", "teleport"), "high");
+			const weirdMoved = at(weird.t);
+			// A source that is not a string at all, on its OWN tracker: the one-report
+			// budget of the tracker above is already spent, so reusing it could not tell
+			// a module that reports this case from one that treats a non-string source as
+			// "set" and says nothing.
+			const weirdType = mk();
+			weirdType.t.seed("p/a", "medium");
+			weirdType.t.expectOwnSwitch("p/a", "p/c");
+			weirdType.t.observe(ev("p/c", "p/a", { not: "a string" }), "low");
+			const weirdMatched = at(weirdType.t);
+
+			checkAll("base-user-switch", "an UNDECLARED switch moves the base and its effort; an unreadable effort reads as unknown rather than the previous level; an event with no usable provider/id decides nothing and consumes no declaration; an unrecognised source is treated as a user switch, reported once, and is still matched against declarations", [
+				["user switch moves base and effort", afterUser === "p/b@high", afterUser],
+				["silent", user.warned.length === 0, user.warned],
+				["unreadable effort → unknown", afterUnknownEffort === "p/c@undefined", afterUnknownEffort],
+				["unusable event → base unchanged", afterJunk === "p/a@medium", afterJunk],
+				["...reported once for both unusable events", junkEvent.warned.length === 1 && /without a usable provider\/id/.test(junkEvent.warned[0]), junkEvent.warned],
+				["...and the declaration was NOT consumed by them", declaredStillMatched === "p/a@medium", declaredStillMatched],
+				["unknown source moves the base", weirdMoved === "p/b@high", weirdMoved],
+				["...reported once per session", weird.warned.filter((m) => /unrecognised model_select source/.test(m)).length === 1, weird.warned],
+				["a NON-STRING source is reported too, not silently read as \"set\"", weirdType.warned.length === 1 && /unrecognised model_select source/.test(weirdType.warned[0]), weirdType.warned],
+				["...and is still matched against a declaration", weirdMatched === "p/a@medium", weirdMatched],
+			]);
+		});
+
+		await section("base-cycle", async () => {
+			// Slate never calls cycleModel, so a "cycle" event is ALWAYS a user action:
+			// it moves the base even when it matches a declaration, and it must not
+			// consume that declaration — which is what the last two steps prove.
+			const { t, warned } = mk();
+			t.seed("p/a", "medium");
+			t.expectOwnSwitch("p/a", "p/b");
+			t.observe(ev("p/b", "p/a", "cycle"), "low");
+			const afterMatchingCycle = at(t);
+			t.observe(ev("p/d", "p/b", "cycle"), "high");
+			const afterPlainCycle = at(t);
+			// The p/b declaration is still outstanding, so this "set" event is read as
+			// slate's own and leaves the base where the cycle put it. Had the cycle
+			// consumed the declaration, the base would move to p/b here.
+			t.observe(ev("p/b", "p/d"), "high");
+			const afterSet = at(t);
+			checkAll("base-cycle", "a cycle-sourced switch always moves the base and its effort — even when it lands exactly on a declared target — and consumes no declaration, so the declared switch is still recognised when its own event arrives later", [
+				["a cycle onto a DECLARED target still moves the base", afterMatchingCycle === "p/b@low", afterMatchingCycle],
+				["a plain cycle moves it too", afterPlainCycle === "p/d@high", afterPlainCycle],
+				["the declaration survived the cycle", afterSet === "p/d@high", afterSet],
+				["no source complaint about a cycle", !warned.some((m) => /unrecognised model_select source/.test(m)), warned],
+			]);
+		});
+
+		await section("base-restore", async () => {
+			// "restore" is declared in pi's SDK and emitted by nothing shipped, so it is
+			// treated as no change at all — and reported, because its appearance means
+			// the semantics this module was written against moved.
+			const { t, warned } = mk();
+			t.seed("p/a", "medium");
+			t.expectOwnSwitch("p/a", "p/b");
+			t.observe(ev("p/b", "p/a", "restore"), "low");
+			const afterRestore = at(t);
+			t.observe(ev("p/c", "p/a", "restore"), "low");
+			const afterSecond = at(t);
+			// The declaration must still be there: if a restore had consumed it, this
+			// event would be read as a user switch and move the base to p/b.
+			t.observe(ev("p/b", "p/a"), "low");
+			const afterSet = at(t);
+			checkAll("base-restore", 'a "restore"-sourced event moves neither the base nor its effort, is reported once per session naming the target, and consumes no declaration', [
+				["base and effort unchanged", afterRestore === "p/a@medium", afterRestore],
+				["a second restore changes nothing either", afterSecond === "p/a@medium", afterSecond],
+				["reported once, naming the target", warned.filter((m) => /"restore"-sourced/.test(m)).length === 1 && /p\/b/.test(warned[0] ?? ""), warned],
+				["the declaration survived the restore", afterSet === "p/a@medium", afterSet],
+			]);
+		});
+
+		await section("base-adopt", async () => {
+			// A handoff adoption is the ONE switch that is SUPPOSED to move the base —
+			// and only when it succeeded. The failure path is the shipped shape: handoff
+			// declares its switch, pi's setter throws, and adopt() is never reached.
+			const failed = mk();
+			failed.t.seed("p/a", "medium");
+			let threw = false;
+			try {
+				failed.t.expectOwnSwitch("p/a", "p/b");
+				await Promise.resolve();
+				throw new Error("setModel: live auth check failed");
+			} catch {
+				threw = true; // handoff abandons the adoption here; no adopt() call
+			}
+
+			const ok = mk();
+			ok.t.seed("p/a", "medium");
+			ok.t.expectOwnSwitch("p/a", "p/b");
+			ok.t.observe(ev("p/b", "p/a"), "low");
+			const beforeAdopt = at(ok.t);
+			ok.t.adopt("p/b", "high");
+			const afterAdopt = at(ok.t);
+
+			const junk = mk();
+			junk.t.seed("p/a", "medium");
+			junk.t.adopt("not-a-spec");
+			junk.t.adopt(7);
+
+			// handoff's equality guard can skip the setter entirely, leaving the
+			// adoption's own declaration unmatched: adopt() must clear it (else it would
+			// swallow a later user switch to the same model) while leaving a DIFFERENT
+			// target's declaration — a failover in flight — alone.
+			const guard = mk();
+			guard.t.seed("p/a", "medium");
+			guard.t.expectOwnSwitch("p/a", "p/x"); // failover in flight
+			guard.t.expectOwnSwitch("p/a", "p/b"); // the adoption's own, whose setter was skipped
+			guard.t.adopt("p/b", "high");
+			guard.t.observe(ev("p/d", "p/b", "cycle"), "low"); // move the base away
+			guard.t.observe(ev("p/b", "p/d"), "low"); // a genuine user switch back
+			const reclaimed = at(guard.t);
+			guard.t.observe(ev("p/x", "p/b"), "low"); // the failover's event, still declared
+			const otherKept = at(guard.t);
+
+			checkAll("base-adopt", "a handoff adoption moves the base ONLY on success: a declared switch whose setter threw leaves it alone, while adopt() re-seeds base AND effort deliberately; an unusable adopted model is reported once and changes nothing; adopt clears its OWN target's outstanding declaration but not another target's", [
+				["the setter really threw (non-vacuous)", threw === true, threw],
+				["failed adoption leaves the base alone", at(failed.t) === "p/a@medium", at(failed.t)],
+				["...silently", failed.warned.length === 0, failed.warned],
+				["the adoption's own switch event does not move it", beforeAdopt === "p/a@medium", beforeAdopt],
+				["adopt() moves base and effort", afterAdopt === "p/b@high", afterAdopt],
+				["unusable adopted model → unchanged", at(junk.t) === "p/a@medium", at(junk.t)],
+				["...reported once for both", junk.warned.length === 1 && /adopted model/.test(junk.warned[0]), junk.warned],
+				["adopt cleared its own stale declaration", reclaimed === "p/b@low", reclaimed],
+				["...and left the other target's declaration outstanding", otherKept === "p/b@low", otherKept],
+			]);
+		});
+
+		await section("base-stale-declaration", async () => {
+			// A declaration can go unmatched (a setter that threw before pi emitted, an
+			// equality guard skipping the setter, pi suppressing an already-equal pair).
+			// It must never suppress a later GENUINE user switch: the TTL is the bound,
+			// judged on the injected monotonic clock at the next ingest — no timer.
+			const { t, warned, clock } = mk();
+			t.seed("p/a", "medium");
+			t.expectOwnSwitch("p/a", "p/b"); // never matched
+			t.observe(ev("p/z", "p/a"), "high"); // an UNRELATED user switch, inside the TTL
+			const unrelated = at(t);
+			clock.ms += TTL + 1;
+			t.observe(ev("p/b", "p/z"), "low"); // the very model slate could not switch to
+			const afterTtl = at(t);
+
+			// The control that makes the assertion above non-vacuous: the same sequence
+			// WITHOUT advancing the clock keeps the documented residual (the switch is
+			// mistaken for slate's own), so it is the clock that decides.
+			const inside = mk();
+			inside.t.seed("p/a", "medium");
+			inside.t.expectOwnSwitch("p/a", "p/b");
+			inside.t.observe(ev("p/z", "p/a"), "high");
+			inside.t.observe(ev("p/b", "p/z"), "low");
+			const insideTtl = at(inside.t);
+
+			checkAll("base-stale-declaration", "an unmatched declaration never suppresses an unrelated user switch, and EXPIRES after the TTL so a genuine user switch to the model slate failed to reach still moves the base — while the same sequence inside the TTL keeps the documented residual, proving the clock is what decides", [
+				["unrelated switch moves the base immediately", unrelated === "p/z@high", unrelated],
+				["after the TTL the declared target moves it too", afterTtl === "p/b@low", afterTtl],
+				["expiry is silent (a leak bound, not an error)", warned.length === 0, warned],
+				["inside the TTL it is still read as slate's own (documented residual)", insideTtl === "p/z@high", insideTtl],
+			]);
+		});
+
+		await section("base-two-in-flight", async () => {
+			// Two slate switches in flight CHAIN (p/a⇒p/b then p/b⇒p/c): both are exact
+			// pairs, so both are recognised and nothing is reported.
+			const chain = mk();
+			chain.t.seed("p/a", "medium");
+			chain.t.expectOwnSwitch("p/a", "p/b");
+			chain.t.expectOwnSwitch("p/b", "p/c");
+			chain.t.observe(ev("p/b", "p/a"), "low");
+			chain.t.observe(ev("p/c", "p/b"), "low");
+
+			// Out of order: two declarations from the SAME previous model, the second
+			// one's event arriving first. Exact-pair matching must find each of them.
+			const unordered = mk();
+			unordered.t.seed("p/a", "medium");
+			unordered.t.expectOwnSwitch("p/a", "p/b");
+			unordered.t.expectOwnSwitch("p/a", "p/c");
+			unordered.t.observe(ev("p/c", "p/a"), "low");
+			unordered.t.observe(ev("p/b", "p/a"), "low");
+
+			// The bound: a declaration past MAX_PENDING drops the OLDEST with one
+			// warning rather than growing a queue — and the dropped one's switch then
+			// moves the base, which is the documented cost of the bound.
+			const overflow = mk();
+			overflow.t.seed("p/a", "medium");
+			for (const to of ["p/1", "p/2", "p/3", "p/4", "p/5"]) overflow.t.expectOwnSwitch("p/a", to);
+			overflow.t.observe(ev("p/1", "p/a"), "low"); // the dropped declaration
+			const dropped = at(overflow.t);
+			overflow.t.observe(ev("p/5", "p/1"), "high"); // still declared
+			const retained = at(overflow.t);
+
+			checkAll("base-two-in-flight", `two slate switches in flight are both recognised — chained (p/a⇒p/b then p/b⇒p/c) and out of order — with no report; beyond MAX_PENDING (${MAX_PENDING}) the OLDEST declaration is dropped with exactly one warning, so its switch moves the base while the retained ones still do not`, [
+				["chained pair leaves the base alone", at(chain.t) === "p/a@medium", at(chain.t)],
+				["...silently", chain.warned.length === 0, chain.warned],
+				["out-of-order events both matched", at(unordered.t) === "p/a@medium", at(unordered.t)],
+				["...silently too (both were exact pairs)", unordered.warned.length === 0, unordered.warned],
+				["the dropped declaration's switch moves the base", dropped === "p/1@low", dropped],
+				["one overflow warning, naming the bound", overflow.warned.filter((m) => /outstanding at once/.test(m)).length === 1, overflow.warned],
+				["a retained declaration is still recognised", retained === "p/1@low", retained],
+			]);
+		});
+
+		await section("base-throwing-switch", async () => {
+			// THE reason declarations exist instead of an in-progress flag (module
+			// header): pi.setModel CAN THROW — its live auth check does, despite the
+			// Promise<boolean> contract — and a flag armed before a throwing switch would
+			// stay armed for the rest of the session, swallowing every later genuine
+			// user switch.
+			const { t, warned } = mk();
+			t.seed("p/a", "medium");
+			let throws = 0;
+			const failingSwitch = async (from, to) => {
+				t.expectOwnSwitch(from, to); // declared immediately before the setter
+				await Promise.resolve();
+				throws++;
+				throw new Error("setModel: live auth check failed");
+			};
+			try {
+				await failingSwitch("p/a", "p/b");
+			} catch {
+				/* the switch site's own catch */
+			}
+			t.observe(ev("p/u1", "p/a"), "high");
+			const first = at(t);
+			t.observe(ev("p/u2", "p/u1"), "high");
+			const second = at(t);
+			for (const to of ["p/b", "p/b2"]) {
+				try {
+					await failingSwitch("p/u2", to);
+				} catch {
+					/* ignored, as the switch sites do */
+				}
+			}
+			t.observe(ev("p/u3", "p/u2"), "low");
+			const third = at(t);
+
+			// The DOCUMENTED RESIDUAL, pinned so it cannot drift unnoticed: a user switch
+			// requesting exactly the target slate declared but failed to perform is
+			// mistaken for slate's own — for ONE event only, because the declaration is
+			// consumed by it.
+			const residual = mk();
+			residual.t.seed("p/a", "medium");
+			residual.t.expectOwnSwitch("p/a", "p/b");
+			residual.t.observe(ev("p/b", "p/a"), "low");
+			const swallowed = at(residual.t);
+			residual.t.observe(ev("p/b", "p/a"), "low");
+			const thenHonoured = at(residual.t);
+
+			checkAll("base-throwing-switch", "a slate switch whose setter THROWS leaves no armed state behind: every later genuine user switch still moves the base, however many throwing switches preceded it — and the documented residual (a user switch to exactly the declared target) costs at most ONE event, because the declaration is consumed by it", [
+				["the setters really threw (non-vacuous)", throws === 3, throws],
+				["the user switch right after a throw moves the base", first === "p/u1@high", first],
+				["and the next one", second === "p/u2@high", second],
+				["and one after two more throwing switches", third === "p/u3@low", third],
+				["no report from any of it", warned.length === 0, warned],
+				["residual: one event to the declared target is read as slate's own", swallowed === "p/a@medium", swallowed],
+				["...and only one — the repeat moves the base", thenHonoured === "p/b@low", thenHonoured],
+			]);
+		});
+	}
+
+	// =========================================================================
 	// Shipped profile table (extension/model-profiles.ts) — STRUCTURAL only
 	// =========================================================================
 	// TQ11. These assert SHAPE and internal consistency, never a research
@@ -1446,6 +1855,8 @@ try {
 		"router-hostile", "router-robust",
 		"router-config-default", "router-config-invalid", "router-shipped-default",
 		"wiring", "spec-invisible", "spec-config-key",
+		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
+		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
 		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta",
 	];
 	const seen = new Set(reported);
