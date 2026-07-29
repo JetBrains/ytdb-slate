@@ -48,6 +48,18 @@
  *  - FAILOVER IS CARVED OUT (guard 7): the in-dispatch failover switch bypasses
  *    the list and effort guards entirely and keeps only a non-substituting window
  *    warning. The router must never veto a failover.
+ *
+ * WHERE THE DECISION LIVES. The planning itself — the resolution rules and all
+ * seven guards, with their wording — is route.ts, a PURE function: it takes the
+ * frozen router resolution, the profile lookup, pi's compaction predicate and
+ * reserve, the thread's context size and the raw arguments, and returns a
+ * proceed/reject verdict. This module keeps only what is inherently impure:
+ * reading the live session (its model, level and context size), assembling those
+ * inputs, APPLYING the switch, and turning a rejection into either a tool error or
+ * a non-billed abort. The split exists so the guards have permanent automated
+ * coverage: verification/resolver-checks.mjs cannot load THIS module at all (it
+ * transitively imports @earendil-works/pi-ai, an uninstalled peer dependency), but
+ * it can load route.ts.
  */
 
 import { readFileSync } from "node:fs";
@@ -66,28 +78,12 @@ import type { BaseModelTracker } from "./base-model.ts";
 import { compressEpisode } from "./episodes.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 import type { ThinkingLevel } from "./model-profiles.ts";
-import {
-	checkEffort,
-	resolveModelRouter,
-	ROUTER_OFF,
-	type EffortCheck,
-	type ModelRouterResolution,
-	type RouterCandidate,
-} from "./model-router.ts";
+import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { isModelSpec, type EpisodeRecord, type SlateConfig, type SlateStore, type ThreadRecord } from "./state.ts";
+import { planRoute, THINKING_LEVELS, usableResolution, type RoutePlanInput, type RoutePlanProceed } from "./route.ts";
+import { isModelSpec, splitModelSpec, type EpisodeRecord, type SlateConfig, type SlateStore, type ThreadRecord } from "./state.ts";
 import { openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
-
-/**
- * pi's thinking-level vocabulary, ASCENDING — the same union as
- * model-profiles.ts's ThinkingLevel and pi's own. Order is load-bearing twice:
- * it decides which measured level is the "lowest" when seeding a thread's base
- * effort, and it is the list a rejected `effort` argument is explained against.
- * Ascending order is taken from HERE rather than from a profile's ladder so the
- * answer does not depend on the table's authoring order.
- */
-const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 export interface DispatchOptions {
 	threadId?: string;
@@ -97,16 +93,6 @@ export interface DispatchOptions {
 	model?: string; // "provider/id" for THIS action (see the header): the thread's base model when omitted
 	effort?: string; // pi thinking level for THIS action; validated against the target model's ladder
 	tools?: string[];
-}
-
-/** What one dispatch resolved to, plus everything the caller must report about it. */
-interface RoutePlan {
-	model?: string; // effective "provider/id"; undefined = leave the session on its own model (router off, nothing resolvable)
-	effort?: ThinkingLevel; // effective level; undefined = leave pi's own thinking level alone
-	effortUnmeasured: boolean; // that level is ladder-valid but has NO capability measurement
-	baseModel?: string; // the base a NEW thread must persist
-	baseEffort?: ThinkingLevel; // the base effort a NEW thread must persist
-	warnings: string[]; // advisory notices for the orchestrator, in order
 }
 
 /**
@@ -202,15 +188,12 @@ export class ThreadManager {
 	private failoverLive = new Map<string, string>();
 	private queues = new Map<string, Promise<unknown>>();
 	private semaphore: Semaphore;
-	/** "threadId|spec" pairs already warned about crossing a long-context billing threshold (guard 6). */
-	private longContextWarned = new Set<string>();
 	/**
-	 * Router-OFF ladder answers, per spec: a throwaway single-model resolution so
-	 * the effort guards use the ONE ladder predicate (model-router's checkEffort)
-	 * on both paths instead of a second implementation. Cached because a dispatch
-	 * validates twice and a session runs many dispatches.
+	 * threadId → models this thread has already had a long-context billing notice
+	 * for. Guard 6's memory lives HERE and not in the planner: route.ts is pure, so
+	 * it reports what it just warned about and this side records it.
 	 */
-	private offRouterLadders = new Map<string, ModelRouterResolution>();
+	private longContextWarned = new Map<string, Set<string>>();
 	/** pi's compaction settings, read once (a lock-protected disk read) — see compactionSettings(). */
 	private cachedCompaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
 
@@ -287,14 +270,20 @@ export class ThreadManager {
 		// routing guards next, and only then is a new thread created.
 		const existing = opts.threadId ? this.requireThread(opts.threadId) : undefined;
 		const liveSession = existing ? this.live.get(existing.id) : undefined;
-		const early = this.planRoute({ thread: existing, opts, ctx, contextTokens: this.contextTokens(liveSession) });
+		const early = planRoute(this.routeInputs(ctx, existing, opts, liveSession));
+		// Reject-only here: a rejection is a TOOL ERROR the orchestrator can correct,
+		// raised before the thread record exists. The plan's WARNINGS are deliberately
+		// dropped — the apply-time plan re-derives them with the thread's real context
+		// size, and reporting them twice (or consuming guard 6's once-per-pair notice
+		// before anyone could see it) would both be wrong.
+		if (early.kind === "reject") throw new Error(early.reason);
 		const thread = existing ?? this.createThread(opts, early);
 
 		// Per-thread FIFO: chain onto the previous dispatch for this thread.
 		const prev = this.queues.get(thread.id) ?? Promise.resolve();
 		const run = prev
 			.catch(() => undefined) // a failed predecessor must not poison the queue
-			.then(() => this.runDispatch(thread, opts, ctx, signal, onProgress));
+			.then(() => this.runDispatch(thread, opts, early, ctx, signal, onProgress));
 		this.queues.set(thread.id, run);
 		return run;
 	}
@@ -319,7 +308,7 @@ export class ThreadManager {
 	 * thread's own default is `baseModel` — recording the routed model as a pin
 	 * would make one action's route the thread's permanent base.
 	 */
-	private createThread(opts: DispatchOptions, plan: RoutePlan): ThreadRecord {
+	private createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord {
 		const id = this.store.nextThreadId();
 		const record: ThreadRecord = {
 			id,
@@ -353,104 +342,80 @@ export class ThreadManager {
 	}
 
 	// ---------------------------------------------------------------- routing --
+	//
+	// The DECISION is route.ts's (pure). What lives here is the part that cannot be
+	// pure: reading this session's frozen resolver, pi's settings and the live
+	// worker session, and assembling them into the planner's inputs.
 
 	/**
 	 * This session's frozen router resolution, defensively.
 	 *
-	 * A THROWING resolver, or one that hands back a malformed object, must leave
-	 * the dispatch path exactly as it is with the router off rather than break a
-	 * dispatch: OFF is the pre-router behaviour, so it is always a safe answer.
-	 * `candidates` is checked for being a non-empty array because the guards below
-	 * walk it directly (checkEffort tolerates a junk resolution on its own, CQ5).
+	 * A THROWING resolver, or one that hands back a malformed object, must leave the
+	 * dispatch path exactly as it is with the router off: OFF is the pre-router
+	 * behaviour, so it is always a safe answer. The SHAPE check itself is route.ts's
+	 * usableResolution, so the planner and this module cannot disagree about what a
+	 * usable resolution is.
 	 */
 	private routerResolution(): ModelRouterResolution {
 		try {
-			const resolution = this.resolveRouter();
-			if (!resolution || typeof resolution !== "object" || resolution.on !== true) return ROUTER_OFF;
-			if (!Array.isArray(resolution.candidates) || resolution.candidates.length === 0) return ROUTER_OFF;
-			return resolution;
+			return usableResolution(this.resolveRouter());
 		} catch {
 			return ROUTER_OFF;
 		}
 	}
 
-	/** The routable candidate for a spec, undefined when the router is off or the spec is unlisted. */
-	private candidateFor(resolution: ModelRouterResolution, spec: string | undefined): RouterCandidate | undefined {
-		if (!spec || !resolution.on) return undefined;
-		return resolution.candidates.find((c) => c?.spec === spec);
-	}
-
 	/**
-	 * The model/effort verdict for ONE pair — model-router's predicate on both
-	 * paths, never a second implementation of the ladder rules.
-	 *
-	 * With the router ON that is the session's frozen resolution. With the router
-	 * OFF the same predicate is fed a THROWAWAY single-model resolution, so the
-	 * ladder answer stays PER MODEL (the whole point of guard 2) instead of
-	 * degenerating into a vocabulary check against a union of every model's
-	 * levels. Its warnings are dropped on purpose: with the router off, a model
-	 * that is unprofiled, unknown to the registry or unauthenticated is not news —
-	 * the throwaway resolution is then OFF, checkEffort is inert, and the level
-	 * passes to pi, which clamps it exactly as it did before this feature.
+	 * The orchestrator's base model, EXCLUDING slate's own failover fallbacks, so a
+	 * worker never inherits a temporary fallback as its permanent default. Validated
+	 * as a spec HERE, at the boundary it crosses, and tolerant of a broken tracker:
+	 * a fallback is a routing decision, never a reason to fail a dispatch.
 	 */
-	private checkEffortFor(
-		resolution: ModelRouterResolution,
-		spec: string,
-		effort: ThinkingLevel,
-		ctx: ExtensionContext,
-	): EffortCheck {
-		if (resolution.on) return checkEffort(resolution, spec, effort);
-		let single = this.offRouterLadders.get(spec);
-		if (!single) {
-			try {
-				single = resolveModelRouter({ registry: ctx.modelRegistry, models: [spec] }, () => {});
-			} catch {
-				single = ROUTER_OFF;
-			}
-			this.offRouterLadders.set(spec, single);
+	private trackedBaseModel(): string | undefined {
+		let tracked: string | undefined;
+		try {
+			tracked = this.baseModelTracker?.current();
+		} catch {
+			tracked = undefined;
 		}
-		return checkEffort(single, spec, effort);
+		return isModelSpec(tracked) ? tracked : undefined;
 	}
 
 	/**
-	 * The LOWEST level on a listed model's ladder that carries a traced capability
-	 * measurement — the seed for a new thread's base effort.
+	 * The profile lookup the ROUTER-OFF ladder answer uses.
 	 *
-	 * `verdict === "ok"` is exactly "on the ladder, measured, and not rejected by
-	 * the provider", so an unmeasured level can never be chosen by default and an
-	 * API-rejected one can never be seeded. undefined when the model has no
-	 * measured level at all: absence reads as unknown, and pi's own default applies
-	 * — guessing a level from an evidence gap is precisely what the profile data
-	 * forbids.
+	 * COMPOSED rather than passed straight through, so the answer stays identical to
+	 * the pre-extraction one: that path resolved a throwaway one-model router list,
+	 * which dropped a model that was unprofiled, unknown to pi's registry, or
+	 * unauthenticated. A spec this session cannot actually serve therefore reports NO
+	 * profile here — the effort guards then have no basis to refuse and pi's own
+	 * clamp decides, exactly as before. Keeping the registry read in this closure is
+	 * also what keeps route.ts free of it.
 	 */
-	private lowestMeasuredEffort(resolution: ModelRouterResolution, spec: string | undefined): ThinkingLevel | undefined {
-		if (!resolution.on || !spec) return undefined; // OFF: checkEffort is inert and would answer "ok" for every level
-		for (const level of THINKING_LEVELS) {
-			if (checkEffort(resolution, spec, level).verdict === "ok") return level;
-		}
-		return undefined;
+	private routerOffProfiles(ctx: ExtensionContext): RouterProfileSource {
+		return {
+			findProfile: (spec) => (this.registryCanServe(ctx, spec) ? SHIPPED_PROFILE_SOURCE.findProfile(spec) : undefined),
+			ladderFor: (profile) => SHIPPED_PROFILE_SOURCE.ladderFor(profile),
+		};
 	}
 
-	/** An `effort` argument as a level, or undefined when absent; throws on anything outside pi's vocabulary. */
-	private parseEffort(raw: unknown): ThinkingLevel | undefined {
-		if (raw === undefined || raw === null) return undefined;
-		const value = typeof raw === "string" ? raw.trim() : "";
-		if (value === "") return undefined; // an empty string is an omitted argument, not a level
-		if (!THINKING_LEVELS.includes(value as ThinkingLevel)) {
-			throw new Error(
-				`slate: effort "${sanitizeForNotify(String(raw), 40)}" is not one of pi's thinking levels ` +
-					`(${THINKING_LEVELS.join(", ")}).`,
-			);
+	/** Whether pi's registry knows a spec AND has credentials configured for it. */
+	private registryCanServe(ctx: ExtensionContext, spec: string): boolean {
+		const parts = splitModelSpec(spec);
+		if (!parts) return false;
+		try {
+			const model = ctx.modelRegistry.find(parts.provider, parts.id);
+			return !!model && ctx.modelRegistry.hasConfiguredAuth(model) === true;
+		} catch {
+			return false; // cannot even resolve credentials ⇒ treat as unusable
 		}
-		return value as ThinkingLevel;
 	}
 
 	/**
-	 * pi's own accounting of a live worker session's context size, or undefined
-	 * when it is not knowable before dispatch — no live session (a fresh or
-	 * resumed thread, before the session is opened), no model, or a post-compaction
-	 * gap where pi itself reports the token count as unknown. undefined means the
-	 * window guard is SKIPPED, never that the context is small.
+	 * pi's own accounting of a live worker session's context size, or undefined when
+	 * it is not knowable before dispatch — no live session (a fresh or resumed
+	 * thread, before the session is opened), no model, or a post-compaction gap
+	 * where pi itself reports the token count as unknown. undefined means the window
+	 * guard is SKIPPED, never that the context is small.
 	 */
 	private contextTokens(session: WorkerSession | undefined): number | undefined {
 		if (!session) return undefined;
@@ -482,255 +447,52 @@ export class ThreadManager {
 	}
 
 	/**
-	 * Would `tokens` of context still fit a `window`-token model? pi's OWN
-	 * predicate answers (shouldCompact = tokens > window − reserveTokens), so the
-	 * guard cannot drift from pi's compaction point, and the reserve is the user's
-	 * configured one.
+	 * Assemble the PURE planner's inputs from this session's impure surroundings.
 	 *
-	 * `enabled` is FORCED TRUE against the user's setting on purpose: disabling
-	 * auto-compaction does not make an over-window dispatch safe, it turns the
-	 * compaction into an overflow error instead — and shouldCompact answers `false`
-	 * for every input when compaction is disabled, which would silently delete this
-	 * guard for those users.
+	 * `failover` switches it into guard 7's carve-out mode: the target replaces the
+	 * requested model, no effort is requested, and the planner bypasses the list and
+	 * effort guards. A failover target need not be a routing candidate, so its
+	 * window is passed explicitly — there is no candidate to read it from.
 	 */
-	private fitsWindow(tokens: number, window: number, ctx: ExtensionContext): boolean {
-		return !shouldCompact(tokens, window, { ...this.compactionSettings(ctx), enabled: true });
+	private routeInputs(
+		ctx: ExtensionContext,
+		thread: ThreadRecord | undefined,
+		opts: DispatchOptions,
+		session: WorkerSession | undefined,
+		failover?: { target: string; from: string; contextWindow?: number },
+	): RoutePlanInput {
+		const settings = this.compactionSettings(ctx);
+		return {
+			thread,
+			requestedModel: failover ? failover.target : opts.model,
+			requestedEffort: failover ? undefined : opts.effort,
+			resolution: this.routerResolution(),
+			allowUnmeasuredEffort: this.config.router?.allowUnmeasuredEffort,
+			orchestratorBaseModel: this.trackedBaseModel(),
+			hostModel: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
+			contextTokens: this.contextTokens(session),
+			// pi's OWN compaction predicate, bound to pi's compaction settings, so the
+			// window guard cannot drift from pi's compaction point. `enabled` is FORCED
+			// TRUE against the user's setting on purpose: disabling auto-compaction does
+			// not make an over-window dispatch safe, it turns the compaction into an
+			// overflow error instead — and shouldCompact answers `false` for every input
+			// when compaction is disabled, which would silently delete guard 5 for those
+			// users.
+			wouldCompact: (tokens, window) => shouldCompact(tokens, window, { ...settings, enabled: true }),
+			reserveTokens: settings.reserveTokens,
+			profiles: this.routerOffProfiles(ctx),
+			warnedLongContext: thread ? [...(this.longContextWarned.get(thread.id) ?? [])] : [],
+			failoverSwitch: failover !== undefined,
+			failoverFrom: failover?.from,
+			contextWindow: failover?.contextWindow,
+		};
 	}
 
-	/**
-	 * Resolve WHICH model and effort ONE dispatch runs on, and enforce the
-	 * dispatch-side guards. Called TWICE per dispatch (see the module header):
-	 *
-	 *  - EARLY (`warn` omitted): reject-only, before any state mutation or session
-	 *    work. Emits no warning and never substitutes, so the two calls cannot
-	 *    double-report and the once-per-thread billing notice is not consumed by a
-	 *    call whose warnings nobody would see.
-	 *  - APPLY TIME (`warn` given, `contextTokens` known): the authoritative plan.
-	 *
-	 * A rejection is a THROW; the caller decides what it means (a tool error early,
-	 * a non-billed abort at apply time). Guard order is fixed and load-bearing:
-	 * vocabulary → list membership → effort (API-rejected, ladder, evidence gap) →
-	 * context window (may substitute the model, which re-runs the effort guards in
-	 * non-throwing mode) → long-context billing on the FINAL model.
-	 */
-	private planRoute(args: {
-		thread?: ThreadRecord; // undefined = a thread that does not exist yet
-		opts: DispatchOptions;
-		ctx: ExtensionContext;
-		contextTokens?: number; // undefined = not knowable yet ⇒ the window guard is skipped
-		warn?: (msg: string) => void;
-	}): RoutePlan {
-		const { thread, opts, ctx } = args;
-		const resolution = this.routerResolution();
-		const warnings: string[] = [];
-		const collecting = args.warn !== undefined;
-		const warn = (message: string) => {
-			if (!collecting) return;
-			warnings.push(message);
-			try {
-				args.warn?.(message);
-			} catch {
-				/* a broken sink costs the notice, never the dispatch */
-			}
-		};
-
-		const explicit = typeof opts.model === "string" && opts.model.trim() !== "" ? opts.model.trim() : undefined;
-
-		// ---- the THREAD's defaults (never an action's route)
-		let baseModel: string | undefined;
-		let baseEffort: ThinkingLevel | undefined;
-		if (thread) {
-			// ?? thread.model: a thread created before per-action routing existed (the
-			// snapshot is unversioned, so absence means "unknown", and the pre-router
-			// pin is the best available answer).
-			baseModel = thread.baseModel ?? thread.model;
-			baseEffort = thread.baseEffort;
-		} else if (resolution.on) {
-			// model-router D48: the cheapest PREFERRED candidate, so the base is always
-			// a listed model and a later dispatch that omits `model` can never be
-			// rejected by guard 1. An explicit model on THIS dispatch routes this action
-			// only — it is deliberately not the base.
-			baseModel = resolution.cheapest;
-			baseEffort = this.lowestMeasuredEffort(resolution, baseModel);
-		} else {
-			// Router OFF: a creation-time model is the thread's pin (pre-router
-			// behaviour), otherwise the orchestrator's own base model — which EXCLUDES
-			// failover fallbacks, so a worker does not inherit a temporary fallback as
-			// its permanent default. Failing both, nothing: worker.ts then opens on the
-			// host session's current model, exactly as before. The tracker's value is
-			// re-validated as a spec here because it crosses a module boundary.
-			let tracked: string | undefined;
-			try {
-				tracked = this.baseModelTracker?.current();
-			} catch {
-				tracked = undefined; // a broken tracker falls back, it does not fail a dispatch
-			}
-			baseModel = explicit ?? (isModelSpec(tracked) ? tracked : undefined);
-			// baseEffort stays UNKNOWN: seeding it with the router off would change what
-			// a worker runs at, and it must never come from the user's global default.
-		}
-
-		// ---- the RESOLVED pair for THIS action
-		let model = explicit ?? baseModel;
-		let effort = this.parseEffort(opts.effort) ?? baseEffort; // GUARD: pi's vocabulary (throws)
-
-		// GUARD 1 — list membership. Router ON only; with the router off the `model`
-		// argument behaves exactly as it did before the router existed. Validated on
-		// the RESOLVED model, but only an explicit one can trip it: the base is always
-		// a listed candidate by construction (D48).
-		if (resolution.on && model !== undefined && !resolution.candidates.some((c) => c?.spec === model)) {
-			const list = resolution.candidates.map((c) => c.spec).join(", ");
-			throw new Error(
-				`slate: model "${sanitizeForNotify(model, 80)}" is not routable — the router's effective model list is: ${list}. ` +
-					`Pass one of those as "model"${baseModel ? `, or omit it to use ${thread ? `thread ${thread.id}'s` : "the new thread's"} base model (${baseModel})` : ""}.`,
-			);
-		}
-
-		// The model the effort guards answer for: the resolved model when there is
-		// one, else the model the worker session will actually open on (the host's
-		// current model). An omitted `model` must not let an effort level escape
-		// validation.
-		const hostSpec = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-		let effortUnmeasured = false;
-
-		/**
-		 * GUARDS 2–4 on one (model, effort) pair. `soft` is used after a window
-		 * substitution: the context guard must never hard-block a dispatch, so a level
-		 * that is invalid on the SUBSTITUTED model is dropped with a warning (pi's own
-		 * default then applies) instead of rejecting the action.
-		 */
-		const guardEffort = (spec: string | undefined, soft: boolean): void => {
-			if (effort === undefined || spec === undefined) return;
-			const level = effort;
-			const check = this.checkEffortFor(resolution, spec, level, ctx);
-			const ladder = check.ladder.length > 0 ? check.ladder.join(", ") : "(none recorded)";
-			const reject = (message: string) => {
-				if (!soft) throw new Error(message);
-				effort = undefined;
-				effortUnmeasured = false;
-				warn(`${message} Dropping the effort level for this action; pi's own default applies.`);
-			};
-			// GUARD 4 — API-rejected level: a guaranteed provider failure, not an
-			// evidence gap, so it is refused outright and is NOT covered by
-			// allowUnmeasuredEffort. Checked before the ladder because such a level IS on
-			// pi's ladder for the model (model-profiles § apiRejectedLevels).
-			if (check.apiRejected) {
-				reject(
-					`slate: effort "${level}" is rejected outright by the provider for ${sanitizeForNotify(spec, 80)} — ` +
-						`dispatching it would be a guaranteed API failure, not an evidence gap. That model's ladder: ${ladder}.`,
-				);
-				return;
-			}
-			// GUARD 2 — ladder validity, PER MODEL. pi would silently CLAMP an
-			// unsupported level, so without this the orchestrator would believe it ran an
-			// action at a level the model never offered.
-			if (check.verdict === "off-ladder") {
-				reject(
-					`slate: effort "${level}" is not on ${sanitizeForNotify(spec, 80)}'s effort ladder (${ladder}).`,
-				);
-				return;
-			}
-			// GUARD 3 — evidence gap: ADVISORY by default (an unmeasured level is
-			// dispatchable, it is just not a traced capability), and refused only when the
-			// project set router.allowUnmeasuredEffort to false. Never chosen by default:
-			// a seeded base effort is always a measured level (lowestMeasuredEffort).
-			if (check.verdict === "evidence-gap") {
-				if (this.config.router?.allowUnmeasuredEffort === false) {
-					reject(
-						`slate: effort "${level}" on ${sanitizeForNotify(spec, 80)} has no capability measurement in slate's ` +
-							`model profiles, and router.allowUnmeasuredEffort is false. That model's ladder: ${ladder}.`,
-					);
-					return;
-				}
-				effortUnmeasured = true;
-				warn(
-					`slate: effort "${level}" on ${sanitizeForNotify(spec, 80)} has NO capability measurement in slate's model ` +
-						`profiles${check.listedGap ? "" : " (and the profile does not even list it as a gap)"} — dispatching anyway, ` +
-						"but treat the result as unevidenced for this level.",
-				);
-				return;
-			}
-			// "ok" — and "not-listed", which reaches here only for a model the guards
-			// cannot judge (a legacy thread with no base, dispatched while the router is
-			// on, whose host model is not a candidate). No ladder data means no basis to
-			// refuse: the level goes to pi, which clamps it.
-			effortUnmeasured = false;
-		};
-
-		guardEffort(model ?? hostSpec, false);
-
-		// GUARD 5 — CONTEXT WINDOW. Never a hard block, and router ON only: with the
-		// router off there is no candidate list to fall back to, and the pre-router
-		// behaviour is no check at all. The window compared against is the REGISTRY's
-		// (RouterCandidate.contextWindow IS the registry value — a profile's own figure
-		// is documentation only, model-router D55), reduced by pi's compaction reserve
-		// through pi's own predicate. An unknown window is not a failure: no basis to
-		// refuse, so it passes.
-		const tokens = args.contextTokens;
-		if (resolution.on && model !== undefined && tokens !== undefined) {
-			const holds = (candidate: RouterCandidate | undefined): boolean =>
-				typeof candidate?.contextWindow !== "number" ? true : this.fitsWindow(tokens, candidate.contextWindow, ctx);
-			if (!holds(this.candidateFor(resolution, model))) {
-				const reserve = this.compactionSettings(ctx).reserveTokens;
-				const where = thread ? `thread ${thread.id}'s` : "this thread's";
-				const prefix =
-					`slate: ${where} context (~${tokens.toLocaleString("en-US")} tokens) does not fit ` +
-					`${sanitizeForNotify(model, 80)}'s context window minus pi's ${reserve.toLocaleString("en-US")}-token ` +
-					"compaction reserve";
-				const widest = resolution.candidates.reduce<RouterCandidate | undefined>(
-					(best, c) =>
-						typeof c?.contextWindow !== "number"
-							? best
-							: best === undefined || c.contextWindow > (best.contextWindow ?? 0)
-								? c
-								: best,
-					undefined,
-				);
-				if (widest && widest.spec !== model) {
-					warn(
-						holds(widest)
-							? `${prefix} — routing this action to the widest listed model instead: ${widest.spec} ` +
-								`(${(widest.contextWindow ?? 0).toLocaleString("en-US")} tokens).`
-							: `${prefix}, and NO listed model can hold it — routing to the widest one anyway ` +
-								`(${widest.spec}, ${(widest.contextWindow ?? 0).toLocaleString("en-US")} tokens); pi will compact this thread.`,
-					);
-					model = widest.spec;
-					// Ladders are PER MODEL, so the substituted model gets its own effort
-					// check — in soft mode: a context size must not turn into a rejection.
-					guardEffort(model, true);
-				} else {
-					warn(`${prefix}, and no listed model is wider — dispatching anyway; pi will compact this thread.`);
-				}
-			}
-		}
-
-		// GUARD 6 — LONG-CONTEXT BILLING. A cost cliff, never a capacity limit
-		// (model-profiles §W): above the threshold the price multipliers apply. Warned
-		// ONCE per thread and model, on the FINAL model, so a long thread does not
-		// repeat it every action — and only when warnings are collected, so the early
-		// reject-only pass cannot consume the once-per-pair notice.
-		const finalCandidate = this.candidateFor(resolution, model);
-		if (collecting && finalCandidate && tokens !== undefined && thread) {
-			const threshold = finalCandidate.profile?.longContextThreshold;
-			const key = `${thread.id}|${finalCandidate.spec}`;
-			if (typeof threshold === "number" && Number.isFinite(threshold) && tokens >= threshold && !this.longContextWarned.has(key)) {
-				this.longContextWarned.add(key);
-				const multipliers = finalCandidate.profile?.longContextMultipliers;
-				const inMult = typeof multipliers?.in === "number" ? multipliers.in : undefined;
-				const outMult = typeof multipliers?.out === "number" ? multipliers.out : undefined;
-				const rates =
-					inMult !== undefined || outMult !== undefined
-						? `input bills ×${inMult ?? "?"} and output ×${outMult ?? "?"}`
-						: "the provider's long-context multipliers apply (slate's profile records no figure for them)";
-				warn(
-					`slate: ${thread.id}'s context (~${tokens.toLocaleString("en-US")} tokens) is above ` +
-						`${sanitizeForNotify(finalCandidate.spec, 80)}'s long-context billing threshold ` +
-						`(${threshold.toLocaleString("en-US")} tokens) — above it ${rates}. A cost event, not a capacity limit.`,
-				);
-			}
-		}
-
-		return { model, effort, effortUnmeasured, baseModel, baseEffort, warnings };
+	/** Record that a thread has had the long-context billing notice for a model (guard 6's memory). */
+	private noteLongContext(threadId: string, spec: string): void {
+		const seen = this.longContextWarned.get(threadId) ?? new Set<string>();
+		seen.add(spec);
+		this.longContextWarned.set(threadId, seen);
 	}
 
 	/**
@@ -745,7 +507,7 @@ export class ThreadManager {
 	 */
 	private async applyRoute(
 		session: WorkerSession,
-		plan: RoutePlan,
+		plan: RoutePlanProceed,
 		thread: ThreadRecord,
 		ctx: ExtensionContext,
 	): Promise<void> {
@@ -806,6 +568,7 @@ export class ThreadManager {
 	private async runDispatch(
 		thread: ThreadRecord,
 		opts: DispatchOptions,
+		earlyPlan: RoutePlanProceed,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
@@ -813,7 +576,7 @@ export class ThreadManager {
 		const prompt = this.buildPrompt(opts); // may throw on unknown episode ids (before any state change)
 		await this.semaphore.acquire();
 		try {
-			return await this.runDispatchInner(thread, opts, prompt, ctx, signal, onProgress);
+			return await this.runDispatchInner(thread, opts, earlyPlan, prompt, ctx, signal, onProgress);
 		} finally {
 			this.semaphore.release();
 		}
@@ -822,6 +585,7 @@ export class ThreadManager {
 	private async runDispatchInner(
 		thread: ThreadRecord,
 		opts: DispatchOptions,
+		earlyPlan: RoutePlanProceed,
 		prompt: string,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
@@ -839,7 +603,7 @@ export class ThreadManager {
 		let status: "ok" | "failed" = "ok";
 		let diagnostics: string | undefined;
 		/** The authoritative route for this action (apply-time plan); undefined if we never got that far. */
-		let plan: RoutePlan | undefined;
+		let plan: RoutePlanProceed | undefined;
 		/** Set ONLY by an apply-time rejection: end the dispatch with no episode and no compression. */
 		let aborted: DispatchAbort | undefined;
 		const warnings: string[] = [];
@@ -887,13 +651,16 @@ export class ThreadManager {
 
 			session = this.live.get(thread.id);
 			if (!session) {
-				// The model a NEW session OPENS on is this action's resolved model — not
-				// the thread's pin, which is only one of the inputs to it. Reject-only
-				// (no `warn`): the authoritative plan runs below, once the session's
-				// restored history makes the thread's context size knowable. Passing the
-				// model explicitly also keeps overriding whatever model_change the session
-				// file ends with (CQ3).
-				const opening = this.planRoute({ thread, opts, ctx });
+				// The model a NEW session OPENS on is the EARLY plan's resolved model — not
+				// the thread's pin, which is only one of the inputs to it. The early plan is
+				// the right answer to re-use rather than re-plan: this branch runs only when
+				// there is NO live session, which is exactly the state the early pass planned
+				// in (same inputs, pure function ⇒ same verdict). The authoritative plan
+				// below then re-resolves with the session's restored history visible and
+				// switches the session if anything moved meanwhile. Passing the model
+				// explicitly also keeps overriding whatever model_change the session file
+				// ends with (CQ3).
+				//
 				// A NEW session gets the CURRENT frozen worker-extension set. A LIVE
 				// cached session (reused when present) keeps whatever set it was opened
 				// with — which is precisely why the resolution is frozen per session
@@ -901,7 +668,7 @@ export class ThreadManager {
 				session = await openWorkerSession({
 					ctx,
 					sessionFile: thread.sessionFile || undefined,
-					model: opening.model,
+					model: earlyPlan.model,
 					tools: opts.tools ?? this.config.workerTools,
 					promptDocs: this.config.workerPromptDocs,
 					extensionPaths: this.resolveExtensions().paths,
@@ -923,24 +690,22 @@ export class ThreadManager {
 			// and the first one that can see the thread's real context size — for a
 			// RESUMED thread the early pass had no live session at all, and for a queued
 			// one a predecessor action has since grown the context.
-			try {
-				plan = this.planRoute({
-					thread,
-					opts,
-					ctx,
-					contextTokens: this.contextTokens(session),
-					warn: routeWarn,
-				});
-			} catch (error) {
+			const applied = planRoute(this.routeInputs(ctx, thread, opts, session));
+			if (applied.kind === "reject") {
 				// The world moved between the early validation and now (the router list is
 				// frozen per session, so this is a registry/credential/effort change).
 				throw new DispatchAbort(
 					`slate: aborting the dispatch to thread ${thread.id} before any billed work — ` +
-						`${error instanceof Error ? error.message : String(error)} No episode was recorded.`,
+						`${applied.reason} No episode was recorded.`,
 				);
 			}
+			plan = applied;
+			for (const message of applied.warnings) routeWarn(message);
+			// Guard 6's memory is this side's (route.ts is pure): record the pair the plan
+			// just warned about, so the next action on it stays quiet.
+			if (applied.longContextWarned !== undefined) this.noteLongContext(thread.id, applied.longContextWarned);
 			await this.applyRoute(session, plan, thread, ctx);
-			if (plan.warnings.length > 0) emit(false);
+			if (applied.warnings.length > 0) emit(false);
 
 			messagesBefore = session.messages.length;
 
@@ -1005,33 +770,29 @@ export class ThreadManager {
 				const resolvedMapping = candidate
 					? await resolveMappedModel(ctx, this.config.modelFailover ?? {}, current.provider, current.id)
 					: undefined;
-				// GUARD 7 — THE FAILOVER CARVE-OUT (model-router). Failover BYPASSES the
-				// router entirely: neither the list guard nor the effort guards run here,
-				// and the mapped model is never required to be a routing candidate — a
-				// model that just failed is worse than an unlisted one that works, so the
-				// router must never veto a failover. Exactly two things are kept:
-				//  · failover must never select the model that JUST FAILED. The config
-				//    sanitizer already drops a self-mapping, so this restates the invariant
-				//    for a manager handed a raw config — and for the case the sanitizer
-				//    cannot see: per-action routing means `current` may no longer be the
-				//    model the map was keyed on.
-				//  · a NON-SUBSTITUTING window check: it warns, it never picks a different
-				//    model, because substituting here would be the router vetoing failover
-				//    by another name.
-				const currentSpec = `${current.provider}/${current.id}`;
-				const mapped =
-					resolvedMapping && `${resolvedMapping.provider}/${resolvedMapping.id}` !== currentSpec ? resolvedMapping : undefined;
-				if (mapped && this.routerResolution().on) {
-					const failoverTokens = this.contextTokens(session);
-					const window = mapped.contextWindow;
-					if (failoverTokens !== undefined && typeof window === "number" && !this.fitsWindow(failoverTokens, window, ctx)) {
-						routeWarn(
-							`slate: the failover target ${mapped.provider}/${mapped.id} cannot hold thread ${thread.id}'s context ` +
-								`(~${failoverTokens.toLocaleString("en-US")} tokens vs a ${window.toLocaleString("en-US")}-token window) — ` +
-								"failing over anyway; pi will compact. Failover is never vetoed on window size.",
-						);
-					}
-				}
+				// GUARD 7 — THE FAILOVER CARVE-OUT, planned by route.ts in failover mode:
+				// the list and effort guards do not run, the mapped model is never required
+				// to be a routing candidate (a model that just failed is worse than an
+				// unlisted one that works), and the window check only WARNS — substituting
+				// here would be the router vetoing failover by another name.
+				//
+				// A REJECT verdict here means "do not switch", never an error: the one rule
+				// failover must obey is that a mapping may not resolve to the model that just
+				// failed, and the pre-router response to that was a silent skip — so it stays
+				// one. (The config sanitizer already drops a self-mapping; per-action routing
+				// adds the case it cannot see, where `current` is no longer the model the map
+				// was keyed on.)
+				const failoverPlan = resolvedMapping
+					? planRoute(
+							this.routeInputs(ctx, thread, opts, session, {
+								target: `${resolvedMapping.provider}/${resolvedMapping.id}`,
+								from: `${current.provider}/${current.id}`,
+								contextWindow: resolvedMapping.contextWindow,
+							}),
+						)
+					: undefined;
+				for (const message of failoverPlan?.warnings ?? []) routeWarn(message);
+				const mapped = failoverPlan?.kind === "proceed" ? resolvedMapping : undefined;
 				if (mapped && !retryBlocked()) {
 					lines.push(`⚠ failover ${current.provider}/${current.id} ⇒ ${mapped.provider}/${mapped.id}`);
 					emit(false);

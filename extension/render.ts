@@ -22,6 +22,7 @@ interface ThreadCallArgs {
 	task?: string;
 	context?: string[];
 	model?: string;
+	effort?: string;
 }
 
 interface ThreadDetails {
@@ -71,7 +72,12 @@ function extractSection(episode: string, section: string): string {
 export function renderThreadCall(args: ThreadCallArgs, theme: ThemeLike) {
 	let text = theme.fg("toolTitle", theme.bold("thread "));
 	text += theme.fg("accent", args.thread ?? (args.name ? `new:"${args.name}"` : "new"));
-	if (args.model) text += theme.fg("muted", ` [${args.model}]`);
+	// What this action was ROUTED to, as the arguments asked for it: "[model @effort]",
+	// or just "[@effort]" when only the level was pinned. Both are per-DISPATCH, so a
+	// reader scanning the transcript can see which model and which thinking level each
+	// action ran at instead of only the model.
+	const routed = [args.model, args.effort ? `@${args.effort}` : undefined].filter((part) => !!part).join(" ");
+	if (routed) text += theme.fg("muted", ` [${routed}]`);
 	if (args.context && args.context.length > 0) text += theme.fg("muted", ` ⇐ ${args.context.join(", ")}`);
 	const task = (args.task ?? "").replace(/\s+/g, " ");
 	text += `\n  ${theme.fg("dim", task.length > 100 ? `${task.slice(0, 100)}...` : task)}`;

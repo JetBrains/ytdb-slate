@@ -21,6 +21,9 @@
  *                 compaction intercept) + fresh-session handoff
  *   base-model.ts — the orchestrator's base model/effort, excluding slate's own
  *                 failover fallbacks (what a new worker thread defaults to)
+ *   model-profiles.ts / model-router.ts — the static routing data and the
+ *                 resolver that turns `router.models` into routable candidates
+ *   route.ts    — PURE per-action route planning + the seven dispatch guards
  *
  * Optional config at <config dir>/slate.json (config dir = CONFIG_DIR_NAME,
  * ".pi" by default), honored ONLY when the project is trusted — untrusted
@@ -54,7 +57,7 @@ import { createBaseModelTracker, modelSpecOf, readLiveEffort, type BaseModelTrac
 import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.ts";
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
-import { sanitizeRouterConfig } from "./model-router.ts";
+import { createModelRouterResolver, ROUTER_OFF, sanitizeRouterConfig, type ModelRouterResolution } from "./model-router.ts";
 import { sanitizeEpisodeModel, SlateStore, type SlateConfig } from "./state.ts";
 import { ThreadManager } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
@@ -95,7 +98,13 @@ export default function (pi: ExtensionAPI) {
 	// later session's — the live indirection would leak the newer set into the
 	// stale manager. Starts as the empty set (feature off) until session_start.
 	let resolveWorkerExtensionSet: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET;
-	let manager = new ThreadManager(store, {}, resolveWorkerExtensionSet);
+	// One MEMOIZED model-router resolution per session (model-router.ts), reassigned
+	// every session_start below for the same reason as the resolver above: the
+	// candidate list is frozen at first use, and a dispatch guard built from a
+	// different resolution than the doctrine describes would be a bug. Starts as the
+	// off resolution — dispatch then behaves exactly as it did before the router
+	// existed — until session_start has sanitized `router.models`.
+	let resolveModelRouterResolution: () => ModelRouterResolution = () => ROUTER_OFF;
 
 	// One base-model tracker per session (base-model.ts), reassigned every
 	// session_start below so its seed and its one-report-per-condition budget are
@@ -104,7 +113,11 @@ export default function (pi: ExtensionAPI) {
 	// CURRENT session. Constructed eagerly here — before any session_start — so a
 	// model_select arriving during startup has somewhere to land; that pre-session
 	// instance reports through the console, since no extension context exists yet.
+	// Declared BEFORE the manager below so even the pre-session manager can be given
+	// it (ThreadManager binds it by value, CN20).
 	let baseModel: BaseModelTracker = createBaseModelTracker({ warn: (msg) => console.warn(msg) });
+
+	let manager = new ThreadManager(store, {}, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel);
 
 	registerSlateTools(pi, store, () => manager);
 
@@ -142,6 +155,23 @@ export default function (pi: ExtensionAPI) {
 		// worker open or a doctrine build — after session_start finishes, so tools
 		// registered during session_start are captured (AD41).
 		resolveWorkerExtensionSet = createWorkerExtensionResolver(pi, () => config.workerExtensions ?? [], warn);
+		// Fresh router resolver per session, AFTER sanitization (it reads the cleaned
+		// model list) and with the same warn sink, so a dropped model — unprofiled,
+		// unknown to the registry, unauthenticated — surfaces the way every other
+		// config problem does. Resolution is LAZY and memoized: the registry and auth
+		// reads happen at first consultation (a dispatch or the doctrine), after
+		// session_start, so a provider another extension registers during startup is
+		// visible — and every later consultation gets that same frozen answer (CQ7).
+		// `failover` is passed so the resolver can report candidates with no failover
+		// coverage; both keys are read through the closure, not captured by value.
+		resolveModelRouterResolution = createModelRouterResolver(
+			() => ({
+				registry: ctx.modelRegistry,
+				models: config.router?.models ?? [],
+				failover: config.modelFailover ?? {},
+			}),
+			warn,
+		);
 		// Fresh tracker per session, seeded from the session's OWN resolved model —
 		// undefined is legitimate (no model, or no auth for one) and stays silent.
 		// Same warn channel as the sanitizers above. A handoff adoption re-seeds it
@@ -153,9 +183,11 @@ export default function (pi: ExtensionAPI) {
 		baseModel = createBaseModelTracker({ warn });
 		const sessionModel = modelSpecOf(ctx.model);
 		baseModel.seed(sessionModel, sessionModel === undefined ? undefined : readLiveEffort(pi));
-		// Bound BY VALUE (CN20): this manager keeps this session's resolver even if a
-		// later session_start replaces the module variable above.
-		manager = new ThreadManager(store, config, resolveWorkerExtensionSet);
+		// Bound BY VALUE (CN20): this manager keeps THIS session's resolvers and
+		// tracker even if a later session_start replaces the module variables above — a
+		// manager orphaned by a session swap must not start answering with a newer
+		// session's frozen candidate list or a newer base model.
+		manager = new ThreadManager(store, config, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel);
 		store.restore(ctx);
 	});
 
