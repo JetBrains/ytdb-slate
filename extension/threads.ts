@@ -25,7 +25,11 @@
  *    model, so a later dispatch that omits `model` can never be rejected by the
  *    list guard (model-router D48); the base effort seeds to the LOWEST MEASURED
  *    level for that model, never to the user's global thinking-level default. A
- *    model passed to the creating dispatch routes THAT action only.
+ *    model passed to the creating dispatch routes THAT action only. A base that
+ *    STOPS being listed — a thread older than the config, or a list that changed —
+ *    is RE-SEEDED by the planner on its next dispatch and written back here
+ *    (persistReseededBase), so that promise holds for threads the config outlived
+ *    instead of leaving them undispatchable.
  *
  *  - ROUTER OFF = PRE-ROUTER BEHAVIOUR, exactly. No list guard, no window guard,
  *    no billing warning, no seeded effort: the base model is the orchestrator's
@@ -504,6 +508,28 @@ export class ThreadManager {
 	}
 
 	/**
+	 * Persist a base the planner had to RE-SEED because the thread's stored one was
+	 * not routable (route.ts, guard 1's repair). Without this the repair would be
+	 * recomputed — and re-warned — on every dispatch, and the record would keep
+	 * pointing at a model the router cannot route to.
+	 *
+	 * `baseEffort` is DELETED when the re-seeded base has no measured level: leaving
+	 * the previous model's level behind would attach it to a model whose ladder was
+	 * never consulted (absence reads as unknown, the record's contract).
+	 */
+	private persistReseededBase(thread: ThreadRecord, plan: RoutePlanProceed): void {
+		if (plan.baseReseededFrom === undefined || plan.baseModel === undefined) return;
+		thread.baseModel = plan.baseModel;
+		if (plan.baseEffort !== undefined) thread.baseEffort = plan.baseEffort;
+		else delete thread.baseEffort;
+		// The PRE-ROUTER pin (`model`) is deliberately LEFT ALONE: it is a historical
+		// record of what the thread was created with, and `baseModel` — which is what
+		// route.ts reads first — now supersedes it, so it can no longer strand anything.
+		thread.updatedAt = Date.now();
+		this.store.save();
+	}
+
+	/**
 	 * Put the resolved model/effort onto the worker session — the LAST unbilled
 	 * step of a dispatch, and the one that makes a non-billed abort reachable.
 	 *
@@ -712,6 +738,12 @@ export class ThreadManager {
 			// Guard 6's memory is this side's (route.ts is pure): record the pair the plan
 			// just warned about, so the next action on it stays quiet.
 			if (applied.longContextWarned !== undefined) this.noteLongContext(thread.id, applied.longContextWarned);
+			// Same division of labour for a RE-SEEDED base: the planner decided it (purely),
+			// this side writes it down. Persisting it HERE rather than at the early call is
+			// deliberate: this is the pass whose warnings reach the orchestrator, so the
+			// notice and the record change land together — and once persisted, later
+			// dispatches read a listed base and the notice does not repeat.
+			this.persistReseededBase(thread, applied);
 			await this.applyRoute(session, plan, thread, ctx);
 			if (applied.warnings.length > 0) emit(false);
 

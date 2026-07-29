@@ -23,10 +23,17 @@
  * The guards, in the order they run — the order is load-bearing:
  *
  *   0. pi's effort VOCABULARY: an `effort` argument outside off/minimal/low/
- *      medium/high/xhigh/max is rejected before anything else looks at it.
+ *      medium/high/xhigh/max is rejected before anything else looks at it — and so
+ *      is one that is not a STRING at all, since reading a malformed argument as
+ *      absent would quietly run the action at the thread's base level instead.
  *   1. LIST MEMBERSHIP (router ON only): a resolved model outside the effective
  *      candidate list is rejected, naming the list. With the router OFF the model
  *      argument behaves exactly as it did before the router existed.
+ *      A THREAD'S BASE is exempt by REPAIR, not by exception: a stored base that is
+ *      not a candidate (a thread older than the config, or a list that changed) is
+ *      RE-SEEDED to what a new thread would get, with a warning, so a dispatch that
+ *      omits `model` always has a valid destination and can never be rejected.
+ *      Only an EXPLICIT off-list model is refused.
  *   4. API-REJECTED LEVEL, checked before the ladder because such a level IS on
  *      the model's pi ladder: the provider refuses it outright, so dispatching it
  *      is a guaranteed failure rather than an evidence gap, and
@@ -145,10 +152,21 @@ export interface RoutePlanProceed {
 	effort?: ThinkingLevel;
 	/** The effective level is ladder-valid but has NO capability measurement. */
 	effortUnmeasured: boolean;
-	/** The base model a NEW thread must persist (never an action's route). */
+	/**
+	 * The base model to PERSIST: for a new thread, its base; for an existing one
+	 * whose stored base was not routable, the RE-SEEDED base (see
+	 * `baseReseededFrom`). Never an action's route.
+	 */
 	baseModel?: string;
-	/** The base effort a NEW thread must persist. */
+	/** The base effort to persist, alongside `baseModel` (re-derived when the base is re-seeded). */
 	baseEffort?: ThinkingLevel;
+	/**
+	 * Set when an EXISTING thread's stored base was not in the effective candidate
+	 * list and had to be re-seeded: the spec it replaced. The caller MUST persist
+	 * `baseModel`/`baseEffort` onto the thread record when this is set, so the
+	 * re-seed (and its warning) happens once instead of on every dispatch.
+	 */
+	baseReseededFrom?: string;
 	/** Set when the window guard replaced the resolved model: the spec it replaced. */
 	substitutedFrom?: string;
 	/** Set when this plan emitted the long-context notice for that spec — the caller records it. */
@@ -192,6 +210,44 @@ function specArg(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;
 	const trimmed = value.trim();
 	return trimmed === "" ? undefined : trimmed;
+}
+
+/**
+ * Display form of a rejected argument value. JSON.stringify returns the VALUE
+ * undefined for undefined/functions and THROWS on a cyclic or deeply nested
+ * value, so both fall back to a plain description; the result is sanitized like
+ * every other string that reaches a UI or a persisted episode.
+ */
+function shown(value: unknown): string {
+	let text: string | undefined;
+	try {
+		text = JSON.stringify(value);
+	} catch {
+		text = undefined;
+	}
+	if (text === undefined) {
+		try {
+			text = String(value);
+		} catch {
+			text = `[unprintable ${typeof value}]`;
+		}
+	}
+	return sanitizeForNotify(text, 40);
+}
+
+/** Is this spec one of the effective candidates? */
+function isListed(resolution: ModelRouterResolution, spec: string): boolean {
+	return resolution.candidates.some((c) => c?.spec === spec);
+}
+
+/**
+ * The base model a thread gets when it needs one: the resolver's cheapest
+ * PREFERRED candidate (model-router D48). `candidates[0]` is a defensive floor
+ * for a fabricated resolution that carries candidates but no `cheapest` — the
+ * list is non-empty by usableResolution, so a listed base always exists.
+ */
+function defaultBase(resolution: ModelRouterResolution): string | undefined {
+	return resolution.cheapest ?? resolution.candidates[0]?.spec;
 }
 
 /** The routable candidate for a spec, undefined when the router is off or the spec is unlisted. */
@@ -337,10 +393,27 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	};
 
 	if (input.failoverSwitch === true) return planFailoverSwitch(input, resolution, explicit);
-	// GUARD 0 — pi's effort vocabulary.
+	// GUARD 0 — pi's effort vocabulary. The argument is RAW: it comes from a tool
+	// call, so its TYPE is not guaranteed either.
 	let requestedEffort: ThinkingLevel | undefined;
 	if (input.requestedEffort !== undefined && input.requestedEffort !== null) {
-		const raw = typeof input.requestedEffort === "string" ? input.requestedEffort.trim() : "";
+		// A NON-STRING is a rejection, not an absent argument. Reading it as absent
+		// would silently fall through to the thread's base effort, i.e. quietly run the
+		// action at a DIFFERENT level than the caller asked for — the same class of
+		// silent substitution every other guard here exists to prevent. (undefined and
+		// null stay "absent": that is how an omitted optional argument arrives.)
+		if (typeof input.requestedEffort !== "string") {
+			return {
+				kind: "reject",
+				reason:
+					`slate: effort must be one of pi's thinking levels as a string (${THINKING_LEVELS.join(", ")}) — ` +
+					`got ${typeof input.requestedEffort} ${shown(input.requestedEffort)}.`,
+				warnings,
+			};
+		}
+		const raw = input.requestedEffort.trim();
+		// An empty (or all-whitespace) string IS an omitted argument: that is how a
+		// cleared optional field arrives, and it names no level to run at.
 		if (raw !== "") {
 			if (!THINKING_LEVELS.includes(raw as ThinkingLevel)) {
 				return {
@@ -358,18 +431,50 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	// ---- the THREAD's defaults (never an action's route)
 	let baseModel: string | undefined;
 	let baseEffort: ThinkingLevel | undefined;
+	let baseReseededFrom: string | undefined;
 	if (thread) {
 		// ?? thread.model: a thread created before per-action routing existed (the
 		// snapshot is unversioned, so absence means "unknown", and the pre-router pin
 		// is the best available answer).
 		baseModel = thread.baseModel ?? thread.model;
 		baseEffort = thread.baseEffort;
+		// RE-SEED an unroutable base. A stored base that is NOT in the effective
+		// candidate list is a dead end: every dispatch that omits `model` resolves to
+		// it, and guard 1 then rejects the one call shape that has nothing to correct —
+		// the thread becomes undispatchable, and the rejection's own remediation clause
+		// ends up naming the model it just refused. Two ordinary events reach that
+		// state: a thread created before `router.models` was configured (its base is
+		// the orchestrator's model, or a pre-router pin), and a config change that drops
+		// a model an existing thread was based on.
+		//
+		// So the base is REPLACED, not refused, with exactly what a new thread would
+		// get (D48's cheapest preferred candidate) — and the effort is re-derived with
+		// it, because ladders are per model and the old level may not exist on the new
+		// one. The caller persists it (baseReseededFrom), so this costs one warning per
+		// thread rather than one per dispatch. An EXPLICIT off-list model is untouched
+		// by this: it still gets guard 1's rejection below, now with an actionable
+		// remediation clause.
+		if (resolution.on && baseModel !== undefined && !isListed(resolution, baseModel)) {
+			const seeded = defaultBase(resolution);
+			if (seeded !== undefined) {
+				baseReseededFrom = baseModel;
+				baseModel = seeded;
+				baseEffort = lowestMeasuredEffort(resolution, seeded);
+				warn(
+					`slate: thread ${thread.id}'s base model ${sanitizeForNotify(baseReseededFrom, 80)} is not in the router's ` +
+						`effective model list (${resolution.candidates.map((c) => c.spec).join(", ")}) — it was set before this list ` +
+						`applied, or the list changed since. Re-seeding the thread's base to ${seeded}` +
+						`${baseEffort ? ` @${baseEffort}` : ""} so actions that omit "model" keep working; pass "model" explicitly to ` +
+						"route this action elsewhere.",
+				);
+			}
+		}
 	} else if (resolution.on) {
 		// model-router D48: the cheapest PREFERRED candidate, so the base is always a
 		// listed model and a later dispatch that omits `model` can never be rejected
 		// by guard 1. An explicit model on THIS dispatch routes this action only — it
 		// is deliberately not the base.
-		baseModel = resolution.cheapest;
+		baseModel = defaultBase(resolution);
 		baseEffort = lowestMeasuredEffort(resolution, baseModel);
 	} else {
 		// Router OFF: a creation-time model is the thread's pin (pre-router
@@ -395,9 +500,11 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 
 	// GUARD 1 — list membership. Router ON only; with the router off the `model`
 	// argument behaves exactly as it did before the router existed. Validated on the
-	// RESOLVED model, but only an explicit one can trip it: the base is always a
-	// listed candidate by construction (D48).
-	if (resolution.on && model !== undefined && !resolution.candidates.some((c) => c?.spec === model)) {
+	// RESOLVED model, but only an EXPLICIT one can trip it: a new thread's base is a
+	// listed candidate by construction (D48), and an existing thread's was re-seeded
+	// above if it was not — which is what keeps a dispatch that omitted `model` from
+	// ever landing here.
+	if (resolution.on && model !== undefined && !isListed(resolution, model)) {
 		const list = resolution.candidates.map((c) => c.spec).join(", ");
 		return {
 			kind: "reject",
@@ -552,5 +659,16 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		}
 	}
 
-	return { kind: "proceed", model, effort, effortUnmeasured, baseModel, baseEffort, substitutedFrom, longContextWarned, warnings };
+	return {
+		kind: "proceed",
+		model,
+		effort,
+		effortUnmeasured,
+		baseModel,
+		baseEffort,
+		baseReseededFrom,
+		substitutedFrom,
+		longContextWarned,
+		warnings,
+	};
 }
