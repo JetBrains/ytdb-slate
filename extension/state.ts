@@ -210,10 +210,16 @@ export function describeConfusables(value: string): string | undefined {
  * never ran, and the only visible symptom was a compression bill on a model the
  * user did not choose.
  *
- * The FALLBACK IS UNCHANGED: an unusable value still yields undefined, and the
- * consumer (episodes.ts's resolveCompressorModel) handles that exactly as
- * before — newest available Sonnet, then the worker's own model. Only the
- * diagnostic is new.
+ * THE FALLBACK IS UNCHANGED BY THIS SANITIZER: an unusable value still yields
+ * undefined, and the consumer (episodes.ts's resolveCompressorModel) handles that
+ * exactly as it handles an absent one. Only the diagnostic is new.
+ *
+ * What that consumer's chain IS, since a reader here is entitled to know what an
+ * ignored value costs: the newest AVAILABLE Anthropic Sonnet, then — as a last
+ * resort — the ORCHESTRATOR's base model (base-model.ts), each rung auth-checked,
+ * and then the uncompressed fallback. It is NEVER the model the action itself was
+ * routed to: a cheaply-routed action must not get a cheaply-compressed episode
+ * (the compressor pin, D5 — see episodes.ts's module header for the reasoning).
  *
  * It lives HERE rather than in episodes.ts, which owns the feature, for two
  * reasons: the whole question it answers is the spec vocabulary defined in this

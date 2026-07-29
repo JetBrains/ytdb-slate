@@ -49,6 +49,14 @@
  *    the list and effort guards entirely and keeps only a non-substituting window
  *    warning. The router must never veto a failover.
  *
+ *  - WHAT RAN IS REPORTED, never what was asked for. The model and level the LIVE
+ *    session ended on — after pi's clamp, after a window substitution, after a
+ *    failover — go into both the episode RECORD and the episode HEADER, and the
+ *    evidence-gap marker rides along only when that exact pair is the one the
+ *    guards judged. The compressor is handed the ORCHESTRATOR's base model as its
+ *    last-resort rung and never the action's own model (the compressor pin, D5 —
+ *    see episodes.ts).
+ *
  * WHERE THE DECISION LIVES. The planning itself — the resolution rules and all
  * seven guards, with their wording — is route.ts, a PURE function: it takes the
  * frozen router resolution, the profile lookup, pi's compaction predicate and
@@ -865,6 +873,32 @@ export class ThreadManager {
 
 		const actionMessages = session ? session.messages.slice(messagesBefore) : [];
 
+		// WHAT THE ACTION ACTUALLY RAN ON — derived ONCE, and BEFORE the compressor
+		// call, because two consumers must not disagree about it: the episode HEADER
+		// (episodes.ts's `ran:` segment, the orchestrator's only window into what it
+		// paid for) and the episode RECORD (the threads listing reads it back). It is
+		// read from the LIVE SESSION, never from the request: pi CLAMPS a thinking level
+		// the model cannot do, the window guard may have SUBSTITUTED the model, and a
+		// mid-action failover switches it again — all three must be reported as they
+		// happened. The plan is only a fallback for the model, for a session that never
+		// resolved one; absence then reads as unknown, per the record's contract.
+		const ranModel = session?.model
+			? { provider: session.model.provider, id: session.model.id }
+			: splitModelSpec(plan?.model);
+		const actualModel = ranModel ? `${ranModel.provider}/${ranModel.id}` : undefined;
+		const actualEffort = this.sessionEffort(session) ?? plan?.effort;
+		// The unmeasured marker is a claim about the profile data for ONE (model, level)
+		// pair — the pair the guards judged. It is therefore only attached when BOTH
+		// survived to become what ran: a clamped level, or a failover onto a model whose
+		// evidence for that level was never assessed, leaves the marker off rather than
+		// asserting a gap nobody checked.
+		const actualEffortUnmeasured =
+			plan?.effortUnmeasured === true &&
+			actualEffort !== undefined &&
+			actualEffort === plan.effort &&
+			actualModel !== undefined &&
+			actualModel === plan.model;
+
 		const episodeId = `${thread.id}.e${++thread.episodeSeq}`;
 		const compressed = await compressEpisode({
 			ctx,
@@ -875,18 +909,22 @@ export class ThreadManager {
 			status,
 			diagnostics,
 			messages: actionMessages as unknown[],
-			workerModel: session?.model ? { provider: session.model.provider, id: session.model.id } : undefined,
+			// Header only, all three (episodes.ts never picks the compressor from them —
+			// that is the whole point of the compressor pin).
+			workerModel: ranModel,
+			workerEffort: actualEffort,
+			workerEffortUnmeasured: actualEffortUnmeasured,
 			configuredModel: this.config.episodeModel,
+			// The compressor's LAST-RESORT rung: the ORCHESTRATOR's base model, from the
+			// same tracker the router-off base resolution uses (failover fallbacks
+			// excluded, spec-validated). Without this the pin's bottom rung could never
+			// fire, and a project with no episodeModel and no usable Sonnet would drop
+			// straight to the uncompressed fallback.
+			orchestratorBaseModel: this.trackedBaseModel(),
 			modelFailover: this.config.modelFailover,
 			signal: signal?.aborted ? undefined : signal,
 		});
 
-		// What the action ACTUALLY ran on: the live session's own model and level, so
-		// a failover switch and pi's effort clamp are both reflected rather than the
-		// intent recorded as if it had held. Falls back to the plan when there is no
-		// session to ask (absence then means unknown, per the record's contract).
-		const actualModel = session?.model ? `${session.model.provider}/${session.model.id}` : plan?.model;
-		const actualEffort = this.sessionEffort(session) ?? plan?.effort;
 		const episode: EpisodeRecord = {
 			id: episodeId,
 			threadId: thread.id,
@@ -895,11 +933,7 @@ export class ThreadManager {
 			file: compressed.file,
 			...(actualModel ? { model: actualModel } : {}),
 			...(actualEffort ? { effort: actualEffort } : {}),
-			// The marker describes the level that was ASKED for: if pi clamped it to
-			// something else, the evidence gap does not describe what actually ran.
-			...(plan?.effortUnmeasured && actualEffort !== undefined && actualEffort === plan.effort
-				? { effortUnmeasured: true as const }
-				: {}),
+			...(actualEffortUnmeasured ? { effortUnmeasured: true as const } : {}),
 			createdAt: Date.now(),
 		};
 		this.store.episodes.set(episodeId, episode);
