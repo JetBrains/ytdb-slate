@@ -68,10 +68,11 @@ Malformed entries dropped individually with a warning, the rest of the
 file still applied — the same forgiveness the failover map already
 gives.
 
-## Validation questions this raises
+## Open questions
 
 These are the reason it is not a small change, and they need answers
-before implementation, not during:
+before implementation, not during. Several are validation questions
+about data with no provenance:
 
 - **A user-supplied profile carries no provenance.** Every shipped
   number traces to a source section in the research corpus. A profile
@@ -86,12 +87,12 @@ before implementation, not during:
   surfaces would care. In the resolver's **warnings**, a user debugging
   an odd route needs to know whether the profile that produced it came
   from the package or from their own file — an unmarked override is a
-  silent action-at-a-distance bug. In the
-  **doctrine section** Track 02 is to inject, the orchestrator will be
-  reasoning about the routing table as evidence; if local and shipped
-  rows are indistinguishable there, the doctrine's own evidence
-  discipline is quietly weakened, and the model cannot express
-  appropriate scepticism about a row it should be sceptical of.
+  silent action-at-a-distance bug. In the **doctrine section** Track 02
+  is to inject, the orchestrator will be reasoning about the profile
+  rows as evidence; if local and shipped rows are indistinguishable
+  there, the doctrine's own evidence discipline is quietly weakened, and
+  the model cannot express appropriate scepticism about a row it should
+  be sceptical of.
 - **What is the override blast radius?** Overriding a shipped profile
   can move a tier boundary and therefore change routes for models the
   user never mentioned. Is that acceptable silently, reportable, or
@@ -101,18 +102,18 @@ before implementation, not during:
   not have). Rejecting nonsense means the router encodes opinions
   about plausible values, which is its own kind of guessing.
 
-## Why it was deferred, not dropped
+## Why it was deferred
 
-Deferred because the initial change has to establish that action-level
+Deferred, because the initial change has to establish that action-level
 routing works at all, and it cannot do that and settle the trust model
 for untraced profile data in the same review. The questions above are
 about **how much authority unverified data gets** — the same question
-the research provenance answers for shipped data, answered again for a
-source with no audit trail. Landing a config key
-first and deciding its trust semantics later would ship exactly the
-ungrounded-numbers failure the tracing rule was written to prevent.
+the research provenance answers for shipped data, asked again of a
+source with no audit trail. Landing a config key first and deciding its
+trust semantics later would ship exactly the ungrounded-numbers failure
+the tracing rule was written to prevent.
 
-Not dropped because the release-cadence coupling is real and
-permanent: it does not shrink as the shipped table grows, since the
-gap is always at the newest model. A router that cannot be taught
-about a model the user already has is a router with an expiry date.
+Not dropped, because the release-cadence coupling is real and
+permanent: it does not shrink as the shipped table grows, since the gap
+is always at the newest model. A router that cannot be taught about a
+model the user already has is a router with an expiry date.

@@ -21,12 +21,29 @@ delivers it.
 
 ## Vocabulary
 
-pi calls the reasoning knob a **thinking level** (the `ThinkingLevel`
-type, the `defaultThinkingLevel` setting). The research corpus and
-these files call the same knob an **effort level**, and pi's ladder —
+pi calls the knob a **thinking level** (the `ThinkingLevel` type, the
+`defaultThinkingLevel` setting). The research corpus and these files
+call the same knob an **effort level**, and pi's ladder —
 `off | minimal | low | medium | high | xhigh | max`, digest §V — is
 that one scale under both names. This directory says *effort*
 throughout; read it as pi's thinking level with no shift in meaning.
+Nothing here is called a "reasoning level": that is a third name for the
+same thing and this repository does not use it.
+
+Two more terms that are **not** synonyms, though both are tables of
+models:
+
+- the **profile table** is the shipped data — one row per model, with
+  prices, tier, ladder, hazards and `asOf`. It is what this corpus is
+  provenance for.
+- the **routing table** is the digest's Artifact B — the policy: which
+  task classes go where, what is never a default pick, and the numbered
+  policy lines. It is advice derived from the profile data, not the
+  data itself.
+
+When this README says a number is traceable it means the profile table;
+when it says the digest's advice supersedes a report's advice it means
+the routing table.
 
 Vendor spellings are not part of that ladder: the lowest OpenAI knob
 value is pi's `off`, the abbreviation `med` never appears, and "ultra"
@@ -158,23 +175,44 @@ reader's warning about how stale that snapshot may be.
 
 Two directions, both binding. Any change to a shipped profile number
 must be traceable to a change in this directory; and any change here
-must move `asOf` everywhere it is stated. Those places, as of this
-commit:
+must move the date everywhere it is stated.
 
-- the module-wide `PROFILES_AS_OF` constant in the profile module;
-- the per-profile `asOf` field — **nine** profiles today, so nine
-  edits, and they must not drift apart from the constant;
-- the prose in that module's header comment, which states the date in
-  words as well;
-- the digest's own `observedInForceOn` rows (one per Artifact A model —
-  six, since the three cheap-tier models of §E carry no such row) plus
-  its revision date;
-- the date in this README;
-- any user-facing document that quotes the date (Track 03 owns those;
-  none exists at this commit).
+**Do not work from a list of those places — find them.** An earlier
+revision of this README enumerated them and was wrong within the same
+track: a sibling commit added six more date literals to the profile
+module the same day. The count moves with every commit that adds a
+profile, a comment, or an unknown-field note, so the instruction here is
+a command rather than an inventory:
 
-Grep the repository for the literal date before declaring a refresh
-done — that is the only reliable enumeration, since this list ages.
+```sh
+git grep -n 2026-07-29        # substitute the CURRENT asOf date
+```
+
+Every hit is one of four kinds, and only the first three are rewritten:
+
+- **The profile module.** The `PROFILES_AS_OF` constant, the per-profile
+  `asOf` field, and every piece of prose that states the date in words —
+  header text, rule comments, and the `unknownRoutingCriticalFields`
+  strings that record which figure is known only as of that observation
+  date. All of it moves together. The check suite's `profiles-meta`
+  fails if the constant and the per-profile fields disagree; **nothing
+  checks the prose**, which is why it is named here.
+- **This directory.** The digest's revision line and its per-model
+  `observedInForceOn` rows, `gaps.md`'s pass date and its "read <date>"
+  source notes, `anthropic.md`'s "As of" line, and the date in this
+  README. A refresh rewrites the first three files wholesale, so they
+  normally carry the new date by replacement rather than by editing —
+  but this README is hand-edited and is the one most often forgotten.
+- **Anything user-facing that quotes the date.** Track 03 owns those.
+- **Fixture dates in the check suite — leave these alone.** The harness
+  uses the same string as an arbitrary "today" inside fabricated price
+  schedules. They are not provenance, and rewriting them can move a
+  fixture across a step-change boundary and break a check that was
+  testing something else. Judge by path: hits under `verification/` are
+  fixtures.
+
+The grep is the enumeration. Any list of line numbers in prose —
+including this one, if it grows any — is stale by the next commit.
 
 ## Not published
 
@@ -212,12 +250,13 @@ enough to be untrustworthy — refresh it as a whole, in this order.
    step is the one that cannot be skipped.
 4. **Re-transcribe the profile table and move `asOf`.** Update the
    shipped table from the new digest — field by field, re-tracing each
-   one; a transcription is not a merge — and set the date at every
-   site listed under `asOf` above.
+   one; a transcription is not a merge — then run the grep under `asOf`
+   above and rewrite every provenance hit it finds.
 5. **Re-run the automated checks, knowing what they can and cannot
    tell you.** `bash verification/run-resolver-checks.sh --repo .`
-   (needs `pi` and `node` on `PATH`; one line per check, exit 0 = all
-   passed).
+   (needs `pi` and `node` on `PATH`; one line per check, a `roster`
+   line, exit 0 = all passed; add `--strict` to make a `NOT RUN` fatal).
+   Read the next section before believing a green run.
 6. **Re-review the routing consequences by hand.** A refreshed number
    can move a tier, a `nonPreferred` marker, or the cheapest
    candidate, and no check in the repo has an opinion about whether
@@ -226,28 +265,54 @@ enough to be untrustworthy — refresh it as a whole, in this order.
 
 ### What the checks prove about a refresh — and what they do not
 
-Do not read a green run as validation of refreshed research. The
-harness has two kinds of check and neither one can see a wrong number:
+Do not read a green run as validation of refreshed research. The suite
+has two kinds of check, and the boundary between them is exactly the
+boundary of what a refresh can break unnoticed.
 
 - **Resolver checks** exercise the router's logic — candidate
-  filtering, ordering, the cheapest pick, the window cross-check, the
+  filtering, ordering, the base-model pick, the window cross-check, the
   unknown-field and failover-coverage warnings, the effort predicate,
-  memoization. Every one of them **injects its own registry and its own
-  profile table**, so they never read the shipped data at all; they
-  depend on the profile module only insofar as it must load. A refresh
-  that replaced every price with nonsense would leave them all green.
-- **Structural checks over the shipped table**, being added by the
-  harness track alongside this change, assert refresh-proof shape
-  invariants over the real data: ladder coverage (every measured or
-  gap effort level lies on the model's own declared ladder), price-row
-  ordering, alias uniqueness against every id and alias in the table,
-  and `asOf` consistency with `PROFILES_AS_OF`. Refresh-proof means
-  they are invariants no correct refresh can violate, so they need no
-  editing when the numbers change. These do catch the mechanical
-  damage a hurried refresh causes: a level misspelled, a price row
-  inserted out of order, a duplicated alias, a date moved in eight
-  places out of nine. Consult the harness's own documentation for the
-  authoritative list — that track owns it, not this directory.
+  memoization, hostile-input handling. These inject **their own**
+  registry and **their own** profile table, so a change to the shipped
+  data cannot make them pass or fail. Two deliberate exceptions read the
+  real table: `router-shipped-default`, which proves the shipped table
+  really is the resolver's default (it takes an id *from* the table, so
+  a refresh cannot stale it), and the `profiles-*` block below, whose
+  subject **is** the table.
+- **Structural checks over the shipped table** (`profiles-*`) assert
+  shape and internal consistency, and nothing else. They are the
+  refresh-relevant ones, so what they cover is worth knowing precisely:
+  every id is a canonical, unique, lower-case `provider/id`; every id
+  and alias resolves to its own profile, with no alias shared, shadowing
+  an id, or empty; every ladder is a duplicate-free subset of pi's
+  effort vocabulary with the measured and gap lists disjoint and exactly
+  covering it (the canary for a **mistyped ladder key**, which otherwise
+  silently widens a model's ladder); every price schedule is ascending,
+  non-overlapping and ISO-dated with positive prices and output ≥ input,
+  tier an integer 1–4, and no tier price-inverting against the next one
+  up; and `PROFILES_AS_OF` is an ISO date that every profile carries,
+  over a deep-frozen table.
+
+What that leaves uncovered is the whole point. **A structurally perfect
+table can be entirely wrong.** Each of the following was applied to a
+throwaway copy of the table and the whole suite still reported a clean
+run — these are measured, not assumed:
+
+- **every price scaled by the same factor** (all of them, ten-fold) —
+  the price-inversion invariant is relative, so a uniformly wrong table
+  is invisible to it;
+- **a single price changed to a well-formed wrong number**;
+- **a model's `tier` moved** to another plausible class;
+- **an invented hazard clause** added, and **a fabricated `evidence`
+  one-liner** substituted — free-text fields are checked for shape,
+  never for truth;
+- **the date moved consistently everywhere** to a day on which nobody
+  observed anything — `profiles-meta` checks agreement, not truth.
+
+Mutate a copy outside the repository, never the repository itself, and
+export a clean one (`git archive HEAD`) rather than copying the working
+tree — a copy taken while another change is in flight produces failures
+that have nothing to do with the mutation.
 
 So: structure yes, research numbers no. **No check in this repository
 can tell you that a figure in the shipped table is what the source

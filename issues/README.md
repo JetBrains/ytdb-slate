@@ -1,13 +1,15 @@
 # Tracked follow-up issues
 
 This directory holds follow-up issues for work that was deliberately
-deferred out of a change rather than dropped: each file states the
-problem, the shape a solution would take, the questions still open, and
-why it was left out of the change that surfaced it — so a deferral
-survives the session that made it instead of decaying into folklore.
-Files are numbered in the order they were opened and are not published
-with the package (`issues` is outside the `files` whitelist in
-`package.json`, alongside `research` and `verification`).
+deferred out of a change rather than dropped — so a deferral survives
+the session that made it instead of decaying into folklore. Every file
+carries the same four parts, under these headings: **The problem**,
+**Shape of the solution** (or what would have to change), **Open
+questions** — what a future implementer must decide before writing
+anything — and **Why it was deferred**. Files are numbered in the order
+they were opened and are not published with the package (`issues` is
+outside the `files` whitelist in `package.json`, alongside `research`
+and `verification`).
 
 **Decision ids are per-change.** An issue cites the decision that
 deferred it as, for example, "model-router decision D7". The change

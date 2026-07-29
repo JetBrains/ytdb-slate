@@ -86,9 +86,9 @@ directly: a mid-thread model switch cold-starts the prompt cache, and
 long threads run overwhelmingly on cache reads, so routing one small
 action to a cheaper model can cost more than staying warm on the
 expensive one. That is a hazard the routing research names explicitly,
-as a policy line in the routing table itself. Per-action cost is the
-only way to catch it happening in practice rather than reasoning about
-whether it might.
+as a numbered policy line in the digest's own routing table. Per-action
+cost is the only way to catch it happening in practice rather than
+reasoning about whether it might.
 
 The same data is what would make the shipped profile table falsifiable
 in use: prices in the table are traced observations, but whether a tier
