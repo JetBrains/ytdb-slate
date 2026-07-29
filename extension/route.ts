@@ -20,13 +20,34 @@
  * mutation, and an APPLY-TIME rejection aborts the dispatch without recording an
  * episode; in FAILOVER mode a rejection means "do not switch", not an error.
  *
- * THE ONE RULE THE LIST GUARD ENFORCES, stated once: with the router ON a
- * thread's base model is ALWAYS a listed candidate, so the only way an action can
- * run on an unlisted model is to name one explicitly — and that is rejected.
- * A base that is ABSENT or has fallen OFF the list is RE-SEEDED to what a new
- * thread would get (with a warning, persisted by the caller), never refused: the
- * fall-through path must always have a valid destination, or configuring a list
- * would strand every thread that predates it.
+ * THE ONE RULE, in BOTH dimensions, stated once. With the router ON:
+ *
+ *   MODEL — a thread's base model is ALWAYS a listed candidate, so the only way an
+ *   action can run on an unlisted model is to name one explicitly, and that is
+ *   rejected. A base that is ABSENT or has fallen OFF the list is RE-SEEDED to what
+ *   a new thread would get (with a warning, persisted by the caller), never
+ *   refused: the fall-through path must always have a valid destination, or
+ *   configuring a list would strand every thread that predates it.
+ *
+ *   EFFORT — the level an action runs at is ALWAYS one that belongs to the model it
+ *   actually runs on: either the caller named it, in which case it is judged against
+ *   THAT model's own ladder, or it is derived from that model (its lowest MEASURED
+ *   level). A level derived for one model is never carried onto another. `effort`
+ *   therefore reports one and only one thing, and `effortJudgedFor` names the model
+ *   the judgement was about — they always describe the same pair.
+ *
+ * Both halves used to hold only for the model. The effort half is why an explicit
+ * `model` no longer inherits the thread's base level: that level was derived for a
+ * DIFFERENT model, and applying it produced evidence-gap warnings — or, with
+ * allowUnmeasuredEffort:false, outright rejections — for a level nobody requested.
+ *
+ * WITH THE ROUTER OFF THIS MODULE IS INVISIBLE. No list, no window guard, no
+ * billing notice, no seeded or persisted base, no tracker: the model a dispatch
+ * runs on is the `model` ARGUMENT (honoured per action, which is the one addition)
+ * or else the thread's PRE-ROUTER PIN — and the pin is only ever the model a NEW
+ * worker session opens with, never a reason to switch a live one (`openOnly`).
+ * The argument itself is passed through byte-for-byte, so a malformed spec still
+ * produces pi's own error rather than a router opinion.
  *
  * A FAILURE TO READ EVIDENCE IS NOT EVIDENCE OF A PROBLEM. Every injected data
  * source may be missing, throwing or malformed — a profile lookup, a ladder
@@ -50,6 +71,15 @@
  *      A THREAD'S BASE is exempt by REPAIR, not by exception — see THE ONE RULE
  *      above: absent or off-list, it is re-seeded, so only an EXPLICIT off-list
  *      model is ever refused.
+ *   5. CONTEXT WINDOW: never a hard block, and it runs BEFORE the effort guards so
+ *      that every effort judgement is about the model that will actually run. The
+ *      REGISTRY window (which is what a RouterCandidate carries; a profile's own
+ *      figure is documentation only) reduced by pi's compaction reserve, judged by
+ *      pi's OWN predicate. A model that cannot hold the thread's context is
+ *      replaced by the widest candidate — only when that one is STRICTLY wider,
+ *      since an equally narrow substitute buys nothing and only moves the action —
+ *      with a warning; if nothing wider exists, the action still runs and says so.
+ *      Skipped entirely when the context size is not knowable yet.
  *   4. API-REJECTED LEVEL, checked before the ladder because such a level IS on
  *      the model's pi ladder: the provider refuses it outright, so dispatching it
  *      is a guaranteed failure rather than an evidence gap, and
@@ -62,13 +92,8 @@
  *   3. EVIDENCE GAP: advisory. A ladder-valid level with no traced capability
  *      measurement is dispatchable with a warning, and refused only when the
  *      project set allowUnmeasuredEffort to false. It is never CHOSEN by default —
- *      a seeded base effort is always a measured level.
- *   5. CONTEXT WINDOW: never a hard block. The REGISTRY window (which is what a
- *      RouterCandidate carries; a profile's own figure is documentation only)
- *      reduced by pi's compaction reserve, judged by pi's OWN predicate. A model
- *      that cannot hold the thread's context is replaced by the widest candidate
- *      with a warning; if not even that one fits, the action still runs and says
- *      so. Skipped entirely when the context size is not knowable yet.
+ *      a derived effort is always a measured level, so only an EXPLICIT `effort`
+ *      can reach this guard.
  *   6. LONG-CONTEXT BILLING: a cost cliff, not a capacity limit. Warned once per
  *      thread and model — the caller owns that memory (warnedLongContext in,
  *      longContextWarned out), so this function keeps no state.
@@ -94,7 +119,6 @@ import {
 	type RouterProfileSource,
 } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { isModelSpec } from "./state.ts";
 
 /**
  * pi's thinking-level vocabulary, ASCENDING — the same union as
@@ -131,9 +155,12 @@ export interface RoutePlanInput {
 	resolution: ModelRouterResolution;
 	/** router.allowUnmeasuredEffort. Default TRUE: only an explicit false refuses an evidence gap. */
 	allowUnmeasuredEffort?: boolean;
-	/** The orchestrator's base model, EXCLUDING failover fallbacks (base-model.ts). Router-OFF base. */
-	orchestratorBaseModel?: string;
-	/** "provider/id" the worker session opens on when nothing is resolved (the host's current model). */
+	/**
+	 * "provider/id" the worker session opens on when nothing is resolved (the host's
+	 * current model). Read ONLY to name the model the effort guards judge in that
+	 * case; it never becomes a thread's base, because with the router OFF this module
+	 * seeds nothing and with the router ON the base is always a candidate.
+	 */
 	hostModel?: string;
 	/** pi's accounting of the thread's context size; undefined = not knowable ⇒ the window guard is skipped. */
 	contextTokens?: number;
@@ -166,10 +193,29 @@ export interface RoutePlanProceed {
 	kind: "proceed";
 	/** Effective "provider/id"; undefined = leave the session on its own model (nothing resolvable). */
 	model?: string;
-	/** Effective level; undefined = leave pi's own thinking level alone. */
+	/**
+	 * Effective level; undefined = the caller must restore the session's OWN baseline
+	 * (the level it opened on), never leave a previous action's level in place.
+	 */
 	effort?: ThinkingLevel;
 	/** The effective level is ladder-valid but has NO capability measurement. */
 	effortUnmeasured: boolean;
+	/**
+	 * The spec the EFFORT guards judged `effort` against — the effective model when
+	 * there is one, else `hostModel` (the model the worker session will open on).
+	 * Always the model the level belongs to, so a consumer attributing the level, or
+	 * the unmeasured marker, has the pair the judgement was actually about; with the
+	 * router OFF `model` is deliberately absent and this is the only name available.
+	 * Absent only when no level was resolved at all.
+	 */
+	effortJudgedFor?: string;
+	/**
+	 * true = `model` is the model a NEW worker session OPENS on and NOTHING MORE: a
+	 * live session must not be switched to it. That is the pre-router meaning of a
+	 * thread's `model` pin (router OFF), where switching a reused session would undo a
+	 * failover and could strand a thread whose pinned model lost its credentials.
+	 */
+	openOnly?: true;
 	/**
 	 * The base model to PERSIST: for a new thread, its base; for an existing one
 	 * whose stored base was not routable, the RE-SEEDED base (see
@@ -225,11 +271,39 @@ function finite(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-/** A model argument as a usable spec: trimmed, and empty/non-string reads as absent. */
+/**
+ * An INTERNAL spec (the host model, a failover target): trimmed, and empty or
+ * non-string reads as absent. These arrive from pi's registry, already canonical.
+ */
 function specArg(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;
 	const trimmed = value.trim();
 	return trimmed === "" ? undefined : trimmed;
+}
+
+/**
+ * The dispatch's `model` ARGUMENT, byte-for-byte.
+ *
+ * Deliberately NOT trimmed (CQ13): with the router off this value reaches pi's own
+ * resolveModel, which rejects a padded spec with a precise "it has leading or
+ * trailing whitespace" error — quietly repairing it here would both change that
+ * pre-existing behaviour and make the router accept a spec pi's registry does not
+ * have. Only a non-string or the empty string reads as ABSENT, which is exactly how
+ * the pre-router code read it (`opts.model ? … : ctx.model`).
+ */
+function argModel(value: unknown): string | undefined {
+	return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+/**
+ * The candidate specs, defensively (CQ15): a malformed entry carries no `spec`, and
+ * an unguarded `.map((c) => c.spec)` on it throws a TypeError from inside a guard —
+ * turning a data defect into a crashed dispatch, the exact inversion this module
+ * refuses everywhere else. Used for every message that names the list.
+ */
+function candidateSpecs(resolution: ModelRouterResolution): string[] {
+	const list = Array.isArray(resolution.candidates) ? resolution.candidates : [];
+	return list.map((c) => c?.spec).filter((spec): spec is string => typeof spec === "string" && spec !== "");
 }
 
 /**
@@ -257,17 +331,19 @@ function shown(value: unknown): string {
 
 /** Is this spec one of the effective candidates? */
 function isListed(resolution: ModelRouterResolution, spec: string): boolean {
-	return resolution.candidates.some((c) => c?.spec === spec);
+	return candidateSpecs(resolution).includes(spec);
 }
 
 /**
  * The base model a thread gets when it needs one: the resolver's cheapest
- * PREFERRED candidate (model-router D48). `candidates[0]` is a defensive floor
- * for a fabricated resolution that carries candidates but no `cheapest` — the
- * list is non-empty by usableResolution, so a listed base always exists.
+ * PREFERRED candidate (model-router D48). The first usable candidate spec is a
+ * defensive floor for a fabricated resolution that carries candidates but no
+ * `cheapest`; undefined only when NO entry carries a spec at all, which the caller
+ * treats as "there is no list to enforce".
  */
 function defaultBase(resolution: ModelRouterResolution): string | undefined {
-	return resolution.cheapest ?? resolution.candidates[0]?.spec;
+	const cheapest = specArg(resolution.cheapest);
+	return cheapest !== undefined && isListed(resolution, cheapest) ? cheapest : candidateSpecs(resolution)[0];
 }
 
 /** The routable candidate for a spec, undefined when the router is off or the spec is unlisted. */
@@ -412,7 +488,7 @@ function planFailoverSwitch(input: RoutePlanInput, resolution: ModelRouterResolu
 export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	const resolution = usableResolution(input.resolution);
 	const thread = input.thread;
-	const explicit = specArg(input.requestedModel);
+	const explicit = argModel(input.requestedModel);
 	const warnings: string[] = [];
 	const warn = (message: string) => {
 		warnings.push(message);
@@ -459,7 +535,29 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	let baseEffort: ThinkingLevel | undefined;
 	let baseReseeded = false;
 	let baseReseededFrom: string | undefined;
-	if (thread) {
+	/** Router OFF only: the thread's pre-router `model` pin, which OPENS a session and never switches one. */
+	let pin: string | undefined;
+	if (!resolution.on) {
+		// ROUTER OFF — this module is INVISIBLE (module header). The pre-router code
+		// passed ONE thing to the worker opener — the thread's `model` pin, undefined for
+		// most threads — and never touched a live session's model again. So that is all
+		// that happens here, for existing and new threads alike:
+		//
+		//  · nothing is SEEDED and nothing is PERSISTED: `baseModel`/`baseEffort` stay
+		//    undefined, so the caller writes no base onto the record. An earlier version
+		//    seeded the ORCHESTRATOR's tracked model here and persisted it, which three
+		//    ways made things worse than before the feature existed: a reused session was
+		//    switched back off its failover model, a thread whose tracked model lost its
+		//    credentials could never dispatch again (the switch throws, and the abort is
+		//    permanent), and a restarted thread stopped following the host's model.
+		//  · an existing thread's pin is `openOnly`: the model a NEW session opens with,
+		//    never a reason to move a live one. (A new thread's pin IS this dispatch's
+		//    explicit argument, so it needs no separate treatment.)
+		//
+		// An EXPLICIT `model` argument is the one addition, and it is per-action: it does
+		// switch the live session, because the caller asked for this action to run there.
+		pin = thread?.model;
+	} else if (thread) {
 		// ?? thread.model: a thread created before per-action routing existed (the
 		// snapshot is unversioned, so absence means "unknown", and the pre-router pin
 		// is the best available answer).
@@ -494,7 +592,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 				baseReseededFrom = baseModel; // undefined when the thread had no base to replace
 				baseModel = seeded;
 				baseEffort = lowestMeasuredEffort(resolution, seeded);
-				const list = resolution.candidates.map((c) => c.spec).join(", ");
+				const list = candidateSpecs(resolution).join(", ");
 				const level = baseEffort ? ` @${baseEffort}` : "";
 				warn(
 					baseReseededFrom === undefined
@@ -513,36 +611,27 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 				// that could not be read is the read-failure mistake again, and stranding the
 				// thread on an unroutable base would be the worse half of it.
 				baseModel = undefined;
+				// ...and with no base there is no base LEVEL either: a level stored for a model
+				// that is no longer the base must not be applied to whatever runs instead
+				// (THE ONE RULE, effort half).
+				baseEffort = undefined;
 			}
 		}
-	} else if (resolution.on) {
+	} else {
 		// model-router D48: the cheapest PREFERRED candidate, so the base is always a
 		// listed model and a later dispatch that omits `model` can never be rejected
 		// by guard 1. An explicit model on THIS dispatch routes this action only — it
 		// is deliberately not the base.
 		baseModel = defaultBase(resolution);
 		baseEffort = lowestMeasuredEffort(resolution, baseModel);
-	} else {
-		// Router OFF: a creation-time model is the thread's pin (pre-router
-		// behaviour), otherwise the orchestrator's own base model — which EXCLUDES
-		// failover fallbacks, so a worker does not inherit a temporary fallback as its
-		// permanent default. Failing both, nothing: the worker then opens on the host
-		// session's current model, exactly as before.
-		// The tracked model is re-validated as a canonical spec: it crosses a module
-		// boundary, and a base model that resolves nowhere would abort every later
-		// dispatch that omits `model`. (threads.ts validates it too, at the boundary
-		// itself; this keeps the guarantee for any other caller.) A REQUESTED model is
-		// deliberately NOT validated here — with the router off an unusable one must
-		// still reach pi's own "invalid model spec" error, exactly as before.
-		const tracked = specArg(input.orchestratorBaseModel);
-		baseModel = explicit ?? (isModelSpec(tracked) ? tracked : undefined);
-		// baseEffort stays UNKNOWN: seeding it with the router off would change what a
-		// worker runs at, and it must never come from the user's global default.
 	}
 
 	// ---- the RESOLVED pair for THIS action
-	let model = explicit ?? baseModel;
-	let effort = requestedEffort ?? baseEffort;
+	// With the router OFF and no argument, the resolved model is the thread's pin —
+	// open-only, per the branch above. `pin` is empty on every router-ON path, where
+	// the base IS the fall-through and a live session is switched to it.
+	let model = explicit ?? baseModel ?? pin;
+	const openOnly = model !== undefined && model === pin && explicit === undefined;
 
 	// GUARD 1 — list membership. Router ON only; with the router off the `model`
 	// argument behaves exactly as it did before the router existed. Validated on the
@@ -551,7 +640,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	// above if it was not — which is what keeps a dispatch that omitted `model` from
 	// ever landing here.
 	if (resolution.on && model !== undefined && !isListed(resolution, model)) {
-		const list = resolution.candidates.map((c) => c.spec).join(", ");
+		const list = candidateSpecs(resolution).join(", ");
 		return {
 			kind: "reject",
 			reason:
@@ -561,14 +650,104 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		};
 	}
 
+	// GUARD 5 — CONTEXT WINDOW, and it runs BEFORE the effort guards on purpose: the
+	// model this action runs on must be settled before any level is judged against
+	// it, or the judgement is about a model that will be substituted away. Never a
+	// hard block, and router ON only: with the router off there is no candidate list
+	// to fall back to, and the pre-router behaviour is no check at all.
+	let substitutedFrom: string | undefined;
+	const tokens = finite(input.contextTokens);
+	if (resolution.on && model !== undefined && tokens !== undefined) {
+		const windowOf = (candidate: RouterCandidate | undefined) => finite(candidate?.contextWindow);
+		const holds = (candidate: RouterCandidate | undefined): boolean => holdsWindow(input, tokens, windowOf(candidate));
+		const current = candidateFor(resolution, model);
+		if (!holds(current)) {
+			const reserve = finite(input.reserveTokens) ?? 0;
+			const prefix =
+				`slate: ${whose(thread)} context (~${count(tokens)} tokens) does not fit ` +
+				`${sanitizeForNotify(model, 80)}'s context window minus pi's ${count(reserve)}-token ` +
+				"compaction reserve";
+			const widest = resolution.candidates.reduce<RouterCandidate | undefined>(
+				(best, c) =>
+					typeof c?.spec !== "string" || windowOf(c) === undefined
+						? best
+						: best === undefined || (c.contextWindow ?? 0) > (best.contextWindow ?? 0)
+							? c
+							: best,
+				undefined,
+			);
+			// STRICTLY wider, or not at all (BG19): moving the action to a candidate no
+			// wider than the one that already does not fit buys nothing — it would compact
+			// just the same, on a different model, for a different price. An UNKNOWN current
+			// window cannot be compared, so it is not a basis for moving either.
+			const currentWindow = windowOf(current);
+			const widestWindow = windowOf(widest);
+			const strictlyWider =
+				widest !== undefined &&
+				widest.spec !== model &&
+				widestWindow !== undefined &&
+				(currentWindow === undefined || widestWindow > currentWindow);
+			if (strictlyWider && widest) {
+				warn(
+					holds(widest)
+						? `${prefix} — routing this action to the widest listed model instead: ${widest.spec} ` +
+								`(${count(widestWindow ?? 0)} tokens).`
+						: `${prefix}, and NO listed model can hold it — routing to the widest one anyway ` +
+								`(${widest.spec}, ${count(widestWindow ?? 0)} tokens); pi will compact this thread.`,
+				);
+				substitutedFrom = model;
+				model = widest.spec;
+			} else {
+				warn(`${prefix}, and no listed model is wider — dispatching anyway; pi will compact this thread.`);
+			}
+		}
+	}
+
+	// ---- the EFFORT, for the model that will ACTUALLY run (THE ONE RULE, effort half)
+	//
+	// The model is final now (guard 1 accepted it, guard 5 may have moved it), so the
+	// level can be settled against THAT model and nothing else:
+	//
+	//  · an EXPLICIT `effort` is judged against it, hard — the caller named a level and
+	//    is entitled to be told it does not exist there rather than silently clamped;
+	//  · a level INHERITED from the thread's base applies only while the base model is
+	//    the model that runs. The moment they differ — an explicit `model`, or a window
+	//    substitution — the inherited level is DROPPED and re-derived for the model that
+	//    runs (its lowest MEASURED level, or nothing when it has none). Carrying it over
+	//    was BG14: an action explicitly routed to another model inherited a budget
+	//    derived for the base, and was warned about — or, with allowUnmeasuredEffort
+	//    false, REJECTED — for a level nobody had asked for.
+	//
+	// A derived level is measured by construction, so it can only pass the guards; only
+	// an explicit one can be rejected by them.
+	const judgedModel = model ?? specArg(input.hostModel);
+	let effort: ThinkingLevel | undefined;
+	let effortExplicit = false;
+	if (requestedEffort !== undefined) {
+		effort = requestedEffort;
+		effortExplicit = true;
+	} else if (baseEffort !== undefined && judgedModel !== undefined && judgedModel === baseModel) {
+		// The stored level, and ONLY while it still describes the model that runs.
+		effort = baseEffort;
+	} else if (resolution.on && model !== undefined) {
+		// Either the model differs from the one the stored level was derived for, or there
+		// is no stored level: derive this model's own lowest measured level. Deriving in
+		// the second case too is what keeps the router's dispatches off the user's GLOBAL
+		// thinking-level default — the same reason a new thread's base effort is seeded
+		// rather than inherited (D48). undefined when the model has no measured level at
+		// all, which the caller answers with the session's own opening level.
+		effort = lowestMeasuredEffort(resolution, model);
+	}
+
 	let effortUnmeasured = false;
 	let rejection: string | undefined;
 
 	/**
-	 * GUARDS 4, 2 and 3 on one (model, effort) pair. `soft` is used after a window
-	 * substitution: the context guard must never hard-block a dispatch, so a level
-	 * that is invalid on the SUBSTITUTED model is dropped with a warning (pi's own
-	 * default then applies) instead of rejecting the action.
+	 * GUARDS 4, 2 and 3 on the settled (model, effort) pair. `soft` — used when the
+	 * pair only became invalid because guard 5 MOVED the model — drops the level with a
+	 * warning instead of rejecting, because a context size must never hard-block a
+	 * dispatch. It is reachable only for an EXPLICIT level: an inherited one is
+	 * re-derived for the substituted model above, and a derived one always passes.
 	 */
 	const guardEffort = (spec: string | undefined, soft: boolean): void => {
 		if (effort === undefined || spec === undefined || rejection !== undefined) return;
@@ -614,7 +793,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		// GUARD 3 — evidence gap: ADVISORY by default (an unmeasured level is
 		// dispatchable, it is just not a traced capability), and refused only when the
 		// project set router.allowUnmeasuredEffort to false. Never chosen by default: a
-		// seeded base effort is always a measured level (lowestMeasuredEffort).
+		// derived effort is always a measured level (lowestMeasuredEffort).
 		if (check.verdict === "evidence-gap") {
 			if (input.allowUnmeasuredEffort === false) {
 				reject(
@@ -642,53 +821,10 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		effortUnmeasured = false;
 	};
 
-	// The model the effort guards answer for: the resolved model when there is one,
-	// else the model the worker session will actually open on (the host's current
-	// model). An omitted `model` must not let an effort level escape validation.
-	guardEffort(model ?? specArg(input.hostModel), false);
+	// SOFT only when guard 5 moved the model AND the level came from the caller: that
+	// is the one combination where a rejection would be caused by the context size.
+	guardEffort(judgedModel, effortExplicit && substitutedFrom !== undefined);
 	if (rejection !== undefined) return { kind: "reject", reason: rejection, warnings };
-
-	// GUARD 5 — CONTEXT WINDOW. Never a hard block, and router ON only: with the
-	// router off there is no candidate list to fall back to, and the pre-router
-	// behaviour is no check at all.
-	let substitutedFrom: string | undefined;
-	const tokens = finite(input.contextTokens);
-	if (resolution.on && model !== undefined && tokens !== undefined) {
-		const holds = (candidate: RouterCandidate | undefined): boolean =>
-			holdsWindow(input, tokens, finite(candidate?.contextWindow));
-		if (!holds(candidateFor(resolution, model))) {
-			const reserve = finite(input.reserveTokens) ?? 0;
-			const prefix =
-				`slate: ${whose(thread)} context (~${count(tokens)} tokens) does not fit ` +
-				`${sanitizeForNotify(model, 80)}'s context window minus pi's ${count(reserve)}-token ` +
-				"compaction reserve";
-			const widest = resolution.candidates.reduce<RouterCandidate | undefined>(
-				(best, c) =>
-					finite(c?.contextWindow) === undefined
-						? best
-						: best === undefined || (c.contextWindow ?? 0) > (best.contextWindow ?? 0)
-							? c
-							: best,
-				undefined,
-			);
-			if (widest && widest.spec !== model) {
-				warn(
-					holds(widest)
-						? `${prefix} — routing this action to the widest listed model instead: ${widest.spec} ` +
-								`(${count(widest.contextWindow ?? 0)} tokens).`
-						: `${prefix}, and NO listed model can hold it — routing to the widest one anyway ` +
-								`(${widest.spec}, ${count(widest.contextWindow ?? 0)} tokens); pi will compact this thread.`,
-				);
-				substitutedFrom = model;
-				model = widest.spec;
-				// Ladders are PER MODEL, so the substituted model gets its own effort
-				// check — in soft mode: a context size must not turn into a rejection.
-				guardEffort(model, true);
-			} else {
-				warn(`${prefix}, and no listed model is wider — dispatching anyway; pi will compact this thread.`);
-			}
-		}
-	}
 
 	// GUARD 6 — LONG-CONTEXT BILLING. A cost cliff, never a capacity limit
 	// (model-profiles §W): above the threshold the price multipliers apply. Emitted
@@ -723,6 +859,8 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		model,
 		effort,
 		effortUnmeasured,
+		...(effort !== undefined && judgedModel !== undefined ? { effortJudgedFor: judgedModel } : {}),
+		...(openOnly ? { openOnly: true as const } : {}),
 		baseModel,
 		baseEffort,
 		...(baseReseeded ? { baseReseeded: true as const } : {}),

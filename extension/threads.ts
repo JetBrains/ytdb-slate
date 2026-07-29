@@ -16,9 +16,12 @@
  * on every later dispatch. The rules the dispatch path implements:
  *
  *  - RESOLUTION: the effective model is the explicit argument, else the thread's
- *    base model; the effective effort is the explicit argument, else the thread's
- *    base effort. The GUARDS ALWAYS VALIDATE THE RESOLVED PAIR, never only the
- *    explicit arguments — an omitted argument must not escape validation.
+ *    base model. The effective effort is the explicit argument, else the thread's
+ *    base effort WHEN THE BASE MODEL IS THE ONE THAT RUNS, else a level derived
+ *    for the model that does — a level never travels between models (route.ts's
+ *    THE ONE RULE, effort half). The GUARDS ALWAYS VALIDATE THE RESOLVED PAIR,
+ *    never only the explicit arguments — an omitted argument must not escape
+ *    validation.
  *
  *  - A THREAD'S BASE is not an action's route. With the router ON the base model
  *    is the resolver's cheapest preferred candidate, which is always a LISTED
@@ -33,15 +36,24 @@
  *    once, in route.ts's header: with the router ON a thread's base is ALWAYS a
  *    listed candidate.
  *
- *  - ROUTER OFF = PRE-ROUTER BEHAVIOUR, exactly. No list guard, no window guard,
- *    no billing warning, no seeded effort: the base model is the orchestrator's
- *    own base model (via the injected tracker, which excludes failover
- *    fallbacks), falling back to a creation-time `model` pin and then to the
- *    host's current model, which is what worker.ts did before. The one addition
- *    is that an explicitly passed `effort` is still validated against the target
- *    model's ladder — that argument did not exist before, so there is no
- *    behaviour to preserve, and pi would otherwise silently CLAMP a level the
- *    model does not offer.
+ *  - ROUTER OFF = PRE-ROUTER BEHAVIOUR, exactly, and INVISIBLY. No list guard, no
+ *    window guard, no billing notice, no seeded or persisted base, and no
+ *    consultation of the orchestrator's tracked model: a dispatch runs on the
+ *    `model` ARGUMENT, else on the thread's creation-time PIN — which, exactly as
+ *    before, is only the model a NEW worker session opens with and never a reason
+ *    to switch a live one (`openOnly`) — else on the host's current model, which
+ *    is what worker.ts did before. Two additions: an explicitly passed `effort` is
+ *    validated against the target model's ladder (that argument did not exist
+ *    before, and pi would otherwise silently CLAMP a level the model does not
+ *    offer), and a level set by one action is put back to the session's opening
+ *    level by the next, so it cannot leak between actions.
+ *
+ *    An earlier iteration seeded the base from the tracker here and persisted it,
+ *    which was strictly worse than the pre-router code in the same file: it undid
+ *    failovers on reused sessions, could strand a thread for good once its tracked
+ *    model lost credentials, and stopped a restarted thread following the host's
+ *    model. Equivalence is the requirement; the tracker survives only as the
+ *    episode compressor's last-resort rung.
  *
  *  - VALIDATION HAPPENS TWICE. Early, in dispatch(), before any state mutation
  *    or session work, so a bad pick is a TOOL ERROR rather than a billed failed
@@ -76,7 +88,7 @@
  * it can load route.ts.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
 	DEFAULT_COMPACTION_SETTINGS,
 	getAgentDir,
@@ -208,6 +220,13 @@ export class ThreadManager {
 	 * it reports what it just warned about and this side records it.
 	 */
 	private longContextWarned = new Map<string, Set<string>>();
+	/**
+	 * threadId → the thinking level a LIVE worker session had immediately after it was
+	 * opened, i.e. pi's own clamped settings default for that session's model. It is the
+	 * level an action runs at when its plan resolves none, so no action can inherit the
+	 * previous action's level (BG18). Session-scoped, like `live` itself.
+	 */
+	private liveBaseline = new Map<string, ThinkingLevel>();
 	/** pi's compaction settings, read once (a lock-protected disk read) — see compactionSettings(). */
 	private cachedCompaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
 
@@ -482,7 +501,12 @@ export class ThreadManager {
 			requestedEffort: failover ? undefined : opts.effort,
 			resolution: this.routerResolution(),
 			allowUnmeasuredEffort: this.config.router?.allowUnmeasuredEffort,
-			orchestratorBaseModel: this.trackedBaseModel(),
+			// The orchestrator's tracked base model is deliberately NOT an input: with the
+			// router OFF nothing is seeded from it (BG16 — seeding and persisting it undid
+			// failovers, stranded threads whose tracked model lost credentials, and stopped
+			// restarted threads following the host), and with the router ON the base is
+			// always a candidate. It survives for the EPISODE COMPRESSOR's last-resort rung
+			// only (trackedBaseModel, passed to compressEpisode).
 			hostModel: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
 			contextTokens: this.contextTokens(session),
 			// pi's OWN compaction predicate, bound to pi's compaction settings, so the
@@ -546,9 +570,35 @@ export class ThreadManager {
 		plan: RoutePlanProceed,
 		thread: ThreadRecord,
 		ctx: ExtensionContext,
+		signal: AbortSignal | undefined,
 	): Promise<void> {
+		// CN2: the switch below AWAITS, and every await is a window in which the dispatch
+		// can be aborted or this manager disposed — exactly the hazard the failover phase
+		// re-checks for (CN1/BG1/CN2 there). A disposed worker session does not throw on
+		// setModel (workers load no extensions, so the SDK's assertActive guard never
+		// fires), and an aborted dispatch that proceeds here still reaches the compressor
+		// and BILLS one. So the same predicate is checked before and after the await, and
+		// a hit aborts unbilled rather than becoming a failed episode.
+		const blocked = (): string | undefined => {
+			if (signal?.aborted === true) return "aborted by the orchestrator";
+			if (this.live.get(thread.id) !== session) return "its worker session was disposed";
+			return undefined;
+		};
+		const abortIfBlocked = () => {
+			const why = blocked();
+			if (why === undefined) return;
+			throw new DispatchAbort(
+				`slate: aborting the dispatch to thread ${thread.id} before any billed work — ${why}. ` +
+					"No episode was recorded.",
+			);
+		};
+		abortIfBlocked();
 		const currentSpec = session.model ? `${session.model.provider}/${session.model.id}` : undefined;
-		if (plan.model !== undefined && plan.model !== currentSpec) {
+		// `openOnly` (router OFF): `plan.model` is the model a NEW session opens with — the
+		// thread's pre-router pin — and must never move a LIVE session. Switching a reused
+		// session onto it would undo a failover, and a pin whose credentials went away
+		// would abort every later dispatch (BG16). The session was already opened on it.
+		if (plan.model !== undefined && plan.openOnly !== true && plan.model !== currentSpec) {
 			let target: ReturnType<typeof resolveModel>;
 			try {
 				target = resolveModel(ctx, plan.model);
@@ -574,16 +624,26 @@ export class ThreadManager {
 			// An explicit route supersedes a failover marker: after this switch the live
 			// session no longer runs the mapped model (see liveFailoverModel).
 			this.failoverLive.delete(thread.id);
+			// CN2 again: the await above is the window, so re-check AFTER it. The switch
+			// already happened — the session is left on the new model, which costs nothing —
+			// but no prompt follows and no episode is recorded.
+			abortIfBlocked();
 		}
 		// AFTER the model switch, which re-derives the thinking level internally.
-		// undefined = leave pi's own level alone (what every dispatch did before this
-		// feature); pi clamps a level the model cannot do, which is why guard 2 exists.
-		if (plan.effort !== undefined) {
+		//
+		// BG18: an ACTION's level must never be inherited from the previous action. When
+		// the plan resolves no level (router off with no `effort` argument, or a model with
+		// no measured level), the session is put back on the level it OPENED with — pi's
+		// clamped settings default, which is what every dispatch ran at before this
+		// feature — instead of keeping whatever a previous action set. pi clamps a level
+		// the model cannot do, which is why guard 2 exists.
+		const level = plan.effort ?? this.liveBaseline.get(thread.id);
+		if (level !== undefined && this.sessionEffort(session) !== level) {
 			try {
-				session.setThinkingLevel(plan.effort);
+				session.setThinkingLevel(level);
 			} catch (error) {
 				throw new DispatchAbort(
-					`slate: aborting the dispatch to thread ${thread.id} — setting effort "${plan.effort}" failed: ` +
+					`slate: aborting the dispatch to thread ${thread.id} — setting effort "${level}" failed: ` +
 						`${sanitizeForNotify(error instanceof Error ? error.message : String(error), 200)}. ` +
 						"Nothing ran and no episode was recorded.",
 				);
@@ -714,10 +774,16 @@ export class ThreadManager {
 				// stale failover marker (possible if a previous live session was
 				// disposed mid-dispatch after its marker was set).
 				this.failoverLive.delete(thread.id);
-				if (!thread.sessionFile && session.sessionFile) {
-					thread.sessionFile = session.sessionFile;
-					this.store.save();
-				}
+				// The level this session OPENED on (pi's clamped settings default) is the
+				// baseline every later action falls back to instead of inheriting the previous
+				// action's level (BG18). Captured here, before any per-action switch.
+				const baseline = this.sessionEffort(session);
+				if (baseline !== undefined) this.liveBaseline.set(thread.id, baseline);
+				// CQ18: the session FILE is deliberately not persisted yet. pi flushes a
+				// session file only once it holds an assistant message, so this path can name
+				// a file that does not exist — and a snapshot carrying one makes the next
+				// restore drop the whole thread as stale (adoptSnapshot). It is recorded after
+				// the action instead, when its existence is knowable.
 			}
 
 			// APPLY-TIME validation + switch. Still unbilled: the session exists but has
@@ -736,17 +802,20 @@ export class ThreadManager {
 				);
 			}
 			plan = applied;
+			// APPLY FIRST, then record what was decided. Everything above this line can
+			// still abort the dispatch unbilled, and an abort discards the warnings — so
+			// nothing that MARKS a notice as delivered may run before the notice can
+			// actually be delivered (BG17: the long-context memory was being consumed by a
+			// dispatch that then aborted, silencing the warning for the rest of the
+			// session). Past applyRoute the dispatch always ends in an episode and a result.
+			await this.applyRoute(session, plan, thread, ctx, signal);
 			for (const message of applied.warnings) routeWarn(message);
 			// Guard 6's memory is this side's (route.ts is pure): record the pair the plan
 			// just warned about, so the next action on it stays quiet.
 			if (applied.longContextWarned !== undefined) this.noteLongContext(thread.id, applied.longContextWarned);
-			// Same division of labour for a RE-SEEDED base: the planner decided it (purely),
-			// this side writes it down. Persisting it HERE rather than at the early call is
-			// deliberate: this is the pass whose warnings reach the orchestrator, so the
-			// notice and the record change land together — and once persisted, later
-			// dispatches read a listed base and the notice does not repeat.
+			// Same division of labour for a SEEDED base: the planner decided it (purely),
+			// this side writes it down — after the apply, for the same reason as above.
 			this.persistReseededBase(thread, applied);
-			await this.applyRoute(session, plan, thread, ctx);
 			if (applied.warnings.length > 0) emit(false);
 
 			messagesBefore = session.messages.length;
@@ -922,16 +991,19 @@ export class ThreadManager {
 		const actualModel = ranModel ? `${ranModel.provider}/${ranModel.id}` : undefined;
 		const actualEffort = this.sessionEffort(session) ?? plan?.effort;
 		// The unmeasured marker is a claim about the profile data for ONE (model, level)
-		// pair — the pair the guards judged. It is therefore only attached when BOTH
-		// survived to become what ran: a clamped level, or a failover onto a model whose
-		// evidence for that level was never assessed, leaves the marker off rather than
-		// asserting a gap nobody checked.
+		// pair — the pair the guards judged, which the plan names explicitly
+		// (`effortJudgedFor`). It is attached only when BOTH halves of that pair survived
+		// to become what ran: a clamped level, or a failover onto a model whose evidence
+		// for that level was never assessed, leaves the marker off rather than asserting a
+		// gap nobody checked. Comparing against `effortJudgedFor` rather than `plan.model`
+		// also keeps the marker for the router-OFF path, where the guards judge the host
+		// model and `plan.model` is deliberately absent.
 		const actualEffortUnmeasured =
 			plan?.effortUnmeasured === true &&
 			actualEffort !== undefined &&
 			actualEffort === plan.effort &&
 			actualModel !== undefined &&
-			actualModel === plan.model;
+			actualModel === plan.effortJudgedFor;
 
 		const episodeId = `${thread.id}.e${++thread.episodeSeq}`;
 		const compressed = await compressEpisode({
@@ -970,6 +1042,14 @@ export class ThreadManager {
 			...(actualEffortUnmeasured ? { effortUnmeasured: true as const } : {}),
 			createdAt: Date.now(),
 		};
+		// CQ18: the worker session file exists only once pi has flushed it (it holds an
+		// assistant message by now, if the action produced one). Recording the path only
+		// when the file is really there keeps the next restore from dropping this thread as
+		// stale; an action that never got that far simply leaves the thread without a
+		// session file, which is what a fresh thread looks like anyway.
+		if (!thread.sessionFile && session?.sessionFile && existsSync(session.sessionFile)) {
+			thread.sessionFile = session.sessionFile;
+		}
 		this.store.episodes.set(episodeId, episode);
 		thread.episodeIds.push(episodeId);
 		thread.status = "idle";
@@ -994,5 +1074,6 @@ export class ThreadManager {
 		}
 		this.live.clear();
 		this.failoverLive.clear(); // markers describe live sessions only (see liveFailoverModel)
+		this.liveBaseline.clear(); // baselines describe live sessions only (see applyRoute)
 	}
 }

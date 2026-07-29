@@ -36,20 +36,27 @@ export interface ThreadRecord {
 	status: "idle" | "running";
 	/**
 	 * PRE-ROUTER pin: "provider/id" passed as `model` when the thread was created
-	 * WITH THE ROUTER OFF, which is exactly the pre-router behaviour (that model
-	 * then governs every later dispatch on the thread). With the router ON a
-	 * `model` argument routes ONE action and is deliberately NOT recorded here —
-	 * see `baseModel`.
+	 * WITH THE ROUTER OFF. It keeps exactly its pre-router meaning — the model a NEW
+	 * worker session for this thread OPENS on, never a reason to switch a live one —
+	 * so with the router off this feature stays invisible. With the router ON a
+	 * `model` argument routes ONE action and is deliberately NOT recorded here; see
+	 * `baseModel`.
 	 */
 	model?: string;
 	/**
 	 * The thread's DEFAULT model, canonical "provider/id" — what a dispatch that
-	 * omits `model` runs on. DISTINCT from whatever a single action was routed to:
-	 * a routed action never becomes the thread's base. Absent = unknown (an older
-	 * snapshot, or a session whose model could not be resolved at creation).
+	 * omits `model` runs on. Written ONLY while the router is on (with the router off
+	 * nothing is seeded or persisted), and always one of the effective candidates:
+	 * a base that is absent or has fallen off the list is re-seeded on the next
+	 * dispatch (route.ts's THE ONE RULE). DISTINCT from whatever a single action was
+	 * routed to: a routed action never becomes the thread's base. Absent = unknown.
 	 */
 	baseModel?: string;
-	/** The thread's DEFAULT effort level. Absent = unknown ⇒ pi's own default applies. */
+	/**
+	 * The thread's DEFAULT effort level, derived for `baseModel` and valid only for
+	 * it: a dispatch whose model differs re-derives the level for the model that
+	 * actually runs. Absent = unknown ⇒ the worker session's own opening level.
+	 */
 	baseEffort?: ThinkingLevel;
 	episodeIds: string[];
 	episodeSeq: number; // monotonic per-thread episode counter
