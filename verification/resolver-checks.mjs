@@ -2194,12 +2194,17 @@ try {
 	if (!tracker) {
 		for (const id of BASE_IDS) skip(id, "extension/base-model.ts could not be loaded");
 	} else {
-		/** A fresh tracker with a FAKE CLOCK and a capturing warn sink. */
+		/**
+		 * A fresh tracker with a capturing warn sink. There is NO clock to fake any
+		 * more: a declaration's lifetime is the true duration of the setter (it is
+		 * retired by the settle callback `expectOwnSwitch` returns, and `ownSwitch`
+		 * invokes that in a `finally`), so every rule below is driven by the PROTOCOL
+		 * rather than by advancing time.
+		 */
 		const mk = () => {
 			const warned = [];
-			const clock = { ms: 1_000_000 }; // arbitrary monotonic origin — only deltas matter
-			const t = tracker.createBaseModelTracker({ warn: (m) => warned.push(m), now: () => clock.ms });
-			return { t, warned, clock };
+			const t = tracker.createBaseModelTracker({ warn: (m) => warned.push(m) });
+			return { t, warned };
 		};
 		/** A fabricated pi Model-like value (the tracker reads provider/id and nothing else). */
 		const mdl = (spec) => ({ provider: spec.slice(0, spec.indexOf("/")), id: spec.slice(spec.indexOf("/") + 1) });
@@ -2207,9 +2212,7 @@ try {
 		const ev = (to, from, source = "set") => ({ model: mdl(to), previousModel: from === undefined ? undefined : mdl(from), source });
 		/** base + effort in one comparable string, so a check can pin BOTH in one term. */
 		const at = (t) => `${t.current()}@${t.currentEffort()}`;
-		/** The declaration TTL the module documents (DECLARATION_TTL_MS); the fake clock is stepped past it. */
-		const TTL = 10_000;
-		/** MAX_PENDING, the outstanding-declaration bound. */
+		/** MAX_PENDING, the outstanding-declaration bound (the only bound left — there is no clock). */
 		const MAX_PENDING = 4;
 
 		await section("base-seed", async () => {
@@ -2238,21 +2241,59 @@ try {
 		});
 
 		await section("base-own-switch", async () => {
-			// The whole point of the module: a switch slate itself performs must NOT
-			// become the base new workers inherit.
+			// The whole point of the module: a switch slate itself performs must NOT become
+			// the base new workers inherit — and, since the declaration now lives until the
+			// SETTER SETTLES rather than until a clock expires or a first match consumes it,
+			// that must hold however slow the switch is and however many events land on its
+			// target while it is in flight.
 			const own = mk();
 			own.t.seed("p/a", "medium");
-			own.t.expectOwnSwitch("p/a", "p/b");
+			const settle = own.t.expectOwnSwitch("p/a", "p/b");
 			own.t.observe(ev("p/b", "p/a"), "low");
 			const afterOwn = at(own.t);
-			// The declaration is consumed by the FIRST match and never matched twice, so
-			// an identical LATER event is a user switch.
+			// MATCHED, NOT CONSUMED while in flight: a second event on the same target is
+			// still slate's. (The old rule consumed on first match, which is what let an
+			// interleaved user switch turn slate's own event into a base move — see the
+			// interleaving term below.)
 			own.t.observe(ev("p/b", "p/a"), "low");
-			const afterRepeat = at(own.t);
+			const afterRepeatInFlight = at(own.t);
+			settle();
+			// Retired AT SETTLE because it was matched: a later switch to the same model is
+			// an ordinary user switch again, so the mechanism does not leak past the switch.
+			own.t.observe(ev("p/b", "p/a"), "low");
+			const afterSettle = at(own.t);
 
-			// Target-first matching: a user switch landing between the declaration and
-			// the setter changes previousModel under slate's feet (declared p/a⇒p/b,
-			// emitted p/u⇒p/b) — still slate's own, reported once.
+			// A SLOW switch: the sanctioned wrapper, with the event emitted deep inside the
+			// setter and many turns of the event loop on either side. Nothing about the
+			// duration may matter — that is the whole point of retiring at settle.
+			const slow = mk();
+			slow.t.seed("p/a", "medium");
+			const returned = await slow.t.ownSwitch("p/a", "p/b", async () => {
+				for (let i = 0; i < 50; i++) await Promise.resolve();
+				slow.t.observe(ev("p/b", "p/a"), "low"); // pi emits from inside the setter
+				for (let i = 0; i < 50; i++) await Promise.resolve();
+				return "performed";
+			});
+			const afterSlow = at(slow.t);
+			slow.t.observe(ev("p/b", "p/a"), "low"); // after settle ⇒ a user switch
+			const afterSlowSettled = at(slow.t);
+
+			// THE INTERLEAVING THAT USED TO INVERT THE ANSWER (CN1): a user switch lands on
+			// exactly slate's target between the declaration and the setter. Under the old
+			// consume-on-first-match rule it consumed the declaration, so slate's OWN event
+			// then read as a user switch and the FALLBACK became the base — the
+			// non-conservative direction. Both events are now attributed to slate.
+			const interleaved = mk();
+			interleaved.t.seed("p/a", "medium");
+			const settleInterleaved = interleaved.t.expectOwnSwitch("p/a", "p/b");
+			interleaved.t.observe(ev("p/b", "p/u"), "high"); // the user's switch, mid-flight
+			interleaved.t.observe(ev("p/b", "p/a"), "low"); // slate's own
+			settleInterleaved();
+			const afterInterleaved = at(interleaved.t);
+
+			// Target-first matching: a user switch landing mid-flight changes previousModel
+			// under slate's feet (declared p/a⇒p/b, emitted p/u⇒p/b) — still slate's own,
+			// reported once.
 			const moved = mk();
 			moved.t.seed("p/a", "medium");
 			moved.t.expectOwnSwitch("p/a", "p/b");
@@ -2265,21 +2306,36 @@ try {
 			unnamed.t.expectOwnSwitch("p/a", "p/b");
 			unnamed.t.observe(ev("p/z", "p/a"), "high");
 
-			// An unusable declared target cannot match anything: say so once, and let
-			// the switch move the base rather than pretend it was recognised.
+			// An unusable declared target cannot match anything: say so once, hand back a
+			// no-op settle so the caller's `finally` stays uniform, and let the switch move
+			// the base rather than pretend it was recognised.
 			const badTarget = mk();
 			badTarget.t.seed("p/a", "medium");
-			badTarget.t.expectOwnSwitch("p/a", "not-a-spec");
+			const badSettle = badTarget.t.expectOwnSwitch("p/a", "not-a-spec");
+			let badSettleThrew = false;
+			try {
+				badSettle();
+				badSettle(); // idempotent
+			} catch {
+				badSettleThrew = true;
+			}
 			badTarget.t.observe(ev("p/b", "p/a"), "high");
 
-			checkAll("base-own-switch", "a DECLARED slate-initiated switch moves neither the base nor its effort and says nothing; the declaration is consumed once (an identical repeat is a user switch); an unexpected previousModel still counts as slate's own with one report; a target slate never declared moves the base; an unusable declared target is reported and does not suppress the switch", [
+			checkAll("base-own-switch", "a DECLARED slate-initiated switch moves neither the base nor its effort and says nothing — for as long as the setter takes, and for EVERY event landing on its target while in flight (so an interleaved user switch can no longer make slate's fallback the base); it is retired when the setter settles, after which a switch to the same model is an ordinary user switch again; an unexpected previousModel still counts as slate's own with one report; a target slate never declared moves the base; an unusable declared target is reported once and still hands back a working settle callback", [
 				["base and effort unchanged", afterOwn === "p/a@medium", afterOwn],
 				["silent", own.warned.length === 0, own.warned],
-				["the repeat moves the base (declaration consumed once)", afterRepeat === "p/b@low", afterRepeat],
+				["a second event on the target, still in flight, is still slate's", afterRepeatInFlight === "p/a@medium", afterRepeatInFlight],
+				["after settle, the same switch is a user switch again", afterSettle === "p/b@low", afterSettle],
+				["ownSwitch: a slow switch still moves nothing", afterSlow === "p/a@medium", afterSlow],
+				["...returns exactly what the setter returned", returned === "performed", returned],
+				["...and retires the declaration in its finally", afterSlowSettled === "p/b@low", afterSlowSettled],
+				["...silently", slow.warned.length === 0, slow.warned],
+				["an interleaved user switch on the target cannot make the fallback the base", afterInterleaved === "p/a@medium", afterInterleaved],
 				["unexpected previous → base unchanged", at(moved.t) === "p/a@medium", at(moved.t)],
 				["...and reported once, naming both models", moved.warned.length === 1 && /p\/a/.test(moved.warned[0]) && /p\/u/.test(moved.warned[0]), moved.warned],
 				["undeclared target moves the base", at(unnamed.t) === "p/z@high", at(unnamed.t)],
 				["unusable declared target reported once", badTarget.warned.length === 1 && /declared model-switch target/.test(badTarget.warned[0]), badTarget.warned],
+				["...its settle callback is a safe no-op, twice over", badSettleThrew === false, badSettleThrew],
 				["...and its switch moves the base", at(badTarget.t) === "p/b@high", at(badTarget.t)],
 			]);
 		});
@@ -2438,132 +2494,222 @@ try {
 		});
 
 		await section("base-stale-declaration", async () => {
-			// A declaration can go unmatched (a setter that threw before pi emitted, an
-			// equality guard skipping the setter, pi suppressing an already-equal pair).
-			// It must never suppress a later GENUINE user switch: the TTL is the bound,
-			// judged on the injected monotonic clock at the next ingest — no timer.
-			const { t, warned, clock } = mk();
+			// A declaration can settle WITHOUT ever being matched: the setter threw before pi
+			// emitted, handoff's equality guard skipped the setter, or pi suppressed the
+			// emission because the pair was already equal. Such a declaration gets exactly ONE
+			// further event of grace (for a future pi that emits outside the setter, so the
+			// event is still attributed and REPORTED rather than silently re-basing the
+			// orchestrator onto a fallback) and then must not suppress anything.
+			const { t, warned } = mk();
 			t.seed("p/a", "medium");
-			t.expectOwnSwitch("p/a", "p/b"); // never matched
-			t.observe(ev("p/z", "p/a"), "high"); // an UNRELATED user switch, inside the TTL
-			const unrelated = at(t);
-			clock.ms += TTL + 1;
-			t.observe(ev("p/b", "p/z"), "low"); // the very model slate could not switch to
-			const afterTtl = at(t);
+			const settle = t.expectOwnSwitch("p/a", "p/b");
+			settle(); // settled, never matched
+			t.observe(ev("p/b", "p/a"), "low"); // the one event of grace
+			const inGrace = at(t);
+			t.observe(ev("p/b", "p/a"), "low"); // grace spent ⇒ a genuine user switch
+			const afterGrace = at(t);
 
-			// The control that makes the assertion above non-vacuous: the same sequence
-			// WITHOUT advancing the clock keeps the documented residual (the switch is
-			// mistaken for slate's own), so it is the clock that decides.
-			const inside = mk();
-			inside.t.seed("p/a", "medium");
-			inside.t.expectOwnSwitch("p/a", "p/b");
-			inside.t.observe(ev("p/z", "p/a"), "high");
-			inside.t.observe(ev("p/b", "p/z"), "low");
-			const insideTtl = at(inside.t);
+			// An UNRELATED user switch is unaffected by a settled declaration, and ends its
+			// grace (it is a real event), so the next switch to the declared target moves the
+			// base too — no suppression survives.
+			const unrelated = mk();
+			unrelated.t.seed("p/a", "medium");
+			unrelated.t.expectOwnSwitch("p/a", "p/b")();
+			unrelated.t.observe(ev("p/z", "p/a"), "high");
+			const afterUnrelated = at(unrelated.t);
+			unrelated.t.observe(ev("p/b", "p/z"), "low");
+			const afterDeclaredTarget = at(unrelated.t);
 
-			checkAll("base-stale-declaration", "an unmatched declaration never suppresses an unrelated user switch, and EXPIRES after the TTL so a genuine user switch to the model slate failed to reach still moves the base — while the same sequence inside the TTL keeps the documented residual, proving the clock is what decides", [
-				["unrelated switch moves the base immediately", unrelated === "p/z@high", unrelated],
-				["after the TTL the declared target moves it too", afterTtl === "p/b@low", afterTtl],
-				["expiry is silent (a leak bound, not an error)", warned.length === 0, warned],
-				["inside the TTL it is still read as slate's own (documented residual)", insideTtl === "p/z@high", insideTtl],
+			// A NON-EVENT spends no grace: a "restore"-sourced event and an unreadable
+			// payload both decide nothing, so the grace is still there for the real event.
+			const nonEvents = mk();
+			nonEvents.t.seed("p/a", "medium");
+			nonEvents.t.expectOwnSwitch("p/a", "p/b")();
+			nonEvents.t.observe(ev("p/b", "p/a", "restore"), "low");
+			nonEvents.t.observe({}, "low");
+			nonEvents.t.observe(ev("p/b", "p/a"), "low"); // still absorbed by the grace
+			const afterNonEvents = at(nonEvents.t);
+			nonEvents.t.observe(ev("p/b", "p/a"), "low");
+			const afterNonEventsSpent = at(nonEvents.t);
+
+			// THE RESIDUAL, stated by the module and pinned here: a declaration whose settle
+			// callback is NEVER invoked stays in flight and keeps absorbing events for its
+			// target. `ownSwitch` makes that unreachable at the shipped sites; a direct
+			// expectOwnSwitch caller that drops the callback is a defect, bounded only by
+			// MAX_PENDING.
+			const neverSettled = mk();
+			neverSettled.t.seed("p/a", "medium");
+			neverSettled.t.expectOwnSwitch("p/a", "p/b"); // callback dropped on purpose
+			neverSettled.t.observe(ev("p/b", "p/a"), "low");
+			neverSettled.t.observe(ev("p/b", "p/a"), "low");
+			const afterNeverSettled = at(neverSettled.t);
+
+			checkAll("base-stale-declaration", "a declaration that SETTLED without ever being matched absorbs exactly ONE further event — reported, not silent — and then suppresses nothing: the next switch to that model moves the base, an unrelated user switch moves it immediately and ends the grace, and a \"restore\" event or an unreadable payload spends no grace at all. A declaration whose settle callback is never invoked keeps absorbing (the module's stated residual, unreachable through ownSwitch)", [
+				["the one event of grace is attributed to slate", inGrace === "p/a@medium", inGrace],
+				["...and REPORTED, since pi emitted after the setter returned", warned.filter((m) => /AFTER slate's own setter had already returned/.test(m)).length === 1, warned],
+				["the next event moves the base (grace is one event)", afterGrace === "p/b@low", afterGrace],
+				["an unrelated user switch moves the base immediately", afterUnrelated === "p/z@high", afterUnrelated],
+				["...and ends the grace, so the declared target moves it too", afterDeclaredTarget === "p/b@low", afterDeclaredTarget],
+				["a restore event and an unreadable payload spend no grace", afterNonEvents === "p/a@medium", afterNonEvents],
+				["...the real event after them still moves the base", afterNonEventsSpent === "p/b@low", afterNonEventsSpent],
+				["an un-settled declaration keeps absorbing (stated residual)", afterNeverSettled === "p/a@medium", afterNeverSettled],
 			]);
 		});
 
 		await section("base-two-in-flight", async () => {
 			// Two slate switches in flight CHAIN (p/a⇒p/b then p/b⇒p/c): both are exact
-			// pairs, so both are recognised and nothing is reported.
+			// pairs, both are recognised, and neither settle order nor event order matters.
 			const chain = mk();
 			chain.t.seed("p/a", "medium");
-			chain.t.expectOwnSwitch("p/a", "p/b");
-			chain.t.expectOwnSwitch("p/b", "p/c");
+			const settleFirst = chain.t.expectOwnSwitch("p/a", "p/b");
+			const settleSecond = chain.t.expectOwnSwitch("p/b", "p/c");
 			chain.t.observe(ev("p/b", "p/a"), "low");
 			chain.t.observe(ev("p/c", "p/b"), "low");
+			settleFirst();
+			settleSecond();
+			const afterChain = at(chain.t);
 
-			// Out of order: two declarations from the SAME previous model, the second
-			// one's event arriving first. Exact-pair matching must find each of them.
+			// Out of order: two declarations from the SAME previous model, the second one's
+			// event arriving first, and the FIRST settled while the second is still in
+			// flight. Exact-pair matching must find each of them regardless.
 			const unordered = mk();
 			unordered.t.seed("p/a", "medium");
-			unordered.t.expectOwnSwitch("p/a", "p/b");
-			unordered.t.expectOwnSwitch("p/a", "p/c");
+			const settleB = unordered.t.expectOwnSwitch("p/a", "p/b");
+			const settleC = unordered.t.expectOwnSwitch("p/a", "p/c");
 			unordered.t.observe(ev("p/c", "p/a"), "low");
+			settleC();
 			unordered.t.observe(ev("p/b", "p/a"), "low");
+			settleB();
+			const afterUnordered = at(unordered.t);
 
-			// The bound: a declaration past MAX_PENDING drops the OLDEST with one
-			// warning rather than growing a queue — and the dropped one's switch then
-			// moves the base, which is the documented cost of the bound.
+			// The bound: beyond MAX_PENDING *live* declarations the OLDEST is evicted with one
+			// warning rather than growing a queue — and the evicted switch then moves the
+			// base, which is the documented cost of the bound.
 			const overflow = mk();
 			overflow.t.seed("p/a", "medium");
 			for (const to of ["p/1", "p/2", "p/3", "p/4", "p/5"]) overflow.t.expectOwnSwitch("p/a", to);
-			overflow.t.observe(ev("p/1", "p/a"), "low"); // the dropped declaration
+			overflow.t.observe(ev("p/1", "p/a"), "low"); // the evicted declaration
 			const dropped = at(overflow.t);
 			overflow.t.observe(ev("p/5", "p/1"), "high"); // still declared
 			const retained = at(overflow.t);
+			// The eviction policy is settle-AWARE: a settled entry waiting out its one-event
+			// grace is expendable, so it is evicted FIRST and silently, and no live
+			// declaration is lost to a queue full of finished switches.
+			const prefersSettled = mk();
+			prefersSettled.t.seed("p/a", "medium");
+			for (const to of ["p/s1", "p/s2", "p/s3"]) prefersSettled.t.expectOwnSwitch("p/a", to)();
+			const liveOne = prefersSettled.t.expectOwnSwitch("p/a", "p/live1");
+			const liveTwo = prefersSettled.t.expectOwnSwitch("p/a", "p/live2"); // evicts a SETTLED entry
+			prefersSettled.t.observe(ev("p/live1", "p/a"), "low");
+			prefersSettled.t.observe(ev("p/live2", "p/a"), "low");
+			liveOne();
+			liveTwo();
+			const afterPrefersSettled = at(prefersSettled.t);
 
-			checkAll("base-two-in-flight", `two slate switches in flight are both recognised — chained (p/a⇒p/b then p/b⇒p/c) and out of order — with no report; beyond MAX_PENDING (${MAX_PENDING}) the OLDEST declaration is dropped with exactly one warning, so its switch moves the base while the retained ones still do not`, [
-				["chained pair leaves the base alone", at(chain.t) === "p/a@medium", at(chain.t)],
+			checkAll("base-two-in-flight", `two slate switches in flight are both recognised — chained (p/a⇒p/b then p/b⇒p/c) and out of order, in any settle order — with no report; beyond MAX_PENDING (${MAX_PENDING}) LIVE declarations the OLDEST is dropped with exactly one warning, so its switch moves the base while the retained ones still do not; and the eviction is settle-aware, dropping a settled entry in its grace first and silently rather than a live declaration`, [
+				["chained pair leaves the base alone", afterChain === "p/a@medium", afterChain],
 				["...silently", chain.warned.length === 0, chain.warned],
-				["out-of-order events both matched", at(unordered.t) === "p/a@medium", at(unordered.t)],
+				["out-of-order events, mixed settle order, both matched", afterUnordered === "p/a@medium", afterUnordered],
 				["...silently too (both were exact pairs)", unordered.warned.length === 0, unordered.warned],
-				["the dropped declaration's switch moves the base", dropped === "p/1@low", dropped],
+				["the evicted declaration's switch moves the base", dropped === "p/1@low", dropped],
 				["one overflow warning, naming the bound", overflow.warned.filter((m) => /outstanding at once/.test(m)).length === 1, overflow.warned],
 				["a retained declaration is still recognised", retained === "p/1@low", retained],
+				["a settled entry is evicted instead of a live one", afterPrefersSettled === "p/a@medium", afterPrefersSettled],
+				["...silently: no live declaration was at risk", prefersSettled.warned.filter((m) => /outstanding at once/.test(m)).length === 0, prefersSettled.warned],
 			]);
 		});
 
 		await section("base-throwing-switch", async () => {
-			// THE reason declarations exist instead of an in-progress flag (module
-			// header): pi.setModel CAN THROW — its live auth check does, despite the
-			// Promise<boolean> contract — and a flag armed before a throwing switch would
-			// stay armed for the rest of the session, swallowing every later genuine
-			// user switch.
+			// THE reason a declaration is bounded by the SETTER and not by a flag or a clock:
+			// pi.setModel CAN THROW — its live auth check does, despite the Promise<boolean>
+			// contract. `ownSwitch` retires the declaration in a `finally`, so a throwing
+			// switch leaves the base correct (nothing was emitted, so nothing moved) and
+			// leaves no armed state behind beyond the documented one-event grace.
 			const { t, warned } = mk();
 			t.seed("p/a", "medium");
-			let throws = 0;
-			const failingSwitch = async (from, to) => {
-				t.expectOwnSwitch(from, to); // declared immediately before the setter
-				await Promise.resolve();
-				throws++;
-				throw new Error("setModel: live auth check failed");
-			};
+			const boom = new Error("setModel: live auth check failed");
+			let caught;
 			try {
-				await failingSwitch("p/a", "p/b");
+				await t.ownSwitch("p/a", "p/b", async () => {
+					await Promise.resolve();
+					throw boom;
+				});
+			} catch (error) {
+				caught = error;
+			}
+			const afterThrow = at(t);
+			// Snapshotted HERE: the throw itself must be silent. The grace event below is a
+			// different matter — pi emitting after the setter returned IS reported, and
+			// base-stale-declaration asserts that report positively.
+			const warnedAfterThrow = [...warned];
+			// The declaration settled unmatched ⇒ one event of grace (the residual), and the
+			// event after it moves the base.
+			t.observe(ev("p/b", "p/a"), "low");
+			const inGrace = at(t);
+			t.observe(ev("p/b", "p/a"), "low");
+			const afterGrace = at(t);
+
+			// A user switch to a DIFFERENT model right after a throwing switch moves the base
+			// immediately — the grace only ever covers the declared target.
+			const other = mk();
+			other.t.seed("p/a", "medium");
+			try {
+				await other.t.ownSwitch("p/a", "p/b", async () => {
+					throw new Error("nope");
+				});
 			} catch {
 				/* the switch site's own catch */
 			}
-			t.observe(ev("p/u1", "p/a"), "high");
-			const first = at(t);
-			t.observe(ev("p/u2", "p/u1"), "high");
-			const second = at(t);
-			for (const to of ["p/b", "p/b2"]) {
+			other.t.observe(ev("p/u1", "p/a"), "high");
+			const afterOther = at(other.t);
+
+			// Nothing ACCUMULATES: three throwing switches in a row, then ordinary user
+			// switches, and the base tracks the user every time.
+			const repeated = mk();
+			repeated.t.seed("p/a", "medium");
+			let throws = 0;
+			for (const to of ["p/b", "p/b2", "p/b3"]) {
 				try {
-					await failingSwitch("p/u2", to);
+					await repeated.t.ownSwitch("p/a", to, async () => {
+						throws++;
+						throw new Error("nope");
+					});
 				} catch {
 					/* ignored, as the switch sites do */
 				}
 			}
-			t.observe(ev("p/u3", "p/u2"), "low");
-			const third = at(t);
+			repeated.t.observe(ev("p/u1", "p/a"), "high");
+			const afterRepeated = at(repeated.t);
+			repeated.t.observe(ev("p/b", "p/u1"), "low"); // every grace ended with that event
+			const afterRepeatedTarget = at(repeated.t);
 
-			// The DOCUMENTED RESIDUAL, pinned so it cannot drift unnoticed: a user switch
-			// requesting exactly the target slate declared but failed to perform is
-			// mistaken for slate's own — for ONE event only, because the declaration is
-			// consumed by it.
-			const residual = mk();
-			residual.t.seed("p/a", "medium");
-			residual.t.expectOwnSwitch("p/a", "p/b");
-			residual.t.observe(ev("p/b", "p/a"), "low");
-			const swallowed = at(residual.t);
-			residual.t.observe(ev("p/b", "p/a"), "low");
-			const thenHonoured = at(residual.t);
+			// The PRIMITIVE path, for a caller that cannot wrap its setter: declare, settle in
+			// its own finally. Same outcome — that is what makes expectOwnSwitch safe to use
+			// directly.
+			const primitive = mk();
+			primitive.t.seed("p/a", "medium");
+			const settle = primitive.t.expectOwnSwitch("p/a", "p/b");
+			try {
+				await Promise.reject(new Error("setter blew up"));
+			} catch {
+				/* the caller's catch */
+			} finally {
+				settle();
+			}
+			primitive.t.observe(ev("p/z", "p/a"), "high");
+			const afterPrimitive = at(primitive.t);
 
-			checkAll("base-throwing-switch", "a slate switch whose setter THROWS leaves no armed state behind: every later genuine user switch still moves the base, however many throwing switches preceded it — and the documented residual (a user switch to exactly the declared target) costs at most ONE event, because the declaration is consumed by it", [
-				["the setters really threw (non-vacuous)", throws === 3, throws],
-				["the user switch right after a throw moves the base", first === "p/u1@high", first],
-				["and the next one", second === "p/u2@high", second],
-				["and one after two more throwing switches", third === "p/u3@low", third],
-				["no report from any of it", warned.length === 0, warned],
-				["residual: one event to the declared target is read as slate's own", swallowed === "p/a@medium", swallowed],
-				["...and only one — the repeat moves the base", thenHonoured === "p/b@low", thenHonoured],
+			checkAll("base-throwing-switch", "a slate switch whose setter THROWS leaves the base correct and no armed state behind: ownSwitch re-throws the error unchanged and retires the declaration in its finally, so only the documented one-event grace on that target remains, an unrelated user switch moves the base immediately, three throwing switches in a row accumulate nothing, and the bare expectOwnSwitch + finally path behaves identically", [
+				["the error is re-thrown unchanged", caught === boom, caught === boom],
+				["the base did not move (nothing was emitted)", afterThrow === "p/a@medium", afterThrow],
+				["...and the throw itself said nothing", warnedAfterThrow.length === 0, warnedAfterThrow],
+				["the one-event grace still covers the declared target", inGrace === "p/a@medium", inGrace],
+				["...and the event after it moves the base", afterGrace === "p/b@low", afterGrace],
+				["a switch to another model moves the base immediately", afterOther === "p/u1@high", afterOther],
+				["three throwing switches really threw", throws === 3, throws],
+				["...and the user switch after them moves the base", afterRepeated === "p/u1@high", afterRepeated],
+				["...as does a later switch to one of their targets", afterRepeatedTarget === "p/b@low", afterRepeatedTarget],
+				["the primitive + finally path behaves identically", afterPrimitive === "p/z@high", afterPrimitive],
 			]);
 		});
 	}

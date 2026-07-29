@@ -731,6 +731,31 @@ harness pinned that behaviour explicitly as *not endorsed*; the module now goes
 inert, and `route-off-ladder-source` and `route-read-failure-inert` assert the new
 behaviour on the router-OFF and router-ON paths respectively.
 
+### Not covered here at all: episode compression (`extension/episodes.ts`)
+
+The compressor pin (which model writes an episode, and the rule that no rung is
+chosen because an action ran there), the usability rule it shares with the
+compression attempt, and the episode HEADER's sanitisation have **no permanent
+checks in this suite**. The module imports `@earendil-works/pi-ai`, a peer
+dependency this repo does not install, so `jiti` cannot resolve it the way the
+driver loads everything else — the same reason `index.ts` is asserted as *text* by
+`wiring` rather than executed.
+
+A **recorded opportunity**, proven to work rather than assumed: `createJiti`
+accepts an `alias` map, and pointing `@earendil-works/pi-ai`,
+`@earendil-works/pi-ai/compat` and `@earendil-works/pi-coding-agent` at small local
+stubs loads the REAL `extension/episodes.ts` and lets `compressEpisode` be driven
+end to end with a fabricated `ctx` — registry, auth verdicts, available models — and
+a `complete()` stub that records the call instead of making it. That is how the
+compressor/header findings were verified (31 assertions in a throwaway probe, each
+proven by a mutation), and it is how permanent `episode-*` checks could be added.
+The caveat that must be settled first: those checks would exercise the module
+against **stubbed SDK behaviour**, so the stubs become part of the contract under
+test — they have to be justified against the real SDK's semantics (as the auth rule
+was here, by reading `agent-session`'s `_getRequiredRequestAuth` and the provider
+modules' own `assertRequestAuth`), or the suite starts proving that the stubs
+agree with themselves.
+
 Config-sanitizer wiring (`extension/index.ts`) — a **text** check:
 
 | id | what it proves |
@@ -746,22 +771,23 @@ Model-spec vocabulary (`extension/state.ts`):
 | `spec-config-key` | an unusable `episodeModel` is dropped **with** a warning naming the key, the reason and the fallback (RG20), while absent and valid values stay silent and the returned value is unchanged from the old silent behaviour; an unstringifiable value warns instead of throwing |
 
 Orchestrator base-model tracker (`extension/base-model.ts`) — driven with
-fabricated `model_select` events, fabricated declarations and an **injected
-clock**, so the TTL rule is exercised without sleeping and no timer exists to fire
-after teardown:
+fabricated `model_select` events and fabricated declarations. There is **no clock
+to fake**: a declaration lives until the SETTER SETTLES — `expectOwnSwitch` returns
+a settle callback and `ownSwitch` invokes it in a `finally` — so the checks drive
+the protocol (declare / observe / settle) rather than advancing time:
 
 | id | what it proves |
 | --- | --- |
 | `base-load` | the module loads; a failure converts the `base-*` checks into explicit NOT RUN lines |
 | `base-seed` | the session seed records model **and** effort; an omitted effort reads as unknown; an **absent** model is legitimate and silent (a session with no model, or none it has auth for); an unusable one is reported once, leaves no base at all, and its report is stripped of control bytes and bounded |
-| `base-own-switch` | a **declared** slate-initiated switch moves neither the base nor its effort and says nothing; the declaration is consumed by the first match and never twice (an identical repeat is a user switch); an unexpected `previousModel` still counts as slate's own with one report; a target slate never declared moves the base; an unusable declared target is reported and does not suppress the switch |
+| `base-own-switch` | a **declared** slate-initiated switch moves neither the base nor its effort and says nothing — **for as long as the setter takes** (driven through `ownSwitch` with the event emitted deep inside a slow performer) and for **every** event landing on its target while in flight, so an interleaved user switch on that target can no longer consume the declaration and make slate's fallback the base (the CN1 defect). It is retired **at settle**, after which a switch to the same model is an ordinary user switch again; `ownSwitch` returns exactly what the setter returned; an unexpected `previousModel` still counts as slate's own with one report; a target slate never declared moves the base; an unusable declared target is reported once and still hands back a safe, idempotent settle callback |
 | `base-user-switch` | an **undeclared** `set` switch moves base and effort; an unreadable effort reads as unknown rather than the previous level; an event with no usable `provider/id` decides nothing and consumes no declaration; an unrecognised source — including one that is not a string — is reported once, treated as a user switch, and still matched against declarations |
 | `base-cycle` | a `cycle`-sourced switch **always** moves the base, even when it lands exactly on a declared target, and consumes no declaration — proved by the declared switch still being recognised when its own event arrives later |
 | `base-restore` | a `restore`-sourced event moves neither the base nor its effort, is reported once per session naming the target, and consumes no declaration |
 | `base-adopt` | a handoff adoption moves the base **only on success**: a declared switch whose setter threw leaves it alone, while `adopt()` re-seeds base and effort deliberately; an unusable adopted model is reported once and changes nothing; `adopt` clears its **own** target's outstanding declaration (handoff's equality guard can skip the setter) but not another target's — a failover in flight is still recognised |
-| `base-stale-declaration` | an unmatched declaration never suppresses an unrelated user switch, and **expires** after the TTL so a genuine user switch to the model slate failed to reach still moves the base — while the same sequence inside the TTL keeps the documented residual, which is what proves the clock is deciding |
-| `base-two-in-flight` | two slate switches in flight are both recognised, chained (`A⇒B` then `B⇒C`) and out of order, with no report; beyond `MAX_PENDING` the **oldest** declaration is dropped with exactly one warning, so its switch moves the base while the retained ones still do not |
-| `base-throwing-switch` | a slate switch whose setter **throws** (pi's `setModel` does, despite its `Promise<boolean>` contract) leaves no armed state behind: every later genuine user switch still moves the base, however many throwing switches preceded it — and the documented residual (a user switch to exactly the declared target) costs at most **one** event, because the declaration is consumed by it |
+| `base-stale-declaration` | a declaration that **settled without ever being matched** (a setter that threw before pi emitted, handoff's equality guard skipping the setter, pi suppressing an already-equal pair) absorbs exactly **one** further event — and is **reported**, since pi emitting after the setter returned means its semantics moved — then suppresses nothing: the next switch to that model moves the base, an unrelated user switch moves it immediately *and* ends the grace, and a `restore` event or an unreadable payload spends no grace at all. The module's stated residual is pinned too: a declaration whose settle callback is never invoked keeps absorbing, which `ownSwitch` makes unreachable at the shipped sites |
+| `base-two-in-flight` | two slate switches in flight are both recognised — chained (`A⇒B` then `B⇒C`) and out of order, in **any settle order** — with no report; beyond `MAX_PENDING` **live** declarations the oldest is dropped with exactly one warning, so its switch moves the base while the retained ones still do not; and the eviction is **settle-aware**: a settled entry waiting out its one-event grace is dropped first and silently, so a queue full of finished switches cannot cost a live declaration |
+| `base-throwing-switch` | a slate switch whose setter **throws** (pi's `setModel` does, despite its `Promise<boolean>` contract) leaves the base correct and no armed state behind: `ownSwitch` re-throws the error **unchanged** and retires the declaration in its `finally`, the throw itself is silent, only the documented one-event grace on that target remains, an unrelated user switch moves the base immediately, three throwing switches in a row accumulate nothing, and the bare `expectOwnSwitch` + `finally` path behaves identically |
 
 Shipped profile table (`extension/model-profiles.ts`) — **structural only**:
 
@@ -797,7 +823,7 @@ mutate the repository itself; the scratch copy is the point.
 
 The `base-*` checks were validated the same way, one mutation per check, all nine
 killed: unguarding the seed predicate (`base-seed`); matching a declaration
-without consuming it (`base-own-switch`); defaulting a non-string `source` to
+without consuming it, since superseded by the settle protocol (`base-own-switch`); defaulting a non-string `source` to
 `"set"` (`base-user-switch`); letting a `cycle` event consume a declaration
 (`base-cycle`); letting a `restore` event move the base (`base-restore`); dropping
 `adopt`'s declaration cleanup (`base-adopt`); making the declaration TTL
@@ -807,6 +833,17 @@ which is the "armed flag swallows later user switches" defect the module was
 written to avoid (`base-throwing-switch`). Three of those mutations also killed
 other `base-*` checks, which is expected: the requirement is that every check is
 killed by at least one mutation, not that a mutation kills only one check.
+
+When the tracker moved from a clock to the settle protocol, the four checks that
+pinned the old semantics were re-synced and re-proven with **five** mutations, all
+killed — each one a plausible implementation of the new design rather than a
+strawman: never retiring a declaration even when it was matched
+(`base-own-switch`); consuming it at match time, which is exactly the CN1 defect
+the redesign removed (`base-own-switch`, `base-stale-declaration`); never ending
+the one-event grace (`base-stale-declaration`, `base-throwing-switch`); evicting a
+LIVE declaration in preference to a settled one (`base-two-in-flight`); and
+dropping the `settle()` out of `ownSwitch`'s `finally`, so a throwing setter leaves
+its declaration in flight forever (`base-throwing-switch`, `base-own-switch`).
 
 The `route-*` checks likewise, **27 mutations, 27 killed** — one per check, plus a
 second one for `route-resolved-pair`, whose model half and effort half are
