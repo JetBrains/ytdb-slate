@@ -26,7 +26,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { BaseModelTracker } from "./base-model.ts";
+import { currentModelSpec, type BaseModelTracker } from "./base-model.ts";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import { isModelSpec, splitModelSpec, type SlateConfig } from "./state.ts";
@@ -292,15 +292,22 @@ export function registerOrchestratorFailover(
 			async () => {
 				try {
 					// A failover fallback must NOT become the base model new worker threads
-					// default to, so the (from, to) pair is declared IMMEDIATELY before the
-					// setter: the model_select event pi emits from inside it then matches
-					// this declaration and leaves the base where it was (base-model.ts).
-					// Declared inside the try because the tracker never throws.
-					getBaseModel().expectOwnSwitch(from, to);
+					// default to, so the switch runs THROUGH the tracker: ownSwitch declares
+					// the (from, to) pair immediately before the setter and retires the
+					// declaration the moment the setter SETTLES — on true, on false and on a
+					// throw alike — so the declaration lives exactly as long as the switch
+					// does, however long pi's live credential check takes (base-model.ts;
+					// a wall-clock bound was defect BG10). ownSwitch returns the setter's own
+					// value and re-throws its error unchanged, so the handling below is
+					// exactly what it was.
+					// The declared `from` is read FRESH here, matching the handoff site: the
+					// `from` in the messages below is the model whose turn FAILED, which is a
+					// deliberately different thing several awaits later. currentModelSpec is
+					// guarded (ctx.model throws on a stale context) and falls back to it.
 					// pi.setModel returns false when no API key is available, but can ALSO
 					// throw on a failed live auth check despite the Promise<boolean>
 					// contract — handle both.
-					if (!(await pi.setModel(mapped))) {
+					if (!(await getBaseModel().ownSwitch(currentModelSpec(ctx) ?? from, to, () => pi.setModel(mapped)))) {
 						reportFailure(ctx, `slate: model failover to ${to} skipped — no API key. Keeping ${from}.`);
 						return false;
 					}

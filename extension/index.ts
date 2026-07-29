@@ -53,7 +53,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createBaseModelTracker, modelSpecOf, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
+import { createBaseModelTracker, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
 import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.ts";
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
@@ -108,13 +108,15 @@ export default function (pi: ExtensionAPI) {
 
 	// One base-model tracker per session (base-model.ts), reassigned every
 	// session_start below so its seed and its one-report-per-condition budget are
-	// per session. Consumers take the live `() => baseModel` indirection, like the
-	// worker-extension resolver's doctrine consumer: it always belongs to the
-	// CURRENT session. Constructed eagerly here — before any session_start — so a
-	// model_select arriving during startup has somewhere to land; that pre-session
-	// instance reports through the console, since no extension context exists yet.
-	// Declared BEFORE the manager below so even the pre-session manager can be given
-	// it (ThreadManager binds it by value, CN20).
+	// per session. TWO consumption modes, deliberately different (CQ12): the SWITCH
+	// SITES (failover.ts, handoff.ts) take the live `() => baseModel` indirection,
+	// because a switch always belongs to the CURRENT session; ThreadManager instead
+	// binds the instance BY VALUE at construction (CN20), so a manager orphaned by a
+	// session swap keeps answering with its own session's base model rather than a
+	// newer one's. Constructed eagerly here — before any session_start — so a
+	// model_select arriving during startup has somewhere to land, and so even the
+	// pre-session manager below can be given one; that pre-session instance reports
+	// through the console, since no extension context exists yet.
 	let baseModel: BaseModelTracker = createBaseModelTracker({ warn: (msg) => console.warn(msg) });
 
 	let manager = new ThreadManager(store, {}, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel);
@@ -180,9 +182,14 @@ export default function (pi: ExtensionAPI) {
 		// purpose: a consumer that binds it BY VALUE at construction (the CN20 rule the
 		// worker-extension resolver follows) must capture THIS session's tracker, not
 		// the previous session's.
+		// pi's OWN model value is handed over raw, never pre-canonicalised (BG13):
+		// canonicalising here would collapse "this session has no model" (legitimate and
+		// silent) and "this session's model is not a usable provider/id" (a reportable
+		// surprise) into the same absent value, leaving the tracker's diagnostic
+		// unreachable. An effort level is meaningless without a model, so it is read only
+		// when there is one.
 		baseModel = createBaseModelTracker({ warn });
-		const sessionModel = modelSpecOf(ctx.model);
-		baseModel.seed(sessionModel, sessionModel === undefined ? undefined : readLiveEffort(pi));
+		baseModel.seed(ctx.model, ctx.model ? readLiveEffort(pi) : undefined);
 		// Bound BY VALUE (CN20): this manager keeps THIS session's resolvers and
 		// tracker even if a later session_start replaces the module variables above — a
 		// manager orphaned by a session swap must not start answering with a newer
