@@ -563,8 +563,8 @@ CHECK off-inert        PASS    — empty pattern list → shared empty set, regi
 CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
 CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
       observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
-CHECK roster           PASS    — all 84 expected checks reported exactly once and the counters agree …
-== summary: 84 pass, 1 fail, 0 not run (85 result lines = 84 expected checks + this roster audit) ==
+CHECK roster           PASS    — all 88 expected checks reported exactly once and the counters agree …
+== summary: 88 pass, 1 fail, 0 not run (89 result lines = 88 expected checks + this roster audit) ==
 ```
 
 ### Why the summary counts one more than the roster
@@ -577,7 +577,7 @@ therefore prints `EXPECTED + 1` result lines.
 
 That is the whole of the old off-by-one, and it is now **stated in the output**
 rather than left to be re-derived: the summary prints the identity
-(`85 result lines = 84 expected checks + this roster audit`), and on a run where it
+(`89 result lines = 88 expected checks + this roster audit`), and on a run where it
 does not hold — a deleted check, a duplicate report, a crashed section adding an id
 — it prints the residual as `±N unaccounted — see the roster line`. The roster
 additionally asserts the identity it *can* own: `pass + fail + notrun` equals the
@@ -660,10 +660,14 @@ session's frozen resolution carries:
 | --- | --- |
 | `route-load` | the module loads; a failure converts every `route-*` check into an explicit NOT RUN line |
 | `route-vocabulary` | an `effort` outside pi's vocabulary is **rejected** (never clamped, never ignored), the reason names the value and the ascending level list, `THINKING_LEVELS` *is* that ascending vocabulary, whitespace-only or omitted effort reads as absent, a padded valid level is trimmed — and this guard runs **before** the list guard |
-| `route-list-on` | with the router ON a model outside the candidate list is rejected, naming every candidate **in resolution order** and — only when one exists — the base model to omit the argument for; a listed model routes that action |
+| `route-effort-type` | a **non-string** `effort` is rejected rather than read as absent — reading it as absent would silently run the action at the thread's **base** level, a substitution that looks like success. Seven shapes (number, object, array, boolean, function, cyclic, escape-bearing), each rejected with the type and value named, pi's levels offered, display-safe text and no throw; `undefined`/`null` stay absent and the base effort then applies |
+| `route-list-on` | with the router ON a model outside the candidate list is rejected, naming every candidate **in resolution order** and a remediation clause naming a **listed** base to fall back to — for a listed base, for a base that was just seeded or re-seeded (the clause can no longer be empty, nor name the model it just refused), and for a thread that does not exist yet; the rejection still carries the repair's own warning; a listed model routes that action |
 | `route-list-off` | with the router OFF the list, ladder and window guards are all inert — the pre-router path: an unlisted model and a ladder-less effort pass through unvalidated and unwarned, the orchestrator's tracked base model is used when `model` is omitted, and an unusable tracked value reads as absent. This is the direction that keeps today's behaviour intact |
 | `route-resolution` | a malformed, half-built (`on: true` with no candidates) or absent resolution collapses to the shared `ROUTER_OFF` constant, so the guards fall back to the pre-router path instead of walking a shape they cannot read |
-| `route-resolved-pair` | an **omitted** model and an **omitted** effort still go through the guards, because they fall through to the thread's base values: an unlisted base model and an off-ladder base effort are each rejected, a valid base pair proceeds and is echoed back, a pre-router `model` pin still reads as the base, a new thread is seeded with the cheapest candidate at its lowest **measured** level, and an omitted model falls back to the host model for the effort check. A suite that only ever passed explicit arguments would miss the most common real dispatch |
+| `route-resolved-pair` | an **omitted** model and an **omitted** effort still go through the guards, because they fall through to the thread's base values: an off-list base is **re-seeded** to a listed candidate (signalled for persistence, naming what it replaced, base effort re-derived, one warning) rather than rejected, an off-ladder base effort is rejected, a valid base pair proceeds and is echoed back, a pre-router `model` pin still reads as the base, a new thread is seeded with the cheapest candidate at its lowest **measured** level, and an omitted model falls back to the host model for the effort check. A suite that only ever passed explicit arguments would miss the most common real dispatch |
+| `route-base-reseed` | the base **repair** (route.ts's THE ONE RULE): with the router ON an off-list or **absent** base — including a pre-router `model` pin — is seeded to the cheapest preferred candidate with its effort re-derived, signalled for persistence (`baseReseeded` / `baseReseededFrom`) and warned about once, never refused. A listed base or pin is untouched and silent; the router-OFF path is unaffected; an explicit route does not become the base nor the base the route; and a resolution that is ON but carries nothing usable to seed from **drops** the base rather than enforcing a list it could not read. Both repaired shapes are ordinary states — a thread predating `router.models`, or a list that changed — and the baseless one is the dangerous half: it used to run outside the closed list silently, so the cost bound the list expresses simply did not apply |
+| `route-base-reseed-guarded` | the repair opens **no hole**: over six thread shapes (new, baseless, off-list base, off-list pin, listed base, off-list base whose stored effort the new base lacks) every plan that proceeds on an omitted `model` runs on a **listed** candidate, while an **explicit** off-list model is still rejected in every one of them, each rejection offering a listed base. A "do not reject what we just repaired" shortcut in guard 1 would satisfy `route-base-reseed` entirely and still let an explicit off-list model through |
+| `route-read-failure-inert` | on the router-**ON** path, an **unreadable** ladder (a candidate whose ladder filtered to nothing, or one carrying no profile at all) makes guard 2 stand **down** — the level goes to pi, which clamps it — and is not reported as an evidence gap either, since that would be a claim about data nobody could read; a malformed candidate never throws; a provider's `apiRejectedLevels` entry **still refuses** (a positive, readable fact bites even with no ladder), saying the ladder was not recorded rather than inventing one; and a **known** ladder still refuses an off-ladder level, so none of this is the guard being dead |
 | `route-ladder-per-model` | the ladder guard answers **per model**, never as a union: two ladders differing in *both* directions, so a union implementation fails whichever way it is built, and the reason names the offending model's own ladder |
 | `route-evidence-gap` | an unmeasured but ladder-valid level is dispatched **with** a warning and the proceed verdict carries the unmeasured marker; an unlisted table hole says so; `router.allowUnmeasuredEffort: false` refuses it instead; a measured level is silent and unmarked |
 | `route-api-rejected` | a level in `apiRejectedLevels` is refused **outright**, named as a guaranteed provider failure rather than an evidence gap, and not rescued by `allowUnmeasuredEffort` — while a normal level on the same model still proceeds |
@@ -673,7 +677,7 @@ session's frozen resolution carries:
 | `route-long-context` | the long-context **billing** notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a substitution the notice belongs to the model the action actually runs on |
 | `route-failover` | a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a **non-substituting** window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-off session keeps its pre-router failover behaviour exactly |
 | `route-lowest-effort` | the base-effort seed is the **lowest measured, non-provider-rejected** level on that model's ladder — never an evidence gap — ascending from pi's vocabulary rather than the table's authoring order, and `undefined` (pi's own default) when there is no measured level, the model is unlisted, the router is off, or the resolution is junk |
-| `route-off-ladder-source` | with the router **OFF** the ladder used for effort validation comes from the caller's **injected** profile source and nothing else: it is consulted by spec, it is authoritative (a level off it is refused even for a spec the shipped table has never heard of — the discriminating direction), a spec it **declines** is not judged at all, an absent source or a throwing lookup is inert, a foreign level is filtered out of the quoted ladder, and the module imports the shipped table **only as an erased type** (a text term, like `wiring`: it is what catches a runtime import of `findProfile` as a back door). It also **pins, without endorsing**, one current behaviour: an unusable *ladder* (throwing or non-array) refuses the level with an empty ladder instead of going inert — see the note below |
+| `route-off-ladder-source` | with the router **OFF** the ladder used for effort validation comes from the caller's **injected** profile source and nothing else: it is consulted by spec, it is authoritative (a level off a **known** ladder is refused even for a spec the shipped table has never heard of — the discriminating direction), a spec it **declines** is not judged at all, an absent source, a throwing lookup and an **unreadable ladder** (throwing or non-array) are all **inert** — the level is kept, with no unmeasured marker and no warning — a foreign level is filtered out of the quoted ladder, and the module imports the shipped table **only as an erased type** (a text term, like `wiring`: it is what catches a runtime import of `findProfile` as a back door) |
 | `route-hostile` | a hostile `model` or `effort` argument is stripped of control/ANSI bytes and length-capped before it reaches a rejection reason — that text goes to the orchestrator *and* to pi-tui, which renders escapes verbatim — while the rejection itself still happens |
 
 #### Documented coverage boundary of the `route-*` checks
@@ -700,13 +704,32 @@ listed so a reader never has to infer it:
   regression there — handing the planner the shipped table unvetted — would make
   the planner refuse effort levels for models the session cannot even run, and only
   a live session would show it.
-- **A flagged behaviour, pinned but not endorsed**: with the router off, an
-  injected source that profiles a spec but cannot produce a ladder (a throwing or
-  non-array `ladderFor`) currently makes the planner **refuse** the level with an
-  empty ladder, where the module's own stated rule for that path is "no ladder data
-  ⇒ no basis to refuse" (pi clamps). `route-off-ladder-source` pins today's
-  behaviour so a deliberate fix shows up as a failing term rather than passing
-  unnoticed; the fix itself belongs to `extension/route.ts`.
+- **Persisting the base repair.** `route-base-reseed` proves the planner *signals*
+  a re-seed (`baseReseeded` / `baseReseededFrom` / the re-derived `baseEffort`);
+  that `threads.ts` then writes those onto the thread record and saves the store —
+  which is what makes the repair and its warning happen **once per thread instead
+  of once per dispatch** — is caller behaviour and needs a live store. A regression
+  there is not silent in the same way (the warning would simply repeat), but it is
+  not caught here.
+- **The two-call protocol.** `threads.ts` calls `planRoute` twice per dispatch —
+  early, before any state mutation, and again at apply time once the context size
+  is knowable — and the early caller must discard the warnings so nothing
+  double-reports and guard 6's once-per-pair notice is not consumed twice. The
+  checks exercise one call at a time; the protocol itself is the caller's.
+- **How a verdict SURFACES to a user.** That a rejection becomes a tool error the
+  orchestrator can correct, and that a re-seed warning reaches the tool result and
+  the progress lines rather than only a log, is end-to-end behaviour. The module
+  owner exercises it with a live-session demo; nothing here can.
+- **The failover WIRING.** `route-failover` proves the carve-out's rules; that the
+  in-dispatch failover block is the thing that passes `failoverSwitch: true` (and
+  `failoverFrom`) is in `threads.ts`.
+
+One earlier entry has been **removed from this list because it was fixed**: an
+unreadable ladder used to make the planner refuse the level, contradicting the
+module's own "a failure to read evidence is not evidence of a problem" rule. The
+harness pinned that behaviour explicitly as *not endorsed*; the module now goes
+inert, and `route-off-ladder-source` and `route-read-failure-inert` assert the new
+behaviour on the router-OFF and router-ON paths respectively.
 
 Config-sanitizer wiring (`extension/index.ts`) — a **text** check:
 
@@ -785,9 +808,11 @@ written to avoid (`base-throwing-switch`). Three of those mutations also killed
 other `base-*` checks, which is expected: the requirement is that every check is
 killed by at least one mutation, not that a mutation kills only one check.
 
-The `route-*` checks likewise, **20 mutations, 20 killed** — one per check, plus a
+The `route-*` checks likewise, **27 mutations, 27 killed** — one per check, plus a
 second one for `route-resolved-pair`, whose model half and effort half are
-independent, and three for `route-off-ladder-source` (below). Each one is a defect that would leave the dispatch working: disabling the
+independent, three for `route-off-ladder-source` (below), and seven for the checks
+added or changed when the base-repair and read-failure rules landed (further
+below). Each one is a defect that would leave the dispatch working: disabling the
 vocabulary guard (the level then reaches the ladder guard and is complained about
 for the wrong reason); disabling the list guard; making the list guard ignore the
 router-OFF state; letting an `on: true` resolution with no candidates stay "on";
@@ -810,6 +835,19 @@ behavioural terms catch different defects: making the module fall back to the
 **shipped table** when no source is injected (caught by the text term alone — which
 is exactly why that term exists); judging a spec the injected source **declined**;
 and ignoring the injected **ladder** in favour of pi's whole vocabulary.
+
+The base-repair and read-failure checks were proven with one mutation each, all
+killed, and each is a plausible implementation rather than a strawman:
+
+| mutation | kills |
+| --- | --- |
+| refuse on an unreadable ladder (the pre-fix behaviour) | `route-off-ladder-source`, `route-read-failure-inert` |
+| drop guard 1's remediation clause | `route-list-on`, `route-base-reseed-guarded` |
+| repair the base but never signal it for persistence | `route-resolved-pair`, `route-base-reseed` |
+| read a non-string `effort` as absent (falls through to the base level) | `route-effort-type` — and only that check |
+| no base repair at all | `route-base-reseed` and three others |
+| "do not reject what we just repaired" in guard 1 — the hole the repair could open | `route-base-reseed-guarded`, `route-list-on` |
+| gate the `apiRejectedLevels` refusal on a readable ladder, so the positive fact stops biting | `route-read-failure-inert` — and only that check |
 
 ### The roster's own teeth
 

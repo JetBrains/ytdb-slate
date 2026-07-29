@@ -226,8 +226,12 @@ const STATE_IDS = ["spec-invisible", "spec-config-key"];
  */
 const ROUTE_IDS = [
 	"route-vocabulary",
+	"route-effort-type",
 	"route-list-on",
 	"route-list-off",
+	"route-base-reseed",
+	"route-base-reseed-guarded",
+	"route-read-failure-inert",
 	"route-resolution",
 	"route-resolved-pair",
 	"route-ladder-per-model",
@@ -1294,6 +1298,21 @@ try {
 		const verdict = (v) => (v.kind === "reject" ? `reject:${v.reason}` : `proceed:${v.model}@${v.effort}${v.effortUnmeasured ? "!" : ""}`);
 		const warns = (v, re) => v.warnings.filter((m) => re.test(m));
 		/**
+		 * planRoute, but a THROW becomes a verdict of its own kind instead of unwinding
+		 * the section. The module's contract is that it never throws (a rejection is a
+		 * return value), so a `threw:` verdict must FAIL the check that asked — with the
+		 * message in the observed value — rather than surface as a section crash naming no
+		 * claim. Used where a mutation is most likely to break that contract: the raw,
+		 * unvalidated argument paths.
+		 */
+		const planOrThrow = (input) => {
+			try {
+				return plan(input);
+			} catch (error) {
+				return { kind: "threw", reason: String(error?.message ?? error), warnings: [] };
+			}
+		};
+		/**
 		 * A verdict's reason, or "" for a PROCEED. Never `v.reason` directly: a term
 		 * that reads a missing reason THROWS, and a crashed section is a much worse
 		 * signal than a FAIL naming the term (TS1/TS2) — a mutation that turns a
@@ -1331,6 +1350,48 @@ try {
 			]);
 		});
 
+		await section("route-effort-type", async () => {
+			// GUARD 0, the TYPE half. A dispatch's `effort` arrives from a tool call, so its
+			// type is not guaranteed. Reading a non-string as ABSENT would silently fall
+			// through to the thread's base effort — the action would run at a level nobody
+			// asked for, which is the exact class of silent substitution the guards exist to
+			// prevent, and it would look like success. undefined and null stay absent: that is
+			// how an omitted optional argument arrives.
+			const res = routeResolution([{ spec: "p/a", ladder: ["low", "medium"], measured: ["low", "medium"] }]);
+			// A thread WITH a base effort, so a silent fall-through would be observable as
+			// "proceed:p/a@low" instead of a rejection.
+			const thread = { id: "t1", baseModel: "p/a", baseEffort: "low" };
+			const cyclic = {};
+			cyclic.self = cyclic; // JSON.stringify throws ⇒ exercises the display fallback
+			const nonStrings = [
+				["number", 7],
+				["object", { level: "high" }],
+				["array", ["high"]],
+				["boolean", true],
+				["function", () => "high"],
+				["cyclic object", cyclic],
+				["escape-bearing object", { "\u001b[31mred": "\u0007".repeat(300) }],
+			];
+			const got = nonStrings.map(([label, value]) => [label, planOrThrow({ resolution: res, thread, requestedEffort: value })]);
+			const notRejected = got.filter(([, v]) => v.kind !== "reject").map(([label, v]) => `${label}: ${verdict(v)}`);
+			const reasons = got.map(([, v]) => why(v));
+			const numberReason = why(got.find(([label]) => label === "number")[1]);
+			// undefined / null are ABSENT, and the base effort then legitimately applies.
+			const absent = [
+				planOrThrow({ resolution: res, thread, requestedEffort: undefined }),
+				planOrThrow({ resolution: res, thread, requestedEffort: null }),
+			];
+			checkAll("route-effort-type", "a non-STRING effort argument is REJECTED rather than read as absent — reading it as absent would silently run the action at the thread's base level instead — with a reason naming the type, the value and pi's levels, display-safe even for a cyclic or escape-bearing value; undefined and null stay absent, and the base effort then applies", [
+				["every non-string is rejected", notRejected.length === 0, notRejected],
+				["never throws (the module's contract)", got.every(([, v]) => v.kind !== "threw"), got.filter(([, v]) => v.kind === "threw").map(([label, v]) => `${label}: ${v.reason}`)],
+				["the reason names the type and the value", /got number 7/.test(numberReason), numberReason],
+				["...and pi's levels, so the caller can correct it", reasons.every((r) => r.includes("(off, minimal, low, medium, high, xhigh, max)")), reasons],
+				["display-safe: no control bytes, bounded", reasons.every((r) => !/[\u0000-\u001f\u007f\u009b]/.test(r) && r.length <= 400), reasons.map((r) => r.length)],
+				["the base effort was NOT silently used", got.every(([, v]) => v.kind === "reject"), got.map(([label, v]) => `${label}: ${verdict(v)}`)],
+				["undefined and null are absent, and the base effort applies", absent.every((v) => verdict(v) === "proceed:p/a@low"), absent.map((v) => verdict(v))],
+			]);
+		});
+
 		await section("route-list", async () => {
 			// GUARD 1, router ON: a resolved model outside the effective list is rejected,
 			// naming the whole list in resolution order and the base model to fall back to.
@@ -1340,15 +1401,26 @@ try {
 			]);
 			const onThread = plan({ resolution: res, thread: { id: "t1", baseModel: "p/cheap" }, requestedModel: "p/other" });
 			const onNew = plan({ resolution: res, requestedModel: "p/other" });
+			// A thread with NO stored base. The old premise here — "no base ⇒ no fallback
+			// clause to offer" — is GONE as of the base-repair rule (route.ts's THE ONE RULE):
+			// with the router ON a baseless thread is SEEDED, so the remediation clause is
+			// always present and always names a listed candidate. That is the point of the
+			// repair: the clause used to be able to name the very model it had just refused,
+			// or nothing at all.
 			const onNoBase = plan({ resolution: res, thread: { id: "t2" }, requestedModel: "p/other" });
+			const onOffListBase = plan({ resolution: res, thread: { id: "t3", baseModel: "p/legacy" }, requestedModel: "p/other" });
 			const listed = plan({ resolution: res, thread: { id: "t1", baseModel: "p/cheap" }, requestedModel: "p/dear" });
-			checkAll("route-list-on", "with the router ON a model outside the candidate list is REJECTED, naming every candidate in resolution order and — only when there is one — the base model to fall back to; a listed model routes that action", [
+			checkAll("route-list-on", "with the router ON a model outside the candidate list is REJECTED, naming every candidate in resolution order and a remediation clause that names a LISTED base to fall back to — for a thread with a listed base, for a thread whose base was just seeded or re-seeded, and for a thread that does not exist yet; a listed model routes that action", [
 				["rejected", onThread.kind === "reject", verdict(onThread)],
 				["names the offending model", /model "p\/other"/.test(why(onThread)), why(onThread)],
 				["names the whole list, in order", why(onThread).includes("model list is: p/cheap, p/dear"), why(onThread)],
 				["names the thread's base fallback", why(onThread).includes("omit it to use thread t1's base model (p/cheap)"), why(onThread)],
 				["a not-yet-created thread is named as such", why(onNew).includes("the new thread's base model (p/cheap)"), why(onNew)],
-				["no base ⇒ no fallback clause invented", onNoBase.kind === "reject" && !/omit it/.test(why(onNoBase)), why(onNoBase)],
+				// The two repaired shapes: the clause exists and names the SEEDED candidate,
+				// never nothing and never the refused model.
+				["a baseless thread still gets the clause, naming the seeded base", onNoBase.kind === "reject" && why(onNoBase).includes("omit it to use thread t2's base model (p/cheap)"), why(onNoBase)],
+				["an off-list base likewise names the RE-SEEDED base, not the refused model", onOffListBase.kind === "reject" && why(onOffListBase).includes("omit it to use thread t3's base model (p/cheap)") && !/base model \(p\/legacy\)/.test(why(onOffListBase)), why(onOffListBase)],
+				["...and the rejection still carries the repair's own warning", warns(onOffListBase, /Re-seeding the thread's base to p\/cheap/).length === 1, onOffListBase.warnings],
 				["a listed model routes the action", verdict(listed) === "proceed:p/dear@undefined", verdict(listed)],
 			]);
 
@@ -1374,6 +1446,132 @@ try {
 				["tracked base is re-validated as a spec", verdict(offJunkTracked) === "proceed:undefined@undefined", verdict(offJunkTracked)],
 				["no base effort is invented with the router off", offTracked.baseEffort === undefined, offTracked.baseEffort],
 				["the window guard does not run at all", offWindow.kind === "proceed" && offWindow.warnings.length === 0 && offWindow.substitutedFrom === undefined, [verdict(offWindow), offWindow.warnings]],
+			]);
+		});
+
+		await section("route-base-reseed", async () => {
+			// THE ONE RULE's repair half (route.ts module header): with the router ON a
+			// thread's base must be a listed candidate, so a base that is ABSENT or has fallen
+			// OFF the list is SEEDED to what a new thread would get — never refused. Both
+			// shapes are ordinary states, not corruption: a thread created before
+			// `router.models` existed has a pre-router pin or nothing, and a config change can
+			// drop a model an existing thread was based on. Refusing either would make the
+			// thread undispatchable through the one call shape that has nothing to correct
+			// (an omitted `model`); leaving a baseless thread alone is worse still — it runs
+			// outside the closed list silently, so the cost bound the list expresses simply
+			// does not apply and nothing says so.
+			const res = routeResolution([
+				{ spec: "p/cheap", tier: 1, price: 1, ladder: ["low", "medium"], measured: ["low", "medium"] },
+				{ spec: "p/dear", tier: 2, price: 5, ladder: ["low", "medium"], measured: ["low", "medium"] },
+			]);
+			const offList = plan({ resolution: res, thread: { id: "t1", baseModel: "p/gone", baseEffort: "high" } });
+			const baseless = plan({ resolution: res, thread: { id: "t2" } });
+			const listedPin = plan({ resolution: res, thread: { id: "t3", model: "p/dear" } });
+			const offListPin = plan({ resolution: res, thread: { id: "t4", model: "p/gone" } });
+			const listedBase = plan({ resolution: res, thread: { id: "t5", baseModel: "p/cheap", baseEffort: "medium" } });
+			const routerOff = plan({ resolution: router.ROUTER_OFF, thread: { id: "t6", baseModel: "p/gone" } });
+			// An explicit LISTED model on a thread being re-seeded: the repair is about the
+			// thread's DEFAULT, and this action's route is a separate fact — neither becomes
+			// the other.
+			const withExplicit = plan({ resolution: res, thread: { id: "t7", baseModel: "p/gone" }, requestedModel: "p/dear" });
+			// A resolution that is ON but carries nothing usable to seed FROM: the base is
+			// DROPPED (the dispatch falls through to the host model) rather than enforced
+			// against a list that could not be read — the documented exception.
+			const unusableList = plan({ resolution: { on: true, candidates: [{}] }, thread: { id: "t8", baseModel: "p/gone" } });
+			checkAll("route-base-reseed", "with the router ON a base that is off-list or ABSENT (including a pre-router `model` pin) is seeded to the cheapest preferred candidate with its effort re-derived, signalled for persistence (baseReseeded / baseReseededFrom) and warned about once — never refused; a listed base or pin is left untouched and silent; the router-OFF path is unaffected; an explicit route does not become the base; and a resolution with nothing usable to seed from drops the base instead of enforcing a list it could not read", [
+				["off-list base → seeded to the cheapest preferred candidate", verdict(offList) === "proceed:p/cheap@low", verdict(offList)],
+				["...signalled for persistence, naming what it replaced", offList.baseReseeded === true && offList.baseReseededFrom === "p/gone" && offList.baseModel === "p/cheap", [offList.baseReseeded, offList.baseReseededFrom, offList.baseModel]],
+				["...effort RE-DERIVED on the new base, discarding the stored level", offList.baseEffort === "low" && offList.effort === "low", [offList.baseEffort, offList.effort]],
+				["...one warning naming the old base, the list and the new base", warns(offList, /Re-seeding the thread's base to p\/cheap/).length === 1 && /p\/gone/.test(offList.warnings[0]) && /p\/cheap, p\/dear/.test(offList.warnings[0]), offList.warnings],
+				["baseless thread → seeded too", verdict(baseless) === "proceed:p/cheap@low" && baseless.baseReseeded === true, verdict(baseless)],
+				["...with nothing to name as replaced", baseless.baseReseededFrom === undefined, baseless.baseReseededFrom],
+				["...and a warning that says it had no base", warns(baseless, /has no base model/).length === 1 && /Seeding the thread's base to p\/cheap/.test(baseless.warnings[0]), baseless.warnings],
+				["a LISTED pre-router pin is the base, untouched and silent", verdict(listedPin) === "proceed:p/dear@undefined" && listedPin.baseReseeded !== true && listedPin.warnings.length === 0, [verdict(listedPin), listedPin.baseReseeded, listedPin.warnings]],
+				["an OFF-LIST pin is re-seeded, naming the pin as replaced", verdict(offListPin) === "proceed:p/cheap@low" && offListPin.baseReseededFrom === "p/gone", [verdict(offListPin), offListPin.baseReseededFrom]],
+				["a listed base with a stored effort is left exactly as it is", verdict(listedBase) === "proceed:p/cheap@medium" && listedBase.baseReseeded !== true && listedBase.warnings.length === 0, [verdict(listedBase), listedBase.baseReseeded, listedBase.warnings]],
+				["router OFF ⇒ no repair at all (the invariant does not apply)", verdict(routerOff) === "proceed:p/gone@undefined" && routerOff.baseReseeded !== true && routerOff.warnings.length === 0, [verdict(routerOff), routerOff.baseReseeded, routerOff.warnings]],
+				["an explicit route does not become the base, nor the base the route", withExplicit.model === "p/dear" && withExplicit.baseModel === "p/cheap" && withExplicit.baseReseeded === true, [withExplicit.model, withExplicit.baseModel, withExplicit.baseReseeded]],
+				["nothing usable to seed from ⇒ base dropped, no signal, no warning", unusableList.kind === "proceed" && unusableList.model === undefined && unusableList.baseModel === undefined && unusableList.baseReseeded !== true && unusableList.warnings.length === 0, [verdict(unusableList), unusableList.baseModel, unusableList.baseReseeded, unusableList.warnings]],
+			]);
+		});
+
+		await section("route-base-reseed-guarded", async () => {
+			// The repair must not open a HOLE. Stated as the module's final invariant: with
+			// the router ON, every plan that PROCEEDS runs on a listed candidate, and the only
+			// way to reach an unlisted model is to name one explicitly — which is refused, in
+			// every thread shape, including the two that were just repaired. A "do not reject
+			// what we just repaired" shortcut in guard 1 would satisfy every check in
+			// route-base-reseed and still let an explicit off-list model through.
+			const res = routeResolution([
+				{ spec: "p/cheap", tier: 1, price: 1, ladder: ["low", "medium"], measured: ["low", "medium"] },
+				{ spec: "p/dear", tier: 2, price: 5, ladder: ["low", "medium"], measured: ["low", "medium"] },
+			]);
+			const listedSpecs = res.candidates.map((c) => c.spec);
+			const shapes = [
+				["a thread that does not exist yet", undefined],
+				["a baseless thread", { id: "t1" }],
+				["an off-list base", { id: "t2", baseModel: "p/gone" }],
+				["an off-list pre-router pin", { id: "t3", model: "p/gone" }],
+				["a listed base", { id: "t4", baseModel: "p/dear" }],
+				// A stored effort that is off the RE-SEEDED base's ladder: the re-derivation must
+				// discard it, or the repair would hand the effort guard an impossible pair and
+				// the thread would stay undispatchable for a different reason.
+				["an off-list base with a stored effort the new base lacks", { id: "t5", baseModel: "p/gone", baseEffort: "max" }],
+			];
+			const omitted = shapes.map(([label, thread]) => [label, plan({ resolution: res, thread })]);
+			const offListed = omitted.filter(([, v]) => v.kind !== "proceed" || !listedSpecs.includes(v.model)).map(([label, v]) => `${label}: ${verdict(v)}`);
+			const explicitOffList = shapes.map(([label, thread]) => [label, plan({ resolution: res, thread, requestedModel: "p/gone" })]);
+			const notRejected = explicitOffList.filter(([, v]) => v.kind !== "reject").map(([label, v]) => `${label}: ${verdict(v)}`);
+			const clauseless = explicitOffList
+				.filter(([, v]) => !/omit it to use .* base model \((p\/cheap|p\/dear)\)/.test(why(v)))
+				.map(([label, v]) => `${label}: ${why(v)}`);
+			checkAll("route-base-reseed-guarded", "the base repair opens no hole: with the router ON every plan that PROCEEDS on an omitted `model` runs on a LISTED candidate, in every thread shape (new, baseless, off-list base, off-list pin, listed base, off-list base with an unusable stored effort) — while an EXPLICIT off-list model is still rejected in every one of those shapes, with a remediation clause that names a listed base", [
+				["every omitted-model plan proceeds on a listed candidate", offListed.length === 0, offListed],
+				["an explicit off-list model is rejected in every shape", notRejected.length === 0, notRejected],
+				["every rejection offers a listed base to fall back to", clauseless.length === 0, clauseless],
+				["the fixture really did cover all six shapes", omitted.length === 6 && explicitOffList.length === 6, [omitted.length, explicitOffList.length]],
+			]);
+		});
+
+		await section("route-read-failure-inert", async () => {
+			// A FAILURE TO READ EVIDENCE IS NOT EVIDENCE OF A PROBLEM (route.ts module
+			// header), on the router-ON path: when the ladder of the model in hand cannot be
+			// read — a candidate whose ladder filtered to nothing, or one carrying no profile
+			// at all — guard 2 stands DOWN. Refusing there would turn one broken data source
+			// into an outage: every explicit effort level on that model becomes a hard
+			// dispatch rejection, which is exactly what used to happen.
+			// The narrow, deliberate exception is a POSITIVE fact that is still readable: an
+			// apiRejectedLevels entry refuses the level even with an unreadable ladder.
+			const unreadable = routeResolution([
+				// A ladder of only foreign levels filters to empty — "unknown", not "no levels".
+				{ spec: "p/nol", ladder: ["LOUD", "fast"], measured: ["medium"], gaps: [] },
+			]);
+			const inert = plan({ resolution: unreadable, requestedModel: "p/nol", requestedEffort: "high" });
+			const inertMeasured = plan({ resolution: unreadable, requestedModel: "p/nol", requestedEffort: "medium" });
+			const hard = routeResolution([
+				{ spec: "p/hard", ladder: ["LOUD"], measured: ["medium"], gaps: [], apiRejected: ["off"] },
+			]);
+			const stillRefused = plan({ resolution: hard, requestedModel: "p/hard", requestedEffort: "off" });
+			const otherLevel = plan({ resolution: hard, requestedModel: "p/hard", requestedEffort: "high" });
+			// A malformed CANDIDATE: listed, but carrying neither profile nor ladder.
+			const malformed = planOrThrow({
+				resolution: { on: true, candidates: [{ spec: "p/x" }], cheapest: "p/x" },
+				requestedModel: "p/x",
+				requestedEffort: "max",
+			});
+			// The negative control: a KNOWN ladder still guards, so the terms above cannot
+			// pass by the guard being dead altogether.
+			const known = routeResolution([{ spec: "p/known", ladder: ["low", "medium"], measured: ["low", "medium"] }]);
+			const stillGuards = plan({ resolution: known, requestedModel: "p/known", requestedEffort: "high" });
+			checkAll("route-read-failure-inert", "an UNREADABLE ladder on the router-ON path makes the ladder guard stand down rather than refuse — the level goes to pi, which clamps it — and it is not reported as an evidence gap either, because that would be a claim about data nobody could read; a malformed candidate behaves the same and never throws; a provider's apiRejectedLevels entry STILL refuses (a positive readable fact bites); and a KNOWN ladder still guards, so none of this is the guard being dead", [
+				["unreadable ladder ⇒ the level is kept, not refused", verdict(inert) === "proceed:p/nol@high", verdict(inert)],
+				["...with no unmeasured marker and no warning", inert.effortUnmeasured === false && inert.warnings.length === 0, [inert.effortUnmeasured, inert.warnings]],
+				["...for a measured level too", verdict(inertMeasured) === "proceed:p/nol@medium" && inertMeasured.warnings.length === 0, [verdict(inertMeasured), inertMeasured.warnings]],
+				["a malformed candidate is inert as well, and never throws", verdict(malformed) === "proceed:p/x@max" && malformed.warnings.length === 0, [verdict(malformed), malformed.warnings]],
+				["an API-rejected level STILL refuses with an unreadable ladder", stillRefused.kind === "reject" && /rejected outright by the provider/.test(why(stillRefused)), verdict(stillRefused)],
+				["...saying the ladder was not recorded, rather than inventing one", /ladder: \(none recorded\)/.test(why(stillRefused)), why(stillRefused)],
+				["...while another level on that same model stays inert", verdict(otherLevel) === "proceed:p/hard@high", verdict(otherLevel)],
+				["a KNOWN ladder still refuses an off-ladder level (negative control)", stillGuards.kind === "reject" && /effort ladder \(low, medium\)/.test(why(stillGuards)), verdict(stillGuards)],
 			]);
 		});
 
@@ -1411,6 +1609,11 @@ try {
 			// those must be validated too. A suite that only ever passed explicit arguments
 			// would miss the most common real dispatch entirely.
 			const res = routeResolution([{ spec: "p/listed", ladder: ["low", "medium"], measured: ["low", "medium"] }]);
+			// An off-list stored base is REPAIRED, not refused (route.ts's THE ONE RULE):
+			// every dispatch that omits `model` resolves to the base, so refusing it would
+			// make the thread undispatchable through the one call shape that has nothing to
+			// correct. The repair's own signals and warning are asserted in route-base-reseed;
+			// here the point is only that an OMITTED model is still fully resolved and judged.
 			const baseUnlisted = plan({ resolution: res, thread: { id: "t7", baseModel: "p/legacy" } });
 			const baseEffortBad = plan({ resolution: res, thread: { id: "t7", baseModel: "p/listed", baseEffort: "max" } });
 			const bothValid = plan({ resolution: res, thread: { id: "t7", baseModel: "p/listed", baseEffort: "low" } });
@@ -1419,8 +1622,11 @@ try {
 			// An omitted model with no thread base at all: the effort still has to be judged
 			// against the model the worker session will actually OPEN on (the host's).
 			const hostFallback = plan({ resolution: res, thread: { id: "t8" }, requestedEffort: "max", hostModel: "p/listed" });
-			checkAll("route-resolved-pair", "an OMITTED model and an OMITTED effort still go through the guards, because they fall through to the thread's base values: an unlisted base model and an off-ladder base effort are each rejected, a valid base pair proceeds and is echoed back, a pre-router `model` pin still reads as the base, a new thread is seeded with the cheapest candidate at its lowest MEASURED level, and an omitted model falls back to the host model for the effort check", [
-				["unlisted BASE model is rejected", baseUnlisted.kind === "reject" && /p\/legacy/.test(why(baseUnlisted)), verdict(baseUnlisted)],
+			checkAll("route-resolved-pair", "an OMITTED model and an OMITTED effort still go through the guards, because they fall through to the thread's base values: an unlisted base model is RE-SEEDED to a listed candidate (signalled for persistence, effort re-derived, one warning) rather than rejected, an off-ladder base effort IS rejected, a valid base pair proceeds and is echoed back, a pre-router `model` pin still reads as the base, a new thread is seeded with the cheapest candidate at its lowest MEASURED level, and an omitted model falls back to the host model for the effort check", [
+				["an unlisted BASE model is re-seeded to a listed candidate, not rejected", verdict(baseUnlisted) === "proceed:p/listed@low", verdict(baseUnlisted)],
+				["...signalled for persistence, naming what it replaced", baseUnlisted.baseReseeded === true && baseUnlisted.baseReseededFrom === "p/legacy" && baseUnlisted.baseModel === "p/listed", [baseUnlisted.baseReseeded, baseUnlisted.baseReseededFrom, baseUnlisted.baseModel]],
+				["...with the base effort re-derived on the NEW base", baseUnlisted.baseEffort === "low", baseUnlisted.baseEffort],
+				["...and one warning naming the re-seed", warns(baseUnlisted, /Re-seeding the thread's base to p\/listed/).length === 1, baseUnlisted.warnings],
 				["off-ladder BASE effort is rejected", baseEffortBad.kind === "reject" && /effort "max"/.test(why(baseEffortBad)), verdict(baseEffortBad)],
 				["...naming that model's ladder", /\(low, medium\)/.test(why(baseEffortBad)), why(baseEffortBad)],
 				["a valid base pair proceeds", verdict(bothValid) === "proceed:p/listed@low", verdict(bothValid)],
@@ -1760,12 +1966,14 @@ try {
 				},
 			});
 			// A source that PROFILES the spec but cannot produce a ladder (throwing, or
-			// handing back a non-array — what a prototype-key lookup returns). Today both
-			// yield an EMPTY ladder, which guard 2 then treats as "nothing is on the ladder"
-			// and REFUSES the level. Pinned below as current behaviour, and flagged: the
-			// module's own rule for the router-off path is "no ladder data ⇒ no basis to
-			// refuse" (pi clamps), which would make these inert like the two cases above.
-			// A deliberate fix in route.ts will fail that term, which is the point.
+			// handing back a non-array — what a prototype-key lookup returns). Both yield an
+			// EMPTY ladder, which is "unknown", NOT "this model offers no levels": guard 2
+			// stands down and the level goes to pi, which clamps it (route.ts's A FAILURE TO
+			// READ EVIDENCE IS NOT EVIDENCE OF A PROBLEM). It must also not be reported as an
+			// evidence gap — that would be a claim about a ladder nobody could read — so the
+			// unmeasured marker stays clear and nothing is warned.
+			// (This replaces a term that pinned the OPPOSITE, pre-fix behaviour: an
+			// unreadable ladder used to refuse the level outright.)
 			const throwingLadder = plan({
 				resolution: off,
 				requestedModel: "p/offrouter",
@@ -1799,7 +2007,7 @@ try {
 			// the paths a check exercised".
 			const src = readFileSync(join(REPO, "extension", "route.ts"), "utf8");
 			const tableImports = [...src.matchAll(/^import\s+(type\s+)?[^;]*from\s+"\.\/model-profiles\.ts";/gm)];
-			checkAll("route-off-ladder-source", "with the router OFF the effort ladder comes from the CALLER's injected profile source and nothing else: it is consulted by spec, it is authoritative (a level off it is refused even for a spec the shipped table has never heard of), a spec it DECLINES is not judged at all, an absent source or a throwing lookup is inert while an unusable LADDER currently refuses (pinned, not endorsed), a foreign level is filtered out, and the module imports the shipped table only as an erased type", [
+			checkAll("route-off-ladder-source", "with the router OFF the effort ladder comes from the CALLER's injected profile source and nothing else: it is consulted by spec, it is authoritative (a level off a KNOWN ladder is refused even for a spec the shipped table has never heard of), a spec it DECLINES is not judged at all, an absent source / a throwing lookup / an unreadable ladder are all INERT rather than refusing, a foreign level is filtered out, and the module imports the shipped table only as an erased type", [
 				["the injected source is consulted, by spec", calls.includes("findProfile:p/offrouter"), calls],
 				["...and asked for that profile's ladder", calls.includes("ladderFor:p/offrouter"), calls],
 				["authoritative: a level off the injected ladder is refused", judged.kind === "reject" && /p\/offrouter's effort ladder \(medium\)/.test(why(judged)), verdict(judged)],
@@ -1808,16 +2016,22 @@ try {
 				["...silently", declined.warnings.length === 0, declined.warnings],
 				["no source at all ⇒ inert", verdict(noSource) === "proceed:p/offrouter@high", verdict(noSource)],
 				["a throwing profile LOOKUP ⇒ inert (no profile ⇒ no basis to refuse)", verdict(throwingFind) === "proceed:p/offrouter@high", verdict(throwingFind)],
-				// PINNED, NOT ENDORSED (see the note above the fixture): an unusable LADDER
-				// currently refuses the level instead of going inert. Neither case crashes.
+				// An unreadable LADDER is INERT: proceed, on the level that was asked for.
 				[
-					"an unusable LADDER (throwing or non-array) currently REFUSES the level with an empty ladder — pinned; the module's 'no ladder data ⇒ no basis to refuse' rule would make it inert",
-					throwingLadder.kind === "reject" &&
-						nonArrayLadder.kind === "reject" &&
-						/effort ladder \(\(none recorded\)\)/.test(why(throwingLadder)) &&
-						/effort ladder \(\(none recorded\)\)/.test(why(nonArrayLadder)),
+					"an unusable LADDER (throwing or non-array) is INERT — the level is kept, not refused",
+					verdict(throwingLadder) === "proceed:p/offrouter@high" && verdict(nonArrayLadder) === "proceed:p/offrouter@high",
 					[verdict(throwingLadder), verdict(nonArrayLadder)],
 				],
+				[
+					"...carrying no unmeasured marker and no warning: an unreadable ladder is not an evidence gap either",
+					throwingLadder.effortUnmeasured === false &&
+						nonArrayLadder.effortUnmeasured === false &&
+						throwingLadder.warnings.length === 0 &&
+						nonArrayLadder.warnings.length === 0,
+					[throwingLadder.effortUnmeasured, throwingLadder.warnings, nonArrayLadder.effortUnmeasured, nonArrayLadder.warnings],
+				],
+				// A ladder with a mix of foreign and real levels is still KNOWN (the real ones
+				// survive the filter), so guard 2 fires — and quotes only the real ones.
 				["a foreign level never reaches the quoted ladder", foreign.kind === "reject" && /effort ladder \(medium\)/.test(why(foreign)) && !/LOUD|fast/.test(why(foreign)), why(foreign)],
 				["the shipped table is imported only as an erased type", tableImports.length > 0 && tableImports.every((m) => m[1] !== undefined), tableImports.map((m) => m[0])],
 			]);
@@ -2503,7 +2717,8 @@ try {
 		"router-effort", "router-effort-gap", "router-effort-hard", "router-ladder-validation", "router-effort-off",
 		"router-hostile", "router-robust",
 		"router-config-default", "router-config-invalid", "router-shipped-default",
-		"route-load", "route-vocabulary", "route-list-on", "route-list-off", "route-resolution",
+		"route-load", "route-vocabulary", "route-effort-type", "route-list-on", "route-list-off",
+		"route-base-reseed", "route-base-reseed-guarded", "route-read-failure-inert", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
 		"route-failover", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
