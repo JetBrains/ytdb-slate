@@ -603,7 +603,14 @@ const PROFILES: ModelProfile[] = [
 	},
 	{
 		id: "anthropic/claude-haiku-4-5",
-		aliases: [], // the canonical id is already the provider-qualified form; no other spelling is traced [G3]
+		// The dated PINNED-SNAPSHOT id, from the same [G3] row as the prices:
+		// "`claude-haiku-4-5` (`claude-haiku-4-5-20251001`)". Provider-qualified
+		// first so it survives a canonical provider/id gate, bare spelling beside
+		// it. Anthropic's 5-generation ids are dateless pinned snapshots [A1], so
+		// only this pre-4.6 model has a dated form; the two cheap-tier OpenAI
+		// models' dated snapshot ids are already their canonical `id` here, and
+		// the routed six publish none at all [O1 "no dated snapshot IDs", A1].
+		aliases: ["anthropic/claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001"],
 		price: [
 			{
 				from: null, // UNKNOWN start date [G3]
