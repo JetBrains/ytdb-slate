@@ -11,14 +11,46 @@
 
 import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+// TYPE-ONLY: the effort vocabulary is defined once, in the profile table
+// (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
+// union. The import is erased at load time, so it adds no runtime dependency to
+// this module — state.ts stays the leaf of the graph (see the model-spec note
+// below on why that matters).
+import type { ThinkingLevel } from "./model-profiles.ts";
 import { sanitizeForNotify } from "./notify.ts";
 
+/**
+ * ADDITIVE TOLERANCE (the persistence model has no migration hook): the
+ * snapshot below is UNVERSIONED, so a record restored from an older session
+ * file simply lacks whatever fields were added since. Every field added to
+ * ThreadRecord/EpisodeRecord is therefore OPTIONAL and its ABSENCE must read as
+ * "unknown" — never as a default value that would be wrong. The routing fields
+ * are the current example: an absent `baseModel` means "this thread predates
+ * per-action routing", which the dispatch path answers by falling back to the
+ * pre-router `model` field and then to the host default, not by inventing a base.
+ */
 export interface ThreadRecord {
 	id: string; // "t1", "t2", ...
 	name: string;
 	sessionFile: string; // absolute path to worker .jsonl ("" until first dispatch completes session creation)
 	status: "idle" | "running";
-	model?: string; // "provider/id" when overridden at creation
+	/**
+	 * PRE-ROUTER pin: "provider/id" passed as `model` when the thread was created
+	 * WITH THE ROUTER OFF, which is exactly the pre-router behaviour (that model
+	 * then governs every later dispatch on the thread). With the router ON a
+	 * `model` argument routes ONE action and is deliberately NOT recorded here —
+	 * see `baseModel`.
+	 */
+	model?: string;
+	/**
+	 * The thread's DEFAULT model, canonical "provider/id" — what a dispatch that
+	 * omits `model` runs on. DISTINCT from whatever a single action was routed to:
+	 * a routed action never becomes the thread's base. Absent = unknown (an older
+	 * snapshot, or a session whose model could not be resolved at creation).
+	 */
+	baseModel?: string;
+	/** The thread's DEFAULT effort level. Absent = unknown ⇒ pi's own default applies. */
+	baseEffort?: ThinkingLevel;
 	episodeIds: string[];
 	episodeSeq: number; // monotonic per-thread episode counter
 	createdAt: number;
@@ -31,6 +63,12 @@ export interface EpisodeRecord {
 	task: string;
 	status: "ok" | "failed";
 	file: string; // absolute path to episode .md
+	/** "provider/id" the action ACTUALLY ran on (post-failover). Absent = unknown. */
+	model?: string;
+	/** Effort level the action ACTUALLY ran at (post-clamp). Absent = unknown. */
+	effort?: ThinkingLevel;
+	/** Set only when that effort level has NO capability measurement in the profile data. */
+	effortUnmeasured?: true;
 	createdAt: number;
 }
 

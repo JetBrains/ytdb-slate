@@ -20,7 +20,11 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"to continue that thread — it retains the context of all its previous actions.",
 			"Use `context` to inject prior episodes (by id, from any thread) into the action.",
 			"Threads are serial; to parallelize, dispatch to DIFFERENT threads in one message.",
-			"`model` (\"provider/id\") and `tools` apply only when creating a new thread.",
+			"`model` (\"provider/id\") and `effort` (pi thinking level) apply to THE DISPATCHED ACTION,",
+			"on a new thread and on a continuation alike; omit them to run on the thread's own defaults.",
+			"`tools` applies only when creating a new thread.",
+			"A rejected model or effort comes back as a tool error naming what is allowed; advisory",
+			"notices (evidence gaps, cost cliffs) are prefixed to the episode as ⚠ lines.",
 			"An episode header of STATUS: FAILED means the action failed — read it and adapt.",
 			"Tasks that modify repository files require the track workflow's pre-implementation gates to have run first.",
 		].join(" "),
@@ -36,7 +40,16 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			context: Type.Optional(
 				Type.Array(Type.String(), { description: "Episode ids to inject as context (e.g. [\"t1.e2\"])" }),
 			),
-			model: Type.Optional(Type.String({ description: "Worker model \"provider/id\" (new threads only)" })),
+			model: Type.Optional(
+				Type.String({ description: "Worker model \"provider/id\" for THIS action; omit to use the thread's base model" }),
+			),
+			effort: Type.Optional(
+				Type.String({
+					description:
+						"Thinking level for THIS action: off, minimal, low, medium, high, xhigh or max " +
+						"(only levels the target model offers); omit to use the thread's base effort",
+				}),
+			),
 			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
 		}),
 
@@ -60,6 +73,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					task: params.task,
 					contextEpisodeIds: params.context,
 					model: params.model,
+					effort: params.effort,
 					tools: params.tools,
 				},
 				ctx,
@@ -67,15 +81,28 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				onProgress,
 			);
 
-			const headline = `[episode ${result.episode.id} | thread ${result.thread.id} "${result.thread.name}" | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}]`;
+			const ran = result.episode.model
+				? ` | ran on ${result.episode.model}${result.episode.effort ? ` @${result.episode.effort}` : ""}${
+						result.episode.effortUnmeasured ? " (unmeasured level)" : ""
+					}`
+				: "";
+			const headline = `[episode ${result.episode.id} | thread ${result.thread.id} "${result.thread.name}" | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}${ran}]`;
+			// Routing notices reach the ORCHESTRATOR, not just the TUI: an evidence gap,
+			// a window substitution or a long-context billing cliff changes what the next
+			// dispatch should ask for, so they ride in the tool result above the episode.
+			const notices = result.warnings.length > 0 ? `${result.warnings.map((w) => `⚠ ${w}`).join("\n")}\n\n` : "";
 			return {
-				content: [{ type: "text", text: `${headline}\n\n${result.episodeText}` }],
+				content: [{ type: "text", text: `${headline}\n\n${notices}${result.episodeText}` }],
 				details: {
 					threadId: result.thread.id,
 					threadName: result.thread.name,
 					episodeId: result.episode.id,
 					status: result.episode.status,
 					episodeFile: result.episode.file,
+					model: result.episode.model,
+					effort: result.episode.effort,
+					effortUnmeasured: result.episode.effortUnmeasured,
+					warnings: result.warnings,
 					usage: result.usage,
 					done: true,
 				},
@@ -94,7 +121,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		name: "threads",
 		label: "Threads",
 		description:
-			"List all worker threads: id, name, status, episodes so far, and last activity. " +
+			"List all worker threads: id, name, status, episodes so far, last activity, and models — " +
+			"base=<the thread's default model>@<effort> (what a dispatch that omits `model` runs on) and " +
+			"last=<the model its last action actually ran on>@<effort>. " +
 			"Use this to decide whether to continue an existing thread or create a new one.",
 		promptSnippet: "List worker threads and their episodes",
 		parameters: Type.Object({}),
@@ -105,19 +134,31 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			}
 			const lines = threads.map((t) => {
 				const episodes = t.episodeIds.length > 0 ? t.episodeIds.join(", ") : "(none)";
-				// AF12: after a model failover the LIVE cached session runs a
-				// different model than configured — show "model=A ⇒B (live)", or
-				// "model=B (live)" when no model was configured (the live model is
-				// otherwise just the host default and not worth showing). The marker
-				// disappears when the session is disposed: a reopen reverts to the
-				// configured model because failover is not persisted.
+				const marks: string[] = [];
+				// The thread's DEFAULT model — what a dispatch that omits `model` runs on
+				// (?? t.model: a thread created before per-action routing existed carries
+				// only the pre-router pin). Absent for a thread whose base could not be
+				// resolved: it then runs on the host's current model, as it always did.
+				const base = t.baseModel ?? t.model;
+				if (base) marks.push(`base=${base}${t.baseEffort ? `@${t.baseEffort}` : ""}`);
+				// The LAST ACTION's model — which may differ from the base on every axis:
+				// an explicit per-action route, a window substitution, or a failover.
+				const lastEpisode = t.episodeIds.length > 0 ? store.episodes.get(t.episodeIds[t.episodeIds.length - 1]) : undefined;
+				if (lastEpisode?.model) {
+					marks.push(
+						`last=${lastEpisode.model}${lastEpisode.effort ? `@${lastEpisode.effort}` : ""}${
+							lastEpisode.effortUnmeasured ? "(unmeasured)" : ""
+						}`,
+					);
+				}
+				// AF12: after a model failover the LIVE cached session runs a different
+				// model than the thread's base. The marker disappears when the session is
+				// disposed, or when a later dispatch routes that session explicitly:
+				// failover is never persisted to the thread record.
 				const live = getManager().liveFailoverModel(t.id);
-				const model = live
-					? ` model=${t.model ? `${t.model} ⇒` : ""}${live} (live)`
-					: t.model
-						? ` model=${t.model}`
-						: "";
-				return `${t.id} "${t.name}" [${t.status}]${model} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
+				if (live) marks.push(`live=${live} (failover)`);
+				const models = marks.length > 0 ? ` ${marks.join(" ")}` : "";
+				return `${t.id} "${t.name}" [${t.status}]${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
 			});
 			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length } };
 		},
