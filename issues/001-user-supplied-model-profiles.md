@@ -1,7 +1,8 @@
 # 001 — User-supplied model profiles (`router.profilesPath`)
 
-**Status:** open, deferred out of the initial router change (decision
-D7). **Type:** feature.
+**Status:** open, deferred out of the initial router change by
+**model-router decision D7** (see the decision-id note in this
+directory's README). **Type:** feature.
 
 Let a project add model profiles, or override shipped ones, from its
 own configuration — so a model the shipped table has never heard of
@@ -9,25 +10,29 @@ can still be routed.
 
 ## The problem
 
-The router routes only models it has a profile for. An unprofiled
-model is warned about and excluded from selection: the router will not
-invent a tier, a price, or an effort ladder for a model it has no
-traced evidence about, because a guessed profile is exactly the
-failure mode the research provenance exists to prevent.
+Only a model with a profile can become a routing candidate. An
+unprofiled entry in the configured model list is warned about by name
+and dropped: the router will not invent a tier, a price, or an effort
+ladder for a model it has no traced evidence about, because a guessed
+profile is exactly the failure mode the research provenance exists to
+prevent. ("Effort" here is pi's thinking level: one ladder, two names —
+the research directory's README states the equivalence.)
 
-The consequence is a release-cadence coupling. A model released the
-day after a Slate release is unroutable until a Slate release ships a
-profile for it, no matter how well the user knows that model. The user
-can still name it by hand at the session level, but it cannot
-participate in routing — the feature silently does not apply to the
-newest and often most interesting model on the user's account. Worse,
-the same applies to models that will never be in the shipped table at
-all: an internal, self-hosted, or preview model that a project has
-real access to and real measurements for.
+That exclusion already happens at this commit, in the resolver. What it
+costs only becomes visible once the dispatch path consumes the resolver
+(Track 02), and the cost is a release-cadence coupling: a model
+released the day after a Slate release will be unroutable until a Slate
+release ships a profile for it, no matter how well the user knows that
+model. The user can still name such a model by hand at the session
+level, but it will not be able to participate in routing — the feature
+would silently not apply to the newest and often most interesting model
+on the user's account. Worse, the same holds for models that will never
+be in the shipped table at all: an internal, self-hosted, or preview
+model that a project has real access to and real measurements for.
 
 So the router's most conservative property — refuse to route what you
-cannot trace — becomes its sharpest usability edge, and the user has
-no way to supply the tracing themselves.
+cannot trace — becomes its sharpest usability edge, and the user has no
+way to supply the tracing themselves.
 
 ## Precedent to follow
 
@@ -50,16 +55,18 @@ the keys that already steer models, prompts, and tool lists.
 
 ## Shape of the solution
 
-A `router.profilesPath` key naming one project file of model profiles,
-in the same field vocabulary the shipped table uses. Merge semantics
-by model reference: an entry for a model the shipped table does not
-know **adds** a profile and makes that model routable; an entry for a
-model the shipped table does know **overrides** it, wholly rather than
-field-by-field, so a user-supplied profile is never a half-shipped,
-half-local hybrid nobody can reason about. Read once, at session
-start, like the rest of the router's configuration. Malformed entries
-dropped individually with a warning, the rest of the file still
-applied — the same forgiveness the failover map already gives.
+A `router.profilesPath` key — a third key in the existing `router`
+config block, beside `models` and `allowUnmeasuredEffort` — naming one
+project file of model profiles, in the same field vocabulary the shipped
+table uses. Merge semantics by model reference: an entry for a model the
+shipped table does not know **adds** a profile and makes that model
+routable; an entry for a model the shipped table does know **overrides**
+it, wholly rather than field-by-field, so a user-supplied profile is
+never a half-shipped, half-local hybrid nobody can reason about. Read
+once, at session start, like the rest of the router's configuration.
+Malformed entries dropped individually with a warning, the rest of the
+file still applied — the same forgiveness the failover map already
+gives.
 
 ## Validation questions this raises
 
@@ -76,14 +83,15 @@ before implementation, not during:
   file, and what should the router do with an entry whose date is
   older than the shipped table's?
 - **Must local data be distinguishable from shipped data?** Two
-  surfaces care. In **warnings**, a user debugging an odd route needs
-  to know whether the profile that produced it came from the package
-  or from their own file — an unmarked override is a silent
-  action-at-a-distance bug. In the **injected doctrine**, the
-  orchestrator is reasoning about the routing table as evidence; if
-  local and shipped rows are indistinguishable there, the doctrine's
-  own evidence discipline is quietly weakened, and the model cannot
-  express appropriate scepticism about a row it should be sceptical of.
+  surfaces would care. In the resolver's **warnings**, a user debugging
+  an odd route needs to know whether the profile that produced it came
+  from the package or from their own file — an unmarked override is a
+  silent action-at-a-distance bug. In the
+  **doctrine section** Track 02 is to inject, the orchestrator will be
+  reasoning about the routing table as evidence; if local and shipped
+  rows are indistinguishable there, the doctrine's own evidence
+  discipline is quietly weakened, and the model cannot express
+  appropriate scepticism about a row it should be sceptical of.
 - **What is the override blast radius?** Overriding a shipped profile
   can move a tier boundary and therefore change routes for models the
   user never mentioned. Is that acceptable silently, reportable, or
@@ -95,12 +103,12 @@ before implementation, not during:
 
 ## Why it was deferred, not dropped
 
-Deferred because the initial change has to establish that
-action-level routing works at all, and it cannot do that and settle
-the trust model for untraced profile data in the same review. The
-questions above are about **how much authority unverified data gets**
-— the same question the research provenance answers for shipped data,
-answered again for a source with no audit trail. Landing a config key
+Deferred because the initial change has to establish that action-level
+routing works at all, and it cannot do that and settle the trust model
+for untraced profile data in the same review. The questions above are
+about **how much authority unverified data gets** — the same question
+the research provenance answers for shipped data, answered again for a
+source with no audit trail. Landing a config key
 first and deciding its trust semantics later would ship exactly the
 ungrounded-numbers failure the tracing rule was written to prevent.
 

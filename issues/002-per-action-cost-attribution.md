@@ -1,7 +1,8 @@
 # 002 — Per-action cost attribution
 
-**Status:** open, deferred out of the initial router change (decision
-D10). **Type:** observability.
+**Status:** open, deferred out of the initial router change by
+**model-router decision D10** (see the decision-id note in this
+directory's README). **Type:** observability.
 
 Record and surface what each routed action cost, instead of only what
 a thread cost in total.
@@ -17,14 +18,17 @@ that ran nine cheap mechanical actions and one expensive architectural
 one leaves behind a contribution to one total that cannot be split
 back apart.
 
-That was adequate while a thread ran on one model for its whole life:
-the aggregate was the cost of that model doing that work, and the only
-lever was the thread's model. Action-level routing breaks the
-assumption. Now consecutive actions on the same thread can run on
-different models at different effort levels, so the total is a sum over
-a mix whose composition is recorded nowhere. Nothing in the episode
-record or the thread listing answers either of the two questions a user
-will actually ask:
+That is adequate while a thread runs on one model for its whole life,
+which is the behaviour at this commit: the aggregate is the cost of that
+model doing that work, and the only lever is the thread's model.
+Action-level routing breaks the assumption — once the dispatch path
+consumes the router (Track 02), consecutive actions on the same thread
+will run on different models at different effort levels, and the total
+becomes a sum over a mix whose composition is recorded nowhere.
+("Effort" is pi's thinking level: one ladder, two names — the research
+directory's README states the equivalence.) Neither the episode record
+nor the thread listing can then answer either of the two questions a
+user will ask:
 
 - **What did *this* action cost?** — the per-action question, needed to
   notice that one routing decision is responsible for most of a
@@ -45,21 +49,21 @@ routing decision that produced it:
 
 - **Cost per episode**, recorded alongside the model and the effort
   level *actually used* — not the level requested. Failover, a
-  worker-session model switch, and an effort downgrade all mean the
-  request and the reality can differ, and it is the reality that
-  bills. Compression cost belongs with it and should be visible as
-  its own component, since it is charged to a different model than the
-  action.
+  worker-session model switch, and (once Track 02 lands) a routing
+  decision or an effort downgrade all mean the request and the reality
+  can differ, and it is the reality that bills. Compression cost
+  belongs with it and should be visible as its own component, since it
+  is charged to a different model than the action.
 - **Surfaced in the episode header**, next to the existing
   compressor line, so the cost of an action is visible where the
   action's outcome is already read.
 - **Surfaced in the thread listing**, so a thread's aggregate is
   decomposable into its actions without opening each episode — the
   listing is where a user goes when a thread looks expensive.
-- **Aggregated for the orchestrator**, so the routing rules can be
+- **Aggregated for the orchestrator**, so routing rules can be
   evaluated against outcomes rather than argued about. The
-  orchestrator makes the routing decisions; it is the one participant
-  currently unable to see their consequences.
+  orchestrator is to make the routing decisions (Track 02); it would
+  be the one participant unable to see their consequences.
 
 Sequencing note: the recording is the load-bearing part. Once cost is
 on the episode alongside the model and effort actually used, every
@@ -73,11 +77,11 @@ work that measurably needs it. That justification is a quantitative
 claim about money.
 
 **A cost-bounding feature that cannot measure its own savings is
-unfalsifiable.** With aggregate-only accounting there is no
-observation that could show the router made things worse, so there is
-also no observation that shows it made things better — the feature can
-only ever be believed or disbelieved. And the router has at least one
-known mechanism for making things worse that this blindness hides
+unfalsifiable.** With aggregate-only accounting there is no observation
+that could show the router made things worse, so there is also no
+observation that shows it made things better — the feature can only
+ever be believed or disbelieved. And the router has at least one known
+mechanism for making things worse that this blindness would hide
 directly: a mid-thread model switch cold-starts the prompt cache, and
 long threads run overwhelmingly on cache reads, so routing one small
 action to a cheaper model can cost more than staying warm on the
@@ -86,10 +90,44 @@ as a policy line in the routing table itself. Per-action cost is the
 only way to catch it happening in practice rather than reasoning about
 whether it might.
 
-The same data is what would make the shipped profile table
-falsifiable in use: prices in the table are traced observations, but
-whether a tier assignment pays off on real actions is an empirical
-question that needs per-action outcomes to answer.
+The same data is what would make the shipped profile table falsifiable
+in use: prices in the table are traced observations, but whether a tier
+assignment pays off on real actions is an empirical question that needs
+per-action outcomes to answer.
+
+## Open questions
+
+Answer these before implementing; several change the record's shape, so
+guessing them costs a migration:
+
+- **What is the comparison baseline?** "Did routing save money?" needs
+  a counterfactual — what the same actions would have cost unrouted.
+  Re-pricing the observed token counts against another model's rates is
+  arithmetic, but it ignores that a cheaper model may need more turns
+  for the same action, which is the whole risk. Is a re-priced estimate
+  honest enough to publish, or should the feature report only actual
+  spend and leave the counterfactual to the reader?
+- **Requested effort, actual effort, or both?** Recording only what
+  billed loses the fact that a downgrade happened; recording both
+  widens the record and needs a rule for what the listing shows.
+- **Where does the number live — body or header?** The episode body is
+  LLM-compressed and therefore lossy and unparseable; a cost figure
+  belongs in deterministic metadata. That is a claim about the record's
+  structure and should be settled explicitly rather than by whichever
+  is easier to write.
+- **How is "not recorded" rendered?** Episodes written before this
+  lands have no cost, and a missing cost must never display as `$0.00`
+  — that would understate a thread's spend in exactly the aggregate the
+  feature exists to make trustworthy.
+- **What about spend the accounting cannot see?** Provider-native tool
+  billing from a whitelisted worker extension already escapes Slate's
+  worker cost accounting. A per-action figure that silently omits it is
+  precise and wrong; does the surface need an incompleteness marker?
+- **Is a cost figure safe to show the orchestrator?** Feeding measured
+  spend back into the model that chooses models is a feedback loop with
+  no defined objective — it could as easily produce false economy on
+  hard actions as savings. Is the aggregate for the user only, or for
+  the doctrine too?
 
 ## Why it was deferred
 
