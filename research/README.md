@@ -36,16 +36,17 @@ models:
 - the **profile table** is the shipped data — one row per model, with
   prices, tier, ladder, hazards and `asOf`. It is what this corpus is
   provenance for.
-- the **routing table** is the digest's Artifact B — the policy: which
-  task classes go where, what is never a default pick, and the numbered
-  policy lines. It is advice derived from the profile data, not the
+- the **routing table** is the digest's Artifact B — which task classes
+  go where, what is never a default pick, and the numbered policy lines
+  that qualify both. It is advice derived from the profile data, not the
   data itself.
 
 When this README says a number is traceable it means the profile table;
 when it says the digest's advice supersedes a report's advice it means
-the routing table.
+the routing table. Those two names are the only ones used for the two
+things, here and in the issue files.
 
-Vendor spellings are not part of that ladder: the lowest OpenAI knob
+Vendor spellings are not part of pi's ladder: the lowest OpenAI knob
 value is pi's `off`, the abbreviation `med` never appears, and "ultra"
 — which `openai.md` §6 prints alongside effort levels — is a product
 beta, not a rung on pi's ladder. The primary reports predate that
@@ -57,7 +58,7 @@ caveat below.
 | File | What it is |
 | --- | --- |
 | `digest-v5.md` | The **canonical digest** — the single artifact the shipped profile table is derived from. Carries Artifact A (per-model machine-readable profile fields), Artifact B (the routing table), Artifact C (one discriminating evidence one-liner per model), §D router-relevant hazards, §E the out-of-scope cheap tier, §H the significance ledger, and §G/§I the adjudications of every cross-source conflict and audit finding. |
-| `gaps.md` | The **verification pass** over the primary reports: gap-filling by raw-payload extraction, spot-verification of the routing-critical numbers, and the mismatch list (`M1`–`M12`) that the digest adjudicates in §G. |
+| `gaps.md` | The **verification pass** over the primary reports: gap-filling by raw-payload extraction (its GOAL 1a–1f sections), spot-verification of the routing-critical numbers (GOAL 2) with the mismatch list `M1`–`M12` that the digest adjudicates in §G, and **GOAL 3**, the cheap-tier coverage check — the sole source of every `[G3]`-tagged figure in the digest and in the shipped table, including the three out-of-scope cheap-tier models and `anthropic/claude-haiku-4-5`'s cache prices. |
 | `openai.md` | Primary research report — the three `openai/gpt-5.6-*` variants. |
 | `anthropic.md` | Primary research report — the three `anthropic/claude-*-5` models. |
 
@@ -66,7 +67,7 @@ digest's trace keys (`O2`, `A4b`, `G1a`, `G2#7`, …) resolve into their
 numbered sections — the key table at the top of the digest maps every
 key in both directions.
 
-### Only the digest is canonical — for numbers *and* for advice
+### The digest is canonical — for numbers *and* for advice
 
 All four files are copied **verbatim**. The two primary reports were
 written before the verification pass and the three adversarial audits
@@ -82,9 +83,9 @@ kinds of staleness, not just wrong numbers:
   straight out of a primary report may be one of those twelve.
 - **Superseded recommendations.** Both reports end in routing advice
   of their own — `openai.md` §6 (including its "Router summary line")
-  and `anthropic.md` §8 ("Suggested routing table") — and that advice
-  is **not** the shipped routing policy. Examples, not an exhaustive
-  list: `openai.md` §6 keeps a long-context niche for
+  and `anthropic.md` §8 ("Suggested routing table") — and that advice is
+  **not** current guidance. Examples, not an exhaustive list:
+  `openai.md` §6 keeps a long-context niche for
   `openai/gpt-5.6-terra`, which the digest destroys (§H row 10 — a
   cheap-tier model ties terra on its one positive result — leaving
   terra outside the tier ordering and never auto-selected); it also
@@ -93,7 +94,7 @@ kinds of staleness, not just wrong numbers:
   multi-needle retrieval, not of long-context reasoning;
   `anthropic.md` §8 routes trivial edits to `anthropic/claude-sonnet-5`,
   which the digest marks non-preferred. **Artifact B is the routing
-  policy**; §6 and §8 are historical inputs to it.
+  table**; §6 and §8 are historical inputs to it.
 - **Superseded vocabulary.** The primary reports use vendor effort
   spellings the digest bans — `anthropic.md` §2 and §4a use `med`,
   `openai.md` §6 uses `none` and `ultra`. Translate through §V before
@@ -102,6 +103,40 @@ kinds of staleness, not just wrong numbers:
 The rule, in one line: **`digest-v5.md` wins over `gaps.md`, and both
 win over the primary reports, on every axis — figures, routing advice,
 and terminology.**
+
+### Where the digest abbreviates, its cited source row is the authority
+
+"Canonical" is not the same as "only". The digest is a **reduction** of
+the corpus: it carries what a routing decision needs and drops the rest,
+so a figure can be present in the source it cites and absent — or
+summarised — in the digest. For those figures the digest is not the
+authority, because it does not contain them.
+
+So the hierarchy has two levels, not one:
+
+- **For any routing decision** — a tier, a preference, a hazard, an
+  effort recommendation, a supersession — the digest is canonical and
+  final. Nothing reaches past it.
+- **For an underlying figure the digest abbreviates**, the authority is
+  **the source row the digest cites** for that field, in `gaps.md`,
+  `openai.md` or `anthropic.md`. A transcription into the shipped table
+  may legitimately read that row directly, and must trace to it — never
+  derive the missing number by arithmetic, and never borrow another
+  model's rule.
+
+This is not hypothetical. `anthropic/claude-haiku-4-5`'s two cache-write
+prices are published in `gaps.md` GOAL 3, while the digest's §E row
+carries only the cache-read figure; the first iteration of the shipped
+table read the digest alone, concluded the prices were unpublished, and
+recorded that as fact. It was wrong, and the corpus already held the
+answer. The profile module's header now states the same rule from the
+other side — if the two ever disagree, they are describing one rule and
+both should be corrected together.
+
+The boundary that still holds absolutely: reaching past the digest is
+allowed only to **retrieve a figure it omits or compresses**, never to
+revive a number it overturned or advice it replaced. If the digest
+adjudicated the field, §G and §I are the last word.
 
 ## digest-v5 supersedes v1–v4
 
@@ -143,12 +178,21 @@ not.
 
 ## The tracing rule
 
-> **Every number carries an inline trace to a source file and
-> section. A number that cannot be traced is DELETED and its field is
-> set to `UNKNOWN`. Nothing is estimated, interpolated, or imported
-> from outside the corpus.**
+The rule is the digest's own, stated in its §"Tracing rule". Quoted
+exactly:
 
-Three corollaries the digest enforces:
+> **Every number carries an inline trace to a source file + section. A
+> number that cannot be traced is DELETED and the field set to
+> `UNKNOWN`.**
+
+Everything else in this section is a paraphrase of what the digest does
+with that rule, not further quotation. In particular "nothing is
+estimated, interpolated, or imported from outside the corpus" is a
+summary in this README's words — an earlier revision presented it inside
+the quotation, which it never was.
+
+Three corollaries the digest enforces, paraphrased from that same
+section and from §H:
 
 - Every benchmark value names its **harness** and its **effort
   level**, or says `UNKNOWN` for them.
@@ -182,27 +226,43 @@ revision of this README enumerated them and was wrong within the same
 track: a sibling commit added six more date literals to the profile
 module the same day. The count moves with every commit that adds a
 profile, a comment, or an unknown-field note, so the instruction here is
-a command rather than an inventory:
+a command rather than an inventory.
+
+**Search for the digits, not for the punctuation.** `research/openai.md`
+writes its date with **non-breaking hyphens** (U+2011, `2026‑07‑29`), so
+a plain search for `2026-07-29` silently skips it — which is exactly
+how that file went unlisted here for two revisions. Match the
+separator instead of assuming it:
 
 ```sh
-git grep -n 2026-07-29        # substitute the CURRENT asOf date
+# substitute the CURRENT asOf date's digits; the `.{0,3}` separator
+# class matches an ASCII hyphen, a non-breaking hyphen, or none at all
+git grep -nE '2026.{0,3}07.{0,3}29'
 ```
 
-Every hit is one of four kinds, and only the first three are rewritten:
+At the time of writing that command reports hits in seven files, and
+every hit is one of four kinds. Only the first three are rewritten:
 
-- **The profile module.** The `PROFILES_AS_OF` constant, the per-profile
-  `asOf` field, and every piece of prose that states the date in words —
-  header text, rule comments, and the `unknownRoutingCriticalFields`
-  strings that record which figure is known only as of that observation
-  date. All of it moves together. The check suite's `profiles-meta`
-  fails if the constant and the per-profile fields disagree; **nothing
-  checks the prose**, which is why it is named here.
-- **This directory.** The digest's revision line and its per-model
-  `observedInForceOn` rows, `gaps.md`'s pass date and its "read <date>"
-  source notes, `anthropic.md`'s "As of" line, and the date in this
-  README. A refresh rewrites the first three files wholesale, so they
-  normally carry the new date by replacement rather than by editing —
-  but this README is hand-edited and is the one most often forgotten.
+- **The profile module** (`extension/model-profiles.ts`). The
+  `PROFILES_AS_OF` constant, the per-profile `asOf` field, and every
+  piece of prose that states the date in words — header text, rule
+  comments, and the `unknownRoutingCriticalFields` strings that record
+  which figure is known only as of that observation date. All of it
+  moves together. The check suite's `profiles-meta` fails if the
+  constant and the per-profile fields disagree; **nothing checks the
+  prose**, which is why it is named here.
+- **This directory — all five files.** The digest's revision line and
+  its per-model `observedInForceOn` rows; `gaps.md`'s pass date and its
+  "read <date>" source note; `anthropic.md`'s "As of" line;
+  **`openai.md`'s "Research date" line, the non-breaking-hyphen one**;
+  and this README, which states the date once in the paragraph that
+  opens this section and twice more in the hyphen warning above. A
+  refresh rewrites the four research files wholesale, so they normally
+  carry the new date by replacement rather than by editing — but this
+  README is hand-edited and is the one most often forgotten. **And one
+  place the command cannot show you is the command itself**: its pattern
+  holds the date's digits yet does not match its own text, so it will
+  never appear in its own output. Update it by hand when the date moves.
 - **Anything user-facing that quotes the date.** Track 03 owns those.
 - **Fixture dates in the check suite — leave these alone.** The harness
   uses the same string as an arbitrary "today" inside fabricated price
@@ -212,7 +272,9 @@ Every hit is one of four kinds, and only the first three are rewritten:
   fixtures.
 
 The grep is the enumeration. Any list of line numbers in prose —
-including this one, if it grows any — is stale by the next commit.
+including this one, if it grows any — is stale by the next commit. If a
+new corpus file arrives with yet another dash variant, widen the
+separator class rather than adding a second command.
 
 ## Not published
 
