@@ -25,11 +25,13 @@
  *    model, so a later dispatch that omits `model` can never be rejected by the
  *    list guard (model-router D48); the base effort seeds to the LOWEST MEASURED
  *    level for that model, never to the user's global thinking-level default. A
- *    model passed to the creating dispatch routes THAT action only. A base that
- *    STOPS being listed — a thread older than the config, or a list that changed —
- *    is RE-SEEDED by the planner on its next dispatch and written back here
- *    (persistReseededBase), so that promise holds for threads the config outlived
- *    instead of leaving them undispatchable.
+ *    model passed to the creating dispatch routes THAT action only. A base that is
+ *    NOT a listed candidate — absent (a thread older than the config) or dropped by
+ *    a list change — is SEEDED by the planner on its next dispatch and written back
+ *    here (persistReseededBase), so the invariant holds for threads the config
+ *    outlived instead of leaving them undispatchable or silently unrouted. Stated
+ *    once, in route.ts's header: with the router ON a thread's base is ALWAYS a
+ *    listed candidate.
  *
  *  - ROUTER OFF = PRE-ROUTER BEHAVIOUR, exactly. No list guard, no window guard,
  *    no billing warning, no seeded effort: the base model is the orchestrator's
@@ -508,17 +510,17 @@ export class ThreadManager {
 	}
 
 	/**
-	 * Persist a base the planner had to RE-SEED because the thread's stored one was
-	 * not routable (route.ts, guard 1's repair). Without this the repair would be
-	 * recomputed — and re-warned — on every dispatch, and the record would keep
-	 * pointing at a model the router cannot route to.
+	 * Persist a base the planner had to SEED because the thread's own was not a
+	 * listed candidate — off-list, or absent altogether (route.ts, THE ONE RULE).
+	 * Without this the seed would be recomputed — and re-warned — on every dispatch,
+	 * and the record would keep pointing outside the list (or nowhere).
 	 *
-	 * `baseEffort` is DELETED when the re-seeded base has no measured level: leaving
-	 * the previous model's level behind would attach it to a model whose ladder was
-	 * never consulted (absence reads as unknown, the record's contract).
+	 * `baseEffort` is DELETED when the seeded base has no measured level: leaving the
+	 * previous model's level behind would attach it to a model whose ladder was never
+	 * consulted (absence reads as unknown, the record's contract).
 	 */
 	private persistReseededBase(thread: ThreadRecord, plan: RoutePlanProceed): void {
-		if (plan.baseReseededFrom === undefined || plan.baseModel === undefined) return;
+		if (plan.baseReseeded !== true || plan.baseModel === undefined) return;
 		thread.baseModel = plan.baseModel;
 		if (plan.baseEffort !== undefined) thread.baseEffort = plan.baseEffort;
 		else delete thread.baseEffort;

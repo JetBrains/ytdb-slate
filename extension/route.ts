@@ -20,6 +20,24 @@
  * mutation, and an APPLY-TIME rejection aborts the dispatch without recording an
  * episode; in FAILOVER mode a rejection means "do not switch", not an error.
  *
+ * THE ONE RULE THE LIST GUARD ENFORCES, stated once: with the router ON a
+ * thread's base model is ALWAYS a listed candidate, so the only way an action can
+ * run on an unlisted model is to name one explicitly — and that is rejected.
+ * A base that is ABSENT or has fallen OFF the list is RE-SEEDED to what a new
+ * thread would get (with a warning, persisted by the caller), never refused: the
+ * fall-through path must always have a valid destination, or configuring a list
+ * would strand every thread that predates it.
+ *
+ * A FAILURE TO READ EVIDENCE IS NOT EVIDENCE OF A PROBLEM. Every injected data
+ * source may be missing, throwing or malformed — a profile lookup, a ladder
+ * lookup, a candidate entry, the compaction predicate, a window figure. In every
+ * case the affected guard goes INERT (it does not fire) rather than refusing:
+ * refusing on a read failure turns a data defect into an outage, and the guards
+ * exist to prevent dispatches that are KNOWN to be wrong, not ones that could not
+ * be checked. The exception is deliberate and narrow: a POSITIVE fact that is
+ * still readable still counts — an `apiRejectedLevels` entry refuses the level
+ * even when that model's ladder is unreadable.
+ *
  * The guards, in the order they run — the order is load-bearing:
  *
  *   0. pi's effort VOCABULARY: an `effort` argument outside off/minimal/low/
@@ -29,18 +47,18 @@
  *   1. LIST MEMBERSHIP (router ON only): a resolved model outside the effective
  *      candidate list is rejected, naming the list. With the router OFF the model
  *      argument behaves exactly as it did before the router existed.
- *      A THREAD'S BASE is exempt by REPAIR, not by exception: a stored base that is
- *      not a candidate (a thread older than the config, or a list that changed) is
- *      RE-SEEDED to what a new thread would get, with a warning, so a dispatch that
- *      omits `model` always has a valid destination and can never be rejected.
- *      Only an EXPLICIT off-list model is refused.
+ *      A THREAD'S BASE is exempt by REPAIR, not by exception — see THE ONE RULE
+ *      above: absent or off-list, it is re-seeded, so only an EXPLICIT off-list
+ *      model is ever refused.
  *   4. API-REJECTED LEVEL, checked before the ladder because such a level IS on
  *      the model's pi ladder: the provider refuses it outright, so dispatching it
  *      is a guaranteed failure rather than an evidence gap, and
  *      allowUnmeasuredEffort does not cover it.
  *   2. LADDER VALIDITY, per model — never a union over models. pi CLAMPS an
  *      unsupported level silently, so without this guard the orchestrator would
- *      believe an action ran at a level the model never offered.
+ *      believe an action ran at a level the model never offered. It fires ONLY on a
+ *      KNOWN ladder: an empty one means the data could not be read, not that the
+ *      model offers nothing (see A FAILURE TO READ EVIDENCE above).
  *   3. EVIDENCE GAP: advisory. A ladder-valid level with no traced capability
  *      measurement is dispatchable with a warning, and refused only when the
  *      project set allowUnmeasuredEffort to false. It is never CHOSEN by default —
@@ -161,11 +179,13 @@ export interface RoutePlanProceed {
 	/** The base effort to persist, alongside `baseModel` (re-derived when the base is re-seeded). */
 	baseEffort?: ThinkingLevel;
 	/**
-	 * Set when an EXISTING thread's stored base was not in the effective candidate
-	 * list and had to be re-seeded: the spec it replaced. The caller MUST persist
-	 * `baseModel`/`baseEffort` onto the thread record when this is set, so the
-	 * re-seed (and its warning) happens once instead of on every dispatch.
+	 * true when an EXISTING thread's base was not a listed candidate — absent, or
+	 * fallen off the list — and was therefore seeded to one. The caller MUST persist
+	 * `baseModel`/`baseEffort` onto the thread record when this is set, so the seed
+	 * (and its warning) happens once instead of on every dispatch.
 	 */
+	baseReseeded?: true;
+	/** The spec the seed REPLACED, when there was one; absent when the thread had no base. */
 	baseReseededFrom?: string;
 	/** Set when the window guard replaced the resolved model: the spec it replaced. */
 	substitutedFrom?: string;
@@ -287,6 +307,12 @@ function checkEffortFor(input: RoutePlanInput, resolution: ModelRouterResolution
 	// Filtered to pi's vocabulary and de-duplicated, exactly as resolveModelRouter
 	// does it: a per-id lookup table can hand back a foreign value, and an
 	// unvalidated ladder would make every effort check nonsense (CQ6).
+	//
+	// An EMPTY result here — the lookup threw, handed back a non-array, or listed
+	// only foreign levels — is "unknown", and the caller treats it as such: guard 2
+	// does not fire on an empty ladder (see guardEffort's `ladderKnown`). Do not
+	// "repair" that by substituting a default ladder: inventing levels a model may not
+	// have is the mirror image of refusing ones it does.
 	const ladder = Array.isArray(ladderRaw)
 		? [...new Set(ladderRaw.filter((l): l is ThinkingLevel => THINKING_LEVELS.includes(l as ThinkingLevel)))]
 		: [];
@@ -431,6 +457,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	// ---- the THREAD's defaults (never an action's route)
 	let baseModel: string | undefined;
 	let baseEffort: ThinkingLevel | undefined;
+	let baseReseeded = false;
 	let baseReseededFrom: string | undefined;
 	if (thread) {
 		// ?? thread.model: a thread created before per-action routing existed (the
@@ -438,35 +465,54 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		// is the best available answer).
 		baseModel = thread.baseModel ?? thread.model;
 		baseEffort = thread.baseEffort;
-		// RE-SEED an unroutable base. A stored base that is NOT in the effective
-		// candidate list is a dead end: every dispatch that omits `model` resolves to
-		// it, and guard 1 then rejects the one call shape that has nothing to correct —
-		// the thread becomes undispatchable, and the rejection's own remediation clause
-		// ends up naming the model it just refused. Two ordinary events reach that
-		// state: a thread created before `router.models` was configured (its base is
-		// the orchestrator's model, or a pre-router pin), and a config change that drops
-		// a model an existing thread was based on.
+		// SEED OR RE-SEED a base that is not a listed candidate — THE ONE RULE (module
+		// header). Two shapes reach this, and they are the SAME hole:
 		//
-		// So the base is REPLACED, not refused, with exactly what a new thread would
-		// get (D48's cheapest preferred candidate) — and the effort is re-derived with
-		// it, because ladders are per model and the old level may not exist on the new
-		// one. The caller persists it (baseReseededFrom), so this costs one warning per
-		// thread rather than one per dispatch. An EXPLICIT off-list model is untouched
-		// by this: it still gets guard 1's rejection below, now with an actionable
-		// remediation clause.
-		if (resolution.on && baseModel !== undefined && !isListed(resolution, baseModel)) {
+		//  · an OFF-LIST base is a dead end. Every dispatch that omits `model` resolves
+		//    to it and guard 1 then rejects the one call shape that has nothing to
+		//    correct — the thread becomes undispatchable, and the rejection's own
+		//    remediation clause ends up naming the model it just refused.
+		//  · NO base at all is the same escape, quieter and therefore worse: the action
+		//    runs on whatever the worker session opens on (the host's model), outside the
+		//    closed list, so the cost bound the list expresses is silently not applied.
+		//    Nothing rejects, nothing warns, and the router looks like it is working.
+		//
+		// Both are ordinary states, not corruption: a thread created before
+		// `router.models` was configured has the orchestrator's model, a pre-router pin,
+		// or nothing at all; and a config change can drop a model an existing thread was
+		// based on. So the base is SEEDED, not refused, with exactly what a new thread
+		// would get (D48's cheapest preferred candidate) — and the effort is derived with
+		// it, because ladders are per model and any stored level may not exist on the new
+		// one. The caller persists it (`baseReseeded`), so this costs one warning per
+		// thread rather than one per dispatch. An EXPLICIT off-list model is untouched:
+		// it still gets guard 1's rejection below, now with an actionable remediation
+		// clause.
+		if (resolution.on && (baseModel === undefined || !isListed(resolution, baseModel))) {
 			const seeded = defaultBase(resolution);
 			if (seeded !== undefined) {
-				baseReseededFrom = baseModel;
+				baseReseeded = true;
+				baseReseededFrom = baseModel; // undefined when the thread had no base to replace
 				baseModel = seeded;
 				baseEffort = lowestMeasuredEffort(resolution, seeded);
+				const list = resolution.candidates.map((c) => c.spec).join(", ");
+				const level = baseEffort ? ` @${baseEffort}` : "";
 				warn(
-					`slate: thread ${thread.id}'s base model ${sanitizeForNotify(baseReseededFrom, 80)} is not in the router's ` +
-						`effective model list (${resolution.candidates.map((c) => c.spec).join(", ")}) — it was set before this list ` +
-						`applied, or the list changed since. Re-seeding the thread's base to ${seeded}` +
-						`${baseEffort ? ` @${baseEffort}` : ""} so actions that omit "model" keep working; pass "model" explicitly to ` +
-						"route this action elsewhere.",
+					baseReseededFrom === undefined
+						? `slate: thread ${thread.id} has no base model — it predates the router's model list ` +
+								`(${list}), so actions that omit "model" would have run outside it. Seeding the thread's ` +
+								`base to ${seeded}${level}; pass "model" explicitly to route an action elsewhere.`
+						: `slate: thread ${thread.id}'s base model ${sanitizeForNotify(baseReseededFrom, 80)} is not in the ` +
+								`router's effective model list (${list}) — it was set before this list applied, or the list ` +
+								`changed since. Re-seeding the thread's base to ${seeded}${level} so actions that omit "model" ` +
+								'keep working; pass "model" explicitly to route this action elsewhere.',
 				);
+			} else {
+				// A resolution that is ON but carries no usable spec (only malformed
+				// candidates) offers nothing to seed FROM — so the base is dropped instead of
+				// kept, and the dispatch falls through to the host model. Enforcing a list
+				// that could not be read is the read-failure mistake again, and stranding the
+				// thread on an unroutable base would be the worse half of it.
+				baseModel = undefined;
 			}
 		}
 	} else if (resolution.on) {
@@ -528,7 +574,16 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		if (effort === undefined || spec === undefined || rejection !== undefined) return;
 		const level = effort;
 		const check = checkEffortFor(input, resolution, spec, level);
-		const ladder = check.ladder.length > 0 ? check.ladder.join(", ") : "(none recorded)";
+		// Is there a LADDER to judge against at all? An empty one is not "this model
+		// offers no levels" — it is every way the data can be unavailable: a profile
+		// lookup that declined or threw, a ladder lookup that threw or returned a
+		// non-array, a ladder whose entries are all outside pi's vocabulary, a malformed
+		// candidate, or a spec the list does not carry. Guard 2 must not fire on any of
+		// them (module header: a failure to READ evidence is not evidence of a problem);
+		// previously it did, so one broken data source turned every explicit effort
+		// level into a hard dispatch rejection.
+		const ladderKnown = Array.isArray(check.ladder) && check.ladder.length > 0;
+		const ladder = ladderKnown ? check.ladder.join(", ") : "(none recorded)";
 		const reject = (message: string) => {
 			if (!soft) {
 				rejection = message;
@@ -551,8 +606,8 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		}
 		// GUARD 2 — ladder validity, PER MODEL. pi would silently CLAMP an unsupported
 		// level, so without this the orchestrator would believe it ran an action at a
-		// level the model never offered.
-		if (check.verdict === "off-ladder") {
+		// level the model never offered. Fires only on a KNOWN ladder — see above.
+		if (ladderKnown && check.verdict === "off-ladder") {
 			reject(`slate: effort "${level}" is not on ${sanitizeForNotify(spec, 80)}'s effort ladder (${ladder}).`);
 			return;
 		}
@@ -576,10 +631,14 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 			);
 			return;
 		}
-		// "ok" — and "not-listed", which reaches here only for a model the guards
-		// cannot judge (a legacy thread with no base, dispatched while the router is
-		// on, whose host model is not a candidate). No ladder data means no basis to
-		// refuse: the level goes to pi, which clamps it.
+		// Everything else PASSES, silently:
+		//  · "ok" — a measured level on a known ladder, the normal case;
+		//  · any verdict reached with NO ladder data (see `ladderKnown` above). The level
+		//    goes to pi, which clamps it. It is deliberately NOT reported as an evidence
+		//    gap either: "this level is on the ladder but unmeasured" is itself a claim
+		//    about a ladder nobody could read, and the router does not invent evidence in
+		//    either direction. The one fact that still bites here is a provider's hard
+		//    rejection, which guard 4 above already applied.
 		effortUnmeasured = false;
 	};
 
@@ -666,6 +725,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		effortUnmeasured,
 		baseModel,
 		baseEffort,
+		...(baseReseeded ? { baseReseeded: true as const } : {}),
 		baseReseededFrom,
 		substitutedFrom,
 		longContextWarned,
