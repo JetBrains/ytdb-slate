@@ -19,6 +19,8 @@
  *   tools.ts    — thread / threads / episode tools
  *   handoff.ts  — absolute-token context-budget auto-pause (with threshold-
  *                 compaction intercept) + fresh-session handoff
+ *   base-model.ts — the orchestrator's base model/effort, excluding slate's own
+ *                 failover fallbacks (what a new worker thread defaults to)
  *
  * Optional config at <config dir>/slate.json (config dir = CONFIG_DIR_NAME,
  * ".pi" by default), honored ONLY when the project is trusted — untrusted
@@ -48,6 +50,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createBaseModelTracker, modelSpecOf, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
 import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.ts";
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
@@ -94,7 +97,23 @@ export default function (pi: ExtensionAPI) {
 	let resolveWorkerExtensionSet: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET;
 	let manager = new ThreadManager(store, {}, resolveWorkerExtensionSet);
 
+	// One base-model tracker per session (base-model.ts), reassigned every
+	// session_start below so its seed and its one-report-per-condition budget are
+	// per session. Consumers take the live `() => baseModel` indirection, like the
+	// worker-extension resolver's doctrine consumer: it always belongs to the
+	// CURRENT session. Constructed eagerly here — before any session_start — so a
+	// model_select arriving during startup has somewhere to land; that pre-session
+	// instance reports through the console, since no extension context exists yet.
+	let baseModel: BaseModelTracker = createBaseModelTracker({ warn: (msg) => console.warn(msg) });
+
 	registerSlateTools(pi, store, () => manager);
+
+	// The base-model tracker's only event ingest. Registered once, reads the LIVE
+	// tracker, and pairs each event with the thinking level pi has already clamped
+	// by emission time (setModel emits AFTER its thinking cascade).
+	pi.on("model_select", async (event) => {
+		baseModel.observe(event, readLiveEffort(pi));
+	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		manager.disposeAll();
@@ -123,6 +142,17 @@ export default function (pi: ExtensionAPI) {
 		// worker open or a doctrine build — after session_start finishes, so tools
 		// registered during session_start are captured (AD41).
 		resolveWorkerExtensionSet = createWorkerExtensionResolver(pi, () => config.workerExtensions ?? [], warn);
+		// Fresh tracker per session, seeded from the session's OWN resolved model —
+		// undefined is legitimate (no model, or no auth for one) and stays silent.
+		// Same warn channel as the sanitizers above. A handoff adoption re-seeds it
+		// later, from registerSlateHandoff's session_start handler (registered below,
+		// so it runs after this one). Created BEFORE the ThreadManager below on
+		// purpose: a consumer that binds it BY VALUE at construction (the CN20 rule the
+		// worker-extension resolver follows) must capture THIS session's tracker, not
+		// the previous session's.
+		baseModel = createBaseModelTracker({ warn });
+		const sessionModel = modelSpecOf(ctx.model);
+		baseModel.seed(sessionModel, sessionModel === undefined ? undefined : readLiveEffort(pi));
 		// Bound BY VALUE (CN20): this manager keeps this session's resolver even if a
 		// later session_start replaces the module variable above.
 		manager = new ThreadManager(store, config, resolveWorkerExtensionSet);
@@ -137,11 +167,11 @@ export default function (pi: ExtensionAPI) {
 	// handoff → re-apply mode tools. registerSlateHandoff must therefore sit
 	// between the restore handler above and registerSlateMode below.
 	// getConfig reads the CURRENT `manager` (reassigned on session_start).
-	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig());
+	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel);
 
 	// Orchestrator model failover (turn_end/agent_settled/input) — not
 	// order-critical relative to the handlers above (different trigger events).
-	registerOrchestratorFailover(pi, () => manager.getConfig());
+	registerOrchestratorFailover(pi, () => manager.getConfig(), () => baseModel);
 
 	registerSlateMode(pi, store, handoff, () => manager.getConfig(), () => resolveWorkerExtensionSet());
 }

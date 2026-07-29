@@ -26,6 +26,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import type { BaseModelTracker } from "./base-model.ts";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import { isModelSpec, splitModelSpec, type SlateConfig } from "./state.ts";
@@ -192,7 +193,11 @@ export async function isAuthFailure(ctx: ExtensionContext, model: RegistryModel)
  * Deliberately NOT gated on store.paused: failover must run while slate is
  * paused for handoff, so the handoff brief is written by a working model.
  */
-export function registerOrchestratorFailover(pi: ExtensionAPI, getConfig: () => SlateConfig): void {
+export function registerOrchestratorFailover(
+	pi: ExtensionAPI,
+	getConfig: () => SlateConfig,
+	getBaseModel: () => BaseModelTracker,
+): void {
 	/** Final assistant message of the last turn (agent_settled has no payload). */
 	let lastAssistant: { stopReason?: string; errorMessage?: string; usage?: unknown } | undefined;
 	/** Consecutive errored assistant turns in the current settle cycle (BG2). */
@@ -286,6 +291,12 @@ export function registerOrchestratorFailover(pi: ExtensionAPI, getConfig: () => 
 			mapped,
 			async () => {
 				try {
+					// A failover fallback must NOT become the base model new worker threads
+					// default to, so the (from, to) pair is declared IMMEDIATELY before the
+					// setter: the model_select event pi emits from inside it then matches
+					// this declaration and leaves the base where it was (base-model.ts).
+					// Declared inside the try because the tracker never throws.
+					getBaseModel().expectOwnSwitch(from, to);
 					// pi.setModel returns false when no API key is available, but can ALSO
 					// throw on a failed live auth check despite the Promise<boolean>
 					// contract — handle both.

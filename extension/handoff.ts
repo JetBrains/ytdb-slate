@@ -28,7 +28,9 @@
  * not inherit them: startup CLI flags (-m/--thinking) are re-applied to the
  * replacement runtime, enabledModels scoping picks its first entry, and a
  * parent resumed with a non-default session-file model falls back to the
- * settings default.
+ * settings default. A model restore that SUCCEEDS also re-seeds slate's
+ * base-model tracker (base-model.ts): a handoff adoption is a deliberate move of
+ * the orchestrator's base model, unlike a failover fallback.
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -41,6 +43,7 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { modelSpecOf, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
@@ -289,6 +292,7 @@ export function registerSlateHandoff(
 	pi: ExtensionAPI,
 	store: SlateStore,
 	getConfig: () => SlateConfig,
+	getBaseModel: () => BaseModelTracker,
 ): SlateHandoffHooks {
 	// pi's compaction reserve — read ONCE, lazily, then cached: it feeds a
 	// per-turn check and SettingsManager.create is a lock-protected disk read.
@@ -527,6 +531,11 @@ export function registerSlateHandoff(
 								const model = ctx.modelRegistry.find(provider, id);
 								if (model) {
 									calledSetter = true;
+									// Declared IMMEDIATELY before the setter so the model_select event pi
+									// emits from inside it is recognised as slate's own and does not move
+									// the base model on its own — the deliberate move is the adopt() below,
+									// which happens only once the restore is confirmed (base-model.ts).
+									getBaseModel().expectOwnSwitch(modelSpecOf(ctx.model), `${provider}/${id}`);
 									restored = await pi.setModel(model);
 								}
 							}
@@ -542,6 +551,13 @@ export function registerSlateHandoff(
 									calledSetter = true;
 									pi.setThinkingLevel(pending.thinkingLevel);
 								}
+								// CONFIRMED success only (the model is live in this session, either
+								// because the setter returned true or because it already was): a
+								// handoff adoption deliberately re-seeds the orchestrator's base model.
+								// AFTER the thinking-level setter, so the effort recorded is the level
+								// pi actually clamped to. A failed or abandoned restore never gets here,
+								// so the base keeps the seed taken from this session's own model.
+								getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
 							} else {
 								reportFailure(
 									ctx,
