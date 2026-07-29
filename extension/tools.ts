@@ -81,12 +81,15 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				onProgress,
 			);
 
-			const ran = result.episode.model
-				? ` | ran on ${result.episode.model}${result.episode.effort ? ` @${result.episode.effort}` : ""}${
-						result.episode.effortUnmeasured ? " (unmeasured level)" : ""
-					}`
-				: "";
-			const headline = `[episode ${result.episode.id} | thread ${result.thread.id} "${result.thread.name}" | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}${ran}]`;
+			// What the action RAN ON is reported ONCE, by the episode header itself
+			// (episodes.ts's `ran:` field, two lines below this headline in the same result).
+			// This headline used to repeat it, which was worse than redundant: the two were
+			// built from different code, sanitized differently, and could disagree — and a
+			// reader had no way to tell which one to believe. The episode header wins because
+			// it is the DURABLE copy: it is written into the episode file, comes back through
+			// the `episode` tool, and travels into every later prompt that cites the episode,
+			// while this line is framing that exists only for this one tool result.
+			const headline = `[episode ${result.episode.id} | thread ${result.thread.id} "${result.thread.name}" | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}]`;
 			// Routing notices reach the ORCHESTRATOR, not just the TUI: an evidence gap,
 			// a window substitution or a long-context billing cliff changes what the next
 			// dispatch should ask for, so they ride in the tool result above the episode.
@@ -99,9 +102,13 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					episodeId: result.episode.id,
 					status: result.episode.status,
 					episodeFile: result.episode.file,
-					model: result.episode.model,
-					effort: result.episode.effort,
-					effortUnmeasured: result.episode.effortUnmeasured,
+					// `ran*` and not `model`/`effort`: these are what the action ACTUALLY ran on,
+					// post-clamp, post-substitution and post-failover — NOT the `model`/`effort`
+					// arguments the call was made with, which a renderer shows on the call line and
+					// which can differ from these. The names say which of the two a reader has.
+					ranModel: result.episode.model,
+					ranEffort: result.episode.effort,
+					ranEffortUnmeasured: result.episode.effortUnmeasured,
 					warnings: result.warnings,
 					usage: result.usage,
 					done: true,

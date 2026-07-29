@@ -991,19 +991,23 @@ export class ThreadManager {
 		const actualModel = ranModel ? `${ranModel.provider}/${ranModel.id}` : undefined;
 		const actualEffort = this.sessionEffort(session) ?? plan?.effort;
 		// The unmeasured marker is a claim about the profile data for ONE (model, level)
-		// pair — the pair the guards judged, which the plan names explicitly
-		// (`effortJudgedFor`). It is attached only when BOTH halves of that pair survived
-		// to become what ran: a clamped level, or a failover onto a model whose evidence
-		// for that level was never assessed, leaves the marker off rather than asserting a
-		// gap nobody checked. Comparing against `effortJudgedFor` rather than `plan.model`
-		// also keeps the marker for the router-OFF path, where the guards judge the host
-		// model and `plan.model` is deliberately absent.
-		const actualEffortUnmeasured =
-			plan?.effortUnmeasured === true &&
-			actualEffort !== undefined &&
-			actualEffort === plan.effort &&
-			actualModel !== undefined &&
-			actualModel === plan.effortJudgedFor;
+		// pair — the pair the guards judged. It survives to the episode only if BOTH
+		// halves of that pair are what actually ran, and the two halves are checked by the
+		// side that can see them:
+		//
+		//  · THE LEVEL, here: pi CLAMPS a level the model cannot do, and only this side
+		//    knows the level the plan asked for, so a clamp drops the marker rather than
+		//    attaching a gap claim to a level nobody judged.
+		//  · THE MODEL, in episodes.ts: `workerEffortJudgedFor` carries the planner's
+		//    `effortJudgedFor` through verbatim, so the module that PRINTS the pair also
+		//    verifies it against the model it is printing, instead of trusting a boolean it
+		//    cannot check. That is also what keeps the marker on the router-OFF path, where
+		//    the guards judge the HOST model and the plan carries no model of its own.
+		//
+		// The RECORD's own field has no judged-spec column, so it keeps the fully collapsed
+		// answer (both halves) below.
+		const effortIsAsPlanned = plan?.effortUnmeasured === true && actualEffort !== undefined && actualEffort === plan.effort;
+		const actualEffortUnmeasured = effortIsAsPlanned && actualModel !== undefined && actualModel === plan?.effortJudgedFor;
 
 		const episodeId = `${thread.id}.e${++thread.episodeSeq}`;
 		const compressed = await compressEpisode({
@@ -1015,11 +1019,14 @@ export class ThreadManager {
 			status,
 			diagnostics,
 			messages: actionMessages as unknown[],
-			// Header only, all three (episodes.ts never picks the compressor from them —
-			// that is the whole point of the compressor pin).
+			// Header only, all four (episodes.ts never picks the compressor from them —
+			// that is the whole point of the compressor pin). `workerEffortUnmeasured` is the
+			// LEVEL-checked flag and `workerEffortJudgedFor` is the spec it is a claim about,
+			// so the header verifies the model half itself (see the derivation above).
 			workerModel: ranModel,
 			workerEffort: actualEffort,
-			workerEffortUnmeasured: actualEffortUnmeasured,
+			workerEffortUnmeasured: effortIsAsPlanned,
+			workerEffortJudgedFor: plan?.effortJudgedFor,
 			configuredModel: this.config.episodeModel,
 			// The compressor's LAST-RESORT rung: the ORCHESTRATOR's base model, from the
 			// same tracker the router-off base resolution uses (failover fallbacks
