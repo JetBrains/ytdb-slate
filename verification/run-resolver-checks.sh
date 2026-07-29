@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# slate — worker-extension resolver checks
+# slate — pure-resolver checks
 # =============================================================================
 # Exercises the pure resolver pipeline in extension/worker-extensions.ts and the
-# doctrine rule it feeds in extension/mode.ts. Prints one
+# doctrine rule it feeds in extension/mode.ts, plus the model router in
+# extension/model-router.ts (config sanitizer, candidate resolution and its
+# warnings, effort predicate) against fabricated registries and profile tables.
+# Prints one
 #   CHECK <id> <PASS|FAIL> — <detail>
 # line per check plus a summary. See verification/README.md.
 #
@@ -34,7 +37,7 @@ REPO="."
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--repo) [ "$#" -ge 2 ] || die "option '--repo' requires a value"; REPO="$2"; shift 2 ;;
-		-h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+		-h|--help) sed -n '2,30p' "$0"; exit 0 ;;
 		*) die "unknown argument '$1' (try --help)" ;;
 	esac
 done

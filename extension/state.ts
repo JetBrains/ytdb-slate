@@ -53,6 +53,20 @@ export interface ContextBudgetObject {
 	overrides?: ContextBudgetOverride[]; // first matching entry wins
 }
 
+/**
+ * Action-level model router (D4/D53). `models` is the CLOSED list of models the
+ * router may route an action to, in canonical "provider/id" form; empty or
+ * absent means the router is OFF and dispatch behaves exactly as it did before
+ * the router existed. `allowUnmeasuredEffort` (default TRUE) decides what the
+ * dispatch path does with an effort level that is ladder-valid but has no
+ * capability evidence — an evidence gap is advisory, not a prohibition.
+ * Validated by sanitizeRouterConfig in model-router.ts.
+ */
+export interface RouterConfig {
+	models?: string[];
+	allowUnmeasuredEffort?: boolean;
+}
+
 export interface SlateConfig {
 	episodeModel?: string; // "provider/id" for the episode compressor (D5)
 	workerTools?: string[];
@@ -68,6 +82,7 @@ export interface SlateConfig {
 	preserveGlobalModelDefault?: boolean; // restore the user's GLOBAL pi model defaults (defaultProvider/defaultModel/defaultThinkingLevel) after a slate-initiated model switch — failover and handoff adoption (default true; only an explicit false disables it) — see model-default.ts
 	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
 	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
+	router?: RouterConfig; // action-level model router: the closed model list + the evidence-gap policy (default: off) — see model-router.ts
 }
 
 export class SlateStore {

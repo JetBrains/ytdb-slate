@@ -432,20 +432,32 @@ Also expected, and not a harness problem:
 - The default scratch directory is **kept**, not cleaned up, and so is a reused
   `--lab`. Old `out/` artifacts survive; see § Requirements and hard constraints.
 
-# Worker-extension resolver checks — `run-resolver-checks.sh`
+# Pure-resolver checks — `run-resolver-checks.sh`
 
-A second, much smaller net, for a different mechanism: the worker-extension
-resolver in `extension/worker-extensions.ts` and the doctrine rule it feeds in
-`extension/mode.ts`. The ladder above covers only the model-default machinery
-and says nothing about this feature.
+A second, much smaller net, for two different mechanisms:
 
-Unlike the ladder, this pipeline is **pure and deterministic** — it maps a host
-tool registry and a list of regex patterns to a set of load units — so the
-checks need no pi session and no real state at all. They run the real resolver
-and the real doctrine builder (loaded through the jiti that ships with pi,
+- the **worker-extension resolver** in `extension/worker-extensions.ts` and the
+  doctrine rule it feeds in `extension/mode.ts`;
+- the **model router** in `extension/model-router.ts` — its config sanitizer, its
+  candidate resolution and warnings, and its dispatch-side effort predicate.
+
+The ladder above covers only the model-default machinery and says nothing about
+either feature.
+
+Unlike the ladder, both pipelines are **pure and deterministic** — one maps a
+host tool registry and a list of regex patterns to a set of load units, the other
+maps a configured model list plus a model registry plus a profile table to an
+ordered candidate set — so the checks need no pi session and no real state at
+all. They run the real modules (loaded through the jiti that ships with pi,
 because node's strip-only TypeScript mode cannot load `state.ts`'s constructor
-parameter property) against **fabricated in-memory registries** and temp-dir
-package fixtures, and assert the observable result.
+parameter property) against **fabricated in-memory registries, fabricated
+profile tables** and temp-dir package fixtures, and assert the observable result.
+
+Every router check injects **its own** registry *and* **its own** profile table,
+so none of them depends on the data in `extension/model-profiles.ts` — only on
+that module being loadable. If it cannot be loaded, the router checks collapse
+into one `router-load` **FAIL** naming the loader error, and the
+worker-extension checks still run.
 
 ## Running it
 
@@ -458,7 +470,8 @@ One line per check, then a summary:
 ```
 CHECK off-inert        PASS — empty pattern list → shared empty set, registry never walked
 CHECK unit-directory   PASS — package with a single literal entry the host runs → the package DIRECTORY is the unit
-== summary: 16 pass, 0 fail ==
+CHECK router-cheapest  PASS — the cheapest candidate is the lowest effective input price even when a costlier model sorts first by tier (D48 base model)
+== summary: 32 pass, 0 fail ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed · **2** refused to
@@ -478,13 +491,38 @@ temp dir the script removes on exit.
 | `inject-safety` | a newline-bearing tool name, a 2000-char label and a backtick/markdown description all render into the doctrine without breaking its structure or exceeding the caps |
 | `memoization` | the memoizing resolver walks the registry exactly once across repeated calls |
 
-It loads only those two modules, so it does **not** exercise
+Model router (`extension/model-router.ts`):
+
+| id | what it proves |
+| --- | --- |
+| `router-load` | printed **only on failure**: the module could not be loaded (usually a missing or broken `extension/model-profiles.ts`), so every router check below is void |
+| `router-off` | an empty *or* absent model list yields the shared `ROUTER_OFF` result with zero warnings and without consulting the registry — the default, behaviourally identical to the pre-router extension |
+| `router-unprofiled` | a model with no profile is warned about **by name** (no benchmark data ⇒ excluded) and kept out of the candidates |
+| `router-malformed` | a spec that is not canonical `provider/id` is warned about and dropped, its valid sibling surviving |
+| `router-unroutable` | a model pi's registry does not know, and one with no configured credentials, are each warned about and dropped — routing there could only produce billed failures |
+| `router-all-dropped` | when every entry is dropped the router is OFF with **exactly one** summary warning on top of the per-entry ones |
+| `router-order` | candidates are ordered by tier ascending, then by current effective input price ascending |
+| `router-cheapest` | the cheapest candidate is the lowest effective input price even when a costlier model sorts first by tier — the D48 default base model, exposed separately from the ordering |
+| `router-price-date` | the effective price is the dated row in force on the resolution date, not the first or last row of the schedule |
+| `router-w1-canary` | a profile/registry context-window divergence warns with both values and the profile `asOf` date, and the candidate carries the **registry** value (W1/D55: the registry is the authority) |
+| `router-w3-unknown` | a candidate with `unknownRoutingCriticalFields` warns once, naming the model and the fields (W3/D57) |
+| `router-failover-coverage` | a candidate missing from the `modelFailover` map is warned about as uncovered, while a fully covered, window-aligned candidate warns about nothing at all |
+| `router-dedup` | the memoizing resolver resolves once across repeated consultation and every warning is emitted at most once (D58) |
+| `router-effort` / `router-effort-off` | the effort predicate returns `ok`, `not-listed`, `off-ladder` and `evidence-gap` correctly and carries the model's ladder; with the router off it is inert, and an omitted effort is never a ladder complaint |
+| `router-config-default` / `router-config-invalid` | an absent `router` config silently yields `{ models: [], allowUnmeasuredEffort: true }`; a wrong-shape value warns once and falls back to those defaults; invalid `models` entries are dropped one warning each; a non-boolean `allowUnmeasuredEffort` warns and stays `true` |
+
+It loads only those three modules, so it does **not** exercise
 `extension/worker.ts`'s worker-session load path — the allowlist-mode extension
 load, the `excludeTools` deny list that structurally keeps slate's dispatch
 tools out of a worker, and the post-load collision re-check. Those need a live
 loader and session, so the manual isolated-load smoke test
 (`pi --no-extensions -e .`, see `AGENTS.md`) covers them instead; a passing run
 here says nothing about them.
+
+The router checks likewise stop at the resolver's boundary: they prove what the
+resolution and the effort predicate *report*, not what a dispatch then *does*
+with either. The dispatch-side enforcement and the doctrine's routing rule are
+separate mechanisms with their own verification.
 
 ## Files
 

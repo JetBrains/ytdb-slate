@@ -29,7 +29,11 @@
  *     "modelFailover": { "provider/id": "provider/id" },
  *     "preserveGlobalModelDefault": true,
  *     "doctrineExtraPath": "docs/project-doctrine.md",
- *     "reviewPerspectivesPath": "docs/review-perspectives.md" }
+ *     "reviewPerspectivesPath": "docs/review-perspectives.md",
+ *     "router": { "models": ["provider/id", ...], "allowUnmeasuredEffort": true } }
+ * router.models is the closed list of models an action may be routed to (empty
+ * or absent = router off, the default); allowUnmeasuredEffort (default true)
+ * governs effort levels with no capability evidence — see model-router.ts.
  * contextBudget also takes { "tokens": N, "overrides": [{ "match": "regex",
  * "tokens": N }] } (match is anchored against "provider/id"); absent, the
  * built-in defaults apply (256k tokens; 400k for anthropic/*). The DEPRECATED
@@ -44,6 +48,7 @@ import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-ag
 import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.ts";
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
+import { sanitizeRouterConfig } from "./model-router.ts";
 import { SlateStore, type SlateConfig } from "./state.ts";
 import { ThreadManager } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
@@ -100,6 +105,9 @@ export default function (pi: ExtensionAPI) {
 		config.modelFailover = sanitizeModelFailover(config.modelFailover, warn);
 		config.contextBudget = sanitizeContextBudget(config.contextBudget, warn);
 		config.workerExtensions = sanitizeWorkerExtensions(config.workerExtensions, warn);
+		// router likewise: a malformed model list must surface at session start, not
+		// when a dispatch is refused for naming a model the list silently dropped.
+		config.router = sanitizeRouterConfig(config.router, warn);
 		if (config.contextBudget !== undefined && config.pauseThresholdPercent !== undefined) {
 			warn("slate: contextBudget is set — the deprecated pauseThresholdPercent is ignored");
 		}
