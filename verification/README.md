@@ -505,6 +505,10 @@ A second, much smaller net, for these subjects:
 - the **dispatch guards** in `extension/route.ts` (`route-*`) — the route planner:
   the seven guards that decide whether one dispatched action may run at all, and
   on which (model, effort) pair;
+- **episode compression** in `extension/episodes.ts` (`episode-*`) — the compressor
+  pin, its usability rule, the newest-Sonnet ordering, its diagnostics and the
+  episode header's sanitisation. Loaded through a second loader instance with the
+  pi packages aliased to local stubs (see below);
 - the **model-spec vocabulary** in `extension/state.ts` (`spec-*`) — the canonical
   predicate, splitter, defect reasons and confusable annotation that the router
   shares with `failover.ts`, `episodes.ts` and `worker.ts`, plus the
@@ -516,10 +520,10 @@ A second, much smaller net, for these subjects:
   `extension/model-profiles.ts` (`profiles-*`) — shape and internal consistency
   only, never a research number.
 
-Seven modules are loaded: `worker-extensions.ts`, `mode.ts`, `model-router.ts`,
-`route.ts`, `state.ts`, `base-model.ts` and `model-profiles.ts`. All seven are
-therefore re-run triggers — and because `state.ts`'s spec helpers are also used by
-`failover.ts`, a change to **them** additionally needs the ladder above.
+Eight modules are loaded: `worker-extensions.ts`, `mode.ts`, `model-router.ts`,
+`route.ts`, `state.ts`, `base-model.ts`, `model-profiles.ts` and — through the
+aliased loader — `episodes.ts`. All eight are therefore re-run triggers — and
+because `state.ts`'s spec helpers are also used by `failover.ts`, a change to **them** additionally needs the ladder above.
 
 The ladder above covers slate's model-switch machinery — the model-default
 restore and, in `WK1`, worker-session settings isolation — and says nothing about
@@ -563,8 +567,8 @@ CHECK off-inert        PASS    — empty pattern list → shared empty set, regi
 CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
 CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
       observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
-CHECK roster           PASS    — all 88 expected checks reported exactly once and the counters agree …
-== summary: 88 pass, 1 fail, 0 not run (89 result lines = 88 expected checks + this roster audit) ==
+CHECK roster           PASS    — all 96 expected checks reported exactly once and the counters agree …
+== summary: 96 pass, 1 fail, 0 not run (97 result lines = 96 expected checks + this roster audit) ==
 ```
 
 ### Why the summary counts one more than the roster
@@ -577,7 +581,7 @@ therefore prints `EXPECTED + 1` result lines.
 
 That is the whole of the old off-by-one, and it is now **stated in the output**
 rather than left to be re-derived: the summary prints the identity
-(`89 result lines = 88 expected checks + this roster audit`), and on a run where it
+(`97 result lines = 96 expected checks + this roster audit`), and on a run where it
 does not hold — a deleted check, a duplicate report, a crashed section adding an id
 — it prints the residual as `±N unaccounted — see the roster line`. The roster
 additionally asserts the identity it *can* own: `pass + fail + notrun` equals the
@@ -659,10 +663,10 @@ session's frozen resolution carries:
 | id | what it proves |
 | --- | --- |
 | `route-load` | the module loads; a failure converts every `route-*` check into an explicit NOT RUN line |
-| `route-vocabulary` | an `effort` outside pi's vocabulary is **rejected** (never clamped, never ignored), the reason names the value and the ascending level list, `THINKING_LEVELS` *is* that ascending vocabulary, whitespace-only or omitted effort reads as absent, a padded valid level is trimmed — and this guard runs **before** the list guard |
+| `route-vocabulary` | an `effort` outside pi's vocabulary is **rejected** (never clamped, never ignored), the reason names the value and the ascending level list, `THINKING_LEVELS` *is* that ascending vocabulary, a padded valid level is trimmed, and this guard runs **before** the list guard. A whitespace-only or omitted effort names no level, so one is **derived for the model that runs** (its lowest measured level) and `effortJudgedFor` names that model — it no longer resolves to nothing |
 | `route-effort-type` | a **non-string** `effort` is rejected rather than read as absent — reading it as absent would silently run the action at the thread's **base** level, a substitution that looks like success. Seven shapes (number, object, array, boolean, function, cyclic, escape-bearing), each rejected with the type and value named, pi's levels offered, display-safe text and no throw; `undefined`/`null` stay absent and the base effort then applies |
-| `route-list-on` | with the router ON a model outside the candidate list is rejected, naming every candidate **in resolution order** and a remediation clause naming a **listed** base to fall back to — for a listed base, for a base that was just seeded or re-seeded (the clause can no longer be empty, nor name the model it just refused), and for a thread that does not exist yet; the rejection still carries the repair's own warning; a listed model routes that action |
-| `route-list-off` | with the router OFF the list, ladder and window guards are all inert — the pre-router path: an unlisted model and a ladder-less effort pass through unvalidated and unwarned, the orchestrator's tracked base model is used when `model` is omitted, and an unusable tracked value reads as absent. This is the direction that keeps today's behaviour intact |
+| `route-list-on` | with the router ON a model outside the candidate list is rejected, naming every candidate **in resolution order** and a remediation clause naming a **listed** base to fall back to — for a listed base, for a base that was just seeded or re-seeded (the clause can no longer be empty, nor name the model it just refused), and for a thread that does not exist yet; the rejection still carries the repair's own warning; a listed model routes that action, at a level derived for it |
+| `route-list-off` | with the router OFF the module is **invisible**: the list and window guards are inert, an unlisted model and a ladder-less effort pass through unwarned, the `model` argument is passed through **byte-for-byte** (padding included, so pi still owns malformed-spec errors), the thread's **pre-router pin** is the only fall-through and is `openOnly` (a pin never moves a live session, while an explicit model does), and a **stored `baseModel` resolves nothing** — the tracker and the stored base are no longer consulted on this path at all |
 | `route-resolution` | a malformed, half-built (`on: true` with no candidates) or absent resolution collapses to the shared `ROUTER_OFF` constant, so the guards fall back to the pre-router path instead of walking a shape they cannot read |
 | `route-resolved-pair` | an **omitted** model and an **omitted** effort still go through the guards, because they fall through to the thread's base values: an off-list base is **re-seeded** to a listed candidate (signalled for persistence, naming what it replaced, base effort re-derived, one warning) rather than rejected, an off-ladder base effort is rejected, a valid base pair proceeds and is echoed back, a pre-router `model` pin still reads as the base, a new thread is seeded with the cheapest candidate at its lowest **measured** level, and an omitted model falls back to the host model for the effort check. A suite that only ever passed explicit arguments would miss the most common real dispatch |
 | `route-base-reseed` | the base **repair** (route.ts's THE ONE RULE): with the router ON an off-list or **absent** base — including a pre-router `model` pin — is seeded to the cheapest preferred candidate with its effort re-derived, signalled for persistence (`baseReseeded` / `baseReseededFrom`) and warned about once, never refused. A listed base or pin is untouched and silent; the router-OFF path is unaffected; an explicit route does not become the base nor the base the route; and a resolution that is ON but carries nothing usable to seed from **drops** the base rather than enforcing a list it could not read. Both repaired shapes are ordinary states — a thread predating `router.models`, or a list that changed — and the baseless one is the dangerous half: it used to run outside the closed list silently, so the cost bound the list expresses simply did not apply |
@@ -678,6 +682,8 @@ session's frozen resolution carries:
 | `route-failover` | a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a **non-substituting** window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-off session keeps its pre-router failover behaviour exactly |
 | `route-lowest-effort` | the base-effort seed is the **lowest measured, non-provider-rejected** level on that model's ladder — never an evidence gap — ascending from pi's vocabulary rather than the table's authoring order, and `undefined` (pi's own default) when there is no measured level, the model is unlisted, the router is off, or the resolution is junk |
 | `route-off-ladder-source` | with the router **OFF** the ladder used for effort validation comes from the caller's **injected** profile source and nothing else: it is consulted by spec, it is authoritative (a level off a **known** ladder is refused even for a spec the shipped table has never heard of — the discriminating direction), a spec it **declines** is not judged at all, an absent source, a throwing lookup and an **unreadable ladder** (throwing or non-array) are all **inert** — the level is kept, with no unmeasured marker and no warning — a foreign level is filtered out of the quoted ladder, and the module imports the shipped table **only as an erased type** (a text term, like `wiring`: it is what catches a runtime import of `findProfile` as a back door) |
+| `route-effort-derived-for-model` | THE ONE RULE's effort half: a level stored on the thread is inherited **only** while the action runs on the base model it was derived for. An explicit per-action model gets **that model's** own lowest measured level instead — asserted with two **disjoint** ladders, so an inheriting implementation cannot pass: it would refuse a level absent from the new model's ladder where this asserts a proceed, including under `allowUnmeasuredEffort: false` (BG14). A window substitution re-derives for the substituted model; an **explicit** level is still judged hard against the model that runs; `effortJudgedFor` always names that model |
+| `route-off-invisible` | with the router OFF nothing is seeded, persisted, derived or consulted: no base model, no base effort, no re-seed signal, no derived level, the pin is `openOnly`, no router guard speaks even with a 5M-token context, a malformed argument is passed through for pi to reject — and passing the **removed** orchestrator-tracker input changes the verdict not at all, which is what "not consulted" means asserted rather than assumed. The boundary is stated positively too: the **ladder** guard is deliberately *not* invisible, and still refuses an off-ladder explicit level |
 | `route-hostile` | a hostile `model` or `effort` argument is stripped of control/ANSI bytes and length-capped before it reaches a rejection reason — that text goes to the orchestrator *and* to pi-tui, which renders escapes verbatim — while the rejection itself still happens |
 
 #### Documented coverage boundary of the `route-*` checks
@@ -731,30 +737,59 @@ harness pinned that behaviour explicitly as *not endorsed*; the module now goes
 inert, and `route-off-ladder-source` and `route-read-failure-inert` assert the new
 behaviour on the router-OFF and router-ON paths respectively.
 
-### Not covered here at all: episode compression (`extension/episodes.ts`)
+Episode compression (`extension/episodes.ts`) — the module the suite could not
+load until now. It imports `@earendil-works/pi-ai`, a peer dependency this repo
+does not install, so a **second loader instance** is created with `alias` pointing
+each pi package at a local stub written into the throwaway work dir. The module and
+everything it imports from this repo are the real thing; only the SDK boundary is
+faked:
 
-The compressor pin (which model writes an episode, and the rule that no rung is
-chosen because an action ran there), the usability rule it shares with the
-compression attempt, and the episode HEADER's sanitisation have **no permanent
-checks in this suite**. The module imports `@earendil-works/pi-ai`, a peer
-dependency this repo does not install, so `jiti` cannot resolve it the way the
-driver loads everything else — the same reason `index.ts` is asserted as *text* by
-`wiring` rather than executed.
+| id | what it proves |
+| --- | --- |
+| `episode-load` | the module loads through the aliased loader and exports `compressEpisode`; a failure converts every `episode-*` check into an explicit NOT RUN line |
+| `episode-pin` | the model an **action** ran on is never selected as the compressor — at any rung, under any failure (no configured model, an unknown configured model, no available Sonnet, a throwing registry): each ends in the uncompressed fallback carrying the worker's own last output rather than reaching for the action's model, and no LLM call is made at all. The orchestrator's tracked base **is** selected even when it coincides with the action's model, because a rung is chosen on its own merits — coincidence is not derivation |
+| `episode-auth` | usability is pi's own verdict, not "has an API key": a provider authenticating by **header** and one authenticating from the **environment** (the bedrock/vertex shape — `ok` with neither key nor headers) are both accepted, an unconfigured provider is still rejected at every rung, the failover retry applies the same rule, and the auth the rung was accepted for is exactly what reaches the call (headers present, no `apiKey` option at all) |
+| `episode-version` | the newest-Sonnet rung compares version components **numerically**: a two-digit minor beats a one-digit one (`4-10` over `4-9`), a higher major beats both, a dated snapshot orders stably against its alias, and a non-Sonnet is not a candidate |
+| `episode-report` | a well-formed but unusable `episodeModel` is **reported**, not silently skipped — separately for one the registry does not know and one whose provider is unconfigured — each naming the model, the reason and the fallback, display-safe and bounded, **once per process** rather than once per episode; a usable configured model is silent and is the one that runs |
+| `episode-header` | nothing interpolated into the header can forge a line or a field: newline-bearing diagnostics, thread name and task each collapse to one line, the `|` delimiter is stripped out of a model id, every field is length-bounded, `ran:` is omitted entirely when the action produced no output, the unmeasured marker is dropped when the effort guards judged another model, and a non-string provider/id is not rendered as a model name |
 
-A **recorded opportunity**, proven to work rather than assumed: `createJiti`
-accepts an `alias` map, and pointing `@earendil-works/pi-ai`,
-`@earendil-works/pi-ai/compat` and `@earendil-works/pi-coding-agent` at small local
-stubs loads the REAL `extension/episodes.ts` and lets `compressEpisode` be driven
-end to end with a fabricated `ctx` — registry, auth verdicts, available models — and
-a `complete()` stub that records the call instead of making it. That is how the
-compressor/header findings were verified (31 assertions in a throwaway probe, each
-proven by a mutation), and it is how permanent `episode-*` checks could be added.
-The caveat that must be settled first: those checks would exercise the module
-against **stubbed SDK behaviour**, so the stubs become part of the contract under
-test — they have to be justified against the real SDK's semantics (as the auth rule
-was here, by reading `agent-session`'s `_getRequiredRequestAuth` and the provider
-modules' own `assertRequestAuth`), or the suite starts proving that the stubs
-agree with themselves.
+#### Real versus stubbed, stated plainly
+
+A stub-backed check can degenerate into proving the stubs consistent with
+themselves, so the split is explicit.
+
+**Proven against real code**: `episodes.ts` itself — rung order and the pin, the
+`auth.ok` usability rule and its single point of definition, the numeric id
+comparison, the `reportOnce` diagnostics, `headerField`'s collapse/delimiter/bound
+rules and the whole header assembly — plus everything it imports from this repo:
+`failover.ts`'s `resolveMappedModel`, `base-model.ts`'s `modelSpecOf`,
+`notify.ts`'s `sanitizeForNotify`, `state.ts`'s `splitModelSpec`.
+
+**Assumed by a stub**, each justified in a comment at the stub:
+
+- `complete()` records the call and returns a fixed assistant message. What is
+  proven is *which* model was selected and *what auth* the call received; the
+  provider's own behaviour, and the attempt classification built on it (AF7/AF11),
+  are a different mechanism these checks make no claim about.
+- `isContextOverflow` / `isRetryableAssistantError` return `false`, the shipped
+  answer for a non-error message. Only retry classification reads them, and no
+  check asserts a retry decision beyond "the mapped model was consulted under the
+  same auth rule".
+- `CONFIG_DIR_NAME` is pi's own value `".pi"`; `convertToLlm` and
+  `serializeConversation` are identity/JSON and only feed transcript text that no
+  check inspects. `getAgentDir`/`SettingsManager` exist merely because
+  `failover.ts` and `model-default.ts` import them at load time.
+- The **auth verdicts** the fabricated registry returns are *not* invented: the
+  three shapes are what pi's own `ModelRegistry.getApiKeyAndHeaders` produces —
+  `{ok:true, apiKey, headers, env}`, `{ok:true, headers}` with no key for a
+  provider without an `authHeader`, and `{ok:false, error}` when unconfigured
+  (`dist/core/model-registry.js`). BG42 turned on exactly that distinction, so it is
+  asserted against the SDK's real shapes rather than a convenient one.
+
+What this family therefore does **not** cover: that a real provider accepts the
+request slate builds, and the attempt/retry classification of a real failure. Those
+need a live provider, and the ladder's fake-provider rungs are the nearest thing
+the repo has.
 
 Config-sanitizer wiring (`extension/index.ts`) — a **text** check:
 
@@ -845,6 +880,27 @@ LIVE declaration in preference to a settled one (`base-two-in-flight`); and
 dropping the `settle()` out of `ownSwitch`'s `finally`, so a throwing setter leaves
 its declaration in flight forever (`base-throwing-switch`, `base-own-switch`).
 
+When the planner moved the effort to the model that runs and made router-off
+invisible again, the six checks that pinned the old answers were re-synced and the
+whole set re-proven with **14** mutations, all killed: removing the derivation so an
+omitted level resolves to nothing (`route-vocabulary`); dropping the
+`effortJudgedFor` field (`route-list-on`); trimming the `model` argument instead of
+passing it byte-for-byte (`route-list-off`); reading a stored `baseModel` on the
+router-off path (`route-base-reseed`); ignoring the pre-router pin so the base is
+re-seeded to the same model instead (`route-resolved-pair` — this one *survived*
+first time and exposed a real gap: the check could not tell "the pin was honoured"
+from "the pin was ignored and the base happened to be re-seeded to it", so it now
+asserts the absence of the re-seed signal too); deriving the level for the
+PRE-substitution model (`route-window-substitute`); inheriting a level across models,
+which is BG14 reintroduced (`route-effort-derived-for-model`); seeding a base effort
+with the router off (`route-off-invisible`); and, in `episodes.ts`, making the module
+unloadable (`episode-load`, which is also how the NOT RUN registration was verified
+— five `episode-*` lines report NOT RUN by name), falling back to the action's own
+model as a rung (`episode-pin`), demanding an API key again (`episode-auth`), sorting
+ids as strings (`episode-version`), silencing the unusable-config diagnostic
+(`episode-report`), and dropping the header's whitespace collapse
+(`episode-header`).
+
 The `route-*` checks likewise, **27 mutations, 27 killed** — one per check, plus a
 second one for `route-resolved-pair`, whose model half and effort half are
 independent, three for `route-off-ladder-source` (below), and seven for the checks
@@ -910,7 +966,7 @@ than a FAIL — it names a section, not a claim — so every reason read in this
 now goes through one helper that yields `""` for a proceed. The mutation testing is
 what surfaced it; a suite that only ever runs against correct code cannot.
 
-It loads only those seven modules, so it does **not** exercise
+It loads only those eight modules, so it does **not** exercise
 `extension/worker.ts`'s worker-session load path — the allowlist-mode extension
 load, the `excludeTools` deny list that structurally keeps slate's dispatch
 tools out of a worker, and the post-load collision re-check. Those need a live
