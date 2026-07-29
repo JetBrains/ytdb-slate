@@ -502,6 +502,9 @@ A second, much smaller net, for these subjects:
   doctrine rule it feeds in `extension/mode.ts`;
 - the **model router** in `extension/model-router.ts` — its config sanitizer, its
   candidate resolution and warnings, and its dispatch-side effort predicate;
+- the **dispatch guards** in `extension/route.ts` (`route-*`) — the route planner:
+  the seven guards that decide whether one dispatched action may run at all, and
+  on which (model, effort) pair;
 - the **model-spec vocabulary** in `extension/state.ts` (`spec-*`) — the canonical
   predicate, splitter, defect reasons and confusable annotation that the router
   shares with `failover.ts`, `episodes.ts` and `worker.ts`, plus the
@@ -513,10 +516,10 @@ A second, much smaller net, for these subjects:
   `extension/model-profiles.ts` (`profiles-*`) — shape and internal consistency
   only, never a research number.
 
-Six modules are loaded: `worker-extensions.ts`, `mode.ts`, `model-router.ts`,
-`state.ts`, `base-model.ts` and `model-profiles.ts`. All six are therefore re-run
-triggers — and because `state.ts`'s spec helpers are also used by `failover.ts`, a
-change to **them** additionally needs the ladder above.
+Seven modules are loaded: `worker-extensions.ts`, `mode.ts`, `model-router.ts`,
+`route.ts`, `state.ts`, `base-model.ts` and `model-profiles.ts`. All seven are
+therefore re-run triggers — and because `state.ts`'s spec helpers are also used by
+`failover.ts`, a change to **them** additionally needs the ladder above.
 
 The ladder above covers slate's model-switch machinery — the model-default
 restore and, in `WK1`, worker-session settings isolation — and says nothing about
@@ -525,13 +528,15 @@ any of the subjects below.
 Unlike the ladder, these pipelines are **pure and deterministic** — one maps a
 host tool registry and a list of regex patterns to a set of load units, the second
 maps a configured model list plus a model registry plus a profile table to an
-ordered candidate set, the third reduces a stream of model-selection events to one
-base model — so the checks need no pi session and no real state at all. They run
-the real modules (loaded through the jiti that ships with pi, because node's
-strip-only TypeScript mode cannot load `state.ts`'s constructor parameter
-property) against **fabricated in-memory registries, fabricated profile tables**,
-fabricated events with an injected clock, and temp-dir package fixtures, and
-assert the observable result.
+ordered candidate set, the third turns one dispatch's arguments plus that
+resolution into a proceed/reject verdict, the fourth reduces a stream of
+model-selection events to one base model — so the checks need no pi session and no
+real state at all. They run the real modules (loaded through the jiti that ships
+with pi, because node's strip-only TypeScript mode cannot load `state.ts`'s
+constructor parameter property) against **fabricated in-memory registries,
+fabricated profile tables**, fabricated events with an injected clock, a
+fabricated compaction predicate, and temp-dir package fixtures, and assert the
+observable result.
 
 Every router check injects **its own** registry *and* **its own** profile table,
 so none of them depends on the *data* in `extension/model-profiles.ts` — with two
@@ -625,6 +630,41 @@ Model router (`extension/model-router.ts`):
 | `router-config-default` / `router-config-invalid` | an absent `router` config silently yields `{ models: [], allowUnmeasuredEffort: true }`; a wrong-shape value warns once and falls back to those defaults; invalid `models` entries are dropped one warning each; a non-boolean `allowUnmeasuredEffort` warns and stays `true`; **unknown keys are reported**, so a typo'd `"model"` cannot masquerade as an empty list (CQ1) |
 | `router-shipped-default` | with `profiles` omitted the resolver really does use the shipped table — tier, ladder and price all arrive from it — and an unprofiled spec is still excluded |
 
+Dispatch guards — the route planner (`extension/route.ts`). The **safety core** of
+action-level routing, and the one place where a regression is completely silent: a
+guard that stops guarding still "works", the dispatch runs and an episode is
+written. Every input is fabricated, **including pi's compaction predicate**, and
+the resolutions are built by the real router so candidates carry exactly what a
+session's frozen resolution carries:
+
+| id | what it proves |
+| --- | --- |
+| `route-load` | the module loads; a failure converts every `route-*` check into an explicit NOT RUN line |
+| `route-vocabulary` | an `effort` outside pi's vocabulary is **rejected** (never clamped, never ignored), the reason names the value and the ascending level list, `THINKING_LEVELS` *is* that ascending vocabulary, whitespace-only or omitted effort reads as absent, a padded valid level is trimmed — and this guard runs **before** the list guard |
+| `route-list-on` | with the router ON a model outside the candidate list is rejected, naming every candidate **in resolution order** and — only when one exists — the base model to omit the argument for; a listed model routes that action |
+| `route-list-off` | with the router OFF the list, ladder and window guards are all inert — the pre-router path: an unlisted model and a ladder-less effort pass through unvalidated and unwarned, the orchestrator's tracked base model is used when `model` is omitted, and an unusable tracked value reads as absent. This is the direction that keeps today's behaviour intact |
+| `route-resolution` | a malformed, half-built (`on: true` with no candidates) or absent resolution collapses to the shared `ROUTER_OFF` constant, so the guards fall back to the pre-router path instead of walking a shape they cannot read |
+| `route-resolved-pair` | an **omitted** model and an **omitted** effort still go through the guards, because they fall through to the thread's base values: an unlisted base model and an off-ladder base effort are each rejected, a valid base pair proceeds and is echoed back, a pre-router `model` pin still reads as the base, a new thread is seeded with the cheapest candidate at its lowest **measured** level, and an omitted model falls back to the host model for the effort check. A suite that only ever passed explicit arguments would miss the most common real dispatch |
+| `route-ladder-per-model` | the ladder guard answers **per model**, never as a union: two ladders differing in *both* directions, so a union implementation fails whichever way it is built, and the reason names the offending model's own ladder |
+| `route-evidence-gap` | an unmeasured but ladder-valid level is dispatched **with** a warning and the proceed verdict carries the unmeasured marker; an unlisted table hole says so; `router.allowUnmeasuredEffort: false` refuses it instead; a measured level is silent and unmarked |
+| `route-api-rejected` | a level in `apiRejectedLevels` is refused **outright**, named as a guaranteed provider failure rather than an evidence gap, and not rescued by `allowUnmeasuredEffort` — while a normal level on the same model still proceeds |
+| `route-window-substitute` | a model that cannot hold the thread's context is replaced by the **widest** candidate (not the next, not the cheapest); the verdict still PROCEEDS and records `substitutedFrom`; the warning names both models and the widest window; and a level invalid on the *substituted* model is **dropped with a warning** rather than rejecting the action |
+| `route-window-skip` | the guard is skipped when the context size is unknowable, when pi supplies no compaction predicate, and when that predicate throws — and it never rejects: with no listed model able to hold the context the widest is used anyway ("pi will compact"), and with nothing wider the resolved model is kept with a warning |
+| `route-window-reserve` | capacity is judged by **pi's own** compaction predicate on the candidate's **registry** window — a context that fits the bare window but *not* the window minus pi's reserve is substituted; the predicate is asked with exactly `(tokens, window)`; a predicate that says it fits is obeyed; and `reserveTokens` only shapes the warning text |
+| `route-long-context` | the long-context **billing** notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a substitution the notice belongs to the model the action actually runs on |
+| `route-failover` | a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a **non-substituting** window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-off session keeps its pre-router failover behaviour exactly |
+| `route-lowest-effort` | the base-effort seed is the **lowest measured, non-provider-rejected** level on that model's ladder — never an evidence gap — ascending from pi's vocabulary rather than the table's authoring order, and `undefined` (pi's own default) when there is no measured level, the model is unlisted, the router is off, or the resolution is junk |
+| `route-hostile` | a hostile `model` or `effort` argument is stripped of control/ANSI bytes and length-capped before it reaches a rejection reason — that text goes to the orchestrator *and* to pi-tui, which renders escapes verbatim — while the rejection itself still happens |
+
+What the `route-*` checks deliberately do **not** cover, because it is not in the
+pure module: what `threads.ts` then *does* with a verdict (applying the switch to a
+worker session, turning an early rejection into a tool error and an apply-time one
+into an episode-less abort, recording guard 6's once-per-pair memory), and the
+composition that feeds the planner — pi's real compaction settings, and the
+registry/auth vetting behind the router-off ladder source. The ladder's `WK1` rung
+covers the settings-isolation half of applying a switch; the rest needs a live
+session.
+
 Config-sanitizer wiring (`extension/index.ts`) — a **text** check:
 
 | id | what it proves |
@@ -679,8 +719,9 @@ concern, not something a structural check can own.
 
 These checks were validated by **mutation testing**: copy the repo to a scratch
 directory outside it, apply one textual change to `extension/model-router.ts`,
-`extension/state.ts`, `extension/base-model.ts` or `extension/model-profiles.ts`,
-and re-run the suite against the copy (`--repo <copy>`). Each behaviour listed
+`extension/route.ts`, `extension/state.ts`, `extension/base-model.ts` or
+`extension/model-profiles.ts`, and re-run the suite against the copy
+(`--repo <copy>`). Each behaviour listed
 above has at least one mutation that it catches — including the two that used to
 pass vacuously (the
 dedup mechanism and the shipped-table default), the ordering tie-breaks, the
@@ -701,7 +742,33 @@ written to avoid (`base-throwing-switch`). Three of those mutations also killed
 other `base-*` checks, which is expected: the requirement is that every check is
 killed by at least one mutation, not that a mutation kills only one check.
 
-It loads only those six modules, so it does **not** exercise
+The `route-*` checks likewise, **17 mutations, 17 killed** — one per check, plus a
+second one for `route-resolved-pair`, whose model half and effort half are
+independent. Each one is a defect that would leave the dispatch working: disabling the
+vocabulary guard (the level then reaches the ladder guard and is complained about
+for the wrong reason); disabling the list guard; making the list guard ignore the
+router-OFF state; letting an `on: true` resolution with no candidates stay "on";
+validating only the EXPLICIT model, and separately only the explicit effort, so a
+thread's base values escape the guards; answering the ladder question for the first
+candidate instead of the model in hand (the union-over-models defect); treating an
+evidence gap as `ok`; dropping the API-rejected guard (the level is then reported
+as a mere ladder problem); picking the NARROWEST candidate for a window
+substitution; letting a throwing compaction predicate condemn a dispatch; judging
+capacity against the bare window instead of pi's predicate; warning about
+long-context billing on every dispatch instead of once; letting failover select the
+model that just failed; seeding a base effort from an evidence gap; and dropping
+the display sanitizer from a rejection reason. One further mutation makes
+`route.ts` unloadable, which is how the NOT RUN registration itself was verified:
+`route-load` FAILs and all 15 `route-*` checks report NOT RUN by name, with the
+roster still passing.
+
+Two of those mutations initially made a check **crash** rather than fail (a term
+read `.reason` off a verdict that was suddenly a *proceed*). That is a worse signal
+than a FAIL — it names a section, not a claim — so every reason read in this block
+now goes through one helper that yields `""` for a proceed. The mutation testing is
+what surfaced it; a suite that only ever runs against correct code cannot.
+
+It loads only those seven modules, so it does **not** exercise
 `extension/worker.ts`'s worker-session load path — the allowlist-mode extension
 load, the `excludeTools` deny list that structurally keeps slate's dispatch
 tools out of a worker, and the post-load collision re-check. Those need a live
@@ -711,10 +778,12 @@ here says nothing about them. One part of `worker.ts` *is* covered by an
 automated net, but by the ladder rather than this suite: the settings isolation a
 per-dispatch worker switch depends on, in rung `WK1` above.
 
-The router checks likewise stop at the resolver's boundary: they prove what the
-resolution and the effort predicate *report*, not what a dispatch then *does*
-with either. The dispatch-side enforcement and the doctrine's routing rule are
-separate mechanisms with their own verification.
+The router and `route-*` checks stop at the **pure** boundary: they prove what the
+resolution reports and what the planner *decides*, not what `threads.ts` then does
+with a verdict — applying the switch to a worker session, raising an early
+rejection as a tool error, aborting an apply-time one without an episode, or
+remembering guard 6's once-per-pair notice. Those, and the doctrine's routing rule,
+are separate mechanisms; `WK1` above covers one slice of the first.
 
 ## Files
 

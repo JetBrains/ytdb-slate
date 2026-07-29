@@ -5,12 +5,12 @@
 // repo path, the bundled-jiti entry point, a throwaway work directory and an
 // optional "strict" flag as argv, imports the worker-extension resolver
 // (extension/worker-extensions.ts), the doctrine builder (extension/mode.ts),
-// the model router (extension/model-router.ts), the profile table
-// (extension/model-profiles.ts), the model-spec vocabulary (extension/state.ts)
-// and the orchestrator base-model tracker (extension/base-model.ts) through
-// jiti, and exercises them against wholly fabricated in-memory inputs. No
-// network, no real pi session; every file it creates lives under the work dir
-// the wrapper owns and removes.
+// the model router (extension/model-router.ts), the dispatch-guard route planner
+// (extension/route.ts), the profile table (extension/model-profiles.ts), the
+// model-spec vocabulary (extension/state.ts) and the orchestrator base-model
+// tracker (extension/base-model.ts) through jiti, and exercises them against
+// wholly fabricated in-memory inputs. No network, no real pi session; every file
+// it creates lives under the work dir the wrapper owns and removes.
 //
 // Output contract (TS1–TS3):
 //   · one `CHECK <id> <PASS|FAIL|NOT RUN> — <detail>` line per check, plus an
@@ -59,10 +59,15 @@ const stateLoad = await tryImport("extension/state.ts");
 // module header says so), so it belongs here rather than in the ladder: it
 // touches no pi, no filesystem and no clock other than the injected one.
 const baseLoad = await tryImport("extension/base-model.ts");
+// The route planner: the seven dispatch guards, extracted from threads.ts into a
+// PURE module for exactly this harness (threads.ts transitively imports
+// @earendil-works/pi-ai, which this repo does not install).
+const routeLoad = await tryImport("extension/route.ts");
 const router = routerLoad.module;
 const table = profilesLoad.module;
 const state = stateLoad.module;
 const tracker = baseLoad.module;
+const route = routeLoad.module;
 
 // ----------------------------------------------------------------- reporting --
 let pass = 0;
@@ -213,6 +218,29 @@ const ROUTER_IDS = [
 const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta"];
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key"];
+/**
+ * Checks that need extension/route.ts — the dispatch guards. They also need
+ * extension/model-router.ts, because the planner consumes its resolutions AND
+ * imports it (so an unloadable router makes route.ts unloadable too); the skip
+ * reason names whichever module actually failed.
+ */
+const ROUTE_IDS = [
+	"route-vocabulary",
+	"route-list-on",
+	"route-list-off",
+	"route-resolution",
+	"route-resolved-pair",
+	"route-ladder-per-model",
+	"route-evidence-gap",
+	"route-api-rejected",
+	"route-window-substitute",
+	"route-window-skip",
+	"route-window-reserve",
+	"route-long-context",
+	"route-failover",
+	"route-lowest-effort",
+	"route-hostile",
+];
 /** Checks that need extension/base-model.ts — the orchestrator base-model tracker. */
 const BASE_IDS = [
 	"base-seed",
@@ -232,6 +260,10 @@ const BASE_IDS = [
  * turning into a roster "missing" line when its module cannot be loaded (TS3).
  */
 const VOIDABLE = [
+	// "route-" before "router-" is only cosmetic: no "router-*" id starts with
+	// "route-" (the sixth character is "r", not "-"), so the two lists cannot claim
+	// each other's checks.
+	["route-", ROUTE_IDS, "route-load"],
 	["router-", ROUTER_IDS, "router-load"],
 	["profiles-", PROFILE_IDS, "profiles-load"],
 	["spec-", STATE_IDS, "state-load"],
@@ -405,8 +437,10 @@ try {
 		price: o.price ?? [{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
 		contextWindow: o.contextWindow ?? null,
 		maxOutput: null,
-		longContextThreshold: null,
-		longContextMultipliers: null,
+		// Default null (untraced), overridable: the route planner's long-context
+		// billing guard reads both, and no other check needs them set.
+		longContextThreshold: o.longContextThreshold ?? null,
+		longContextMultipliers: o.longContextMultipliers ?? null,
 		tier: o.tier ?? 1,
 		nonPreferred: o.nonPreferred ?? null,
 		routeFor: "anything",
@@ -461,6 +495,7 @@ try {
 	check("profiles-load", table !== undefined, "extension/model-profiles.ts loads", profilesLoad.error?.message);
 	check("state-load", state !== undefined, "extension/state.ts loads", stateLoad.error?.message);
 	check("base-load", tracker !== undefined, "extension/base-model.ts loads", baseLoad.error?.message);
+	check("route-load", route !== undefined, "extension/route.ts loads", routeLoad.error?.message);
 
 	if (!router) {
 		for (const id of ROUTER_IDS) skip(id, "extension/model-router.ts could not be loaded");
@@ -1196,6 +1231,504 @@ try {
 	}
 
 	// =========================================================================
+	// Dispatch guards — the route planner (extension/route.ts)
+	// =========================================================================
+	// The SAFETY CORE of action-level routing: the seven guards that decide whether
+	// one dispatched action may run at all, and on which (model, effort) pair. It was
+	// extracted from threads.ts into a pure module precisely so this harness can load
+	// it, and it needs permanent coverage more than anything else here — a guard that
+	// stops guarding still "works": the dispatch runs, an episode is written, and the
+	// damage (an action believed to have run at a level the model never offered, a
+	// long-context bill nobody was warned about, a failover the router vetoed) is
+	// invisible in the result.
+	//
+	// Every input is fabricated, INCLUDING pi's compaction predicate. The resolutions
+	// are built by the REAL router from fabricated registries and profiles, so the
+	// candidates carry exactly what a session's frozen resolution carries (the
+	// registry window, the filtered ladder, the profile object) rather than a
+	// hand-built shape production never produces.
+	if (!route || !router) {
+		for (const id of ROUTE_IDS) skip(id, `${!route ? "extension/route.ts" : "extension/model-router.ts"} could not be loaded`);
+	} else {
+		/**
+		 * A live resolution from fabricated rows: { spec, window, tier, price, ladder,
+		 * measured, gaps, apiRejected, threshold, multipliers }. THROWS when the fixture
+		 * did not produce a live resolution with one candidate per row — the section
+		 * guard turns that into a loud FAIL instead of letting every guard check below
+		 * pass vacuously against a router-off resolution.
+		 */
+		const routeResolution = (rows) => {
+			const list = rows.map((r) =>
+				profile(r.spec, {
+					tier: r.tier ?? 1,
+					price: [{ from: null, until: null, inUsdPerMTok: r.price ?? 1, outUsdPerMTok: (r.price ?? 1) * 2 }],
+					contextWindow: r.window ?? null,
+					ladder: r.ladder ?? ["off", "low", "medium", "high"],
+					capabilityMeasuredAt: r.measured ?? ["medium"],
+					evidenceGapAt: r.gaps ?? [],
+					...(r.apiRejected === undefined ? {} : { apiRejected: r.apiRejected }),
+					...(r.threshold === undefined ? {} : { longContextThreshold: r.threshold }),
+					...(r.multipliers === undefined ? {} : { longContextMultipliers: r.multipliers }),
+				}),
+			);
+			const models = {};
+			for (const r of rows) models[r.spec] = { contextWindow: r.window ?? 200_000, auth: true };
+			const { res } = resolve({ registry: registry(models), models: rows.map((r) => r.spec), profiles: profiles(list) });
+			if (res.on !== true || res.candidates.length !== rows.length) {
+				throw new Error(`route fixture did not resolve: on=${res.on}, ${res.candidates.length} candidate(s) for ${rows.length} row(s)`);
+			}
+			return res;
+		};
+		const plan = (input) => route.planRoute(input);
+		/**
+		 * pi's OWN compaction predicate, fabricated: "would this many tokens trigger
+		 * compaction on a window this size?". `calls` records what the planner asked, so
+		 * a check can prove the DECISION is delegated rather than re-derived.
+		 */
+		const compactAt = (reserve, calls) => (tokens, window) => {
+			calls?.push(`${tokens}/${window}`);
+			return tokens + reserve > window;
+		};
+		/** A verdict as one comparable string: kind, model, effort, unmeasured marker. */
+		const verdict = (v) => (v.kind === "reject" ? `reject:${v.reason}` : `proceed:${v.model}@${v.effort}${v.effortUnmeasured ? "!" : ""}`);
+		const warns = (v, re) => v.warnings.filter((m) => re.test(m));
+		/**
+		 * A verdict's reason, or "" for a PROCEED. Never `v.reason` directly: a term
+		 * that reads a missing reason THROWS, and a crashed section is a much worse
+		 * signal than a FAIL naming the term (TS1/TS2) — a mutation that turns a
+		 * rejection into a proceed must fail the check, not blow up the section.
+		 */
+		const why = (v) => (v && typeof v.reason === "string" ? v.reason : "");
+
+		await section("route-vocabulary", async () => {
+			// GUARD 0, and it runs FIRST: an `effort` outside pi's vocabulary is rejected
+			// before any other guard looks at the dispatch.
+			const res = routeResolution([{ spec: "p/a", ladder: ["off", "low", "medium", "high"], measured: ["off", "low", "medium", "high"] }]);
+			const bad = plan({ resolution: res, requestedModel: "p/a", requestedEffort: "turbo" });
+			const upper = plan({ resolution: res, requestedModel: "p/a", requestedEffort: "HIGH" });
+			const padded = plan({ resolution: res, requestedModel: "p/a", requestedEffort: " high " });
+			// An EXISTING thread with no base effort, so "absent" stays absent: a NEW thread
+			// would be seeded with the model's lowest measured level (route-resolved-pair
+			// covers that), which would hide the distinction this term is about.
+			const noBaseEffort = { id: "t0", baseModel: "p/a" };
+			const blank = plan({ resolution: res, thread: noBaseEffort, requestedModel: "p/a", requestedEffort: "   " });
+			const omitted = plan({ resolution: res, thread: noBaseEffort, requestedModel: "p/a" });
+			// Ordering: a bad effort AND an unlisted model — the effort complaint wins,
+			// because guard 0 precedes guard 1.
+			const both = plan({ resolution: res, requestedModel: "p/unlisted", requestedEffort: "turbo" });
+			checkAll("route-vocabulary", "an effort level outside pi's vocabulary is REJECTED (not clamped, not ignored) with a reason naming the value and the ascending level list; whitespace-only or omitted effort reads as absent; a padded valid level is trimmed and accepted; and the vocabulary guard runs before the list guard", [
+				["rejected", bad.kind === "reject", verdict(bad)],
+				["names the value", /effort "turbo"/.test(why(bad)), why(bad)],
+				["names pi's levels, ascending", why(bad).includes("(off, minimal, low, medium, high, xhigh, max)"), why(bad)],
+				["THINKING_LEVELS is that ascending vocabulary", route.THINKING_LEVELS.join(",") === "off,minimal,low,medium,high,xhigh,max", route.THINKING_LEVELS],
+				["no warnings on a rejection", bad.warnings.length === 0, bad.warnings],
+				["case matters (pi's levels are lower-case)", upper.kind === "reject", verdict(upper)],
+				["a padded valid level is accepted", verdict(padded) === "proceed:p/a@high", verdict(padded)],
+				["whitespace-only effort is absent, not invalid", verdict(blank) === "proceed:p/a@undefined", verdict(blank)],
+				["omitted effort proceeds", verdict(omitted) === "proceed:p/a@undefined", verdict(omitted)],
+				["guard 0 precedes guard 1", both.kind === "reject" && /thinking levels/.test(why(both)), why(both)],
+			]);
+		});
+
+		await section("route-list", async () => {
+			// GUARD 1, router ON: a resolved model outside the effective list is rejected,
+			// naming the whole list in resolution order and the base model to fall back to.
+			const res = routeResolution([
+				{ spec: "p/cheap", tier: 1, price: 1, measured: ["medium"] },
+				{ spec: "p/dear", tier: 2, price: 5, measured: ["medium"] },
+			]);
+			const onThread = plan({ resolution: res, thread: { id: "t1", baseModel: "p/cheap" }, requestedModel: "p/other" });
+			const onNew = plan({ resolution: res, requestedModel: "p/other" });
+			const onNoBase = plan({ resolution: res, thread: { id: "t2" }, requestedModel: "p/other" });
+			const listed = plan({ resolution: res, thread: { id: "t1", baseModel: "p/cheap" }, requestedModel: "p/dear" });
+			checkAll("route-list-on", "with the router ON a model outside the candidate list is REJECTED, naming every candidate in resolution order and — only when there is one — the base model to fall back to; a listed model routes that action", [
+				["rejected", onThread.kind === "reject", verdict(onThread)],
+				["names the offending model", /model "p\/other"/.test(why(onThread)), why(onThread)],
+				["names the whole list, in order", why(onThread).includes("model list is: p/cheap, p/dear"), why(onThread)],
+				["names the thread's base fallback", why(onThread).includes("omit it to use thread t1's base model (p/cheap)"), why(onThread)],
+				["a not-yet-created thread is named as such", why(onNew).includes("the new thread's base model (p/cheap)"), why(onNew)],
+				["no base ⇒ no fallback clause invented", onNoBase.kind === "reject" && !/omit it/.test(why(onNoBase)), why(onNoBase)],
+				["a listed model routes the action", verdict(listed) === "proceed:p/dear@undefined", verdict(listed)],
+			]);
+
+			// Router OFF: the SAME input must behave exactly as it did before the router
+			// existed — the model argument is passed through unvalidated (pi's own "unknown
+			// model" error is what a bad one must still hit), and nothing is warned.
+			const off = plan({ resolution: router.ROUTER_OFF, thread: { id: "t1", baseModel: "p/cheap" }, requestedModel: "p/other" });
+			const offEffort = plan({ resolution: router.ROUTER_OFF, requestedModel: "p/other", requestedEffort: "max" });
+			const offTracked = plan({ resolution: router.ROUTER_OFF, orchestratorBaseModel: "p/tracked" });
+			const offJunkTracked = plan({ resolution: router.ROUTER_OFF, orchestratorBaseModel: "not-a-spec" });
+			const offWindow = plan({
+				resolution: router.ROUTER_OFF,
+				thread: { id: "t1", baseModel: "p/cheap" },
+				contextTokens: 900_000,
+				wouldCompact: compactAt(20_000),
+				reserveTokens: 20_000,
+			});
+			checkAll("route-list-off", "with the router OFF the list guard, the window guard and the ladder guard are all inert — the pre-router dispatch path: an unlisted model and a ladder-less effort pass through unvalidated and unwarned, the orchestrator's tracked base model is used when `model` is omitted, and an unusable tracked value reads as absent", [
+				["unlisted model proceeds", verdict(off) === "proceed:p/other@undefined", verdict(off)],
+				["silently", off.warnings.length === 0, off.warnings],
+				["a valid-vocabulary effort survives with no ladder data", verdict(offEffort) === "proceed:p/other@max", verdict(offEffort)],
+				["tracked base model becomes the resolved model", verdict(offTracked) === "proceed:p/tracked@undefined", verdict(offTracked)],
+				["tracked base is re-validated as a spec", verdict(offJunkTracked) === "proceed:undefined@undefined", verdict(offJunkTracked)],
+				["no base effort is invented with the router off", offTracked.baseEffort === undefined, offTracked.baseEffort],
+				["the window guard does not run at all", offWindow.kind === "proceed" && offWindow.warnings.length === 0 && offWindow.substitutedFrom === undefined, [verdict(offWindow), offWindow.warnings]],
+			]);
+		});
+
+		await section("route-resolution", async () => {
+			// usableResolution: anything that is not a live, non-empty ON resolution must
+			// collapse to the SHARED ROUTER_OFF constant, because the guards walk
+			// `candidates` directly and router-off is always the safe answer.
+			const off = router.ROUTER_OFF;
+			const live = routeResolution([{ spec: "p/a" }]);
+			const coerced = [
+				["undefined", route.usableResolution(undefined)],
+				["null", route.usableResolution(null)],
+				["a string", route.usableResolution("on")],
+				["{}", route.usableResolution({})],
+				["on:false", route.usableResolution({ on: false, candidates: live.candidates })],
+				["no candidates array", route.usableResolution({ on: true })],
+				["non-array candidates", route.usableResolution({ on: true, candidates: "p/a" })],
+				["empty candidate list", route.usableResolution({ on: true, candidates: [] })],
+			];
+			const notOff = coerced.filter(([, v]) => v !== off).map(([label]) => label);
+			// ...and a half-built resolution must therefore not reject an unlisted model.
+			const halfBuilt = plan({ resolution: { on: true, candidates: [] }, requestedModel: "p/anything" });
+			const junk = plan({ resolution: "nonsense", requestedModel: "p/anything", requestedEffort: "high" });
+			checkAll("route-resolution", "a malformed, half-built or absent resolution collapses to the shared ROUTER_OFF constant, so the guards fall back to the pre-router path instead of walking a shape they cannot read; a live resolution is returned unchanged", [
+				["every malformed value collapses to ROUTER_OFF", notOff.length === 0, notOff],
+				["a live resolution is identity", route.usableResolution(live) === live, route.usableResolution(live) === live],
+				["an empty candidate list does not reject an unlisted model", verdict(halfBuilt) === "proceed:p/anything@undefined", verdict(halfBuilt)],
+				["neither does a non-object resolution", verdict(junk) === "proceed:p/anything@high", verdict(junk)],
+			]);
+		});
+
+		await section("route-resolved-pair", async () => {
+			// The pair the guards judge is the RESOLVED one, not the arguments: a dispatch
+			// that omits `model` and `effort` falls through to the thread's base values, and
+			// those must be validated too. A suite that only ever passed explicit arguments
+			// would miss the most common real dispatch entirely.
+			const res = routeResolution([{ spec: "p/listed", ladder: ["low", "medium"], measured: ["low", "medium"] }]);
+			const baseUnlisted = plan({ resolution: res, thread: { id: "t7", baseModel: "p/legacy" } });
+			const baseEffortBad = plan({ resolution: res, thread: { id: "t7", baseModel: "p/listed", baseEffort: "max" } });
+			const bothValid = plan({ resolution: res, thread: { id: "t7", baseModel: "p/listed", baseEffort: "low" } });
+			const legacyPin = plan({ resolution: res, thread: { id: "t7", model: "p/listed" } });
+			const fresh = plan({ resolution: res });
+			// An omitted model with no thread base at all: the effort still has to be judged
+			// against the model the worker session will actually OPEN on (the host's).
+			const hostFallback = plan({ resolution: res, thread: { id: "t8" }, requestedEffort: "max", hostModel: "p/listed" });
+			checkAll("route-resolved-pair", "an OMITTED model and an OMITTED effort still go through the guards, because they fall through to the thread's base values: an unlisted base model and an off-ladder base effort are each rejected, a valid base pair proceeds and is echoed back, a pre-router `model` pin still reads as the base, a new thread is seeded with the cheapest candidate at its lowest MEASURED level, and an omitted model falls back to the host model for the effort check", [
+				["unlisted BASE model is rejected", baseUnlisted.kind === "reject" && /p\/legacy/.test(why(baseUnlisted)), verdict(baseUnlisted)],
+				["off-ladder BASE effort is rejected", baseEffortBad.kind === "reject" && /effort "max"/.test(why(baseEffortBad)), verdict(baseEffortBad)],
+				["...naming that model's ladder", /\(low, medium\)/.test(why(baseEffortBad)), why(baseEffortBad)],
+				["a valid base pair proceeds", verdict(bothValid) === "proceed:p/listed@low", verdict(bothValid)],
+				["...and is echoed as the thread's base", bothValid.baseModel === "p/listed" && bothValid.baseEffort === "low", [bothValid.baseModel, bothValid.baseEffort]],
+				["a pre-router `model` pin is the base", verdict(legacyPin) === "proceed:p/listed@undefined" && legacyPin.baseModel === "p/listed", [verdict(legacyPin), legacyPin.baseModel]],
+				["a new thread is seeded from the resolution", verdict(fresh) === "proceed:p/listed@low" && fresh.baseModel === res.cheapest && fresh.baseEffort === "low", [verdict(fresh), fresh.baseModel, fresh.baseEffort]],
+				["an omitted model still validates the effort against the host model", hostFallback.kind === "reject" && /p\/listed's effort ladder/.test(why(hostFallback)), verdict(hostFallback)],
+			]);
+		});
+
+		await section("route-ladder-per-model", async () => {
+			// GUARD 2 is PER MODEL: pi silently CLAMPS an unsupported level, so a union over
+			// the listed models would let the orchestrator believe an action ran at a level
+			// the model never offered. Two ladders that differ in BOTH directions, so a
+			// union implementation fails whichever way it is built.
+			const res = routeResolution([
+				{ spec: "p/wide", tier: 1, price: 1, ladder: ["off", "low", "medium", "high", "xhigh"], measured: ["off", "low", "medium", "high", "xhigh"] },
+				{ spec: "p/narrow", tier: 2, price: 2, ladder: ["medium", "max"], measured: ["medium", "max"] },
+			]);
+			const v = (spec, effort) => plan({ resolution: res, requestedModel: spec, requestedEffort: effort });
+			const narrowLow = v("p/narrow", "low");
+			const wideMax = v("p/wide", "max");
+			checkAll("route-ladder-per-model", "the ladder guard answers PER MODEL, never as a union over the listed models: a level on one model's ladder is refused on a sibling whose ladder lacks it, in both directions, and the reason names the OFFENDING model's own ladder", [
+				["low is fine on the wide ladder", verdict(v("p/wide", "low")) === "proceed:p/wide@low", verdict(v("p/wide", "low"))],
+				["low is refused on the narrow one", narrowLow.kind === "reject", verdict(narrowLow)],
+				["max is fine on the narrow ladder", verdict(v("p/narrow", "max")) === "proceed:p/narrow@max", verdict(v("p/narrow", "max"))],
+				["max is refused on the wide one", wideMax.kind === "reject", verdict(wideMax)],
+				["medium is fine on both", verdict(v("p/wide", "medium")) === "proceed:p/wide@medium" && verdict(v("p/narrow", "medium")) === "proceed:p/narrow@medium", [verdict(v("p/wide", "medium")), verdict(v("p/narrow", "medium"))]],
+				["the reason names the offending model's ladder, not a union", why(narrowLow).includes("p/narrow's effort ladder (medium, max)") && why(wideMax).includes("p/wide's effort ladder (off, low, medium, high, xhigh)"), [why(narrowLow), why(wideMax)]],
+			]);
+		});
+
+		await section("route-evidence-gap", async () => {
+			// GUARD 3 is ADVISORY: an unmeasured level is dispatchable — it is just not a
+			// traced capability — and refused only when the project says so.
+			const res = routeResolution([{ spec: "p/gap", ladder: ["low", "medium", "high"], measured: ["medium"], gaps: ["low"] }]);
+			const dflt = plan({ resolution: res, requestedModel: "p/gap", requestedEffort: "low" });
+			const allowed = plan({ resolution: res, requestedModel: "p/gap", requestedEffort: "low", allowUnmeasuredEffort: true });
+			const hole = plan({ resolution: res, requestedModel: "p/gap", requestedEffort: "high" });
+			const refused = plan({ resolution: res, requestedModel: "p/gap", requestedEffort: "low", allowUnmeasuredEffort: false });
+			const measured = plan({ resolution: res, requestedModel: "p/gap", requestedEffort: "medium" });
+			checkAll("route-evidence-gap", "a ladder-valid level with no capability measurement is dispatched WITH a warning by default and the proceed verdict carries the unmeasured marker; an unlisted table hole says so; router.allowUnmeasuredEffort:false refuses it instead; a measured level is silent and unmarked", [
+				["default (absent setting) dispatches it", verdict(dflt) === "proceed:p/gap@low!", verdict(dflt)],
+				["one warning, naming the level and the model", warns(dflt, /NO capability measurement/).length === 1 && /effort "low" on p\/gap/.test(dflt.warnings[0]), dflt.warnings],
+				["explicit true behaves the same", verdict(allowed) === "proceed:p/gap@low!", verdict(allowed)],
+				["an unlisted hole is dispatched and says it is not even listed", verdict(hole) === "proceed:p/gap@high!" && /does not even list it as a gap/.test(hole.warnings[0] ?? ""), [verdict(hole), hole.warnings]],
+				["a listed gap does NOT carry that clause", !/does not even list it as a gap/.test(dflt.warnings[0] ?? ""), dflt.warnings],
+				["allowUnmeasuredEffort:false refuses", refused.kind === "reject" && /allowUnmeasuredEffort is false/.test(why(refused)), verdict(refused)],
+				["...naming the level, the model and the ladder", /effort "low" on p\/gap/.test(why(refused)) && /ladder: low, medium, high/.test(why(refused)), why(refused)],
+				["...and warning about nothing", refused.warnings.length === 0, refused.warnings],
+				["a measured level is unmarked and silent", verdict(measured) === "proceed:p/gap@medium" && measured.warnings.length === 0, [verdict(measured), measured.warnings]],
+			]);
+		});
+
+		await section("route-api-rejected", async () => {
+			// GUARD 4: a level the provider refuses outright is a guaranteed API failure,
+			// NOT an evidence gap — so it is refused whatever allowUnmeasuredEffort says,
+			// and it must not be reported as a mere gap. It is checked BEFORE the ladder
+			// guard because such a level IS on the model's pi ladder.
+			const res = routeResolution([
+				{ spec: "p/hard", ladder: ["off", "low", "medium"], measured: ["off", "medium"], gaps: ["low"], apiRejected: ["off"] },
+			]);
+			const refused = plan({ resolution: res, requestedModel: "p/hard", requestedEffort: "off" });
+			const stillRefused = plan({ resolution: res, requestedModel: "p/hard", requestedEffort: "off", allowUnmeasuredEffort: true });
+			const normal = plan({ resolution: res, requestedModel: "p/hard", requestedEffort: "medium" });
+			checkAll("route-api-rejected", "a level in the profile's apiRejectedLevels is refused OUTRIGHT — named as a guaranteed provider failure rather than an evidence gap, not rescued by allowUnmeasuredEffort, and never dispatched with the unmeasured marker — while a normal level on the same model still proceeds", [
+				["refused", refused.kind === "reject", verdict(refused)],
+				["named as a provider rejection", /rejected outright by the provider/.test(why(refused)), why(refused)],
+				["explicitly NOT an evidence gap", /not an evidence gap/.test(why(refused)) && !/allowUnmeasuredEffort/.test(why(refused)), why(refused)],
+				["names the model and its ladder", /p\/hard/.test(why(refused)) && /ladder: off, low, medium/.test(why(refused)), why(refused)],
+				["no gap warning was emitted", refused.warnings.length === 0, refused.warnings],
+				["allowUnmeasuredEffort:true does not rescue it", stillRefused.kind === "reject" && /rejected outright/.test(why(stillRefused)), verdict(stillRefused)],
+				["a normal level on the same model proceeds", verdict(normal) === "proceed:p/hard@medium", verdict(normal)],
+			]);
+		});
+
+		await section("route-window-substitute", async () => {
+			// GUARD 5 is never a hard block: a model that cannot hold the thread's context
+			// is REPLACED by the widest candidate, and the substitution is reported as one.
+			const res = routeResolution([
+				{ spec: "p/small", tier: 1, price: 1, window: 100_000, ladder: ["low", "medium"], measured: ["low", "medium"] },
+				{ spec: "p/mid", tier: 2, price: 2, window: 200_000, ladder: ["low", "medium"], measured: ["low", "medium"] },
+				{ spec: "p/big", tier: 3, price: 3, window: 1_000_000, ladder: ["medium"], measured: ["medium"] },
+			]);
+			const thread = { id: "t3", baseModel: "p/small" };
+			const sub = plan({ resolution: res, thread, contextTokens: 90_000, wouldCompact: compactAt(20_000), reserveTokens: 20_000 });
+			// The effort was valid on the ORIGINAL model and is off the SUBSTITUTED model's
+			// ladder: a context size must never turn into a rejection, so the level is
+			// dropped with a warning instead (pi's own default then applies).
+			const soft = plan({
+				resolution: res,
+				thread,
+				requestedEffort: "low",
+				contextTokens: 90_000,
+				wouldCompact: compactAt(20_000),
+				reserveTokens: 20_000,
+			});
+			const fits = plan({ resolution: res, thread: { id: "t3", baseModel: "p/big" }, contextTokens: 90_000, wouldCompact: compactAt(20_000) });
+			checkAll("route-window-substitute", "a model that cannot hold the thread's context is REPLACED by the WIDEST candidate (not the next one, not the cheapest), the verdict still PROCEEDS and records what it substituted from, the warning names both models and the widest window, and an effort level that is invalid on the substituted model is dropped with a warning rather than rejecting the action", [
+				["proceeds — never a hard rejection", sub.kind === "proceed", verdict(sub)],
+				["routed to the WIDEST candidate", sub.model === "p/big", sub.model],
+				["records the substitution", sub.substitutedFrom === "p/small", sub.substitutedFrom],
+				["one warning, naming both models and the widest window", sub.warnings.length === 1 && /p\/small/.test(sub.warnings[0]) && /p\/big \(1,000,000 tokens\)/.test(sub.warnings[0]), sub.warnings],
+				["...and the thread and its token count", /thread t3's context \(~90,000 tokens\)/.test(sub.warnings[0]), sub.warnings],
+				["a level invalid on the substituted model is DROPPED, not rejected", verdict(soft) === "proceed:p/big@undefined", verdict(soft)],
+				["...and said so", warns(soft, /Dropping the effort level for this action/).length === 1, soft.warnings],
+				["a model that fits is left alone, silently", verdict(fits) === "proceed:p/big@undefined" && fits.warnings.length === 0 && fits.substitutedFrom === undefined, [verdict(fits), fits.warnings]],
+			]);
+		});
+
+		await section("route-window-skip", async () => {
+			// The window guard is SKIPPED when capacity is not knowable, and NEVER blocks:
+			// when nothing on the list can hold the context the action still runs and says
+			// so, which is the difference between a cost/quality notice and an outage.
+			const res = routeResolution([
+				{ spec: "p/small", tier: 1, price: 1, window: 100_000, measured: ["medium"] },
+				{ spec: "p/mid", tier: 2, price: 2, window: 150_000, measured: ["medium"] },
+			]);
+			const thread = { id: "t5", baseModel: "p/small" };
+			const noTokens = plan({ resolution: res, thread, wouldCompact: compactAt(20_000), reserveTokens: 20_000 });
+			const noPredicate = plan({ resolution: res, thread, contextTokens: 900_000, reserveTokens: 20_000 });
+			const throwing = plan({
+				resolution: res,
+				thread,
+				contextTokens: 900_000,
+				wouldCompact: () => {
+					throw new Error("compaction settings unreadable");
+				},
+			});
+			const nothingFits = plan({ resolution: res, thread, contextTokens: 900_000, wouldCompact: compactAt(20_000), reserveTokens: 20_000 });
+			const singleRes = routeResolution([{ spec: "p/only", window: 100_000, measured: ["medium"] }]);
+			const noneWider = plan({
+				resolution: singleRes,
+				thread: { id: "t5", baseModel: "p/only" },
+				contextTokens: 900_000,
+				wouldCompact: compactAt(20_000),
+				reserveTokens: 20_000,
+			});
+			checkAll("route-window-skip", "the window guard is SKIPPED when the context size is unknowable, when pi supplies no compaction predicate, and when that predicate throws — and it never rejects: when NO listed model can hold the context the widest one is used anyway with a warning saying pi will compact, and when nothing is wider the resolved model is kept with a warning", [
+				["no context size ⇒ no check, no warning", noTokens.kind === "proceed" && noTokens.model === "p/small" && noTokens.warnings.length === 0, [verdict(noTokens), noTokens.warnings]],
+				["no compaction predicate ⇒ no basis to refuse", noPredicate.model === "p/small" && noPredicate.warnings.length === 0, [verdict(noPredicate), noPredicate.warnings]],
+				["a throwing predicate cannot condemn a dispatch", throwing.kind === "proceed" && throwing.model === "p/small" && throwing.warnings.length === 0, [verdict(throwing), throwing.warnings]],
+				["nothing fits ⇒ still proceeds, on the widest", nothingFits.kind === "proceed" && nothingFits.model === "p/mid" && nothingFits.substitutedFrom === "p/small", [verdict(nothingFits), nothingFits.substitutedFrom]],
+				["...saying no listed model can hold it and pi will compact", /NO listed model can hold it/.test(nothingFits.warnings[0] ?? "") && /pi will compact/.test(nothingFits.warnings[0] ?? ""), nothingFits.warnings],
+				["nothing wider ⇒ keeps the model, no substitution", noneWider.kind === "proceed" && noneWider.model === "p/only" && noneWider.substitutedFrom === undefined, [verdict(noneWider), noneWider.substitutedFrom]],
+				["...and says so", /no listed model is wider/.test(noneWider.warnings[0] ?? ""), noneWider.warnings],
+			]);
+		});
+
+		await section("route-window-reserve", async () => {
+			// The capacity DECISION is pi's own predicate, applied to the candidate's
+			// REGISTRY window — not a comparison against the bare window here. The
+			// discriminating case: a context that fits the raw window but not the window
+			// minus pi's compaction reserve.
+			const res = routeResolution([
+				{ spec: "p/only", tier: 1, price: 1, window: 200_000, measured: ["medium"] },
+				{ spec: "p/wider", tier: 2, price: 2, window: 400_000, measured: ["medium"] },
+			]);
+			const thread = { id: "t4", baseModel: "p/only" };
+			const calls = [];
+			const reserved = plan({ resolution: res, thread, contextTokens: 150_000, wouldCompact: compactAt(60_000, calls), reserveTokens: 60_000 });
+			// Same numbers, a predicate that says everything fits: nothing happens. So the
+			// planner is not second-guessing pi in either direction.
+			const pretendFits = plan({ resolution: res, thread, contextTokens: 150_000, wouldCompact: () => false, reserveTokens: 60_000 });
+			// reserveTokens is TEXT only — omitting it changes the wording, never the verdict.
+			const noReserveFigure = plan({ resolution: res, thread, contextTokens: 150_000, wouldCompact: compactAt(60_000) });
+			checkAll("route-window-reserve", "capacity is judged by pi's OWN compaction predicate on the candidate's registry window — a context that fits the bare window but not the window minus pi's reserve is substituted, the predicate is asked with exactly (tokens, window), a predicate that says it fits is obeyed, and reserveTokens only shapes the warning text", [
+				["substituted although the context fits the BARE window", reserved.model === "p/wider" && reserved.substitutedFrom === "p/only", [reserved.model, reserved.substitutedFrom]],
+				["the predicate was asked with (tokens, registry window)", calls.includes("150000/200000"), calls],
+				["the warning names pi's reserve", /60,000-token compaction reserve/.test(reserved.warnings[0] ?? ""), reserved.warnings],
+				["a predicate that says it fits is obeyed", pretendFits.model === "p/only" && pretendFits.warnings.length === 0, [verdict(pretendFits), pretendFits.warnings]],
+				["an absent reserve figure changes the text, not the verdict", noReserveFigure.model === "p/wider" && /0-token compaction reserve/.test(noReserveFigure.warnings[0] ?? ""), [noReserveFigure.model, noReserveFigure.warnings]],
+			]);
+		});
+
+		await section("route-long-context", async () => {
+			// GUARD 6 is a COST cliff, not a capacity limit: warned once per thread and
+			// model, on the FINAL model, naming the multipliers that start applying.
+			const res = routeResolution([
+				{ spec: "p/lc", window: 1_000_000, threshold: 200_000, multipliers: { in: 2, out: 1.5 }, measured: ["medium"] },
+			]);
+			const base = { resolution: res, thread: { id: "t9", baseModel: "p/lc" }, wouldCompact: () => false };
+			const first = plan({ ...base, contextTokens: 250_000 });
+			const again = plan({ ...base, contextTokens: 250_000, warnedLongContext: ["p/lc"] });
+			const atThreshold = plan({ ...base, contextTokens: 200_000 });
+			const below = plan({ ...base, contextTokens: 199_999 });
+			const nonArrayMemory = plan({ ...base, contextTokens: 250_000, warnedLongContext: "p/lc" });
+			const otherModel = plan({ ...base, contextTokens: 250_000, warnedLongContext: ["p/somethingelse"] });
+			// No figures recorded for the multipliers: say that, rather than "×undefined".
+			const noFigures = plan({
+				resolution: routeResolution([{ spec: "p/lc", window: 1_000_000, threshold: 200_000, measured: ["medium"] }]),
+				thread: { id: "t9", baseModel: "p/lc" },
+				contextTokens: 250_000,
+				wouldCompact: () => false,
+			});
+			// The notice belongs to the model the action actually runs on, so a window
+			// substitution moves it to the substituted model.
+			const subRes = routeResolution([
+				{ spec: "p/small", tier: 1, price: 1, window: 100_000, measured: ["medium"] },
+				{ spec: "p/big", tier: 2, price: 2, window: 1_000_000, threshold: 200_000, multipliers: { in: 2, out: 3 }, measured: ["medium"] },
+			]);
+			const afterSub = plan({
+				resolution: subRes,
+				thread: { id: "t9", baseModel: "p/small" },
+				contextTokens: 250_000,
+				wouldCompact: compactAt(20_000),
+				reserveTokens: 20_000,
+			});
+			checkAll("route-long-context", "the long-context BILLING notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a window substitution the notice belongs to the model the action actually runs on", [
+				["fires above the threshold", warns(first, /long-context billing threshold/).length === 1, first.warnings],
+				["reports the spec for the caller to remember", first.longContextWarned === "p/lc", first.longContextWarned],
+				["names the threshold and both multipliers", /\(200,000 tokens\)/.test(first.warnings[0]) && /input bills ×2 and output ×1.5/.test(first.warnings[0]), first.warnings],
+				["says it is a cost event, not a capacity limit", /cost event, not a capacity limit/.test(first.warnings[0]), first.warnings],
+				["does NOT fire twice for the same thread and model", again.warnings.length === 0 && again.longContextWarned === undefined, [again.warnings, again.longContextWarned]],
+				["a memory for a DIFFERENT model does not suppress it", otherModel.longContextWarned === "p/lc", otherModel.longContextWarned],
+				["fires exactly AT the threshold", atThreshold.longContextWarned === "p/lc", atThreshold.longContextWarned],
+				["silent below it", below.warnings.length === 0 && below.longContextWarned === undefined, [below.warnings, below.longContextWarned]],
+				["a non-array memory degrades instead of throwing", nonArrayMemory.kind === "proceed" && nonArrayMemory.longContextWarned === "p/lc", verdict(nonArrayMemory)],
+				["no recorded multipliers ⇒ says so, never ×undefined", /records no figure/.test(noFigures.warnings[0] ?? "") && !/undefined/.test(noFigures.warnings[0] ?? ""), noFigures.warnings],
+				["after a substitution the notice is about the FINAL model", afterSub.longContextWarned === "p/big" && warns(afterSub, /p\/big's long-context billing threshold/).length === 1, [afterSub.longContextWarned, afterSub.warnings]],
+			]);
+		});
+
+		await section("route-failover", async () => {
+			// GUARD 7 — the carve-out. A model that just failed is worse than an unlisted
+			// one that works, so the router may NEVER veto a failover: guards 1-4 are
+			// bypassed and the window check warns instead of substituting. The one rule
+			// failover itself must obey is never selecting the model that just failed.
+			const res = routeResolution([{ spec: "p/listed", window: 200_000, ladder: ["medium"], measured: ["medium"] }]);
+			const bypass = plan({ resolution: res, failoverSwitch: true, requestedModel: "p/unlisted", requestedEffort: "turbo" });
+			const sameModel = plan({ resolution: res, failoverSwitch: true, requestedModel: "p/failed", failoverFrom: "p/failed" });
+			const noTarget = plan({ resolution: res, failoverSwitch: true, failoverFrom: "p/failed" });
+			const tooSmall = plan({
+				resolution: res,
+				thread: { id: "t6", baseModel: "p/listed" },
+				failoverSwitch: true,
+				requestedModel: "p/target",
+				contextTokens: 300_000,
+				contextWindow: 200_000,
+				wouldCompact: compactAt(20_000),
+			});
+			const offWindow = plan({
+				resolution: router.ROUTER_OFF,
+				thread: { id: "t6" },
+				failoverSwitch: true,
+				requestedModel: "p/target",
+				contextTokens: 300_000,
+				contextWindow: 200_000,
+				wouldCompact: compactAt(20_000),
+			});
+			checkAll("route-failover", "a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a NON-SUBSTITUTING window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-off session keeps its pre-router failover behaviour exactly", [
+				["an unlisted target is allowed", bypass.kind === "proceed" && bypass.model === "p/unlisted", verdict(bypass)],
+				["an off-vocabulary effort argument is ignored, not rejected", bypass.effort === undefined && bypass.effortUnmeasured === false, verdict(bypass)],
+				["silently", bypass.warnings.length === 0, bypass.warnings],
+				["the model that just failed is refused", sameModel.kind === "reject" && /resolves to the model that just failed/.test(why(sameModel)), verdict(sameModel)],
+				["an unresolved target is refused", noTarget.kind === "reject" && /no failover target was resolved/.test(why(noTarget)), verdict(noTarget)],
+				["a too-small target still proceeds", tooSmall.kind === "proceed" && tooSmall.model === "p/target", verdict(tooSmall)],
+				["...with NO substitution", tooSmall.substitutedFrom === undefined, tooSmall.substitutedFrom],
+				["...and one warning saying failover is never vetoed on window size", tooSmall.warnings.length === 1 && /failing over anyway/.test(tooSmall.warnings[0]) && /never vetoed/.test(tooSmall.warnings[0]), tooSmall.warnings],
+				["router OFF ⇒ no window warning at all", offWindow.kind === "proceed" && offWindow.model === "p/target" && offWindow.warnings.length === 0, [verdict(offWindow), offWindow.warnings]],
+			]);
+		});
+
+		await section("route-lowest-effort", async () => {
+			// The seed for a NEW thread's base effort: the LOWEST level that is on the
+			// ladder, measured, and not provider-rejected. It must never hand back an
+			// unmeasured level — a base effort is the one slate chooses, so choosing an
+			// evidence gap by default is exactly what the profile data forbids.
+			const res = routeResolution([
+				{ spec: "p/seed", tier: 1, price: 1, ladder: ["off", "low", "medium", "high"], measured: ["medium", "high"], gaps: ["off", "low"] },
+				{ spec: "p/rejected", tier: 2, price: 2, ladder: ["off", "low", "medium"], measured: ["off", "medium"], gaps: ["low"], apiRejected: ["off"] },
+				{ spec: "p/none", tier: 3, price: 3, ladder: ["low", "medium"], measured: [], gaps: ["low", "medium"] },
+				{ spec: "p/wide", tier: 4, price: 4, ladder: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], measured: ["low", "max"], gaps: ["off", "minimal", "medium", "high", "xhigh"] },
+			]);
+			const lowest = (spec) => route.lowestMeasuredEffort(res, spec);
+			checkAll("route-lowest-effort", "the base-effort seed is the LOWEST measured, non-provider-rejected level on that model's ladder — never an evidence gap, never a rejected level, ascending order from pi's vocabulary rather than the table's authoring order — and undefined (pi's own default) when the model has no measured level, is unlisted, or the router is off", [
+				["skips the unmeasured lower levels", lowest("p/seed") === "medium", lowest("p/seed")],
+				["skips a measured but provider-rejected level", lowest("p/rejected") === "medium", lowest("p/rejected")],
+				["no measured level ⇒ undefined", lowest("p/none") === undefined, lowest("p/none")],
+				["ascending: the lower of two measured levels wins", lowest("p/wide") === "low", lowest("p/wide")],
+				["an unlisted model ⇒ undefined", lowest("p/unlisted") === undefined, lowest("p/unlisted")],
+				["no spec ⇒ undefined", lowest(undefined) === undefined, lowest(undefined)],
+				["router OFF ⇒ undefined (the predicate is inert there)", route.lowestMeasuredEffort(router.ROUTER_OFF, "p/seed") === undefined, route.lowestMeasuredEffort(router.ROUTER_OFF, "p/seed")],
+				["a junk resolution ⇒ undefined, no throw", route.lowestMeasuredEffort(undefined, "p/seed") === undefined && route.lowestMeasuredEffort({ on: true }, "p/seed") === undefined, [route.lowestMeasuredEffort(undefined, "p/seed"), route.lowestMeasuredEffort({ on: true }, "p/seed")]],
+			]);
+		});
+
+		await section("route-hostile", async () => {
+			// A rejection REASON is user- and orchestrator-facing text built from the
+			// dispatch's own arguments, and it reaches pi-tui, which renders control bytes
+			// verbatim. The two reachable injection points are the `model` and `effort`
+			// arguments (candidate specs cannot carry invisible characters — the router
+			// rejects those before they become candidates).
+			const res = routeResolution([{ spec: "p/listed", measured: ["medium"] }]);
+			const nasty = "\u001b[31mRED\u0007\u009b0m";
+			const long = "L".repeat(500);
+			const model = plan({ resolution: res, requestedModel: `p/${nasty}${long}` });
+			const effort = plan({ resolution: res, requestedModel: "p/listed", requestedEffort: `${nasty}${long}` });
+			const reasons = [why(model), why(effort)];
+			checkAll("route-hostile", "a hostile `model` or `effort` argument is stripped of control/ANSI bytes and length-capped before it reaches a rejection reason — that text goes to the orchestrator and to pi-tui, which renders escapes verbatim — while the rejection itself still happens", [
+				["both are still rejected", model.kind === "reject" && effort.kind === "reject", [verdict(model), verdict(effort)]],
+				["no control or ANSI bytes", !reasons.some((m) => /[\u0000-\u001f\u007f\u009b]/.test(m)), reasons.map((m) => JSON.stringify(m.slice(0, 60)))],
+				["the 500-char argument is truncated", !reasons.some((m) => m.includes("L".repeat(200))), reasons.map((m) => m.length)],
+				["reasons stay bounded", reasons.every((m) => m.length > 0 && m.length <= 600), reasons.map((m) => m.length)],
+			]);
+		});
+	}
+
+	// =========================================================================
 	// Config-sanitizer WIRING (extension/index.ts) — a TEXT check, deliberately
 	// =========================================================================
 	// A sanitizer that exists but is never called is the exact silent failure this
@@ -1854,6 +2387,10 @@ try {
 		"router-effort", "router-effort-gap", "router-effort-hard", "router-ladder-validation", "router-effort-off",
 		"router-hostile", "router-robust",
 		"router-config-default", "router-config-invalid", "router-shipped-default",
+		"route-load", "route-vocabulary", "route-list-on", "route-list-off", "route-resolution",
+		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
+		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
+		"route-failover", "route-lowest-effort", "route-hostile",
 		"wiring", "spec-invisible", "spec-config-key",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
