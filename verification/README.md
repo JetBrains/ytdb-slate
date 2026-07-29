@@ -439,10 +439,17 @@ A second, much smaller net, for three subjects:
 - the **worker-extension resolver** in `extension/worker-extensions.ts` and the
   doctrine rule it feeds in `extension/mode.ts`;
 - the **model router** in `extension/model-router.ts` — its config sanitizer, its
-  candidate resolution and warnings, and its dispatch-side effort predicate;
+  candidate resolution and warnings, and its dispatch-side effort predicate —
+  together with the canonical model-spec helpers it shares with `failover.ts`,
+  `episodes.ts` and `worker.ts`, which live in `extension/state.ts`;
 - **structural invariants of the shipped profile table** in
   `extension/model-profiles.ts` (`profiles-*`) — shape and internal consistency
   only, never a research number.
+
+Five modules are loaded: `worker-extensions.ts`, `mode.ts`, `model-router.ts`,
+`state.ts` and `model-profiles.ts`. All five are therefore re-run triggers — and
+because `state.ts`'s spec helpers are also used by `failover.ts`, a change to
+**them** additionally needs the ladder above.
 
 The ladder above covers only the model-default machinery and says nothing about
 any of them.
@@ -481,8 +488,8 @@ CHECK off-inert        PASS    — empty pattern list → shared empty set, regi
 CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
 CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
       observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
-CHECK roster           PASS    — all 52 expected checks reported exactly once (a crashed or deleted check cannot pass silently)
-== summary: 52 pass, 1 fail, 0 not run ==
+CHECK roster           PASS    — all 53 expected checks reported exactly once (a crashed or deleted check cannot pass silently)
+== summary: 53 pass, 1 fail, 0 not run ==
 ```
 
 Three output rules exist because earlier versions of this suite could pass
@@ -530,7 +537,7 @@ Model router (`extension/model-router.ts`):
 | `router-alias-duplicate` | two specs resolving to the same profile (canonical id + alias) yield **one** candidate, the later one warned about and dropped |
 | `router-all-dropped` | when every entry is dropped the router is OFF with **exactly one** summary warning on top of the per-entry ones |
 | `router-order` / `router-order-ties` | ordering is tier ascending then effective input price ascending; a tier+price tie is broken by spec; a candidate with no usable price row sorts **last**, is warned about, and stays routable; a non-numeric tier sorts last instead of poisoning the comparator with `NaN` |
-| `router-cheapest` | the default base model (D48) is the cheapest **preferred** candidate: a profile carrying a `nonPreferred` reason is skipped even when it is the cheapest thing on the list, while remaining a routable candidate (BG1) |
+| `router-cheapest` | the default base model (D48) is the cheapest **preferred** candidate: a profile carrying a `nonPreferred` reason is skipped even when it is the cheapest thing on the list, while remaining a routable candidate (BG1). The **ordering** honours the same markers (DF4): non-preferred candidates, and candidates whose tier is not a sourced ordinal, sort after their comparable siblings, so a consumer walking the list cannot meet an evidentially-thin model first |
 | `router-cheapest-fallback` | when *every* candidate is non-preferred a base model is still chosen (D48 requires one), the result flags it, and exactly one warning explains it with the profile's own reason |
 | `router-price-date` / `router-price-rows` | the effective row is the one in force on the resolution date; overlapping rows resolve to the greatest `from`; an expired or future-only schedule falls back to the most recent past row, else the first; non-ISO dates — including a **timestamp** where a date belongs, which string comparison would accept as a valid past bound and let win the pick — are treated as absent bounds instead of being compared lexicographically |
 | `router-w1-canary` | a profile/registry context-window divergence warns with both values and the profile `asOf` date, and the candidate carries the **registry** value (W1/D55: the registry is the authority) |
@@ -538,6 +545,7 @@ Model router (`extension/model-router.ts`):
 | `router-w3-unknown` | a candidate with `unknownRoutingCriticalFields` warns once, naming the model and the fields (W3/D57) |
 | `router-failover-coverage` | uncovered candidates produce **one aggregate** warning naming them all (not one per model); a covered, window-aligned candidate warns about nothing at all; a map entry whose target is not a spec does not count as coverage |
 | `router-warnings-echo` | on the router-**ON** path the returned `warnings` are exactly what the warn sink received, in order |
+| `router-labels` | a valid spec inside a warning is length-capped (the only path where a >120-character spec is observable) and annotated with the code points when it carries confusable non-ASCII characters, e.g. a Cyrillic homoglyph; a value that can neither be JSON-stringified nor coerced to a string renders as a bounded placeholder instead of throwing |
 | `router-dedup` | a condition warns at most once per resolution even when its trigger repeats — exercised through the **live** duplicate path (three identical malformed specs), since a repeated *valid* spec is skipped earlier and cannot reach the dedup at all; two values sharing a JSON form but not a type (`NaN` / `null`) stay separate conditions |
 | `router-memo` | the memoizing resolver resolves once across repeated consultation, returns the same frozen object, and each warning reaches the sink once (D58) |
 | `router-ladder-validation` | the ladder handed back by the profile table is filtered to pi's own effort vocabulary and de-duplicated: a foreign level reads as `off-ladder` even when the table claims a measurement at it, and a non-array ladder (what a prototype-key lookup returns) yields an empty ladder **plus** a warning rather than silent nonsense |
@@ -577,7 +585,7 @@ price-row selection rules, the W1 absence guards, the `nonPreferred` rule, and
 the roster machinery itself (renaming or deleting a check fails `roster`). Never
 mutate the repository itself; the scratch copy is the point.
 
-It loads only those four modules, so it does **not** exercise
+It loads only those five modules, so it does **not** exercise
 `extension/worker.ts`'s worker-session load path — the allowlist-mode extension
 load, the `excludeTools` deny list that structurally keeps slate's dispatch
 tools out of a worker, and the post-load collision re-check. Those need a live

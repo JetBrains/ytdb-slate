@@ -47,28 +47,59 @@ export interface SlateSnapshot {
  *
  * The pattern (validate, then split on the FIRST slash) had grown four
  * near-identical copies: failover.ts's local `isModelSpec`, and the inline
- * `indexOf("/")` splits in episodes.ts, worker.ts and the model router. It lives
- * here because state.ts is where the config vocabulary that uses it is defined
- * (`episodeModel`, `modelFailover`, `router.models`, the contextBudget override
- * `match`), and because state.ts imports nothing from those modules, so no call
- * site can create an import cycle by adopting it. model-router.ts is the first
- * adopter; failover.ts, episodes.ts and worker.ts still carry their copies and
- * should be switched over by whoever next touches them (they were outside the
- * file ownership of the change that added this).
+ * `indexOf("/")` splits in episodes.ts, worker.ts and the model router. All four
+ * now call these helpers. It lives here because state.ts is where the config
+ * vocabulary that uses it is defined (`episodeModel`, `modelFailover`,
+ * `router.models`, the contextBudget override `match`), and because state.ts
+ * imports nothing from those modules, so no call site can create an import cycle
+ * by adopting it.
+ *
+ * ONE definition matters more than the duplication it removes: while failover.ts
+ * kept its own laxer copy, two live predicates DISAGREED about the same config
+ * string — the router rejected a spec with an embedded newline that failover
+ * happily stored in its map and then failed to resolve, silently.
  *
  * The FIRST slash splits, deliberately: proxy providers legitimately carry a
  * slash inside the model id ("openrouter/anthropic/claude-..."), so provider is
  * everything before the first slash and id is all the rest.
  *
- * Whitespace and control characters are REJECTED rather than trimmed: a spec
- * with a trailing newline resolves nowhere in pi's registry, yet renders in a
- * warning as a byte-identical twin of the valid name once the display sanitizer
- * strips the offending character (BG2). Rejecting it lets the caller say what is
- * actually wrong.
+ * Whitespace, control characters and INVISIBLE/BIDI formatting characters are
+ * REJECTED rather than trimmed (BG2). Such a spec resolves nowhere in pi's
+ * registry, yet renders in a warning as a byte-identical twin of the valid name
+ * once the display sanitizer strips the offending character — a zero-width space
+ * or a right-to-left override is worse still, since it survives sanitization and
+ * displays as nothing at all. Rejecting them lets the caller say what is
+ * actually wrong (describeSpecDefect), and the remaining confusable case —
+ * legitimate-looking non-ASCII homoglyphs, which cannot simply be rejected
+ * because an exotic provider id may be genuinely non-ASCII — is handled at
+ * DISPLAY time by describeConfusables.
  */
+
+/**
+ * Characters that are never part of a real model spec and are invisible or
+ * direction-changing when displayed: C0/C1 controls, soft hyphen, Arabic letter
+ * mark, Mongolian vowel separator, zero-width space/joiners, LRM/RLM, the bidi
+ * embedding/override/isolate controls, word joiner and invisible operators,
+ * interlinear annotation marks, and the BOM.
+ */
+const INVISIBLE_SPEC_CHARS =
+	/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\ufff9-\ufffb]/;
+
+/** "U+XXXX" list of the first few characters of `value` that match `pattern`, de-duplicated. */
+function codePointList(value: string, pattern: RegExp, max = 3): string {
+	const seen: string[] = [];
+	for (const ch of value) {
+		if (!pattern.test(ch)) continue;
+		const point = `U+${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, "0")}`;
+		if (!seen.includes(point)) seen.push(point);
+		if (seen.length > max) return `${seen.slice(0, max).join(", ")}, …`;
+	}
+	return seen.join(", ");
+}
+
 export function isModelSpec(value: unknown): value is string {
 	if (typeof value !== "string") return false;
-	if (/[\s\u0000-\u001f\u007f\u009b]/.test(value)) return false;
+	if (/\s/.test(value) || INVISIBLE_SPEC_CHARS.test(value)) return false;
 	const slash = value.indexOf("/");
 	return slash > 0 && slash < value.length - 1;
 }
@@ -78,6 +109,42 @@ export function splitModelSpec(value: unknown): { provider: string; id: string }
 	if (!isModelSpec(value)) return undefined;
 	const slash = value.indexOf("/");
 	return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
+}
+
+/**
+ * Why `value` is not a canonical spec, as a clause that survives display
+ * sanitization (BG2). The RENDERING of an invisible or padded spec is identical
+ * to a valid name, so the reason has to carry the information — and for the
+ * invisible classes it names the offending code points, which are plain ASCII.
+ */
+export function describeSpecDefect(value: unknown): string {
+	if (typeof value !== "string") return `expected a string, got ${typeof value}`;
+	if (value === "") return "it is empty";
+	if (INVISIBLE_SPEC_CHARS.test(value)) {
+		return `it contains invisible or control characters (${codePointList(value, INVISIBLE_SPEC_CHARS)}) — they display as nothing, so this is not the name it looks like`;
+	}
+	if (/^\s|\s$/.test(value)) return "it has leading or trailing whitespace (invisible here, but pi's registry has no such model)";
+	if (/\s/.test(value)) return "it contains whitespace";
+	if (!value.includes("/")) return 'it has no "/" separating provider from model id';
+	if (value.startsWith("/")) return 'it has an empty provider before the "/"';
+	if (value.endsWith("/")) return 'it has an empty model id after the "/"';
+	return "it is not of the form provider/id";
+}
+
+/**
+ * Display-time note for a spec that PASSES validation but contains non-ASCII
+ * characters (BG2's remaining confusable class). A Cyrillic "а" in an otherwise
+ * valid spec renders exactly like the Latin one, so a warning about it would
+ * otherwise look like a warning about the model the user meant. Returns
+ * undefined for a pure printable-ASCII spec, which is the normal case.
+ */
+export function describeConfusables(value: string): string | undefined {
+	// Printable-ASCII complement. Neither this nor INVISIBLE_SPEC_CHARS carries the
+	// /g flag, because codePointList calls .test() per character and a sticky/global
+	// regex would keep lastIndex between those calls and skip matches.
+	const nonAscii = /[^\u0020-\u007e]/;
+	if (!nonAscii.test(value)) return undefined;
+	return `contains non-ASCII characters: ${codePointList(value, nonAscii)}`;
 }
 
 /** One contextBudget override. `match` is a regex tested ANCHORED (^(?:match)$) against "provider/id". */

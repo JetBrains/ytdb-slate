@@ -8,9 +8,11 @@ for its content. This document records the reasoning behind the
 extension's design so maintainers — and the orchestrator itself, on
 demand — can check changes and behavior against the original intent.
 
-Note: module headers cite ExecPlan decision ids (D3–D9, M1–M3) from the
-original implementation plan, which is not part of this repository. This
-document is the in-repo source for the architecture rationale.
+Note: module headers cite decision ids from design records that are not part of
+this repository — the original implementation plan (ExecPlan: D3–D9, M1–M3),
+later design rounds (higher-numbered D ids), and per-round review findings
+(AD/BG/CQ/RG/W/DF prefixes). This document is the in-repo source for the
+architecture rationale.
 
 ## 1. The problems Slate is built to solve
 

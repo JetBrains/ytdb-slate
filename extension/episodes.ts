@@ -20,6 +20,7 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { isFailoverCandidate, resolveMappedModel } from "./failover.ts";
+import { splitModelSpec } from "./state.ts";
 
 type CompressorModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
 
@@ -60,12 +61,12 @@ async function resolveCompressorModel(
 	configured: string | undefined,
 	workerModel: { provider: string; id: string } | undefined,
 ) {
-	if (configured) {
-		const slash = configured.indexOf("/");
-		if (slash > 0) {
-			const m = ctx.modelRegistry.find(configured.slice(0, slash), configured.slice(slash + 1));
-			if (m) return m;
-		}
+	// Shared spec parsing (CQ2). A malformed episodeModel falls through to the
+	// Sonnet default below, silently, exactly as the inline split did.
+	const spec = splitModelSpec(configured);
+	if (spec) {
+		const m = ctx.modelRegistry.find(spec.provider, spec.id);
+		if (m) return m;
 	}
 	try {
 		const available = await ctx.modelRegistry.getAvailable();

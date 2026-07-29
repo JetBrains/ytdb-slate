@@ -166,6 +166,45 @@ async function doctrine(extSet) {
 	return res.systemPrompt;
 }
 
+// Every id whose section needs the router module; used to emit honest NOT RUN
+// lines when it could not be loaded (TS3).
+const ROUTER_IDS = [
+	"router-off",
+	"router-unprofiled",
+	"router-malformed",
+	"router-unroutable",
+	"router-alias-duplicate",
+	"router-all-dropped",
+	"router-order",
+	"router-order-ties",
+	"router-cheapest",
+	"router-cheapest-fallback",
+	"router-price-date",
+	"router-price-rows",
+	"router-w1-canary",
+	"router-w1-guards",
+	"router-w3-unknown",
+	"router-failover-coverage",
+	"router-dedup",
+	// TS3: router-memo and router-labels belong here too — an unloadable router
+	// must report EVERY check it voids as NOT RUN, not leave one to surface as a
+	// roster "missing" line.
+	"router-memo",
+	"router-labels",
+	"router-warnings-echo",
+	"router-effort",
+	"router-effort-gap",
+	"router-effort-hard",
+	"router-ladder-validation",
+	"router-effort-off",
+	"router-hostile",
+	"router-robust",
+	"router-config-default",
+	"router-config-invalid",
+	"router-shipped-default",
+];
+const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta"];
+
 // ------------------------------------------------------------------ fixtures --
 const A = mkpkg("pkgA", ["./extension/index.ts"], ["extension/index.ts"]); // single literal entry, host runs it
 const B = mkpkg("pkgB", ["./extensions/*.ts"], ["extensions/one.ts"]); // globbed manifest
@@ -384,39 +423,6 @@ try {
 	const has = (warnings, re) => warnings.some((m) => re.test(m));
 	const found = (warnings, re) => warnings.find((m) => re.test(m));
 	const specs = (res) => res.candidates.map((c) => c.spec).join(",");
-	// Every id whose section needs the router module; used to emit honest NOT RUN
-	// lines when it could not be loaded (TS3).
-	const ROUTER_IDS = [
-		"router-off",
-		"router-unprofiled",
-		"router-malformed",
-		"router-unroutable",
-		"router-alias-duplicate",
-		"router-all-dropped",
-		"router-order",
-		"router-order-ties",
-		"router-cheapest",
-		"router-cheapest-fallback",
-		"router-price-date",
-		"router-price-rows",
-		"router-w1-canary",
-		"router-w1-guards",
-		"router-w3-unknown",
-		"router-failover-coverage",
-		"router-dedup",
-		"router-warnings-echo",
-		"router-effort",
-		"router-effort-gap",
-		"router-effort-hard",
-		"router-ladder-validation",
-		"router-effort-off",
-		"router-hostile",
-		"router-robust",
-		"router-config-default",
-		"router-config-invalid",
-		"router-shipped-default",
-	];
-	const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta"];
 
 	check("router-load", router !== undefined, "extension/model-router.ts loads", routerLoad.error?.message);
 	check("profiles-load", table !== undefined, "extension/model-profiles.ts loads", profilesLoad.error?.message);
@@ -456,19 +462,33 @@ try {
 				["says excluded", /exclud/i.test(w), w],
 			]);
 
-			// BG2: a spec that only DIFFERS by invisible bytes must not be reported
-			// with a rendering identical to a valid one — the reason has to say so.
-			const invisible = `${keep}\n`;
+			// BG2 and its residual: a newline, a trailing space, a ZERO-WIDTH space and
+			// a BIDI OVERRIDE all produce a spec that renders like the valid one (the
+			// last two survive display sanitization and show as nothing at all), so each
+			// must be dropped with a reason that NAMES the offending code point.
+			const newline = `${keep}\n`;
 			const trailing = `${keep} `;
-			const malformed = resolve({ registry: reg, models: ["gpt5", "/leading", "trailing/", invisible, trailing, keep], profiles: src });
-			const wInvisible = found(malformed.warned, /control character/) ?? "";
+			const zeroWidth = `p/keep\u200bx`;
+			const bidi = `p/\u202ekeepx`;
+			const malformed = resolve({
+				registry: reg,
+				models: ["gpt5", "/leading", "trailing/", newline, trailing, zeroWidth, bidi, keep],
+				profiles: src,
+			});
+			const wInvisible = found(malformed.warned, /invisible or control characters/) ?? "";
 			const wTrailing = found(malformed.warned, /whitespace/) ?? "";
-			checkAll("router-malformed", "a spec that is not canonical provider/id is warned about with the REASON it is not (control characters and whitespace named explicitly, BG2) and dropped, its valid sibling surviving", [
+			checkAll("router-malformed", "a spec that is not canonical provider/id is warned about with the REASON it is not — whitespace, control, zero-width and bidi characters each named by code point (BG2) — and dropped, its valid sibling surviving", [
 				["only the valid spec survives", specs(malformed.res) === keep, specs(malformed.res)],
 				["no-slash reported", has(malformed.warned, /"gpt5".*no "\/"/), malformed.warned],
 				["empty provider reported", has(malformed.warned, /empty provider/), malformed.warned],
 				["empty id reported", has(malformed.warned, /empty model id/), malformed.warned],
-				["control character named", wInvisible !== "", malformed.warned],
+				["invisible/control class reported", wInvisible !== "", malformed.warned],
+				// Each code point must be named BY THE DEFECT REASON, not merely by the
+				// confusable note a surviving non-ASCII spec would also carry — the point
+				// is that these specs are REJECTED, not annotated.
+				["newline rejected as U+000A", has(malformed.warned, /invisible or control characters \([^)]*U\+000A/), malformed.warned],
+				["zero-width space rejected as U+200B", has(malformed.warned, /invisible or control characters \([^)]*U\+200B/), malformed.warned],
+				["bidi override rejected as U+202E", has(malformed.warned, /invisible or control characters \([^)]*U\+202E/), malformed.warned],
 				["trailing whitespace named", wTrailing !== "", malformed.warned],
 				["no warning renders as the bare valid spec", !malformed.warned.some((m) => m.includes(`"${keep}"`)), malformed.warned],
 			]);
@@ -562,12 +582,30 @@ try {
 				models: ["p/cheap-banned", "p/mid-ok", "p/dear-ok"],
 				profiles: profiles(pref),
 			});
-			checkAll("router-cheapest", "the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped even when it is the cheapest, and it stays in the candidate list", [
+			// DF4: the ORDER honours the same markers, not just the base-model pick — a
+			// consumer walking the ordered list must not meet an evidentially-thin
+			// model first because it is cheap. An unsourced tier is not a ranking
+			// either, so it sorts after a sourced sibling in the same preference class.
+			const unsourced = at("p/unsourced-t1", 1, 0.5, { tierUnsourced: true });
+			const ordered = resolve({
+				registry: registry({
+					"p/cheap-banned": { contextWindow: 1, auth: true },
+					"p/mid-ok": { contextWindow: 1, auth: true },
+					"p/dear-ok": { contextWindow: 1, auth: true },
+					"p/unsourced-t1": { contextWindow: 1, auth: true },
+				}),
+				models: ["p/cheap-banned", "p/mid-ok", "p/dear-ok", "p/unsourced-t1"],
+				profiles: profiles([...pref, unsourced]),
+			});
+			checkAll("router-cheapest", "the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped even when it is the cheapest — and the ORDERED list puts preferred, sourced-tier candidates first while keeping every candidate routable (BG1 + DF4)", [
 				["base model is the cheapest preferred", prefRes.res.cheapest === "p/mid-ok", prefRes.res.cheapest],
-				["the cheaper banned model still sorts first", specs(prefRes.res).startsWith("p/cheap-banned"), specs(prefRes.res)],
+				["the cheaper banned model sorts LAST, not first", specs(prefRes.res) === "p/mid-ok,p/dear-ok,p/cheap-banned", specs(prefRes.res)],
 				["flag not set", prefRes.res.cheapestNonPreferred === false, prefRes.res.cheapestNonPreferred],
 				["no fallback warning", !has(prefRes.warned, /non-preferred/), prefRes.warned],
-				["candidate carries the reason", prefRes.res.candidates[0]?.nonPreferred === "out of scope for routing", prefRes.res.candidates[0]?.nonPreferred],
+				["the banned candidate still carries its reason", prefRes.res.candidates[2]?.nonPreferred === "out of scope for routing", prefRes.res.candidates[2]?.nonPreferred],
+				["unsourced tier sorts after its sourced preferred siblings", specs(ordered.res) === "p/mid-ok,p/dear-ok,p/unsourced-t1,p/cheap-banned", specs(ordered.res)],
+				["the base model is still the cheapest preferred one", ordered.res.cheapest === "p/unsourced-t1", ordered.res.cheapest],
+				["nothing was dropped", ordered.res.candidates.length === 4, ordered.res.candidates.length],
 			]);
 
 			// BG1 fallback: D48 still needs a base model when nothing is preferred.
@@ -799,6 +837,52 @@ try {
 			]);
 		});
 
+		await section("router-labels", async () => {
+			// TQ7: the label path of a VALID spec. Since validation now rejects every
+			// invisible byte, the only observable effects left are the LENGTH CAP and
+			// the confusable note — neither of which any other fixture reaches.
+			const longSpec = `p/${"x".repeat(300)}`;
+			const cyrillic = "p/gpt-5.6-lun\u0430"; // U+0430, a homoglyph of "a"
+			const { res, warned } = resolve({
+				// Neither is in the registry, so each produces a warning carrying its label.
+				registry: registry({}),
+				models: [longSpec, cyrillic],
+				profiles: profiles([profile(longSpec), profile(cyrillic)]),
+			});
+			const longWarn = found(warned, /^slate: model router: p\/x+/) ?? "";
+			const confusableWarn = found(warned, /U\+0430/) ?? "";
+
+			// TQ8: quoted()'s innermost guard needs BOTH a value JSON.stringify
+			// refuses (cyclic) and a String() that throws — a throwing toString alone
+			// never reaches it, because JSON.stringify does not call toString.
+			const unprintable = {
+				toString() {
+					throw new Error("no string for you");
+				},
+			};
+			unprintable.self = unprintable; // cyclic ⇒ JSON.stringify throws first
+			const cfgWarn = [];
+			let sanitizerSurvived = false;
+			let sanitized;
+			try {
+				sanitized = router.sanitizeRouterConfig({ models: [unprintable, "p/good"] }, (m) => cfgWarn.push(m));
+				sanitizerSurvived = true;
+			} catch {
+				sanitizerSurvived = false;
+			}
+
+			checkAll("router-labels", "a valid spec in a warning is length-capped and annotated when it carries confusable non-ASCII characters, and a value that can neither be stringified nor coerced still renders as a bounded placeholder", [
+				["long spec is truncated with an ellipsis", longWarn.includes("…"), longWarn.slice(0, 160)],
+				["the raw 300-char spec never reaches the output", !warned.some((m) => m.includes("x".repeat(200))), warned.map((m) => m.length)],
+				["warning stays bounded", longWarn.length > 0 && longWarn.length <= 300, longWarn.length],
+				["the long spec is still a resolved (dropped) entry, not a crash", res.on === false && warned.length >= 3, [res.on, warned.length]],
+				["confusable code point named", confusableWarn.includes("U+0430") && /non-ASCII/.test(confusableWarn), confusableWarn],
+				["sanitizer survived the unprintable value", sanitizerSurvived === true, sanitizerSurvived],
+				["it rendered as a placeholder, not a throw", cfgWarn.some((m) => /unprintable object/.test(m)), cfgWarn],
+				["the good sibling still survives", sanitized?.models.join(",") === "p/good", sanitized?.models],
+			]);
+		});
+
 		await section("router-effort", async () => {
 			const p = profile("p/eff", {
 				ladder: ["off", "low", "medium", "high"],
@@ -896,6 +980,14 @@ try {
 				["omitted effort → ok", router.checkEffort(res, "p/eff", undefined).verdict === "ok", router.checkEffort(res, "p/eff", undefined)],
 				["empty effort → ok, ladder carried", router.checkEffort(res, "p/eff", "").verdict === "ok" && router.checkEffort(res, "p/eff", "").ladder.length === 4, router.checkEffort(res, "p/eff", "")],
 				["undefined resolution → ok", router.checkEffort(undefined, "p/eff", "max").verdict === "ok", router.checkEffort(undefined, "p/eff", "max")],
+				// CQ5: a fabricated resolution with no candidate array at all must not
+				// throw inside the predicate the dispatch path will call.
+				["resolution with no candidates array → not-listed", router.checkEffort({ on: true }, "p/eff", "max").verdict === "not-listed", router.checkEffort({ on: true }, "p/eff", "max")],
+				["candidate with no ladder → off-ladder, no throw", router.checkEffort({ on: true, candidates: [{ spec: "p/eff", profile: {} }] }, "p/eff", "max").verdict === "off-ladder", router.checkEffort({ on: true, candidates: [{ spec: "p/eff", profile: {} }] }, "p/eff", "max")],
+				// ...and the returned ladder is always an ARRAY, so a consumer can render
+				// it without a guard of its own.
+				["ladder is always an array", Array.isArray(router.checkEffort({ on: true, candidates: [{ spec: "p/eff", profile: {} }] }, "p/eff", "max").ladder) && Array.isArray(router.checkEffort(undefined, "p/eff", "max").ladder), router.checkEffort({ on: true, candidates: [{ spec: "p/eff", profile: {} }] }, "p/eff", "max").ladder],
+				["candidate with no profile at all → off-ladder, no throw", router.checkEffort({ on: true, candidates: [{ spec: "p/eff" }] }, "p/eff", "max").verdict === "off-ladder", router.checkEffort({ on: true, candidates: [{ spec: "p/eff" }] }, "p/eff", "max")],
 			]);
 		});
 
@@ -1026,6 +1118,9 @@ try {
 			const listWrong = router.sanitizeRouterConfig({ models: "p/x" }, (m) => warnedD.push(m));
 			const warnedE = [];
 			const typo = router.sanitizeRouterConfig({ model: ["p/x"], allowUnmeasured: true }, (m) => warnedE.push(m));
+			// The sanitizer path gets the same invisible-character treatment (BG2).
+			const warnedF = [];
+			const invisibleCfg = router.sanitizeRouterConfig({ models: ["p/go\u200bod", "p/good"] }, (m) => warnedF.push(m));
 			checkAll("router-config-invalid", "a wrong-shape router value warns once and falls back to the defaults; invalid models entries are dropped one warning each; a non-boolean allowUnmeasuredEffort warns and stays true; unknown keys are reported instead of silently ignored (CQ1)", [
 				["array value → defaults + one warning", wrong.models.length === 0 && wrong.allowUnmeasuredEffort === true && warnedB.length === 1, [wrong, warnedB]],
 				["good entry kept", partial.models.join(",") === "p/good", partial.models],
@@ -1034,6 +1129,7 @@ try {
 				["non-array models → empty + one warning", listWrong.models.length === 0 && warnedD.length === 1, [listWrong, warnedD]],
 				["unknown keys named", warnedE.length === 1 && /unknown router key/.test(warnedE[0]) && warnedE[0].includes("model") && warnedE[0].includes("allowUnmeasured"), warnedE],
 				["typo'd config still yields defaults", typo.models.length === 0 && typo.allowUnmeasuredEffort === true, typo],
+				["a zero-width-bearing entry is dropped, naming U+200B", invisibleCfg.models.join(",") === "p/good" && warnedF.length === 1 && /invisible or control characters \([^)]*U\+200B/.test(warnedF[0]), [invisibleCfg.models, warnedF]],
 			]);
 		});
 
@@ -1209,7 +1305,7 @@ try {
 		"router-all-dropped", "router-order", "router-order-ties", "router-cheapest", "router-cheapest-fallback",
 		"router-price-date", "router-price-rows",
 		"router-w1-canary", "router-w1-guards", "router-w3-unknown", "router-failover-coverage",
-		"router-warnings-echo", "router-dedup", "router-memo",
+		"router-warnings-echo", "router-dedup", "router-memo", "router-labels",
 		"router-effort", "router-effort-gap", "router-effort-hard", "router-ladder-validation", "router-effort-off",
 		"router-hostile", "router-robust",
 		"router-config-default", "router-config-invalid", "router-shipped-default",
@@ -1219,7 +1315,20 @@ try {
 	const missing = EXPECTED.filter((id) => !seen.has(id));
 	const duplicated = reported.filter((id, i) => reported.indexOf(id) !== i);
 	const unexpected = [...seen].filter((id) => !EXPECTED.includes(id) && id !== "roster");
-	check("roster", missing.length === 0 && duplicated.length === 0 && unexpected.length === 0, `all ${EXPECTED.length} expected checks reported exactly once (a crashed or deleted check cannot pass silently)`, { missing, duplicated, unexpected });
+	// TS3, second half: the NOT RUN lists must COVER every check they void. An id
+	// missing from ROUTER_IDS/PROFILE_IDS would surface as a roster "missing" line
+	// when the module fails to load instead of an honest NOT RUN, so the lists are
+	// audited against the roster here rather than trusted.
+	const uncovered = [
+		...EXPECTED.filter((id) => id.startsWith("router-") && id !== "router-load" && !ROUTER_IDS.includes(id)),
+		...EXPECTED.filter((id) => id.startsWith("profiles-") && id !== "profiles-load" && !PROFILE_IDS.includes(id)),
+	];
+	check(
+		"roster",
+		missing.length === 0 && duplicated.length === 0 && unexpected.length === 0 && uncovered.length === 0,
+		`all ${EXPECTED.length} expected checks reported exactly once, and every module-dependent check is covered by a NOT RUN list (a crashed, deleted or unlisted check cannot pass silently)`,
+		{ missing, duplicated, unexpected, uncovered },
+	);
 
 	console.log(`== summary: ${pass} pass, ${fail} fail, ${notrun} not run ==`);
 	// process.exitCode, never process.exit: the latter can truncate piped stdout

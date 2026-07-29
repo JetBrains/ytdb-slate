@@ -36,7 +36,11 @@
  *    default pick, whatever the tier says"), and the base model is the most
  *    default pick there is (BG1). If every candidate is non-preferred the
  *    cheapest one is still chosen — D48 needs *a* base model — and that fallback
- *    is warned about and flagged on the result.
+ *    is warned about and flagged on the result. The ORDERED LIST honours the same
+ *    markers (DF4): non-preferred candidates, and candidates whose tier is not a
+ *    sourced ordinal, sort after their comparable preferred/sourced siblings, so a
+ *    consumer that walks the list rather than reading `cheapest` cannot meet an
+ *    evidentially-thin model first just because it is cheap.
  *
  *  - THE REGISTRY IS THE AUTHORITY for capacity. A profile's `contextWindow` is
  *    documentation-only; W1 (D55) cross-checks it against the registry and warns
@@ -93,7 +97,7 @@ import {
 	type ThinkingLevel,
 } from "./model-profiles.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { isModelSpec, splitModelSpec, type RouterConfig } from "./state.ts";
+import { describeConfusables, describeSpecDefect, isModelSpec, splitModelSpec, type RouterConfig } from "./state.ts";
 
 /**
  * The slice of pi's ModelRegistry this module needs. `ctx.modelRegistry`
@@ -269,21 +273,16 @@ function quoted(value: unknown): string {
 }
 
 /**
- * Why a value is not a canonical "provider/id" spec, as a clause that survives
- * display sanitization (BG2). A trailing newline or a non-breaking space is
- * invisible in the quoted value once control characters are stripped, so the
- * REASON has to carry the information instead of the rendering.
+ * Display form of a VALID spec inside a warning: sanitized and length-capped
+ * like every other user string, plus a confusable note when it carries non-ASCII
+ * characters (BG2). A Cyrillic homoglyph passes validation — an exotic provider
+ * id may legitimately be non-ASCII — so a warning about "openai/gpt-5.6-lunа"
+ * must not read as a warning about the model the user meant.
  */
-function specDefect(value: unknown): string {
-	if (typeof value !== "string") return `expected a string, got ${typeof value}`;
-	if (value === "") return "it is empty";
-	if (/[\u0000-\u001f\u007f\u009b]/.test(value)) return "it contains control characters (an invisible byte, not a typo you can see)";
-	if (/^\s|\s$/.test(value)) return "it has leading or trailing whitespace (invisible here, but pi's registry has no such model)";
-	if (/\s/.test(value)) return "it contains whitespace";
-	if (!value.includes("/")) return 'it has no "/" separating provider from model id';
-	if (value.startsWith("/")) return 'it has an empty provider before the "/"';
-	if (value.endsWith("/")) return 'it has an empty model id after the "/"';
-	return "it is not of the form provider/id";
+function specLabel(spec: string): string {
+	const note = describeConfusables(spec);
+	const label = sanitizeForNotify(spec);
+	return note === undefined ? label : `${label} (${note})`;
 }
 
 /** Dedup key for a per-value condition: type-tagged, so 7 and "7" cannot collide (BG5). */
@@ -368,7 +367,7 @@ export function sanitizeRouterConfig(raw: unknown, warn: (msg: string) => void):
 		} else {
 			for (const entry of value.models) {
 				if (!isModelSpec(entry)) {
-					warn(`slate: ignoring router.models entry ${quoted(entry)} — ${specDefect(entry)}`);
+					warn(`slate: ignoring router.models entry ${quoted(entry)} — ${describeSpecDefect(entry)}`);
 					continue;
 				}
 				models.push(entry);
@@ -442,13 +441,13 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 		if (!isModelSpec(raw)) {
 			once(
 				conditionKey("malformed", raw),
-				`slate: model router: ignoring ${quoted(raw)} — ${specDefect(raw)}, so it is not a canonical "provider/id" model spec`,
+				`slate: model router: ignoring ${quoted(raw)} — ${describeSpecDefect(raw)}, so it is not a canonical "provider/id" model spec`,
 			);
 			continue;
 		}
 		if (seenSpecs.has(raw)) continue; // duplicate listing — first wins, silently
 		seenSpecs.add(raw);
-		const label = sanitizeForNotify(raw);
+		const label = specLabel(raw);
 
 		let profile: ModelProfile | undefined;
 		try {
@@ -623,15 +622,28 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 		);
 	}
 
-	// Order: tier asc, then current effective input price asc, then spec — the
-	// last key only so the order is total and reproducible. NOTE: for a candidate
-	// whose profile sets `tierUnsourced`, the tier is a COST class read off the
-	// price, not a sourced ranking; the flag rides on the candidate so a consumer
-	// can say so instead of presenting the position as a capability verdict.
+	// ORDER (DF4). Five keys, in this order:
+	//   1. preference   — a profile carrying a `nonPreferred` reason sorts after
+	//                     every preferred candidate. The marker is absolute, and a
+	//                     consumer reading the ORDERED LIST (not just `cheapest`)
+	//                     must not meet an evidentially-thin model first just
+	//                     because it is cheap.
+	//   2. tier sourcing — a `tierUnsourced` tier is a COST class read off the
+	//                     price, not a ranking, so within one preference class the
+	//                     candidates whose tier IS sourced come first; the flag also
+	//                     rides on the candidate so a consumer can say so.
+	//   3. tier asc, 4. current effective input price asc,
+	//   5. spec — only so the order is total and reproducible.
 	const price = (c: RouterCandidate) => c.inUsdPerMTok ?? Number.POSITIVE_INFINITY;
+	const preferenceRank = (c: RouterCandidate) => (c.nonPreferred === null ? 0 : 1);
+	const sourcingRank = (c: RouterCandidate) => (c.tierUnsourced ? 1 : 0);
 	candidates.sort(
 		(a, b) =>
-			tierOf(a.profile) - tierOf(b.profile) || price(a) - price(b) || (a.spec < b.spec ? -1 : a.spec > b.spec ? 1 : 0),
+			preferenceRank(a) - preferenceRank(b) ||
+			sourcingRank(a) - sourcingRank(b) ||
+			tierOf(a.profile) - tierOf(b.profile) ||
+			price(a) - price(b) ||
+			(a.spec < b.spec ? -1 : a.spec > b.spec ? 1 : 0),
 	);
 
 	// D48 + BG1: the default base model is the cheapest PREFERRED candidate.
@@ -698,17 +710,23 @@ export function checkEffort(resolution: ModelRouterResolution, spec: string, eff
 		apiRejected: false,
 	};
 	if (!resolution?.on) return base;
-	const candidate = resolution.candidates.find((c) => c.spec === spec);
+	// CQ5: a fabricated or partially-built resolution (`{ on: true }`) must not
+	// crash the dispatch path that consults this predicate.
+	const list = Array.isArray(resolution.candidates) ? resolution.candidates : [];
+	const candidate = list.find((c) => c?.spec === spec);
 	if (!candidate) return { ...base, verdict: "not-listed" };
-	const ladder = candidate.ladder;
+	const ladder = Array.isArray(candidate.ladder) ? candidate.ladder : [];
 	if (effort === undefined || effort === "") return { ...base, ladder };
-	const measured = listHas(candidate.profile.capabilityMeasuredAt, effort);
-	const listedGap = listHas(candidate.profile.evidenceGapAt, effort);
+	// Same reasoning as the two guards above: the profile is present on every
+	// candidate this module builds, and absent on a fabricated one (CQ5).
+	const profile = (candidate.profile ?? {}) as ModelProfile;
+	const measured = listHas(profile.capabilityMeasuredAt, effort);
+	const listedGap = listHas(profile.evidenceGapAt, effort);
 	// A level the PROVIDER rejects outright is unusable, whatever the ladder says
 	// (the table keeps such a level ON the ladder — pi's vocabulary is fixed — and
 	// records the hard rejection separately). Reporting it as off-ladder is the
 	// only answer that does not send the dispatch into a guaranteed HTTP 400.
-	const apiRejected = listHas(optional(candidate.profile).apiRejectedLevels, effort);
+	const apiRejected = listHas(optional(profile).apiRejectedLevels, effort);
 	if (apiRejected || !listHas(ladder, effort)) {
 		return { verdict: "off-ladder", spec, effort, ladder, measured, listedGap, apiRejected };
 	}

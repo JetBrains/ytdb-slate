@@ -28,7 +28,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import type { SlateConfig } from "./state.ts";
+import { isModelSpec, splitModelSpec, type SlateConfig } from "./state.ts";
 
 type RegistryModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
 
@@ -60,13 +60,6 @@ function notifyUi(ctx: ExtensionContext, message: string): void {
 	}
 }
 
-/** "provider/id": slash at index > 0 with a non-empty id after it. */
-function isModelSpec(value: unknown): value is string {
-	if (typeof value !== "string") return false;
-	const slash = value.indexOf("/");
-	return slash > 0 && slash < value.length - 1;
-}
-
 /**
  * Validate the raw `modelFailover` config value. Keeps only entries where key
  * and value are both "provider/id" strings and key !== value (a self-mapping
@@ -95,8 +88,8 @@ export function sanitizeModelFailover(
 	}
 	if (dropped.length > 0) {
 		warn(
-			`slate: dropped invalid modelFailover entries (need "provider/id" → "provider/id", key ≠ value):\n` +
-				dropped.join("\n"),
+			`slate: dropped invalid modelFailover entries (need "provider/id" → "provider/id", key ≠ value, ` +
+				`no whitespace or invisible characters):\n${dropped.join("\n")}`,
 		);
 	}
 	return map;
@@ -128,10 +121,9 @@ export async function resolveMappedModel(
 	currentProvider: string,
 	currentId: string,
 ): Promise<RegistryModel | undefined> {
-	const target = map[`${currentProvider}/${currentId}`];
-	if (!isModelSpec(target)) return undefined;
-	const slash = target.indexOf("/");
-	const model = ctx.modelRegistry.find(target.slice(0, slash), target.slice(slash + 1));
+	const target = splitModelSpec(map[`${currentProvider}/${currentId}`]);
+	if (!target) return undefined;
+	const model = ctx.modelRegistry.find(target.provider, target.id);
 	if (!model) return undefined;
 	try {
 		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
