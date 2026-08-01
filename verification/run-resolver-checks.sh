@@ -31,7 +31,10 @@
 set -uo pipefail
 
 exec 8>&2
-die() { echo "verification: $*" >&8; exit 2; }
+# One vocabulary for every abort, shared with the other tier-1 harnesses: exit 2
+# is documented as "refused to start", so the message says so too rather than
+# leaving the reader to infer it from the status (WC2). Callers pass the reason.
+die() { echo "verification: refused to start — $*" >&8; exit 2; }
 
 REPO="."
 while [ $# -gt 0 ]; do
@@ -85,7 +88,7 @@ elif PI="$(command -v pi)" && [ -n "$PI" ]; then
 	echo "NOTE   no pi in $REPO/node_modules/.bin — using the PATH one: $PI"
 	echo "NOTE   run 'npm ci' in $REPO to exercise the pinned install instead."
 else
-	die "refused to start — no pi CLI found: PI_BIN is unset, there is none at
+	die "no pi CLI found: PI_BIN is unset, there is none at
        $REPO/node_modules/.bin/pi, and none on PATH. This script loads the
        repository's TypeScript through the jiti that ships inside pi.
        Remedy: run 'npm ci' in $REPO (or set PI_BIN=<path to pi>)."

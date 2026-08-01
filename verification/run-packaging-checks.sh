@@ -32,7 +32,10 @@
 set -uo pipefail
 
 exec 8>&2
-die() { echo "verification: $*" >&8; exit 2; }
+# One vocabulary for every abort, shared with the other tier-1 harnesses: exit 2
+# is documented as "refused to start", so the message says so too rather than
+# leaving the reader to infer it from the status (WC2). Callers pass the reason.
+die() { echo "verification: refused to start — $*" >&8; exit 2; }
 
 REPO="."
 ARGS=()
