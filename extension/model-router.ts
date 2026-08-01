@@ -53,11 +53,12 @@
  *    routing uses is not evidence about which figure is factually right, and a
  *    stock pi install has a registry entry that looks like a billing row restated
  *    as a capacity — so when the registry's window equals that model's own
- *    long-context threshold, W1 adds a hint naming that pattern (RI32) instead of
- *    blaming either side. `longContextThreshold` / `longContextMultipliers` are
- *    BILLING facts and are deliberately NOT applied to the ordering price — they
- *    describe what happens above a token threshold, not the base rate a router
- *    compares models on.
+ *    long-context threshold, the per-model line says so and points at ONE further
+ *    warning that names the pattern (RI32) and every model it applies to, instead
+ *    of blaming either side or repeating the explanation per model (BG27).
+ *    `longContextThreshold` / `longContextMultipliers` are BILLING facts and are
+ *    deliberately NOT applied to the ordering price — they describe what happens
+ *    above a token threshold, not the base rate a router compares models on.
  *
  *  - W3 (D57): a candidate with `unknownRoutingCriticalFields` is routable but
  *    warned about once, naming the fields — the routing decision for it is
@@ -445,6 +446,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 
 	const candidates: RouterCandidate[] = [];
 	const seenSpecs = new Set<string>();
+	/** Specs whose registry window equals their own long-context billing threshold (BG27, explained once below). */
+	const billingPatternSpecs: string[] = [];
 	const claimedProfiles = new Map<string, string>(); // profile id → the spec that claimed it (BG6)
 	for (const raw of models) {
 		if (!isModelSpec(raw)) {
@@ -551,27 +554,37 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 			registryWindow !== profileWindow &&
 			registryWindow !== knownDivergence
 		) {
-			// DIAGNOSTIC COINCIDENCE: a reported window identical to that model's own
-			// long-context BILLING threshold cannot be a capacity, because it would put
-			// the long-context price tier permanently out of reach — nothing can exceed
-			// a threshold it cannot reach. That is the exact failure RI32 named (a
-			// figure that appears in a source only inside a pricing row is a billing
-			// figure and must never be restated as a capacity), so when the arithmetic
-			// lines up, the warning says so and lets the reader look. The threshold is
-			// read from the profile the candidate already carries: no number and no
-			// model id is written into this module.
+			// DIAGNOSTIC COINCIDENCE (WC6 — hedged to what the arithmetic supports): a
+			// reported window identical to that model's own long-context BILLING
+			// threshold reads as a billing figure rather than a capacity, because a
+			// window equal to its own threshold would leave the long-context price tier
+			// unreachable. That is the shape RI32 named (a figure appearing in a source
+			// only inside a pricing row is a billing figure and must not be restated as
+			// a capacity) — suggestive, not proof, so the warning points at it and lets
+			// the reader judge. The threshold is read from the profile the candidate
+			// already carries: no number and no model id is written into this module.
+			//
+			// BG27: the per-model line keeps only the per-model FACTS plus a pointer.
+			// The ~270-character pattern explanation is the same text for every affected
+			// model, and on a stock pi install three profiles trip it at once, so it is
+			// emitted ONCE after the loop (below) — naming every affected model there, so
+			// nothing loses its attribution.
 			const billingThreshold = finite(profile.longContextThreshold ?? undefined);
-			const billingHint =
-				billingThreshold !== undefined && registryWindow === billingThreshold
-					? ` NOTE: that registry figure is also this model's long-context BILLING threshold (${billingThreshold} tokens) — ` +
-						"a window equal to its own threshold would leave the long-context price tier unreachable, which is the " +
-						"billing-row-restated-as-a-capacity pattern finding RI32 warns about."
-					: "";
+			const matchesBillingThreshold = billingThreshold !== undefined && registryWindow === billingThreshold;
+			if (matchesBillingThreshold) billingPatternSpecs.push(sanitizeForNotify(raw, 60));
 			once(
 				conditionKey("w1", raw),
-				`slate: model router: context window for ${label} differs between sources — slate's profile records ` +
-					`${profileWindow} tokens (research asOf ${quoted(profile.asOf ?? "unknown")}), pi's model registry reports ` +
-					`${registryWindow} tokens. Routing uses the registry figure; which source is correct is not established here.${billingHint}`,
+				// WC5: "profile" and "profile asOf", never "research" — the asOf is whatever
+				// the LOADED profile carries, and deferred issue 001 (`router.profilesPath`,
+				// user-supplied profiles through this same path) would make a "research"
+				// attribution false. WHOEVER IMPLEMENTS ISSUE 001: if a profile can come
+				// from the user, this line must name WHICH source it read — the sentence
+				// contrasts two sources, and mislabelling one of them is the whole defect
+				// this wording was rewritten to avoid.
+				`slate: model router: context window for ${label} differs between sources — the model profile records ` +
+					`${profileWindow} tokens (profile asOf ${quoted(profile.asOf ?? "unknown")}), pi's model registry reports ` +
+					`${registryWindow} tokens. Routing uses the registry figure; which source is correct is not established here.` +
+					`${matchesBillingThreshold ? " That registry figure is also this model's long-context BILLING threshold — see the note below." : ""}`,
 			);
 		}
 
@@ -639,6 +652,20 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 				"entries survived validation (see the warnings above)",
 		);
 		return frozenResolution(false, [], undefined, false, warnings);
+	}
+
+	// BG27: the RI32 pattern explanation, ONCE, naming every model whose per-model
+	// line pointed here. Same reasoning as the failover aggregate below: the
+	// explanation is identical for every affected model, so repeating it verbatim
+	// per model (three times on a stock pi install) is noise, while the SET of
+	// affected models is the part a reader needs.
+	if (billingPatternSpecs.length > 0) {
+		once(
+			"w1-billing-pattern",
+			`slate: model router: the registry's context window equals the model's own long-context BILLING threshold for ` +
+				`${billingPatternSpecs.join(", ")} — a window equal to its own threshold would leave the long-context price ` +
+				"tier unreachable, which is the billing-row-restated-as-a-capacity pattern finding RI32 warns about.",
+		);
 	}
 
 	// CQ3: ONE aggregate line for failover coverage. Per-candidate notices here
