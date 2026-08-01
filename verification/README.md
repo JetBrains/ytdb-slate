@@ -681,7 +681,7 @@ session's frozen resolution carries:
 | `route-long-context` | the long-context **billing** notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a substitution the notice belongs to the model the action actually runs on |
 | `route-failover` | a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a **non-substituting** window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-off session keeps its pre-router failover behaviour exactly |
 | `route-lowest-effort` | the base-effort seed is the **lowest measured, non-provider-rejected** level on that model's ladder — never an evidence gap — ascending from pi's vocabulary rather than the table's authoring order, and `undefined` (pi's own default) when there is no measured level, the model is unlisted, the router is off, or the resolution is junk |
-| `route-off-ladder-source` | with the router **OFF** the ladder used for effort validation comes from the caller's **injected** profile source and nothing else: it is consulted by spec, it is authoritative (a level off a **known** ladder is refused even for a spec the shipped table has never heard of — the discriminating direction), a spec it **declines** is not judged at all, an absent source, a throwing lookup and an **unreadable ladder** (throwing or non-array) are all **inert** — the level is kept, with no unmeasured marker and no warning — a foreign level is filtered out of the quoted ladder, and the module imports the shipped table **only as an erased type** (a text term, like `wiring`: it is what catches a runtime import of `findProfile` as a back door) |
+| `route-off-ladder-source` | with the router **OFF** the ladder used for effort validation comes from the caller's **injected** profile source and nothing else: it is consulted by spec, it is authoritative (a level off a **known** ladder is refused even for a spec the shipped table has never heard of — the discriminating direction), a spec it **declines** is not judged at all, an absent source, a throwing lookup and an **unreadable ladder** (throwing or non-array) are all **inert** — the level is kept, with no unmeasured marker and no warning — a foreign level is filtered out of the quoted ladder, and the module reaches the shipped table at runtime by no route at all. That last property is asserted **behaviourally first**: a REAL shipped spec (read from the table at runtime, never hard-coded) paired with a level really off ITS shipped ladder, so the injected source and the table disagree and only a planner consulting the table can be caught — with no source injected, and with a source that DECLINES the spec, which is the shape `threads.ts`'s vetted source produces for a model pi cannot serve. Two text terms back it up: no `import type`-less reference to `model-profiles.ts`, and no shipped-table VALUE (`SHIPPED_PROFILE_SOURCE`, `MODEL_PROFILES`, `findProfile`, `ladderFor`, `PROFILES_AS_OF`) imported under any name from any module — the re-export route, which needs no new import statement, only a new name on an existing one |
 | `route-effort-derived-for-model` | THE ONE RULE's effort half: a level stored on the thread is inherited **only** while the action runs on the base model it was derived for. An explicit per-action model gets **that model's** own lowest measured level instead — asserted with two **disjoint** ladders, so an inheriting implementation cannot pass: it would refuse a level absent from the new model's ladder where this asserts a proceed, including under `allowUnmeasuredEffort: false` (BG14). A window substitution re-derives for the substituted model; an **explicit** level is still judged hard against the model that runs; `effortJudgedFor` always names that model |
 | `route-off-invisible` | with the router OFF nothing is seeded, persisted, derived or consulted: no base model, no base effort, no re-seed signal, no derived level, the pin is `openOnly`, no router guard speaks even with a 5M-token context, a malformed argument is passed through for pi to reject — and passing the **removed** orchestrator-tracker input changes the verdict not at all, which is what "not consulted" means asserted rather than assumed. The boundary is stated positively too: the **ladder** guard is deliberately *not* invisible, and still refuses an off-ladder explicit level |
 | `route-stored-effort-refresh` | a thread's stored `baseEffort` is a **cached derivation** over a table that ships with slate, so a refresh can invalidate it. It is re-checked against today's table and, when it no longer reads `ok`, **re-derived** for that model rather than replayed — for all four ways a refresh can invalidate it (evidence gap, gap under `allowUnmeasuredEffort: false`, a shrunken ladder, a provider's hard rejection), three of which used to make the thread **undispatchable** through a dispatch that named no effort at all. The correction is **silent** (nobody asked for that level) and is **not persisted** (the verdict still echoes the stored value, no re-seed is signalled — pinned as observed). A still-measured level is kept rather than re-derived, a model with no measured level yields none, and an **explicit** level keeps the full guard treatment: warned on a gap, refused under `allowUnmeasuredEffort: false`, off-ladder or API-rejected |
@@ -745,16 +745,27 @@ listed so a reader never has to infer it:
   What the pure checks *do* still hold down is the input side of that decision:
   `applyModel` is derived from `plan.model` and `plan.openOnly`, whose semantics
   `route-list-off` and `route-off-invisible` pin.
-  Two ways to close it, neither taken yet:
-  1. **Give the planner the facts.** Add `liveModel?: string` and a failover-held
-     flag to `RoutePlanInput` and express the revert in the verdict (a revert target,
-     or `model` with `openOnly` unset). It then becomes an ordinary `route-*` check:
-     fabricate `liveModel: "p/x"` with the flag false (expect a revert) and true
-     (expect none).
-  2. **Exercise it live.** A ladder rung in the shape of `WK1` — the only rung that
-     opens a real worker session — dispatching twice against a fake provider and
-     asserting the session's model after the second, once with a failover marker held
-     and once without. That is the only route that covers the decision as shipped.
+  Three ways to close it, in ascending cost — the first is the one to take:
+  1. **Extract the decision, the way `route.ts` itself was extracted.** The revert is
+     a pure function of five facts `threads.ts` already has in hand: the explicit
+     model, the router-resolved base, `openOnly`, the session's current spec and the
+     captured baseline spec, plus whether a failover is holding the session. Lifting
+     it into an exported helper in `route.ts` makes it an ordinary `route-*` check
+     with fabricated arguments — no new planner inputs, no session, no fixture
+     provider. This is the same move that made the seven dispatch guards checkable in
+     the first place, and it is what the dispatch thread is doing.
+  2. **Give the whole planner the facts.** Add `liveModel?: string` and a
+     failover-held flag to `RoutePlanInput` and express the revert in the verdict (a
+     revert target, or `model` with `openOnly` unset). Also checkable here, but it
+     widens the planner's contract for one decision rather than isolating it.
+  3. **Exercise it live** — the expensive one, and easy to get wrong. A rung in
+     `WK1`'s shape would need to drive `threads.ts`'s `applyRoute`, and `WK1`'s probe
+     does NOT do that: it re-implements the switch by calling `session.setModel` /
+     `setThinkingLevel` itself, which is exactly what makes it a settings-isolation
+     rung rather than a dispatch rung. A naive port would therefore assert the probe's
+     own re-implementation and prove nothing about the revert. Covering it live means
+     constructing a real `ThreadManager` and dispatching twice against a fake
+     provider — worth doing only for what the pure helper genuinely cannot express.
 - **The compaction-settings elision (CQ17) is verified indirectly, on purpose.** The
   caller now reads pi's compaction settings only when the router is ON, so with it
   OFF `wouldCompact`/`reserveTokens` arrive `undefined`. No check asserts "the
@@ -979,6 +990,19 @@ killed, and each is a plausible implementation rather than a strawman:
 | no base repair at all | `route-base-reseed` and three others |
 | "do not reject what we just repaired" in guard 1 — the hole the repair could open | `route-base-reseed-guarded`, `route-list-on` |
 | gate the `apiRejectedLevels` refusal on a readable ladder, so the positive fact stops biting | `route-read-failure-inert` — and only that check |
+
+`route-off-ladder-source` was later found **porous** by an independent mutation
+gate and repaired: its back-door guard had been a text term matching only a direct
+`model-profiles.ts` import, while `model-router.ts` **re-exports**
+`SHIPPED_PROFILE_SOURCE` and `route.ts` already imports runtime values from there.
+Two mutations passed the whole suite green — `profiles ?? SHIPPED_PROFILE_SOURCE`
+(latent) and a fallback to the shipped table when the injected source **declines** a
+spec (production-active, because that is exactly what the registry-and-auth-vetted
+source does for a model pi cannot serve). Neither was catchable behaviourally,
+because every fixture used a synthetic spec the table has never heard of. Both now
+die on the real-spec terms, and — verified by re-running them with the text terms
+deliberately neutralised — they die on the **behavioural** terms alone, not merely
+on the import scan.
 
 ### The roster's own teeth
 

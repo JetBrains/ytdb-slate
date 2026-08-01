@@ -2244,13 +2244,69 @@ try {
 				requestedEffort: "high",
 				profiles: { findProfile: (spec) => served(spec), ladderFor: () => ["medium", "LOUD", "fast", "medium"] },
 			});
+			// THE BACK-DOOR TERMS (TQ1). Every fixture above uses a SYNTHETIC spec, which the
+			// shipped table has never heard of — so a planner that quietly consulted that
+			// table would look identical on all of them. Two survivable mutations proved it:
+			// `profiles ?? SHIPPED_PROFILE_SOURCE` (latent), and falling back to the shipped
+			// table when the injected source DECLINES a spec — the second one production-
+			// active, because threads.ts's router-off source declines every model pi cannot
+			// serve. So the discriminating fixture must use a REAL shipped spec paired with a
+			// level that is really off ITS ladder: the injected source then says one thing and
+			// the table says another, and only a planner reading the table can be caught.
+			//
+			// Both halves are read from the table AT RUNTIME (the router-shipped-default
+			// rule), never hard-coded, so a research refresh cannot stale them; the pair is
+			// found by scanning, and if the table ever stops offering one the precondition
+			// term below fails loudly instead of passing vacuously.
+			const shipped = (() => {
+				if (!table) return undefined;
+				for (const profile of table.MODEL_PROFILES) {
+					const ladder = table.ladderFor(profile);
+					const missing = route.THINKING_LEVELS.find((level) => !ladder.includes(level));
+					if (missing !== undefined) return { spec: profile.id, offLadder: missing, ladder: [...ladder] };
+				}
+				return undefined;
+			})();
+			// The injected source PROFILES this real spec and says the level IS on its ladder.
+			// The shipped table says it is not. Inert (the injected source is the authority)
+			// is the correct answer; a rejection means the table was consulted.
+			const shippedGenerous = shipped && {
+				findProfile: (spec) => (spec === shipped.spec ? { id: spec, capabilityMeasuredAt: [shipped.offLadder], evidenceGapAt: [] } : undefined),
+				ladderFor: () => [shipped.offLadder],
+			};
+			const shippedInjected = shipped
+				? plan({ resolution: off, requestedModel: shipped.spec, requestedEffort: shipped.offLadder, profiles: shippedGenerous })
+				: undefined;
+			// The same real spec with NO source injected at all (kills `profiles ?? SHIPPED`).
+			const shippedNoSource = shipped ? plan({ resolution: off, requestedModel: shipped.spec, requestedEffort: shipped.offLadder }) : undefined;
+			// ...and with a source that DECLINES it, which is exactly the shape threads.ts's
+			// registry-and-auth-vetted source produces for a model pi cannot serve (kills the
+			// decline-time fallback).
+			const shippedDeclined = shipped
+				? plan({ resolution: off, requestedModel: shipped.spec, requestedEffort: shipped.offLadder, profiles: { findProfile: () => undefined, ladderFor: () => [] } })
+				: undefined;
+
 			// The module must not reach the shipped table at RUNTIME at all: its only
 			// reference to it is the ERASED `import type` of the level union. A text check,
 			// like `wiring`, and for the same reason — it is the difference between "the
 			// ladder source is injected" and "the ladder source happens to be injected on
-			// the paths a check exercised".
+			// the paths a check exercised". It also watches the RE-EXPORT route the
+			// behavioural terms above now cover: model-router.ts re-exports the shipped
+			// source as SHIPPED_PROFILE_SOURCE, and route.ts already imports other runtime
+			// values from that module, so a back door needs no new import statement at all —
+			// only a new name on the existing one.
 			const src = readFileSync(join(REPO, "extension", "route.ts"), "utf8");
 			const tableImports = [...src.matchAll(/^import\s+(type\s+)?[^;]*from\s+"\.\/model-profiles\.ts";/gm)];
+			const TABLE_VALUES = ["SHIPPED_PROFILE_SOURCE", "MODEL_PROFILES", "findProfile", "ladderFor", "PROFILES_AS_OF"];
+			const runtimeTableBindings = [...src.matchAll(/^import\s+(type\s+)?\{([^}]*)\}\s+from\s+"([^"]+)";/gm)].flatMap(([, isType, names, from]) =>
+				isType
+					? []
+					: names
+							.split(",")
+							.map((n) => n.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim())
+							.filter((n) => TABLE_VALUES.includes(n))
+							.map((n) => `${n} from ${from}`),
+			);
 			checkAll("route-off-ladder-source", "with the router OFF the effort ladder comes from the CALLER's injected profile source and nothing else: it is consulted by spec, it is authoritative (a level off a KNOWN ladder is refused even for a spec the shipped table has never heard of), a spec it DECLINES is not judged at all, an absent source / a throwing lookup / an unreadable ladder are all INERT rather than refusing, a foreign level is filtered out, and the module imports the shipped table only as an erased type", [
 				["the injected source is consulted, by spec", calls.includes("findProfile:p/offrouter"), calls],
 				["...and asked for that profile's ladder", calls.includes("ladderFor:p/offrouter"), calls],
@@ -2278,6 +2334,13 @@ try {
 				// survive the filter), so guard 2 fires — and quotes only the real ones.
 				["a foreign level never reaches the quoted ladder", foreign.kind === "reject" && /effort ladder \(medium\)/.test(why(foreign)) && !/LOUD|fast/.test(why(foreign)), why(foreign)],
 				["the shipped table is imported only as an erased type", tableImports.length > 0 && tableImports.every((m) => m[1] !== undefined), tableImports.map((m) => m[0])],
+				["...and no shipped-table VALUE is imported under any name, from any module", runtimeTableBindings.length === 0, runtimeTableBindings],
+				// TQ1's discriminating terms: a REAL shipped spec, a level really off ITS
+				// shipped ladder, and an injected source that disagrees with the table.
+				["fixture: the shipped table still offers a model with a level off its ladder", shipped !== undefined, shipped ?? "no (model, off-ladder level) pair in the shipped table — pick another discriminator"],
+				["a REAL shipped spec is judged by the INJECTED source, not the table", shippedInjected !== undefined && shippedInjected.kind === "proceed" && shippedInjected.effort === shipped?.offLadder, [verdict(shippedInjected ?? { kind: "proceed", model: "n/a", warnings: [] }), shipped]],
+				["with NO source injected the table is still not consulted", shippedNoSource !== undefined && shippedNoSource.kind === "proceed" && shippedNoSource.effort === shipped?.offLadder, verdict(shippedNoSource ?? { kind: "proceed", model: "n/a", warnings: [] })],
+				["a DECLINED real spec does not fall back to the table", shippedDeclined !== undefined && shippedDeclined.kind === "proceed" && shippedDeclined.effort === shipped?.offLadder, verdict(shippedDeclined ?? { kind: "proceed", model: "n/a", warnings: [] })],
 			]);
 		});
 
