@@ -500,6 +500,11 @@ A second, much smaller net, for these subjects:
 
 - the **worker-extension resolver** in `extension/worker-extensions.ts` and the
   doctrine rule it feeds in `extension/mode.ts`;
+- the **action-routing doctrine rule** in `extension/mode.ts` (`doctrine-*`) —
+  rendered live from the session's frozen router resolution: its feature-off
+  byte-identity, its positional numbering beside the worker-extension rule, its
+  injection safety (it bypasses `sanitizeForDoctrine` by design), its two content
+  exclusions, and its size budget;
 - the **model router** in `extension/model-router.ts` — its config sanitizer, its
   candidate resolution and warnings, and its dispatch-side effort predicate;
 - the **dispatch guards** in `extension/route.ts` (`route-*`) — the route planner:
@@ -1129,7 +1134,9 @@ ids as strings (`episode-version`), silencing the unusable-config diagnostic
 (`episode-report`), and dropping the header's whitespace collapse
 (`episode-header`).
 
-The `route-*` checks likewise, **27 mutations, 27 killed** — one per check, plus a
+The `route-*` checks likewise, **27 mutations, 27 killed** — at the time, one per
+check (the family has grown since; the later additions record their own rounds
+below), plus a
 second one for `route-resolved-pair`, whose model half and effort half are
 independent, three for `route-off-ladder-source` (below), and seven for the checks
 added or changed when the base-repair and read-failure rules landed (further
@@ -1242,10 +1249,11 @@ baseline on disposal. The first is now caught EXECUTABLY — its in-module equiv
 `route-switch-opening-baseline`, verified. The second is caught only in its
 `applyRoute` form, by `route-baseline-capture`'s residual term; captured later still,
 in the dispatch body, it is not caught. **This used to say "TQ7 blocks that with a
-type, not a check", and that was false** — see the enforcement note below: this repo
-has no typecheck, so TQ7's brand blocks nothing on its own. What actually narrows the
-shape is the brand-cast scan, which refuses the assertion the bypass needs; a capture
-taken late in the dispatch body without any cast remains genuinely uncaught.
+type, not a check", and that was false** — see the enforcement note below. It stays
+false now that a typecheck exists, for a subtler reason: TypeScript permits an
+assertion to a branded subtype, so the bypass typechecks cleanly. What narrows the
+shape is the brand-cast scan, which refuses that assertion; a capture taken late in
+the dispatch body without any cast remains genuinely uncaught.
 The third — not clearing the baseline map on disposal — was unpinned for a while, and
 is **covered again**, by a term derived rather than re-anchored: see
 `route-baseline-capture`'s disposal term below. The remaining eight kills are
@@ -1359,17 +1367,29 @@ switch) rather than moving them — there is one `liveBaselines` map, so there i
 per-axis ordering left to assert, and the late reading those terms watched for is no
 longer an expression the call sites accept.
 
-> **There is no typecheck in this repo.** No `tsconfig.json`, no build script, no dev
-> dependencies; pi loads the TypeScript through jiti, which **strips types without
-> checking them**. Every "the type prevents this" claim in this document is therefore
-> a claim about what an editor would underline, not about what CI refuses — nothing
-> refuses it. Concretely: `SessionBaseline` and `OpenModel` are branded types, and a
-> brand buys **nothing at run time**. What actually enforces them is the brand-cast
-> scan below, which refuses `as SessionBaseline`, `as OpenModel`, their
-> `unknown`/`any` two-step and angle-bracket spellings, and `as never` outright
-> (`never` is assignable to every brand at once, so a brand-by-brand list would miss
-> it). A reader deciding whether a brand protects them should read that term, not the
-> type.
+> **A typecheck exists, and it does not close the brand.** `npm run typecheck`
+> (`tsc --noEmit`, `typescript@5.9.3` exact-pinned, `strict` and
+> `noUncheckedIndexedAccess` on) runs against `tsconfig.json` — an earlier version of
+> this note said none of that existed, which was true when it was written and is not
+> now. What has NOT changed is the conclusion, and the reason is worth stating
+> precisely, because "the typecheck covers it" is exactly the kind of false confidence
+> this file exists to prevent.
+>
+> TypeScript permits an **assertion** to a branded subtype. `someString as OpenModel`
+> typechecks cleanly; so does `as never`, and so does `{ effort: "high" } as
+> SessionBaseline`. Verified against this repo's own compiler settings: of those
+> three plus a plain `const x: OpenModel = someString` control, **only the control
+> errors**. The typecheck therefore catches the ACCIDENT — a raw string assigned where
+> a brand is wanted — and not the DELIBERATE assertion, which is the shape both
+> flagship defects were written in. Note also that pi loads this TypeScript through
+> jiti at run time, which strips types without checking them, so the typecheck is a
+> separate command a contributor runs, not something the loaded code has passed.
+>
+> What refuses the assertion is the **brand-cast scan** below — `as SessionBaseline`,
+> `as OpenModel`, their `unknown`/`any` two-step and angle-bracket spellings, and `as
+> never` outright (`never` is assignable to every brand at once, so a brand-by-brand
+> list would miss it). A reader deciding whether a brand protects them should read
+> that term, not the type.
 
 **Four structural terms stand today**, each about a fact no pure function can hold,
 and two of them were added AFTER this section was first written:
@@ -1385,8 +1405,9 @@ and two of them were added AFTER this section was first written:
   four conjuncts, for the one thing TQ7's brand cannot encode: a brand says WHO
   produced a value, never WHEN, so a capture taken late inside `applyRoute` is still
   type-correct. Its fourth conjunct is the **brand-cast scan**, and it is doing more
-  work than its name suggests — with no typecheck it is the *only* enforcement either
-  brand has. It was added because mutation found the first three conjuncts blind to a
+  work than its name suggests — it is the only thing that refuses a deliberate cast
+  INTO either brand, which the typecheck permits (see the note above). It was added
+  because mutation found the first three conjuncts blind to a
   live reading laundered through `as SessionBaseline`; `OpenModel` was added to it
   later (TQ14) after a gate reproduced `open: { model: (open.model ?? opts.model) as
   OpenModel }` — BG22-on-the-opening-path verbatim — with the suite reporting 106
@@ -1471,8 +1492,11 @@ The router and `route-*` checks stop at the **pure** boundary: they prove what t
 resolution reports and what the planner *decides*, not what `threads.ts` then does
 with a verdict — applying the switch to a worker session, raising an early
 rejection as a tool error, aborting an apply-time one without an episode, or
-remembering guard 6's once-per-pair notice. Those, and the doctrine's routing rule,
-are separate mechanisms; `WK1` above covers one slice of the first.
+remembering guard 6's once-per-pair notice. Those are separate mechanisms; `WK1`
+above covers one slice of the first. **The doctrine's routing rule used to be listed
+here too and no longer belongs**: the five `doctrine-*` checks cover it — feature-off
+byte-identity, positional numbering, injection safety, the two content exclusions and
+the size budget — by rendering it through `registerSlateMode`'s own handler.
 
 ## Files
 
