@@ -171,8 +171,12 @@ path:
 - The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
   so what renders is the models you CONFIGURE — not the nine Slate
   ships profiles for. It is 1,941 portable characters / 20 lines for
-  six configured models and 2,519 / 23 for all nine, growing by
-  roughly 150–185 characters per additional model.
+  six configured models and 2,519 / 23 for all nine. A model ROW
+  costs 154–186 characters; the legend adds a one-off clause per
+  marker it has to explain, so listing the first cheap-tier model
+  costs ~50 characters more than its row (two new clauses). That is
+  why stepping from six to nine averages 193 per model where the
+  first six average 171.
 - The worker-extension rule grows per whitelisted extension and per
   tool that extension contributes, so it has no fixed size; one
   extension contributing two tools measured 373 portable characters
