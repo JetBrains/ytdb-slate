@@ -800,9 +800,20 @@ try {
 			// coincidence. The old terms (two numbers, a date, the phrase "context window")
 			// pass BOTH messages word for word, so the only change that mattered was unpinned.
 			//
-			// Pinned three ways, deliberately overlapping: the message WHOLE (a golden master,
-			// because the wording IS the finding here), the semantic clauses that say what it
-			// must and must not claim, and the hint's condition in both directions.
+			// BG27 then split the message in two, and the golden master caught that too — which
+			// is what it is for. The ~270-character RI32 explanation was identical for every
+			// affected model and a stock pi install trips three at once, so the per-model line
+			// now keeps only the per-model FACTS plus a POINTER, and the explanation is emitted
+			// ONCE after the loop, naming every affected model so nothing loses attribution.
+			// (WC5 came with it: "the model profile records" and "profile asOf", never
+			// "research" — the asOf is whatever the LOADED profile carries, and issue 001 would
+			// make a research attribution false.) The two halves are pinned as a PAIR: they
+			// must fire together, and a dedup that kept the explanation by dropping the model
+			// names would be a regression, not a fix.
+			//
+			// Pinned three ways, deliberately overlapping: both messages WHOLE (golden masters,
+			// because the wording IS the finding here), the semantic clauses that say what they
+			// must and must not claim, and the pair's condition in both directions.
 			//
 			// The DECLINING sentence is the one place the word "correct" may legitimately
 			// appear — it is the disclaimer itself. A verdict scan run over the RAW message
@@ -812,57 +823,129 @@ try {
 			// asserted verbatim and then REMOVED, and no verdict word may survive anywhere in
 			// what is left — including inside the hint, which is scanned too.
 			const DECLINES = "Routing uses the registry figure; which source is correct is not established here.";
-			const REPORTS = (label, profileWindow, asOf, registryWindow) =>
-				`slate: model router: context window for ${label} differs between sources — slate's profile records ` +
-				`${profileWindow} tokens (research asOf ${JSON.stringify(asOf)}), pi's model registry reports ` +
-				`${registryWindow} tokens. ${DECLINES}`;
-			const NOTE = (threshold) =>
-				` NOTE: that registry figure is also this model's long-context BILLING threshold (${threshold} tokens) — ` +
-				"a window equal to its own threshold would leave the long-context price tier unreachable, which is the " +
-				"billing-row-restated-as-a-capacity pattern finding RI32 warns about.";
+			const POINTER = " That registry figure is also this model's long-context BILLING threshold — see the note below.";
+			/** The PER-MODEL line: per-model facts, plus the pointer when the coincidence holds. */
+			const REPORTS = (label, profileWindow, asOf, registryWindow, pointer = false) =>
+				`slate: model router: context window for ${label} differs between sources — the model profile records ` +
+				`${profileWindow} tokens (profile asOf ${JSON.stringify(asOf)}), pi's model registry reports ` +
+				`${registryWindow} tokens. ${DECLINES}` +
+				(pointer ? POINTER : "");
+			/** The ONCE-PER-SESSION explanation, naming every affected model in candidate order. */
+			const NOTE = (specs) =>
+				"slate: model router: the registry's context window equals the model's own long-context BILLING threshold for " +
+				`${specs.join(", ")} — a window equal to its own threshold would leave the long-context price ` +
+				"tier unreachable, which is the billing-row-restated-as-a-capacity pattern finding RI32 warns about.";
 			const VERDICT_WORDS = /\bstale\b|\bwins?\b|\bauthorit(y|ative)\b|\b(in)?correct(ly)?\b|\bwrong\b|\btrust(s|ed)?\b|\boverrid|\bsupersede/i;
 			const verdictIn = (msg) => msg.split(DECLINES).join(" ").match(VERDICT_WORDS)?.[0];
-			// The hint fires on a coincidence: the registry figure IS this model's own
-			// long-context billing threshold. Four fixtures differing only in that — the
-			// coincidence at 400000, the SAME coincidence at an unrelated figure (nothing in
-			// the module may be a hardcoded number or model id: the threshold is read off the
-			// profile, so the hint has to follow the table when the research is refreshed), a
-			// threshold that simply differs, and `w1` above, whose profile records no
-			// threshold at all (the `!== undefined` absence guard).
-			const diverge = (spec, o) =>
+			// The pair fires on a coincidence: the registry figure IS that model's own
+			// long-context billing threshold. Fixtures differing only in that — the coincidence
+			// at 400000, the SAME coincidence at an unrelated figure (nothing in the module may
+			// be a hardcoded number or model id: the threshold is read off the profile, so the
+			// pair has to follow the table when the research is refreshed), a threshold that
+			// simply differs, and `w1` above, whose profile records no threshold at all (the
+			// `!== undefined` absence guard, and the zero-match case for the aggregate).
+			const diverge = (rows) =>
 				resolve({
-					registry: registry({ [spec]: { contextWindow: o.registryWindow, auth: true } }),
-					models: [spec],
-					profiles: profiles([profile(spec, { contextWindow: 1050000, longContextThreshold: o.longContextThreshold })]),
+					registry: registry(Object.fromEntries(rows.map((r) => [r.spec, { contextWindow: r.registryWindow, auth: true }]))),
+					models: rows.map((r) => r.spec),
+					profiles: profiles(rows.map((r) => profile(r.spec, { contextWindow: r.profileWindow ?? 1050000, longContextThreshold: r.longContextThreshold }))),
 				});
-			const hinted = diverge("p/hint", { registryWindow: 400000, longContextThreshold: 400000 });
-			const hintedElsewhere = diverge("p/elsewhere", { registryWindow: 777777, longContextThreshold: 777777 });
-			const unhinted = diverge("p/nohint", { registryWindow: 400000, longContextThreshold: 128000 });
-			const w1Of = (r) => found(r.warned, /context window/) ?? "";
+			const one = (spec, o) => diverge([{ spec, ...o }]);
+			const hinted = one("p/hint", { registryWindow: 400000, longContextThreshold: 400000 });
+			const hintedElsewhere = one("p/elsewhere", { registryWindow: 777777, longContextThreshold: 777777 });
+			const unhinted = one("p/nohint", { registryWindow: 400000, longContextThreshold: 128000 });
+			const w1Of = (r) => found(r.warned, /context window for /) ?? "";
+			const noteOf = (r) => found(r.warned, /equals the model's own long-context BILLING threshold for /) ?? "";
+			const notesIn = (r) => r.warned.filter((m) => /equals the model's own long-context BILLING threshold for /.test(m));
 			const hintW1 = w1Of(hinted);
 			const elsewhereW1 = w1Of(hintedElsewhere);
 			const noHintW1 = w1Of(unhinted);
-			const noHint = (msg) => msg !== "" && !/NOTE:|BILLING|RI32/.test(msg);
-			checkAll("router-w1-canary", "the context-window divergence is REPORTED, not diagnosed. The whole message is pinned as a golden master (its wording IS the finding: the old text closed with `the registry wins; the profile is stale`, a verdict the module has no provenance for and which a stock pi install suggests is backwards) — both figures with their sources, the profile's asOf date, the candidate carrying the REGISTRY value, the statement that routing USES that figure, and an explicit refusal to say which source is right. Outside that one sanctioned disclaimer no verdict word may appear anywhere, hint included. The RI32 billing hint is appended to the same line EXACTLY when the registry figure equals that model's own long-context threshold — at any figure, since the threshold is read off the profile rather than hardcoded — and is absent when the threshold merely differs or was never recorded", [
-				["warned", w1 !== "", warned],
-				["profile value named", w1.includes("1050000"), w1],
-				["registry value named", w1.includes("400000"), w1],
-				["asOf named, quoted", w1.includes('asOf "2026-07-29"'), w1],
-				["candidate carries the registry value", res.candidates[0]?.contextWindow === 400000, res.candidates[0]?.contextWindow],
-				["the message is EXACTLY this, whole (golden master)", w1 === REPORTS("p/diverged", 1050000, "2026-07-29", 400000), w1],
-				["...it REPORTS a divergence between two named sources", w1.includes(" differs between sources — slate's profile records "), w1],
-				["...names the registry as the figure routing uses", w1.includes(" tokens. Routing uses the registry figure;"), w1],
-				["...and declines to adjudicate, in that exact sentence", w1.includes(DECLINES), w1],
-				[
-					"OUTSIDE that disclaimer no verdict word survives — not `wins`, not `stale`, nothing",
-					verdictIn(w1) === undefined && verdictIn(hintW1) === undefined && verdictIn(noHintW1) === undefined,
-					[verdictIn(w1), verdictIn(hintW1), verdictIn(noHintW1)],
-				],
-				["the hint fires when the registry window IS the billing threshold, verbatim", hintW1 === REPORTS("p/hint", 1050000, "2026-07-29", 400000) + NOTE(400000), hintW1],
-				["...at whatever figure the PROFILE records, no number written into the module", elsewhereW1 === REPORTS("p/elsewhere", 1050000, "2026-07-29", 777777) + NOTE(777777), elsewhereW1],
-				["...on the SAME line as the report, one warning and not two", !hintW1.includes("\n") && hinted.warned.filter((m) => /context window/.test(m)).length === 1, hinted.warned],
-				["...and ABSENT when the threshold merely differs, or was never recorded", noHint(noHintW1) && noHint(w1), [noHintW1, w1]],
+			const unpaired = (r) => w1Of(r) !== "" && !w1Of(r).includes("BILLING") && notesIn(r).length === 0;
+			// BG27's OWN CLAIM, and the only fixture that can see it: THREE models tripping the
+			// coincidence in one resolution, each at its own figure. The explanation must appear
+			// exactly ONCE while all three models are still named individually — both halves,
+			// because a dedup that kept the text by dropping the names would read as a fix.
+			const three = diverge([
+				{ spec: "p/one", registryWindow: 100000, longContextThreshold: 100000 },
+				{ spec: "p/two", registryWindow: 200000, longContextThreshold: 200000 },
+				{ spec: "p/three", registryWindow: 300000, longContextThreshold: 300000 },
 			]);
+			const threeLines = three.warned.filter((m) => /context window for /.test(m));
+			// ...and a MIXED resolution: only the models that actually match may be named, so
+			// the aggregate cannot be "every model that warned" or "every candidate".
+			const mixed = diverge([
+				{ spec: "p/match", registryWindow: 100000, longContextThreshold: 100000 },
+				{ spec: "p/diverges-only", registryWindow: 400000, longContextThreshold: 128000 },
+				{ spec: "p/agrees", registryWindow: 1050000, longContextThreshold: 1050000 },
+			]);
+			// WHERE the aggregate sits: after every per-model line, and immediately before the
+			// failover-coverage aggregate it was modelled on. Position is asserted by index
+			// rather than by exact text, so an unrelated warning appearing between them is not
+			// a failure while the two aggregates changing places is.
+			const at = (r, re) => r.warned.findIndex((m) => re.test(m));
+			const lastLine = three.warned.reduce((acc, m, i) => (/context window for /.test(m) ? i : acc), -1);
+			const noteAt = at(three, /equals the model's own long-context BILLING threshold for /);
+			const coverageAt = at(three, /no modelFailover entry for /);
+			checkAll(
+				"router-w1-canary",
+				"the context-window divergence is REPORTED, not diagnosed, and since BG27 it is TWO messages whose split is itself the claim. The PER-MODEL line is a golden master — both figures with their sources, the `profile asOf` label (WC5: never `research`, because the asOf is whatever the loaded profile carries), the candidate carrying the REGISTRY value, the statement that routing USES it, and an explicit refusal to say which source is right; outside that one sanctioned disclaimer no verdict word may appear in ANY of the messages. When the registry figure equals that model's own long-context threshold the line gains a POINTER and a SEPARATE explanation is emitted — the pair fires together or not at all, at whatever figure the profile records rather than a hardcoded one. That explanation appears EXACTLY ONCE however many models match, while still naming every one of them individually and in candidate order (a dedup that kept the text by dropping the names would be a regression, not a fix), names only the models that actually matched, sits after every per-model line and before the failover-coverage aggregate, and is absent entirely when nothing matches",
+				[
+					["warned", w1 !== "", warned],
+					["profile value named", w1.includes("1050000"), w1],
+					["registry value named", w1.includes("400000"), w1],
+					["asOf named, quoted, and labelled `profile` not `research` (WC5)", w1.includes('(profile asOf "2026-07-29")') && !w1.includes("research"), w1],
+					["candidate carries the registry value", res.candidates[0]?.contextWindow === 400000, res.candidates[0]?.contextWindow],
+					["the per-model line is EXACTLY this, whole (golden master)", w1 === REPORTS("p/diverged", 1050000, "2026-07-29", 400000), w1],
+					["...it REPORTS a divergence between two named sources", w1.includes(" differs between sources — the model profile records "), w1],
+					["...names the registry as the figure routing uses", w1.includes(" tokens. Routing uses the registry figure;"), w1],
+					["...and declines to adjudicate, in that exact sentence", w1.includes(DECLINES), w1],
+					[
+						"OUTSIDE that disclaimer no verdict word survives, in ANY message — not `wins`, not `stale`, nothing",
+						[w1, hintW1, elsewhereW1, noHintW1, noteOf(hinted), noteOf(three), ...three.warned].every((m) => verdictIn(m) === undefined),
+						[w1, hintW1, noteOf(hinted)].map(verdictIn),
+					],
+					[
+						"the coincidence adds a POINTER to the per-model line, verbatim",
+						hintW1 === REPORTS("p/hint", 1050000, "2026-07-29", 400000, true),
+						hintW1,
+					],
+					[
+						"...and a SEPARATE explanation naming that model, verbatim (BG27: not appended to the line)",
+						noteOf(hinted) === NOTE(["p/hint"]) && !hintW1.includes("RI32"),
+						[noteOf(hinted), hintW1],
+					],
+					[
+						"...at whatever figure the PROFILE records, no number written into the module",
+						elsewhereW1 === REPORTS("p/elsewhere", 1050000, "2026-07-29", 777777, true) && noteOf(hintedElsewhere) === NOTE(["p/elsewhere"]),
+						[elsewhereW1, noteOf(hintedElsewhere)],
+					],
+					[
+						"the pair fires TOGETHER or not at all — no pointer and no explanation when the threshold merely differs, or was never recorded",
+						unpaired(unhinted) && unpaired({ warned }),
+						[noHintW1, notesIn(unhinted), w1, notesIn({ warned })],
+					],
+					[
+						"THREE matching models produce THREE per-model lines, each pointing at the note",
+						threeLines.length === 3 && threeLines.every((m) => m.endsWith(POINTER)),
+						threeLines,
+					],
+					[
+						"...and the explanation EXACTLY ONCE, still naming every one of them, in candidate order (BG27)",
+						notesIn(three).length === 1 && noteOf(three) === NOTE(["p/one", "p/two", "p/three"]),
+						[notesIn(three).length, noteOf(three)],
+					],
+					[
+						"...naming ONLY the models that matched, not every model that warned",
+						noteOf(mixed) === NOTE(["p/match"]) && notesIn(mixed).length === 1,
+						[noteOf(mixed), mixed.warned],
+					],
+					[
+						"...placed after every per-model line and before the failover-coverage aggregate",
+						lastLine >= 0 && coverageAt >= 0 && lastLine < noteAt && noteAt < coverageAt,
+						{ lastLine, noteAt, coverageAt, warned: three.warned },
+					],
+				],
+			);
 
 			// TQ3: both absence guards. The shipped table leaves contextWindow null
 			// where nothing could be traced; a registry entry may lack one too.
