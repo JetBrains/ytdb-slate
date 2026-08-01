@@ -3,5 +3,10 @@ node_modules/
 # Slate runtime state (worker transcripts, episodes, pending handoff) —
 # session data must never be committed.
 .pi/slate/
+# pi's transient lock on the project settings file — a directory it creates and
+# removes around every read of .pi/settings.json. A session (or a verification
+# run) that is killed outright can leave one behind, and it must never be
+# committed. The glob covers a file as well as a directory.
+.pi/*.lock
 # IDE state
 .idea/

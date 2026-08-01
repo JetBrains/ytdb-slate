@@ -47,14 +47,28 @@
 # this check must exercise the same pinned SDK the typecheck does. PI_BIN
 # overrides the CLI path and says so loudly in the output.
 #
+# pi itself takes a lock on the checkout's .pi/settings.json while it reads it —
+# a transient .pi/settings.json.lock DIRECTORY, created and removed around every
+# access, four times over the two runs. That is pi's own behaviour, not this
+# script's (a bare `pi --no-extensions --mode rpc` with no extension at all does
+# it too), so it cannot be avoided without moving off the checkout, which is the
+# one thing this check may not do. Instead: cleanup removes the lock if it was
+# absent when the script started, and .gitignore covers .pi/*.lock so even a
+# killed run cannot leave state a contributor could commit.
+#
 # Exit status: 0 all checks passed · 1 a check failed · 2 refused to start (a
 # missing tool, a bad --repo, no resolvable pi CLI, or a CLI/pin version
 # mismatch — that is an out-of-sync environment, not a defect: run `npm ci`).
+# EVERY exit-2 message says "refused to start" in exactly those words, so that
+# phrase is greppable in a CI log.
 # =============================================================================
 set -uo pipefail
 
 exec 8>&2
-die() { echo "verification: $*" >&8; exit 2; }
+# One vocabulary for every abort: exit 2 is documented as "refused to start", so
+# the message says so too rather than leaving the reader to infer it from the
+# status (WC2). Callers pass the reason only.
+die() { echo "verification: refused to start — $*" >&8; exit 2; }
 
 ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3"
 
@@ -65,7 +79,7 @@ while [ $# -gt 0 ]; do
 		--repo) [ "$#" -ge 2 ] || die "option '--repo' requires a value"; REPO="$2"; shift 2 ;;
 		--only) [ "$#" -ge 2 ] || die "option '--only' requires a value"; ONLY="$2"; shift 2 ;;
 		--list-checks) printf '%s\n' $ALL_CHECKS; exit 0 ;;
-		-h|--help) sed -n '2,53p' "$0"; exit 0 ;;
+		-h|--help) sed -n '2,64p' "$0"; exit 0 ;;
 		*) die "unknown argument '$1' (try --help)" ;;
 	esac
 done
@@ -137,7 +151,7 @@ fi
 
 PIVER="$("$PI" --version 2>/dev/null | tr -d '[:space:]')" || die "'$PI --version' failed"
 [ -n "$PIVER" ] || die "'$PI --version' printed nothing, so the CLI version could not be checked"
-[ "$PIVER" = "$PIN" ] || die "refused to start — pi CLI/pin version mismatch:
+[ "$PIVER" = "$PIN" ] || die "pi CLI/pin version mismatch:
          $PI reports $PIVER
          package.json pins  $PIN
        This is an out-of-sync environment, not a defect: the rpc output shapes
@@ -153,11 +167,31 @@ case "$WORK" in
 	*) die "the scratch directory '$WORK' is not an absolute path" ;;
 esac
 case "$WORK" in
-	"$REPO"|"$REPO"/*) die "refusing to run: the scratch directory '$WORK' is inside the checkout under test
+	"$REPO"|"$REPO"/*) die "the scratch directory '$WORK' is inside the checkout under test
        (TMPDIR points into $REPO) — pi must write nothing there." ;;
 esac
+# WH1: pi locks the checkout's own project settings file while reading it, and
+# the lock is a DIRECTORY inside the working tree. It is pi's, not ours — even a
+# bare `pi --no-extensions --mode rpc` with no extension loaded creates it — so
+# the only thing this script can do is not leave one behind. It is removed on the
+# way out ONLY when it was absent at startup: a lock that was already there
+# belongs to somebody else's live session and removing it would corrupt their
+# write. .gitignore covers .pi/*.lock for the case where the script is killed
+# outright and this trap never runs.
+SETTINGS_LOCK="$REPO/.pi/settings.json.lock"
+LOCK_PREEXISTING=0
+if [ -e "$SETTINGS_LOCK" ]; then
+	LOCK_PREEXISTING=1
+	echo "NOTE   $SETTINGS_LOCK already exists — another pi session may be writing the"
+	echo "NOTE   project settings. Leaving it alone; results below may be affected."
+fi
 KEEP=0
-cleanup() { [ "$KEEP" = 1 ] || rm -rf "$WORK"; }
+cleanup() {
+	if [ "$LOCK_PREEXISTING" = 0 ] && [ ! -L "$SETTINGS_LOCK" ] && [ -e "$SETTINGS_LOCK" ]; then
+		rm -rf "$SETTINGS_LOCK" 2>/dev/null
+	fi
+	[ "$KEEP" = 1 ] || rm -rf "$WORK"
+}
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
 
@@ -207,13 +241,22 @@ const fs = require("node:fs");
 const q = process.argv[1];
 let text = "";
 try { text = fs.readFileSync(process.argv[2], "utf8"); } catch { process.exit(0); }
-const lines = text.split("\n");
+// Lines are TRIMMED before they are classified: a JSON line that arrives with
+// leading whitespace is still a JSON line, and dropping it would make the
+// count-zero queries (ext-errors, warnings) answer "none" out of blindness
+// rather than out of evidence (BG1). Every line that looks like JSON and fails
+// to parse is counted, so a caller can refuse to trust a stream it cannot read.
+const lines = text.split("\n").map((l) => l.trim());
 const objs = [];
-for (const l of lines) { if (l.charAt(0) !== "{") continue; try { objs.push(JSON.parse(l)); } catch {} }
+let unparseable = 0;
+for (const l of lines) {
+  if (!l.startsWith("{")) continue;
+  try { objs.push(JSON.parse(l)); } catch { unparseable++; }
+}
 const ui = objs.filter((o) => o && o.type === "extension_ui_request");
 const canary = [];
 for (const l of lines) {
-  if (l.indexOf("CI-CANARY ") !== 0) continue;
+  if (!l.startsWith("CI-CANARY ")) continue;
   try { canary.push(JSON.parse(l.slice("CI-CANARY ".length))); } catch { canary.push(null); }
 }
 const last = canary.length ? canary[canary.length - 1] : null;
@@ -223,7 +266,8 @@ const commands = () => {
 };
 const warnings = ui.filter((o) => o.method === "notify" && o.notifyType === "warning");
 const say = (v) => process.stdout.write(String(v));
-if (q === "canary-count") say(canary.length);
+if (q === "unparseable") say(unparseable);
+else if (q === "canary-count") say(canary.length);
 else if (q === "canary-tools") say(last && Array.isArray(last.tools) ? last.tools.join(" ") : "");
 else if (q === "canary-where") say(last ? [last.cwd, "trusted=" + last.trusted].join(" ") : "");
 else if (q === "canary-trusted") say(last ? String(last.trusted) : "");
@@ -243,17 +287,29 @@ else { process.stderr.write("rpcq: unknown query " + q + "\n"); process.exit(3);
 # .pi/npm inside the checkout is npm-install debris from a run that was not
 # offline. It may legitimately pre-exist (a dogfooding session creates it), so
 # what is asserted is that a run did not CREATE or CHANGE it.
+#
+# BG2: a listing that FAILS must not read as "present with 0 entries". An
+# unreadable directory is exactly the state that would hide a difference between
+# the before and after samples, so it gets its own answer and the checks that
+# compare the samples refuse to pass on it.
 npmdir_state() {
-	if [ -d "$REPO/.pi/npm" ]; then
-		printf 'present with %s entries' "$(ls -A "$REPO/.pi/npm" 2>/dev/null | wc -l | tr -d '[:space:]')"
-	else printf 'absent'; fi
+	local entries
+	if [ ! -d "$REPO/.pi/npm" ]; then printf 'absent'; return 0; fi
+	if entries="$(ls -A "$REPO/.pi/npm" 2>/dev/null)"; then
+		printf 'present with %s entries' "$(printf '%s\n' "$entries" | grep -c .)"
+	else
+		printf 'present but UNREADABLE (listing it failed)'
+	fi
 }
 
 # ---------------------------------------------------------------- bookkeeping
 PASS=0; FAIL=0; RAN=0
+# The id column is 26 wide across all three check harnesses in verification/ (the
+# longest id in the suite is 24 characters), so their output lines up with each
+# other and the verdict column never shifts (CQ1).
 check() { # $1 id, $2 condition (0 = pass), $3 detail
-	if [ "$2" = 0 ]; then PASS=$((PASS+1)); printf 'CHECK %-16s %-4s — %s\n' "$1" "PASS" "$3"
-	else FAIL=$((FAIL+1)); printf 'CHECK %-16s %-4s — %s\n' "$1" "FAIL" "$3"; fi
+	if [ "$2" = 0 ]; then PASS=$((PASS+1)); printf 'CHECK %-26s %-4s — %s\n' "$1" "PASS" "$3"
+	else FAIL=$((FAIL+1)); printf 'CHECK %-26s %-4s — %s\n' "$1" "FAIL" "$3"; fi
 }
 want() { # selected by --only?
 	if [ -n "$ONLY" ]; then
@@ -267,11 +323,20 @@ run_wanted() { # any of these ids selected?
 	for id in "$@"; do case ",$ONLY," in *",$id,"*) return 0 ;; esac; done
 	return 1
 }
-first_stderr_line() { grep -v '^CI-CANARY ' "$1" 2>/dev/null | grep . | head -1; }
+# The canary line is not a diagnostic, so it is filtered out of both of these.
+# Leading whitespace is tolerated for the same reason rpcq trims (BG1): a shifted
+# line is still that line.
+CANARY_RX='^[[:space:]]*CI-CANARY '
+first_stderr_line() { grep -v "$CANARY_RX" "$1" 2>/dev/null | grep . | head -1; }
+other_stderr_lines() { grep -cv "$CANARY_RX" "$1" 2>/dev/null | tr -d '[:space:]'; }
 
+# Context block in run-ladder.sh's format: one `<key> = <value>` line per piece of
+# run context, keys padded so the values line up, then a blank line before the
+# verdicts (CQ2). "lab" is the ladder's word for the scratch root, used here for
+# the same thing.
 echo "repo  = $REPO ($(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo 'not a git checkout'))"
 echo "pi    = $PI ($PIVER, pinned $PIN)"
-echo "work  = $WORK"
+echo "lab   = $WORK"
 echo
 
 # =============================================================================
@@ -294,19 +359,25 @@ if run_wanted L1 L2 L3 L4 L5 L6 L7 L8; then
 	}
 
 	want L2 && {
-		# BOTH patterns. "Failed to load extension" is the reported-load-failure
-		# channel; "Extension error (" is the hook channel, which the first is blind
-		# to — and a session_start throw only ever uses the second.
+		# BOTH patterns. The loader marker ('Failed to load extension') is the
+		# reported-load-failure channel; the hook marker ('Extension error (') is the
+		# one the first is blind to — a session_start throw only ever uses the second.
+		# CQ3: the verdict text below names the markers WITHOUT reproducing them, so
+		# grepping a CI log for either literal cannot hit a green run.
 		M=""
-		grep -Fq 'Failed to load extension' "$WORK/run1.err" && M="$M 'Failed to load extension'"
-		grep -Fq 'Extension error (' "$WORK/run1.err" && M="$M 'Extension error ('"
-		if [ -z "$M" ]; then check L2 0 "stderr carries neither 'Failed to load extension' nor 'Extension error (' ($(grep -cv '^CI-CANARY ' "$WORK/run1.err" | tr -d '[:space:]') other stderr line(s))"
+		grep -Fq 'Failed to load extension' "$WORK/run1.err" && M="$M loader-marker"
+		grep -Fq 'Extension error (' "$WORK/run1.err" && M="$M hook-marker"
+		if [ -z "$M" ]; then check L2 0 "stderr carries neither of pi's two load-failure markers, the loader's and the hook's ($(other_stderr_lines "$WORK/run1.err") other stderr line(s))"
 		else check L2 1 "stderr carries load-failure marker(s):$M — $(first_stderr_line "$WORK/run1.err")"; fi
 	}
 
 	want L3 && {
 		N="$(rpcq ext-errors "$WORK/run1.out")"
-		if [ "$N" = 0 ]; then check L3 0 "no extension_error event on stdout (a hook that throws exits 0, so this is the only signal)"
+		# A stream with lines this script cannot parse is not evidence of absence, so
+		# the count-zero verdict is refused rather than granted (BG1).
+		U="$(rpcq unparseable "$WORK/run1.out")"
+		if [ "$U" != 0 ]; then check L3 1 "$U line(s) of stdout look like JSON but do not parse, so the absence of an extension_error event proves nothing — pi's rpc output is not the shape this script reads"
+		elif [ "$N" = 0 ]; then check L3 0 "no extension_error event on stdout (a hook that throws exits 0, so this is the only signal)"
 		else check L3 1 "$N extension_error event(s) on stdout: $(rpcq ext-error-detail "$WORK/run1.out")"; fi
 	}
 
@@ -351,8 +422,11 @@ if run_wanted L1 L2 L3 L4 L5 L6 L7 L8; then
 	}
 
 	want L8 && {
-		if [ "$NPM_BEFORE" = "$NPM_AFTER" ]; then check L8 0 ".pi/npm in the checkout unchanged by this run ($NPM_AFTER) — the run stayed offline"
-		else check L8 1 ".pi/npm in the checkout changed: $NPM_BEFORE -> $NPM_AFTER — pi npm-installed into the working tree, so the run was not offline"; fi
+		case "$NPM_BEFORE$NPM_AFTER" in
+			*UNREADABLE*) check L8 1 ".pi/npm in the checkout could not be listed ($NPM_BEFORE -> $NPM_AFTER) — while it is unreadable this check cannot tell whether the run wrote there, so it must not report success" ;;
+			*) if [ "$NPM_BEFORE" = "$NPM_AFTER" ]; then check L8 0 ".pi/npm in the checkout unchanged by this run ($NPM_AFTER) — the run stayed offline"
+			   else check L8 1 ".pi/npm in the checkout changed: $NPM_BEFORE -> $NPM_AFTER — pi npm-installed into the working tree, so the run was not offline"; fi ;;
+		esac
 	}
 fi
 
@@ -382,13 +456,18 @@ if run_wanted T1 T2 T3; then
 
 	want T2 && {
 		N="$(rpcq warnings "$WORK/run2.out")"
-		if [ "$N" = 0 ]; then check T2 0 "slate's config sanitizers accepted the checkout's own .pi/slate.json with no warning notification"
+		U="$(rpcq unparseable "$WORK/run2.out")"
+		if [ "$U" != 0 ]; then check T2 1 "$U line(s) of stdout look like JSON but do not parse, so a warning notification could have been missed rather than absent"
+		elif [ "$N" = 0 ]; then check T2 0 "slate's config sanitizers accepted the checkout's own .pi/slate.json with no warning notification"
 		else check T2 1 "$N warning notification(s) from slate's config sanitizers on .pi/slate.json: $(rpcq warning-detail "$WORK/run2.out")"; fi
 	}
 
 	want T3 && {
-		if [ "$NPM_BEFORE2" = "$NPM_AFTER2" ]; then check T3 0 ".pi/npm in the checkout unchanged by the trusted run ($NPM_AFTER2) — PI_OFFLINE held"
-		else check T3 1 ".pi/npm in the checkout changed: $NPM_BEFORE2 -> $NPM_AFTER2 — the trusted run npm-installed into the working tree"; fi
+		case "$NPM_BEFORE2$NPM_AFTER2" in
+			*UNREADABLE*) check T3 1 ".pi/npm in the checkout could not be listed ($NPM_BEFORE2 -> $NPM_AFTER2) — while it is unreadable this check cannot tell whether the trusted run wrote there" ;;
+			*) if [ "$NPM_BEFORE2" = "$NPM_AFTER2" ]; then check T3 0 ".pi/npm in the checkout unchanged by the trusted run ($NPM_AFTER2) — PI_OFFLINE held"
+			   else check T3 1 ".pi/npm in the checkout changed: $NPM_BEFORE2 -> $NPM_AFTER2 — the trusted run npm-installed into the working tree"; fi ;;
+		esac
 	}
 fi
 
@@ -400,6 +479,6 @@ fi
 echo "== summary: $PASS pass, $FAIL fail =="
 if [ "$FAIL" -ne 0 ]; then
 	KEEP=1
-	echo "artifacts kept (raw rpc streams): $WORK"
+	echo "artifacts: $WORK (raw rpc streams, kept because a check failed)"
 fi
 [ "$FAIL" -eq 0 ]
