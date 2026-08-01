@@ -571,8 +571,8 @@ CHECK off-inert        PASS    — empty pattern list → shared empty set, regi
 CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
 CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
       observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
-CHECK roster           PASS    — all 105 expected checks reported exactly once and the counters agree …
-== summary: 105 pass, 1 fail, 0 not run (106 result lines = 105 expected checks + this roster audit) ==
+CHECK roster           PASS    — all 110 expected checks reported exactly once and the counters agree …
+== summary: 110 pass, 1 fail, 0 not run (111 result lines = 110 expected checks + this roster audit) ==
 ```
 
 ### Why the summary counts one more than the roster
@@ -585,7 +585,7 @@ therefore prints `EXPECTED + 1` result lines.
 
 That is the whole of the old off-by-one, and it is now **stated in the output**
 rather than left to be re-derived: the summary prints the identity
-(`106 result lines = 105 expected checks + this roster audit`), and on a run where it
+(`111 result lines = 110 expected checks + this roster audit`), and on a run where it
 does not hold — a deleted check, a duplicate report, a crashed section adding an id
 — it prints the residual as `±N unaccounted — see the roster line`. The roster
 additionally asserts the identity it *can* own: `pass + fail + notrun` equals the
@@ -626,6 +626,22 @@ Worker-extension resolver:
 | `match-*` | patterns test unanchored against source spec, unit path and each tool entry path; a non-match yields nothing; an invalid regex is dropped with a warning while its valid siblings apply |
 | `inject-safety` | a newline-bearing tool name, a 2000-char label and a backtick/markdown description all render into the doctrine without breaking its structure or exceeding the caps |
 | `memoization` | the memoizing resolver walks the registry exactly once across repeated calls |
+
+The **action-routing doctrine rule** (`extension/mode.ts`, `b092f92`) — driven
+through `registerSlateMode`'s `before_agent_start` handler with a fabricated
+resolution passed to its optional 6th parameter, the way `index.ts` supplies the
+session's frozen one. This text is injected into every session's system prompt and
+is paid for on every turn, which is what makes size and injection safety load-bearing
+rather than tidy. The group is voided by `profiles-load`, because
+`doctrine-no-trace` renders the **real** shipped table:
+
+| id | what it proves |
+| --- | --- |
+| `doctrine-router-off` | **I2** — with the router off the rule contributes NOTHING. Every off-shaped resolution a session can hand the doctrine renders **byte-identically** to the default 5-argument call: explicitly off, off *while carrying candidates* (the shape that isolates the `on` flag — without it a guard weakened to `on === undefined` survives, because the empty-list guard catches it two lines later), on-with-no-candidates, on-with-only-unusable-candidates, a non-array candidate list, and no resolution at all. Asserted with and without the worker-extension rule beside it, plus a non-vacuity term proving the same helper *does* render the rule when the router is on. Note that `off-doctrine` above reaches this path only by OMISSION — it calls the helper with five arguments, so `getRouter` takes its default |
+| `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
+| `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Three residuals are pinned **as observed**, not as good: `cell()` is structural only, so bidi and zero-width survive it; cell length is unbounded; and the SPEC is not passed through it at all — see the finding below |
+| `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
+| `doctrine-budget` | a **guard**, not a recorded fact. Bounds carry ~60% headroom over what the shipped table renders today (2403 chars, 22 lines, 925 chars of prose, longest row 184, at `b092f92`), so wording changes and a few new models pass while a change that doubles the rule fails a check instead of a review. Bounded separately: the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row — because `cell()` imposes no cap, so a research refresh writing a 2000-character `routeFor` would bloat every prompt silently — and the rule's share of the whole doctrine, asserted to be the *only* thing router-on adds |
 
 Model router (`extension/model-router.ts`):
 
@@ -955,6 +971,40 @@ round-trip term could only speak for the fields its fixture carried (hence the
 checklist walk over the exported `ADOPTED_*_FIELDS`), and only the wrong-TYPE case
 was covered per field — absent was not, so a bare record now has to fill every
 default in silence.
+
+The **doctrine routing group** was mutation-proved when written, twelve mutations,
+all killed — and one of them found a hole in the checks rather than in the code,
+which is recorded because the naive version looked complete. Killed on `mode.ts`:
+the router-off guard weakened to `on === undefined`; the empty-candidate guard
+removed; the rule hardcoding `12.` instead of taking its position; `numberedTail`
+consuming a number for a rule that did not render (leaving a gap); `cell()` no
+longer stripping the newline; `cell()` no longer stripping the pipe; `cell()` made a
+pass-through; the `nonPreferred` reason appended to a row; the `!` marker dropped so
+the fact is lost rather than relocated; a trace tag added to the rule's prose; the
+prose doubled. Killed on `model-profiles.ts`: one profile growing a 2000-character
+`routeFor`, which the budget check catches as the silent prompt bloat it is.
+
+**The instructive one is the first.** Weakening the router-off guard to
+`on === undefined` initially **SURVIVED**, because every off-shaped fixture had an
+empty candidate list and so tripped the *second* guard two lines later. The check
+looked like it covered I2 and did not cover the flag at all. It now includes an
+"off, but carrying candidates" shape — a resolution the resolver never builds — for
+no other reason than to isolate which guard is load-bearing. A fixture set that only
+contains shapes production emits cannot tell two guards apart.
+
+> **FINDING for the owner of `extension/mode.ts`, pinned as observed rather than
+> fixed** (this harness owns `verification/` only). Every DATA cell goes through
+> `cell()`; the **spec does not** — it is interpolated raw. `buildRoutingRule`'s
+> comment justifies that by saying a spec "already passed `isModelSpec`, which
+> rejects whitespace, control and bidi characters", and that is true but
+> **incomplete**: `isModelSpec("p/evil|forged")` returns `true`. `|` is the one
+> character the table's grammar is made of, so such a spec renders an **eighth cell** —
+> a forged column. It is LATENT, not live: what prevents it today is neither the
+> sanitizer nor `isModelSpec` but that a piped spec cannot acquire a profile and so
+> never becomes a candidate — a premise deferred issue 001 (user-supplied profiles)
+> would change. The damage is bounded to a column rather than a row only because
+> `isModelSpec` *does* stop every row-forging character, which `doctrine-inject`
+> asserts as the third link in that chain.
 
 `router-w1-canary` was re-validated again after **`bad8dc4`** (BG27 split the message
 in two; the golden master caught the change, which is what it is for). Eight mutants,
