@@ -291,6 +291,89 @@ function num(value: unknown): number | undefined {
 }
 
 /**
+ * EXHAUSTIVENESS WITNESSES for the two sanitizers below (CQ22).
+ *
+ * Adoption is an ALLOWLIST: a field the sanitizer does not name is dropped on restore.
+ * That is the right default for hostile input, but it means adding an optional field to
+ * ThreadRecord or EpisodeRecord and forgetting the sanitizer costs the field silently on
+ * every session restart — no crash, no warning, and a required field would be caught by
+ * the return type while an optional one would not.
+ *
+ * These maps close that: `satisfies Record<keyof Required<T>, true>` fails to compile
+ * both ways — a MISSING key (the new field nobody adopted) and an EXTRA one (a field
+ * that was removed from the record). The value is deliberately `true` and nothing more;
+ * the map is a checklist for the compiler, not a schema, and each sanitizer must still
+ * decide what its fields mean. Keep the keys in record order so the diff reads as a
+ * checklist too.
+ *
+ * EXPORTED so a checker can walk them: hand a sanitizer a record with every field valid
+ * and every key here must come back, which is the same claim from the outside and needs
+ * no type checker at all.
+ */
+export const ADOPTED_THREAD_FIELDS = {
+	id: true,
+	name: true,
+	sessionFile: true,
+	status: true,
+	model: true,
+	baseModel: true,
+	baseEffort: true,
+	episodeIds: true,
+	episodeSeq: true,
+	createdAt: true,
+	updatedAt: true,
+} satisfies Record<keyof Required<ThreadRecord>, true>;
+
+export const ADOPTED_EPISODE_FIELDS = {
+	id: true,
+	threadId: true,
+	task: true,
+	status: true,
+	file: true,
+	model: true,
+	effort: true,
+	effortUnmeasured: true,
+	createdAt: true,
+} satisfies Record<keyof Required<EpisodeRecord>, true>;
+
+/**
+ * The RUNTIME half, and the reason the witnesses are values and not pure types: this
+ * repo has no compile step (pi loads TypeScript through jiti, which strips types without
+ * checking them), so a `satisfies` failure is a red squiggle in an editor and nothing
+ * more. Worse, the obvious way to silence that squiggle — adding the key to the map —
+ * fixes the checklist without teaching the sanitizer anything, and the field is dropped
+ * as silently as before.
+ *
+ * So the checklist is also enforced against what the sanitizer actually BUILT: a field
+ * the snapshot carries, that adoption claims to know, that the built record lacks, and
+ * that was not deliberately refused (those are already reported by name) is a slate bug,
+ * and it says so. Cheap — one pass over ten keys per record — and it fires on the first
+ * restore after the omission rather than whenever the missing data is next needed.
+ *
+ * Exported for the same reason as the checklists: a checker can drive it with a record
+ * that is deliberately missing a handled field, which is the one situation this codebase
+ * cannot produce on purpose.
+ */
+export function noteUnadoptedFields(
+	kind: "thread" | "episode",
+	id: string,
+	raw: Record<string, unknown>,
+	built: object,
+	refused: Set<string>,
+	repairs: string[],
+): void {
+	const known = Object.keys(kind === "thread" ? ADOPTED_THREAD_FIELDS : ADOPTED_EPISODE_FIELDS);
+	const adopted = new Set(Object.keys(built));
+	for (const field of known) {
+		if (raw[field] === undefined || adopted.has(field) || refused.has(field)) continue;
+		repairs.push(`${kind} ${id}: field ${field} is in the snapshot but adoption does not handle it (slate bug) — its value is lost`);
+	}
+	// Deliberately NOT reported: a key this version knows nothing about. That is a
+	// snapshot from a different slate version, nothing of this version's is at risk, and
+	// on a downgrade the notice would fire for every field of every record.
+}
+
+/**
  * One adopted thread record, or undefined when it cannot be addressed at all (no id).
  * `repairs` collects a human-readable note per dropped field so a corrupted snapshot is
  * VISIBLE rather than silently reshaped.
@@ -300,8 +383,11 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	const t = raw as Record<string, unknown>;
 	const id = str(t.id);
 	if (id === undefined || id === "") return undefined; // unaddressable: nothing can refer to it
-	const note = (field: string, value: unknown) =>
+	const refused = new Set<string>();
+	const note = (field: string, value: unknown) => {
+		refused.add(field);
 		repairs.push(`thread ${id}: ignoring ${field} (${typeof value === "object" ? "object" : typeof value})`);
+	};
 	const keep = <T>(field: string, value: unknown, parsed: T | undefined): T | undefined => {
 		if (value !== undefined && parsed === undefined) note(field, value);
 		return parsed;
@@ -309,7 +395,7 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	const episodeIds = Array.isArray(t.episodeIds) ? t.episodeIds.filter((e): e is string => typeof e === "string") : [];
 	if (t.episodeIds !== undefined && !Array.isArray(t.episodeIds)) note("episodeIds", t.episodeIds);
 	const now = Date.now();
-	return {
+	const built: ThreadRecord = {
 		id,
 		name: keep("name", t.name, str(t.name)) ?? id,
 		sessionFile: keep("sessionFile", t.sessionFile, str(t.sessionFile)) ?? "",
@@ -325,9 +411,16 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		createdAt: keep("createdAt", t.createdAt, num(t.createdAt)) ?? now,
 		updatedAt: keep("updatedAt", t.updatedAt, num(t.updatedAt)) ?? now,
 	};
+	noteUnadoptedFields("thread", id, t, built, refused, repairs); // CQ22
+	return built;
 }
 
-/** One adopted episode record, or undefined when it cannot be addressed or filed. */
+/**
+ * One adopted episode record, or undefined when it cannot be addressed or filed. Same
+ * discipline as the thread record above: a wrong-typed field is refused BY NAME (so the
+ * repair is visible, and so the CQ22 coverage check can tell a deliberate refusal from
+ * an unhandled field), and the record type's own checklist is enforced at the end.
+ */
 export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeRecord | undefined {
 	if (typeof raw !== "object" || raw === null) return undefined;
 	const e = raw as Record<string, unknown>;
@@ -335,17 +428,31 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 	const threadId = str(e.threadId);
 	const file = str(e.file);
 	if (id === undefined || id === "" || threadId === undefined || file === undefined) return undefined;
-	return {
+	const refused = new Set<string>();
+	const keep = <T>(field: string, value: unknown, parsed: T | undefined): T | undefined => {
+		if (value !== undefined && parsed === undefined) {
+			refused.add(field);
+			repairs.push(`episode ${id}: ignoring ${field} (${typeof value === "object" ? "object" : typeof value})`);
+		}
+		return parsed;
+	};
+	const built: EpisodeRecord = {
 		id,
 		threadId,
-		task: str(e.task) ?? "",
-		status: e.status === "failed" ? "failed" : "ok",
+		task: keep("task", e.task, str(e.task)) ?? "",
+		// A status that is neither of the two words reads as "ok": the record exists, so
+		// something ran, and inventing a failure would be worse than ignoring the value.
+		status: keep("status", e.status, e.status === "failed" || e.status === "ok" ? e.status : undefined) ?? "ok",
 		file,
-		...(str(e.model) !== undefined ? { model: str(e.model) } : {}),
-		...(str(e.effort) !== undefined ? { effort: str(e.effort) as ThinkingLevel } : {}),
-		...(e.effortUnmeasured === true ? { effortUnmeasured: true as const } : {}),
-		createdAt: num(e.createdAt) ?? Date.now(),
+		...(keep("model", e.model, str(e.model)) !== undefined ? { model: str(e.model) } : {}),
+		...(keep("effort", e.effort, str(e.effort)) !== undefined ? { effort: str(e.effort) as ThinkingLevel } : {}),
+		...(keep("effortUnmeasured", e.effortUnmeasured, e.effortUnmeasured === true ? (true as const) : undefined) !== undefined
+			? { effortUnmeasured: true as const }
+			: {}),
+		createdAt: keep("createdAt", e.createdAt, num(e.createdAt)) ?? Date.now(),
 	};
+	noteUnadoptedFields("episode", id, e, built, refused, repairs); // CQ22
+	return built;
 }
 
 /** One contextBudget override. `match` is a regex tested ANCHORED (^(?:match)$) against "provider/id". */

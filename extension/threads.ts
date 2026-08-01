@@ -113,12 +113,15 @@ import {
 	captureSessionBaseline,
 	decideEffortSwitch,
 	decideModelSwitch,
+	NO_SESSION_BASELINE,
 	planRoute,
 	planSessionOpen,
 	THINKING_LEVELS,
 	usableResolution,
 	type RoutePlanInput,
 	type RoutePlanProceed,
+	type SessionBaseline,
+	type SessionOpenDecision,
 } from "./route.ts";
 import { isModelSpec, splitModelSpec, type EpisodeRecord, type SlateConfig, type SlateStore, type ThreadRecord } from "./state.ts";
 import { openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
@@ -234,19 +237,20 @@ export class ThreadManager {
 	 */
 	private longContextWarned = new Map<string, Set<string>>();
 	/**
-	 * threadId → the thinking level a LIVE worker session had immediately after it was
-	 * opened, i.e. pi's own clamped settings default for that session's model. It is the
-	 * level an action runs at when its plan resolves none, so no action can inherit the
-	 * previous action's level (BG18). Session-scoped, like `live` itself.
+	 * threadId → what a LIVE worker session was OPENED on, both axes in one captured
+	 * value: pi's clamped settings default for that session's model, and the model pi
+	 * resolved for the model-less open plan. An action whose plan resolves no level runs
+	 * at the opening level rather than inheriting the previous action's (BG18), and an
+	 * action that names no model reverts the session to the opening model rather than
+	 * letting one routed action govern the thread (BG22). Session-scoped, like `live`.
+	 *
+	 * ONE map of one branded value, written in exactly one place — the opening helper —
+	 * and read by exactly one expression, the argument passed into applyRoute (TQ7).
+	 * Both defects above were "the baseline came from somewhere else, later"; keeping the
+	 * pair together and captured atomically is what leaves nowhere else for it to come
+	 * from.
 	 */
-	private liveBaseline = new Map<string, ThinkingLevel>();
-	/**
-	 * threadId → the "provider/id" a LIVE worker session was OPENED on. An action that
-	 * names no model to apply reverts the session to it, so one explicitly routed action
-	 * cannot govern the rest of the thread (BG22) — the model-axis twin of the level
-	 * baseline above. Session-scoped, like `live` itself.
-	 */
-	private liveBaselineModel = new Map<string, string>();
+	private liveBaselines = new Map<string, SessionBaseline>();
 	/** pi's compaction settings, read once (a lock-protected disk read) — see compactionSettings(). */
 	private cachedCompaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
 
@@ -615,6 +619,15 @@ export class ThreadManager {
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 		warn: (message: string) => void,
+		/**
+		 * What the session was OPENED on — a PARAMETER, not a lookup (TQ7). Both switch
+		 * decisions below need a baseline, and the failure mode of both is reading it live
+		 * instead: this method runs at apply time, when the session's own state is no
+		 * longer the opening state. Taking it as an argument means the value was captured
+		 * before this method could exist, and the brand means a live reading cannot be
+		 * passed in its place.
+		 */
+		baseline: SessionBaseline,
 	): Promise<void> {
 		// CN2: the switch below AWAITS, and every await is a window in which the dispatch
 		// can be aborted or this manager disposed — exactly the hazard the failover phase
@@ -647,7 +660,7 @@ export class ThreadManager {
 			planned: plan.model,
 			openOnly: plan.openOnly,
 			current: session.model ? `${session.model.provider}/${session.model.id}` : undefined,
-			baseline: this.liveBaselineModel.get(thread.id),
+			baseline,
 			failoverHeld: this.failoverLive.get(thread.id) !== undefined,
 		});
 		if (decision.kind === "switch") {
@@ -713,7 +726,7 @@ export class ThreadManager {
 		const effort = decideEffortSwitch({
 			planned: plan.effort,
 			current: this.sessionEffort(session),
-			baseline: this.liveBaseline.get(thread.id),
+			baseline,
 		});
 		if (effort.kind === "switch") {
 			try {
@@ -726,6 +739,49 @@ export class ThreadManager {
 				);
 			}
 		}
+	}
+
+	/**
+	 * OPEN a worker session for a thread and capture what it opened on.
+	 *
+	 * A separate method for one structural reason (TQ7): the dispatch's own `opts` is not
+	 * in scope here. `?? opts.model` on the open model is the edit that shipped BG22 on
+	 * the opening path and it re-inserts fully green, so the remedy is to put the opening
+	 * where that expression cannot be written — the only model in scope is the one the
+	 * pure derivation produced, and it is branded, so a hand-built decision is not a way
+	 * round either. The baseline is captured HERE, in the same breath as the open and
+	 * before any per-action switch, which is the property applyRoute now takes on trust
+	 * from its parameter.
+	 *
+	 * A NEW session gets the CURRENT frozen worker-extension set. A LIVE cached session
+	 * (reused when present) keeps whatever set it was opened with — which is precisely
+	 * why the resolution is frozen per session (AD41): every worker in this session then
+	 * shares one extension set.
+	 */
+	private async openWorkerFor(args: {
+		thread: ThreadRecord;
+		ctx: ExtensionContext;
+		open: SessionOpenDecision;
+		tools: string[] | undefined;
+	}): Promise<{ session: WorkerSession; baseline: SessionBaseline }> {
+		const session = await openWorkerSession({
+			ctx: args.ctx,
+			sessionFile: args.thread.sessionFile || undefined,
+			model: args.open.model,
+			tools: args.tools,
+			promptDocs: this.config.workerPromptDocs,
+			extensionPaths: this.resolveExtensions().paths,
+		});
+		this.live.set(args.thread.id, session);
+		// A freshly opened session starts on its configured model — drop any stale
+		// failover marker (possible if a previous live session was disposed mid-dispatch
+		// after its marker was set).
+		this.failoverLive.delete(args.thread.id);
+		// THE BASELINE both axes fall back to, taken from the SESSION: the model pi
+		// resolved for the model-less plan and the level it clamped to (BG18, BG22).
+		const baseline = captureSessionBaseline(session);
+		this.liveBaselines.set(args.thread.id, baseline);
+		return { session, baseline };
 	}
 
 	/** The level a session is ACTUALLY on (post-clamp), when it is one pi/slate both know. */
@@ -821,13 +877,17 @@ export class ThreadManager {
 			emit(false);
 
 			session = this.live.get(thread.id);
+			// The baseline of a REUSED session is the one captured when it was opened; the
+			// open below replaces it for a new one. Read once, here, and passed down — see
+			// applyRoute's `baseline` parameter (TQ7).
+			let baseline = this.liveBaselines.get(thread.id) ?? NO_SESSION_BASELINE;
 			if (!session) {
 				// The model a NEW session OPENS on is what a MODEL-LESS dispatch would resolve
 				// to — the thread's base or pin, or nothing — and NEVER this action's `model`
 				// argument. That argument is per-ACTION: applyRoute applies it as a switch on
 				// top, exactly as the per-action thinking level is applied on top of the level
 				// the session opens at. Opening ON the routed model instead made the baseline
-				// captured below equal to it, so an explicit model became the thread's
+				// captured at the open equal to it, so an explicit model became the thread's
 				// permanent default the moment its action was the one that opened the session
 				// — BG22 on the opening path, the asymmetry that made the effort axis right
 				// and the model axis wrong. Passing a model explicitly also keeps overriding
@@ -837,11 +897,11 @@ export class ThreadManager {
 				// this dispatch's own inputs. It strips both arguments INSIDE the pure module
 				// (BG22 on the opening path, BG25's unreachable rejection), so the rule is a
 				// function of its inputs rather than a shape in this file — hand it the full
-				// inputs and it must still answer with the thread's base or pin. Nothing may be
-				// added to its answer here: `?? opts.model` is exactly the edit that shipped
-				// BG22, and it is the caller's one job not to make it.
+				// inputs and it must still answer with the thread's base or pin. Its answer is
+				// then handed WHOLE to openWorkerFor, which cannot see this action's `opts` —
+				// `?? opts.model` is the edit that shipped BG22, so the remedy is a scope in
+				// which it does not compile rather than a rule this file must remember.
 				const open = planSessionOpen(this.routeInputs(ctx, thread, opts, undefined));
-				const openModel = open.model;
 				// BG25's tripwire: unreachable today (planSessionOpen enumerates why), and if a
 				// future guard makes it reachable the session opens on the host model and the
 				// thread's base or pin is lost for the session's lifetime. It must not be
@@ -854,36 +914,12 @@ export class ThreadManager {
 					);
 				}
 
-				// A NEW session gets the CURRENT frozen worker-extension set. A LIVE
-				// cached session (reused when present) keeps whatever set it was opened
-				// with — which is precisely why the resolution is frozen per session
-				// (AD41): every worker in this session then shares one extension set.
-				session = await openWorkerSession({
+				({ session, baseline } = await this.openWorkerFor({
+					thread,
 					ctx,
-					sessionFile: thread.sessionFile || undefined,
-					model: openModel,
+					open,
 					tools: opts.tools ?? this.config.workerTools,
-					promptDocs: this.config.workerPromptDocs,
-					extensionPaths: this.resolveExtensions().paths,
-				});
-				this.live.set(thread.id, session);
-				// A freshly opened session starts on its configured model — drop any
-				// stale failover marker (possible if a previous live session was
-				// disposed mid-dispatch after its marker was set).
-				this.failoverLive.delete(thread.id);
-				// THE BASELINE both axes fall back to, taken from the SESSION itself — the
-				// model pi resolved for the model-less plan and the level it clamped to — and
-				// never from this action's arguments. `captureSessionBaseline` takes only the
-				// session's observed values, so it cannot express the other thing; that is the
-				// executable half of the guarantee (the caller's half is passing the session).
-				// Captured BEFORE any per-action switch, which is what makes both reverts mean
-				// "what a dispatch with no arguments would run on" (BG18, BG22).
-				const baseline = captureSessionBaseline({
-					model: session.model ? `${session.model.provider}/${session.model.id}` : undefined,
-					effort: session.thinkingLevel,
-				});
-				if (baseline.effort !== undefined) this.liveBaseline.set(thread.id, baseline.effort);
-				if (baseline.model !== undefined) this.liveBaselineModel.set(thread.id, baseline.model);
+				}));
 				// CQ18: the session FILE is deliberately not persisted yet. pi flushes a
 				// session file only once it holds an assistant message, so this path can name
 				// a file that does not exist — and a snapshot carrying one makes the next
@@ -913,7 +949,7 @@ export class ThreadManager {
 			// actually be delivered (BG17: the long-context memory was being consumed by a
 			// dispatch that then aborted, silencing the warning for the rest of the
 			// session). Past applyRoute the dispatch always ends in an episode and a result.
-			await this.applyRoute(session, plan, thread, ctx, signal, routeWarn);
+			await this.applyRoute(session, plan, thread, ctx, signal, routeWarn, baseline);
 			for (const message of applied.warnings) routeWarn(message);
 			// Guard 6's memory is this side's (route.ts is pure): record the pair the plan
 			// just warned about, so the next action on it stays quiet.
@@ -1186,7 +1222,6 @@ export class ThreadManager {
 		}
 		this.live.clear();
 		this.failoverLive.clear(); // markers describe live sessions only (see liveFailoverModel)
-		this.liveBaseline.clear(); // baselines describe live sessions only (see applyRoute)
-		this.liveBaselineModel.clear(); // ditto (BG22's revert target)
+		this.liveBaselines.clear(); // baselines describe live sessions only (see applyRoute)
 	}
 }

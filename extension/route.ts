@@ -244,6 +244,61 @@ export interface RoutePlanProceed {
 }
 
 /**
+ * THE BASELINE a live worker session's later actions fall back to, on BOTH axes: the
+ * model pi opened it on and the level pi clamped it to at that moment.
+ *
+ * BRANDED (TQ7), and that brand is the reason this type exists at all. Both flagship
+ * defects of this track are one mistake — the baseline read from the wrong place at the
+ * wrong TIME. BG22 took it after the per-action model had been applied; BG18 fell back
+ * to the session's CURRENT level instead of its opening one. Both survived a fix round
+ * with every check green, because the wrong expression is a live reading and a live
+ * reading has the same primitive type as the right value. Making the baseline a branded
+ * OBJECT that only `captureSessionBaseline` can produce takes that away:
+ * `baseline: this.sessionEffort(session)` and `baseline: currentSpec` stop being
+ * type-correct edits at the decision sites.
+ *
+ * The brand is type-only and erased at run time, so a harness still fabricates one as a
+ * plain `{ model, effort }` object — every read of it below is defensive for that reason.
+ */
+declare const SESSION_BASELINE_BRAND: unique symbol;
+export interface SessionBaseline {
+	readonly [SESSION_BASELINE_BRAND]: true;
+	/** "provider/id" the session was opened on; absent when pi reported none. */
+	readonly model?: string;
+	/** The level pi clamped the session to at open time; absent when it reported none. */
+	readonly effort?: ThinkingLevel;
+}
+
+/** The baseline of a session that is not open yet: no revert target on either axis. */
+export const NO_SESSION_BASELINE = {} as SessionBaseline;
+
+/**
+ * The session's own state at the moment it was opened, read off the SESSION OBJECT
+ * (TQ7). The parameter is the session itself and not a record the caller assembles, so
+ * there is no argument-shaped input a caller can substitute for it; the level is
+ * validated against pi's vocabulary and the model taken byte-for-byte (RG1).
+ *
+ * WHEN it is called still matters, and no type can enforce that: it must be called once,
+ * immediately after the open and before any per-action switch. That residual is why the
+ * only caller is the opening helper itself, which is the only place a session exists in
+ * that state.
+ */
+export function captureSessionBaseline(session: {
+	model?: { provider?: unknown; id?: unknown };
+	thinkingLevel?: unknown;
+}): SessionBaseline {
+	const model =
+		typeof session?.model?.provider === "string" && typeof session?.model?.id === "string"
+			? argModel(`${session.model.provider}/${session.model.id}`)
+			: undefined;
+	const effort = storedLevel(session?.thinkingLevel);
+	return {
+		...(model !== undefined ? { model } : {}),
+		...(effort !== undefined ? { effort } : {}),
+	} as SessionBaseline;
+}
+
+/**
  * Inputs of the MODEL-SWITCH decision — what to do with a live worker session once
  * the plan is settled. Every field is a plain value the caller reads off its own
  * state, so the decision is checkable without a ThreadManager (that opacity is why
@@ -256,8 +311,11 @@ export interface ModelSwitchInput {
 	openOnly?: boolean;
 	/** "provider/id" the live session is on right now. */
 	current?: string;
-	/** "provider/id" the live session was OPENED on — what a model-less action reverts to (BG22). */
-	baseline?: string;
+	/**
+	 * What the session was OPENED on — the revert target of a model-less action (BG22).
+	 * A captured baseline, never a live reading: see SessionBaseline (TQ7).
+	 */
+	baseline?: SessionBaseline;
 	/** true while a FAILOVER holds the session: the revert stands down (BG16). */
 	failoverHeld?: boolean;
 }
@@ -309,7 +367,8 @@ export function decideModelSwitch(input: ModelSwitchInput): ModelSwitchDecision 
 	// error instead) and turned a whitespace-only one into "absent", which quietly ran
 	// the action on the revert target. One rule for model specs, wherever they are read.
 	const planned = argModel(input.planned);
-	const baseline = argModel(input.baseline);
+	// `?.`: the brand is erased at run time, so a fabricated input may omit the object.
+	const baseline = argModel(input.baseline?.model);
 	const current = argModel(input.current);
 	let target: string;
 	let source: "plan" | "revert";
@@ -337,8 +396,12 @@ export interface EffortSwitchInput {
 	planned?: ThinkingLevel;
 	/** The level the live session is on right now. */
 	current?: ThinkingLevel;
-	/** The level the live session was OPENED on — what a level-less action returns to (BG18). */
-	baseline?: ThinkingLevel;
+	/**
+	 * The level the session was OPENED on — where a level-less action returns to (BG18).
+	 * The same captured baseline object the model axis reads (TQ7), so neither axis can
+	 * be handed a live reading in its place.
+	 */
+	baseline?: SessionBaseline;
 }
 
 /**
@@ -376,7 +439,7 @@ export type EffortSwitchDecision =
  */
 export function decideEffortSwitch(input: EffortSwitchInput): EffortSwitchDecision {
 	const planned = storedLevel(input.planned);
-	const baseline = storedLevel(input.baseline);
+	const baseline = storedLevel(input.baseline?.effort);
 	const current = storedLevel(input.current);
 	let target: ThinkingLevel;
 	let source: "plan" | "revert";
@@ -393,17 +456,27 @@ export function decideEffortSwitch(input: EffortSwitchInput): EffortSwitchDecisi
 	return { kind: "switch", level: target, source };
 }
 
+/**
+ * A model that CAME OUT of the session-open derivation. Branded for the same reason as
+ * SessionBaseline (TQ7): `open.model ?? opts.model` — one line outside the helper, and
+ * the exact edit that shipped BG22 on the opening path — is then no longer a way to
+ * build a SessionOpenDecision, and the opening helper takes nothing else it could open
+ * on.
+ */
+declare const OPEN_MODEL_BRAND: unique symbol;
+export type OpenModel = string & { readonly [OPEN_MODEL_BRAND]: true };
+
 /** What a NEW worker session must be opened with, and what went wrong deciding it. */
 export interface SessionOpenDecision {
 	/** The model to hand the opener; undefined = none, so pi uses the host session's model. */
-	model?: string;
+	readonly model?: OpenModel;
 	/**
 	 * Set ONLY when the model-less plan rejected — which is unreachable today (see
 	 * planSessionOpen) and which the caller must therefore REPORT rather than absorb:
 	 * the session would open on the host model and the thread's base or pin would be
 	 * lost for the session's lifetime, which is BG25's symptom.
 	 */
-	unplanned?: string;
+	readonly unplanned?: string;
 }
 
 /**
@@ -427,28 +500,7 @@ export interface SessionOpenDecision {
 export function planSessionOpen(input: RoutePlanInput): SessionOpenDecision {
 	const verdict = planRoute({ ...input, requestedModel: undefined, requestedEffort: undefined });
 	if (verdict.kind === "reject") return { unplanned: verdict.reason };
-	return { model: verdict.model };
-}
-
-/**
- * The BASELINE a live session's later actions fall back to, read from the session
- * ITSELF once it is open — the model it resolved and the level pi clamped it to.
- *
- * A function, not two assignments in the caller, for the same reason as above: the
- * guarantee is that the baseline comes from the SESSION and not from the action that
- * happened to open it, and a function whose only inputs are the session's observed
- * values cannot express the other thing. The level is validated against pi's
- * vocabulary; the model is taken byte-for-byte (RG1), since it is what pi reports.
- */
-export interface SessionBaseline {
-	model?: string;
-	effort?: ThinkingLevel;
-}
-export function captureSessionBaseline(observed: { model?: unknown; effort?: unknown }): SessionBaseline {
-	return {
-		...(argModel(observed.model) !== undefined ? { model: argModel(observed.model) } : {}),
-		...(storedLevel(observed.effort) !== undefined ? { effort: storedLevel(observed.effort) } : {}),
-	};
+	return { model: verdict.model as OpenModel | undefined };
 }
 
 /** The action may NOT run as asked. `reason` is user-facing and self-explanatory. */
