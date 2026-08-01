@@ -1321,6 +1321,59 @@ try {
 		 * claim. Used where a mutation is most likely to break that contract: the raw,
 		 * unvalidated argument paths.
 		 */
+		/**
+		 * SOURCE READING FOR STRUCTURAL TERMS, in one place (TQ6/RG2).
+		 *
+		 * Six structural terms were found false-alarming on edits that changed nothing:
+		 * an inline `type` import, a hoisted const, another spelling of a template
+		 * literal, one more stripped key, a `readonly` modifier, and a doc comment that
+		 * merely mentioned the symbol an ordering check keyed on. That is not a harmless
+		 * annoyance — an implementer abandoned a candidate fix partly because it "broke
+		 * the harness's pinned line", and the line was not broken. A structural term must
+		 * therefore be anchored on SHAPE (does this call carry this key? is this symbol
+		 * assigned from that one?) rather than on spelling, and it must never see a
+		 * comment.
+		 */
+		const sourceOf = (file) => {
+			const raw = readFileSync(join(REPO, "extension", file), "utf8");
+			// Comments out first: an ordering or presence claim must be about CODE. Strings
+			// are left alone — no needle below looks inside one.
+			return raw.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+		};
+		/** Every `name(` call's argument text, balanced on parentheses — so a call survives reformatting. */
+		const callsTo = (src, name) => {
+			const out = [];
+			const needle = `${name}(`;
+			for (let i = src.indexOf(needle); i >= 0; i = src.indexOf(needle, i + 1)) {
+				let depth = 0;
+				for (let j = i + needle.length - 1; j < src.length; j++) {
+					if (src[j] === "(") depth++;
+					else if (src[j] === ")" && --depth === 0) {
+						out.push(src.slice(i + needle.length, j));
+						break;
+					}
+				}
+			}
+			return out;
+		};
+		/**
+		 * One import statement, parsed enough to answer "is this binding erased?".
+		 * Handles `import type {...}`, inline `{ type X }`, namespace and default forms —
+		 * the namespace one because it is the hole a name-based scan cannot see: `import
+		 * * as mr from "./model-router.ts"` reaches every re-export without naming one.
+		 */
+		const importsOf = (src) =>
+			[...src.matchAll(/\bimport\s+([\s\S]*?)\s*from\s*"([^"]+)"\s*;/g)].map(([text, clause, module]) => {
+				const typeOnly = /^type\b/.test(clause.trim());
+				const namespace = /\*\s*as\s+\w+/.test(clause);
+				const braces = clause.match(/\{([\s\S]*)\}/);
+				const bindings = (braces ? braces[1].split(",") : [])
+					.map((raw) => raw.trim())
+					.filter((raw) => raw !== "")
+					.map((raw) => ({ name: raw.replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim(), isType: typeOnly || /^type\s/.test(raw) }));
+				return { text: text.trim(), clause: clause.trim(), module, typeOnly, namespace, bindings };
+			});
+
 		const planOrThrow = (input) => {
 			try {
 				return plan(input);
@@ -1738,6 +1791,20 @@ try {
 				wouldCompact: compactAt(20_000),
 				reserveTokens: 20_000,
 			});
+			// OVERLAPPING ladders, the other half of BG14 — and a gap a re-verification of
+			// this file's own teeth exposed. With DISJOINT ladders an implementation that
+			// inherits is caught only because the inherited level is invalid on the new model,
+			// and BG23's re-validation now corrects exactly that: it re-derives, so the
+			// disjoint fixture can no longer tell inheriting from deriving. When the stored
+			// level is VALID on the model that runs, nothing corrects it — the action simply
+			// runs at a level chosen for a different model, which is the whole of BG14. Here
+			// the stored level is `medium`, legal on both, while the target's own lowest
+			// measured level is `low`: deriving says `low`, inheriting says `medium`.
+			const shared = routeResolution([
+				{ spec: "p/from", tier: 1, price: 1, ladder: ["low", "medium"], measured: ["low", "medium"] },
+				{ spec: "p/to", tier: 2, price: 2, ladder: ["low", "medium"], measured: ["low", "medium"] },
+			]);
+			const overlapping = plan({ resolution: shared, thread: { id: "t3", baseModel: "p/from", baseEffort: "medium" }, requestedModel: "p/to" });
 			checkAll("route-effort-derived-for-model", "a level stored on the thread is INHERITED only while the action runs on the base model it was derived for: an explicit per-action model gets that MODEL's own lowest measured level instead (so an inheriting implementation, which would refuse a level absent from the new model's ladder, cannot pass), and so does a model the window guard substituted in — while an EXPLICIT level is still judged hard against the model that runs, and `effortJudgedFor` always names that model", [
 				["an explicit model derives its OWN lowest measured level", verdict(elsewhere) === "proceed:p/other@high", verdict(elsewhere)],
 				["...naming the model the level was judged for", elsewhere.effortJudgedFor === "p/other", elsewhere.effortJudgedFor],
@@ -1747,6 +1814,7 @@ try {
 				["an EXPLICIT level is still judged against the model that runs", explicitLevel.kind === "reject" && /p\/other's effort ladder \(high, max\)/.test(why(explicitLevel)), verdict(explicitLevel)],
 				["...and an explicit level that model HAS is honoured", verdict(explicitOk) === "proceed:p/other@max" && explicitOk.effortJudgedFor === "p/other", [verdict(explicitOk), explicitOk.effortJudgedFor]],
 				["a window substitution re-derives the level for the substituted model", verdict(substituted) === "proceed:p/wide@high" && substituted.effortJudgedFor === "p/wide", [verdict(substituted), substituted.effortJudgedFor]],
+				["with OVERLAPPING ladders the level is still DERIVED, not inherited", verdict(overlapping) === "proceed:p/to@low" && overlapping.effortJudgedFor === "p/to", verdict(overlapping)],
 				["...reporting the substitution and nothing about the level", warns(substituted, /widest listed model/).length === 1 && warns(substituted, /Dropping the effort level/).length === 0, substituted.warnings],
 			]);
 		});
@@ -2283,11 +2351,24 @@ try {
 				: undefined;
 			// The same real spec with NO source injected at all (kills `profiles ?? SHIPPED`).
 			const shippedNoSource = shipped ? plan({ resolution: off, requestedModel: shipped.spec, requestedEffort: shipped.offLadder }) : undefined;
-			// ...and with a source that DECLINES it, which is exactly the shape threads.ts's
-			// registry-and-auth-vetted source produces for a model pi cannot serve (kills the
-			// decline-time fallback).
+			// ...and with a source that DECLINES it. THIS FIXTURE MUST MIRROR PRODUCTION
+			// (TQ3): threads.ts's router-off source is a VETTED `findProfile` paired with the
+			// SHIPPED `ladderFor` — only the lookup is gated on what pi can serve. Stubbing
+			// `ladderFor: () => []` here made the whole term inert whichever way `findProfile`
+			// went (an empty ladder is "unknown", so guard 2 stands down and everything
+			// proceeds), which is how the decline-time fallback to the shipped table survived
+			// this check while being live in production. With the REAL ladderFor, a mutant
+			// that answers a declined spec from the table produces the table's ladder, and the
+			// off-ladder level it does not contain becomes a rejection this term can see.
+			const realLadderFor = table ? (profile) => table.ladderFor(profile) : () => [];
 			const shippedDeclined = shipped
-				? plan({ resolution: off, requestedModel: shipped.spec, requestedEffort: shipped.offLadder, profiles: { findProfile: () => undefined, ladderFor: () => [] } })
+				? plan({ resolution: off, requestedModel: shipped.spec, requestedEffort: shipped.offLadder, profiles: { findProfile: () => undefined, ladderFor: realLadderFor } })
+				: undefined;
+			// A source that PROFILES the spec but cannot produce a ladder: still inert. This is
+			// the other half of the same hole — a fallback keyed on an unreadable LADDER rather
+			// than on a declined lookup would slip past every fixture above.
+			const shippedBlindLadder = shipped
+				? plan({ resolution: off, requestedModel: shipped.spec, requestedEffort: shipped.offLadder, profiles: { findProfile: (spec) => (spec === shipped.spec ? { id: spec, capabilityMeasuredAt: [shipped.offLadder], evidenceGapAt: [] } : undefined), ladderFor: () => [] } })
 				: undefined;
 
 			// The module must not reach the shipped table at RUNTIME at all: its only
@@ -2299,18 +2380,27 @@ try {
 			// source as SHIPPED_PROFILE_SOURCE, and route.ts already imports other runtime
 			// values from that module, so a back door needs no new import statement at all —
 			// only a new name on the existing one.
-			const src = readFileSync(join(REPO, "extension", "route.ts"), "utf8");
-			const tableImports = [...src.matchAll(/^import\s+(type\s+)?[^;]*from\s+"\.\/model-profiles\.ts";/gm)];
+			const routeImports = importsOf(sourceOf("route.ts"));
 			const TABLE_VALUES = ["SHIPPED_PROFILE_SOURCE", "MODEL_PROFILES", "findProfile", "ladderFor", "PROFILES_AS_OF"];
-			const runtimeTableBindings = [...src.matchAll(/^import\s+(type\s+)?\{([^}]*)\}\s+from\s+"([^"]+)";/gm)].flatMap(([, isType, names, from]) =>
-				isType
-					? []
-					: names
-							.split(",")
-							.map((n) => n.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim())
-							.filter((n) => TABLE_VALUES.includes(n))
-							.map((n) => `${n} from ${from}`),
+			// Modules that ARE, or re-export, the shipped table. A namespace import of either
+			// reaches every one of those values without naming a single one — the hole a
+			// name-based scan cannot see, and the one an `import * as mr` mutation walked
+			// straight through (TQ3).
+			const TABLE_MODULES = ["./model-profiles.ts", "./model-router.ts"];
+			// The profile table itself may be imported ONLY as erased types — whole-statement
+			// `import type`, or inline `{ type X }`, which is equally erased and was a false
+			// alarm before (TQ6).
+			const tableModuleViolations = routeImports
+				.filter((i) => i.module === "./model-profiles.ts")
+				.filter((i) => i.namespace || i.bindings.length === 0 || i.bindings.some((b) => !b.isType))
+				.map((i) => i.text);
+			const importsTheTable = routeImports.some((i) => i.module === "./model-profiles.ts");
+			// From ANY module: a runtime binding of a shipped-table value, under any name...
+			const runtimeTableBindings = routeImports.flatMap((i) =>
+				i.bindings.filter((b) => !b.isType && TABLE_VALUES.includes(b.name)).map((b) => `${b.name} from ${i.module}`),
 			);
+			// ...and any namespace import of a module that carries them.
+			const namespaceReach = routeImports.filter((i) => i.namespace && TABLE_MODULES.includes(i.module)).map((i) => i.text);
 			checkAll("route-off-ladder-source", "with the router OFF the effort ladder comes from the CALLER's injected profile source and nothing else: it is consulted by spec, it is authoritative (a level off a KNOWN ladder is refused even for a spec the shipped table has never heard of), a spec it DECLINES is not judged at all, an absent source / a throwing lookup / an unreadable ladder are all INERT rather than refusing, a foreign level is filtered out, and the module imports the shipped table only as an erased type", [
 				["the injected source is consulted, by spec", calls.includes("findProfile:p/offrouter"), calls],
 				["...and asked for that profile's ladder", calls.includes("ladderFor:p/offrouter"), calls],
@@ -2337,14 +2427,16 @@ try {
 				// A ladder with a mix of foreign and real levels is still KNOWN (the real ones
 				// survive the filter), so guard 2 fires — and quotes only the real ones.
 				["a foreign level never reaches the quoted ladder", foreign.kind === "reject" && /effort ladder \(medium\)/.test(why(foreign)) && !/LOUD|fast/.test(why(foreign)), why(foreign)],
-				["the shipped table is imported only as an erased type", tableImports.length > 0 && tableImports.every((m) => m[1] !== undefined), tableImports.map((m) => m[0])],
-				["...and no shipped-table VALUE is imported under any name, from any module", runtimeTableBindings.length === 0, runtimeTableBindings],
+				["the shipped table is imported only as erased types (whole-statement or inline)", importsTheTable && tableModuleViolations.length === 0, tableModuleViolations],
+				["...no shipped-table VALUE is imported under any name, from any module", runtimeTableBindings.length === 0, runtimeTableBindings],
+				["...and no namespace import reaches one without naming it", namespaceReach.length === 0, namespaceReach],
 				// TQ1's discriminating terms: a REAL shipped spec, a level really off ITS
 				// shipped ladder, and an injected source that disagrees with the table.
 				["fixture: the shipped table still offers a model with a level off its ladder", shipped !== undefined, shipped ?? "no (model, off-ladder level) pair in the shipped table — pick another discriminator"],
 				["a REAL shipped spec is judged by the INJECTED source, not the table", shippedInjected !== undefined && shippedInjected.kind === "proceed" && shippedInjected.effort === shipped?.offLadder, [verdict(shippedInjected ?? { kind: "proceed", model: "n/a", warnings: [] }), shipped]],
 				["with NO source injected the table is still not consulted", shippedNoSource !== undefined && shippedNoSource.kind === "proceed" && shippedNoSource.effort === shipped?.offLadder, verdict(shippedNoSource ?? { kind: "proceed", model: "n/a", warnings: [] })],
-				["a DECLINED real spec does not fall back to the table", shippedDeclined !== undefined && shippedDeclined.kind === "proceed" && shippedDeclined.effort === shipped?.offLadder, verdict(shippedDeclined ?? { kind: "proceed", model: "n/a", warnings: [] })],
+				["a DECLINED real spec does not fall back to the table (production's vetted lookup + real ladderFor)", shippedDeclined !== undefined && shippedDeclined.kind === "proceed" && shippedDeclined.effort === shipped?.offLadder, verdict(shippedDeclined ?? { kind: "proceed", model: "n/a", warnings: [] })],
+				["...nor does an UNREADABLE injected ladder send it to the table", shippedBlindLadder !== undefined && shippedBlindLadder.kind === "proceed" && shippedBlindLadder.effort === shipped?.offLadder, verdict(shippedBlindLadder ?? { kind: "proceed", model: "n/a", warnings: [] })],
 			]);
 		});
 
@@ -2489,14 +2581,27 @@ try {
 			// execution, and it is what stands between this rule and a caller that quietly
 			// stops following it — a mutation that plans the open WITH the argument survives
 			// every behavioural term above and dies here.
-			const threadsSrc = readFileSync(join(REPO, "extension", "threads.ts"), "utf8");
-			// `model: undefined` anywhere in that override object, in any key order and
-			// alongside whatever else the open plan strips — this term owns "the model
-			// argument is dropped", and route-open-plan-inputs owns "and the effort with it"
-			// (BG25). A regex that demanded `model` be the LAST key would fail the moment a
-			// second key was added, which is a false alarm about an unrelated improvement.
-			const opensModelLess = /planRoute\(\s*this\.routeInputs\(\s*ctx,\s*thread,\s*\{[^}]*\bmodel:\s*undefined\b[^}]*\}/.test(threadsSrc);
-			const baselineFromSession = /this\.liveBaselineModel\.set\(\s*thread\.id,\s*`\$\{session\.model\.provider\}\/\$\{session\.model\.id\}`/.test(threadsSrc);
+			// TQ4: the caller's half is EXECUTABLE now. `planSessionOpen` decides what the
+			// session opens on and `captureSessionBaseline` decides what is recorded as the
+			// revert target, both pure — so the two facts that used to be regexes are checks.
+			// The regexes are deleted rather than kept alongside: a brittle term next to a
+			// real one only adds false alarms.
+			const openOf = (input) => route.planSessionOpen(input);
+			const openedPinned = openOf({ resolution: off, thread: { id: "t1", model: "p/pin" }, requestedModel: "p/x" });
+			const openedBare = openOf({ resolution: off, thread: { id: "t2" }, requestedModel: "p/x", hostModel: "p/host" });
+			// THE DEFECT SHAPE THE GATE PROVED INVISIBLE: `?? opts.model` in the open
+			// derivation silently reinstates BG22 on the opening path while every other check
+			// stays green. Executably, that is "the open decision must not fall back to the
+			// action's own model" — with a pin present the answer is the pin, and with no pin
+			// it is nothing (the caller then opens on the host), never `p/x`.
+			const openNeverRouted = openedPinned.model !== "p/x" && openedBare.model !== "p/x";
+			// The baseline is taken from what the SESSION reports, and it is validated on the
+			// way in (BG21's vocabulary rule applies to the level, the spec rule to the model).
+			const baselineOf = (observed) => route.captureSessionBaseline(observed);
+			const baselineGood = baselineOf({ model: { toString: () => "x" }, effort: "medium" });
+			const baselineSpec = baselineOf({ model: "p/opened", effort: "medium" });
+			const baselineJunk = baselineOf({ model: 7, effort: "HIGH" });
+
 			checkAll("route-switch-opening-baseline", "the revert target is what a MODEL-LESS plan resolves to, never what a routed open happened to use: when the dispatch that opens the session carries an explicit `model`, using the opened model as the baseline makes that per-action model the thread's permanent default (BG22 on the opening path). Pinned by composing both plans with the switch decision \u2014 the correct baseline reverts, the defective one reports the session is already where it should be and the explicit model never goes away", [
 				["the routed plan and the model-less plan really differ", pinned.routed.model === "p/x" && pinned.modelless.model === "p/pin", [pinned.routed.model, pinned.modelless.model]],
 				["...and only the model-less one is open-only", pinned.modelless.openOnly === true && pinned.routed.openOnly === undefined, [pinned.modelless.openOnly, pinned.routed.openOnly]],
@@ -2505,8 +2610,11 @@ try {
 				["no pin: the session opens on the host model, and that is the baseline", bare.modelless.model === undefined && bare.fixed === "switch:p/host/revert", [bare.modelless.model, bare.fixed]],
 				["no pin: the DEFECTIVE baseline makes it permanent too", bare.defective === "keep:already-current", bare.defective],
 				["router ON: the base arrives as a PLAN target, so the defect cannot bite", routerOn.fixed === "switch:p/cheap/plan" && routerOn.defective === "switch:p/cheap/plan", [routerOn.fixed, routerOn.defective]],
-				["the caller plans the session OPEN with the model argument dropped", opensModelLess, opensModelLess],
-				["...and reads the baseline from the session that plan opened", baselineFromSession, baselineFromSession],
+				["the session-open decision ignores the action's own model (TQ4: the `?? opts.model` shape)", openNeverRouted, [openedPinned, openedBare]],
+				["...resolving the thread's pin when it has one", openedPinned.model === "p/pin", openedPinned],
+				["...and nothing when it has none, so the caller opens on the host", openedBare.model === undefined && openedBare.unplanned === undefined, openedBare],
+				["the baseline is taken from the SESSION and validated on the way in", baselineSpec.model === "p/opened" && baselineSpec.effort === "medium", baselineSpec],
+				["...a non-spec model and a non-vocabulary level are discarded, not recorded", baselineJunk.model === undefined && baselineJunk.effort === undefined && baselineGood.model === undefined, [baselineJunk, baselineGood]],
 			]);
 		});
 
@@ -2543,8 +2651,11 @@ try {
 			// threads.ts cannot be loaded here (the lesson from the opening-baseline check,
 			// where a caller-side mutation survived every behavioural term). Both arguments
 			// must be dropped in the SAME call, and the open model must come from that plan.
-			const threadsSrc = readFileSync(join(REPO, "extension", "threads.ts"), "utf8");
-			const stripsBoth = /planRoute\(\s*this\.routeInputs\(\s*ctx,\s*thread,\s*\{\s*\.\.\.opts,\s*(?:model:\s*undefined,\s*effort:\s*undefined|effort:\s*undefined,\s*model:\s*undefined)\s*\}/.test(threadsSrc);
+			// EXECUTABLE now (TQ4/RG2): `planSessionOpen` IS the stripping, so the claim is a
+			// call, not a regex over the caller's object literal. The regex it replaces
+			// enumerated two keys in two orders and would have false-failed on a third — the
+			// brittleness that made an implementer doubt a good fix.
+			const openWithArgs = route.planSessionOpen({ resolution: off, thread, requestedEffort: "max", requestedModel: "p/x", profiles: vetted });
 			// The open model is taken from THAT plan, however the caller expresses it (a
 			// ternary, an if, a helper) — the property, not one spelling. What the caller does
 			// on a REJECTION is deliberately not pinned here: at the time of writing it is
@@ -2553,14 +2664,13 @@ try {
 			// this check was asked to encode. Pinning an in-flight shape is how a check ends
 			// up vouching for the weaker of two behaviours; a follow-up should pin the
 			// stronger one once it is committed.
-			const openModelFromThatPlan = /openModel[^;]*modelless\.model/.test(threadsSrc);
 			checkAll("route-open-plan-inputs", "the plan that decides what a NEW session opens on strips BOTH of the action's arguments: with the action's `effort` still in it that plan can REJECT — an explicit level the thread's pin does not offer — and a rejection yields no model, so the session opens on the host and the pin is silently dropped (BG25); stripped, the same dispatch resolves the pin. Asserted on both router states, and structurally on the caller, which is the side that has to do the stripping", [
 				["router OFF: the action's effort makes the open plan REJECT", withEffort.kind === "reject" && /is not on p\/pin's effort ladder/.test(why(withEffort)), verdict(withEffort)],
 				["...and a rejection carries no model for the caller to open on", withEffort.model === undefined, withEffort.model],
 				["...while the STRIPPED plan resolves the thread's pin", verdict(stripped) === "proceed:p/pin@undefined" && stripped.openOnly === true, [verdict(stripped), stripped.openOnly]],
 				["router ON: the same hazard, without any injected source", onWithEffort.kind === "reject" && verdict(onStripped) === "proceed:p/base@low", [verdict(onWithEffort), verdict(onStripped)]],
-				["the caller strips model AND effort in the same open plan", stripsBoth, stripsBoth],
-				["...and takes the open model from that plan", openModelFromThatPlan, openModelFromThatPlan],
+				["the open decision strips BOTH arguments: the same dispatch resolves the pin", openWithArgs.model === "p/pin" && openWithArgs.unplanned === undefined, openWithArgs],
+				["...so an effort the pin cannot do can no longer decide what it opens on", openWithArgs.model === stripped.model, [openWithArgs.model, stripped.model]],
 			]);
 		});
 
@@ -2590,18 +2700,62 @@ try {
 			const action3 = step({ current: "p/x", baseline: opened });
 			const action4 = step({ current: "p/fallback", baseline: opened, failoverHeld: true });
 			const action5 = step({ planned: "p/y", current: "p/fallback", baseline: opened, failoverHeld: true });
+			// TQ5: the EFFORT axis is executable too now — `decideEffortSwitch` is the model
+			// axis's twin, so I1 stops being documentation and becomes a comparison of two
+			// running rules over the same lifecycle.
+			const level = (input) => {
+				const d = route.decideEffortSwitch(input);
+				return d.kind === "switch" ? `switch:${d.level}/${d.source}` : `keep:${d.reason}`;
+			};
+			const openedLevel = "medium";
+			const effort2 = level({ planned: "high", current: openedLevel, baseline: openedLevel });
+			const effort3 = level({ current: "high", baseline: openedLevel });
+			const effort4 = level({ current: openedLevel, baseline: openedLevel });
+			const effort5 = level({ current: "high" });
+			// THE BG18-REINTRODUCTION SHAPE the gate proved invisible to every needle:
+			// `opts.effort ?? this.sessionEffort(session)` keeps a per-action level alive by
+			// reading the LIVE level instead of the OPENING one. Executably, that is the
+			// difference between reverting to the baseline and keeping what the last action
+			// set — so the check asks for exactly that: with no planned level and a live level
+			// that differs from the baseline, the answer must name the BASELINE.
+			const bg18 = route.decideEffortSwitch({ current: "high", baseline: openedLevel });
+			const bg18Correct = bg18.kind === "switch" && bg18.level === openedLevel && bg18.source === "revert";
+			// BG21 applies on THIS axis too, and at this site: a level that is not in pi's
+			// vocabulary must read as absent rather than be handed to pi. Junk in `planned`
+			// falls through to the revert; junk in `baseline` leaves nothing to revert to.
+			// (Found by mutation: stripping the validation here killed nothing, because every
+			// other fixture on this axis feeds it valid levels.)
+			const junkPlanned = level({ planned: "HIGH", current: "high", baseline: openedLevel });
+			const junkBaseline = level({ current: "high", baseline: 7 });
+			const junkBoth = level({ planned: { level: "high" }, current: "high", baseline: "turbo" });
 			// The EFFORT axis's counterpart, read structurally out of threads.ts.
-			const src = readFileSync(join(REPO, "extension", "threads.ts"), "utf8");
-			const at = (needle) => src.indexOf(needle);
+			// Comment-free source, and TOKEN patterns rather than exact lines (TQ6): a
+			// `readonly` modifier, `this.` elision or extra spacing are not divergences, and a
+			// doc comment that merely mentions `applyRoute` must not be able to move the
+			// ordering check's anchor — both were false alarms.
+			const src = sourceOf("threads.ts");
+			const at = (re) => src.search(re);
 			const axes = [
-				["effort", "private liveBaseline = new Map<", "this.liveBaseline.set(", "this.liveBaseline.clear()", "plan.effort ?? this.liveBaseline.get("],
-				["model", "private liveBaselineModel = new Map<", "this.liveBaselineModel.set(", "this.liveBaselineModel.clear()", "baseline: this.liveBaselineModel.get("],
+				[
+					"effort",
+					/private\s+(readonly\s+)?liveBaseline\s*=\s*new Map</,
+					/\bliveBaseline\.set\(/,
+					/\bliveBaseline\.clear\(\)/,
+					/\bdecideEffortSwitch\(/,
+				],
+				[
+					"model",
+					/private\s+(readonly\s+)?liveBaselineModel\s*=\s*new Map</,
+					/\bliveBaselineModel\.set\(/,
+					/\bliveBaselineModel\.clear\(\)/,
+					/baseline:\s*this\.liveBaselineModel\.get\(/,
+				],
 			];
-			const missing = axes.flatMap(([axis, ...needles]) => needles.filter((n) => at(n) < 0).map((n) => `${axis}: ${n}`));
+			const missing = axes.flatMap(([axis, ...patterns]) => patterns.filter((re) => at(re) < 0).map((re) => `${axis}: ${re}`));
 			// Both baselines must be captured BEFORE any per-action switch — the property the
 			// effort axis always had and the model axis lacked, which is what BG22's second
 			// round fixed.
-			const applyCall = at("await this.applyRoute(");
+			const applyCall = at(/await\s+this\.applyRoute\(/);
 			const capturedLate = axes
 				.filter(([, , setter]) => !(at(setter) > 0 && applyCall > 0 && at(setter) < applyCall))
 				.map(([axis, , setter]) => `${axis}: ${setter} is not before applyRoute`);
@@ -2610,7 +2764,13 @@ try {
 				["...and the next action that names none reverts to the opening model", action3 === "switch:p/base/revert", action3],
 				["a failover holds the model axis in place", action4 === "keep:failover-held", action4],
 				["...while an action that DOES name a model still routes", action5 === "switch:p/y/plan", action5],
-				["both axes keep a session-scoped opening baseline: declared, set, cleared and read", missing.length === 0, missing],
+				["the EFFORT axis obeys the same lifecycle: a planned level applies", effort2 === "switch:high/plan", effort2],
+				["...an action naming none returns to the level the session OPENED on", effort3 === "switch:medium/revert", effort3],
+				["...it keeps quiet when already there, and when there is no baseline", effort4 === "keep:already-current" && effort5 === "keep:no-baseline", [effort4, effort5]],
+				["...and it reverts to the BASELINE, never to the live level (the BG18 shape)", bg18Correct, bg18],
+				["...a level outside pi's vocabulary is absent on this axis too (BG21)", junkPlanned === "switch:medium/revert" && junkBaseline === "keep:no-baseline" && junkBoth === "keep:no-baseline", [junkPlanned, junkBaseline, junkBoth]],
+				["both axes label a switch `plan` or `revert` the same way", /\/(plan|revert)$/.test(effort2) && /\/(plan|revert)$/.test(effort3) && /\/(plan|revert)$/.test(action2), [effort2, effort3, action2]],
+				["both axes keep a session-scoped opening baseline: declared, set, cleared and used", missing.length === 0, missing],
 				["both baselines are captured BEFORE any per-action switch", capturedLate.length === 0, capturedLate],
 			]);
 		});

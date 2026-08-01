@@ -981,11 +981,20 @@ gate and repaired: its back-door guard had been a text term matching only a dire
 Two mutations passed the whole suite green — `profiles ?? SHIPPED_PROFILE_SOURCE`
 (latent) and a fallback to the shipped table when the injected source **declines** a
 spec (production-active, because that is exactly what the registry-and-auth-vetted
-source does for a model pi cannot serve). Neither was catchable behaviourally,
-because every fixture used a synthetic spec the table has never heard of. Both now
-die on the real-spec terms, and — verified by re-running them with the text terms
-deliberately neutralised — they die on the **behavioural** terms alone, not merely
-on the import scan.
+source does for a model pi cannot serve).
+
+**That first repair was over-claimed, and the claim is corrected here rather than
+quietly restated.** It said both mutations died "on the behavioural terms alone".
+Re-running them with the text terms neutralised showed that only the first did: the
+declining-source fixture stubbed `ladderFor: () => []`, which makes the effort check
+inert whichever way the profile lookup goes, so the decline-time fallback died only
+to the import scanner — and a scanner is defeated by `import * as mr`, which a later
+audit proved passes the full suite. The fixture now mirrors production (`threads.ts`
+pairs a VETTED `findProfile` with the SHIPPED `ladderFor`, gating only the lookup), a
+fourth fixture covers a source whose LADDER is unreadable, and the scanner
+additionally refuses a namespace import of any module carrying the table. Re-verified
+with the three import terms neutralised: `profiles ?? SHIPPED`, the decline-time
+fallback and the unreadable-ladder fallback **all three** die behaviourally.
 
 The three switch-decision checks were proven with **11** mutations, all killed —
 one per rule rather than one per check, because the helper's value is its
@@ -1017,9 +1026,88 @@ documented feature.
 
 `route-open-plan-inputs` (BG25) was proven both ways before it was committed — it
 fails on the code that has the defect and passes on the code that fixes it — and by
-two mutations against the fixed code: restoring `effort` to the open plan's inputs,
-and reading a model off a rejected plan. Both killed, both on structural terms,
-because the stripping is the caller's to do.
+one mutation against the fixed code: restoring `effort` to the open plan's inputs,
+which its structural term kills, because the stripping is the caller's to do.
+
+**A second claimed kill has been withdrawn.** It read "reading a model off a rejected
+plan", and it does not reproduce: written naturally
+(`const openModel = modelless.model as string | undefined;`) the structural term
+matches and the mutation SURVIVES — and it is a runtime no-op anyway, since a
+rejection carries no `model`, so there was never a defect there to catch. Only an
+artificial spelling that happened to break the regex ever "died", which is a fact
+about the regex, not about the code. What the term does hold is the shape: the open
+model comes from that plan. Pinning the caller's behaviour on a REJECTION is TQ4's
+job, executably, once the session-open derivation is extracted.
+
+### Re-verification, and what it cost the claims above
+
+Every mutation this file claims is periodically re-applied to the CURRENT code and
+re-run, because a claim ages: the code under it moves, and an anchor that no longer
+matches, or a mutation the code has since made harmless, silently turns a teeth
+statement into folklore. The last sweep re-ran **44** claimed mutations against
+`bdc6eba`; **42** reproduced exactly as claimed. The two that did not are corrected
+here rather than dropped:
+
+- **"inheriting a level across models (BG14)" no longer killed anything.** Not
+  because the check rotted, but because BG23's re-validation had made the mutation
+  almost harmless: with the DISJOINT ladders the fixture used, an inherited level is
+  invalid on the target model and gets re-derived, so inheriting and deriving now
+  produce the same answer. The half of BG14 that survives — running at a level chosen
+  for a different model when that level happens to be legal on this one — was
+  genuinely uncovered. `route-effort-derived-for-model` gained an OVERLAPPING-ladder
+  case (stored `medium`, legal on both; the target's own lowest measured level is
+  `low`), and the mutation kills again. A fix making a mutation harmless is good news;
+  a fixture that can no longer tell the two apart is not.
+- **"unguarding the seed predicate" was matching the wrong guard.** After the tracker
+  redesign the anchor text also appeared in `adopt`, so the mutation landed there and
+  killed `base-adopt` instead of `base-seed`. Re-targeted at the seed's own
+  unknown-model branch, it kills `base-seed` as claimed. The check was always sound;
+  the recorded recipe had drifted.
+
+Everything else in this section reproduced. Claims are dated to the commit they were
+last checked against — `bdc6eba` — rather than left as timeless assertions.
+
+### Structural terms: both directions, every term
+
+The eight regex-on-source terms were re-anchored on SHAPE after six of them were
+shown to false-alarm on edits that changed nothing (an inline `type` import, a
+hoisted const, another spelling of a template literal, one more stripped key, a
+`readonly` modifier, and a doc comment that merely mentioned the symbol an ordering
+check keyed on). That is not cosmetic: an implementer abandoned a candidate fix
+partly because it "broke the harness's pinned line", and it had not. Each term is now
+proven in BOTH directions — a semantically null reformatting PASSES and a
+semantics-breaking edit FAILS — 14 trials, all as expected:
+
+| term | null edit that must PASS | breaking edit that must FAIL |
+| --- | --- | --- |
+| shipped-table import scan | inline `{ type X }` import | a value import of the table; a namespace import of a module carrying it |
+| open plan drops `model` | the `routeInputs` call hoisted to a const | `model` no longer stripped |
+| open plan drops both args | a THIRD stripped key; reordered keys | `effort` no longer stripped |
+| baseline from the session | the spec built by a different expression | the baseline recorded from the routed plan |
+| I1 axis symmetry | `readonly` on both maps | the effort baseline dropped |
+| capture ordering | a doc comment naming `applyRoute` | the model baseline captured after the switch |
+
+All source reading for these terms goes through one helper that strips comments and
+matches calls by balanced parentheses, so spelling, spacing, key order and prose can
+change freely while the claim stays exactly as strong.
+
+**Four of those six are now gone entirely**, which is the better outcome. The
+dispatch side extracted `planSessionOpen`, `captureSessionBaseline` and
+`decideEffortSwitch` — so what the session opens on, what is recorded as the revert
+target, and the whole effort-axis lifecycle are CALLS now, not text. The regexes they
+replace were deleted rather than kept beside them: a brittle term next to a real one
+contributes nothing but false alarms. Two structural terms remain, both about facts no
+pure function can hold — the import scan (a back door is an import, not a value) and
+the I1 wiring (both axes' baselines declared, set, cleared, used, and captured before
+any per-action switch).
+
+The two defect shapes an audit proved invisible are now executable checks, and both
+were confirmed to FAIL when reintroduced: `?? opts.model` in the session-open
+derivation (BG22 on the opening path) and reverting the effort axis to the LIVE level
+rather than the OPENING one (BG18). A third, found by mutation while writing them, is
+new coverage: `decideEffortSwitch` dropping its vocabulary validation killed nothing,
+because every fixture on that axis fed it valid levels — so BG21's rule is now
+asserted on the effort axis too.
 
 ### The roster's own teeth
 
