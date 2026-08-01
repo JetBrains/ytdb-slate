@@ -7,6 +7,7 @@ This repo is a [pi package](https://pi.dev/docs/latest/packages) providing the *
 - Extension entry point: `extension/index.ts`
 - Shipped doctrine docs: `docs/`
 - Default branch: `main`
+- Finding tags — `AD6` in this file, `AD41`/`RG2` and friends in code comments — are findings from slate's own adversarial-review rounds. They are numbered **per round**, so the same tag can denote different findings in different reviews (§ Packaging rules' `AD6` is not the `AD6` of the tier-1 CI review), and they resolve only inside the PR or track discussion that raised them. Every citation here therefore states its substance in prose; the tag is provenance, nothing more.
 
 ## Dogfooding
 
@@ -39,6 +40,15 @@ The four checks, with the commands that reproduce them verbatim on a laptop (aft
 
 All three tier-1 verification scripts (packaging guards, load check, resolver checks) share one exit-code contract: **0** every check passed · **1** a check failed · **2** refused to start (a missing tool, a bad `--repo`, or an environment that cannot support a meaningful run). A `2` is never a defect report — it means nothing was verified.
 
+**When one fails**, that contract is where to start. A `2` is the environment or the invocation: read the single `verification: …` line it prints, which names the missing tool, the bad path or the version mismatch and, where there is one, the remedy — there is nothing to debug in the code yet. A `1` is a real finding, and the failing `CHECK … FAIL — <detail>` line is written to be the explanation rather than a pointer to one:
+
+- **typecheck** — `tsc` prints `file(line,col): error TS…`; the source is what is wrong, and a re-run costs about a second.
+- **packaging guards** — the detail names the offending manifest field or shipped path. A failure under `--self-test` is the opposite situation: a guard can no longer detect its own violating mutation, so fix the guard, not the manifest.
+- **load check** — on failure the raw rpc stdout/stderr of both pi runs is kept and its path printed (`artifacts: …`); the detail line is a summary of those streams, so read them before theorising.
+- **resolver checks** — the temp fixtures are removed on exit, but the pipeline is pure and deterministic: the detail line plus a re-run is the whole evidence trail.
+
+For the ladder, a NOT RUN is neither pass nor fail; `verification/README.md` carries the table of what to do about each one.
+
 **Re-run obligations** (the same imperative as the two sections below):
 
 - **Re-run the packaging guards after touching any packaging-relevant manifest field** — the `files` whitelist, `peerDependencies`, `dependencies`, `keywords`, `scripts` — and after adding, moving or deleting a file under `extension/` or `docs/`, because the pack layer asserts the *real* `npm pack` file list, not the manifest. The `files` whitelist is asserted by **exact equality** (`files-exact`), so a deliberate whitelist change must update `FILES_EXACT` in `verification/packaging-checks.mjs` **in the same commit**. Run `--self-test` too: it re-runs every guard against the real input carrying one violating mutation and requires it to fail.
@@ -57,7 +67,7 @@ This file used to say "pi exits 0 even when extension loading fails — success 
 
 `verification/run-load-check.sh` encodes all of this so nobody has to remember it: `L1` reads the exit code, `L2` **both** stderr markers, `L3` the stdout `extension_error` channel, `L4`/`L5` the registered tool set through the `verification/ci-canary.ts` positive control, `L6` which copy of slate was loaded.
 
-**And the process trap that most likely produced the wrong claim:** checking a process's exit code **through a pipe** reads the *pipeline's* status, not the process's — `pi … | head; echo $?` prints `head`'s `0` no matter what pi did. Capture to a file first, or use `PIPESTATUS` / `set -o pipefail`, before concluding anything about an exit code.
+**And the process trap that most likely produced the wrong claim:** `$?` after a pipeline is the **last** command's status, not the piped process's. Measured on a deliberately broken extension: run directly, pi exits `1`; run as `pi … 2>&1 | head -1`, `$?` is `0` — while `${PIPESTATUS[0]}` for that same pipeline is still `1`, and under `set -o pipefail` the pipeline itself exits `1`. So read a real exit code one of three ways: do not pipe, take `${PIPESTATUS[0]}`, or `set -o pipefail` first — which is what every script in `verification/` does.
 
 ### Verification ladder (global model-default restore)
 
@@ -79,13 +89,15 @@ This file used to say "pi exits 0 even when extension loading fails — success 
 - Pi-bundled SDK packages (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `typebox`) must stay in `peerDependencies` with version `"*"` — never bundle them, and they must **never** appear in `dependencies`.
 - **The devDependency carve-out.** The same four packages are *also* pinned to exact versions in `devDependencies`, so the typecheck and the load check run against one known SDK. That is correct and has nothing to do with bundling: `devDependencies` are never installed by consumers. Only `dependencies` would be.
 - **No install-time lifecycle script, ever.** `prepare`, `postinstall`, `install`, `preinstall` execute on **every consumer install**; none of them may be added to `scripts`.
-- The `files` whitelist in `package.json` **must include `docs/`**: the doctrine points at those files at package-resolved paths at runtime, so a publish that omits them ships a broken doctrine (adversarial finding AD6).
+- The `files` whitelist in `package.json` **must include `docs/`**: the doctrine points at those files at package-resolved paths at runtime, so a publish that omits them ships a doctrine whose every citation dangles — an orchestrator told to read the workflow rules would find nothing there. It is a rule rather than a note because adversarial review raised it as a finding (`AD6` in that round), before any release could hit it.
 - The `files` whitelist is asserted by **exact equality**, so changing it deliberately means updating the guard in the same commit (see § Tier-1 CI).
 - Keep `"keywords": ["pi-package"]` — it is what lists the package in the pi.dev gallery.
 
 `verification/run-packaging-checks.sh` enforces every rule above. It asserts the manifest *and* the real `npm pack --dry-run` file list, because the manifest alone is not enough: npm expands a whitelisted directory **recursively** and a `files` whitelist makes `.npmignore`/`.gitignore` inert, so a stray file under `extension/` or `docs/` ships invisibly behind a perfectly correct manifest — hence the pack-output policy (allowed file kinds only, no junk or secrets, every doctrine doc the extension references actually shipped). Details: `verification/README.md`.
 
-## Release & versioning (AD8)
+## Release & versioning
+
+Releases are pinned end to end: this repo dogfoods the exact version it publishes (`.pi/settings.json` pins `npm:ytdb-slate@<version>`) and consumers move only by bumping a pin of their own. That is what makes the order of these steps matter rather than being a preference.
 
 1. If you are targeting a newer pi release, bump the four SDK pins in `devDependencies` to it and refresh `package-lock.json`. Do this **in step with the pi release you target**: the typecheck only sees upstream SDK drift *after* such a bump, so until you bump, a breaking SDK change is invisible here. That is a recorded **accepted risk**, not an oversight — nothing notifies us that upstream moved.
 2. Bump `version` in `package.json`.
