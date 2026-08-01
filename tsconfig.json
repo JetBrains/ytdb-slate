@@ -1,0 +1,94 @@
+{
+  // TYPE-CHECK ONLY — `npm run typecheck` (tsc --noEmit). There is deliberately
+  // no build step in this repo: pi loads extension/*.ts as-is through jiti,
+  // which STRIPS types without checking them. This config exists solely so the
+  // types jiti ignores are actually checked; nothing here affects how pi loads
+  // anything, and no emit is ever produced.
+  "compilerOptions": {
+    "noEmit": true,
+
+    // --- Module system: match how pi/jiti actually loads these files ---------
+    // jiti transpiles each file individually and resolves specifiers itself; it
+    // does not impose Node's ESM/CJS file-type split (this package.json has no
+    // "type" field, yet the sources use ESM syntax and load fine). "preserve" +
+    // "bundler" is the faithful model, traced against the installed SDKs' real
+    // export maps: @earendil-works/pi-ai exposes "./compat" ONLY through its
+    // `exports` map (node10-style resolution cannot see it at all), all three pi
+    // packages are "type": "module" with `types` conditions, and the sources
+    // import relatives with an explicit ".ts" extension. "nodenext" would be
+    // WRONG here: with no "type" field it classifies every source as CJS and
+    // reports TS1479 on each ESM-only SDK import — a split jiti does not have.
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    // Both hold today with zero errors, and both are what jiti's per-file
+    // transpile actually requires.
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    // --- Runtime surface ----------------------------------------------------
+    // pi requires Node >= 22.19; this repo runs on Node 24.
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+
+    // --- Strictness ---------------------------------------------------------
+    // Everything below is GREEN on the current tree. Adding a flag that is not
+    // green turns this gate into a nuisance nobody runs, so any future addition
+    // comes with the fix in the same change.
+    "strict": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "forceConsistentCasingInFileNames": true,
+
+    // REQUIRED, not a convenience: with skipLibCheck off, the only additional
+    // errors are 9 inside third-party declarations vendored under the pi SDK's
+    // own node_modules (@anthropic-ai/sdk/internal/types.d.mts x6,
+    // @google/genai/dist/genai.d.ts x3). They are unfixable from this repo and
+    // say nothing about slate's code.
+    "skipLibCheck": true
+
+    // --- Evaluated and DEFERRED (measured 2026-08-01, first-ever typecheck) --
+    // Recorded so these are not silently re-litigated. NONE of them found a
+    // genuine type defect: every site below was hand-checked and is safe today.
+    // Counts are from that measurement, against this same flag set.
+    //
+    // "noUncheckedIndexedAccess": 9 errors, all provably-safe indexing that TS
+    //   cannot see (an adjacent length check or a loop bound). Cheap and
+    //   mechanical to fix (~30 min) and WORTH ADOPTING: the value is catching a
+    //   future UNguarded index. Deferred only to avoid colliding with
+    //   concurrent edits in extension/*.ts; scheduled as its own action.
+    //
+    // "exactOptionalPropertyTypes": 23 errors — 17 in slate-owned declarations
+    //   (each fixed by `prop?: T` -> `prop?: T | undefined`) and 6 at the SDK
+    //   boundary, where pi's own options types declare `prop?: T` and slate
+    //   passes an explicit undefined. Verified harmless at runtime: pi reads
+    //   those with value-based fallbacks (`let model = options.model`,
+    //   `if (options?.parentSession)`), and persisted records go through
+    //   JSON.stringify, which drops undefined-valued keys. Moderate cost, low
+    //   value — deferred, not rejected.
+    //
+    // "noPropertyAccessFromIndexSignature": REJECTED. 50 errors, 44 of them
+    //   `t.id` / `t.episodeIds`-style reads of parsed JSON typed as
+    //   Record<string, unknown> in extension/state.ts, plus 6 process.env reads.
+    //   Pure style churn, zero safety gain.
+    //
+    // "erasableSyntaxOnly": not adopted. 7 errors, all constructor parameter
+    //   properties (extension/state.ts, extension/threads.ts). jiti transpiles
+    //   them fine; only relevant if this repo ever needs Node's native
+    //   --experimental-strip-types.
+  },
+
+  // extension/** is the shipped code. verification/probe.ts is TypeScript that
+  // imports the SDK and drives the real model-default module, so it is checked
+  // too. verification/*.mjs (the resolver-check harness) is plain, unannotated
+  // JavaScript: checking it would need allowJs+checkJs and would measure a
+  // different codebase, so it is excluded.
+  "include": ["extension/**/*.ts", "verification/probe.ts"]
+}
