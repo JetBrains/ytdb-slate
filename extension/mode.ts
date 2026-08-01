@@ -22,6 +22,7 @@ import type { SlateHandoffHooks } from "./handoff.ts";
 import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "./model-router.ts";
 import {
 	DESIGN_PRINCIPLES_DOC,
+	MODEL_ROUTING_DOC,
 	PR_PUBLISHING_DOC,
 	REVIEW_RULES_DOC,
 	TRACK_WORKFLOW_DOC,
@@ -134,12 +135,14 @@ function buildWorkerExtensionsRule(extensions: WorkerExtensionSet, n: number): s
 // ----------------------------------------------- the action-routing rule --
 
 /**
- * ONE table cell. The routing rule below is a TABLE, and a table has exactly
- * two structural characters: the newline that ends a row and the "|" that ends
- * a cell. Those two are the only ones removed from a cell's text (with the rest
- * of the C0/C1 controls, which cannot render anyway) — everything else,
- * including the "≥" and "/" the profile table's own guidance strings use, is
- * carried verbatim. This is NOT sanitizeForDoctrine: see buildRoutingRule.
+ * ONE table cell — and the ONLY way a string reaches the routing rule, model
+ * specs included (see buildRoutingRule for why that word "only" is the whole
+ * defence). The rule below is a TABLE, and a table has exactly two structural
+ * characters: the newline that ends a row and the "|" that ends a cell. Those
+ * two are the only ones removed from a cell's text (with the rest of the C0/C1
+ * controls, which cannot render anyway) — everything else, including the "≥"
+ * and "/" the profile table's own guidance strings use, is carried verbatim.
+ * This is NOT sanitizeForDoctrine: see buildRoutingRule.
  */
 function cell(value: unknown): string {
 	return typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f\u009b|]+/g, " ").trim() : "";
@@ -213,14 +216,34 @@ function measuredCell(candidate: RouterCandidate): string {
  *
  * NOT PASSED THROUGH sanitizeForDoctrine, and that is deliberate: that
  * sanitizer strips "|" (among other markdown structure), which would destroy
- * the table. It is safe to skip here because nothing interpolated below is
- * third-party text the way an extension's tool description is — every value is
- * either frozen repo data (model-profiles.ts, deep-frozen, reviewed at each
- * research refresh) or a model spec that already passed `isModelSpec`, which
- * rejects whitespace, control and bidi characters. What still IS enforced is
- * the table's own grammar: `cell()` above removes the newline and the "|" that
- * carry structure, so no data value can forge a row, a column or a numbered
- * directive. Do not "fix" this by wrapping the rule in sanitizeForDoctrine.
+ * the table. What protects the table instead is `cell()`, under a MECHANICAL
+ * rule rather than a judgement about the data: every interpolated STRING goes
+ * through it — the model spec included — and everything else interpolated is a
+ * number this module formats or a literal it owns. No value is exempted on the
+ * grounds that something upstream already validated it.
+ *
+ * That exemption is precisely the defect this comment used to justify. The spec
+ * was rendered raw because it had passed `isModelSpec`, which does reject
+ * whitespace, control and bidi characters — but NOT "|", the one character the
+ * table's grammar is made of. `isModelSpec("p/evil|forged")` is true, and such a
+ * spec rendered an eighth cell: a forged column. It was latent only because a
+ * piped spec cannot acquire a profile and so never becomes a candidate, which is
+ * exactly the premise deferred issue 001 (user-supplied profiles) removes. Do
+ * not "fix" this by wrapping the rule in sanitizeForDoctrine — and do not exempt
+ * a value from `cell()` because it looks pre-validated.
+ *
+ * WHAT `cell()` DELIBERATELY DOES NOT DO, and the trigger for changing it: it is
+ * STRUCTURAL only, so bidi and zero-width characters survive it and a cell has
+ * no length cap. Both are acceptable TODAY and for reasons that are about the
+ * inputs, not the sanitizer: the guidance columns are frozen repo data reviewed
+ * at each research refresh (the longest field ships at ~73 characters), a spec's
+ * invisible characters ARE rejected upstream by `isModelSpec`, and doctrine text
+ * is model-facing rather than terminal-rendered, so a bidi override misleads no
+ * display slate owns. A cap here would instead truncate a legitimately grown
+ * research field silently. Issue 001 is the trigger to revisit both: the moment a
+ * profile can come from the user, this boundary needs the length cap and the
+ * invisible-character strip that sanitizeForDoctrine already applies to the
+ * third-party text in rule 11.
  *
  * TWO things are never rendered. A profile's `nonPreferred` REASON string and
  * anything else carrying a research trace tag ("[O2]", "[G1a]", …) point at a
@@ -235,8 +258,14 @@ function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: 
 	);
 	if (candidates.length === 0) return "";
 	const rows = candidates.map(
+		// `cell(c.spec)`, not `c.spec`: the spec is data like every other cell, and
+		// the validator it passed upstream does not know this table exists. A spec
+		// that actually needs sanitizing then reads differently here than in a guard's
+		// rejection message, which quotes it raw — accepted deliberately: such a spec is
+		// pathological and unroutable today, and a forged column in a prompt loaded on
+		// every turn is by far the worse of the two.
 		(c) =>
-			`   ${c.spec}|${money(c.inUsdPerMTok)}/${money(c.outUsdPerMTok)}|${tokens(c.contextWindow)}|${tierCell(c)}|` +
+			`   ${cell(c.spec)}|${money(c.inUsdPerMTok)}/${money(c.outUsdPerMTok)}|${tokens(c.contextWindow)}|${tierCell(c)}|` +
 			`${measuredCell(c)}|${cell(c.profile?.routeFor)}|${cell(c.profile?.avoidFor)}`,
 	);
 	// Only the markers that actually appear are explained — an unused legend
@@ -255,8 +284,10 @@ function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: 
 	// The base a NEW thread starts on (model-router D48). `cheapest` is the
 	// resolver's own answer; the first candidate is the floor for a fabricated
 	// resolution that carries candidates but no `cheapest`, and the parenthetical
-	// disappears entirely rather than naming an empty model.
-	const base = typeof router.cheapest === "string" && router.cheapest !== "" ? router.cheapest : (candidates[0]?.spec ?? "");
+	// disappears entirely rather than naming an empty model. Through `cell()` for
+	// the same reason the row's spec is: this one lands in PROSE, where a newline
+	// would forge a numbered directive rather than merely a column.
+	const base = cell(typeof router.cheapest === "string" && router.cheapest !== "" ? router.cheapest : candidates[0]?.spec);
 	const newThreadBase = base === "" ? "" : ` (${base} for a new thread)`;
 	// The evidence-gap policy is the ONE routing behaviour a project can invert,
 	// so it is stated as it is configured rather than as both possibilities.
@@ -273,7 +304,9 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    Prices are base rates: some models bill a long-context multiplier above a
    token threshold, and a mid-thread model switch drops the prompt cache.
    DOCTRINE ONLY, not code-enforced: keep review and gate actions on measured
-   levels, and honour a REFUSE in an avoid cell.`;
+   levels, and honour a REFUSE in an avoid cell. Mechanics and config:
+   ${MODEL_ROUTING_DOC}
+   — read it only for an unusual routing decision; skip if already in context.`;
 }
 
 function buildDoctrine(
