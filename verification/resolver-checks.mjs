@@ -1732,7 +1732,7 @@ try {
 				["a stored level that is STILL measured is kept, not re-derived", verdict(stillOk) === "proceed:p/base@low", verdict(stillOk)],
 				["a model with no measured level at all yields no level", nothingMeasured.kind === "proceed" && nothingMeasured.effort === undefined && nothingMeasured.effortJudgedFor === undefined, verdict(nothingMeasured)],
 				// The record is NOT rewritten by this: the verdict still echoes the stored value,
-				// and no re-seed is signalled. Pinned as observed \u2014 a later fix that decides to
+				// and no re-seed is signalled. Pinned as observed — a later fix that decides to
 				// persist the correction has to update this term deliberately.
 				["the stale value is corrected for the ACTION, not persisted", refreshed.every((v) => v.baseEffort === "low" && v.baseReseeded === undefined), refreshed.map((v) => [v.baseEffort, v.baseReseeded])],
 				["an EXPLICIT level on a gap still warns and is still marked", askedGap.kind === "proceed" && askedGap.effort === "low" && askedGap.effortUnmeasured === true && warns(askedGap, /NO capability measurement/).length === 1, [verdict(askedGap), askedGap.warnings]],
@@ -2531,8 +2531,8 @@ try {
 			// WHICH MODEL a live worker session must be on for this action — extracted from
 			// threads.ts into a pure helper precisely so it could be pinned here, the same
 			// move that made the seven dispatch guards checkable. Its precedence, in order:
-			// a plan target unless it is `openOnly` \u2192 no baseline \u21d2 keep \u2192 a failover holds
-			// the session \u21d2 keep \u2192 revert to the baseline \u2192 already there \u21d2 keep.
+			// a plan target unless it is `openOnly` → no baseline ⇒ keep → a failover holds
+			// the session ⇒ keep → revert to the baseline → already there ⇒ keep.
 			// TQ7: `baseline` is a BRANDED OBJECT carrying both axes, produced only by
 			// captureSessionBaseline — a bare spec is no longer a value the decision accepts.
 			// The brand is erased at run time, so a fixture writes the plain `{ model }` shape.
@@ -2549,16 +2549,16 @@ try {
 			// `openOnly` is the ONE plan target that is not an instruction to move a live
 			// session: the router-OFF pin only ever chose what a NEW session opens on.
 			// Switching a reused session onto it would undo a failover and could strand a
-			// thread whose pin lost its credentials (BG16). This is the shape \u2014 and the only
-			// shape \u2014 that catches an openOnly regression: with the flag honoured the pin
+			// thread whose pin lost its credentials (BG16). This is the shape — and the only
+			// shape — that catches an openOnly regression: with the flag honoured the pin
 			// falls through to the revert rule; without it, it becomes a plan switch.
 			const pinReverts = outcome({ planned: "p/pin", openOnly: true, current: "p/x", baseline: { model: "p/pin" } });
 			const pinUnderFailover = outcome({ planned: "p/pin", openOnly: true, current: "p/fb", baseline: { model: "p/pin" }, failoverHeld: true });
 			const pinNoBaseline = outcome({ planned: "p/pin", openOnly: true, current: "p/x" });
 			const pinAlreadyThere = outcome({ planned: "p/pin", openOnly: true, current: "p/pin", baseline: { model: "p/pin" } });
 			const explicitFalse = outcome({ planned: "p/pin", openOnly: false, current: "p/x", baseline: { model: "p/pin" } });
-			// An action that names no model REVERTS to what the session opened on \u2014 the rule
-			// that makes `model` per-ACTION (BG22) \u2014 unless a failover holds it (BG16).
+			// An action that names no model REVERTS to what the session opened on — the rule
+			// that makes `model` per-ACTION (BG22) — unless a failover holds it (BG16).
 			const omitReverts = outcome({ current: "p/x", baseline: { model: "p/open" } });
 			const omitUnderFailover = outcome({ current: "p/fb", baseline: { model: "p/open" }, failoverHeld: true });
 			const omitNoBaseline = outcome({ current: "p/x" });
@@ -2666,15 +2666,12 @@ try {
 				{ spec: "p/dear", tier: 2, price: 2, measured: ["medium"], ladder: ["medium"] },
 			]);
 			const routerOn = lifecycle({ id: "t3", baseModel: "p/cheap", baseEffort: "medium" }, on);
-			// THE WIRING, structurally. Everything above pins the RULE — which baseline is
-			// correct and what the other one costs — but the caller is the one that has to
-			// obey it, and threads.ts cannot be loaded here. So the two facts that make the
-			// composition right are asserted against its source, in the shape of the `wiring`
-			// check: the session-open plan drops the `model` argument, and the baseline is read
-			// from the SESSION that plan opened rather than from the routed plan. Weaker than
-			// execution, and it is what stands between this rule and a caller that quietly
-			// stops following it — a mutation that plans the open WITH the argument survives
-			// every behavioural term above and dies here.
+			// THE WIRING. Everything above pins the RULE — which baseline is correct and what
+			// the other one costs — but the caller is the one that has to obey it, and
+			// threads.ts cannot be loaded here. That used to make the two facts that complete
+			// the composition regexes over the caller's source: the session-open plan drops the
+			// `model` argument, and the baseline is read from the SESSION that plan opened
+			// rather than from the routed plan.
 			// TQ4: the caller's half is EXECUTABLE now. `planSessionOpen` decides what the
 			// session opens on and `captureSessionBaseline` decides what is recorded as the
 			// revert target, both pure — so the two facts that used to be regexes are checks.
@@ -2761,14 +2758,14 @@ try {
 			const onThread = { id: "t2", baseModel: "p/base" };
 			const onWithEffort = plan({ resolution: on, thread: onThread, requestedEffort: "max" });
 			const onStripped = plan({ resolution: on, thread: onThread });
-			// THE WIRING, structurally — the caller is the one that has to strip them, and
-			// threads.ts cannot be loaded here (the lesson from the opening-baseline check,
-			// where a caller-side mutation survived every behavioural term). Both arguments
-			// must be dropped in the SAME call, and the open model must come from that plan.
-			// EXECUTABLE now (TQ4/RG2): `planSessionOpen` IS the stripping, so the claim is a
-			// call, not a regex over the caller's object literal. The regex it replaces
-			// enumerated two keys in two orders and would have false-failed on a third — the
-			// brittleness that made an implementer doubt a good fix.
+			// THE WIRING — the caller is the one that has to strip them, and threads.ts cannot
+			// be loaded here (the lesson from the opening-baseline check, where a caller-side
+			// mutation survived every behavioural term). Both arguments must be dropped in the
+			// SAME call, and the open model must come from that plan. This was a regex over the
+			// caller's object literal; it is EXECUTABLE now (TQ4/RG2), because `planSessionOpen`
+			// IS the stripping — so the claim is a call. The regex it replaces enumerated two
+			// keys in two orders and would have false-failed on a third: the brittleness that
+			// made an implementer doubt a good fix.
 			const openWithArgs = route.planSessionOpen({ resolution: off, thread, requestedEffort: "max", requestedModel: "p/x", profiles: vetted });
 			// The open model is taken from THAT plan, however the caller expresses it (a
 			// ternary, an if, a helper) — the property, not one spelling. What the caller does
@@ -2778,7 +2775,7 @@ try {
 			// this check was asked to encode. Pinning an in-flight shape is how a check ends
 			// up vouching for the weaker of two behaviours; a follow-up should pin the
 			// stronger one once it is committed.
-			checkAll("route-open-plan-inputs", "the plan that decides what a NEW session opens on strips BOTH of the action's arguments: with the action's `effort` still in it that plan can REJECT — an explicit level the thread's pin does not offer — and a rejection yields no model, so the session opens on the host and the pin is silently dropped (BG25); stripped, the same dispatch resolves the pin. Asserted on both router states, and structurally on the caller, which is the side that has to do the stripping", [
+			checkAll("route-open-plan-inputs", "the plan that decides what a NEW session opens on strips BOTH of the action's arguments: with the action's `effort` still in it that plan can REJECT — an explicit level the thread's pin does not offer — and a rejection yields no model, so the session opens on the host and the pin is silently dropped (BG25); stripped, the same dispatch resolves the pin. Asserted on both router states, and on the caller's side of it too — by CALLING planSessionOpen, which is the stripping, rather than by matching the caller's source for it", [
 				["router OFF: the action's effort makes the open plan REJECT", withEffort.kind === "reject" && /is not on p\/pin's effort ladder/.test(why(withEffort)), verdict(withEffort)],
 				["...and a rejection carries no model for the caller to open on", withEffort.model === undefined, withEffort.model],
 				["...while the STRIPPED plan resolves the thread's pin", verdict(stripped) === "proceed:p/pin@undefined" && stripped.openOnly === true, [verdict(stripped), stripped.openOnly]],
@@ -2790,7 +2787,7 @@ try {
 
 		await section("route-switch-lifecycle-i1", async () => {
 			// INVARIANT I1: the MODEL axis and the EFFORT axis obey the SAME per-action
-			// lifecycle rule \u2014 a value named by the action applies to THAT action, an action
+			// lifecycle rule — a value named by the action applies to THAT action, an action
 			// that names none reverts to what the session opened with, and a failover holds
 			// the model axis in place. BG22 needed two fix rounds precisely because this
 			// asymmetry was invisible to every automated net: the effort axis had had its
@@ -3193,7 +3190,7 @@ try {
 			// truncated, or written by another version of slate used to reach the dispatch
 			// path as-is, and the symptom was an exception thrown out of the `thread` tool
 			// from inside a warning message. This is the highest-blast-radius pure function in
-			// the track \u2014 it runs over the user's whole thread history at every restore \u2014 and
+			// the track — it runs over the user's whole thread history at every restore — and
 			// the danger cuts both ways: a MISSED repair crashes a tool, and a FALSE repair
 			// silently destroys a thread the user still needs.
 			const sane = (raw) => {
@@ -3216,7 +3213,7 @@ try {
 				updatedAt: 222,
 			};
 			const roundTrip = sane(wellFormed);
-			// A record nothing can address is DROPPED, and silently \u2014 the caller writes that
+			// A record nothing can address is DROPPED, and silently — the caller writes that
 			// note, because only it knows what the record was.
 			const unaddressable = [
 				["no id", { name: "x" }],
@@ -3240,7 +3237,7 @@ try {
 			// TYPE-CHECK ONLY on the specs and the level (the CQ13/RG1 and BG21 rule): a
 			// malformed-but-STRING value survives untouched, so pi still produces its own
 			// "unknown model" error and route.ts's `storedLevel` still owns the vocabulary.
-			// Repairing here would convert a caller's error into a silent substitution \u2014 the
+			// Repairing here would convert a caller's error into a silent substitution — the
 			// exact class of defect this track spent two rounds removing.
 			const padded = sane({ id: "t1", model: "  p/x  ", baseModel: "not a spec", baseEffort: "HIGH" });
 			const effortBad = sane({ id: "t1", baseEffort: 7 });
