@@ -668,8 +668,9 @@ rule no longer renders otherwise — see `doctrine-untrusted`):
 | router ON, all 9 shipped, draftPRs on | 5 | **4,450** | 61 |
 | UNTRUSTED, router ON, all 9 configured | 4 | **1,948** | 38 |
 
-The routing rule alone: **1,947** portable / 21 lines at 6 models, **2,502** / 24 at
-all nine. To convert: `rendered = portable + (paths × length of your docs
+The routing rule alone: **1,946** portable / 20 lines at 6 models, **2,501** / 23 at
+all nine (as the rule's own text; the check's slice reports one more of each — see the
+convention note below). To convert: `rendered = portable + (paths × length of your docs
 directory)`. Verified identical at a 13-character and a 128-character docs
 directory, while the raw counts moved by 115 per embedded path.
 
@@ -682,12 +683,43 @@ repo-owned content a maintainer controls, so a doc rename should move the budget
 where subtracting whole paths would make it free. **This check is authoritative**,
 because it is the definition that fails a run.
 
-The two tables agree exactly on the router-OFF rows (1,929 / 1,948). The router-ON
-rows differ by 6–17 characters, and that is fixture, not disagreement: this suite
-renders synthetic candidates with a uniform 272,000-token context window and its own
-`cheapest`, while the doc measures a real resolution — and the doc's ON rows predate
-`74a728c`, which changed what `measuredCell` renders. Neither is wrong; they are
-measuring the same rule over slightly different candidate data.
+**How the two tables relate, and one difference that is NOT explained.** They agree
+exactly on the router-OFF rows (1,929 / 1,948) and on every LINE count. The router-ON
+rows differ, and an earlier version of this paragraph explained that away by saying
+the doc's ON rows predate `74a728c`. **That was wrong** — `9d32ff5` wrote them and is
+a descendant of `74a728c`, and they reproduce at HEAD. The explanation is withdrawn
+rather than replaced with a better-sounding one.
+
+What is actually established:
+
+- the difference lives **entirely in the 6→9-model increment**. Adding the three
+  cheap-tier models costs **555** portable characters here and **578** in the doc —
+  a residual of **23**. The 6-model rows differ by only 5, the size of the ctx column
+  and a price-row choice;
+- this side's 555 is fully accounted: 524 characters of model rows plus the 31-character
+  `; none = pi's own level applies` legend clause those three models switch on;
+- **the 23 characters are UNEXPLAINED.** Everything inspectable was ruled out: the
+  `measured` cells for those three read `none` from profile data both sides; their
+  `routeFor`/`avoidFor` text is frozen repo data; only `claude-sonnet-5` has a second
+  price row and it sits in the first six, so `effectivePriceRow` cannot move the
+  increment; the thread-default spec is 19 characters either way. The ctx column is
+  the one input this suite cannot reproduce — two of those three profiles record
+  `contextWindow: null`, so the doc's figures come from pi's live registry, which is
+  not available here — but it can move a row by at most about one character, so it
+  does not cover 23. **Stated as unexplained rather than hedged.**
+
+Which to trust: **this table for the budget**, because these are the figures
+`doctrine-budget` bounds and the definition that fails a run; **the doc's table for
+what a user will actually see**, because it measures a real resolution against pi's
+real registry rather than synthetic candidates with a uniform 272,000-token window.
+The gap is small and bounded, and it is a difference in the candidate DATA being
+rendered, not in the rule or the convention.
+
+One convention note, since it caused an apparent line-count mismatch: the check's
+`ruleOf` slice begins at the newline BEFORE the rule's number, so the figures it
+reports internally are one character and one line larger than the rule's own text.
+The rule proper is **1,946** portable characters / 20 lines at six models and
+**2,501** / 23 at all nine — line counts identical to the doc's.
 
 Model router (`extension/model-router.ts`):
 
