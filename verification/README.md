@@ -639,9 +639,39 @@ rather than tidy. The group is voided by `profiles-load`, because
 | --- | --- |
 | `doctrine-router-off` | **I2** — with the router off the rule contributes NOTHING. Every off-shaped resolution a session can hand the doctrine renders **byte-identically** to the default 5-argument call: explicitly off, off *while carrying candidates* (the shape that isolates the `on` flag — without it a guard weakened to `on === undefined` survives, because the empty-list guard catches it two lines later), on-with-no-candidates, on-with-only-unusable-candidates, a non-array candidate list, and no resolution at all. Asserted with and without the worker-extension rule beside it, plus a non-vacuity term proving the same helper *does* render the rule when the router is on. Note that `off-doctrine` above reaches this path only by OMISSION — it calls the helper with five arguments, so `getRouter` takes its default |
 | `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
-| `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Three residuals are pinned **as observed**, not as good: `cell()` is structural only, so bidi and zero-width survive it; cell length is unbounded; and the SPEC is not passed through it at all — see the finding below |
+| `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. Two residuals remain pinned **as observed**, not as good: `cell()` is structural only, so bidi and zero-width survive it, and cell length is unbounded |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a recorded fact. Bounds carry ~60% headroom over what the shipped table renders today (2403 chars, 22 lines, 925 chars of prose, longest row 184, at `b092f92`), so wording changes and a few new models pass while a change that doubles the rule fails a check instead of a review. Bounded separately: the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row — because `cell()` imposes no cap, so a research refresh writing a 2000-character `routeFor` would bloat every prompt silently — and the rule's share of the whole doctrine, asserted to be the *only* thing router-on adds |
+| `doctrine-budget` | a **guard**, not a recorded fact — and measured on an **install-invariant** figure, which is the only way it can be a guard at all. The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the length of wherever the package is installed: the same router-off doctrine measures **1,968** chars under a 13-character docs directory and **2,103** under this repo's 58-character one — 3 embedded paths × 45 characters, and 4 or 5 paths in the other configurations. A raw-count budget passes on one machine and fails on another, and the failure reads as bloat rather than as a longer home directory. Every bound is therefore on the text with each occurrence of the docs **directory** removed, keeping the filename: invariant by construction (no path count is assumed, so a 4- or 5-path configuration normalises the same way) while still charging a maintainer for the part they control — subtracting whole paths instead would stop a doc rename from ever registering. Bounded separately, with ~55% headroom: the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row — because `cell()` imposes no cap, so a research refresh writing a 2,000-character `routeFor` would bloat every prompt silently — and the rule's share of the whole doctrine, asserted to be the *only* thing router-on adds. Two terms guard the normalisation itself, since a `portable()` that silently became the identity would put the bounds back on raw counts |
+
+**Recorded sizes, and why a re-measurement will not match yours.** The doctrine
+embeds ABSOLUTE doc paths, so every raw figure below is a function of the install
+location: each character of docs-directory length costs 3–5 characters of rendered
+doctrine, one per embedded path, and which paths are embedded depends on the
+configuration. A maintainer re-measuring on a different machine will get different
+raw numbers and **nothing is wrong**. The `portable` column — the text with each
+occurrence of the docs directory removed — is what `doctrine-budget` bounds, and is
+the column to compare. Measured against `e52023d`, with the harness's own fixtures
+(a 13-character docs directory; the same rows at this repo's 58-character path are
+given for cross-reference, since that is where the module owner measured):
+
+| configuration | raw @13 | raw @58 | lines | portable |
+| --- | --- | --- | --- | --- |
+| router OFF, no worker-ext, draftPRs off | 1,968 | 2,103 | 38 | **1,929** |
+| router OFF, draftPRs on | 2,000 | 2,180 | 38 | **1,948** |
+| router OFF + worker-ext, draftPRs on | 2,255 | — | 44 | **2,203** |
+| router ON, 6 models, draftPRs on | 3,960 | 4,179 | 58 | **3,895** |
+| router ON, 6 models + worker-ext | 4,215 | 4,464 | 64 | **4,150** |
+| router ON, all 9 shipped profiles | 4,538 | 4,757 | 61 | **4,473** |
+| untrusted project | 1,968 | 2,103 | 38 | **1,929** |
+
+The routing rule alone: **1,960** raw / 1,947 portable / 21 lines at 6 models, and
+**2,538** raw / 2,525 portable / 24 lines at all nine. Two caveats on cross-reading
+the raw columns: the worker-ext rows also embed the fixture's extension unit path,
+so they are not comparable between fixtures at all; and the router-ON rows carry the
+thread-default spec, so a different candidate set shifts them by a few characters
+independently of the install path. The portable figures were verified identical at a
+13-character and a 128-character docs directory, while the raw ones moved by 115 per
+embedded path.
 
 Model router (`extension/model-router.ts`):
 
@@ -972,6 +1002,26 @@ checklist walk over the exported `ADOPTED_*_FIELDS`), and only the wrong-TYPE ca
 was covered per field — absent was not, so a bare record now has to fill every
 default in silence.
 
+Both corrections that followed `e52023d` were mutation-proved in turn, seven
+mutations, all killed. On `mode.ts`: `cell()` removed from the SPEC (the original
+gap restored); `cell()` removed from the PROSE thread-default (a newline forging a
+numbered rule); the doc-pointer line removed; a SECOND doc-pointer line added; the
+pointer DISPLACED out of its closing position; the rule's prose doubled. On
+`model-profiles.ts`: a profile growing a 2,000-character `routeFor`. The prose
+doubling was run at BOTH a 13-character and a 128-character docs directory and fails
+at both — the budget still bites regardless of install path — while a 128-character
+install path on its own leaves the whole group green, which is the other direction.
+
+The row-detection pattern needed care rather than adoption. Routing the spec through
+`cell()` renders `p/a|b` as `p/a b`, and the old `/^ {3}\S+\/\S*\|/` stopped
+matching — silently counting ZERO rows, which turns a row check into no check.
+The relaxation suggested with the fix, `/^ {3}\S[^|]*\|/`, was **not** adopted: it
+matches the table's own header line (`   this session (spec|$in/$out per Mtok|…`),
+which carries six pipes like a row and would have inflated every row count by one.
+Anchoring on the TIER cell instead (`t<digits>` or `t?`, optionally `!`) admits a
+sanitized or hostile spec of any shape while excluding header, legend and prose, and
+fails loudly if the column order changes rather than quietly matching nothing.
+
 The **doctrine routing group** was mutation-proved when written, twelve mutations,
 all killed — and one of them found a hole in the checks rather than in the code,
 which is recorded because the naive version looked complete. Killed on `mode.ts`:
@@ -992,19 +1042,24 @@ looked like it covered I2 and did not cover the flag at all. It now includes an
 no other reason than to isolate which guard is load-bearing. A fixture set that only
 contains shapes production emits cannot tell two guards apart.
 
-> **FINDING for the owner of `extension/mode.ts`, pinned as observed rather than
-> fixed** (this harness owns `verification/` only). Every DATA cell goes through
-> `cell()`; the **spec does not** — it is interpolated raw. `buildRoutingRule`'s
-> comment justifies that by saying a spec "already passed `isModelSpec`, which
-> rejects whitespace, control and bidi characters", and that is true but
-> **incomplete**: `isModelSpec("p/evil|forged")` returns `true`. `|` is the one
-> character the table's grammar is made of, so such a spec renders an **eighth cell** —
-> a forged column. It is LATENT, not live: what prevents it today is neither the
-> sanitizer nor `isModelSpec` but that a piped spec cannot acquire a profile and so
-> never becomes a candidate — a premise deferred issue 001 (user-supplied profiles)
-> would change. The damage is bounded to a column rather than a row only because
-> `isModelSpec` *does* stop every row-forging character, which `doctrine-inject`
-> asserts as the third link in that chain.
+**That finding is CLOSED, by `e52023d`, and closing it found a second one.** The
+harness reported that the model spec was the only value interpolated raw, exempted
+because it had passed `isModelSpec` — which rejects whitespace, control and bidi
+characters but not `|`, the character the table's grammar is made of, so
+`isModelSpec("p/evil|forged")` is `true` and such a spec rendered an eighth cell.
+The fix took the rule rather than the case: every interpolated STRING now goes
+through `cell()` and nothing is exempted for having been validated upstream. Re-
+checking the rest under that rule turned up a value the harness had NOT found —
+`resolution.cheapest`, rendered into the rule's PROSE, where a newline forges a
+numbered directive rather than a column, which is strictly worse. Both are now
+sanitized and both are pinned, along with the thread-default fallback that defers to
+the first candidate's spec.
+
+Worth recording as a lesson about the check rather than the code: `doctrine-inject`
+attacked every DATA cell exhaustively and never attacked the PROSE, because the
+table was where the structure obviously lived. The rule's grammar is not only its
+table — a numbered line is structure too, and it was the unexamined half.
+
 
 `router-w1-canary` was re-validated again after **`bad8dc4`** (BG27 split the message
 in two; the golden master caught the change, which is what it is for). Eight mutants,
