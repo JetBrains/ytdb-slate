@@ -567,8 +567,8 @@ CHECK off-inert        PASS    — empty pattern list → shared empty set, regi
 CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
 CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
       observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
-CHECK roster           PASS    — all 96 expected checks reported exactly once and the counters agree …
-== summary: 96 pass, 1 fail, 0 not run (97 result lines = 96 expected checks + this roster audit) ==
+CHECK roster           PASS    — all 98 expected checks reported exactly once and the counters agree …
+== summary: 98 pass, 1 fail, 0 not run (99 result lines = 98 expected checks + this roster audit) ==
 ```
 
 ### Why the summary counts one more than the roster
@@ -581,7 +581,7 @@ therefore prints `EXPECTED + 1` result lines.
 
 That is the whole of the old off-by-one, and it is now **stated in the output**
 rather than left to be re-derived: the summary prints the identity
-(`97 result lines = 96 expected checks + this roster audit`), and on a run where it
+(`99 result lines = 98 expected checks + this roster audit`), and on a run where it
 does not hold — a deleted check, a duplicate report, a crashed section adding an id
 — it prints the residual as `±N unaccounted — see the roster line`. The roster
 additionally asserts the identity it *can* own: `pass + fail + notrun` equals the
@@ -684,6 +684,8 @@ session's frozen resolution carries:
 | `route-off-ladder-source` | with the router **OFF** the ladder used for effort validation comes from the caller's **injected** profile source and nothing else: it is consulted by spec, it is authoritative (a level off a **known** ladder is refused even for a spec the shipped table has never heard of — the discriminating direction), a spec it **declines** is not judged at all, an absent source, a throwing lookup and an **unreadable ladder** (throwing or non-array) are all **inert** — the level is kept, with no unmeasured marker and no warning — a foreign level is filtered out of the quoted ladder, and the module imports the shipped table **only as an erased type** (a text term, like `wiring`: it is what catches a runtime import of `findProfile` as a back door) |
 | `route-effort-derived-for-model` | THE ONE RULE's effort half: a level stored on the thread is inherited **only** while the action runs on the base model it was derived for. An explicit per-action model gets **that model's** own lowest measured level instead — asserted with two **disjoint** ladders, so an inheriting implementation cannot pass: it would refuse a level absent from the new model's ladder where this asserts a proceed, including under `allowUnmeasuredEffort: false` (BG14). A window substitution re-derives for the substituted model; an **explicit** level is still judged hard against the model that runs; `effortJudgedFor` always names that model |
 | `route-off-invisible` | with the router OFF nothing is seeded, persisted, derived or consulted: no base model, no base effort, no re-seed signal, no derived level, the pin is `openOnly`, no router guard speaks even with a 5M-token context, a malformed argument is passed through for pi to reject — and passing the **removed** orchestrator-tracker input changes the verdict not at all, which is what "not consulted" means asserted rather than assumed. The boundary is stated positively too: the **ladder** guard is deliberately *not* invisible, and still refuses an off-ladder explicit level |
+| `route-stored-effort-refresh` | a thread's stored `baseEffort` is a **cached derivation** over a table that ships with slate, so a refresh can invalidate it. It is re-checked against today's table and, when it no longer reads `ok`, **re-derived** for that model rather than replayed — for all four ways a refresh can invalidate it (evidence gap, gap under `allowUnmeasuredEffort: false`, a shrunken ladder, a provider's hard rejection), three of which used to make the thread **undispatchable** through a dispatch that named no effort at all. The correction is **silent** (nobody asked for that level) and is **not persisted** (the verdict still echoes the stored value, no re-seed is signalled — pinned as observed). A still-measured level is kept rather than re-derived, a model with no measured level yields none, and an **explicit** level keeps the full guard treatment: warned on a gap, refused under `allowUnmeasuredEffort: false`, off-ladder or API-rejected |
+| `route-stored-effort-vocabulary` | a stored `baseEffort` outside pi's vocabulary — wrong case, a non-vocabulary string, a number, an object, an empty string, `null`, an array — is **discarded**, never replayed onto a dispatch: the record is an unversioned snapshot, so its declared type is a claim about the writer, and pi would clamp a junk level silently while the episode reported a level nothing ran at. The boundary is the **vocabulary itself, not the profile table**: with an unreadable ladder (nothing to re-derive from) a junk value is still gone from the verdict's own base-effort echo while a vocabulary-valid one survives it — the discriminator that a table-trusting boundary fails |
 | `route-hostile` | a hostile `model` or `effort` argument is stripped of control/ANSI bytes and length-capped before it reaches a rejection reason — that text goes to the orchestrator *and* to pi-tui, which renders escapes verbatim — while the rejection itself still happens |
 
 #### Documented coverage boundary of the `route-*` checks
@@ -729,6 +731,42 @@ listed so a reader never has to infer it:
 - **The failover WIRING.** `route-failover` proves the carve-out's rules; that the
   in-dispatch failover block is the thing that passes `failoverSwitch: true` (and
   `failoverFrom`) is in `threads.ts`.
+- **BG22's revert-on-omit decision — a known, unclosed gap.** When an action names
+  an explicit `model` on a router-OFF thread, the live worker session is switched to
+  it; a later action that names none must be REVERTED to the model the session was
+  opened on, so one routed action cannot govern the rest of the thread — *unless* a
+  failover moved that session, which must not be undone (BG16). Neither half of that
+  decision is visible here. Measured against the planner directly: on omit it emits
+  `model: undefined` for a thread with no pin and `model: <pin>, openOnly: true` for
+  a pinned one — **no revert instruction in either shape** — and `RoutePlanInput`
+  carries neither the live session's current model nor any indication that a failover
+  is holding it. Both facts live only in `threads.ts` (`liveBaselineModel`,
+  `failoverLive`/`failoverHeld`, and `session.model`), which this harness cannot load.
+  What the pure checks *do* still hold down is the input side of that decision:
+  `applyModel` is derived from `plan.model` and `plan.openOnly`, whose semantics
+  `route-list-off` and `route-off-invisible` pin.
+  Two ways to close it, neither taken yet:
+  1. **Give the planner the facts.** Add `liveModel?: string` and a failover-held
+     flag to `RoutePlanInput` and express the revert in the verdict (a revert target,
+     or `model` with `openOnly` unset). It then becomes an ordinary `route-*` check:
+     fabricate `liveModel: "p/x"` with the flag false (expect a revert) and true
+     (expect none).
+  2. **Exercise it live.** A ladder rung in the shape of `WK1` — the only rung that
+     opens a real worker session — dispatching twice against a fake provider and
+     asserting the session's model after the second, once with a failover marker held
+     and once without. That is the only route that covers the decision as shipped.
+- **The compaction-settings elision (CQ17) is verified indirectly, on purpose.** The
+  caller now reads pi's compaction settings only when the router is ON, so with it
+  OFF `wouldCompact`/`reserveTokens` arrive `undefined`. No check asserts "the
+  off-path verdict does not depend on them", because that cannot be falsified: with
+  the router off the window guard is structurally unreachable — it needs a candidate,
+  and an off resolution has none — so such a term would be a tautology. What the
+  elision actually risks is reaching the **ON** path, where a missing predicate makes
+  the guard **inert** (`route-window-skip` pins exactly that, and
+  `route-window-reserve` pins that a supplied predicate is asked with `(tokens,
+  window)` and obeyed). The conditionality itself — `resolution.on ? read : undefined`
+  — is in `threads.ts` and is not reachable from here; the ON-path checks passing
+  unchanged is the whole of the evidence this harness can offer.
 
 One earlier entry has been **removed from this list because it was fixed**: an
 unreadable ladder used to make the planner refuse the level, contradicting the

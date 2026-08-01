@@ -233,6 +233,8 @@ const ROUTE_IDS = [
 	"route-base-reseed-guarded",
 	"route-effort-derived-for-model",
 	"route-off-invisible",
+	"route-stored-effort-refresh",
+	"route-stored-effort-vocabulary",
 	"route-read-failure-inert",
 	"route-resolution",
 	"route-resolved-pair",
@@ -1553,6 +1555,107 @@ try {
 			]);
 		});
 
+		await section("route-stored-effort-refresh", async () => {
+			// BG23. A thread's `baseEffort` is a CACHED DERIVATION, and the table it was
+			// derived from ships with slate: a profile refresh can move that level onto an
+			// evidence gap, off the ladder, or onto the provider's hard-rejection list
+			// between the dispatch that stored it and the one that replays it. Replaying it
+			// unchecked is BG14's failure mode surviving in the same-model branch — a level
+			// NOBODY REQUESTED earning a warning, or a hard rejection of a dispatch that named
+			// no effort at all. Three of these four shapes made the thread undispatchable
+			// before the fix.
+			//
+			// The correction is SILENT by design: the orchestrator did not ask for this level,
+			// so a stale cache is slate's to fix, not news to report. What it must NOT do is
+			// soften the level the caller DID ask for — the explicit-effort terms at the end
+			// are that control.
+			const stored = (rows, extra = {}) =>
+				plan({ resolution: routeResolution(rows), thread: { id: "t1", baseModel: "p/base", baseEffort: "low" }, ...extra });
+			// Each row keeps "low" ON the ladder where it can, so the ONLY thing that changed
+			// between the storing dispatch and this one is the evidence — which is what a table
+			// refresh actually does.
+			const gap = stored([{ spec: "p/base", measured: ["high"], gaps: ["low"] }]);
+			const gapStrict = stored([{ spec: "p/base", measured: ["high"], gaps: ["low"] }], { allowUnmeasuredEffort: false });
+			const offLadder = stored([{ spec: "p/base", ladder: ["medium", "high"], measured: ["medium", "high"] }]);
+			const apiRejected = stored([{ spec: "p/base", measured: ["low", "high"], apiRejected: ["low"] }]);
+			// Controls. A stored level that is still measured is KEPT (the fix must not
+			// re-derive unconditionally), and a model with no measured level at all yields no
+			// level rather than an invented one.
+			const stillOk = stored([{ spec: "p/base", measured: ["low", "high"] }]);
+			const nothingMeasured = stored([{ spec: "p/base", ladder: ["low"], measured: [], gaps: ["low"] }]);
+			// THE EXPLICIT PATH IS UNTOUCHED: the caller named this level and is entitled to
+			// the full guard treatment — a warning on an evidence gap, a rejection under
+			// allowUnmeasuredEffort:false, and a rejection for off-ladder or API-rejected.
+			const asked = (rows, extra = {}) =>
+				plan({ resolution: routeResolution(rows), thread: { id: "t1", baseModel: "p/base" }, requestedEffort: "low", ...extra });
+			const askedGap = asked([{ spec: "p/base", measured: ["high"], gaps: ["low"] }]);
+			const askedStrict = asked([{ spec: "p/base", measured: ["high"], gaps: ["low"] }], { allowUnmeasuredEffort: false });
+			const askedRejected = asked([{ spec: "p/base", measured: ["low", "high"], apiRejected: ["low"] }]);
+			const askedOffLadder = asked([{ spec: "p/base", ladder: ["medium", "high"], measured: ["medium", "high"] }]);
+			const refreshed = [gap, gapStrict, offLadder, apiRejected];
+			checkAll("route-stored-effort-refresh", "a STORED base effort is re-checked against today's profile table and, when it no longer reads ok, RE-DERIVED for that model instead of replayed — for all four ways a refresh can invalidate it (evidence gap, gap under allowUnmeasuredEffort:false, a shrunken ladder, a provider's hard rejection) — and silently, because the orchestrator never asked for that level; a level that is still measured is kept, a model with no measured level yields none, and an EXPLICIT level still gets the full guard treatment it always did", [
+				["none of the four refresh shapes rejects the dispatch", refreshed.every((v) => v.kind === "proceed"), refreshed.map((v) => verdict(v))],
+				["evidence gap \u2192 re-derived to the model's lowest measured level", verdict(gap) === "proceed:p/base@high", verdict(gap)],
+				["gap under allowUnmeasuredEffort:false \u2192 re-derived, not refused", verdict(gapStrict) === "proceed:p/base@high", verdict(gapStrict)],
+				["a shrunken ladder \u2192 re-derived onto the ladder that exists now", verdict(offLadder) === "proceed:p/base@medium", verdict(offLadder)],
+				["a provider's hard rejection \u2192 re-derived off the rejected level", verdict(apiRejected) === "proceed:p/base@high", verdict(apiRejected)],
+				["every re-derivation is silent and unmarked", refreshed.every((v) => v.warnings.length === 0 && v.effortUnmeasured === false), refreshed.map((v) => [v.warnings.length, v.effortUnmeasured])],
+				["...and names the model it was judged for", refreshed.every((v) => v.effortJudgedFor === "p/base"), refreshed.map((v) => v.effortJudgedFor)],
+				["a stored level that is STILL measured is kept, not re-derived", verdict(stillOk) === "proceed:p/base@low", verdict(stillOk)],
+				["a model with no measured level at all yields no level", nothingMeasured.kind === "proceed" && nothingMeasured.effort === undefined && nothingMeasured.effortJudgedFor === undefined, verdict(nothingMeasured)],
+				// The record is NOT rewritten by this: the verdict still echoes the stored value,
+				// and no re-seed is signalled. Pinned as observed \u2014 a later fix that decides to
+				// persist the correction has to update this term deliberately.
+				["the stale value is corrected for the ACTION, not persisted", refreshed.every((v) => v.baseEffort === "low" && v.baseReseeded === undefined), refreshed.map((v) => [v.baseEffort, v.baseReseeded])],
+				["an EXPLICIT level on a gap still warns and is still marked", askedGap.kind === "proceed" && askedGap.effort === "low" && askedGap.effortUnmeasured === true && warns(askedGap, /NO capability measurement/).length === 1, [verdict(askedGap), askedGap.warnings]],
+				["an EXPLICIT level under allowUnmeasuredEffort:false is still refused", askedStrict.kind === "reject" && /allowUnmeasuredEffort is false/.test(why(askedStrict)), verdict(askedStrict)],
+				["an EXPLICIT API-rejected level is still refused", askedRejected.kind === "reject" && /rejected outright by the provider/.test(why(askedRejected)), verdict(askedRejected)],
+				["an EXPLICIT off-ladder level is still refused", askedOffLadder.kind === "reject" && /is not on p\/base's effort ladder/.test(why(askedOffLadder)), verdict(askedOffLadder)],
+			]);
+		});
+
+		await section("route-stored-effort-vocabulary", async () => {
+			// BG21. `ThreadRecord.baseEffort` is TYPED as a thinking level, but the value
+			// arrives from an UNVERSIONED snapshot on disk — the type is a claim about the
+			// writer, not the reader. A value outside pi's vocabulary must be discarded, never
+			// replayed onto a dispatch: pi would clamp a junk level silently, and the episode
+			// would then report a level nothing ran at.
+			const knownLadder = [{ spec: "p/base", ladder: ["low", "medium"], measured: ["low", "medium"] }];
+			// A ladder of only foreign levels filters to EMPTY — "unknown", not "no levels".
+			const unreadableLadder = [{ spec: "p/base", ladder: ["LOUD"], measured: ["medium"], gaps: [] }];
+			const withStored = (rows, baseEffort) => plan({ resolution: routeResolution(rows), thread: { id: "t1", baseModel: "p/base", baseEffort } });
+			const junk = [
+				["wrong case", "HIGH"],
+				["outside the vocabulary", "turbo"],
+				["a number", 7],
+				["an object", { level: "high" }],
+				["an empty string", ""],
+				["null", null],
+				["an array", ["high"]],
+			];
+			// KNOWN ladder: the junk is discarded and this model's own level is derived, so the
+			// action runs at a real level and never at the junk one.
+			const known = junk.map(([label, value]) => [label, withStored(knownLadder, value)]);
+			const replayed = known.filter(([, v]) => v.kind !== "proceed" || v.effort !== "low");
+			const echoed = known.filter(([, v]) => v.baseEffort !== undefined);
+			// UNREADABLE ladder — the property the fixer's throwaway checks called
+			// `bg21-boundary-not-table`: the vocabulary boundary must hold WITHOUT consulting
+			// the table at all. With no ladder to judge against there is nothing to re-derive
+			// from either, so the observable difference is the RECORD ECHO: a junk value is
+			// gone entirely, while a vocabulary-valid one is still echoed. A boundary that
+			// trusted the table instead would let the junk value through into that echo.
+			const blindJunk = junk.slice(0, 3).map(([label, value]) => [label, withStored(unreadableLadder, value)]);
+			const blindValid = withStored(unreadableLadder, "low");
+			checkAll("route-stored-effort-vocabulary", "a stored base effort outside pi's thinking-level vocabulary \u2014 wrong case, a non-vocabulary string, a number, an object, an empty string, null, an array \u2014 is DISCARDED rather than replayed onto the dispatch (the record is an unversioned snapshot, so its type is a claim about the writer); the boundary is the vocabulary itself, not the profile table, so it still holds when the ladder is unreadable and there is nothing to re-derive from", [
+				["no junk value is ever replayed as the action's level", replayed.length === 0, replayed.map(([label, v]) => `${label}: ${verdict(v)}`)],
+				["...the action runs on the level derived for the model instead", known.every(([, v]) => v.effort === "low" && v.effortJudgedFor === "p/base"), known.map(([label, v]) => `${label}: ${v.effort}`)],
+				["...and the junk never reaches the verdict's own base-effort echo", echoed.length === 0, echoed.map(([label, v]) => `${label}: ${JSON.stringify(v.baseEffort)}`)],
+				["silently: a snapshot from an older slate is not a user error", known.every(([, v]) => v.warnings.length === 0), known.map(([label, v]) => `${label}: ${v.warnings.length}`)],
+				["with an UNREADABLE ladder the junk is still discarded", blindJunk.every(([, v]) => v.kind === "proceed" && v.effort === undefined && v.baseEffort === undefined), blindJunk.map(([label, v]) => `${label}: ${verdict(v)} base=${JSON.stringify(v.baseEffort)}`)],
+				["...while a vocabulary-VALID stored level survives the same read", blindValid.kind === "proceed" && blindValid.baseEffort === "low", [verdict(blindValid), blindValid.baseEffort]],
+			]);
+		});
+
 		await section("route-read-failure-inert", async () => {
 			// A FAILURE TO READ EVIDENCE IS NOT EVIDENCE OF A PROBLEM (route.ts module
 			// header), on the router-ON path: when the ladder of the model in hand cannot be
@@ -1678,6 +1781,16 @@ try {
 				profiles: vetted,
 			});
 			const offLadder = plan({ resolution: off, thread, requestedEffort: "max", profiles: vetted });
+			// CQ17 (the caller now ELIDES pi's compaction-settings read on this path, so
+			// `wouldCompact` and `reserveTokens` arrive undefined) needs NO term here, and a
+			// comment is the honest place to say why: with the router off the window guard is
+			// structurally unreachable — it needs a CANDIDATE, and an off resolution has none —
+			// so "the verdict does not depend on those inputs" cannot be falsified by any
+			// plausible mutation. What the elision actually risks is reaching the ON path,
+			// where a missing predicate makes the guard inert; that is pinned by
+			// route-window-skip, and the conditionality itself lives in threads.ts (see
+			// README § coverage boundary).
+			//
 			// A malformed argument is pi's error to raise, not the router's opinion.
 			const malformed = plan({ resolution: off, thread, requestedModel: "not a spec at all" });
 			checkAll("route-off-invisible", "with the router OFF nothing is seeded, persisted, derived or consulted: the verdict carries no base model, no base effort and no re-seed signal, no effort is derived (only an explicit one survives), the thread's pre-router pin is the resolved model and is open-only, every guard is silent even with a 5M-token context and a profile source present, a malformed model argument is passed through for pi to reject, and passing the REMOVED orchestrator-tracker input changes nothing", [
@@ -1750,8 +1863,12 @@ try {
 				["...signalled for persistence, naming what it replaced", baseUnlisted.baseReseeded === true && baseUnlisted.baseReseededFrom === "p/legacy" && baseUnlisted.baseModel === "p/listed", [baseUnlisted.baseReseeded, baseUnlisted.baseReseededFrom, baseUnlisted.baseModel]],
 				["...with the base effort re-derived on the NEW base", baseUnlisted.baseEffort === "low", baseUnlisted.baseEffort],
 				["...and one warning naming the re-seed", warns(baseUnlisted, /Re-seeding the thread's base to p\/listed/).length === 1, baseUnlisted.warnings],
-				["off-ladder BASE effort is rejected", baseEffortBad.kind === "reject" && /effort "max"/.test(why(baseEffortBad)), verdict(baseEffortBad)],
-				["...naming that model's ladder", /\(low, medium\)/.test(why(baseEffortBad)), why(baseEffortBad)],
+				// BG23 landed: a STORED level the profile table no longer supports is RE-DERIVED
+				// for that model, silently, instead of rejecting a dispatch that named no effort
+				// at all. route-stored-effort-refresh owns the whole rule; this term only keeps
+				// the resolved-pair story honest about what an omitted effort now produces.
+				["an off-ladder stored base effort is RE-DERIVED, not rejected", verdict(baseEffortBad) === "proceed:p/listed@low" && baseEffortBad.effortJudgedFor === "p/listed", verdict(baseEffortBad)],
+				["...silently: the orchestrator never asked for that level", baseEffortBad.warnings.length === 0 && baseEffortBad.effortUnmeasured === false, [baseEffortBad.warnings, baseEffortBad.effortUnmeasured]],
 				["a valid base pair proceeds", verdict(bothValid) === "proceed:p/listed@low", verdict(bothValid)],
 				["...and is echoed as the thread's base", bothValid.baseModel === "p/listed" && bothValid.baseEffort === "low", [bothValid.baseModel, bothValid.baseEffort]],
 				// The absence of a re-seed is part of the claim: with one candidate, a planner
@@ -3326,6 +3443,7 @@ try {
 		"router-config-default", "router-config-invalid", "router-shipped-default",
 		"route-load", "route-vocabulary", "route-effort-type", "route-list-on", "route-list-off",
 		"route-base-reseed", "route-base-reseed-guarded", "route-effort-derived-for-model", "route-off-invisible",
+		"route-stored-effort-refresh", "route-stored-effort-vocabulary",
 		"route-read-failure-inert", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
