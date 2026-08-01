@@ -3,7 +3,9 @@
  *
  * Pure data. No I/O, no network, no runtime dependencies, nothing computed at
  * load time beyond a lookup index. Every field here is transcribed from the
- * research corpus committed in this repo by this same track —
+ * research corpus committed in this repo by this same track — with ONE stated
+ * exception, `id`, whose authority is pi's model registry rather than the
+ * corpus (see the ID CHOICE judgment call below) —
  * `research/digest-v5.md` (Artifact A field block, Artifact B routing table,
  * Artifact C one-liners, §D hazards, §E out-of-scope cheap tier, §M the
  * capability-evidence predicate, §V the effort vocabulary, §W context window
@@ -93,10 +95,31 @@
  *    spellings for each Claude. They are not pi `provider/id` forms, and a
  *    dispatch on either surface bills +10% regional uplift that this module
  *    does not carry [A2], so resolving them to these first-party prices would
- *    under-state cost by about 10%. Dropped rather than mis-priced. Every alias
- *    that remains is provider-qualified, so it survives a canonical
- *    `provider/id` gate; a bare spelling appears only alongside its qualified
- *    form, and none of these lookup spellings is research data.
+ *    under-state cost by about 10%. Dropped rather than mis-priced.
+ *  - ID CHOICE: THE REGISTRY WINS THE SPELLING, THE CORPUS KEEPS AN ALIAS.
+ *    `id` is the one field this module does not take from the research corpus,
+ *    because its own contract is "canonical `provider/id` as pi resolves it"
+ *    and `ModelRegistry.find` is an EXACT id lookup with no alias or fuzzy
+ *    resolution: an id the registry does not carry is not a routing target at
+ *    all, it is a candidate dropped before any of this data is consulted.
+ *    `research/gaps.md` names the two cheap-tier OpenAI models by DATED
+ *    snapshot id — `gpt-5.4-nano-2026-03-17`, `gpt-5.4-mini-2026-03-17` [G3] —
+ *    but pi's registry carries only the UNDATED `openai/gpt-5.4-nano` and
+ *    `openai/gpt-5.4-mini` [registry], so those undated specs are the canonical
+ *    ids here and the corpus's dated spellings are aliases. That is the shape
+ *    `anthropic/claude-haiku-4-5` already had. NOTHING RESEARCH-BEARING MOVES
+ *    WITH A SPELLING: price, tier, ladder, measured/gap and window are exactly
+ *    as traced, and a spelling change may never be used to smuggle one.
+ *  - ALIASES COME IN TWO FLAVOURS, and provider-qualified does NOT imply
+ *    routable: (a) research-traced identifiers — the dated cheap-tier spellings
+ *    [G3] and the vendor's `gpt-5.6` for sol [O1, O2], which pi's registry does
+ *    NOT list, so it resolves a config spelling to the right profile but can
+ *    never itself be dispatched; (b) plain lookup spellings that are not
+ *    research data (the bare, provider-less forms). Every alias is carried in
+ *    provider-qualified form so it survives a canonical `provider/id` form
+ *    gate, and a bare spelling appears only alongside its qualified twin — but
+ *    surviving that gate is a FORM check, not registry existence. Only the
+ *    registry decides what can actually be dispatched.
  *  - `anthropic/claude-sonnet-5`'s `off` IS BOTH: on pi's ladder per §V and
  *    rejected by the API (manual thinking control returns HTTP 400 [A2]). The
  *    ladder keeps it, `evidenceGapAt` keeps it as advisory per the rule above,
@@ -506,8 +529,12 @@ const PROFILES: ModelProfile[] = [
 	// predicate; their ladders are ASSUMED provider-family shapes, flagged
 	// `ladderAssumed`. See the module header for both derivations.
 	{
-		id: "openai/gpt-5.4-nano-2026-03-17",
-		aliases: ["openai/gpt-5.4-nano", "gpt-5.4-nano-2026-03-17", "gpt-5.4-nano"], // provider-qualified first; lookup spellings, not research data
+		// CANONICAL id is the UNDATED spec, because that is the only one pi's
+		// registry carries [registry]; [G3] names this model by its dated snapshot
+		// id, which is kept as an alias so the corpus spelling still resolves but
+		// is never presented as a dispatch target. See the ID CHOICE header note.
+		id: "openai/gpt-5.4-nano",
+		aliases: ["openai/gpt-5.4-nano-2026-03-17", "gpt-5.4-nano-2026-03-17", "gpt-5.4-nano"], // (a) research-traced dated id [G3], then (b) bare lookup spellings
 		price: [
 			{
 				from: null, // UNKNOWN start date [G3]
@@ -555,8 +582,11 @@ const PROFILES: ModelProfile[] = [
 		asOf: "2026-07-29",
 	},
 	{
-		id: "openai/gpt-5.4-mini-2026-03-17",
-		aliases: ["openai/gpt-5.4-mini", "gpt-5.4-mini-2026-03-17", "gpt-5.4-mini"], // provider-qualified first; lookup spellings, not research data
+		// CANONICAL id is the UNDATED spec, as for nano above: pi's registry
+		// carries only that spelling [registry], while [G3] names the model by its
+		// dated snapshot id, kept below as an alias.
+		id: "openai/gpt-5.4-mini",
+		aliases: ["openai/gpt-5.4-mini-2026-03-17", "gpt-5.4-mini-2026-03-17", "gpt-5.4-mini"], // (a) research-traced dated id [G3], then (b) bare lookup spellings
 		price: [
 			{
 				from: null, // UNKNOWN start date [G3]
@@ -605,11 +635,13 @@ const PROFILES: ModelProfile[] = [
 		id: "anthropic/claude-haiku-4-5",
 		// The dated PINNED-SNAPSHOT id, from the same [G3] row as the prices:
 		// "`claude-haiku-4-5` (`claude-haiku-4-5-20251001`)". Provider-qualified
-		// first so it survives a canonical provider/id gate, bare spelling beside
-		// it. Anthropic's 5-generation ids are dateless pinned snapshots [A1], so
-		// only this pre-4.6 model has a dated form; the two cheap-tier OpenAI
-		// models' dated snapshot ids are already their canonical `id` here, and
-		// the routed six publish none at all [O1 "no dated snapshot IDs", A1].
+		// first so it survives a canonical provider/id form gate, bare spelling
+		// beside it. Unusually, BOTH spellings are real registry ids here
+		// [registry] — unlike the two cheap-tier OpenAI models, whose dated ids are
+		// aliases the registry does not carry (their canonical ids are the undated
+		// specs). Anthropic's 5-generation ids are dateless pinned snapshots [A1],
+		// so only this pre-4.6 model has a dated form at all; the routed six
+		// publish none [O1 "no dated snapshot IDs", A1].
 		aliases: ["anthropic/claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001"],
 		price: [
 			{
@@ -725,8 +757,8 @@ const LADDER_BY_ID: ReadonlyMap<string, readonly ThinkingLevel[]> = new Map<stri
 	// The three below are ASSUMED family shapes, unverified [§E.7]; their
 	// profiles carry `ladderAssumed: true` so a consumer can tell them apart
 	// from a traced ladder without re-deriving it here.
-	["openai/gpt-5.4-nano-2026-03-17", OPENAI_GPT_5_LADDER],
-	["openai/gpt-5.4-mini-2026-03-17", OPENAI_GPT_5_LADDER],
+	["openai/gpt-5.4-nano", OPENAI_GPT_5_LADDER],
+	["openai/gpt-5.4-mini", OPENAI_GPT_5_LADDER],
 	["anthropic/claude-haiku-4-5", ANTHROPIC_FULL_LADDER],
 ]);
 
