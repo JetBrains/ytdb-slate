@@ -235,6 +235,9 @@ const ROUTE_IDS = [
 	"route-off-invisible",
 	"route-stored-effort-refresh",
 	"route-stored-effort-vocabulary",
+	"route-switch-decision",
+	"route-switch-opening-baseline",
+	"route-switch-lifecycle-i1",
 	"route-read-failure-inert",
 	"route-resolution",
 	"route-resolved-pair",
@@ -2344,6 +2347,198 @@ try {
 			]);
 		});
 
+		await section("route-switch-decision", async () => {
+			// WHICH MODEL a live worker session must be on for this action — extracted from
+			// threads.ts into a pure helper precisely so it could be pinned here, the same
+			// move that made the seven dispatch guards checkable. Its precedence, in order:
+			// a plan target unless it is `openOnly` \u2192 no baseline \u21d2 keep \u2192 a failover holds
+			// the session \u21d2 keep \u2192 revert to the baseline \u2192 already there \u21d2 keep.
+			const decide = (input) => route.decideModelSwitch(input);
+			const outcome = (input) => {
+				const d = decide(input);
+				return d.kind === "switch" ? `switch:${d.spec}/${d.source}` : `keep:${d.reason}`;
+			};
+			// A PLAN target moves a live session, and it outranks everything — including a
+			// held failover, because after it the session genuinely runs the routed model.
+			const planApplies = outcome({ planned: "p/x", current: "p/open", baseline: "p/open" });
+			const planOverFailover = outcome({ planned: "p/x", current: "p/fb", baseline: "p/open", failoverHeld: true });
+			const planAlreadyThere = outcome({ planned: "p/x", current: "p/x", baseline: "p/open" });
+			// `openOnly` is the ONE plan target that is not an instruction to move a live
+			// session: the router-OFF pin only ever chose what a NEW session opens on.
+			// Switching a reused session onto it would undo a failover and could strand a
+			// thread whose pin lost its credentials (BG16). This is the shape \u2014 and the only
+			// shape \u2014 that catches an openOnly regression: with the flag honoured the pin
+			// falls through to the revert rule; without it, it becomes a plan switch.
+			const pinReverts = outcome({ planned: "p/pin", openOnly: true, current: "p/x", baseline: "p/pin" });
+			const pinUnderFailover = outcome({ planned: "p/pin", openOnly: true, current: "p/fb", baseline: "p/pin", failoverHeld: true });
+			const pinNoBaseline = outcome({ planned: "p/pin", openOnly: true, current: "p/x" });
+			const pinAlreadyThere = outcome({ planned: "p/pin", openOnly: true, current: "p/pin", baseline: "p/pin" });
+			const explicitFalse = outcome({ planned: "p/pin", openOnly: false, current: "p/x", baseline: "p/pin" });
+			// An action that names no model REVERTS to what the session opened on \u2014 the rule
+			// that makes `model` per-ACTION (BG22) \u2014 unless a failover holds it (BG16).
+			const omitReverts = outcome({ current: "p/x", baseline: "p/open" });
+			const omitUnderFailover = outcome({ current: "p/fb", baseline: "p/open", failoverHeld: true });
+			const omitNoBaseline = outcome({ current: "p/x" });
+			const omitAlreadyThere = outcome({ current: "p/open", baseline: "p/open" });
+			const nothing = outcome({});
+			// No baseline OUTRANKS the failover stand-down: there is nothing to revert to, so
+			// the reason names the missing baseline rather than the marker.
+			const failoverNoBaseline = outcome({ current: "p/fb", failoverHeld: true });
+			// Specs are normalised the way every other spec argument is (trim; empty reads as
+			// absent), so a padded plan target cannot make an already-current session switch
+			// to itself, and a blank one falls through to the revert.
+			const paddedPlan = outcome({ planned: "  p/x  ", current: "p/open", baseline: "p/open" });
+			const blankPlan = outcome({ planned: "   ", current: "p/x", baseline: "p/open" });
+			const paddedBaseline = outcome({ current: "p/x", baseline: "  p/open  " });
+			// BG24: `source` is load-bearing beyond bookkeeping. A PLAN switch is the action's
+			// own routing, so failing to perform it must fail the action; a REVERT is slate's
+			// housekeeping, so failing to perform it must not kill a dispatch the caller never
+			// asked to move. The helper only DECIDES — pinning the label here is what stops a
+			// future change from quietly mislabelling a revert as a plan.
+			const sources = [
+				["explicit plan", decide({ planned: "p/x", current: "p/open", baseline: "p/open" }), "plan"],
+				["plan over a held failover", decide({ planned: "p/x", current: "p/fb", baseline: "p/open", failoverHeld: true }), "plan"],
+				["explicit openOnly:false", decide({ planned: "p/pin", openOnly: false, current: "p/x", baseline: "p/pin" }), "plan"],
+				["revert after an omit", decide({ current: "p/x", baseline: "p/open" }), "revert"],
+				["revert past an openOnly pin", decide({ planned: "p/pin", openOnly: true, current: "p/x", baseline: "p/pin" }), "revert"],
+			];
+			const mislabelled = sources.filter(([, d, want]) => d.kind !== "switch" || d.source !== want);
+			checkAll("route-switch-decision", "the model-switch decision, whole: a PLAN target moves a live session and outranks even a held failover; an `openOnly` target never does (it only chose what a NEW session opened on \u2014 BG16), falling through to the revert rule; an action that names no model REVERTS to the session's opening model (BG22) unless a failover holds it, and keeps when there is no baseline or it is already there; specs are trimmed; and every switch is labelled `plan` or `revert`, which is what tells the caller whether failing to perform it may fail the action (BG24)", [
+				["a plan target switches, labelled plan", planApplies === "switch:p/x/plan", planApplies],
+				["...and supersedes a held failover", planOverFailover === "switch:p/x/plan", planOverFailover],
+				["...but not when the session is already there", planAlreadyThere === "keep:already-current", planAlreadyThere],
+				["an openOnly pin never becomes a plan switch \u2014 it reverts instead", pinReverts === "switch:p/pin/revert", pinReverts],
+				["...and stands down entirely while a failover holds the session", pinUnderFailover === "keep:failover-held", pinUnderFailover],
+				["...keeps when there is no baseline to revert to", pinNoBaseline === "keep:no-baseline", pinNoBaseline],
+				["...and keeps when the baseline is already live", pinAlreadyThere === "keep:already-current", pinAlreadyThere],
+				["the same target WITHOUT openOnly is a plan switch", explicitFalse === "switch:p/pin/plan", explicitFalse],
+				["an omitted model reverts to the opening model", omitReverts === "switch:p/open/revert", omitReverts],
+				["...unless a failover holds the session (BG16)", omitUnderFailover === "keep:failover-held", omitUnderFailover],
+				["...keeps with no baseline, and keeps when already there", omitNoBaseline === "keep:no-baseline" && omitAlreadyThere === "keep:already-current" && nothing === "keep:no-baseline", [omitNoBaseline, omitAlreadyThere, nothing]],
+				["a missing baseline outranks the failover stand-down", failoverNoBaseline === "keep:no-baseline", failoverNoBaseline],
+				["specs are trimmed; a blank plan target reads as absent", paddedPlan === "switch:p/x/plan" && blankPlan === "switch:p/open/revert" && paddedBaseline === "switch:p/open/revert", [paddedPlan, blankPlan, paddedBaseline]],
+				["every switch carries the right source label (BG24)", mislabelled.length === 0, mislabelled.map(([label, d]) => `${label} \u2192 ${JSON.stringify(d)}`)],
+			]);
+		});
+
+		await section("route-switch-opening-baseline", async () => {
+			// THE DEFECT ed6d18d FIXED, and the one this check exists for: the revert target
+			// must be what a MODEL-LESS plan resolves to, not what the routed open happened to
+			// use. When the dispatch that OPENS the session is itself carrying an explicit
+			// `model`, capturing the opened model as the baseline makes that per-action model
+			// the thread's PERMANENT default — BG22 surviving its own first fix, on the
+			// opening path.
+			//
+			// Both halves are pure, so the whole lifecycle is expressible here: plan the
+			// routed dispatch, plan the SAME dispatch with no model (which is what the caller
+			// opens the session with, and reads the baseline from), then ask the helper what
+			// the NEXT model-less action does. The defect and the fix differ only in which of
+			// those two plans supplied the baseline.
+			const off = router.ROUTER_OFF;
+			const lifecycle = (thread, resolution, hostModel) => {
+				const routed = plan({ resolution, thread, requestedModel: "p/x", ...(hostModel ? { hostModel } : {}) });
+				const modelless = plan({ resolution, thread, ...(hostModel ? { hostModel } : {}) });
+				// What the caller opens on, and therefore what the session reports as its model:
+				// the model-less plan's model, or the host's when it resolved none.
+				const opensOn = (modelless.kind === "proceed" ? modelless.model : undefined) ?? hostModel;
+				const next = plan({ resolution, thread, ...(hostModel ? { hostModel } : {}) });
+				const decide = (baseline) => {
+					const d = route.decideModelSwitch({ planned: next.model, openOnly: next.openOnly, current: "p/x", baseline });
+					return d.kind === "switch" ? `switch:${d.spec}/${d.source}` : `keep:${d.reason}`;
+				};
+				return { routed, modelless, fixed: decide(opensOn), defective: decide(routed.kind === "proceed" ? routed.model : undefined) };
+			};
+			// A PINNED thread, router off: the routed open used p/x, the model-less plan says
+			// p/pin. Only the second is a legitimate baseline.
+			const pinned = lifecycle({ id: "t1", model: "p/pin" }, off);
+			// A thread with NO pin: the model-less plan resolves nothing, so the session opens
+			// on the HOST model and that is the baseline — the shape most real router-off
+			// threads have.
+			const bare = lifecycle({ id: "t2" }, off, "p/host");
+			// Router ON: the base is a candidate, so the next plan supplies it as a PLAN
+			// target and the revert is not even needed — which is why this defect was
+			// router-off only, and why a router-on fixture could never have caught it.
+			const on = routeResolution([
+				{ spec: "p/cheap", tier: 1, price: 1, measured: ["medium"], ladder: ["medium"] },
+				{ spec: "p/dear", tier: 2, price: 2, measured: ["medium"], ladder: ["medium"] },
+			]);
+			const routerOn = lifecycle({ id: "t3", baseModel: "p/cheap", baseEffort: "medium" }, on);
+			// THE WIRING, structurally. Everything above pins the RULE — which baseline is
+			// correct and what the other one costs — but the caller is the one that has to
+			// obey it, and threads.ts cannot be loaded here. So the two facts that make the
+			// composition right are asserted against its source, in the shape of the `wiring`
+			// check: the session-open plan drops the `model` argument, and the baseline is read
+			// from the SESSION that plan opened rather than from the routed plan. Weaker than
+			// execution, and it is what stands between this rule and a caller that quietly
+			// stops following it — a mutation that plans the open WITH the argument survives
+			// every behavioural term above and dies here.
+			const threadsSrc = readFileSync(join(REPO, "extension", "threads.ts"), "utf8");
+			const opensModelLess = /planRoute\(\s*this\.routeInputs\(\s*ctx,\s*thread,\s*\{\s*\.\.\.opts,\s*model:\s*undefined\s*\}/.test(threadsSrc);
+			const baselineFromSession = /this\.liveBaselineModel\.set\(\s*thread\.id,\s*`\$\{session\.model\.provider\}\/\$\{session\.model\.id\}`/.test(threadsSrc);
+			checkAll("route-switch-opening-baseline", "the revert target is what a MODEL-LESS plan resolves to, never what a routed open happened to use: when the dispatch that opens the session carries an explicit `model`, using the opened model as the baseline makes that per-action model the thread's permanent default (BG22 on the opening path). Pinned by composing both plans with the switch decision \u2014 the correct baseline reverts, the defective one reports the session is already where it should be and the explicit model never goes away", [
+				["the routed plan and the model-less plan really differ", pinned.routed.model === "p/x" && pinned.modelless.model === "p/pin", [pinned.routed.model, pinned.modelless.model]],
+				["...and only the model-less one is open-only", pinned.modelless.openOnly === true && pinned.routed.openOnly === undefined, [pinned.modelless.openOnly, pinned.routed.openOnly]],
+				["pinned thread: the correct baseline reverts off the per-action model", pinned.fixed === "switch:p/pin/revert", pinned.fixed],
+				["pinned thread: the DEFECTIVE baseline makes it permanent", pinned.defective === "keep:already-current", pinned.defective],
+				["no pin: the session opens on the host model, and that is the baseline", bare.modelless.model === undefined && bare.fixed === "switch:p/host/revert", [bare.modelless.model, bare.fixed]],
+				["no pin: the DEFECTIVE baseline makes it permanent too", bare.defective === "keep:already-current", bare.defective],
+				["router ON: the base arrives as a PLAN target, so the defect cannot bite", routerOn.fixed === "switch:p/cheap/plan" && routerOn.defective === "switch:p/cheap/plan", [routerOn.fixed, routerOn.defective]],
+				["the caller plans the session OPEN with the model argument dropped", opensModelLess, opensModelLess],
+				["...and reads the baseline from the session that plan opened", baselineFromSession, baselineFromSession],
+			]);
+		});
+
+		await section("route-switch-lifecycle-i1", async () => {
+			// INVARIANT I1: the MODEL axis and the EFFORT axis obey the SAME per-action
+			// lifecycle rule \u2014 a value named by the action applies to THAT action, an action
+			// that names none reverts to what the session opened with, and a failover holds
+			// the model axis in place. BG22 needed two fix rounds precisely because this
+			// asymmetry was invisible to every automated net: the effort axis had had its
+			// opening baseline since BG18, the model axis had none, and nothing failed.
+			//
+			// The model half is executable (the extracted helper). The effort half has no pure
+			// helper to call \u2014 its rule is one line in threads.ts \u2014 so it is asserted
+			// STRUCTURALLY, in the shape of the `wiring` check: weaker than execution, and
+			// still the difference between "the two axes agree" and "a reviewer happened to
+			// notice". Extracting the effort rule the same way would let this check execute
+			// both halves; until then the structural terms are what stands between the axes
+			// and a silent divergence.
+			const step = (input) => {
+				const d = route.decideModelSwitch(input);
+				return d.kind === "switch" ? `switch:${d.spec}/${d.source}` : `keep:${d.reason}`;
+			};
+			// One thread's life: open on p/base, route action 2 to p/x, omit on action 3,
+			// then a failover moves it and action 4 omits again.
+			const opened = "p/base";
+			const action2 = step({ planned: "p/x", current: opened, baseline: opened });
+			const action3 = step({ current: "p/x", baseline: opened });
+			const action4 = step({ current: "p/fallback", baseline: opened, failoverHeld: true });
+			const action5 = step({ planned: "p/y", current: "p/fallback", baseline: opened, failoverHeld: true });
+			// The EFFORT axis's counterpart, read structurally out of threads.ts.
+			const src = readFileSync(join(REPO, "extension", "threads.ts"), "utf8");
+			const at = (needle) => src.indexOf(needle);
+			const axes = [
+				["effort", "private liveBaseline = new Map<", "this.liveBaseline.set(", "this.liveBaseline.clear()", "plan.effort ?? this.liveBaseline.get("],
+				["model", "private liveBaselineModel = new Map<", "this.liveBaselineModel.set(", "this.liveBaselineModel.clear()", "baseline: this.liveBaselineModel.get("],
+			];
+			const missing = axes.flatMap(([axis, ...needles]) => needles.filter((n) => at(n) < 0).map((n) => `${axis}: ${n}`));
+			// Both baselines must be captured BEFORE any per-action switch — the property the
+			// effort axis always had and the model axis lacked, which is what BG22's second
+			// round fixed.
+			const applyCall = at("await this.applyRoute(");
+			const capturedLate = axes
+				.filter(([, , setter]) => !(at(setter) > 0 && applyCall > 0 && at(setter) < applyCall))
+				.map(([axis, , setter]) => `${axis}: ${setter} is not before applyRoute`);
+			checkAll("route-switch-lifecycle-i1", "I1 \u2014 the model axis and the effort axis obey the SAME per-action lifecycle: a value the action names applies to that action, an action that names none falls back to what the session OPENED with, and a failover holds the model axis in place. The model half is executed through the extracted decision helper; the effort half is asserted structurally (it has no pure helper yet), including that BOTH opening baselines are captured before any per-action switch \u2014 the asymmetry that let BG22 survive its first fix", [
+				["a per-action model applies to that action", action2 === "switch:p/x/plan", action2],
+				["...and the next action that names none reverts to the opening model", action3 === "switch:p/base/revert", action3],
+				["a failover holds the model axis in place", action4 === "keep:failover-held", action4],
+				["...while an action that DOES name a model still routes", action5 === "switch:p/y/plan", action5],
+				["both axes keep a session-scoped opening baseline: declared, set, cleared and read", missing.length === 0, missing],
+				["both baselines are captured BEFORE any per-action switch", capturedLate.length === 0, capturedLate],
+			]);
+		});
+
 		await section("route-hostile", async () => {
 			// A rejection REASON is user- and orchestrator-facing text built from the
 			// dispatch's own arguments, and it reaches pi-tui, which renders control bytes
@@ -3507,6 +3702,7 @@ try {
 		"route-load", "route-vocabulary", "route-effort-type", "route-list-on", "route-list-off",
 		"route-base-reseed", "route-base-reseed-guarded", "route-effort-derived-for-model", "route-off-invisible",
 		"route-stored-effort-refresh", "route-stored-effort-vocabulary",
+		"route-switch-decision", "route-switch-opening-baseline", "route-switch-lifecycle-i1",
 		"route-read-failure-inert", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
