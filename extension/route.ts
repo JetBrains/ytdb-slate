@@ -243,6 +243,81 @@ export interface RoutePlanProceed {
 	warnings: readonly string[];
 }
 
+/**
+ * Inputs of the MODEL-SWITCH decision — what to do with a live worker session once
+ * the plan is settled. Every field is a plain value the caller reads off its own
+ * state, so the decision is checkable without a ThreadManager (that opacity is why
+ * BG22 survived a fix round with no automated net).
+ */
+export interface ModelSwitchInput {
+	/** `RoutePlanProceed.model`: the model the plan resolved for THIS action. */
+	planned?: string;
+	/** `RoutePlanProceed.openOnly`: `planned` chooses what a NEW session opens on, nothing more. */
+	openOnly?: boolean;
+	/** "provider/id" the live session is on right now. */
+	current?: string;
+	/** "provider/id" the live session was OPENED on — what a model-less action reverts to (BG22). */
+	baseline?: string;
+	/** true while a FAILOVER holds the session: the revert stands down (BG16). */
+	failoverHeld?: boolean;
+}
+
+/**
+ * The decision. `source` matters to the caller beyond bookkeeping: a switch the PLAN
+ * asked for is the action's own routing and a failure to perform it must fail the
+ * action, while a REVERT is slate's housekeeping and a failure to perform it must not
+ * (BG24).
+ */
+export type ModelSwitchDecision =
+	| { kind: "switch"; spec: string; source: "plan" | "revert" }
+	| { kind: "keep"; reason: "no-baseline" | "failover-held" | "already-current" };
+
+/**
+ * WHICH MODEL a live worker session must be on for this action — the whole rule, in
+ * one pure function.
+ *
+ *   1. A model the PLAN says to apply: an explicit `model` argument, or (router ON)
+ *      the thread's base. `openOnly` excludes the one case that is not an instruction
+ *      to move a live session — the router-OFF `model` pin, which only ever chose what
+ *      a NEW session opens on. Switching a reused session onto it would undo a
+ *      failover and could strand a thread whose pin lost its credentials (BG16).
+ *   2. Failing that, the model the session was OPENED on. This is the REVERT, and it
+ *      is what makes `model` per-ACTION: without it one explicit route governs every
+ *      later action on the thread, because a dispatch that omits `model` resolves to a
+ *      pin (open-only) or to nothing and so has nothing to switch back to (BG22). It
+ *      is the model-axis twin of restoring the session's opening thinking level.
+ *   3. The revert stands down while a FAILOVER holds the session: that switch was
+ *      slate rescuing a failing model, not a route this side chose, and undoing it on
+ *      the next action is precisely BG16. A plan-driven switch still supersedes it —
+ *      the session then genuinely runs the routed model, and the caller drops the
+ *      marker.
+ *
+ * The BASELINE the caller passes must be what a MODEL-LESS plan resolves to, not what
+ * a routed open happened to use — otherwise an explicit per-action model becomes the
+ * thread's permanent default the moment that action is the one that opens the session,
+ * which is BG22 on the opening path.
+ */
+export function decideModelSwitch(input: ModelSwitchInput): ModelSwitchDecision {
+	const planned = specArg(input.planned);
+	const baseline = specArg(input.baseline);
+	const current = specArg(input.current);
+	let target: string;
+	let source: "plan" | "revert";
+	if (planned !== undefined && input.openOnly !== true) {
+		target = planned;
+		source = "plan";
+	} else if (baseline === undefined) {
+		return { kind: "keep", reason: "no-baseline" };
+	} else if (input.failoverHeld === true) {
+		return { kind: "keep", reason: "failover-held" };
+	} else {
+		target = baseline;
+		source = "revert";
+	}
+	if (target === current) return { kind: "keep", reason: "already-current" };
+	return { kind: "switch", spec: target, source };
+}
+
 /** The action may NOT run as asked. `reason` is user-facing and self-explanatory. */
 export interface RoutePlanReject {
 	kind: "reject";

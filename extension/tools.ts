@@ -129,8 +129,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		label: "Threads",
 		description:
 			"List all worker threads: id, name, status, episodes so far, last activity, and models — " +
-			"base=<the thread's default model>@<effort> (what a dispatch that omits `model` runs on) and " +
-			"last=<the model its last action actually ran on>@<effort>. " +
+			"base=<the thread's default model>@<effort>? (what a dispatch that omits `model` runs on; " +
+			"the trailing ? marks the LEVEL as provisional — it is the stored default, re-checked against " +
+			"the model's current capability data on every dispatch and silently re-derived if it no longer " +
+			"holds) and last=<the model its last action actually ran on>@<effort>, which is fact. " +
 			"Use this to decide whether to continue an existing thread or create a new one.",
 		promptSnippet: "List worker threads and their episodes",
 		parameters: Type.Object({}),
@@ -147,7 +149,14 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				// only the pre-router pin). Absent for a thread whose base could not be
 				// resolved: it then runs on the host's current model, as it always did.
 				const base = t.baseModel ?? t.model;
-				if (base) marks.push(`base=${base}${t.baseEffort ? `@${t.baseEffort}` : ""}`);
+				// CQ19: the MODEL half is authoritative (an unroutable base is re-seeded, so this
+				// is what a dispatch that omits `model` will use), but the LEVEL half is only a
+				// STORED default: every dispatch re-checks it against the model's current
+				// capability data and silently derives a fresh one if the profile table has moved
+				// under it (BG23). Reporting it bare would present a value that may not survive
+				// contact with the next action as fact — the `?` says so, and the tool description
+				// says what it means. `last=` below carries no such caveat: that one is what ran.
+				if (base) marks.push(`base=${base}${t.baseEffort ? `@${t.baseEffort}?` : ""}`);
 				// The LAST ACTION's model — which may differ from the base on every axis:
 				// an explicit per-action route, a window substitution, or a failover.
 				const lastEpisode = t.episodeIds.length > 0 ? store.episodes.get(t.episodeIds[t.episodeIds.length - 1]) : undefined;
@@ -158,10 +167,13 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 						}`,
 					);
 				}
-				// AF12: after a model failover the LIVE cached session runs a different
-				// model than the thread's base. The marker disappears when the session is
-				// disposed, or when a later dispatch routes that session explicitly:
-				// failover is never persisted to the thread record.
+				// AF12: after a model failover the LIVE cached session runs a different model
+				// than the thread's base. The marker disappears when the session is disposed, or
+				// when a dispatch's own ROUTING moves that session — an explicit `model`, or the
+				// thread's base with the router on — since the marker describes the model the
+				// session is ACTUALLY on (CQ20, the same correction CQ14 made in threads.ts; the
+				// one switch that never clears it is the revert, which stands down while the
+				// marker is held). Failover is never persisted to the thread record.
 				const live = getManager().liveFailoverModel(t.id);
 				if (live) marks.push(`live=${live} (failover)`);
 				const models = marks.length > 0 ? ` ${marks.join(" ")}` : "";

@@ -109,7 +109,14 @@ import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failov
 import type { ThinkingLevel } from "./model-profiles.ts";
 import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { planRoute, THINKING_LEVELS, usableResolution, type RoutePlanInput, type RoutePlanProceed } from "./route.ts";
+import {
+	decideModelSwitch,
+	planRoute,
+	THINKING_LEVELS,
+	usableResolution,
+	type RoutePlanInput,
+	type RoutePlanProceed,
+} from "./route.ts";
 import { isModelSpec, splitModelSpec, type EpisodeRecord, type SlateConfig, type SlateStore, type ThreadRecord } from "./state.ts";
 import { openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
@@ -331,7 +338,7 @@ export class ThreadManager {
 		const prev = this.queues.get(thread.id) ?? Promise.resolve();
 		const run = prev
 			.catch(() => undefined) // a failed predecessor must not poison the queue
-			.then(() => this.runDispatch(thread, opts, early, ctx, signal, onProgress));
+			.then(() => this.runDispatch(thread, opts, ctx, signal, onProgress));
 		this.queues.set(thread.id, run);
 		return run;
 	}
@@ -595,6 +602,7 @@ export class ThreadManager {
 		thread: ThreadRecord,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
+		warn: (message: string) => void,
 	): Promise<void> {
 		// CN2: the switch below AWAITS, and every await is a window in which the dispatch
 		// can be aborted or this manager disposed — exactly the hazard the failover phase
@@ -617,63 +625,69 @@ export class ThreadManager {
 			);
 		};
 		abortIfBlocked();
-		const currentSpec = session.model ? `${session.model.provider}/${session.model.id}` : undefined;
-		// WHICH MODEL THIS ACTION RUNS ON, in two steps.
-		//
-		// 1. A model the plan says to APPLY: an explicit `model` argument, or (router ON)
-		//    the thread's base. `openOnly` excludes the one case that is not an
-		//    instruction to move a live session — the router-OFF `model` pin, which only
-		//    ever chose what a NEW session opens with; switching a reused session onto it
-		//    would undo a failover and could strand a thread whose pin lost its
-		//    credentials (BG16).
-		//
-		// 2. Failing that, the model this session OPENED on. That is the REVERT (BG22),
-		//    and it is what makes `model` per-ACTION on the router-off path too: without
-		//    it, one explicit route governed every later action on the thread, because a
-		//    dispatch that omits `model` resolves to a pin (open-only) or to nothing and
-		//    so had nothing to switch back to. It is the model-axis twin of the thinking
-		//    level's baseline restore below.
-		//
-		// The revert stands down while a FAILOVER holds the session (`failoverLive`): that
-		// switch was slate rescuing a failing model, not a route this side chose, and
-		// undoing it on the next action is precisely BG16. A later explicit route clears
-		// the marker (below), after which the revert applies again.
-		const failoverHeld = this.failoverLive.get(thread.id) !== undefined;
-		const applyModel = plan.model !== undefined && plan.openOnly !== true ? plan.model : undefined;
-		const revertModel = failoverHeld ? undefined : this.liveBaselineModel.get(thread.id);
-		const targetSpec = applyModel ?? revertModel;
-		if (targetSpec !== undefined && targetSpec !== currentSpec) {
-			let target: ReturnType<typeof resolveModel>;
-			try {
-				target = resolveModel(ctx, targetSpec);
-			} catch (error) {
-				throw new DispatchAbort(
-					`slate: aborting the dispatch to thread ${thread.id} — ${sanitizeForNotify(
-						error instanceof Error ? error.message : String(error),
-						200,
-					)}. Nothing ran and no episode was recorded.`,
+		// WHICH MODEL this action runs on is decided by route.ts's pure `decideModelSwitch`
+		// (the plan's model, else the session's opening model as a REVERT, standing down
+		// while a failover holds it). Everything it needs is passed explicitly, so the
+		// decision — the part with the interesting cases — is checkable without a
+		// ThreadManager; what stays here is the part that cannot be pure: resolving the
+		// spec, awaiting the switch, and deciding what a failure means.
+		const decision = decideModelSwitch({
+			planned: plan.model,
+			openOnly: plan.openOnly,
+			current: session.model ? `${session.model.provider}/${session.model.id}` : undefined,
+			baseline: this.liveBaselineModel.get(thread.id),
+			failoverHeld: this.failoverLive.get(thread.id) !== undefined,
+		});
+		if (decision.kind === "switch") {
+			// BG24: what a FAILED switch means depends on WHO asked for it. pi's setModel
+			// THROWS on a missing key (unlike setThinkingLevel, which only clamps), so a
+			// revert — slate housekeeping the caller never requested — could abort a whole
+			// dispatch just because the model the session opened on has since lost its
+			// credentials. That is the auth-failover chain: the open model dies, an action
+			// is routed elsewhere, and the next action's revert then kills the dispatch. A
+			// revert therefore WARNS and leaves the session where it is; a PLAN-driven
+			// switch stays fatal, because running the action on a model neither the caller
+			// nor the router chose would break the routing contract itself.
+			const fatal = decision.source === "plan";
+			const giveUp = (what: string, error: unknown): void => {
+				const detail = sanitizeForNotify(error instanceof Error ? error.message : String(error), 200);
+				if (fatal) {
+					throw new DispatchAbort(
+						`slate: aborting the dispatch to thread ${thread.id} — ${what}: ${detail}. ` +
+							"Nothing ran and no episode was recorded.",
+					);
+				}
+				warn(
+					`slate: could not return thread ${thread.id}'s worker session to the model it opened on ` +
+						`(${sanitizeForNotify(decision.spec, 80)}) — ${detail}. This action runs on ` +
+						`${sanitizeForNotify(session.model ? `${session.model.provider}/${session.model.id}` : "the session's current model", 80)} instead.`,
 				);
-			}
+			};
+			let target: ReturnType<typeof resolveModel> | undefined;
 			try {
-				await session.setModel(target);
+				target = resolveModel(ctx, decision.spec);
 			} catch (error) {
-				throw new DispatchAbort(
-					`slate: aborting the dispatch to thread ${thread.id} — switching its worker session to ` +
-						`${sanitizeForNotify(targetSpec, 80)} failed: ${sanitizeForNotify(
-							error instanceof Error ? error.message : String(error),
-							200,
-						)}. Nothing ran and no episode was recorded.`,
-				);
+				// Same split: a plan target that no longer resolves aborts, a revert target
+				// that no longer resolves is a warning (giveUp returns, and `target` stays
+				// undefined, so nothing is switched).
+				giveUp(`the model ${sanitizeForNotify(decision.spec, 80)} could not be resolved`, error);
 			}
-			// An explicit route supersedes a failover marker: after this switch the live
-			// session no longer runs the mapped model (see liveFailoverModel). A REVERT
-			// cannot reach here while a marker is held, so this only ever clears a marker
-			// the route itself replaced.
-			this.failoverLive.delete(thread.id);
-			// CN2 again: the await above is the window, so re-check AFTER it. The switch
-			// already happened — the session is left on the new model, which costs nothing —
-			// but no prompt follows and no episode is recorded.
-			abortIfBlocked();
+			if (target !== undefined) {
+				try {
+					await session.setModel(target);
+					// A PLAN-driven switch supersedes a failover marker: the session no longer runs
+					// the mapped model, so reporting one would be a lie (see liveFailoverModel). A
+					// revert cannot reach here while a marker is held, so this only ever clears a
+					// marker the plan's own route replaced.
+					this.failoverLive.delete(thread.id);
+				} catch (error) {
+					giveUp(`switching its worker session to ${sanitizeForNotify(decision.spec, 80)} failed`, error);
+				}
+				// CN2 again: the await above is the window, so re-check AFTER it. The switch
+				// already happened — the session is left on the new model, which costs nothing —
+				// but no prompt follows and no episode is recorded.
+				abortIfBlocked();
+			}
 		}
 		// AFTER the model switch, which re-derives the thinking level internally.
 		//
@@ -710,7 +724,6 @@ export class ThreadManager {
 	private async runDispatch(
 		thread: ThreadRecord,
 		opts: DispatchOptions,
-		earlyPlan: RoutePlanProceed,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
@@ -718,7 +731,7 @@ export class ThreadManager {
 		const prompt = this.buildPrompt(opts); // may throw on unknown episode ids (before any state change)
 		await this.semaphore.acquire();
 		try {
-			return await this.runDispatchInner(thread, opts, earlyPlan, prompt, ctx, signal, onProgress);
+			return await this.runDispatchInner(thread, opts, prompt, ctx, signal, onProgress);
 		} finally {
 			this.semaphore.release();
 		}
@@ -727,7 +740,6 @@ export class ThreadManager {
 	private async runDispatchInner(
 		thread: ThreadRecord,
 		opts: DispatchOptions,
-		earlyPlan: RoutePlanProceed,
 		prompt: string,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
@@ -793,16 +805,22 @@ export class ThreadManager {
 
 			session = this.live.get(thread.id);
 			if (!session) {
-				// The model a NEW session OPENS on is the EARLY plan's resolved model — not
-				// the thread's pin, which is only one of the inputs to it. The early plan is
-				// the right answer to re-use rather than re-plan: this branch runs only when
-				// there is NO live session, which is exactly the state the early pass planned
-				// in (same inputs, pure function ⇒ same verdict). The authoritative plan
-				// below then re-resolves with the session's restored history visible and
-				// switches the session if anything moved meanwhile. Passing the model
-				// explicitly also keeps overriding whatever model_change the session file
-				// ends with (CQ3).
+				// The model a NEW session OPENS on is what a MODEL-LESS dispatch would resolve
+				// to — the thread's base or pin, or nothing — and NEVER this action's `model`
+				// argument. That argument is per-ACTION: applyRoute applies it as a switch on
+				// top, exactly as the per-action thinking level is applied on top of the level
+				// the session opens at. Opening ON the routed model instead made the baseline
+				// captured below equal to it, so an explicit model became the thread's
+				// permanent default the moment its action was the one that opened the session
+				// — BG22 on the opening path, the asymmetry that made the effort axis right
+				// and the model axis wrong. Passing a model explicitly also keeps overriding
+				// whatever model_change the session file ends with (CQ3).
 				//
+				// A REJECT here is impossible to act on and never needs to be: the same
+				// inputs are re-planned below, where a rejection aborts the dispatch properly.
+				const modelless = planRoute(this.routeInputs(ctx, thread, { ...opts, model: undefined }, undefined));
+				const openModel = modelless.kind === "proceed" ? modelless.model : undefined;
+
 				// A NEW session gets the CURRENT frozen worker-extension set. A LIVE
 				// cached session (reused when present) keeps whatever set it was opened
 				// with — which is precisely why the resolution is frozen per session
@@ -810,7 +828,7 @@ export class ThreadManager {
 				session = await openWorkerSession({
 					ctx,
 					sessionFile: thread.sessionFile || undefined,
-					model: earlyPlan.model,
+					model: openModel,
 					tools: opts.tools ?? this.config.workerTools,
 					promptDocs: this.config.workerPromptDocs,
 					extensionPaths: this.resolveExtensions().paths,
@@ -826,8 +844,10 @@ export class ThreadManager {
 				const baseline = this.sessionEffort(session);
 				if (baseline !== undefined) this.liveBaseline.set(thread.id, baseline);
 				// ...and the MODEL it opened on, which a later action with no model of its own
-				// reverts to (BG22). Read from the session, so it is what pi actually resolved
-				// — the plan's model when there was one, else the host's.
+				// reverts to (BG22). Read from the SESSION, so it is what pi actually resolved
+				// for the model-less plan above — the thread's base or pin when there was one,
+				// else the host's model. Captured BEFORE any per-action switch, which is the
+				// property the effort baseline above already had and this one lacked.
 				if (session.model) this.liveBaselineModel.set(thread.id, `${session.model.provider}/${session.model.id}`);
 				// CQ18: the session FILE is deliberately not persisted yet. pi flushes a
 				// session file only once it holds an assistant message, so this path can name
@@ -858,7 +878,7 @@ export class ThreadManager {
 			// actually be delivered (BG17: the long-context memory was being consumed by a
 			// dispatch that then aborted, silencing the warning for the rest of the
 			// session). Past applyRoute the dispatch always ends in an episode and a result.
-			await this.applyRoute(session, plan, thread, ctx, signal);
+			await this.applyRoute(session, plan, thread, ctx, signal, routeWarn);
 			for (const message of applied.warnings) routeWarn(message);
 			// Guard 6's memory is this side's (route.ts is pure): record the pair the plan
 			// just warned about, so the next action on it stays quiet.
