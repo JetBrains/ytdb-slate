@@ -1,10 +1,25 @@
-# Tier 1 — the fast, fully offline, secret-free checks.
+# Tier 1 — the fast, secret-free checks.
 #
-# Everything here runs in a couple of minutes against fabricated inputs and a
-# plain checkout: no network beyond `npm ci`, no credentials, nothing that
-# writes outside the workspace. That is why the token is read-only (see
-# `permissions` below) and why the trigger is the ordinary `pull_request`, never
-# `pull_request_target`.
+# Everything here runs against fabricated inputs and a plain checkout, in about
+# five seconds of work plus the dependency install. What the tier does NOT need
+# is what makes it safe to run on every pull request:
+#
+#   * No credentials, of any kind. No secrets are referenced and none are
+#     needed; the load check's two pi runs use an empty throwaway agent
+#     directory with PI_OFFLINE=1, so no provider is ever contacted.
+#   * No network in the checks themselves. Only the checkout, the Node download
+#     and `npm ci` reach out, and those registry reads are unauthenticated.
+#   * No lasting change to the checkout. `npm ci` fills the gitignored
+#     node_modules and nothing else moves — `git status` is clean after a full
+#     local run — and the two harnesses that need scratch space mktemp it under
+#     TMPDIR and remove it again.
+#
+# It is not hermetic with respect to the rest of the filesystem, and does not
+# claim to be: `npm ci` populates the npm cache under HOME like any install, and
+# the scratch directories above live under TMPDIR, not in the workspace.
+#
+# That is why the token is read-only (see `permissions` below) and why the
+# trigger is the ordinary `pull_request`, never `pull_request_target`.
 #
 # Tier 2 — the verification ladder (`verification/run-ladder.sh`) — is
 # deliberately NOT here. It takes ~3 minutes of mostly wall-clock waiting on
@@ -53,6 +68,13 @@ jobs:
   checks:
     name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
+    # A tripwire for a hung step, not a budget. Measured warm, the four checks
+    # total ~5 s (typecheck 2.0, load check 2.3, packaging 0.3 + 0.3, resolver
+    # 0.1) and the install ~3 s; even a cold npm cache and a slow runner keep a
+    # full job inside a couple of minutes. Anything past 15 minutes is a pi
+    # child waiting on something that will never arrive, and the default is to
+    # let it hold a runner for six hours.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
