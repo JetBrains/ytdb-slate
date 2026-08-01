@@ -17,7 +17,7 @@
 # All four checks below are exactly the commands a contributor runs locally, so
 # a CI failure reproduces verbatim on a laptop:
 #
-#   npm ci
+#   npm ci --ignore-scripts
 #   npm run typecheck
 #   bash verification/run-packaging-checks.sh --repo .
 #   bash verification/run-packaging-checks.sh --repo . --self-test
@@ -68,8 +68,13 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
+      # --ignore-scripts: the pinned pi SDK's own dependency tree contains packages
+      # with install scripts (@google/genai preinstall, protobufjs postinstall, plus
+      # their nested duplicates) — CI needs none of them run, so do not remove this
+      # flag. Verified: the bin links, the typecheck and all four checks below work
+      # identically without them (finding SE1).
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Typecheck
         run: npm run typecheck
