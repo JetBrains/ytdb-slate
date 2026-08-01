@@ -212,5 +212,24 @@ export default function (pi: ExtensionAPI) {
 	// order-critical relative to the handlers above (different trigger events).
 	registerOrchestratorFailover(pi, () => manager.getConfig(), () => baseModel);
 
-	registerSlateMode(pi, store, handoff, () => manager.getConfig(), () => resolveWorkerExtensionSet());
+	registerSlateMode(
+		pi,
+		store,
+		handoff,
+		() => manager.getConfig(),
+		() => resolveWorkerExtensionSet(),
+		// The doctrine's routable-model table (mode.ts), read through a LIVE
+		// indirection for the same reason as the worker-extension set above: the
+		// resolution belongs to the CURRENT session, and session_start reassigns it.
+		// What that indirection yields is the very closure ThreadManager was handed
+		// by value at construction (CN20), so the doctrine and the dispatch guards
+		// consult ONE memoized resolution: the table the orchestrator reads is the
+		// list the dispatcher will actually enforce. A second resolution here would
+		// not merely duplicate work — it would re-run the registry/auth snapshot at a
+		// different moment and could describe a routable set that does not exist.
+		// Nothing is captured by value at REGISTRATION time either: this runs once,
+		// before the first session_start, when the module variable is still the off
+		// resolution.
+		() => resolveModelRouterResolution(),
+	);
 }

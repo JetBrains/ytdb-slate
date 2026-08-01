@@ -20,11 +20,13 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"to continue that thread — it retains the context of all its previous actions.",
 			"Use `context` to inject prior episodes (by id, from any thread) into the action.",
 			"Threads are serial; to parallelize, dispatch to DIFFERENT threads in one message.",
-			"`model` (\"provider/id\") and `effort` (pi thinking level) apply to THE DISPATCHED ACTION,",
-			"on a new thread and on a continuation alike; omit them to run on the thread's own defaults.",
+			"`model` (\"provider/id\") and `effort` (pi thinking level) route THIS ACTION ONLY — new thread",
+			"or continuation alike; the next action reverts to the thread's defaults, which is also what",
+			"an omitted argument runs on.",
 			"`tools` applies only when creating a new thread.",
-			"A rejected model or effort comes back as a tool error naming what is allowed; advisory",
-			"notices (evidence gaps, cost cliffs) are prefixed to the episode as ⚠ lines.",
+			"Guarded: an unroutable model, or a level that model lacks, is a tool error naming what is",
+			"allowed; advisory notices (evidence gaps, cost cliffs, window substitution) are prefixed to",
+			"the episode as ⚠ lines.",
 			"An episode header of STATUS: FAILED means the action failed — read it and adapt.",
 			"Tasks that modify repository files require the track workflow's pre-implementation gates to have run first.",
 		].join(" "),
@@ -47,7 +49,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				Type.String({
 					description:
 						"Thinking level for THIS action: off, minimal, low, medium, high, xhigh or max " +
-						"(only levels the target model offers); omit to use the thread's base effort",
+						"(only levels the target model offers); omit for the thread's default, or a level " +
+						"derived for the model that runs",
 				}),
 			),
 			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
