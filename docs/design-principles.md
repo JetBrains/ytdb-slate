@@ -304,20 +304,26 @@ the load-on-demand discipline the extension itself prescribes:
   that ships with this package (`track-workflow.md` in this directory),
   appended to the system prompt every turn while orchestrator mode is
   on. With both of its conditional features off, that block — heading
-  plus ten fixed rules — measures **2,103 characters / 38 lines**. Two
-  CONDITIONAL tail rules grow it when their features are configured:
-  worker-extension awareness (one entry per whitelisted extension and
-  tool) and action-level routing, whose live model table is **1,819
-  characters** for a six-model list — about 963 characters for one model
-  plus roughly 150–185 per additional one — taking the whole doctrine to
-  **3,922 characters / 56 lines**. As a rough estimate at 4 characters
-  per token (no tokenizer was run here, and a dense table is worse than
-  prose by that measure) that is ≈525 tokens with both features off and
-  ≈980 tokens with routing on for six models — so "a few hundred tokens"
-  holds only for the fixed rules, and a configured router roughly
-  doubles the always-loaded block. It still covers everything routine
-  dispatching needs, and `context-budget.md` puts those figures against
-  the orchestrator's token budget.
+  plus ten fixed rules — measures **1,874 characters / 38 lines**, not
+  counting the three absolute doc paths it embeds; those make the
+  rendered size depend on where the package is installed (2,103
+  characters in this repo, whose `docs/` path is long). Two CONDITIONAL
+  tail rules grow it when their features are configured:
+  worker-extension awareness, which scales with what is whitelisted,
+  and action-level routing, whose live model table adds **1,924
+  characters / 20 lines** for six CONFIGURED models — roughly 150–185
+  per additional model — taking the block to **3,798 characters / 58
+  lines** on the same basis (4,102 as rendered in this repo). As a
+  rough estimate at 4 characters per token (no tokenizer was run here,
+  and a dense table is worse than prose by that measure) that is
+  ≈470–525 tokens with both features off and ≈950–1,025 with routing on
+  for six models, each spread being the embedded paths — so "a few
+  hundred tokens" holds only for the fixed rules, and a configured
+  router roughly doubles the always-loaded block. It still covers
+  everything routine dispatching needs;
+  `context-budget.md` carries the full measurement table, the
+  install-path arithmetic, and what all this costs the orchestrator's
+  token budget.
 - **Tier 2 — on demand.** This document. The doctrine carries a short
   pointer to it (doctrine rule 10); the orchestrator reads it only when
   reasoning about the architecture itself — explaining slate, modifying

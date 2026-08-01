@@ -124,28 +124,56 @@ The budget's denominator includes Slate's own always-loaded block:
 the doctrine rides in the orchestrator's system prompt while
 orchestrator mode is on, so it occupies context for the whole
 session (once — the system prompt is not re-accumulated per turn).
-Measured on the shipped builder:
 
-| doctrine | size |
-| --- | --- |
-| ten fixed rules (routing and worker extensions both off) | 2,103 characters / 38 lines |
-| with action-level routing on, six configured models | 3,922 characters / 56 lines |
-| the routing rule alone, six models | 1,819 characters |
+**Its size depends on where the package is installed.** That is not
+obvious, and it catches anyone who measures: the doctrine cites the
+shipped docs by ABSOLUTE path, so between three and five full
+filesystem paths are embedded in the block — three normally, four
+with `workflow.draftPRs` on, five once the routing rule renders.
+Every additional character in the installed `docs/` directory
+therefore costs 3–5 characters of doctrine. Measured at an
+11-character docs path and again at this repo's 58-character one,
+the same configuration differed by 141–235 characters.
 
-The routing rule is a live table with ONE ROW PER ROUTABLE MODEL, so
-it scales with the configured list: about 963 characters for a
-single model, plus roughly 150–185 characters per additional one.
-The worker-extension rule (`workerExtensions`) grows the block the
-same way, per whitelisted extension and tool.
+So the portable figure — the block with those embedded paths
+subtracted — is the only count that transfers between installs:
+
+| configuration | portable | at a 58-char docs dir | lines |
+| --- | --- | --- | --- |
+| router off, `draftPRs` off (also any untrusted project, whose config is ignored) | 1,874 | 2,103 | 38 |
+| router off, `draftPRs` on | 1,876 | 2,180 | 38 |
+| router on, 6 configured models, `draftPRs` on | 3,800 | 4,179 | 58 |
+| router on, all 9 shipped profiles configured, `draftPRs` on | 4,378 | 4,757 | 61 |
+
+Line counts do not vary with the install path. To get the character
+total for your own install, add to the portable figure, for each
+embedded path, the length of the installed `docs/` directory plus
+one, plus the filename: `track-workflow.md`, `review-rules.md` and
+`design-principles.md` always, `pr-publishing.md` with draft-PR
+publishing on, `model-routing.md` when the routing rule renders.
+
+Two parts of the block grow with configuration rather than with the
+path:
+
+- The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
+  so what renders is the models you CONFIGURE — not the nine Slate
+  ships profiles for. It is 1,924 portable characters / 20 lines for
+  six configured models and 2,502 / 23 for all nine, growing by
+  roughly 150–185 characters per additional model.
+- The worker-extension rule grows per whitelisted extension and per
+  tool that extension contributes, so it has no fixed size; one
+  extension contributing two tools measured 373 portable characters
+  / 7 lines.
 
 Against a 256,000-token budget none of this is material — as a rough
 estimate, at 4 characters per token (no tokenizer was run, and the
-table is denser than prose, so treat it as a floor) the whole
-doctrine is ≈525 tokens off and ≈980 tokens on, i.e. well under half
-a percent of the default budget. It is listed here because it is
-context Slate itself puts in front of the model on every turn, and
-because it is the number to check before assuming the budget's
-headroom is all conversation.
+table is denser than prose, so treat it as a floor) the whole block
+is ≈470–525 tokens with both features off and ≈950–1,045 tokens with
+routing on for six models, the range being the install-path spread
+above. That is under half a percent of the default budget. It is
+listed here because it is context Slate itself puts in front of the
+model on every turn, and because it is the number to check before
+assuming the budget's headroom is all conversation.
 
 ## Worker threads: the routing window guard
 
