@@ -36,6 +36,12 @@
 #   RUN 2  trusted (-a) path: trust is what makes slate read the checkout's own
 #          .pi/slate.json, so this run puts the tracked project config through
 #          slate's config sanitizers
+# Plus one check that launches nothing at all (T4): the project config file must
+# be parseable JSON and a JSON object. RUN 2 cannot cover that — slate's config
+# loader try/catches a malformed file and falls back to defaults in silence, so
+# the sanitizers it feeds are never reached and pi emits nothing. Without T4 a
+# checkout whose .pi/slate.json is `{{{` looks perfectly healthy here while every
+# setting in it, workflow.draftPRs included, is being dropped.
 # PI_OFFLINE=1 is MANDATORY on BOTH runs, and on RUN 2 above all: -a makes pi
 # read .pi/settings.json, and without PI_OFFLINE it npm-installs every package
 # listed there — observed hanging for 60 s and writing a .pi/npm directory INTO
@@ -70,7 +76,7 @@ exec 8>&2
 # status (WC2). Callers pass the reason only.
 die() { echo "verification: refused to start — $*" >&8; exit 2; }
 
-ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3"
+ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3 T4"
 
 REPO="."
 ONLY=""
@@ -79,7 +85,7 @@ while [ $# -gt 0 ]; do
 		--repo) [ "$#" -ge 2 ] || die "option '--repo' requires a value"; REPO="$2"; shift 2 ;;
 		--only) [ "$#" -ge 2 ] || die "option '--only' requires a value"; ONLY="$2"; shift 2 ;;
 		--list-checks) printf '%s\n' $ALL_CHECKS; exit 0 ;;
-		-h|--help) sed -n '2,64p' "$0"; exit 0 ;;
+		-h|--help) sed -n '2,70p' "$0"; exit 0 ;;
 		*) die "unknown argument '$1' (try --help)" ;;
 	esac
 done
@@ -221,8 +227,10 @@ command -v timeout >/dev/null 2>&1 && TMO=(timeout 120)
 # auth.json, so no provider exists to call), requests from a file so stdin is at
 # EOF immediately, cwd = the checkout so .pi/ is the project config pi sees.
 RC=0
+PI_RAN=0
 pirun() { # $1 label, $2 requests file, rest = extra pi args
 	local label="$1" reqs="$2"; shift 2
+	PI_RAN=1
 	local agent="$WORK/agent-$label"
 	mkdir -p "$agent" || die "cannot create the throwaway agent dir '$agent'"
 	( cd "$REPO" && env "${SCRUB[@]}" PI_CODING_AGENT_DIR="$agent" PI_OFFLINE=1 \
@@ -454,11 +462,17 @@ if run_wanted T1 T2 T3; then
 		else check T1 0 "pi exited 0 on the trusted (-a) run, still offline, project trusted ($(rpcq canary-where "$WORK/run2.err"))"; fi
 	}
 
+	# TQ2: this asserts ONE thing — that slate's sanitizers emitted no warning — and
+	# the wording says so. Only three keys have sanitizers that warn (modelFailover,
+	# contextBudget, workerExtensions); everything else in the file, and the file's
+	# syntax and shape, is outside what a warning can ever report. T4 covers the
+	# syntax and shape; nothing here covers unknown keys or wrong-typed values for
+	# the unsanitized ones.
 	want T2 && {
 		N="$(rpcq warnings "$WORK/run2.out")"
 		U="$(rpcq unparseable "$WORK/run2.out")"
 		if [ "$U" != 0 ]; then check T2 1 "$U line(s) of stdout look like JSON but do not parse, so a warning notification could have been missed rather than absent"
-		elif [ "$N" = 0 ]; then check T2 0 "slate's config sanitizers accepted the checkout's own .pi/slate.json with no warning notification"
+		elif [ "$N" = 0 ]; then check T2 0 "slate's config sanitizers emitted no warning for the checkout's own .pi/slate.json (they cover the shape of modelFailover, contextBudget and workerExtensions only — not the file's syntax, which is T4, nor any other key)"
 		else check T2 1 "$N warning notification(s) from slate's config sanitizers on .pi/slate.json: $(rpcq warning-detail "$WORK/run2.out")"; fi
 	}
 
@@ -471,13 +485,72 @@ if run_wanted T1 T2 T3; then
 	}
 fi
 
+# =============================================================================
+# PROJECT CONFIG — read straight off disk, no pi involved
+# =============================================================================
+# The gap T2 cannot close (TQ2). slate's loadConfig() wraps the read and the
+# JSON.parse in a try/catch and requires a non-null, non-array object; anything
+# else returns {} and the session continues on defaults with NOTHING emitted — no
+# warning, no error, no event. So a checkout can dogfood with its whole project
+# config dropped and every check that watches pi's output stays green. This reads
+# the file itself instead, which needs no pi, no session and no trust.
+#
+# It asserts exactly two things: the file parses as JSON, and its top-level value
+# is an object. It deliberately does NOT judge the contents — unknown keys and
+# wrong-typed values are a separate concern, and the three keys that do have
+# sanitizers are T2's business.
+if run_wanted T4; then
+	want T4 && {
+		CFG="$REPO/.pi/slate.json"
+		if [ ! -e "$CFG" ]; then
+			# Optional for a consumer: no project config is a valid state, not a defect.
+			check T4 0 "no $CFG — a project config is optional, so there is nothing to parse"
+		else
+			CFGV="$(node -e '
+const fs = require("node:fs");
+const f = process.argv[1];
+const say = (v) => process.stdout.write(v);
+let text;
+try { text = fs.readFileSync(f, "utf8"); } catch (e) {
+  say("BAD cannot read " + f + ": " + (e && e.message ? e.message : String(e)));
+  process.exit(0);
+}
+let parsed;
+try { parsed = JSON.parse(text); } catch (e) {
+  say("BAD " + f + " is not parseable JSON (" + (e && e.message ? e.message : String(e)) +
+      ") — the slate config loader catches exactly this and falls back to defaults in silence, so every setting in the file is being ignored with no diagnostic anywhere");
+  process.exit(0);
+}
+const kind = parsed === null ? "null"
+  : Array.isArray(parsed) ? "an array"
+  : typeof parsed === "object" ? "an object"
+  : "a " + typeof parsed + " (" + JSON.stringify(parsed).slice(0, 40) + ")";
+if (kind !== "an object") {
+  say("BAD " + f + " parses, but its top-level value is " + kind + ", not a JSON object — slate requires a plain object and silently falls back to defaults for anything else");
+  process.exit(0);
+}
+const keys = Object.keys(parsed).map((k) => k.replace(/[^\x20-\x7e]/g, "?").slice(0, 40));
+say("OK " + f + " parses as a JSON object, " + keys.length + " top-level key(s): " +
+    (keys.slice(0, 8).join(", ") || "none") + (keys.length > 8 ? ", …" : ""));
+' "$CFG")"
+			case "$CFGV" in
+				"OK "*) check T4 0 "${CFGV#OK }" ;;
+				"BAD "*) check T4 1 "${CFGV#BAD }" ;;
+				*) check T4 1 "could not classify $CFG — the reader printed ${CFGV:-<nothing>}" ;;
+			esac
+		fi
+	}
+fi
+
 echo
 if [ "$RAN" -eq 0 ]; then
 	echo "verification: NO CHECK RAN. --only='$ONLY' matched nothing, so this run proves nothing." >&8
 	FAIL=$((FAIL+1))
 fi
 echo "== summary: $PASS pass, $FAIL fail =="
-if [ "$FAIL" -ne 0 ]; then
+# Only worth keeping when a pi run actually produced streams: T4 needs no pi, so
+# a T4-only failure would otherwise point at an empty directory.
+if [ "$FAIL" -ne 0 ] && [ "$PI_RAN" = 1 ]; then
 	KEEP=1
 	echo "artifacts: $WORK (raw rpc streams, kept because a check failed)"
 fi
