@@ -567,8 +567,8 @@ CHECK off-inert        PASS    — empty pattern list → shared empty set, regi
 CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
 CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
       observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
-CHECK roster           PASS    — all 101 expected checks reported exactly once and the counters agree …
-== summary: 101 pass, 1 fail, 0 not run (102 result lines = 101 expected checks + this roster audit) ==
+CHECK roster           PASS    — all 102 expected checks reported exactly once and the counters agree …
+== summary: 102 pass, 1 fail, 0 not run (103 result lines = 102 expected checks + this roster audit) ==
 ```
 
 ### Why the summary counts one more than the roster
@@ -581,7 +581,7 @@ therefore prints `EXPECTED + 1` result lines.
 
 That is the whole of the old off-by-one, and it is now **stated in the output**
 rather than left to be re-derived: the summary prints the identity
-(`102 result lines = 101 expected checks + this roster audit`), and on a run where it
+(`103 result lines = 102 expected checks + this roster audit`), and on a run where it
 does not hold — a deleted check, a duplicate report, a crashed section adding an id
 — it prints the residual as `±N unaccounted — see the roster line`. The roster
 additionally asserts the identity it *can* own: `pass + fail + notrun` equals the
@@ -686,7 +686,8 @@ session's frozen resolution carries:
 | `route-off-invisible` | with the router OFF nothing is seeded, persisted, derived or consulted: no base model, no base effort, no re-seed signal, no derived level, the pin is `openOnly`, no router guard speaks even with a 5M-token context, a malformed argument is passed through for pi to reject — and passing the **removed** orchestrator-tracker input changes the verdict not at all, which is what "not consulted" means asserted rather than assumed. The boundary is stated positively too: the **ladder** guard is deliberately *not* invisible, and still refuses an off-ladder explicit level |
 | `route-stored-effort-refresh` | a thread's stored `baseEffort` is a **cached derivation** over a table that ships with slate, so a refresh can invalidate it. It is re-checked against today's table and, when it no longer reads `ok`, **re-derived** for that model rather than replayed — for all four ways a refresh can invalidate it (evidence gap, gap under `allowUnmeasuredEffort: false`, a shrunken ladder, a provider's hard rejection), three of which used to make the thread **undispatchable** through a dispatch that named no effort at all. The correction is **silent** (nobody asked for that level) and is **not persisted** (the verdict still echoes the stored value, no re-seed is signalled — pinned as observed). A still-measured level is kept rather than re-derived, a model with no measured level yields none, and an **explicit** level keeps the full guard treatment: warned on a gap, refused under `allowUnmeasuredEffort: false`, off-ladder or API-rejected |
 | `route-stored-effort-vocabulary` | a stored `baseEffort` outside pi's vocabulary — wrong case, a non-vocabulary string, a number, an object, an empty string, `null`, an array — is **discarded**, never replayed onto a dispatch: the record is an unversioned snapshot, so its declared type is a claim about the writer, and pi would clamp a junk level silently while the episode reported a level nothing ran at. The boundary is the **vocabulary itself, not the profile table**: with an unreadable ladder (nothing to re-derive from) a junk value is still gone from the verdict's own base-effort echo while a vocabulary-valid one survives it — the discriminator that a table-trusting boundary fails |
-| `route-switch-decision` | the model-switch decision, whole: a **plan** target moves a live session and outranks even a held failover; an **`openOnly`** target never does — it only chose what a NEW session opened on (BG16) — and falls through to the revert rule; an action naming no model **reverts** to the session's opening model (BG22) unless a failover holds it; `no-baseline` outranks the failover stand-down; specs are trimmed; and every switch is labelled `plan` or `revert`, the split that tells the caller whether failing to perform it may fail the action (BG24) |
+| `route-switch-decision` | the model-switch decision, whole: a **plan** target moves a live session and outranks even a held failover; an **`openOnly`** target never does — it only chose what a NEW session opened on (BG16) — and falls through to the revert rule; an action naming no model **reverts** to the session's opening model (BG22) unless a failover holds it; `no-baseline` outranks the failover stand-down; a model spec is carried **byte-for-byte** — a padded one is not normalised into a silent success and a whitespace-only one is not read as an absence that silently reverts (RG1, repinned; CQ13's one rule, shared with `planRoute` and asserted on the same value through both modules) — and every switch is labelled `plan` or `revert`, the split that tells the caller whether failing to perform it may fail the action (BG24) |
+| `route-open-plan-inputs` | the plan that decides what a NEW session opens on strips **both** of the action's arguments. With `effort` left in, that plan can REJECT — an explicit level the thread's pin does not offer — and a rejection carries no model, so the session opens on the HOST and the pin is silently dropped while the real plan a moment later never complains (BG25). Asserted on both router states, plus structurally on the caller: model and effort dropped in the same override, and the open model taken from that plan so a rejection means none |
 | `route-switch-opening-baseline` | the revert target is what a **model-less plan** resolves to, never what a routed open happened to use. Composed from both plans plus the decision helper: with the correct baseline the next model-less action reverts off the per-action model; with the defective one it reports `already-current` and the explicit model becomes the thread's permanent default — BG22 surviving its own first fix, on the opening path. Router-ON is shown to be immune (the base arrives as a plan target), which is why only a router-OFF fixture could ever have caught it. Two structural terms pin the caller's half: the open is planned with `model` dropped, and the baseline is read from the session that plan opened |
 | `route-switch-lifecycle-i1` | **I1** — the model and effort axes obey the same per-action lifecycle: a value the action names applies to that action, an action naming none falls back to what the session OPENED with, a failover holds the model axis in place. The model half executes through the extracted helper; the effort half is structural (it has no pure helper yet), including that **both** opening baselines are declared, set, cleared, read — and captured **before** any per-action switch. That last asymmetry is exactly why BG22 needed two rounds: the effort axis had had its baseline since BG18, the model axis had none, and no net noticed |
 | `route-hostile` | a hostile `model` or `effort` argument is stripped of control/ANSI bytes and length-capped before it reaches a rejection reason — that text goes to the orchestrator *and* to pi-tui, which renders escapes verbatim — while the rejection itself still happens |
@@ -999,6 +1000,26 @@ kill `route-switch-lifecycle-i1`. The opening-path mutation is worth singling ou
 it lives in `threads.ts`, so it survived every behavioural term and died only on the
 structural ones — which is precisely why those terms are there rather than a comment
 saying "the caller should".
+
+A check can also pin the WRONG thing, and this suite has now done it once: the
+model-switch decision trimmed its `model` argument, `route-switch-decision`
+asserted that trimming as intentional, and a quality gate used the check as
+evidence that the behaviour was deliberate rather than a slip. It was a regression
+against CQ13's byte-for-byte contract — a padded spec silently succeeded instead of
+producing pi's own error, and a whitespace-only one silently reverted instead of
+doing what was asked. The terms are repinned to the byte-for-byte rule, tied to
+`planRoute` through the same value so the two modules cannot drift apart, and three
+mutations now guard the way back: restoring the trim wholesale, trimming only
+padding, and treating only whitespace as absent — all three killed. The lesson is
+recorded here rather than quietly fixed: a pinned behaviour is an assertion that it
+is CORRECT, and pinning something merely observed can convert a defect into a
+documented feature.
+
+`route-open-plan-inputs` (BG25) was proven both ways before it was committed — it
+fails on the code that has the defect and passes on the code that fixes it — and by
+two mutations against the fixed code: restoring `effort` to the open plan's inputs,
+and reading a model off a rejected plan. Both killed, both on structural terms,
+because the stripping is the caller's to do.
 
 ### The roster's own teeth
 

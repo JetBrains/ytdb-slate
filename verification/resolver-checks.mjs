@@ -236,6 +236,7 @@ const ROUTE_IDS = [
 	"route-stored-effort-refresh",
 	"route-stored-effort-vocabulary",
 	"route-switch-decision",
+	"route-open-plan-inputs",
 	"route-switch-opening-baseline",
 	"route-switch-lifecycle-i1",
 	"route-read-failure-inert",
@@ -2384,12 +2385,25 @@ try {
 			// No baseline OUTRANKS the failover stand-down: there is nothing to revert to, so
 			// the reason names the missing baseline rather than the marker.
 			const failoverNoBaseline = outcome({ current: "p/fb", failoverHeld: true });
-			// Specs are normalised the way every other spec argument is (trim; empty reads as
-			// absent), so a padded plan target cannot make an already-current session switch
-			// to itself, and a blank one falls through to the revert.
+			// BYTE-FOR-BYTE, the CQ13 contract (repinned: RG1). A `model` argument is passed
+			// to pi exactly as the caller wrote it, so pi owns the "unknown model" error —
+			// which means this decision must not normalise it either. It briefly did, and the
+			// harness pinned that as intentional, which is how a regression got a check
+			// vouching for it:
+			//   · a PADDED spec was trimmed, so a malformed argument silently SUCCEEDED
+			//     instead of producing pi's error;
+			//   · a WHITESPACE-ONLY spec read as absent, so the action silently ran on the
+			//     revert target — a no-op where the caller had asked for something.
+			// One rule for model specs, in both modules: what planRoute passes through, this
+			// helper hands on unchanged. Only a truly EMPTY string is absent, which is how a
+			// cleared optional argument arrives (planRoute's own `argModel`).
 			const paddedPlan = outcome({ planned: "  p/x  ", current: "p/open", baseline: "p/open" });
 			const blankPlan = outcome({ planned: "   ", current: "p/x", baseline: "p/open" });
-			const paddedBaseline = outcome({ current: "p/x", baseline: "  p/open  " });
+			const emptyPlan = outcome({ planned: "", current: "p/x", baseline: "p/open" });
+			// The two modules on ONE value: whatever planRoute resolves for a padded argument
+			// is what the decision must carry, character for character.
+			const paddedPlanned = plan({ resolution: router.ROUTER_OFF, thread: { id: "t1" }, requestedModel: "  p/x  " });
+			const paddedDecision = route.decideModelSwitch({ planned: paddedPlanned.model, current: "p/open", baseline: "p/open" });
 			// BG24: `source` is load-bearing beyond bookkeeping. A PLAN switch is the action's
 			// own routing, so failing to perform it must fail the action; a REVERT is slate's
 			// housekeeping, so failing to perform it must not kill a dispatch the caller never
@@ -2403,7 +2417,7 @@ try {
 				["revert past an openOnly pin", decide({ planned: "p/pin", openOnly: true, current: "p/x", baseline: "p/pin" }), "revert"],
 			];
 			const mislabelled = sources.filter(([, d, want]) => d.kind !== "switch" || d.source !== want);
-			checkAll("route-switch-decision", "the model-switch decision, whole: a PLAN target moves a live session and outranks even a held failover; an `openOnly` target never does (it only chose what a NEW session opened on \u2014 BG16), falling through to the revert rule; an action that names no model REVERTS to the session's opening model (BG22) unless a failover holds it, and keeps when there is no baseline or it is already there; specs are trimmed; and every switch is labelled `plan` or `revert`, which is what tells the caller whether failing to perform it may fail the action (BG24)", [
+			checkAll("route-switch-decision", "the model-switch decision, whole: a PLAN target moves a live session and outranks even a held failover; an `openOnly` target never does (it only chose what a NEW session opened on \u2014 BG16), falling through to the revert rule; an action that names no model REVERTS to the session's opening model (BG22) unless a failover holds it, and keeps when there is no baseline or it is already there; a model spec is carried BYTE-FOR-BYTE (a padded one is not normalised and a whitespace-only one is not an absence — RG1/CQ13, one rule shared with planRoute); and every switch is labelled `plan` or `revert`, which is what tells the caller whether failing to perform it may fail the action (BG24)", [
 				["a plan target switches, labelled plan", planApplies === "switch:p/x/plan", planApplies],
 				["...and supersedes a held failover", planOverFailover === "switch:p/x/plan", planOverFailover],
 				["...but not when the session is already there", planAlreadyThere === "keep:already-current", planAlreadyThere],
@@ -2416,7 +2430,10 @@ try {
 				["...unless a failover holds the session (BG16)", omitUnderFailover === "keep:failover-held", omitUnderFailover],
 				["...keeps with no baseline, and keeps when already there", omitNoBaseline === "keep:no-baseline" && omitAlreadyThere === "keep:already-current" && nothing === "keep:no-baseline", [omitNoBaseline, omitAlreadyThere, nothing]],
 				["a missing baseline outranks the failover stand-down", failoverNoBaseline === "keep:no-baseline", failoverNoBaseline],
-				["specs are trimmed; a blank plan target reads as absent", paddedPlan === "switch:p/x/plan" && blankPlan === "switch:p/open/revert" && paddedBaseline === "switch:p/open/revert", [paddedPlan, blankPlan, paddedBaseline]],
+				["a PADDED spec is carried byte-for-byte, never silently normalised (RG1/CQ13)", paddedPlan === 'switch:  p/x  /plan', paddedPlan],
+				["a WHITESPACE-ONLY spec is a switch target, not a silent absence", blankPlan === "switch:   /plan", blankPlan],
+				["...while a truly EMPTY string is absent, as it is for planRoute", emptyPlan === "switch:p/open/revert", emptyPlan],
+				["planRoute and the decision agree on the same value, character for character", paddedPlanned.model === "  p/x  " && paddedDecision.kind === "switch" && paddedDecision.spec === "  p/x  ", [paddedPlanned.model, paddedDecision]],
 				["every switch carries the right source label (BG24)", mislabelled.length === 0, mislabelled.map(([label, d]) => `${label} \u2192 ${JSON.stringify(d)}`)],
 			]);
 		});
@@ -2473,7 +2490,12 @@ try {
 			// stops following it — a mutation that plans the open WITH the argument survives
 			// every behavioural term above and dies here.
 			const threadsSrc = readFileSync(join(REPO, "extension", "threads.ts"), "utf8");
-			const opensModelLess = /planRoute\(\s*this\.routeInputs\(\s*ctx,\s*thread,\s*\{\s*\.\.\.opts,\s*model:\s*undefined\s*\}/.test(threadsSrc);
+			// `model: undefined` anywhere in that override object, in any key order and
+			// alongside whatever else the open plan strips — this term owns "the model
+			// argument is dropped", and route-open-plan-inputs owns "and the effort with it"
+			// (BG25). A regex that demanded `model` be the LAST key would fail the moment a
+			// second key was added, which is a false alarm about an unrelated improvement.
+			const opensModelLess = /planRoute\(\s*this\.routeInputs\(\s*ctx,\s*thread,\s*\{[^}]*\bmodel:\s*undefined\b[^}]*\}/.test(threadsSrc);
 			const baselineFromSession = /this\.liveBaselineModel\.set\(\s*thread\.id,\s*`\$\{session\.model\.provider\}\/\$\{session\.model\.id\}`/.test(threadsSrc);
 			checkAll("route-switch-opening-baseline", "the revert target is what a MODEL-LESS plan resolves to, never what a routed open happened to use: when the dispatch that opens the session carries an explicit `model`, using the opened model as the baseline makes that per-action model the thread's permanent default (BG22 on the opening path). Pinned by composing both plans with the switch decision \u2014 the correct baseline reverts, the defective one reports the session is already where it should be and the explicit model never goes away", [
 				["the routed plan and the model-less plan really differ", pinned.routed.model === "p/x" && pinned.modelless.model === "p/pin", [pinned.routed.model, pinned.modelless.model]],
@@ -2485,6 +2507,60 @@ try {
 				["router ON: the base arrives as a PLAN target, so the defect cannot bite", routerOn.fixed === "switch:p/cheap/plan" && routerOn.defective === "switch:p/cheap/plan", [routerOn.fixed, routerOn.defective]],
 				["the caller plans the session OPEN with the model argument dropped", opensModelLess, opensModelLess],
 				["...and reads the baseline from the session that plan opened", baselineFromSession, baselineFromSession],
+			]);
+		});
+
+		await section("route-open-plan-inputs", async () => {
+			// BG25. The plan that decides what a NEW session OPENS on must strip the action's
+			// own arguments — BOTH of them. It already dropped `model` (that is BG22's
+			// opening-path fix); leaving `effort` in place kept a second way for the same
+			// dispatch to poison the open: an explicit level the pin's ladder does not have
+			// makes that plan REJECT, the caller reads no model out of a rejection, and the
+			// session then opens on the HOST model with the thread's pin silently dropped —
+			// no warning, because the real plan (the one that runs a moment later) never
+			// rejected. The action still runs; it just runs somewhere else than the thread's
+			// own pin says, which is exactly the class of silent substitution the guards
+			// exist to prevent.
+			const off = router.ROUTER_OFF;
+			// A vetted source in the shape threads.ts injects on the router-off path: it
+			// profiles the pin and knows its ladder.
+			const vetted = {
+				findProfile: (spec) => (spec === "p/pin" ? { id: spec, capabilityMeasuredAt: ["low"], evidenceGapAt: [] } : undefined),
+				ladderFor: () => ["low"],
+			};
+			const thread = { id: "t1", model: "p/pin" };
+			// The dispatch as the caller made it: a level the pin does not have.
+			const withEffort = plan({ resolution: off, thread, requestedEffort: "max", profiles: vetted });
+			// The same dispatch with the action's arguments stripped — what the open must use.
+			const stripped = plan({ resolution: off, thread, profiles: vetted });
+			// Router ON, no injected source needed: an explicit level off the base's ladder
+			// rejects there too, so the hazard is not router-off-only.
+			const on = routeResolution([{ spec: "p/base", tier: 1, price: 1, ladder: ["low"], measured: ["low"] }]);
+			const onThread = { id: "t2", baseModel: "p/base" };
+			const onWithEffort = plan({ resolution: on, thread: onThread, requestedEffort: "max" });
+			const onStripped = plan({ resolution: on, thread: onThread });
+			// THE WIRING, structurally — the caller is the one that has to strip them, and
+			// threads.ts cannot be loaded here (the lesson from the opening-baseline check,
+			// where a caller-side mutation survived every behavioural term). Both arguments
+			// must be dropped in the SAME call, and the open model must come from that plan.
+			const threadsSrc = readFileSync(join(REPO, "extension", "threads.ts"), "utf8");
+			const stripsBoth = /planRoute\(\s*this\.routeInputs\(\s*ctx,\s*thread,\s*\{\s*\.\.\.opts,\s*(?:model:\s*undefined,\s*effort:\s*undefined|effort:\s*undefined,\s*model:\s*undefined)\s*\}/.test(threadsSrc);
+			// The open model is taken from THAT plan, however the caller expresses it (a
+			// ternary, an if, a helper) — the property, not one spelling. What the caller does
+			// on a REJECTION is deliberately not pinned here: at the time of writing it is
+			// being strengthened from "no model, open on the host" to "fall back to the
+			// thread's own base or pin and say so", which is strictly better than the contract
+			// this check was asked to encode. Pinning an in-flight shape is how a check ends
+			// up vouching for the weaker of two behaviours; a follow-up should pin the
+			// stronger one once it is committed.
+			const openModelFromThatPlan = /openModel[^;]*modelless\.model/.test(threadsSrc);
+			checkAll("route-open-plan-inputs", "the plan that decides what a NEW session opens on strips BOTH of the action's arguments: with the action's `effort` still in it that plan can REJECT — an explicit level the thread's pin does not offer — and a rejection yields no model, so the session opens on the host and the pin is silently dropped (BG25); stripped, the same dispatch resolves the pin. Asserted on both router states, and structurally on the caller, which is the side that has to do the stripping", [
+				["router OFF: the action's effort makes the open plan REJECT", withEffort.kind === "reject" && /is not on p\/pin's effort ladder/.test(why(withEffort)), verdict(withEffort)],
+				["...and a rejection carries no model for the caller to open on", withEffort.model === undefined, withEffort.model],
+				["...while the STRIPPED plan resolves the thread's pin", verdict(stripped) === "proceed:p/pin@undefined" && stripped.openOnly === true, [verdict(stripped), stripped.openOnly]],
+				["router ON: the same hazard, without any injected source", onWithEffort.kind === "reject" && verdict(onStripped) === "proceed:p/base@low", [verdict(onWithEffort), verdict(onStripped)]],
+				["the caller strips model AND effort in the same open plan", stripsBoth, stripsBoth],
+				["...and takes the open model from that plan", openModelFromThatPlan, openModelFromThatPlan],
 			]);
 		});
 
@@ -3702,7 +3778,7 @@ try {
 		"route-load", "route-vocabulary", "route-effort-type", "route-list-on", "route-list-off",
 		"route-base-reseed", "route-base-reseed-guarded", "route-effort-derived-for-model", "route-off-invisible",
 		"route-stored-effort-refresh", "route-stored-effort-vocabulary",
-		"route-switch-decision", "route-switch-opening-baseline", "route-switch-lifecycle-i1",
+		"route-switch-decision", "route-open-plan-inputs", "route-switch-opening-baseline", "route-switch-lifecycle-i1",
 		"route-read-failure-inert", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
