@@ -86,12 +86,12 @@ elif [ -x "$REPO/node_modules/.bin/pi" ]; then
 	PI="$REPO/node_modules/.bin/pi"
 elif PI="$(command -v pi)" && [ -n "$PI" ]; then
 	echo "NOTE   no pi in $REPO/node_modules/.bin — using the PATH one: $PI"
-	echo "NOTE   run 'npm ci' in $REPO to exercise the pinned install instead."
+	echo "NOTE   run 'npm ci --ignore-scripts' in $REPO to exercise the pinned install instead."
 else
 	die "no pi CLI found: PI_BIN is unset, there is none at
        $REPO/node_modules/.bin/pi, and none on PATH. This script loads the
        repository's TypeScript through the jiti that ships inside pi.
-       Remedy: run 'npm ci' in $REPO (or set PI_BIN=<path to pi>)."
+       Remedy: run 'npm ci --ignore-scripts' in $REPO (or set PI_BIN=<path to pi>)."
 fi
 [ -x "$PI" ] || die "the pi CLI '$PI' is not executable"
 
