@@ -24,9 +24,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"or continuation alike; the next action reverts to the thread's defaults, which is also what",
 			"an omitted argument runs on.",
 			"`tools` applies only when creating a new thread.",
-			"Guarded: an unroutable model, or a level that model lacks, is a tool error naming what is",
-			"allowed; advisory notices (evidence gaps, cost cliffs, window substitution) are prefixed to",
-			"the episode as ⚠ lines.",
+			"Guarded: a level the model does not offer is a tool error, as is a model outside the routable",
+			"list where a project configures one; advisory notices (evidence gaps, cost cliffs, window",
+			"substitution) are prefixed to the episode as ⚠ lines.",
 			"An episode header of STATUS: FAILED means the action failed — read it and adapt.",
 			"Tasks that modify repository files require the track workflow's pre-implementation gates to have run first.",
 		].join(" "),
@@ -49,8 +49,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				Type.String({
 					description:
 						"Thinking level for THIS action: off, minimal, low, medium, high, xhigh or max " +
-						"(only levels the target model offers); omit for the thread's default, or a level " +
-						"derived for the model that runs",
+						"(only levels the target model offers); omit to let slate choose — the thread's " +
+						"default level, or one measured for the model that runs",
 				}),
 			),
 			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
