@@ -174,6 +174,34 @@ while staying safe on common consumer API tiers; wider fan-outs only
 pay tail latency, and projects with higher-tier keys raise the cap in
 `slate.json`.
 
+Repo-local note (not from the report): **action-level model routing**
+applies P10's discipline to a second scarce resource. P10 treats
+CONTEXT as RAM; the optional `router.models` list treats SPEND the same
+way — each dispatched action gets a model and an effort level chosen to
+be up to the task and no more, instead of every action inheriting
+whatever model the orchestrator happens to be running. It is also a P1
+corollary: an action is only a bounded unit if what it may cost is
+bounded too, and the closed model list plus a derived (never inflated)
+effort level is what bounds it. The two disciplines even share
+machinery — pi's compaction settings, which clamp the orchestrator's
+context budget, also decide per dispatch whether a worker thread still
+fits the model it is routed to, in which case the action moves to the
+widest listed model rather than being blocked.
+
+The feature is OFF until `router.models` lists something, and when it
+is on the code ENFORCES less than the routing data ADVISES — a
+distinction worth keeping straight when reasoning about the
+architecture. The dispatch guards refuse an unlisted model, a level off
+the target model's ladder and a level the provider rejects outright,
+and they warn about an unmeasured level (refusing it only when
+`router.allowUnmeasuredEffort` is false). The obligations carried by
+the profile data — keeping review and gate actions on measured levels,
+and honoring a REFUSE such as `anthropic/claude-fable-5`'s for
+zero-data-retention work — are stated in the doctrine for the
+orchestrator to honor and are NOT code-enforced guards. Mechanics, the
+full guard list and the provenance of the routing data are in
+`model-routing.md` in this directory.
+
 Repo-local note (not from the report): the P7 guard was originally
 absolute — workers loaded no extensions, so Slate's `thread` tool simply
 never existed for them. The optional `workerExtensions` key (`slate.json`,
@@ -275,8 +303,21 @@ the load-on-demand discipline the extension itself prescribes:
   `review-rules.md`, and a pointer to the track-based workflow protocol
   that ships with this package (`track-workflow.md` in this directory),
   appended to the system prompt every turn while orchestrator mode is
-  on. It costs a few hundred tokens and covers everything routine
-  dispatching needs.
+  on. With both of its conditional features off, that block — heading
+  plus ten fixed rules — measures **2,103 characters / 38 lines**. Two
+  CONDITIONAL tail rules grow it when their features are configured:
+  worker-extension awareness (one entry per whitelisted extension and
+  tool) and action-level routing, whose live model table is **1,819
+  characters** for a six-model list — about 963 characters for one model
+  plus roughly 150–185 per additional one — taking the whole doctrine to
+  **3,922 characters / 56 lines**. As a rough estimate at 4 characters
+  per token (no tokenizer was run here, and a dense table is worse than
+  prose by that measure) that is ≈525 tokens with both features off and
+  ≈980 tokens with routing on for six models — so "a few hundred tokens"
+  holds only for the fixed rules, and a configured router roughly
+  doubles the always-loaded block. It still covers everything routine
+  dispatching needs, and `context-budget.md` puts those figures against
+  the orchestrator's token budget.
 - **Tier 2 — on demand.** This document. The doctrine carries a short
   pointer to it (doctrine rule 10); the orchestrator reads it only when
   reasoning about the architecture itself — explaining slate, modifying
