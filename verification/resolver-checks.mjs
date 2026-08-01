@@ -239,6 +239,7 @@ const ROUTE_IDS = [
 	"route-open-plan-inputs",
 	"route-switch-opening-baseline",
 	"route-switch-lifecycle-i1",
+	"route-baseline-capture",
 	"route-read-failure-inert",
 	"route-resolution",
 	"route-resolved-pair",
@@ -2865,6 +2866,185 @@ try {
 			]);
 		});
 
+		await section("route-baseline-capture", async () => {
+			// TQ7 — THE CALLER'S DATAFLOW INTO THE SWITCH DECISIONS, which was the last hole in
+			// this track. The decisions themselves were pinned and correct; both flagship
+			// defects re-inserted FULLY GREEN one line OUTSIDE them, because the baseline came
+			// from somewhere else, later:
+			//   · `open.model ?? opts.model` on the session-open derivation (BG22, opening path);
+			//   · an effort baseline read from the session's LIVE level instead of its opening
+			//     one (BG18).
+			// Both are type-correct, because a live reading has the same primitive type as the
+			// right value. 8a17a95 took that away by making the baseline a BRANDED OBJECT that
+			// only captureSessionBaseline can produce, from the SESSION rather than from a
+			// record the caller assembles — so this section pins the producer, the empty
+			// baseline, and the two consumers reading one object.
+			const cap = (session) => route.captureSessionBaseline(session);
+			const axes = (b) => [b?.model, b?.effort];
+			// THE PRODUCER READS THE SESSION, AND NOTHING ELSE. The pre-TQ7 signature took a
+			// record the CALLER assembled (`{ model, effort }`), which is precisely the shape a
+			// late or wrong value arrives in. The parameter is the session object now, so the
+			// old shape — and every decoy an argument-assembling caller might reach for — must
+			// read as nothing at all.
+			const fromSession = cap({ model: { provider: "p", id: "opened" }, thinkingLevel: "medium" });
+			const callerShaped = cap({
+				model: "p/caller",
+				effort: "high",
+				baseModel: "p/base",
+				baseEffort: "high",
+				requestedModel: "p/arg",
+				spec: "p/spec",
+				level: "high",
+			});
+			// Each axis is independent, and each is VALIDATED on the way in: the spec rule for
+			// the model (RG1 — read byte-for-byte, never repaired), pi's vocabulary for the
+			// level (BG21). A half-formed model object yields no model, not a fragment.
+			const modelOnly = cap({ model: { provider: "p", id: "opened" } });
+			const effortOnly = cap({ thinkingLevel: "low" });
+			const halfModel = cap({ model: { provider: "p", id: 7 }, thinkingLevel: "medium" });
+			const junkLevel = cap({ model: { provider: "p", id: "opened" }, thinkingLevel: "HIGH" });
+			const paddedSpec = cap({ model: { provider: " p", id: "x " } });
+			const nothing = cap({});
+			const noSession = cap(undefined);
+			// A captured baseline carries ONLY the axes it could fill: an unreadable axis is an
+			// ABSENT KEY, not a key holding undefined. That is what makes "a session that
+			// reports nothing" and NO_SESSION_BASELINE the same value to every reader.
+			const keysOf = (b) => Object.keys(b ?? {}).sort().join(",");
+			// NO_SESSION_BASELINE: the baseline of a session that is not open yet. Its whole
+			// semantics is "neither axis has a revert target", so it must be indistinguishable
+			// from a capture that found nothing AND from omitting the argument entirely.
+			const NONE = route.NO_SESSION_BASELINE;
+			const m = (input) => {
+				const d = route.decideModelSwitch(input);
+				return d.kind === "switch" ? `switch:${d.spec}/${d.source}` : `keep:${d.reason}`;
+			};
+			const e = (input) => {
+				const d = route.decideEffortSwitch(input);
+				return d.kind === "switch" ? `switch:${d.level}/${d.source}` : `keep:${d.reason}`;
+			};
+			// THE ABSENT BASELINE, on both axes and in all three spellings. This is also the
+			// executable form of the BG18 shape inside the decision itself: a rule that fell
+			// back to the LIVE value when the baseline is missing would answer
+			// `already-current` here instead of `no-baseline`, and every fixture that supplies
+			// a baseline would stay green while it did.
+			const emptySpellings = [NONE, nothing, {}, undefined];
+			const modelNone = emptySpellings.map((b) => m({ current: "p/live", baseline: b }));
+			const effortNone = emptySpellings.map((b) => e({ current: "high", baseline: b }));
+			// ONE OBJECT, TWO AXES — the collapse of the two per-axis maps. The very value the
+			// producer returns is handed to both decisions, and each must read its own axis
+			// off it and ignore the other's.
+			const both = cap({ model: { provider: "p", id: "opened" }, thinkingLevel: "medium" });
+			const modelFromBoth = m({ current: "p/live", baseline: both });
+			const effortFromBoth = e({ current: "high", baseline: both });
+			// ...and a baseline carrying only the OTHER axis is an absence on this one, which
+			// is what stops a single shared object from leaking one axis into the other.
+			const modelFromEffortOnly = m({ current: "p/live", baseline: effortOnly });
+			const effortFromModelOnly = e({ current: "high", baseline: modelOnly });
+
+			// ------------------------------------------------------------------ residual --
+			// THE ONE THING NO TYPE CAN CLOSE, and the implementer named it: calling
+			// captureSessionBaseline(session) AGAIN inside applyRoute is still type-correct.
+			// A brand encodes WHO produced a value, never WHEN — and applyRoute runs at apply
+			// time, when the session's state is no longer the opening state, so a capture there
+			// is exactly the late reading both defects were made of.
+			//
+			// Anchored on SHAPE, not spelling (TQ6/RG2). This suite has been bitten twice by
+			// spelling-pinned terms, once badly enough that an implementer abandoned a valid
+			// fix because it "broke the harness's pinned line" — it had not. So: the parameter
+			// list is read by brace/paren balance and asked only whether a SessionBaseline
+			// arrives in it, the body is read the same way and asked only whether that name is
+			// used and whether any capture CALL appears in it. Parameter name, order, spacing,
+			// line breaks and every comment are invisible to all four conjuncts (sourceOf
+			// strips comments first, which is what makes a doc comment mentioning the symbol
+			// harmless — the exact false alarm that killed the previous ordering term).
+			const src = sourceOf("threads.ts");
+			/** A method's declaration: `name(` NOT preceded by a dot, so a call site is not it. */
+			const declOf = (text, name) => {
+				const re = new RegExp(`(^|[^.\\w])${name}\\s*\\(`, "g");
+				const hit = re.exec(text);
+				return hit === null ? -1 : hit.index + hit[0].length - 1; // index of the "("
+			};
+			/** Balanced slice from an opening delimiter, so reformatting cannot move it. */
+			const balanced = (text, from, open, close) => {
+				if (from < 0) return undefined;
+				let depth = 0;
+				for (let i = from; i < text.length; i++) {
+					if (text[i] === open) depth++;
+					else if (text[i] === close && --depth === 0) return text.slice(from + 1, i);
+				}
+				return undefined;
+			};
+			const parenAt = declOf(src, "applyRoute");
+			const params = balanced(src, parenAt, "(", ")");
+			const bodyAt = params === undefined ? -1 : src.indexOf("{", parenAt + params.length + 2);
+			const body = balanced(src, bodyAt, "{", "}");
+			// The parameter that carries the baseline, by TYPE rather than by name.
+			const param = /(\w+)\s*:\s*SessionBaseline\b/.exec(params ?? "");
+			const usesParam = param !== null && body !== undefined && new RegExp(`\\b${param[1]}\\b`).test(body);
+			const capturesLate = body === undefined ? [] : callsTo(body, "captureSessionBaseline");
+			// ...and the claim is not vacuous only if the module captures SOMEWHERE.
+			const capturesAtAll = callsTo(src, "captureSessionBaseline").length;
+			// FOUND BY MUTATION, and the reason this conjunct exists: the three terms above
+			// watch for a late CALL, and the defect does not need one. `baseline = { effort:
+			// this.sessionEffort(session) } as SessionBaseline` inside applyRoute is BG18
+			// reintroduced with a live reading laundered straight through the brand — no
+			// capture to see, and it survived every other term in this suite. The brand only
+			// buys anything while the CALLER never asserts into it: route.ts's producer is the
+			// one place that may, and it is a different module. A token scan on comment-free
+			// source, so a doc comment naming the type is invisible.
+			const brandCasts = [
+				...src.matchAll(/\bas\s+(?:unknown\s+as\s+)?SessionBaseline\b/g),
+				...src.matchAll(/<\s*SessionBaseline\s*>/g),
+			].map((hit) => hit[0].replace(/\s+/g, " "));
+
+			checkAll(
+				"route-baseline-capture",
+				"TQ7 — the DATAFLOW into the switch decisions, which is where both flagship defects lived while the decisions themselves stayed green. captureSessionBaseline reads the SESSION object and nothing else: the caller-assembled `{ model, effort }` record the old signature took, and every argument-shaped decoy beside it, reads as no baseline at all; each axis is independent and validated on the way in (the spec byte-for-byte, the level against pi's vocabulary); an unreadable axis is an ABSENT KEY, which is what makes a session reporting nothing identical to NO_SESSION_BASELINE and to omitting the argument. Both decisions read their own axis off ONE captured object and treat the other's as absent, and an absent baseline is `no-baseline` on both axes even when a live value is sitting right there — the BG18 fallback shape, executable. Plus the one residual no type can close: applyRoute takes its baseline as a PARAMETER, uses it, captures none itself, and the caller never asserts a value into the brand — that last conjunct found by mutation, because laundering a live reading through `as SessionBaseline` needs no capture call and survived everything else",
+				[
+					["the producer reads the session's own model and level", axes(fromSession).join("/") === "p/opened/medium", fromSession],
+					[
+						"a CALLER-ASSEMBLED record reads as nothing — no model, no effort, no key",
+						axes(callerShaped).every((v) => v === undefined) && keysOf(callerShaped) === "",
+						callerShaped,
+					],
+					["each axis is captured independently of the other", keysOf(modelOnly) === "model" && keysOf(effortOnly) === "effort", [modelOnly, effortOnly]],
+					["a half-formed model object yields no model, not a fragment", halfModel.model === undefined && halfModel.effort === "medium", halfModel],
+					["a level outside pi's vocabulary is not recorded (BG21)", junkLevel.effort === undefined && junkLevel.model === "p/opened", junkLevel],
+					["the spec is taken BYTE-FOR-BYTE, never repaired on the way in (RG1)", paddedSpec.model === " p/x ", paddedSpec],
+					[
+						"a session reporting nothing captures nothing, and equals NO_SESSION_BASELINE",
+						keysOf(nothing) === "" && keysOf(noSession) === "" && keysOf(NONE) === "",
+						[nothing, noSession, NONE],
+					],
+					[
+						"an ABSENT baseline is `no-baseline` on BOTH axes, in every spelling",
+						modelNone.every((r) => r === "keep:no-baseline") && effortNone.every((r) => r === "keep:no-baseline"),
+						[modelNone, effortNone],
+					],
+					[
+						"...even though a live value is sitting right there (the BG18 fallback shape)",
+						m({ current: "p/live" }) === "keep:no-baseline" && e({ current: "high" }) === "keep:no-baseline",
+						[m({ current: "p/live" }), e({ current: "high" })],
+					],
+					[
+						"ONE captured object serves both decisions, each reading its own axis",
+						modelFromBoth === "switch:p/opened/revert" && effortFromBoth === "switch:medium/revert",
+						[modelFromBoth, effortFromBoth],
+					],
+					[
+						"...and the other axis's value never leaks across",
+						modelFromEffortOnly === "keep:no-baseline" && effortFromModelOnly === "keep:no-baseline",
+						[modelFromEffortOnly, effortFromModelOnly],
+					],
+					[
+						"RESIDUAL: applyRoute takes a SessionBaseline PARAMETER, uses it, captures none itself — and the caller never asserts a value INTO the brand",
+						param !== null && usesParam && capturesLate.length === 0 && capturesAtAll > 0 && brandCasts.length === 0,
+						{ param: param?.[1], usesParam, capturedInApplyRoute: capturesLate, capturesInModule: capturesAtAll, brandCasts },
+					],
+				],
+			);
+		});
+
 		await section("route-hostile", async () => {
 			// A rejection REASON is user- and orchestrator-facing text built from the
 			// dispatch's own arguments, and it reaches pi-tui, which renders control bytes
@@ -4227,6 +4407,7 @@ try {
 		"route-base-reseed", "route-base-reseed-guarded", "route-effort-derived-for-model", "route-off-invisible",
 		"route-stored-effort-refresh", "route-stored-effort-vocabulary",
 		"route-switch-decision", "route-open-plan-inputs", "route-switch-opening-baseline", "route-switch-lifecycle-i1",
+		"route-baseline-capture",
 		"route-read-failure-inert", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
