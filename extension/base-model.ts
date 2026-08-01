@@ -363,8 +363,10 @@ export function createBaseModelTracker(deps: { warn: (msg: string) => void }): B
 
 	/** Drop every settled declaration — the one-event grace bound (header). */
 	const dropSettled = (): void => {
+		// `!`: the index comes from this loop's own bound, so it is in range. Erased at
+		// run time, unlike a guard for a case that cannot occur.
 		for (let i = pending.length - 1; i >= 0; i--) {
-			if (pending[i].settled) pending.splice(i, 1);
+			if (pending[i]!.settled) pending.splice(i, 1);
 		}
 	};
 
@@ -463,8 +465,9 @@ export function createBaseModelTracker(deps: { warn: (msg: string) => void }): B
 			// switch to the same model. Declarations for other targets are left alone —
 			// a failover switch in flight must still be recognised when its event
 			// arrives. Their settle callbacks become no-ops.
+			// `!` as in dropSettled: the index is this loop's own bound.
 			for (let i = pending.length - 1; i >= 0; i--) {
-				if (pending[i].to === model) pending.splice(i, 1);
+				if (pending[i]!.to === model) pending.splice(i, 1);
 			}
 			base = model;
 			baseEffort = effort;

@@ -162,7 +162,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				if (base) marks.push(`base=${base}${t.baseEffort ? `@${t.baseEffort}?` : ""}`);
 				// The LAST ACTION's model — which may differ from the base on every axis:
 				// an explicit per-action route, a window substitution, or a failover.
-				const lastEpisode = t.episodeIds.length > 0 ? store.episodes.get(t.episodeIds[t.episodeIds.length - 1]) : undefined;
+				const lastEpisodeId = t.episodeIds.at(-1);
+				const lastEpisode = lastEpisodeId === undefined ? undefined : store.episodes.get(lastEpisodeId);
 				if (lastEpisode?.model) {
 					marks.push(
 						`last=${lastEpisode.model}${lastEpisode.effort ? `@${lastEpisode.effort}` : ""}${

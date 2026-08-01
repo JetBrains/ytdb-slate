@@ -5,3 +5,8 @@ node_modules/
 .pi/slate/
 # IDE state
 .idea/
+# npm lockfile: the four pi SDK peers are declared "*" and resolve to whatever
+# is current locally, which drifts from the versions pi actually bundles — a
+# committed lockfile would pin that drift and mislead. devDependencies are
+# exact-pinned instead.
+package-lock.json

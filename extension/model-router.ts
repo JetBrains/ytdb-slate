@@ -259,6 +259,21 @@ function listHas(list: unknown, level: string): boolean {
 	return Array.isArray(list) && list.includes(level);
 }
 
+/** A list the compiler knows has a first element, so reading `[0]` needs no assertion. */
+type NonEmptyArray<T> = [T, ...T[]];
+
+/**
+ * `length > 0`, as a TYPE GUARD. The same runtime predicate as the comparison it
+ * replaces at each call site — it exists only so the non-emptiness the caller has
+ * ALREADY established is visible to the compiler at the `[0]` that depends on it.
+ * The alternative under noUncheckedIndexedAccess would be to assert the undefined
+ * away, or to grow a fallback branch for a case that cannot happen; both hide the
+ * invariant instead of stating it.
+ */
+function isNonEmpty<T>(list: T[]): list is NonEmptyArray<T> {
+	return list.length > 0;
+}
+
 /**
  * Display form of a rejected value. JSON.stringify returns `undefined` (the
  * value, not a string) for undefined and functions, and THROWS on a cyclic or
@@ -334,10 +349,10 @@ export function effectivePriceRow(profile: ModelProfile, today: string): PriceRo
 		const hi = isIsoDate(r.until) ? r.until : null;
 		return (lo === null || lo <= day) && (hi === null || hi >= day);
 	});
-	const pick = (pool: PriceRow[]) => pool.reduce((best, r) => (from(r) > from(best) ? r : best), pool[0]);
-	if (applicable.length > 0) return pick(applicable);
+	const pick = (pool: NonEmptyArray<PriceRow>) => pool.reduce((best, r) => (from(r) > from(best) ? r : best), pool[0]);
+	if (isNonEmpty(applicable)) return pick(applicable);
 	const past = rows.filter((r) => from(r) <= day);
-	return past.length > 0 ? pick(past) : rows[0];
+	return isNonEmpty(past) ? pick(past) : rows[0];
 }
 
 /** The known `router` keys — anything else is a typo worth surfacing (CQ1). */
@@ -645,7 +660,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 	// Nothing survived ⇒ the router turns OFF with ONE summary warning. Half a
 	// list is a routing policy; no list is not, and silently routing to whatever
 	// the session happened to start on would hide the real problem above.
-	if (candidates.length === 0) {
+	if (!isNonEmpty(candidates)) {
 		once(
 			"all-dropped",
 			`slate: model router: routing is disabled — none of the ${models.length} configured router.models ` +
@@ -713,7 +728,9 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 	// model (a dispatch that omits a model must never be rejected by the list
 	// guard), so the cheapest overall is taken — loudly.
 	const preferred = candidates.filter((c) => c.nonPreferred === null);
-	const pool = preferred.length > 0 ? preferred : candidates;
+	// Non-empty either way, and the compiler can see it: `preferred` is tested right
+	// here, and `candidates` was narrowed by the all-dropped early return above.
+	const pool = isNonEmpty(preferred) ? preferred : candidates;
 	let cheapest = pool[0];
 	for (const c of pool) if (price(c) < price(cheapest)) cheapest = c;
 	const cheapestNonPreferred = cheapest.nonPreferred !== null;

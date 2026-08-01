@@ -38,6 +38,12 @@
     // green turns this gate into a nuisance nobody runs, so any future addition
     // comes with the fix in the same change.
     "strict": true,
+    // Its 9 sites were all provably-safe indexing that TS could not see; each was
+    // made visible to the compiler (a length-test type guard in model-router.ts,
+    // the loop bound stated with `!` in base-model.ts, `.at(-1)` in tools.ts)
+    // rather than papered over with a fallback. The value is the NEXT index, the
+    // unguarded one.
+    "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
@@ -58,12 +64,7 @@
     // Recorded so these are not silently re-litigated. NONE of them found a
     // genuine type defect: every site below was hand-checked and is safe today.
     // Counts are from that measurement, against this same flag set.
-    //
-    // "noUncheckedIndexedAccess": 9 errors, all provably-safe indexing that TS
-    //   cannot see (an adjacent length check or a loop bound). Cheap and
-    //   mechanical to fix (~30 min) and WORTH ADOPTING: the value is catching a
-    //   future UNguarded index. Deferred only to avoid colliding with
-    //   concurrent edits in extension/*.ts; scheduled as its own action.
+    // (noUncheckedIndexedAccess was the fourth entry here; it was adopted above.)
     //
     // "exactOptionalPropertyTypes": 23 errors — 17 in slate-owned declarations
     //   (each fixed by `prop?: T` -> `prop?: T | undefined`) and 6 at the SDK
