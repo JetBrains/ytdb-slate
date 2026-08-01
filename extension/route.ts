@@ -32,7 +32,9 @@
  *   EFFORT — the level an action runs at is ALWAYS one that belongs to the model it
  *   actually runs on: either the caller named it, in which case it is judged against
  *   THAT model's own ladder, or it is derived from that model (its lowest MEASURED
- *   level). A level derived for one model is never carried onto another. `effort`
+ *   level). A level derived for one model is never carried onto another, and a level
+ *   STORED for this one is only replayed while today's table still reads it as `ok` —
+ *   a cached derivation must not outlive the evidence it was derived from. `effort`
  *   therefore reports one and only one thing, and `effortJudgedFor` names the model
  *   the judgement was about — they always describe the same pair.
  *
@@ -727,8 +729,23 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		effort = requestedEffort;
 		effortExplicit = true;
 	} else if (baseEffort !== undefined && judgedModel !== undefined && judgedModel === baseModel) {
-		// The stored level, and ONLY while it still describes the model that runs.
-		effort = baseEffort;
+		// The stored level, but only while it is STILL a level this model is measured at.
+		//
+		// A base effort is a cached derivation, and the table it was derived from ships
+		// with slate: a profile refresh can move a level onto an evidence gap, off the
+		// ladder, or onto the provider's hard-rejection list between the dispatch that
+		// stored it and the one that replays it. Replaying it unchecked is BG14's failure
+		// mode surviving in the same-model branch — a level NOBODY REQUESTED earning a
+		// warning, or (with allowUnmeasuredEffort false, or off-ladder, or API-rejected) a
+		// hard rejection of a dispatch that named no effort at all. So the stored pair is
+		// re-checked against TODAY's table and, if it no longer reads `ok`, this model's
+		// level is derived afresh exactly as it was the first time.
+		//
+		// SILENTLY, and that is the point: the orchestrator did not ask for this level, so
+		// a stale cache is slate's problem to correct, not news to report. An EXPLICIT
+		// effort still warns and still rejects — that one the caller did ask for.
+		const stored = checkEffortFor(input, resolution, judgedModel, baseEffort);
+		effort = stored.verdict === "ok" ? baseEffort : lowestMeasuredEffort(resolution, baseModel);
 	} else if (resolution.on && model !== undefined) {
 		// Either the model differs from the one the stored level was derived for, or there
 		// is no stored level: derive this model's own lowest measured level. Deriving in

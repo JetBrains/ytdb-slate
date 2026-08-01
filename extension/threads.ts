@@ -46,7 +46,10 @@
  *    validated against the target model's ladder (that argument did not exist
  *    before, and pi would otherwise silently CLAMP a level the model does not
  *    offer), and a level set by one action is put back to the session's opening
- *    level by the next, so it cannot leak between actions.
+ *    level by the next, so it cannot leak between actions. The MODEL an explicit
+ *    argument routes to is reverted the same way (BG22): both axes are per-ACTION,
+ *    and the revert target is what the session opened on — except while a failover
+ *    holds the session, which slate must not undo (BG16).
  *
  *    An earlier iteration seeded the base from the tracker here and persisted it,
  *    which was strictly worse than the pre-router code in the same file: it undid
@@ -227,6 +230,13 @@ export class ThreadManager {
 	 * previous action's level (BG18). Session-scoped, like `live` itself.
 	 */
 	private liveBaseline = new Map<string, ThinkingLevel>();
+	/**
+	 * threadId → the "provider/id" a LIVE worker session was OPENED on. An action that
+	 * names no model to apply reverts the session to it, so one explicitly routed action
+	 * cannot govern the rest of the thread (BG22) — the model-axis twin of the level
+	 * baseline above. Session-scoped, like `live` itself.
+	 */
+	private liveBaselineModel = new Map<string, string>();
 	/** pi's compaction settings, read once (a lock-protected disk read) — see compactionSettings(). */
 	private cachedCompaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
 
@@ -594,14 +604,34 @@ export class ThreadManager {
 		};
 		abortIfBlocked();
 		const currentSpec = session.model ? `${session.model.provider}/${session.model.id}` : undefined;
-		// `openOnly` (router OFF): `plan.model` is the model a NEW session opens with — the
-		// thread's pre-router pin — and must never move a LIVE session. Switching a reused
-		// session onto it would undo a failover, and a pin whose credentials went away
-		// would abort every later dispatch (BG16). The session was already opened on it.
-		if (plan.model !== undefined && plan.openOnly !== true && plan.model !== currentSpec) {
+		// WHICH MODEL THIS ACTION RUNS ON, in two steps.
+		//
+		// 1. A model the plan says to APPLY: an explicit `model` argument, or (router ON)
+		//    the thread's base. `openOnly` excludes the one case that is not an
+		//    instruction to move a live session — the router-OFF `model` pin, which only
+		//    ever chose what a NEW session opens with; switching a reused session onto it
+		//    would undo a failover and could strand a thread whose pin lost its
+		//    credentials (BG16).
+		//
+		// 2. Failing that, the model this session OPENED on. That is the REVERT (BG22),
+		//    and it is what makes `model` per-ACTION on the router-off path too: without
+		//    it, one explicit route governed every later action on the thread, because a
+		//    dispatch that omits `model` resolves to a pin (open-only) or to nothing and
+		//    so had nothing to switch back to. It is the model-axis twin of the thinking
+		//    level's baseline restore below.
+		//
+		// The revert stands down while a FAILOVER holds the session (`failoverLive`): that
+		// switch was slate rescuing a failing model, not a route this side chose, and
+		// undoing it on the next action is precisely BG16. A later explicit route clears
+		// the marker (below), after which the revert applies again.
+		const failoverHeld = this.failoverLive.get(thread.id) !== undefined;
+		const applyModel = plan.model !== undefined && plan.openOnly !== true ? plan.model : undefined;
+		const revertModel = failoverHeld ? undefined : this.liveBaselineModel.get(thread.id);
+		const targetSpec = applyModel ?? revertModel;
+		if (targetSpec !== undefined && targetSpec !== currentSpec) {
 			let target: ReturnType<typeof resolveModel>;
 			try {
-				target = resolveModel(ctx, plan.model);
+				target = resolveModel(ctx, targetSpec);
 			} catch (error) {
 				throw new DispatchAbort(
 					`slate: aborting the dispatch to thread ${thread.id} — ${sanitizeForNotify(
@@ -615,14 +645,16 @@ export class ThreadManager {
 			} catch (error) {
 				throw new DispatchAbort(
 					`slate: aborting the dispatch to thread ${thread.id} — switching its worker session to ` +
-						`${sanitizeForNotify(plan.model, 80)} failed: ${sanitizeForNotify(
+						`${sanitizeForNotify(targetSpec, 80)} failed: ${sanitizeForNotify(
 							error instanceof Error ? error.message : String(error),
 							200,
 						)}. Nothing ran and no episode was recorded.`,
 				);
 			}
 			// An explicit route supersedes a failover marker: after this switch the live
-			// session no longer runs the mapped model (see liveFailoverModel).
+			// session no longer runs the mapped model (see liveFailoverModel). A REVERT
+			// cannot reach here while a marker is held, so this only ever clears a marker
+			// the route itself replaced.
 			this.failoverLive.delete(thread.id);
 			// CN2 again: the await above is the window, so re-check AFTER it. The switch
 			// already happened — the session is left on the new model, which costs nothing —
@@ -779,6 +811,10 @@ export class ThreadManager {
 				// action's level (BG18). Captured here, before any per-action switch.
 				const baseline = this.sessionEffort(session);
 				if (baseline !== undefined) this.liveBaseline.set(thread.id, baseline);
+				// ...and the MODEL it opened on, which a later action with no model of its own
+				// reverts to (BG22). Read from the session, so it is what pi actually resolved
+				// — the plan's model when there was one, else the host's.
+				if (session.model) this.liveBaselineModel.set(thread.id, `${session.model.provider}/${session.model.id}`);
 				// CQ18: the session FILE is deliberately not persisted yet. pi flushes a
 				// session file only once it holds an assistant message, so this path can name
 				// a file that does not exist — and a snapshot carrying one makes the next
@@ -1082,5 +1118,6 @@ export class ThreadManager {
 		this.live.clear();
 		this.failoverLive.clear(); // markers describe live sessions only (see liveFailoverModel)
 		this.liveBaseline.clear(); // baselines describe live sessions only (see applyRoute)
+		this.liveBaselineModel.clear(); // ditto (BG22's revert target)
 	}
 }
