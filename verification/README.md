@@ -649,6 +649,80 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
 | `doctrine-budget` | a **guard**, not a recorded fact — and measured on an **install-invariant** figure, which is the only way it can be a guard at all. The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the length of wherever the package is installed: the same router-off doctrine measures **1,968** chars under a 13-character docs directory and **2,103** under this repo's 58-character one — 3 embedded paths × 45 characters, and 4 or 5 paths in the other configurations. A raw-count budget passes on one machine and fails on another, and the failure reads as bloat rather than as a longer home directory. Every bound is therefore on the text with each occurrence of the docs **directory** removed, keeping the filename: invariant by construction (no path count is assumed, so a 4- or 5-path configuration normalises the same way) while still charging a maintainer for the part they control — subtracting whole paths instead would stop a doc rename from ever registering. Bounded separately, with ~55% headroom: the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row — because `cell()` imposes no cap, so a research refresh writing a 2,000-character `routeFor` would bloat every prompt silently — and the rule's share of the whole doctrine, asserted to be the *only* thing router-on adds. Two terms guard the normalisation itself, since a `portable()` that silently became the identity would put the bounds back on raw counts |
 
+**These six checks are the ONLY automated coverage of doctrine rendering, and the
+smoke test is not a backstop.** Stated plainly because the opposite is easy to
+assume: `AGENTS.md` names the isolated-load smoke test (`pi --no-extensions -e .`)
+as this repo's third net, and a reader could reasonably take it to corroborate these
+checks end to end. It does not, and could not have at any point during the routing
+feature's development.
+
+The reason, verified in the source rather than inferred. Orchestrator mode is seeded
+automatically in exactly one place, `mode.ts:599`, and that seed is gated on
+`ctx.mode === "tui"` (deliberately — `hasUI` is also true in RPC mode, and scripted
+runs must not silently lose tactical tools). `store.orchestratorMode` otherwise
+defaults to **false** (`state.ts:504`), and `before_agent_start` returns immediately
+on `!store.orchestratorMode` (`mode.ts:551`). So in headless `pi -p "…"` the flag is
+never set, the handler exits before `buildDoctrine`, and `getRouter()` is never
+called. Measured through the loader: with the fresh default, `getRouter()` receives
+**zero** calls and the system prompt comes back untouched; flipping only
+`orchestratorMode` to true on the same print-mode context builds the doctrine and
+consults the router once. The gate is the mode seed, not print mode as such — but the
+consequence for the smoke test is the same.
+
+| net | what it actually proves |
+| --- | --- |
+| `doctrine-*` (6 checks) | that the doctrine RENDERS correctly from a resolution: feature-off byte-identity, positional numbering, injection safety, the SE3 trust re-gate, the two content exclusions, and the install-invariant size budget — all by calling `registerSlateMode`'s own `before_agent_start` handler with `orchestratorMode` forced on |
+| isolated-load smoke test | that the extension REGISTERS and that `session_start` runs (config load and validation). It never enters orchestrator mode, so it reaches neither the doctrine build nor the router consultation |
+| **neither** | that the doctrine reaches a REAL session's system prompt — that pi calls the handler, with a live resolution, and that the model receives the text. Every check here forces the flag the real path is gated on |
+
+**What does reach it: an interactive TUI session.** Recorded so a maintainer need not
+rediscover the mechanics. There is no `script(1)` on this machine; a Python
+`pty.fork()` harness works, driving pi's TUI with **`\r`** as the submit key (not
+`\n`). The doctrine text is **not stored in the session JSONL** — it is assembled
+into the system prompt at agent start and discarded — so verifying its CONTENT means
+prompting the model to echo it back rather than grepping a transcript.
+
+**Recommendation on a new automated rung: do NOT build one, and record the gap
+instead.** The reasoning, since it cuts against the usual instinct here:
+
+- a TUI-driving rung would be the only net proving the doctrine reaches a real
+  session, and that is a genuine gap — so the case for it is real, not dismissed;
+- but it would be the most fragile test in the repo: a pty, a TUI render loop, a
+  submit keystroke, and a live model call, with verification going through *the
+  model's willingness to echo its own system prompt*. Every one of those is a
+  false-failure source, and a flaky net in this suite is worse than a known gap
+  because it trains a maintainer to disbelieve red;
+- the `WK1` precedent is the decisive argument. A live rung that ends up
+  re-implementing the mechanism instead of driving it is vacuous while looking
+  authoritative, and the honest failure mode of a TUI rung is exactly that: forcing
+  `orchestratorMode`, or asserting against text the harness itself composed;
+- and the marginal coverage is thin. What is unproven is the WIRING — pi calls
+  `before_agent_start`, and the `tui` seed fires — both of which are pi's behaviour
+  and one line of slate's, not the routing logic. The rendering, numbering, safety
+  and size properties are already covered purely, and the one live confirmation
+  below found them correct.
+
+If the gap is ever closed, the smaller and more honest target is the SEED, not the
+doctrine: assert that a fresh `tui`-mode session sets `orchestratorMode`, with no
+model call and no prompt inspection. That is one branch, cheaply reachable, and it is
+the actual thing this suite cannot see.
+
+**One live end-to-end confirmation, recorded as evidence.** An interactive TUI
+session with six configured models rendered the rule correctly: one row per model
+carrying price, context window, tier markers (`t2!`, `t4!`, `t?!`), measured levels
+and both guidance columns, `anthropic/claude-fable-5`'s ZDR REFUSE present in its
+avoid cell, and the thread base resolving to the cheapest candidate,
+`openai/gpt-5.6-luna`. This is the first confirmation the rendering is right in a
+real session rather than against a fixture, and it agrees with these checks.
+
+> **Environment caveat — the warning count from that session is NOT canonical.**
+> It observed **7** router warnings; a stock consumer would see **11**. This
+> machine's `~/.pi/agent/models.json` overrides `contextWindow` to 1,050,000 for
+> `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna` (verified), which is exactly the
+> figure the profile table records — so the three W1 window-divergence warnings and
+> the aggregate RI32 billing-pattern note that depends on them do not fire. Four
+> suppressed, hence 7. Do not record 7 as the expected count.
+
 **Recorded sizes, and why a re-measurement will not match yours.** The doctrine
 embeds ABSOLUTE doc paths, so a raw character count is a function of the install
 location: each character of docs-directory length costs one character per embedded
@@ -1544,7 +1618,11 @@ load, the `excludeTools` deny list that structurally keeps slate's dispatch
 tools out of a worker, and the post-load collision re-check. Those need a live
 loader and session, so the manual isolated-load smoke test
 (`pi --no-extensions -e .`, see `AGENTS.md`) covers them instead; a passing run
-here says nothing about them. One part of `worker.ts` *is* covered by an
+here says nothing about them. **With the same caveat as the doctrine finding
+above**: those paths are reached by a DISPATCH, which needs orchestrator mode, which
+is only seeded in `tui` mode — so a headless `-p` smoke run does not reach them
+either. It has to be an interactive session, and `AGENTS.md` says as much about a
+bare `-p "exit"` run. One part of `worker.ts` *is* covered by an
 automated net, but by the ladder rather than this suite: the settings isolation a
 per-dispatch worker switch depends on, in rung `WK1` above.
 
