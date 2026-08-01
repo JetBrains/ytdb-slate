@@ -709,8 +709,9 @@ start rather than report a FAIL — pi would filter the nonexistent entry out of
 `package.json`'s `pi.extensions` silently and start up happily, so every check
 would pass vacuously and a reported failure would be impossible. The other `2`s
 are environmental: a missing tool, a bad `--repo`, no resolvable pi CLI, or a
-CLI-versus-pin version mismatch, whose remedy is printed with it (`run 'npm ci'`
-— after a deliberate pin bump that is all it needs).
+CLI-versus-pin version mismatch, whose remedy is printed with it (`run 'npm ci
+--ignore-scripts'` — the same install CI does; after a deliberate pin bump that is
+all it needs).
 
 Requirements: `node` and `mktemp`; `timeout` is used when present rather than
 required, purely so a hung pi cannot hang CI. Unknown `--only` ids are a hard
@@ -720,9 +721,46 @@ refusal vocabulary shared by all three tier-1 wrappers, not a local convention
 Artifacts — the raw rpc stdout/stderr streams of the pi runs — live under the
 scratch directory (`lab` in the header), which is removed on a clean run and
 **kept**, with its path printed, when a check failed *and* a pi run actually
-produced streams: a `T4`-only failure keeps nothing, because there would be
-nothing in it. The scratch directory must be outside the checkout: if `TMPDIR`
+happened: a `T4`-only failure keeps nothing, because there would be nothing in
+it (a run whose pi wrote nothing is still kept — the gate is that pi ran, not
+that it said something). The scratch directory must be outside the checkout: if `TMPDIR`
 points into it, the run is refused, because pi must write nothing there.
+
+A failing run also **inlines those streams into its own stdout**, because a CI
+job's scratch directory dies with the job and the path alone names something
+nobody can open. The same two conditions gate it — a check failed *and* a pi run
+happened — so a green run prints nothing extra and a `T4`-only failure prints no
+empty sections. One delimited section per stream, only for runs that actually
+launched, stderr before stdout (pi's diagnostics and the canary line are there),
+each naming its run, and the `artifacts:` pointer still follows for the local
+case:
+
+```
+rpc streams below, inlined because a CI scratch directory does not outlive the
+job — the artifacts path at the end is only reachable on the machine that ran.
+---- run2 (the trusted config run, -a) stderr — 136 bytes ----
+CI-CANARY {"tools":[…],"cwd":"…","trusted":true}
+---- end run2 (the trusted config run, -a) stderr ----
+---- run2 (the trusted config run, -a) stdout — 982 bytes ----
+{"type":"extension_ui_request",…,"method":"notify","message":"slate: ignoring …"}
+---- end run2 (the trusted config run, -a) stdout ----
+artifacts: /tmp/slate-loadcheck.5eHaps (raw rpc streams, kept because a check failed)
+```
+
+It is bounded so a pathological run cannot flood the log: each stream is cut at
+**20000 bytes** (`STREAM_CAP`), on the last line boundary when that falls past
+half the cap, and a section that was cut says so in its own header — real size,
+cut size and the cap — so a truncated stream can never be read as a whole one.
+Four sections therefore cost ~80 KB at worst. An empty stream prints one
+`— 0 bytes (empty)` header and no body; an unreadable one says `unavailable` with
+the reason. C0 control characters other than tab and newline are replaced with
+`?` on the way out, since the harness promises no ANSI anywhere — the bytes in the
+artifacts copy are untouched. A real cut, from a run whose pi wrote 39900 bytes to
+stderr:
+
+```
+---- run1 (the untrusted load run) stderr — 39900 bytes, TRUNCATED to the first 19949 (cap 20000 bytes per stream; the whole stream is in the artifacts directory) ----
+```
 
 One piece of debris is not this script's: while pi reads the checkout's
 `.pi/settings.json` it takes a lock on it — a transient
