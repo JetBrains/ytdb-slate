@@ -16,6 +16,7 @@ This repo runs slate on itself:
 - `.pi/settings.json` pins the published package (`npm:ytdb-slate@<version>`). A session in this repo runs the released extension — the same thing consumers run. Bump the pin as part of each release (see § Release & versioning).
 - Local edits to `extension/` are NOT live in a dogfooding session. Smoke-test them in isolation with `pi --no-extensions -e .` from the repo root — without `--no-extensions`, the pinned npm copy loads alongside your edits and can mask failures. Do not add a local-path package entry to `.pi/settings.json` next to the npm pin: loading the same package from two settings sources has broken pi startup with a file conflict in practice.
 - Development follows the package's own `docs/track-workflow.md`, with `workflow.draftPRs` enabled in `.pi/slate.json`.
+- A `.pi/settings.json.lock` in the checkout is pi's own transient lock around a read of the project settings, not debris of yours; a hard-killed session or verification run can leave one behind, which is why `.gitignore` covers `.pi/*.lock`. Deleting a stale one is safe when no session is running — while one is, it is theirs.
 
 ## Build & verification
 
@@ -27,9 +28,9 @@ This repo runs slate on itself:
 
 ### Tier-1 CI (`.github/workflows/tier-1.yml`)
 
-Fast, fully offline, secret-free: fabricated inputs and a plain checkout, no network beyond `npm ci`, no credentials, nothing written outside the workspace. The token is read-only (`permissions: contents: read`), the trigger is the ordinary `pull_request` (never `pull_request_target`), third-party actions are pinned by commit SHA, and the job runs as a matrix on **Node 22 and 24** — pi requires node ≥ 22.19.0 and consumers run both current LTS lines.
+Fast, fully offline, secret-free: fabricated inputs and a plain checkout, no network beyond the dependency install, no credentials, nothing written outside the workspace. The token is read-only (`permissions: contents: read`), the trigger is the ordinary `pull_request` (never `pull_request_target`), third-party actions are pinned by commit SHA, and the job runs as a matrix on **Node 22 and 24** — pi requires node ≥ 22.19.0 and consumers run both current LTS lines.
 
-The four checks, with the commands that reproduce them verbatim on a laptop (after `npm ci`):
+The four checks, with the commands that reproduce them verbatim on a laptop (after `npm ci --ignore-scripts`):
 
 | check | local command |
 | --- | --- |
@@ -38,13 +39,17 @@ The four checks, with the commands that reproduce them verbatim on a laptop (aft
 | extension load check | `bash verification/run-load-check.sh --repo .` |
 | worker-extension resolver checks | `bash verification/run-resolver-checks.sh --repo .` |
 
+**`--ignore-scripts` on the install is deliberate — do not drop it.** The pinned pi SDK is a devDependency, and its own dependency tree declares install scripts: `@google/genai` (preinstall) and `protobufjs` (postinstall), each also duplicated inside `@earendil-works/pi-coding-agent`'s shrinkwrapped tree, so four entries in `package-lock.json` carry `hasInstallScript`. A plain `npm ci` executes all four on every run — arbitrary third-party code in the job for no gain, since nothing tier 1 does needs them. npm still creates `node_modules/.bin` itself, so the `pi` and `tsc` launchers appear either way.
+
+**How the harnesses find pi.** Two of the four checks need a pi binary, and both start from the same order: `PI_BIN` when set (announced with `NOTE` lines in the output — an escape hatch for people who know what they are doing, never a security boundary), otherwise the checkout's own `node_modules/.bin/pi`, which is what the install above produces and the only pi a CI runner has. From there they diverge on purpose. The **resolver checks** accept a `PATH`-resolved pi as a last resort and apply no version guard: all they borrow is the jiti transpiler bundled with pi, the module graph they load imports no pi SDK package at runtime, and a jiti too old can only fail to transpile — which crashes the run with no summary rather than passing wrongly. The **load check** has no `PATH` fallback and additionally requires the CLI's `--version` to equal the `@earendil-works/pi-coding-agent` pin, because pi's rpc output shapes *are* its evidence and a changed shape could read as "no events" and pass silently. (The ladder, tier 2, is unchanged: it needs `pi` on `PATH`.)
+
 All three tier-1 verification scripts (packaging guards, load check, resolver checks) share one exit-code contract: **0** every check passed · **1** a check failed · **2** refused to start (a missing tool, a bad `--repo`, or an environment that cannot support a meaningful run). A `2` is never a defect report — it means nothing was verified.
 
-**When one fails**, that contract is where to start. A `2` is the environment or the invocation: read the single `verification: …` line it prints, which names the missing tool, the bad path or the version mismatch and, where there is one, the remedy — there is nothing to debug in the code yet. A `1` is a real finding, and the failing `CHECK … FAIL — <detail>` line is written to be the explanation rather than a pointer to one:
+**When one fails**, that contract is where to start. A `2` is the environment or the invocation: read the single `verification: …` line it prints, which names the missing tool, the bad path or the version mismatch and, where there is one, the remedy — there is nothing to debug in the code yet. (The load check spells the status out in words, `verification: refused to start — …`, so it is greppable in a CI log; the other two print the reason alone.) A `1` is a real finding, and the failing `CHECK … FAIL — <detail>` line is written to be the explanation rather than a pointer to one:
 
 - **typecheck** — `tsc` prints `file(line,col): error TS…`; the source is what is wrong, and a re-run costs about a second.
 - **packaging guards** — the detail names the offending manifest field or shipped path. A failure under `--self-test` is the opposite situation: a guard can no longer detect its own violating mutation, so fix the guard, not the manifest.
-- **load check** — on failure the raw rpc stdout/stderr of both pi runs is kept and its path printed (`artifacts: …`); the detail line is a summary of those streams, so read them before theorising.
+- **load check** — when a failing run actually launched pi, the raw rpc stdout/stderr is kept and its path printed (`artifacts: …`); the detail line is a summary of those streams, so read them before theorising. The one check that needs no pi run keeps nothing, because there would be nothing in it.
 - **resolver checks** — the temp fixtures are removed on exit, but the pipeline is pure and deterministic: the detail line plus a re-run is the whole evidence trail.
 
 For the ladder, a NOT RUN is neither pass nor fail; `verification/README.md` carries the table of what to do about each one.
@@ -52,7 +57,7 @@ For the ladder, a NOT RUN is neither pass nor fail; `verification/README.md` car
 **Re-run obligations** (the same imperative as the two sections below):
 
 - **Re-run the packaging guards after touching any packaging-relevant manifest field** — the `files` whitelist, `peerDependencies`, `dependencies`, `keywords`, `scripts` — and after adding, moving or deleting a file under `extension/` or `docs/`, because the pack layer asserts the *real* `npm pack` file list, not the manifest. The `files` whitelist is asserted by **exact equality** (`files-exact`), so a deliberate whitelist change must update `FILES_EXACT` in `verification/packaging-checks.mjs` **in the same commit**. Run `--self-test` too: it re-runs every guard against the real input carrying one violating mutation and requires it to fail.
-- **Re-run the load check after any change to extension loading, tool or command registration, or `session_start`** — those failure modes have no other signal (see § How extension-load failures surface). Two things it does on purpose rather than reporting a failure: a **missing `extension/index.ts` makes it exit 2** (refuse to start) — pi would filter a nonexistent entry out of `pi.extensions` silently and every check would pass vacuously — and so does a missing `verification/ci-canary.ts`; and a **pin-vs-installed pi mismatch exits 2** with a `run 'npm ci'` remedy, because the rpc output shapes it asserts are pinned to one pi version.
+- **Re-run the load check after any change to extension loading, tool or command registration, `session_start`, or the checkout's own `.pi/slate.json`** — those failure modes have no other signal (see § How extension-load failures surface), and the config file is read straight off disk by a check of its own because slate drops an unparseable one in silence. Two things it does on purpose rather than reporting a failure: a **missing `extension/index.ts` makes it exit 2** (refuse to start) — pi would filter a nonexistent entry out of `pi.extensions` silently and every check would pass vacuously — and so does a missing `verification/ci-canary.ts`; and a **pin-vs-installed pi mismatch exits 2** with a `run 'npm ci'` remedy, because the rpc output shapes it asserts are pinned to one pi version.
 - **Tier 2 — the verification ladder — is deliberately not in CI yet** (issue #24). It costs ~3 minutes of mostly wall-clock waiting on timing-sensitive rungs, needs GNU coreutils, refuses to run as root, and reports NOT RUN rather than PASS on a slow or tool-poor machine; as a gate on every push that is flake, not signal. It stays a human-read net, run per § Verification ladder.
 
 ### How extension-load failures surface (pi 0.83.0)

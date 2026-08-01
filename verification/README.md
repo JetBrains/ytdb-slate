@@ -458,15 +458,30 @@ bash verification/run-resolver-checks.sh --repo .   # ~1 s; --repo defaults to "
 One line per check, then a summary:
 
 ```
-CHECK off-inert        PASS — empty pattern list → shared empty set, registry never walked
-CHECK unit-directory   PASS — package with a single literal entry the host runs → the package DIRECTORY is the unit
+CHECK off-inert                  PASS — empty pattern list → shared empty set, registry never walked
+CHECK unit-directory             PASS — package with a single literal entry the host runs → the package DIRECTORY is the unit
 == summary: 16 pass, 0 fail ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed · **2** refused to
-start (a missing tool, a bad `--repo`, or jiti could not be located). `pi` and
-`node` must be on `PATH`; there is no network and no writing outside a throwaway
-temp dir the script removes on exit.
+start (a missing tool, a bad `--repo`, no resolvable pi CLI, or jiti could not be
+located). `node` and `mktemp` must be on `PATH`; **pi is resolved, not required on
+`PATH`** — the shared order is in `AGENTS.md` § Tier-1 CI, and this script is the
+one that accepts a `PATH`-resolved pi as a last resort, announcing it as a `NOTE`
+line. There is no network and no writing outside a throwaway temp dir the script
+removes on exit.
+
+It deliberately carries **no version-drift guard**, unlike the load check. All it
+borrows from pi is the bundled jiti: it starts no session and asserts nothing
+about pi's own behaviour, and nothing in the module graph it loads
+(`worker-extensions.ts`, `mode.ts` and their runtime imports — `notify.ts`,
+`paths.ts`, `prompt-docs.ts`, `state.ts`) imports a pi SDK package at runtime; the
+SDK imports in that graph are all `import type` and are erased at transpile time.
+A jiti old enough to matter can therefore only fail to transpile, which crashes
+the driver with a non-zero exit and no summary line — loud, and impossible to
+mistake for a pass. The load check has the opposite exposure, since pi's rpc
+output shapes *are* its evidence and a shape change would read as "no events",
+which is why the pinned-version guard lives there and not here.
 
 ## What it covers
 
@@ -540,17 +555,19 @@ bash verification/run-packaging-checks.sh --help
 One line per check, then a summary:
 
 ```
-CHECK files-exact      PASS — files is exactly ["extension","docs","README.md","LICENSE"] (order included), got ["extension","docs","README.md","LICENSE"]
-CHECK pack-doctrine-docs PASS — every doctrine doc derived from extension/*.ts via DOCS_DIR ships: design-principles.md, pr-publishing.md, review-rules.md, track-workflow.md — missing: none
+CHECK files-exact                PASS — files is exactly ["extension","docs","README.md","LICENSE"] (order included), got ["extension","docs","README.md","LICENSE"]
+CHECK pack-doctrine-docs         PASS — every doctrine doc derived from extension/*.ts via DOCS_DIR ships: design-principles.md, pr-publishing.md, review-rules.md, track-workflow.md — missing: none
 == summary: 16 pass, 0 fail ==
 ```
 
-and under `--self-test`, the same 16 ids prefixed `self-`:
+and under `--self-test`, the same 16 ids prefixed `self-`. The verdict column
+carries the meaning: PASS means the guard rejected its mutated input, which is
+what was required of it.
 
 ```
--- self-test: every guard must FAIL on a real input carrying exactly one violating mutation --
-CHECK self-files-exact PASS — real manifest, pushed "verification" onto files → assertion failed as required
-CHECK self-pack-no-junk PASS — not manifest-shaped, so mutated the REAL pack list instead: added shipped path "extension/.env" → assertion failed as required
+== self-test: each guard must reject a real input carrying one violating mutation ==
+CHECK self-files-exact           PASS — mutated the real manifest: pushed "verification" onto files → the guard rejected it, as required
+CHECK self-pack-doctrine-docs    PASS — not manifest-shaped, so mutated the REAL pack list: dropped docs/design-principles.md from the shipped paths → the guard rejected it, as required
 == summary: 16 pass, 0 fail ==
 ```
 
@@ -619,7 +636,8 @@ loader can **load** the extension in the checkout under test, that its
 really got **registered** — from THIS checkout and not from an installed copy.
 
 It is cheap: two pi launches, about a second each, both fully offline and both
-without credentials of any kind. Each gets a fresh `mktemp`'d and **empty**
+without credentials of any kind — plus one check that launches no pi at all
+(`T4`, below). Each launch gets a fresh `mktemp`'d and **empty**
 `PI_CODING_AGENT_DIR` (no `models.json`, no `auth.json`, so no provider exists to
 call), `PI_OFFLINE=1`, `--no-extensions`, and non-model rpc requests fed from a
 file so stdin is at EOF immediately; inherited credentials and pi session
@@ -638,20 +656,23 @@ silently removed tool registration produces **no diagnostic at all**. The last
 one needs a positive control, because pi 0.83.0 exposes no rpc command and no
 CLI flag that enumerates registered tools: `verification/ci-canary.ts` is loaded
 alongside the checkout and prints one `CI-CANARY {"tools":[…],"cwd":…,"trusted":…}`
-line to stderr from inside the session. It never asserts and never throws — a
+line to stderr from inside the session. It never asserts and never throws: a
 throw in a `session_start` hook does not fail the process, so a canary that
-asserted by throwing could not fail CI at all (finding AD1). Every assertion
-lives in the driver, which reads that line; `L5` and `T1` are the guards that
-make a missing or empty line a failure rather than a quiet pass.
+asserted by throwing could not fail CI at all — which is exactly what adversarial
+review pointed out (`AD1` in that round; on the tag convention see `AGENTS.md`
+§ Overview). Every assertion lives in the driver, which reads that line; `L5` and
+`T1` are the guards that make a missing or empty line a failure rather than a
+quiet pass.
 
-The pi CLI is `node_modules/.bin/pi` **from the checkout under test**, and its
-`--version` must equal the `@earendil-works/pi-coding-agent` pin in
-`devDependencies`. There is deliberately no fallback to a globally installed pi:
-this check must exercise the same pinned SDK the typecheck does, and the rpc
-output shapes it parses are pinned to one pi version. `PI_BIN` overrides the CLI
-path and is reported loudly in the output — it is an unhardened escape hatch for
-people who know what they are doing, **not a security boundary**, and is not
-treated as one: anyone who can set it can edit the script.
+The pi CLI comes from the resolution order shared with the resolver checks
+(`AGENTS.md` § Tier-1 CI), with two deliberate differences here: there is **no**
+`PATH` last resort — after `PI_BIN` and the checkout's own
+`node_modules/.bin/pi` it refuses to start — and the CLI's `--version` must equal
+the `@earendil-works/pi-coding-agent` pin in `devDependencies`. Both exist for the
+same reason: this check asserts on pi's rpc output shapes, so it must exercise the
+very pi the typecheck pins. `PI_BIN` is reported loudly in the output — an
+unhardened escape hatch for people who know what they are doing, **not a security
+boundary**, and not treated as one: anyone who can set it can edit the script.
 
 ## Running it
 
@@ -665,15 +686,16 @@ bash verification/run-load-check.sh --help
 A provenance header, one line per check, then a summary:
 
 ```
-repo  = /home/you/src/ytdb-slate (f837505)
+repo  = /home/you/src/ytdb-slate (9d09fa5)
 pi    = /home/you/src/ytdb-slate/node_modules/.bin/pi (0.83.0, pinned 0.83.0)
-work  = /tmp/slate-loadcheck.cLvSXh
+lab   = /tmp/slate-loadcheck.m81mvV
 
-CHECK L4               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
-CHECK L6               PASS — /slate is registered and attributed to /home/you/src/ytdb-slate/extension/index.ts — inside the checkout under test, so this run exercised the working tree and not an installed release
-CHECK T1               PASS — pi exited 0 on the trusted (-a) run, still offline, project trusted (/home/you/src/ytdb-slate trusted=true)
+CHECK L4                         PASS — the canary observed all three dispatch tools registered: thread, threads, episode
+CHECK L6                         PASS — /slate is registered and attributed to /home/you/src/ytdb-slate/extension/index.ts — inside the checkout under test, so this run exercised the working tree and not an installed release
+CHECK T2                         PASS — slate's config sanitizers emitted no warning for the checkout's own .pi/slate.json (they cover the shape of modelFailover, contextBudget and workerExtensions only — not the file's syntax, which is T4, nor any other key)
+CHECK T4                         PASS — /home/you/src/ytdb-slate/.pi/slate.json parses as a JSON object, 4 top-level key(s): orchestratorModeDefault, workflow, modelFailover, workerExtensions
 
-== summary: 11 pass, 0 fail ==
+== summary: 12 pass, 0 fail ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed, or `--only`
@@ -690,21 +712,35 @@ CLI-versus-pin version mismatch, whose remedy is printed with it (`run 'npm ci'`
 
 Requirements: `node` and `mktemp`; `timeout` is used when present rather than
 required, purely so a hung pi cannot hang CI. Unknown `--only` ids are a hard
-error (exit 2). Artifacts — the raw rpc stdout/stderr streams of both runs —
-live under the scratch directory, which is removed on a clean run and **kept**
-when a check failed, with its path printed. The scratch directory must be
-outside the checkout: if `TMPDIR` points into it, the run is refused, because pi
-must write nothing there.
+error (exit 2), and every abort here names itself — each exit-2 line begins
+`verification: refused to start — `, so that phrase is greppable in a CI log.
+Artifacts — the raw rpc stdout/stderr streams of the pi runs — live under the
+scratch directory (`lab` in the header), which is removed on a clean run and
+**kept**, with its path printed, when a check failed *and* a pi run actually
+produced streams: a `T4`-only failure keeps nothing, because there would be
+nothing in it. The scratch directory must be outside the checkout: if `TMPDIR`
+points into it, the run is refused, because pi must write nothing there.
+
+One piece of debris is not this script's: while pi reads the checkout's
+`.pi/settings.json` it takes a lock on it — a transient
+`.pi/settings.json.lock` **directory inside the working tree**, created and
+removed around every access, and a bare `pi --no-extensions --mode rpc` with no
+extension does it too. The script removes it on the way out only when it was
+absent at startup (one that was already there belongs to somebody else's live
+session, and removing it would corrupt their write), and `.gitignore` covers
+`.pi/*.lock` for the case where the script — or a dogfooding session — is killed
+outright before any cleanup runs.
 
 ## What it covers
 
-11 checks over two runs. `L1`–`L8` are the untrusted load path, `T1`–`T3` the
-trusted (`-a`) one:
+12 checks. `L1`–`L8` are the untrusted load path, `T1`–`T3` the trusted (`-a`)
+one, and `T4` needs no pi at all — `--only T4` launches no session, only the
+version probe that resolves the CLI:
 
 | id | what it proves |
 | --- | --- |
 | `L1` | pi **exited 0** loading the checkout (rpc, offline, empty agent dir, no credentials) — a real signal on pi 0.83.0, where most load failures exit 1 |
-| `L2` | stderr carries **neither** `Failed to load extension` **nor** `Extension error (` — both, because the first is the reported-load-failure channel and the second the hook channel it is blind to |
+| `L2` | stderr carries **neither** `Failed to load extension` **nor** `Extension error (` — both, because the first is the reported-load-failure channel and the second the hook channel it is blind to. Its own verdict line names the two markers without reproducing them, so grepping a CI log for either literal cannot land on a green line |
 | `L3` | no `extension_error` event on **stdout**, the only signal a throwing hook produces in rpc mode |
 | `L4` | the canary observed all three dispatch tools registered: `thread`, `threads`, `episode` — nothing else detects their removal |
 | `L5` | the canary actually reported a **non-empty** tool list, and says from where: the vacuity guard that stops `L4` passing when the canary never loaded or `session_start` moved ahead of registration |
@@ -712,22 +748,40 @@ trusted (`-a`) one:
 | `L7` | `/slate on` round-trips through the command handler offline: the prompt response succeeded, a `slate-state` entry was appended, and the widget was populated |
 | `L8` | `.pi/npm` in the checkout is unchanged by the run — the run stayed offline and npm-installed nothing into the working tree |
 | `T1` | pi exited 0 on the trusted `-a` run **and** the canary's `trusted` field reads `true` (the driver's `canary-trusted` query) — the vacuity guard for `T2`: without granted trust slate never reads `.pi/slate.json`, so a clean `T2` would mean nothing |
-| `T2` | slate's config sanitizers accepted the checkout's own tracked `.pi/slate.json` with no warning notification |
+| `T2` | slate's config sanitizers emitted **no warning** for the checkout's own tracked `.pi/slate.json` — and that is all it claims: only three keys have sanitizers that warn (`modelFailover`, `contextBudget`, `workerExtensions`), so a warning is the only thing a clean `T2` rules out |
 | `T3` | `.pi/npm` is unchanged by the trusted run either — `PI_OFFLINE` held where `-a` would otherwise install |
+| `T4` | the project config file, read straight off disk with node, **parses as JSON and has a plain-object top level** — and it PASSES when the file is absent, since a project config is optional for a consumer |
+
+`T4` exists because `T2` structurally cannot cover it. slate's `loadConfig()` wraps
+the read and the `JSON.parse` in a `try`/`catch` and accepts only a non-null,
+non-array object; anything else returns `{}` and the session continues on defaults
+with **nothing emitted** — no warning, no error, no event. A checkout whose
+`.pi/slate.json` is `{{{` therefore looks perfectly healthy to every check that
+watches pi's output, while every setting in it, `workflow.draftPRs` included, is
+being dropped. Reading the file directly is the only way to see that, and it needs
+no pi, no session and no trust.
+
+The residual gap is worth stating plainly: between them `T2` and `T4` cover the
+file's syntax, its top-level shape, and the *shapes* of three keys. **Unknown keys
+and wrong-typed values under the unsanitized keys pass both, silently** —
+`{"totallyUnknownKey": 5, "maxConcurrent": "lots"}` is a green `T4` and a green
+`T2`. Nothing in tier 1 validates the config's contents; that is still on the
+reader of `README.md` § Configuration.
 
 What it does **not** cover: anything working. No check here executes a tool,
 spawns a worker session, or exercises failover or handoff — it is a load and
-registration check plus one command round-trip. It is not a typecheck either
-(`npm run typecheck` is that): jiti transpiles per module and erases types, so a
-type error loads perfectly well. And the two runs are rpc-mode, so nothing here
-speaks to the TUI. Those need the ladder, the resolver checks, or the manual
-isolated-load smoke test (`pi --no-extensions -e .`, see `AGENTS.md`).
+registration check, one command round-trip and one file read. It is not a
+typecheck either (`npm run typecheck` is that): jiti transpiles per module and
+erases types, so a type error loads perfectly well. And the two pi runs are
+rpc-mode, so nothing here speaks to the TUI. Those need the ladder, the resolver
+checks, or the manual isolated-load smoke test (`pi --no-extensions -e .`, see
+`AGENTS.md`).
 
 ## Files
 
 | file | role |
 | --- | --- |
-| `run-load-check.sh` | the driver: pi CLI resolution and pin match, scrubbed offline rpc runs, the rpc stream parser, every assertion |
+| `run-load-check.sh` | the driver: pi CLI resolution and pin match, scrubbed offline rpc runs, the rpc stream parser, the direct config read, every assertion |
 | `ci-canary.ts` | the positive control: a `session_start` hook that prints the registered tool set, cwd and trust to stderr and asserts nothing |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
