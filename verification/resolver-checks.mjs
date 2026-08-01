@@ -3039,8 +3039,15 @@ try {
 			// harmless — the exact false alarm that killed the previous ordering term).
 			const src = sourceOf("threads.ts");
 			/** A method's declaration: `name(` NOT preceded by a dot, so a call site is not it. */
+			// TQ15: the optional `<...>` is a GENERIC parameter list. Without it a declaration
+			// written `applyRoute<T extends X>(` is simply not found, and both terms below
+			// false-FAIL — the safe direction, but still the brittleness class that once had an
+			// implementer abandon a valid fix over a line that was not broken. `[^(]*` cannot
+			// cross a paren, so the group engages only when a `<` really follows the name and
+			// closes before the parameter list; with `(` next it matches empty and nothing about
+			// the non-generic case changes.
 			const declOf = (text, name) => {
-				const re = new RegExp(`(^|[^.\\w])${name}\\s*\\(`, "g");
+				const re = new RegExp(`(^|[^.\\w])${name}\\s*(?:<[^(]*>)?\\s*\\(`, "g");
 				const hit = re.exec(text);
 				return hit === null ? -1 : hit.index + hit[0].length - 1; // index of the "("
 			};
@@ -3083,17 +3090,36 @@ try {
 			const capturesLate = body === undefined ? [] : callsTo(body, "captureSessionBaseline");
 			// ...and the claim is not vacuous only if the module captures SOMEWHERE.
 			const capturesAtAll = callsTo(src, "captureSessionBaseline").length;
-			// FOUND BY MUTATION, and the reason this conjunct exists: the three terms above
-			// watch for a late CALL, and the defect does not need one. `baseline = { effort:
-			// this.sessionEffort(session) } as SessionBaseline` inside applyRoute is BG18
-			// reintroduced with a live reading laundered straight through the brand — no
-			// capture to see, and it survived every other term in this suite. The brand only
-			// buys anything while the CALLER never asserts into it: route.ts's producer is the
-			// one place that may, and it is a different module. A token scan on comment-free
-			// source, so a doc comment naming the type is invisible.
+			// THE BRAND-CAST SCAN, and it carries more weight than it looks like it should.
+			// THIS REPO HAS NO TYPECHECK — no tsconfig.json, no build script, and pi loads the
+			// TypeScript through jiti, which STRIPS types without checking them. So a brand is
+			// advisory at run time and nothing but this scan refuses a cast through it. It is
+			// not a style term; it is the enforcement.
+			//
+			// Found by mutation on the FIRST brand: the terms above watch for a late CALL, and
+			// the defect does not need one. `baseline = { effort: this.sessionEffort(session) }
+			// as SessionBaseline` inside applyRoute is BG18 reintroduced with a live reading
+			// laundered straight through the brand — no capture to see, and it survived every
+			// other term in this suite.
+			//
+			// TQ14 adds the SECOND brand, which had no backstop at all: a code gate reproduced
+			// `open: { model: (open.model ?? opts.model) as OpenModel }` — BG22-on-the-opening-
+			// path VERBATIM, the session opening on the per-action model so every later dispatch
+			// that omits `model` inherits it — with the suite reporting 106 pass, 0 fail. The
+			// `as never` variant does the same job, and is refused WITHOUT naming a brand,
+			// because `never` is assignable to every one of them at once: a brand-by-brand list
+			// would miss it, and would keep missing each new brand's `never` bypass.
+			//
+			// route.ts's producers (`captureSessionBaseline`, `planSessionOpen`) are the one
+			// place that may assert into these types, and they are a different module. A token
+			// scan on comment-free source, so a doc comment naming a type is invisible.
+			const BRANDS = ["SessionBaseline", "OpenModel"];
 			const brandCasts = [
-				...src.matchAll(/\bas\s+(?:unknown\s+as\s+)?SessionBaseline\b/g),
-				...src.matchAll(/<\s*SessionBaseline\s*>/g),
+				...BRANDS.flatMap((brand) => [
+					...src.matchAll(new RegExp(`\\bas\\s+(?:(?:unknown|any)\\s+as\\s+)?${brand}\\b`, "g")),
+					...src.matchAll(new RegExp(`<\\s*${brand}\\s*>`, "g")),
+				]),
+				...src.matchAll(/\bas\s+never\b/g),
 			].map((hit) => hit[0].replace(/\s+/g, " "));
 
 			// ------------------------------------------------- disposal, the other end --
@@ -3116,15 +3142,63 @@ try {
 			// them changes nothing — both halves move together.
 			const openBody = methodOf(src, "openWorkerFor").body;
 			const disposeBody = methodOf(src, "disposeAll").body;
-			const sessionScoped = [
-				...new Set([...(openBody ?? "").matchAll(/\bthis\s*\.\s*(\w+)\s*\.\s*(?:set|delete)\s*\(/g)].map((hit) => hit[1])),
-			];
-			const notReleased = sessionScoped.filter((map) => !new RegExp(`\\b${map}\\b\\s*\\.\\s*clear\\s*\\(`).test(disposeBody ?? ""));
+			// TQ13b — ALIASES, resolved before the scan and FAIL-CLOSED after it. A gate beat
+			// the first version of this term with `const baselines = this.liveBaselines;` in the
+			// open: the raw `this.X.set(` scan never saw the write, so the map never entered the
+			// session-scoped set, so dropping its clear leaked state with the suite green. The
+			// two ordinary alias spellings are resolved here — and, more importantly, a write
+			// whose receiver this scan CANNOT name fails the term instead of being skipped. That
+			// is the part that generalises: it does not matter which alias forms are handled, it
+			// matters that an unhandled one is loud rather than invisible.
+			const aliases = new Map();
+			for (const [, local, field] of (openBody ?? "").matchAll(/\b(?:const|let|var)\s+(\w+)\s*=\s*this\s*\.\s*(\w+)\s*;/g)) aliases.set(local, field);
+			for (const [, names] of (openBody ?? "").matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*this\s*;/g)) {
+				for (const raw of names.split(",")) {
+					const [field, local] = raw.split(":").map((part) => part.trim());
+					if (field) aliases.set(local || field, field);
+				}
+			}
+			const sessionScoped = [];
+			const unresolvedWrites = [];
+			for (const [text, viaThis, viaLocal] of (openBody ?? "").matchAll(/(?:\bthis\s*\.\s*(\w+)|\b(\w+))\s*\.\s*(?:set|delete)\s*\(/g)) {
+				const field = viaThis ?? aliases.get(viaLocal);
+				if (field === undefined) unresolvedWrites.push(text.replace(/\s+/g, " "));
+				else if (!sessionScoped.includes(field)) sessionScoped.push(field);
+			}
+			// TQ13a — the clear must be an UNCONDITIONAL TOP-LEVEL STATEMENT of disposeAll.
+			// `if (cond) this.liveBaselines.clear();` satisfies "does the body mention it"
+			// while never running, and so does a clear inside the dispose loop or parked in an
+			// uninvoked closure. So the body is split into statements at brace/paren depth 0 and
+			// each must BE the clear rather than merely contain one — which also refuses
+			// `cond && this.x.clear()`. Wrapping the clears in a helper is refused too, and
+			// deliberately: the term cannot tell an invoked closure from a dead one, so it asks
+			// for the shape it can verify and its failure names the rule.
+			const topLevelClears = [];
+			{
+				const text = disposeBody ?? "";
+				let depth = 0;
+				let start = 0;
+				for (let i = 0; i < text.length; i++) {
+					const c = text[i];
+					if (c === "{" || c === "(" || c === "[") depth++;
+					else if (c === "}" || c === ")" || c === "]") {
+						depth--;
+						if (depth === 0 && c === "}") start = i + 1; // a block statement ended
+					} else if (c === ";" && depth === 0) {
+						const hit = /^\s*this\s*\.\s*(\w+)\s*\.\s*clear\s*\(\s*\)\s*$/.exec(text.slice(start, i));
+						if (hit) topLevelClears.push(hit[1]);
+						start = i + 1;
+					}
+				}
+			}
+			const notReleased = sessionScoped.filter((map) => !topLevelClears.includes(map));
 			// Vacuity guard, and it is the whole difference between this term and a decorative
-			// one: if either method stops being findable, or the open stops touching any
-			// per-thread map, `notReleased` is empty for the wrong reason and the term would
-			// pass while asserting nothing.
-			const disposalReadable = openBody !== undefined && disposeBody !== undefined && sessionScoped.length >= 3;
+			// one. It no longer counts to a MAGIC NUMBER: `>= 3` happened to equal the map count
+			// of the day, so it silently tolerated the discovery losing one the moment a fourth
+			// arrived — which is exactly how the alias defeat stayed green. The honest
+			// conditions are that both methods were found, that the discovery found SOMETHING,
+			// and that it was blind to nothing.
+			const disposalReadable = openBody !== undefined && disposeBody !== undefined && sessionScoped.length > 0 && unresolvedWrites.length === 0;
 
 			checkAll(
 				"route-baseline-capture",
@@ -3171,9 +3245,9 @@ try {
 						{ param: param?.[1], usesParam, capturedInApplyRoute: capturesLate, capturesInModule: capturesAtAll, brandCasts },
 					],
 					[
-						"...and every per-thread map the session OPEN touches is RELEASED on disposal, so no baseline outlives its session",
+						"...and every per-thread map the session OPEN touches is RELEASED on disposal — unconditionally, at statement level — so no baseline outlives its session",
 						disposalReadable && notReleased.length === 0,
-						{ sessionScoped, notReleased, disposalReadable },
+						{ sessionScoped, notReleased, topLevelClears, unresolvedWrites, disposalReadable },
 					],
 				],
 			);

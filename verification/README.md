@@ -1136,7 +1136,11 @@ baseline on disposal. The first is now caught EXECUTABLY — its in-module equiv
 (`planSessionOpen` regaining `input.requestedModel`) fails
 `route-switch-opening-baseline`, verified. The second is caught only in its
 `applyRoute` form, by `route-baseline-capture`'s residual term; captured later still,
-in the dispatch body, it is not caught — TQ7 blocks that with a type, not a check.
+in the dispatch body, it is not caught. **This used to say "TQ7 blocks that with a
+type, not a check", and that was false** — see the enforcement note below: this repo
+has no typecheck, so TQ7's brand blocks nothing on its own. What actually narrows the
+shape is the brand-cast scan, which refuses the assertion the bypass needs; a capture
+taken late in the dispatch body without any cast remains genuinely uncaught.
 The third — not clearing the baseline map on disposal — was unpinned for a while, and
 is **covered again**, by a term derived rather than re-anchored: see
 `route-baseline-capture`'s disposal term below. The remaining eight kills are
@@ -1222,8 +1226,8 @@ historical one:
 | term | null edit that must PASS | breaking edit that must FAIL |
 | --- | --- | --- |
 | shipped-table import scan **— LIVE** | inline `{ type X }` import | a value import of the table; a namespace import of a module carrying it |
-| `applyRoute` baseline residual **— LIVE, added later (TQ7)** | parameter renamed, moved, signature reflowed to one line, a brace-bearing return type, doc comment naming `captureSessionBaseline(session)` and `as SessionBaseline` | a late `captureSessionBaseline` inside `applyRoute`; the parameter removed; the parameter ignored; a live reading cast through the brand |
-| session state released on disposal **— LIVE, added later** | `disposeAll`'s clears reordered, wrapped in a nested arrow, spaces inside the member access, a comment naming the maps; `openWorkerFor`'s thread id hoisted, its writes reordered, its return type reshaped | the `liveBaselines` clear removed; the WRONG map cleared (one cleared twice, one dropped); a NEW session-scoped map written on open and never released |
+| `applyRoute` baseline residual **— LIVE, added later (TQ7/TQ14)** | parameter renamed, moved, signature reflowed to one line, a brace-bearing return type, a GENERIC parameter list, doc comment naming `captureSessionBaseline(session)` and `as SessionBaseline` | a late `captureSessionBaseline` inside `applyRoute`; the parameter removed; the parameter ignored; a live reading cast through the brand; **and every cast into `OpenModel`** — `as OpenModel`, `as unknown as OpenModel`, `<OpenModel>`, and `as never` |
+| session state released on disposal **— LIVE, added later (TQ13)** | `disposeAll`'s clears reordered, spaces inside the member access, comments, an unrelated statement between them; `openWorkerFor`'s thread id hoisted, its writes reordered, its return type reshaped, and its write made through a `const` **or destructuring alias** | the `liveBaselines` clear removed; the WRONG map cleared; a NEW session-scoped map written on open and never released; a **conditional** clear; a **short-circuit** clear; an **unresolvable alias** hiding the write (fails closed). Note: wrapping the clears in a nested arrow, a null edit the first version accepted, is now REFUSED — the term cannot tell an invoked closure from a dead one, so it asks for the shape it can verify and its failure names the rule |
 | ~~open plan drops `model`~~ **— DELETED (TQ4)** | the `routeInputs` call hoisted to a const | `model` no longer stripped |
 | ~~open plan drops both args~~ **— DELETED (TQ4)** | a THIRD stripped key; reordered keys | `effort` no longer stripped |
 | ~~baseline from the session~~ **— DELETED (TQ4)** | the spec built by a different expression | the baseline recorded from the routed plan |
@@ -1250,17 +1254,38 @@ switch) rather than moving them — there is one `liveBaselines` map, so there i
 per-axis ordering left to assert, and the late reading those terms watched for is no
 longer an expression the call sites accept.
 
-**Three structural terms stand today**, each about a fact no pure function can hold,
+> **There is no typecheck in this repo.** No `tsconfig.json`, no build script, no dev
+> dependencies; pi loads the TypeScript through jiti, which **strips types without
+> checking them**. Every "the type prevents this" claim in this document is therefore
+> a claim about what an editor would underline, not about what CI refuses — nothing
+> refuses it. Concretely: `SessionBaseline` and `OpenModel` are branded types, and a
+> brand buys **nothing at run time**. What actually enforces them is the brand-cast
+> scan below, which refuses `as SessionBaseline`, `as OpenModel`, their
+> `unknown`/`any` two-step and angle-bracket spellings, and `as never` outright
+> (`never` is assignable to every brand at once, so a brand-by-brand list would miss
+> it). A reader deciding whether a brand protects them should read that term, not the
+> type.
+
+**Four structural terms stand today**, each about a fact no pure function can hold,
 and two of them were added AFTER this section was first written:
 
+- the **`wiring` check** — the oldest of them, and easy to forget in this count
+  because it is a whole check rather than a term inside one: every config sanitizer
+  is imported by `index.ts` AND called at `session_start` with its own key and the
+  shared warn sink. `index.ts` cannot be loaded here, so it is asserted against the
+  source text;
 - the **shipped-table import scan** in `route-off-ladder-source` — three conjunct
   terms over `route.ts`'s imports, because a back door is an import, not a value;
 - the **`applyRoute` baseline residual** in `route-baseline-capture` — one term,
   four conjuncts, for the one thing TQ7's brand cannot encode: a brand says WHO
   produced a value, never WHEN, so a capture taken late inside `applyRoute` is still
-  type-correct. Its fourth conjunct (the caller never asserts INTO the brand) was
-  added because mutation found the first three blind to a live reading laundered
-  through `as SessionBaseline`, which needs no capture call to see;
+  type-correct. Its fourth conjunct is the **brand-cast scan**, and it is doing more
+  work than its name suggests — with no typecheck it is the *only* enforcement either
+  brand has. It was added because mutation found the first three conjuncts blind to a
+  live reading laundered through `as SessionBaseline`; `OpenModel` was added to it
+  later (TQ14) after a gate reproduced `open: { model: (open.model ?? opts.model) as
+  OpenModel }` — BG22-on-the-opening-path verbatim — with the suite reporting 106
+  pass, 0 fail;
 - **session state released on disposal**, also in `route-baseline-capture` — the
   other end of the same lifecycle. `liveBaselines` is keyed by THREAD ID, ids are
   reused, and an entry surviving disposal would be handed to `decideModelSwitch` as
@@ -1270,9 +1295,19 @@ and two of them were added AFTER this section was first written:
   would be wrong, since `queues` and `longContextWarned` deliberately outlive a
   session. The rule asserted is the one the code already obeys — *state a session's
   OPEN touches is state its DISPOSAL must release* — so the session-scoped set is
-  read out of `openWorkerFor` and each member must be cleared in `disposeAll`. A new
-  session-scoped map arrives already covered (proved: adding one that is never
-  cleared FAILS), and renaming any of them changes nothing, because both halves move
+  read out of `openWorkerFor` and each member must be cleared in `disposeAll`. Two
+  ways of defeating its first version are closed (TQ13): the clear must be an
+  **unconditional top-level statement** — `if (cond) this.liveBaselines.clear()`
+  satisfied a mention-scan while never running, and so did a short-circuit — and
+  **aliases are resolved** before the scan, because `const baselines =
+  this.liveBaselines` hid the write, so dropping the clear leaked state while a
+  fourth, properly-cleared map kept the old `>= 3` vacuity threshold satisfied. That
+  threshold is gone; the guard now asks that both methods were found, that the
+  discovery found something, and that it was blind to **nothing** — a write whose
+  receiver cannot be named FAILS the term rather than being skipped, which is what
+  makes the alias class closed rather than the two spellings that happen to be
+  handled. A new session-scoped map arrives already covered (proved: adding one that
+  is never cleared FAILS), and renaming any of them changes nothing, because both halves move
   together. A vacuity guard fails the term if either method stops being findable or
   the discovered set drops below three.
 
