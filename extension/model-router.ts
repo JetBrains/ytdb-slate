@@ -45,13 +45,19 @@
  *    it is cheap. Tier and price only order candidates that are equal on both
  *    markers.
  *
- *  - THE REGISTRY IS THE AUTHORITY for capacity. A profile's `contextWindow` is
- *    documentation-only; W1 (D55) cross-checks it against the registry and warns
- *    on divergence, naming both numbers and the profile's asOf date, and the
- *    candidate always carries the REGISTRY value. `longContextThreshold` /
- *    `longContextMultipliers` are BILLING facts and are deliberately NOT applied
- *    to the ordering price — they describe what happens above a token threshold,
- *    not the base rate a router compares models on.
+ *  - THE REGISTRY IS THE AUTHORITY for what routing USES. A profile's
+ *    `contextWindow` is documentation-only; W1 (D55) cross-checks it against the
+ *    registry and warns on divergence, naming both numbers and the profile's asOf
+ *    date, and the candidate always carries the REGISTRY value. The warning
+ *    REPORTS the divergence and does not diagnose it: authority over the value
+ *    routing uses is not evidence about which figure is factually right, and a
+ *    stock pi install has a registry entry that looks like a billing row restated
+ *    as a capacity — so when the registry's window equals that model's own
+ *    long-context threshold, W1 adds a hint naming that pattern (RI32) instead of
+ *    blaming either side. `longContextThreshold` / `longContextMultipliers` are
+ *    BILLING facts and are deliberately NOT applied to the ordering price — they
+ *    describe what happens above a token threshold, not the base rate a router
+ *    compares models on.
  *
  *  - W3 (D57): a candidate with `unknownRoutingCriticalFields` is routable but
  *    warned about once, naming the fields — the routing decision for it is
@@ -522,8 +528,14 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 			);
 		}
 
-		// W1 staleness canary (D55): the registry is the authority; a divergence
-		// says the PROFILE is stale, and the candidate keeps the registry number.
+		// W1 context-window canary (D55). It REPORTS a divergence; it does not
+		// diagnose one. The earlier wording closed with "the registry wins; the
+		// profile is stale", which is a conclusion this module cannot reach: it sees
+		// two numbers and no provenance for either side. Routing does use the
+		// registry figure — that is a fact about this code, stated as such — but which
+		// figure is CORRECT stays open, because on a stock pi install the registry is
+		// the side that looks wrong (see the billing hint below).
+		//
 		// Both absence guards are load-bearing: the shipped table leaves
 		// contextWindow null where no capacity figure could be traced, and a
 		// fabricated/older registry entry may carry none either — neither absence is
@@ -539,11 +551,27 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 			registryWindow !== profileWindow &&
 			registryWindow !== knownDivergence
 		) {
+			// DIAGNOSTIC COINCIDENCE: a reported window identical to that model's own
+			// long-context BILLING threshold cannot be a capacity, because it would put
+			// the long-context price tier permanently out of reach — nothing can exceed
+			// a threshold it cannot reach. That is the exact failure RI32 named (a
+			// figure that appears in a source only inside a pricing row is a billing
+			// figure and must never be restated as a capacity), so when the arithmetic
+			// lines up, the warning says so and lets the reader look. The threshold is
+			// read from the profile the candidate already carries: no number and no
+			// model id is written into this module.
+			const billingThreshold = finite(profile.longContextThreshold ?? undefined);
+			const billingHint =
+				billingThreshold !== undefined && registryWindow === billingThreshold
+					? ` NOTE: that registry figure is also this model's long-context BILLING threshold (${billingThreshold} tokens) — ` +
+						"a window equal to its own threshold would leave the long-context price tier unreachable, which is the " +
+						"billing-row-restated-as-a-capacity pattern finding RI32 warns about."
+					: "";
 			once(
 				conditionKey("w1", raw),
-				`slate: model router: profile context window for ${label} (${profileWindow} tokens, asOf ` +
-					`${quoted(profile.asOf ?? "unknown")}) diverges from pi's model registry (${registryWindow} tokens) — ` +
-					"the registry wins; the profile is stale",
+				`slate: model router: context window for ${label} differs between sources — slate's profile records ` +
+					`${profileWindow} tokens (research asOf ${quoted(profile.asOf ?? "unknown")}), pi's model registry reports ` +
+					`${registryWindow} tokens. Routing uses the registry figure; which source is correct is not established here.${billingHint}`,
 			);
 		}
 
