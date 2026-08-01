@@ -785,43 +785,75 @@ try {
 				profiles: profiles([p]),
 			});
 			const w1 = found(warned, /context window/) ?? "";
-			// THE CANARY HAD GONE DECORATIVE. W1 was rewritten to stop DIAGNOSING which source
-			// is wrong (it used to declare the profile stale and the registry right, a verdict
-			// it had no evidence for) and to add a conditional hint for one arithmetic
-			// coincidence. The old terms — two numbers, a date, the phrase "context window" —
-			// pass either message word for word, so the change that mattered was unpinned. The
-			// terms below assert the new SEMANTICS: what the message must say, what it must NOT
-			// say, and that the hint appears exactly when its condition holds.
-			const VERDICT_WORDS = /\bstale\b|\bwins\b|\bauthoritative\b|\bis (wrong|right|correct)\b|\btrust\b|\boverrid/i;
+			// THE CANARY HAD GONE DECORATIVE. W1 was rewritten (98c63f3) to stop DIAGNOSING
+			// which source is wrong — it used to close with "the registry wins; the profile is
+			// stale", a verdict this module has no evidence for and which, on a stock pi
+			// install, is probably backwards — and to append a hint for one arithmetic
+			// coincidence. The old terms (two numbers, a date, the phrase "context window")
+			// pass BOTH messages word for word, so the only change that mattered was unpinned.
+			//
+			// Pinned three ways, deliberately overlapping: the message WHOLE (a golden master,
+			// because the wording IS the finding here), the semantic clauses that say what it
+			// must and must not claim, and the hint's condition in both directions.
+			//
+			// The DECLINING sentence is the one place the word "correct" may legitimately
+			// appear — it is the disclaimer itself. A verdict scan run over the RAW message
+			// therefore false-fails on the very clause it exists to protect, which is exactly
+			// how the first attempt at this check failed (`is correct`, matched inside "which
+			// source is correct is not established here"). So the sanctioned disclaimer is
+			// asserted verbatim and then REMOVED, and no verdict word may survive anywhere in
+			// what is left — including inside the hint, which is scanned too.
+			const DECLINES = "Routing uses the registry figure; which source is correct is not established here.";
+			const REPORTS = (label, profileWindow, asOf, registryWindow) =>
+				`slate: model router: context window for ${label} differs between sources — slate's profile records ` +
+				`${profileWindow} tokens (research asOf ${JSON.stringify(asOf)}), pi's model registry reports ` +
+				`${registryWindow} tokens. ${DECLINES}`;
+			const NOTE = (threshold) =>
+				` NOTE: that registry figure is also this model's long-context BILLING threshold (${threshold} tokens) — ` +
+				"a window equal to its own threshold would leave the long-context price tier unreachable, which is the " +
+				"billing-row-restated-as-a-capacity pattern finding RI32 warns about.";
+			const VERDICT_WORDS = /\bstale\b|\bwins?\b|\bauthorit(y|ative)\b|\b(in)?correct(ly)?\b|\bwrong\b|\btrust(s|ed)?\b|\boverrid|\bsupersede/i;
+			const verdictIn = (msg) => msg.split(DECLINES).join(" ").match(VERDICT_WORDS)?.[0];
 			// The hint fires on a coincidence: the registry figure IS this model's own
-			// long-context billing threshold. Same fixture twice, differing only in that.
-			const hinted = resolve({
-				registry: registry({ "p/hint": { contextWindow: 400000, auth: true } }),
-				models: ["p/hint"],
-				profiles: profiles([profile("p/hint", { contextWindow: 1050000, longContextThreshold: 400000 })]),
-			});
-			const unhinted = resolve({
-				registry: registry({ "p/nohint": { contextWindow: 400000, auth: true } }),
-				models: ["p/nohint"],
-				profiles: profiles([profile("p/nohint", { contextWindow: 1050000, longContextThreshold: 128000 })]),
-			});
-			const hintW1 = found(hinted.warned, /context window/) ?? "";
-			const noHintW1 = found(unhinted.warned, /context window/) ?? "";
-			const HINT = " NOTE: that registry figure is also this model's long-context BILLING threshold (";
-			checkAll("router-w1-canary", "the context-window divergence is REPORTED, not diagnosed: both figures and the profile's asOf date are named, the candidate carries the REGISTRY value, and the message explicitly declines to say which source is correct — no verdict word anywhere in it. The billing-threshold hint appears EXACTLY when the registry figure equals that model's own long-context threshold (a window that cannot be exceeded would put its own price tier out of reach) and is absent otherwise", [
+			// long-context billing threshold. Four fixtures differing only in that — the
+			// coincidence at 400000, the SAME coincidence at an unrelated figure (nothing in
+			// the module may be a hardcoded number or model id: the threshold is read off the
+			// profile, so the hint has to follow the table when the research is refreshed), a
+			// threshold that simply differs, and `w1` above, whose profile records no
+			// threshold at all (the `!== undefined` absence guard).
+			const diverge = (spec, o) =>
+				resolve({
+					registry: registry({ [spec]: { contextWindow: o.registryWindow, auth: true } }),
+					models: [spec],
+					profiles: profiles([profile(spec, { contextWindow: 1050000, longContextThreshold: o.longContextThreshold })]),
+				});
+			const hinted = diverge("p/hint", { registryWindow: 400000, longContextThreshold: 400000 });
+			const hintedElsewhere = diverge("p/elsewhere", { registryWindow: 777777, longContextThreshold: 777777 });
+			const unhinted = diverge("p/nohint", { registryWindow: 400000, longContextThreshold: 128000 });
+			const w1Of = (r) => found(r.warned, /context window/) ?? "";
+			const hintW1 = w1Of(hinted);
+			const elsewhereW1 = w1Of(hintedElsewhere);
+			const noHintW1 = w1Of(unhinted);
+			const noHint = (msg) => msg !== "" && !/NOTE:|BILLING|RI32/.test(msg);
+			checkAll("router-w1-canary", "the context-window divergence is REPORTED, not diagnosed. The whole message is pinned as a golden master (its wording IS the finding: the old text closed with `the registry wins; the profile is stale`, a verdict the module has no provenance for and which a stock pi install suggests is backwards) — both figures with their sources, the profile's asOf date, the candidate carrying the REGISTRY value, the statement that routing USES that figure, and an explicit refusal to say which source is right. Outside that one sanctioned disclaimer no verdict word may appear anywhere, hint included. The RI32 billing hint is appended to the same line EXACTLY when the registry figure equals that model's own long-context threshold — at any figure, since the threshold is read off the profile rather than hardcoded — and is absent when the threshold merely differs or was never recorded", [
 				["warned", w1 !== "", warned],
 				["profile value named", w1.includes("1050000"), w1],
 				["registry value named", w1.includes("400000"), w1],
-				["asOf named", w1.includes("2026-07-29"), w1],
+				["asOf named, quoted", w1.includes('asOf "2026-07-29"'), w1],
 				["candidate carries the registry value", res.candidates[0]?.contextWindow === 400000, res.candidates[0]?.contextWindow],
-				["the message REPORTS a divergence between sources", w1.includes(" differs between sources — slate's profile records "), w1],
+				["the message is EXACTLY this, whole (golden master)", w1 === REPORTS("p/diverged", 1050000, "2026-07-29", 400000), w1],
+				["...it REPORTS a divergence between two named sources", w1.includes(" differs between sources — slate's profile records "), w1],
 				["...names the registry as the figure routing uses", w1.includes(" tokens. Routing uses the registry figure;"), w1],
-				["...and explicitly declines to judge which source is correct", w1.includes("which source is correct is not established here."), w1],
-				["no verdict about which source is wrong, anywhere in it", !VERDICT_WORDS.test(w1), w1.match(VERDICT_WORDS)?.[0] ?? w1],
-				["the hint fires when the registry window IS the billing threshold", hintW1.includes(HINT) && hintW1.includes("(400000 tokens) —"), hintW1],
-				["...explaining why that reading is suspect (RI32)", /price tier unreachable/.test(hintW1) && /billing-row-restated-as-a-capacity/.test(hintW1), hintW1],
-				["...and is ABSENT when the two figures differ", noHintW1 !== "" && !noHintW1.includes("NOTE:") && !noHintW1.includes("BILLING"), noHintW1],
-				["the hint is appended to the same line, not a second one", !hintW1.includes("\n") && hintW1.indexOf(HINT) > hintW1.indexOf("not established here."), hintW1],
+				["...and declines to adjudicate, in that exact sentence", w1.includes(DECLINES), w1],
+				[
+					"OUTSIDE that disclaimer no verdict word survives — not `wins`, not `stale`, nothing",
+					verdictIn(w1) === undefined && verdictIn(hintW1) === undefined && verdictIn(noHintW1) === undefined,
+					[verdictIn(w1), verdictIn(hintW1), verdictIn(noHintW1)],
+				],
+				["the hint fires when the registry window IS the billing threshold, verbatim", hintW1 === REPORTS("p/hint", 1050000, "2026-07-29", 400000) + NOTE(400000), hintW1],
+				["...at whatever figure the PROFILE records, no number written into the module", elsewhereW1 === REPORTS("p/elsewhere", 1050000, "2026-07-29", 777777) + NOTE(777777), elsewhereW1],
+				["...on the SAME line as the report, one warning and not two", !hintW1.includes("\n") && hinted.warned.filter((m) => /context window/.test(m)).length === 1, hinted.warned],
+				["...and ABSENT when the threshold merely differs, or was never recorded", noHint(noHintW1) && noHint(w1), [noHintW1, w1]],
 			]);
 
 			// TQ3: both absence guards. The shipped table leaves contextWindow null

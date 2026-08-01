@@ -638,7 +638,7 @@ Model router (`extension/model-router.ts`):
 | `router-cheapest` | the default base model (D48) is the cheapest **preferred** candidate: a profile carrying a `nonPreferred` reason is skipped even when it is the cheapest thing on the list, while remaining a routable candidate (BG1). The **ordering** honours the same markers (DF4): non-preferred candidates, and candidates whose tier is not a sourced ordinal, sort after their comparable siblings, so a consumer walking the list cannot meet an evidentially-thin model first |
 | `router-cheapest-fallback` | when *every* candidate is non-preferred a base model is still chosen (D48 requires one), the result flags it, and exactly one warning explains it with the profile's own reason |
 | `router-price-date` / `router-price-rows` | the effective row is the one in force on the resolution date; overlapping rows resolve to the greatest `from`; an expired or future-only schedule falls back to the most recent past row, else the first; non-ISO dates — including a **timestamp** where a date belongs, which string comparison would accept as a valid past bound and let win the pick — are treated as absent bounds instead of being compared lexicographically |
-| `router-w1-canary` | a profile/registry context-window divergence warns with both values and the profile `asOf` date, and the candidate carries the **registry** value (W1/D55: the registry is the authority) |
+| `router-w1-canary` | a profile/registry context-window divergence is **reported, not diagnosed** (W1/D55). The whole message is a golden master: both figures with their sources, the `asOf` date, the candidate carrying the **registry** value, the statement that routing *uses* that figure, and one sanctioned sentence declining to say which source is right. Outside that sentence no verdict word may appear anywhere, hint included — the scan strips the disclaimer first, because "which source **is correct** is not established here" is the one place the word may legitimately stand. The RI32 billing hint is appended to the same line **exactly when** the registry figure equals that model's own long-context threshold, at any figure (the threshold is read off the profile, never hardcoded), and is absent when the threshold merely differs or was never recorded. Before `98c63f3` this row asserted only two numbers, a date and the phrase "context window" — which the old message and the new one pass equally, so the change that mattered was unpinned |
 | `router-w1-guards` | an absent window on either side is **not** a divergence, and neither is a registry value equal to the profile's recorded `contextWindowKnownDivergence` figure — while a third, unrecorded value still warns |
 | `router-w3-unknown` | a candidate with `unknownRoutingCriticalFields` warns once, naming the model and the fields (W3/D57) |
 | `router-failover-coverage` | uncovered candidates produce **one aggregate** warning naming them all (not one per model); a covered, window-aligned candidate warns about nothing at all; a map entry whose target is not a spec does not count as coverage |
@@ -887,6 +887,17 @@ dedup mechanism and the shipped-table default), the ordering tie-breaks, the
 price-row selection rules, the W1 absence guards, the `nonPreferred` rule, and
 the roster machinery itself (renaming or deleting a check fails `roster`). Never
 mutate the repository itself; the scratch copy is the point.
+
+`router-w1-canary` was re-validated this way after `98c63f3`, three mutants, all
+killed — and the point of the exercise is what the DECORATIVE version of the row
+did against them: restoring the old "the registry wins; the profile is stale"
+diagnosis leaves both numbers, the `asOf` date and the phrase "context window"
+intact, so every term it used to carry still passed. Now it fails seven terms,
+the verdict scan among them. Making the hint unconditional (`&&` → `||`) fails
+two; the subtler variant that keeps the `!== undefined` guard and drops only the
+equality test — so the hint is well-formed and merely fires on the wrong models —
+fails exactly one, the absence term, which is why that term is worded to cover
+both a differing threshold and an unrecorded one.
 
 The `base-*` checks were validated the same way, one mutation per check, all nine
 killed: unguarding the seed predicate (`base-seed`); matching a declaration
