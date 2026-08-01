@@ -120,45 +120,58 @@ touched.
 
 ## What the always-loaded doctrine costs the budget
 
-The budget's denominator includes Slate's own always-loaded block:
-the doctrine rides in the orchestrator's system prompt while
-orchestrator mode is on, so it occupies context for the whole
-session (once — the system prompt is not re-accumulated per turn).
+The budget's denominator includes Slate's own always-loaded block.
+While orchestrator mode is on, the doctrine sits in the
+orchestrator's system prompt for the whole session — and, like the
+rest of the conversation (see the pricing cliff above), it is sent
+again with every request. It occupies its space in the window once;
+you pay its input tokens every turn.
 
 **Its size depends on where the package is installed.** That is not
 obvious, and it catches anyone who measures: the doctrine cites the
-shipped docs by ABSOLUTE path, so between three and five full
-filesystem paths are embedded in the block — three normally, four
-with `workflow.draftPRs` on, five once the routing rule renders.
-Every additional character in the installed `docs/` directory
-therefore costs 3–5 characters of doctrine. Measured at an
-11-character docs path and again at this repo's 58-character one,
-the same configuration differed by 141–235 characters.
+shipped docs by ABSOLUTE path, so three to five full filesystem
+paths are embedded in the block — three at minimum
+(`track-workflow.md`, `review-rules.md`, `design-principles.md`),
+plus `pr-publishing.md` when `workflow.draftPRs` is on, plus
+`model-routing.md` when the routing rule renders. Every additional
+character in the installed `docs/` directory therefore costs 3–5
+characters of doctrine.
 
-So the portable figure — the block with those embedded paths
-subtracted — is the only count that transfers between installs:
+So the figures below are **portable characters**, defined exactly as
+Slate's own automated size check defines them: the block with each
+occurrence of the installed `docs/` DIRECTORY removed, keeping the
+filename. That makes them install-invariant by construction —
+verified by measuring at a 12-character docs path and at this repo's
+58-character one, which give identical portable counts — and it
+makes the arithmetic one multiplication:
 
-| configuration | portable | at a 58-char docs dir | lines |
-| --- | --- | --- | --- |
-| router off, `draftPRs` off (also any untrusted project, whose config is ignored) | 1,874 | 2,103 | 38 |
-| router off, `draftPRs` on | 1,876 | 2,180 | 38 |
-| router on, 6 configured models, `draftPRs` on | 3,800 | 4,179 | 58 |
-| router on, all 9 shipped profiles configured, `draftPRs` on | 4,378 | 4,757 | 61 |
+> rendered characters = portable + (embedded paths × length of your
+> installed `docs/` directory)
 
-Line counts do not vary with the install path. To get the character
-total for your own install, add to the portable figure, for each
-embedded path, the length of the installed `docs/` directory plus
-one, plus the filename: `track-workflow.md`, `review-rules.md` and
-`design-principles.md` always, `pr-publishing.md` with draft-PR
-publishing on, `model-routing.md` when the routing rule renders.
+Every row below states its full basis, because router state, model
+count and `draftPRs` each move the number:
+
+| router | models | `draftPRs` | paths | portable | lines | rendered at a 58-char docs dir |
+| --- | --- | --- | --- | --- | --- | --- |
+| off | — | off | 3 | 1,929 | 38 | 2,103 |
+| off | — | on | 4 | 1,948 | 38 | 2,180 |
+| on | 6 configured | off | 4 | 3,870 | 58 | 4,102 |
+| on | 6 configured | on | 5 | 3,889 | 58 | 4,179 |
+| on | all 9 shipped | off | 4 | 4,448 | 61 | 4,680 |
+| on | all 9 shipped | on | 5 | 4,467 | 61 | 4,757 |
+
+An untrusted project reads the first row whatever its `slate.json`
+says: no project config is loaded, so neither optional rule renders.
+Line counts do not vary with the install path. Enabling `draftPRs`
+costs 19 portable characters plus one more embedded path.
 
 Two parts of the block grow with configuration rather than with the
 path:
 
 - The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
   so what renders is the models you CONFIGURE — not the nine Slate
-  ships profiles for. It is 1,924 portable characters / 20 lines for
-  six configured models and 2,502 / 23 for all nine, growing by
+  ships profiles for. It is 1,941 portable characters / 20 lines for
+  six configured models and 2,519 / 23 for all nine, growing by
   roughly 150–185 characters per additional model.
 - The worker-extension rule grows per whitelisted extension and per
   tool that extension contributes, so it has no fixed size; one
@@ -168,12 +181,13 @@ path:
 Against a 256,000-token budget none of this is material — as a rough
 estimate, at 4 characters per token (no tokenizer was run, and the
 table is denser than prose, so treat it as a floor) the whole block
-is ≈470–525 tokens with both features off and ≈950–1,045 tokens with
-routing on for six models, the range being the install-path spread
-above. That is under half a percent of the default budget. It is
-listed here because it is context Slate itself puts in front of the
-model on every turn, and because it is the number to check before
-assuming the budget's headroom is all conversation.
+is ≈480–525 tokens with both optional rules off and ≈970–1,025 with
+six models routed, each range spanning portable to as-rendered-here.
+That is under half a percent of the default budget, though it is
+re-sent on every request rather than paid once. It is listed here
+because it is context Slate itself puts in front of the model on
+every turn, and because it is the number to check before assuming
+the budget's headroom is all conversation.
 
 ## Worker threads: the routing window guard
 
@@ -275,9 +289,9 @@ number.
   compaction can land in the same cycle and the handoff brief is
   written from compacted context — episodes and thread state survive
   on disk, so handoff still functions.
-- The doctrine sizes above are for the shipped rules only. A project
-  that also injects `doctrineExtraPath`, `orchestratorPromptDocs` or
-  a long `router.models` list pays for those on top, in the same
+- The doctrine sizes above cover the shipped rules only. A project
+  that also injects `doctrineExtraPath` or `orchestratorPromptDocs`,
+  or whitelists worker extensions, pays for those on top in the same
   always-loaded position, and Slate measures none of it against the
   budget separately — it simply arrives as context the budget then
   has less room for.

@@ -143,7 +143,7 @@ In orchestrator mode, Slate appends a short **doctrine** (a block of numbered ru
 - `docs/design-principles.md` — Slate's own design rationale
 - `docs/model-failover.md` — the opt-in `modelFailover` map (**reference documentation** — unlike the entries above it is not workflow doctrine and is not cited by the doctrine)
 - `docs/context-budget.md` — the orchestrator `contextBudget`: defaults, per-model overrides, the window clamp, and the pricing rationale (also **reference documentation**, not cited by the doctrine)
-- `docs/model-routing.md` — action-level model routing: the two `router` keys, how a model becomes routable, how an omitted effort level resolves, the dispatch guards, and the warnings a first routed session emits (also **reference documentation**; the routable model list is never read from here — the doctrine's routing rule renders it live from the session's own resolution, because that set depends on your registry and credentials)
+- `docs/model-routing.md` — action-level model routing: the two `router` keys, how a model becomes routable, how an omitted effort level resolves, the dispatch guards, and the warnings a first routed session emits. Unlike the two entries above it **is** cited by the doctrine, by absolute path, but only while the routing rule renders — that is the fifth embedded path the size arithmetic in `docs/context-budget.md` accounts for. The routable model list itself is never read from this file: the rule renders it live from the session's own resolution, because that set depends on your registry and credentials.
 
 Project-specific additions layer on top — they extend, not replace, the shipped doctrine — via two distinct mechanisms:
 
