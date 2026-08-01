@@ -266,6 +266,88 @@ export function sanitizeEpisodeModel(raw: unknown, warn: (msg: string) => void):
 	return sanitizeModelSpecKey("episodeModel", raw, warn, "compressing with the built-in default model instead");
 }
 
+/**
+ * ADOPTION-BOUNDARY VALIDATION (BG26). A snapshot is JSON on disk: unversioned,
+ * hand-editable, and written by whatever slate version wrote it. The record types
+ * above describe what slate WRITES; they guarantee nothing about what it reads back,
+ * and until this existed a single wrong-typed field crashed a dispatch rather than
+ * degrading — a non-string `baseModel` reached a warning builder as
+ * `s.replace is not a function`, and the exception escaped out of the `thread` tool.
+ * A non-numeric `updatedAt` had the same shape one layer up (`new Date(x).toISOString()`
+ * throws on NaN, in the threads listing).
+ *
+ * The rule is the one BG21 established for the stored effort level, applied to every
+ * field: a value of the wrong TYPE reads as absent (or, where the record cannot exist
+ * without it, drops the record), and the caller is told. Deliberately a TYPE check and
+ * not a content check for the model fields: a padded or otherwise malformed spec is
+ * still handed to pi, whose own error names the defect (CQ13/RG1) — repairing it here
+ * would hide it, and dropping it would change what a restarted thread runs on.
+ */
+function str(value: unknown): string | undefined {
+	return typeof value === "string" ? value : undefined;
+}
+function num(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * One adopted thread record, or undefined when it cannot be addressed at all (no id).
+ * `repairs` collects a human-readable note per dropped field so a corrupted snapshot is
+ * VISIBLE rather than silently reshaped.
+ */
+export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRecord | undefined {
+	if (typeof raw !== "object" || raw === null) return undefined;
+	const t = raw as Record<string, unknown>;
+	const id = str(t.id);
+	if (id === undefined || id === "") return undefined; // unaddressable: nothing can refer to it
+	const note = (field: string, value: unknown) =>
+		repairs.push(`thread ${id}: ignoring ${field} (${typeof value === "object" ? "object" : typeof value})`);
+	const keep = <T>(field: string, value: unknown, parsed: T | undefined): T | undefined => {
+		if (value !== undefined && parsed === undefined) note(field, value);
+		return parsed;
+	};
+	const episodeIds = Array.isArray(t.episodeIds) ? t.episodeIds.filter((e): e is string => typeof e === "string") : [];
+	if (t.episodeIds !== undefined && !Array.isArray(t.episodeIds)) note("episodeIds", t.episodeIds);
+	const now = Date.now();
+	return {
+		id,
+		name: keep("name", t.name, str(t.name)) ?? id,
+		sessionFile: keep("sessionFile", t.sessionFile, str(t.sessionFile)) ?? "",
+		status: "idle",
+		...(keep("model", t.model, str(t.model)) !== undefined ? { model: str(t.model) } : {}),
+		...(keep("baseModel", t.baseModel, str(t.baseModel)) !== undefined ? { baseModel: str(t.baseModel) } : {}),
+		// The LEVEL's vocabulary is re-checked by the reader (route.ts's storedLevel, BG21);
+		// this boundary only refuses a value that is not a string at all, so the vocabulary
+		// stays defined in exactly one place.
+		...(keep("baseEffort", t.baseEffort, str(t.baseEffort)) !== undefined ? { baseEffort: str(t.baseEffort) as ThinkingLevel } : {}),
+		episodeIds,
+		episodeSeq: keep("episodeSeq", t.episodeSeq, num(t.episodeSeq)) ?? episodeIds.length,
+		createdAt: keep("createdAt", t.createdAt, num(t.createdAt)) ?? now,
+		updatedAt: keep("updatedAt", t.updatedAt, num(t.updatedAt)) ?? now,
+	};
+}
+
+/** One adopted episode record, or undefined when it cannot be addressed or filed. */
+export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeRecord | undefined {
+	if (typeof raw !== "object" || raw === null) return undefined;
+	const e = raw as Record<string, unknown>;
+	const id = str(e.id);
+	const threadId = str(e.threadId);
+	const file = str(e.file);
+	if (id === undefined || id === "" || threadId === undefined || file === undefined) return undefined;
+	return {
+		id,
+		threadId,
+		task: str(e.task) ?? "",
+		status: e.status === "failed" ? "failed" : "ok",
+		file,
+		...(str(e.model) !== undefined ? { model: str(e.model) } : {}),
+		...(str(e.effort) !== undefined ? { effort: str(e.effort) as ThinkingLevel } : {}),
+		...(e.effortUnmeasured === true ? { effortUnmeasured: true as const } : {}),
+		createdAt: num(e.createdAt) ?? Date.now(),
+	};
+}
+
 /** One contextBudget override. `match` is a regex tested ANCHORED (^(?:match)$) against "provider/id". */
 export interface ContextBudgetOverride {
 	match: string;
@@ -399,14 +481,31 @@ export class SlateStore {
 		this.workerCostUsd = latest.workerCostUsd ?? 0;
 		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
 		const dropped: string[] = [];
-		for (const t of latest.threads ?? []) {
+		// EVERY record is validated field by field on the way in (BG26) — see
+		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
+		// that has been hand-edited, truncated or written by another version must be made
+		// safe HERE; the alternative was an exception thrown out of the `thread` tool from
+		// inside a warning message.
+		const threadList = Array.isArray(latest.threads) ? latest.threads : [];
+		for (const raw of threadList) {
+			const t = sanitizeThreadRecord(raw, dropped);
+			if (t === undefined) {
+				dropped.push(`thread record without a usable id: ${typeof raw === "object" ? "ignored" : typeof raw}`);
+				continue;
+			}
 			if (t.sessionFile && !existsSync(t.sessionFile)) {
 				dropped.push(`thread ${t.id} (${t.name}): missing ${t.sessionFile}`);
 				continue;
 			}
-			this.threads.set(t.id, { ...t, status: "idle" });
+			this.threads.set(t.id, t);
 		}
-		for (const e of latest.episodes ?? []) {
+		const episodeList = Array.isArray(latest.episodes) ? latest.episodes : [];
+		for (const raw of episodeList) {
+			const e = sanitizeEpisodeRecord(raw, dropped);
+			if (e === undefined) {
+				dropped.push(`episode record without a usable id, thread id or file: ${typeof raw === "object" ? "ignored" : typeof raw}`);
+				continue;
+			}
 			if (!existsSync(e.file)) {
 				dropped.push(`episode ${e.id}: missing ${e.file}`);
 				continue;
@@ -419,7 +518,7 @@ export class SlateStore {
 			t.episodeIds = t.episodeIds.filter((id) => this.episodes.has(id));
 		}
 		if (dropped.length > 0 && ctx.hasUI) {
-			ctx.ui.notify(`slate: dropped stale records:\n${dropped.join("\n")}`, "warning");
+			ctx.ui.notify(`slate: dropped or repaired stale records:\n${dropped.join("\n")}`, "warning");
 		}
 		this.onDidChange?.();
 	}

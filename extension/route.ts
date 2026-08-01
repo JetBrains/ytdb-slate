@@ -328,6 +328,129 @@ export function decideModelSwitch(input: ModelSwitchInput): ModelSwitchDecision 
 	return { kind: "switch", spec: target, source };
 }
 
+/**
+ * Inputs of the EFFORT-SWITCH decision — the twin of ModelSwitchInput, and named to
+ * match it field for field so the two axes read as one rule (invariant I1).
+ */
+export interface EffortSwitchInput {
+	/** `RoutePlanProceed.effort`: the level the plan resolved for THIS action. */
+	planned?: ThinkingLevel;
+	/** The level the live session is on right now. */
+	current?: ThinkingLevel;
+	/** The level the live session was OPENED on — what a level-less action returns to (BG18). */
+	baseline?: ThinkingLevel;
+}
+
+/**
+ * The decision, shaped like ModelSwitchDecision, with ONE deliberate asymmetry: there
+ * is no `failoverHeld` input and no fatality boundary, because the two things that
+ * force them on the model axis are absent here.
+ *
+ *  · NO FAILOVER STAND-DOWN. Reverting the MODEL after a failover would undo the
+ *    rescue (BG16). A level is re-clamped by pi for whichever model is current, so
+ *    restoring the session's opening level cannot undo anything — and NOT restoring it
+ *    is BG18, a previous action's level silently governing this one. The model axis
+ *    stands down; the effort axis must not.
+ *  · NO `source`-DRIVEN FATALITY. pi's `setModel` THROWS on a missing key, which is why
+ *    the model axis has to distinguish a caller-requested switch (fatal) from a revert
+ *    (a warning) — BG24. `setThinkingLevel` never throws: it CLAMPS to what the model
+ *    supports. So there is nothing for a fatality boundary to decide, and `source` is
+ *    reported for diagnostics and checks only.
+ */
+export type EffortSwitchDecision =
+	| { kind: "switch"; level: ThinkingLevel; source: "plan" | "revert" }
+	| { kind: "keep"; reason: "no-baseline" | "already-current" };
+
+/**
+ * WHICH LEVEL a live worker session must be on for this action — the effort axis's
+ * whole rule, in one pure function, mirroring decideModelSwitch:
+ *
+ *   1. the level the PLAN resolved (an explicit `effort`, the thread's stored default
+ *      once re-validated, or one derived for the model that runs);
+ *   2. failing that, the level the session was OPENED on — pi's clamped settings
+ *      default. This is the RESTORE, and it is what makes `effort` per-ACTION: without
+ *      it a level set by one action silently governs the next (BG18).
+ *
+ * Every level is validated against pi's vocabulary on the way in (the BG21 rule), so a
+ * value that is not a level reads as absent rather than being handed to pi.
+ */
+export function decideEffortSwitch(input: EffortSwitchInput): EffortSwitchDecision {
+	const planned = storedLevel(input.planned);
+	const baseline = storedLevel(input.baseline);
+	const current = storedLevel(input.current);
+	let target: ThinkingLevel;
+	let source: "plan" | "revert";
+	if (planned !== undefined) {
+		target = planned;
+		source = "plan";
+	} else if (baseline === undefined) {
+		return { kind: "keep", reason: "no-baseline" };
+	} else {
+		target = baseline;
+		source = "revert";
+	}
+	if (target === current) return { kind: "keep", reason: "already-current" };
+	return { kind: "switch", level: target, source };
+}
+
+/** What a NEW worker session must be opened with, and what went wrong deciding it. */
+export interface SessionOpenDecision {
+	/** The model to hand the opener; undefined = none, so pi uses the host session's model. */
+	model?: string;
+	/**
+	 * Set ONLY when the model-less plan rejected — which is unreachable today (see
+	 * planSessionOpen) and which the caller must therefore REPORT rather than absorb:
+	 * the session would open on the host model and the thread's base or pin would be
+	 * lost for the session's lifetime, which is BG25's symptom.
+	 */
+	unplanned?: string;
+}
+
+/**
+ * WHAT A NEW WORKER SESSION OPENS ON — a MODEL-LESS resolution of the same inputs, and
+ * never the action's own arguments.
+ *
+ * The stripping happens HERE, inside the pure module, and that placement is the point.
+ * A session opened on this action's `model` makes that argument the baseline every
+ * later action reverts to, i.e. the thread's permanent default — BG22 on the opening
+ * path, which shipped once already. While the rule lived as wiring in the caller it
+ * could only be pinned by a regex over that caller's source, and a regex cannot see a
+ * `?? opts.model` bolted onto the result: the defect would read as green. As a function
+ * of its inputs it is executable — hand it a `requestedModel`/`requestedEffort` and the
+ * answer must still be the thread's base or pin.
+ *
+ * `requestedEffort` is stripped as well (BG25), which is what makes a rejection
+ * unreachable: every reject path in planRoute needs one of the two arguments this
+ * removes, a `failoverSwitch` only the failover call site sets, or a base the seed rule
+ * has already made routable.
+ */
+export function planSessionOpen(input: RoutePlanInput): SessionOpenDecision {
+	const verdict = planRoute({ ...input, requestedModel: undefined, requestedEffort: undefined });
+	if (verdict.kind === "reject") return { unplanned: verdict.reason };
+	return { model: verdict.model };
+}
+
+/**
+ * The BASELINE a live session's later actions fall back to, read from the session
+ * ITSELF once it is open — the model it resolved and the level pi clamped it to.
+ *
+ * A function, not two assignments in the caller, for the same reason as above: the
+ * guarantee is that the baseline comes from the SESSION and not from the action that
+ * happened to open it, and a function whose only inputs are the session's observed
+ * values cannot express the other thing. The level is validated against pi's
+ * vocabulary; the model is taken byte-for-byte (RG1), since it is what pi reports.
+ */
+export interface SessionBaseline {
+	model?: string;
+	effort?: ThinkingLevel;
+}
+export function captureSessionBaseline(observed: { model?: unknown; effort?: unknown }): SessionBaseline {
+	return {
+		...(argModel(observed.model) !== undefined ? { model: argModel(observed.model) } : {}),
+		...(storedLevel(observed.effort) !== undefined ? { effort: storedLevel(observed.effort) } : {}),
+	};
+}
+
 /** The action may NOT run as asked. `reason` is user-facing and self-explanatory. */
 export interface RoutePlanReject {
 	kind: "reject";
@@ -653,12 +776,19 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		//
 		// An EXPLICIT `model` argument is the one addition, and it is per-action: it does
 		// switch the live session, because the caller asked for this action to run there.
-		pin = thread?.model;
+		pin = argModel(thread?.model); // same BG26 reader as the base above
 	} else if (thread) {
 		// ?? thread.model: a thread created before per-action routing existed (the
 		// snapshot is unversioned, so absence means "unknown", and the pre-router pin
 		// is the best available answer).
-		baseModel = thread.baseModel ?? thread.model;
+		// Read through `argModel`, not raw (BG26): these fields come from the same
+		// unversioned snapshot as the stored level, and a wrong-typed one used to reach
+		// the warning builder below as `s.replace is not a function` — an exception out of
+		// a guard, from a module whose whole discipline is that unreadable data degrades.
+		// state.ts validates them on adoption too; this is the reader's half, and it is
+		// what makes the value safe however it got into the record. Byte-for-byte (RG1):
+		// only a non-string or the empty string reads as absent.
+		baseModel = argModel(thread.baseModel) ?? argModel(thread.model);
 		// A STORED level is disk JSON, not a typed value: the snapshot is unversioned and
 		// hand-editable, and TypeScript's `ThinkingLevel` on the record is a claim about
 		// what slate wrote, not a guarantee about what it reads back. So it is re-validated

@@ -110,8 +110,11 @@ import type { ThinkingLevel } from "./model-profiles.ts";
 import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
+	captureSessionBaseline,
+	decideEffortSwitch,
 	decideModelSwitch,
 	planRoute,
+	planSessionOpen,
 	THINKING_LEVELS,
 	usableResolution,
 	type RoutePlanInput,
@@ -700,19 +703,24 @@ export class ThreadManager {
 		}
 		// AFTER the model switch, which re-derives the thinking level internally.
 		//
-		// BG18: an ACTION's level must never be inherited from the previous action. When
-		// the plan resolves no level (router off with no `effort` argument, or a model with
-		// no measured level), the session is put back on the level it OPENED with — pi's
-		// clamped settings default, which is what every dispatch ran at before this
-		// feature — instead of keeping whatever a previous action set. pi clamps a level
-		// the model cannot do, which is why guard 2 exists.
-		const level = plan.effort ?? this.liveBaseline.get(thread.id);
-		if (level !== undefined && this.sessionEffort(session) !== level) {
+		// WHICH LEVEL, decided by route.ts's pure `decideEffortSwitch` — the model axis's
+		// twin, and the executable form of invariant I1's effort half: the plan's level,
+		// else the level the session OPENED on, so no action inherits the previous
+		// action's (BG18). The asymmetries with the model axis are documented there: no
+		// failover stand-down (a level cannot undo a rescue) and no fatality boundary
+		// (setThinkingLevel clamps, it does not throw). The try/catch below is belt and
+		// braces for that last claim, not a path pi is known to take.
+		const effort = decideEffortSwitch({
+			planned: plan.effort,
+			current: this.sessionEffort(session),
+			baseline: this.liveBaseline.get(thread.id),
+		});
+		if (effort.kind === "switch") {
 			try {
-				session.setThinkingLevel(level);
+				session.setThinkingLevel(effort.level);
 			} catch (error) {
 				throw new DispatchAbort(
-					`slate: aborting the dispatch to thread ${thread.id} — setting effort "${level}" failed: ` +
+					`slate: aborting the dispatch to thread ${thread.id} — setting effort "${effort.level}" failed: ` +
 						`${sanitizeForNotify(error instanceof Error ? error.message : String(error), 200)}. ` +
 						"Nothing ran and no episode was recorded.",
 				);
@@ -825,37 +833,23 @@ export class ThreadManager {
 				// and the model axis wrong. Passing a model explicitly also keeps overriding
 				// whatever model_change the session file ends with (CQ3).
 				//
-				// BOTH arguments are stripped, not just `model` (BG25). With only `model`
-				// removed the plan could still REJECT — an opening dispatch carrying an
-				// explicit model AND an `effort` the BASE cannot do (a luna pin with
-				// `anthropic/claude-sonnet-5 @minimal`) had its effort judged against the pin,
-				// was refused, and the session then opened on the HOST model: the pin silently
-				// lost for the session's whole life. Stripping `effort` makes rejection
-				// unreachable BY CONSTRUCTION rather than by luck — every reject path in
-				// planRoute needs an argument that is now absent:
-				//   · both failover rejections need `failoverSwitch`, which only the failover
-				//     call site sets;
-				//   · both vocabulary rejections (guard 0) need a present `effort`;
-				//   · the list rejection (guard 1) needs a resolved model outside the list, and
-				//     with no explicit model that is the thread's base, which the seed rule
-				//     guarantees is listed (or absent, which the guard skips);
-				//   · the effort-guard rejection needs a level, and without an argument the
-				//     level is either absent, a STORED one re-validated as `ok`, or one derived
-				//     from the model that runs — and an `ok` level passes guards 4, 2 and 3 by
-				//     definition.
-				// The tripwire below is therefore dead code kept honest: if a future reject path
-				// appears, it SAYS so instead of degrading in silence.
-				const modelless = planRoute(this.routeInputs(ctx, thread, { ...opts, model: undefined, effort: undefined }, undefined));
-				const openModel = modelless.kind === "proceed" ? modelless.model : undefined;
-				// The line above is the whole remedy; this is a TRIPWIRE for the enumeration.
-				// A rejection is unreachable today, and if a future guard ever makes it
-				// reachable the session opens on the host model and the thread's pin or base is
-				// lost for the session's lifetime — BG25's exact symptom, which went unnoticed
-				// because nothing said anything. It must not be silent a second time.
-				if (modelless.kind === "reject") {
+				// WHAT TO OPEN ON is route.ts's `planSessionOpen`: a MODEL-LESS resolution of
+				// this dispatch's own inputs. It strips both arguments INSIDE the pure module
+				// (BG22 on the opening path, BG25's unreachable rejection), so the rule is a
+				// function of its inputs rather than a shape in this file — hand it the full
+				// inputs and it must still answer with the thread's base or pin. Nothing may be
+				// added to its answer here: `?? opts.model` is exactly the edit that shipped
+				// BG22, and it is the caller's one job not to make it.
+				const open = planSessionOpen(this.routeInputs(ctx, thread, opts, undefined));
+				const openModel = open.model;
+				// BG25's tripwire: unreachable today (planSessionOpen enumerates why), and if a
+				// future guard makes it reachable the session opens on the host model and the
+				// thread's base or pin is lost for the session's lifetime. It must not be
+				// silent a second time.
+				if (open.unplanned !== undefined) {
 					routeWarn(
 						`slate: could not plan thread ${thread.id}'s default model ` +
-							`(${sanitizeForNotify(modelless.reason, 160)}) — opening its worker session on the host's model instead, ` +
+							`(${sanitizeForNotify(open.unplanned, 160)}) — opening its worker session on the host's model instead, ` +
 							"so an omitted `model` will resolve there until the session is disposed. This action's own routing is unaffected.",
 					);
 				}
@@ -877,17 +871,19 @@ export class ThreadManager {
 				// stale failover marker (possible if a previous live session was
 				// disposed mid-dispatch after its marker was set).
 				this.failoverLive.delete(thread.id);
-				// The level this session OPENED on (pi's clamped settings default) is the
-				// baseline every later action falls back to instead of inheriting the previous
-				// action's level (BG18). Captured here, before any per-action switch.
-				const baseline = this.sessionEffort(session);
-				if (baseline !== undefined) this.liveBaseline.set(thread.id, baseline);
-				// ...and the MODEL it opened on, which a later action with no model of its own
-				// reverts to (BG22). Read from the SESSION, so it is what pi actually resolved
-				// for the model-less plan above — the thread's base or pin when there was one,
-				// else the host's model. Captured BEFORE any per-action switch, which is the
-				// property the effort baseline above already had and this one lacked.
-				if (session.model) this.liveBaselineModel.set(thread.id, `${session.model.provider}/${session.model.id}`);
+				// THE BASELINE both axes fall back to, taken from the SESSION itself — the
+				// model pi resolved for the model-less plan and the level it clamped to — and
+				// never from this action's arguments. `captureSessionBaseline` takes only the
+				// session's observed values, so it cannot express the other thing; that is the
+				// executable half of the guarantee (the caller's half is passing the session).
+				// Captured BEFORE any per-action switch, which is what makes both reverts mean
+				// "what a dispatch with no arguments would run on" (BG18, BG22).
+				const baseline = captureSessionBaseline({
+					model: session.model ? `${session.model.provider}/${session.model.id}` : undefined,
+					effort: session.thinkingLevel,
+				});
+				if (baseline.effort !== undefined) this.liveBaseline.set(thread.id, baseline.effort);
+				if (baseline.model !== undefined) this.liveBaselineModel.set(thread.id, baseline.model);
 				// CQ18: the session FILE is deliberately not persisted yet. pi flushes a
 				// session file only once it holds an assistant message, so this path can name
 				// a file that does not exist — and a snapshot carrying one makes the next
