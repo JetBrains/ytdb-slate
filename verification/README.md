@@ -643,40 +643,51 @@ rather than tidy. The group is voided by `profiles-load`, because
 | id | what it proves |
 | --- | --- |
 | `doctrine-router-off` | **I2** — with the router off the rule contributes NOTHING. Every off-shaped resolution a session can hand the doctrine renders **byte-identically** to the default 5-argument call: explicitly off, off *while carrying candidates* (the shape that isolates the `on` flag — without it a guard weakened to `on === undefined` survives, because the empty-list guard catches it two lines later), on-with-no-candidates, on-with-only-unusable-candidates, a non-array candidate list, and no resolution at all. Asserted with and without the worker-extension rule beside it, plus a non-vacuity term proving the same helper *does* render the rule when the router is on. Note that `off-doctrine` above reaches this path only by OMISSION — it calls the helper with five arguments, so `getRouter` takes its default |
+| `doctrine-untrusted` | **SE3** — an UNTRUSTED project gets **no routing rule even with `router.models` fully configured**, and its doctrine is byte-identical to the untrusted router-off one. `74a728c` re-gated the rule on `trusted` at the injection point, mirroring rule 9's tail: defence in depth (index.ts reads project config for trusted projects only) and therefore exactly the kind of guard that can be removed with no visible symptom. Its **own** check, not a term in `doctrine-router-off`, because untrusted-with-config and trusted-with-router-off render the same text by different mechanisms — folded together they are indistinguishable, and a baseline that is itself untrusted would keep comparing equal while one path broke. Here the baseline is the untrusted one and the discriminator is explicit: the SAME resolution, trusted, must render the rule. Two further terms separate "routing is gated" from "untrusted gets no tail rules at all": the worker-extension rule, which is NOT trust-gated, still renders for an untrusted project and keeps slot 11, with no gap where the suppressed rule would have been |
 | `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
-| `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. Two residuals remain pinned **as observed**, not as good: `cell()` is structural only, so bidi and zero-width survive it, and cell length is unbounded |
+| `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
 | `doctrine-budget` | a **guard**, not a recorded fact — and measured on an **install-invariant** figure, which is the only way it can be a guard at all. The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the length of wherever the package is installed: the same router-off doctrine measures **1,968** chars under a 13-character docs directory and **2,103** under this repo's 58-character one — 3 embedded paths × 45 characters, and 4 or 5 paths in the other configurations. A raw-count budget passes on one machine and fails on another, and the failure reads as bloat rather than as a longer home directory. Every bound is therefore on the text with each occurrence of the docs **directory** removed, keeping the filename: invariant by construction (no path count is assumed, so a 4- or 5-path configuration normalises the same way) while still charging a maintainer for the part they control — subtracting whole paths instead would stop a doc rename from ever registering. Bounded separately, with ~55% headroom: the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row — because `cell()` imposes no cap, so a research refresh writing a 2,000-character `routeFor` would bloat every prompt silently — and the rule's share of the whole doctrine, asserted to be the *only* thing router-on adds. Two terms guard the normalisation itself, since a `portable()` that silently became the identity would put the bounds back on raw counts |
 
 **Recorded sizes, and why a re-measurement will not match yours.** The doctrine
-embeds ABSOLUTE doc paths, so every raw figure below is a function of the install
-location: each character of docs-directory length costs 3–5 characters of rendered
-doctrine, one per embedded path, and which paths are embedded depends on the
-configuration. A maintainer re-measuring on a different machine will get different
-raw numbers and **nothing is wrong**. The `portable` column — the text with each
-occurrence of the docs directory removed — is what `doctrine-budget` bounds, and is
-the column to compare. Measured against `e52023d`, with the harness's own fixtures
-(a 13-character docs directory; the same rows at this repo's 58-character path are
-given for cross-reference, since that is where the module owner measured):
+embeds ABSOLUTE doc paths, so a raw character count is a function of the install
+location: each character of docs-directory length costs one character per embedded
+path, and 3–5 paths are embedded depending on configuration. A maintainer
+re-measuring on a different machine gets different raw numbers and **nothing is
+wrong**. `portable` — the text with each occurrence of the docs DIRECTORY removed,
+keeping the filename — is what `doctrine-budget` bounds and is the only column worth
+comparing. Measured against `74a728c`, rendered as a TRUSTED project (the routing
+rule no longer renders otherwise — see `doctrine-untrusted`):
 
-| configuration | raw @13 | raw @58 | lines | portable |
-| --- | --- | --- | --- | --- |
-| router OFF, no worker-ext, draftPRs off | 1,968 | 2,103 | 38 | **1,929** |
-| router OFF, draftPRs on | 2,000 | 2,180 | 38 | **1,948** |
-| router OFF + worker-ext, draftPRs on | 2,255 | — | 44 | **2,203** |
-| router ON, 6 models, draftPRs on | 3,960 | 4,179 | 58 | **3,895** |
-| router ON, 6 models + worker-ext | 4,215 | 4,464 | 64 | **4,150** |
-| router ON, all 9 shipped profiles | 4,538 | 4,757 | 61 | **4,473** |
-| untrusted project | 1,968 | 2,103 | 38 | **1,929** |
+| configuration | paths | portable | lines |
+| --- | --- | --- | --- |
+| router OFF, draftPRs off | 3 | **1,929** | 38 |
+| router OFF, draftPRs on | 4 | **1,948** | 38 |
+| router ON, 6 models, draftPRs on | 5 | **3,895** | 58 |
+| router ON, all 9 shipped, draftPRs off | 4 | **4,431** | 61 |
+| router ON, all 9 shipped, draftPRs on | 5 | **4,450** | 61 |
+| UNTRUSTED, router ON, all 9 configured | 4 | **1,948** | 38 |
 
-The routing rule alone: **1,960** raw / 1,947 portable / 21 lines at 6 models, and
-**2,538** raw / 2,525 portable / 24 lines at all nine. Two caveats on cross-reading
-the raw columns: the worker-ext rows also embed the fixture's extension unit path,
-so they are not comparable between fixtures at all; and the router-ON rows carry the
-thread-default spec, so a different candidate set shifts them by a few characters
-independently of the install path. The portable figures were verified identical at a
-13-character and a 128-character docs directory, while the raw ones moved by 115 per
-embedded path.
+The routing rule alone: **1,947** portable / 21 lines at 6 models, **2,502** / 24 at
+all nine. To convert: `rendered = portable + (paths × length of your docs
+directory)`. Verified identical at a 13-character and a 128-character docs
+directory, while the raw counts moved by 115 per embedded path.
+
+**One definition of "portable", and it is this one.** `docs/context-budget.md`
+publishes the same figures for users and now defines the term identically, citing
+this check as the definition of record — an earlier revision subtracted whole
+absolute paths *including* filenames, which differed by 55 characters on matching
+rows and made the two tables incomparable. Keeping the filename is deliberate: it is
+repo-owned content a maintainer controls, so a doc rename should move the budget,
+where subtracting whole paths would make it free. **This check is authoritative**,
+because it is the definition that fails a run.
+
+The two tables agree exactly on the router-OFF rows (1,929 / 1,948). The router-ON
+rows differ by 6–17 characters, and that is fixture, not disagreement: this suite
+renders synthetic candidates with a uniform 272,000-token context window and its own
+`cheapest`, while the doc measures a real resolution — and the doc's ON rows predate
+`74a728c`, which changed what `measuredCell` renders. Neither is wrong; they are
+measuring the same rule over slightly different candidate data.
 
 Model router (`extension/model-router.ts`):
 
@@ -1006,6 +1017,23 @@ round-trip term could only speak for the fields its fixture carried (hence the
 checklist walk over the exported `ADOPTED_*_FIELDS`), and only the wrong-TYPE case
 was covered per field — absent was not, so a bare record now has to fill every
 default in silence.
+
+The `74a728c` follow-up was mutation-proved the same way, seven mutations, all
+killed. The trust re-gate (SE3) had no coverage at all when it landed — the fix
+turned the five `doctrine-*` checks red, and the tempting repair was to flip the
+fixture to trusted and move on, which would have left a security-relevant guard
+unpinned. Instead the flip is itself asserted (trusted and untrusted render
+byte-identically for the configurations these checks use — true for the empty
+config, the worker-extension set and `draftPRs`, and NOT true in general, since
+`reviewPerspectivesPath` is a trusted-only rule-9 tail), and the gate got its own
+check. Killed: the gate REMOVED (`doctrine-untrusted` alone); the gate INVERTED (all
+six); the gate suppressing the rule but still CONSUMING its number, leaving a gap
+(`doctrine-router-off` and `off-doctrine`); a BLANKET gate that also suppressed the
+worker-extension rule for untrusted projects (four checks — the term that separates
+"routing is gated" from "untrusted gets nothing"). And on the category sanitizer:
+reverted to the old codepoint range, over-stripped to ASCII-only, and `\p{Zl}\p{Zp}`
+dropped so U+2028 alone reopens — each fails `doctrine-inject`, the last one proving
+the widened term is not just re-asserting what the old range already caught.
 
 Both corrections that followed `e52023d` were mutation-proved in turn, seven
 mutations, all killed. On `mode.ts`: `cell()` removed from the SPEC (the original
