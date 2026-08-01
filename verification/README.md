@@ -693,7 +693,7 @@ session's frozen resolution carries:
 | `route-switch-decision` | the model-switch decision, whole: a **plan** target moves a live session and outranks even a held failover; an **`openOnly`** target never does — it only chose what a NEW session opened on (BG16) — and falls through to the revert rule; an action naming no model **reverts** to the session's opening model (BG22) unless a failover holds it; `no-baseline` outranks the failover stand-down; a model spec is carried **byte-for-byte** — a padded one is not normalised into a silent success and a whitespace-only one is not read as an absence that silently reverts (RG1, repinned; CQ13's one rule, shared with `planRoute` and asserted on the same value through both modules) — and every switch is labelled `plan` or `revert`, the split that tells the caller whether failing to perform it may fail the action (BG24) |
 | `route-open-plan-inputs` | the plan that decides what a NEW session opens on strips **both** of the action's arguments. With `effort` left in, that plan can REJECT — an explicit level the thread's pin does not offer — and a rejection carries no model, so the session opens on the HOST and the pin is silently dropped while the real plan a moment later never complains (BG25). Asserted on both router states — and on the caller's half too, which is a CALL now rather than a regex: `planSessionOpen` IS the stripping, so "both arguments dropped, and the open model taken from that plan" is exercised, not matched. (Until TQ4 those were two text terms over `threads.ts`; the regex enumerated two keys in two orders and would have false-failed on a third.) |
 | `route-switch-opening-baseline` | the revert target is what a **model-less plan** resolves to, never what a routed open happened to use. Composed from both plans plus the decision helper: with the correct baseline the next model-less action reverts off the per-action model; with the defective one it reports `already-current` and the explicit model becomes the thread's permanent default — BG22 surviving its own first fix, on the opening path. Router-ON is shown to be immune (the base arrives as a plan target), which is why only a router-OFF fixture could ever have caught it. The caller's half — the open planned with `model` dropped, and the baseline read from the session that plan opened — was two text terms over `threads.ts` and is now EXECUTED through `planSessionOpen` and `captureSessionBaseline` (TQ4); the regexes were deleted rather than kept beside them, because a brittle term next to a real one contributes nothing but false alarms. One further fixture is **router-ON** (TQ8): under WINDOW SUBSTITUTION the thread's base and the model this action resolves to diverge — the base stays the thread's own while the open must report the widest candidate — and that is the only shape in which `planSessionOpen` returning a base-flavoured value looks identical everywhere else |
-| `route-baseline-capture` | **TQ7** — the caller's **dataflow into** the switch decisions, which was the last hole in this track: the decisions were pinned and correct, and both flagship defects re-inserted fully green one line OUTSIDE them, because the baseline came from somewhere else, later. Pins the producer: `captureSessionBaseline` reads the SESSION object and nothing else — the caller-assembled `{ model, effort }` record the old signature took, and every argument-shaped decoy beside it (`baseModel`, `requestedModel`, `spec`, `level`), reads as **no baseline at all**. Each axis is captured independently and validated on the way in (the spec byte-for-byte per RG1, the level against pi's vocabulary per BG21); an unreadable axis is an **absent key**, which is what makes a session reporting nothing identical to `NO_SESSION_BASELINE` and to omitting the argument. Both decisions read their own axis off ONE captured object — the collapse of the two per-axis maps — and a baseline carrying only the other axis is an absence on this one. An absent baseline is `no-baseline` on both axes **even with a live value sitting right there**: that is the BG18 fallback shape, executable, and it is what a `?? current` in either decision dies on. One structural term carries the residual no type can close (below) |
+| `route-baseline-capture` | **TQ7** — the caller's **dataflow into** the switch decisions, which was the last hole in this track: the decisions were pinned and correct, and both flagship defects re-inserted fully green one line OUTSIDE them, because the baseline came from somewhere else, later. Pins the producer: `captureSessionBaseline` reads the SESSION object and nothing else — the caller-assembled `{ model, effort }` record the old signature took, and every argument-shaped decoy beside it (`baseModel`, `requestedModel`, `spec`, `level`), reads as **no baseline at all**. Each axis is captured independently and validated on the way in (the spec byte-for-byte per RG1, the level against pi's vocabulary per BG21); an unreadable axis is an **absent key**, which is what makes a session reporting nothing identical to `NO_SESSION_BASELINE` and to omitting the argument. Both decisions read their own axis off ONE captured object — the collapse of the two per-axis maps — and a baseline carrying only the other axis is an absence on this one. An absent baseline is `no-baseline` on both axes **even with a live value sitting right there**: that is the BG18 fallback shape, executable, and it is what a `?? current` in either decision dies on. **Two** structural terms sit alongside, for the two facts no pure function can hold: the residual no type can close (`applyRoute` takes its baseline as a parameter, uses it, captures none itself, and the caller never asserts a value into the brand), and the other end of the lifecycle — every per-thread map the session OPEN touches must be RELEASED on disposal, so a baseline cannot outlive its session and be handed to a switch decision for a reused thread id. The second is derived from what `openWorkerFor` writes rather than from a list of map names, so a new session-scoped map is covered the day it is added (see below) |
 | `route-switch-lifecycle-i1` | **I1** — the model and effort axes obey the same per-action lifecycle: a value the action names applies to that action, an action naming none falls back to what the session OPENED with, a failover holds the model axis in place. **Both** halves execute through their extracted helpers over one thread's life, off ONE captured baseline object, including the BG18 shape (revert to the baseline, never to the live level) and BG21's vocabulary rule on the effort axis. The two structural per-axis terms this row used to list are deleted, not re-anchored (TQ10): TQ7 collapsed the two baseline maps into a single `liveBaselines` written in one place and moved the capture into a private `openWorkerFor`, so there is no per-axis ordering left to assert. That asymmetry is why BG22 needed two rounds — the effort axis had had its baseline since BG18, the model axis had none, and no net noticed — and what now prevents it is a type, not a regex: the baseline is a branded object only `captureSessionBaseline` can produce and `applyRoute` takes it as a parameter |
 | `route-hostile` | a hostile `model` or `effort` argument is stripped of control/ANSI bytes and length-capped before it reaches a rejection reason — that text goes to the orchestrator *and* to pi-tui, which renders escapes verbatim — while the rejection itself still happens |
 
@@ -752,7 +752,9 @@ listed so a reader never has to infer it:
   (TQ4), and "captures both axes' baselines before any per-action switch" was
   DISSOLVED rather than moved (TQ7/TQ10) — there is one `liveBaselines` map written in
   one place, the baseline is a branded object `applyRoute` takes as a parameter, and
-  what remains of the claim is the single residual term in `route-baseline-capture`.
+  what remains of the claim is carried by `route-baseline-capture`'s two structural
+  terms — the late-capture residual, and the disposal release that keeps a baseline
+  from outliving its session.
   ONE caller-side fact is still genuinely uncovered: that a failed `revert` is
   non-fatal while a failed `plan` switch aborts (BG24 — the harness pins the
   decision's `source` label, not the caller's reaction to it).
@@ -1123,9 +1125,10 @@ baseline on disposal. The first is now caught EXECUTABLY — its in-module equiv
 `route-switch-opening-baseline`, verified. The second is caught only in its
 `applyRoute` form, by `route-baseline-capture`'s residual term; captured later still,
 in the dispatch body, it is not caught — TQ7 blocks that with a type, not a check.
-The third has no successor term at all: `liveBaselines.clear()` on disposal is
-unpinned, and that is stated here rather than left implied. The remaining eight kills
-are behavioural and stand.
+The third — not clearing the baseline map on disposal — was unpinned for a while, and
+is **covered again**, by a term derived rather than re-anchored: see
+`route-baseline-capture`'s disposal term below. The remaining eight kills are
+behavioural and stand.
 
 A check can also pin the WRONG thing, and this suite has now done it once: the
 model-switch decision trimmed its `model` argument, `route-switch-decision`
@@ -1207,7 +1210,8 @@ historical one:
 | term | null edit that must PASS | breaking edit that must FAIL |
 | --- | --- | --- |
 | shipped-table import scan **— LIVE** | inline `{ type X }` import | a value import of the table; a namespace import of a module carrying it |
-| `applyRoute` baseline residual **— LIVE, added later (TQ7)** | parameter renamed, moved, signature reflowed to one line, doc comment naming `captureSessionBaseline(session)` and `as SessionBaseline` | a late `captureSessionBaseline` inside `applyRoute`; the parameter removed; the parameter ignored; a live reading cast through the brand |
+| `applyRoute` baseline residual **— LIVE, added later (TQ7)** | parameter renamed, moved, signature reflowed to one line, a brace-bearing return type, doc comment naming `captureSessionBaseline(session)` and `as SessionBaseline` | a late `captureSessionBaseline` inside `applyRoute`; the parameter removed; the parameter ignored; a live reading cast through the brand |
+| session state released on disposal **— LIVE, added later** | `disposeAll`'s clears reordered, wrapped in a nested arrow, spaces inside the member access, a comment naming the maps; `openWorkerFor`'s thread id hoisted, its writes reordered, its return type reshaped | the `liveBaselines` clear removed; the WRONG map cleared (one cleared twice, one dropped); a NEW session-scoped map written on open and never released |
 | ~~open plan drops `model`~~ **— DELETED (TQ4)** | the `routeInputs` call hoisted to a const | `model` no longer stripped |
 | ~~open plan drops both args~~ **— DELETED (TQ4)** | a THIRD stripped key; reordered keys | `effort` no longer stripped |
 | ~~baseline from the session~~ **— DELETED (TQ4)** | the spec built by a different expression | the baseline recorded from the routed plan |
@@ -1234,8 +1238,8 @@ switch) rather than moving them — there is one `liveBaselines` map, so there i
 per-axis ordering left to assert, and the late reading those terms watched for is no
 longer an expression the call sites accept.
 
-**Two structural terms stand today**, both about facts no pure function can hold, and
-the count includes one added AFTER this section was first written:
+**Three structural terms stand today**, each about a fact no pure function can hold,
+and two of them were added AFTER this section was first written:
 
 - the **shipped-table import scan** in `route-off-ladder-source` — three conjunct
   terms over `route.ts`'s imports, because a back door is an import, not a value;
@@ -1244,9 +1248,29 @@ the count includes one added AFTER this section was first written:
   produced a value, never WHEN, so a capture taken late inside `applyRoute` is still
   type-correct. Its fourth conjunct (the caller never asserts INTO the brand) was
   added because mutation found the first three blind to a live reading laundered
-  through `as SessionBaseline`, which needs no capture call to see.
+  through `as SessionBaseline`, which needs no capture call to see;
+- **session state released on disposal**, also in `route-baseline-capture` — the
+  other end of the same lifecycle. `liveBaselines` is keyed by THREAD ID, ids are
+  reused, and an entry surviving disposal would be handed to `decideModelSwitch` as
+  the revert target for a session that never opened on it. It is **derived, not
+  enumerated**, which is the whole reason it is not brittle: naming the three maps
+  would be a list to forget and a rename away from a false alarm, and "every map"
+  would be wrong, since `queues` and `longContextWarned` deliberately outlive a
+  session. The rule asserted is the one the code already obeys — *state a session's
+  OPEN touches is state its DISPOSAL must release* — so the session-scoped set is
+  read out of `openWorkerFor` and each member must be cleared in `disposeAll`. A new
+  session-scoped map arrives already covered (proved: adding one that is never
+  cleared FAILS), and renaming any of them changes nothing, because both halves move
+  together. A vacuity guard fails the term if either method stops being findable or
+  the discovered set drops below three.
 
-Both were proven in both directions; the second's trials are the row above.
+All three were proven in both directions; the last two's trials are the rows above.
+Writing the third surfaced a latent trap in the second: both find a method body by
+balance, and "the first `{` after the parameters" is the RETURN TYPE for
+`openWorkerFor`, which returns `Promise<{ session; baseline }>`. `applyRoute` returns
+`Promise<void>` and so had worked by luck. Both now locate the body at **angle-depth
+zero**, and giving `applyRoute` a brace-bearing return type is one of the null edits
+that must pass.
 
 The two defect shapes an audit proved invisible are now executable checks, and both
 were confirmed to FAIL when reintroduced: `?? opts.model` in the session-open

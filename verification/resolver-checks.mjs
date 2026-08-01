@@ -2971,10 +2971,29 @@ try {
 				}
 				return undefined;
 			};
-			const parenAt = declOf(src, "applyRoute");
-			const params = balanced(src, parenAt, "(", ")");
-			const bodyAt = params === undefined ? -1 : src.indexOf("{", parenAt + params.length + 2);
-			const body = balanced(src, bodyAt, "{", "}");
+			/**
+			 * A method's { parameter list, body }, both by balance. The body brace is found at
+			 * ANGLE-DEPTH ZERO, which is not pedantry: `openWorkerFor` returns
+			 * `Promise<{ session; baseline }>`, so "the first `{` after the parameters" is the
+			 * RETURN TYPE, and a term reading that would assert against the wrong text while
+			 * still looking green. applyRoute is `Promise<void>` today and worked by luck; both
+			 * go through this now so neither depends on a return type staying brace-free.
+			 */
+			const methodOf = (text, name) => {
+				const parenAt = declOf(text, name);
+				const params = balanced(text, parenAt, "(", ")");
+				if (params === undefined) return {};
+				let angle = 0;
+				for (let i = parenAt + params.length + 1; i < text.length; i++) {
+					const c = text[i];
+					if (c === "<") angle++;
+					else if (c === ">" && text[i - 1] !== "=" && angle > 0) angle--;
+					else if (angle === 0 && c === "{") return { params, body: balanced(text, i, "{", "}") };
+					else if (angle === 0 && c === ";") return { params }; // a bodiless overload signature
+				}
+				return { params };
+			};
+			const { params, body } = methodOf(src, "applyRoute");
 			// The parameter that carries the baseline, by TYPE rather than by name.
 			const param = /(\w+)\s*:\s*SessionBaseline\b/.exec(params ?? "");
 			const usesParam = param !== null && body !== undefined && new RegExp(`\\b${param[1]}\\b`).test(body);
@@ -2993,6 +3012,36 @@ try {
 				...src.matchAll(/\bas\s+(?:unknown\s+as\s+)?SessionBaseline\b/g),
 				...src.matchAll(/<\s*SessionBaseline\s*>/g),
 			].map((hit) => hit[0].replace(/\s+/g, " "));
+
+			// ------------------------------------------------- disposal, the other end --
+			// A BASELINE THAT OUTLIVES ITS SESSION is the mirror of a baseline captured too
+			// late: `liveBaselines` is keyed by THREAD ID, thread ids are reused, and a stale
+			// entry surviving disposal would be handed to decideModelSwitch as the revert
+			// target for a session that never opened on it. The term that used to catch this
+			// (`liveBaseline.clear()` in the I1 axis list) was deleted with the rest of the
+			// per-axis machinery in TQ10, and nothing replaced it — the gap was documented in
+			// the README and is closed here.
+			//
+			// DERIVED, NOT ENUMERATED, which is what keeps it off spelling. Naming the three
+			// maps would be a list to forget and a rename away from a false alarm; "every map"
+			// would be wrong, because `queues` (in-flight promise chains) and
+			// `longContextWarned` (a per-THREAD notice memory) deliberately outlive a session.
+			// The honest rule is the one the code already obeys: state a session's OPEN touches
+			// is state its DISPOSAL must release. So the session-scoped set is discovered by
+			// reading what openWorkerFor writes, and each member must be cleared in disposeAll.
+			// A new session-scoped map therefore arrives already covered, and renaming any of
+			// them changes nothing — both halves move together.
+			const openBody = methodOf(src, "openWorkerFor").body;
+			const disposeBody = methodOf(src, "disposeAll").body;
+			const sessionScoped = [
+				...new Set([...(openBody ?? "").matchAll(/\bthis\s*\.\s*(\w+)\s*\.\s*(?:set|delete)\s*\(/g)].map((hit) => hit[1])),
+			];
+			const notReleased = sessionScoped.filter((map) => !new RegExp(`\\b${map}\\b\\s*\\.\\s*clear\\s*\\(`).test(disposeBody ?? ""));
+			// Vacuity guard, and it is the whole difference between this term and a decorative
+			// one: if either method stops being findable, or the open stops touching any
+			// per-thread map, `notReleased` is empty for the wrong reason and the term would
+			// pass while asserting nothing.
+			const disposalReadable = openBody !== undefined && disposeBody !== undefined && sessionScoped.length >= 3;
 
 			checkAll(
 				"route-baseline-capture",
@@ -3037,6 +3086,11 @@ try {
 						"RESIDUAL: applyRoute takes a SessionBaseline PARAMETER, uses it, captures none itself — and the caller never asserts a value INTO the brand",
 						param !== null && usesParam && capturesLate.length === 0 && capturesAtAll > 0 && brandCasts.length === 0,
 						{ param: param?.[1], usesParam, capturedInApplyRoute: capturesLate, capturesInModule: capturesAtAll, brandCasts },
+					],
+					[
+						"...and every per-thread map the session OPEN touches is RELEASED on disposal, so no baseline outlives its session",
+						disposalReadable && notReleased.length === 0,
+						{ sessionScoped, notReleased, disposalReadable },
 					],
 				],
 			);
