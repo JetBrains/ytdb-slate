@@ -296,11 +296,21 @@ export type ModelSwitchDecision =
  * a routed open happened to use — otherwise an explicit per-action model becomes the
  * thread's permanent default the moment that action is the one that opens the session,
  * which is BG22 on the opening path.
+ *
+ * Every spec here is read BYTE-FOR-BYTE (RG1): only a non-string or the empty string
+ * reads as absent, exactly as planRoute reads the `model` argument. A padded or
+ * whitespace-only spec is therefore carried through to pi's own resolver, whose error
+ * names the defect — this function never repairs a spec and never silently drops one.
  */
 export function decideModelSwitch(input: ModelSwitchInput): ModelSwitchDecision {
-	const planned = specArg(input.planned);
-	const baseline = specArg(input.baseline);
-	const current = specArg(input.current);
+	// RG1: `argModel`, not `specArg` — the SAME reader planRoute uses for the `model`
+	// argument, so a spec is read identically at both ends of a dispatch. Trimming here
+	// silently repaired a padded spec into a successful switch (CQ13 promises pi's own
+	// error instead) and turned a whitespace-only one into "absent", which quietly ran
+	// the action on the revert target. One rule for model specs, wherever they are read.
+	const planned = argModel(input.planned);
+	const baseline = argModel(input.baseline);
+	const current = argModel(input.current);
 	let target: string;
 	let source: "plan" | "revert";
 	if (planned !== undefined && input.openOnly !== true) {

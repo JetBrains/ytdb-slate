@@ -590,11 +590,20 @@ export class ThreadManager {
 	 * Put the resolved model/effort onto the worker session — the LAST unbilled
 	 * step of a dispatch, and the one that makes a non-billed abort reachable.
 	 *
-	 * Every failure here is a DispatchAbort: a model that no longer resolves,
-	 * credentials that went away since the early check, a live session that refuses
-	 * the switch. None of them has spent anything, so none of them should leave an
-	 * episode behind. It runs BEFORE the first prompt() and before the message
-	 * subscriber's baseline, so an aborted dispatch adds nothing to the thread.
+	 * WHAT A FAILURE MEANS depends on who asked for the switch (BG24), and the two
+	 * answers are deliberate:
+	 *  · a PLAN-driven switch — the caller's `model` argument, or the router's base —
+	 *    that pi refuses, or whose spec no longer resolves, is a DispatchAbort: nothing
+	 *    has been spent, so nothing is recorded, and the action does not run on a model
+	 *    neither the caller nor the router chose;
+	 *  · a REVERT — slate returning the session to the model it opened on, which nobody
+	 *    requested — only WARNS and leaves the session where it is, because housekeeping
+	 *    must not kill an action (pi's setModel THROWS on a missing key, unlike
+	 *    setThinkingLevel, which merely clamps).
+	 * Setting the thinking level, and an abort or disposal caught in the windows around
+	 * the switch, are DispatchAborts for the same reason as the first case. This all runs
+	 * BEFORE the first prompt() and before the message subscriber's baseline, so an
+	 * aborted dispatch adds nothing to the thread.
 	 */
 	private async applyRoute(
 		session: WorkerSession,
@@ -816,10 +825,40 @@ export class ThreadManager {
 				// and the model axis wrong. Passing a model explicitly also keeps overriding
 				// whatever model_change the session file ends with (CQ3).
 				//
-				// A REJECT here is impossible to act on and never needs to be: the same
-				// inputs are re-planned below, where a rejection aborts the dispatch properly.
-				const modelless = planRoute(this.routeInputs(ctx, thread, { ...opts, model: undefined }, undefined));
+				// BOTH arguments are stripped, not just `model` (BG25). With only `model`
+				// removed the plan could still REJECT — an opening dispatch carrying an
+				// explicit model AND an `effort` the BASE cannot do (a luna pin with
+				// `anthropic/claude-sonnet-5 @minimal`) had its effort judged against the pin,
+				// was refused, and the session then opened on the HOST model: the pin silently
+				// lost for the session's whole life. Stripping `effort` makes rejection
+				// unreachable BY CONSTRUCTION rather than by luck — every reject path in
+				// planRoute needs an argument that is now absent:
+				//   · both failover rejections need `failoverSwitch`, which only the failover
+				//     call site sets;
+				//   · both vocabulary rejections (guard 0) need a present `effort`;
+				//   · the list rejection (guard 1) needs a resolved model outside the list, and
+				//     with no explicit model that is the thread's base, which the seed rule
+				//     guarantees is listed (or absent, which the guard skips);
+				//   · the effort-guard rejection needs a level, and without an argument the
+				//     level is either absent, a STORED one re-validated as `ok`, or one derived
+				//     from the model that runs — and an `ok` level passes guards 4, 2 and 3 by
+				//     definition.
+				// The tripwire below is therefore dead code kept honest: if a future reject path
+				// appears, it SAYS so instead of degrading in silence.
+				const modelless = planRoute(this.routeInputs(ctx, thread, { ...opts, model: undefined, effort: undefined }, undefined));
 				const openModel = modelless.kind === "proceed" ? modelless.model : undefined;
+				// The line above is the whole remedy; this is a TRIPWIRE for the enumeration.
+				// A rejection is unreachable today, and if a future guard ever makes it
+				// reachable the session opens on the host model and the thread's pin or base is
+				// lost for the session's lifetime — BG25's exact symptom, which went unnoticed
+				// because nothing said anything. It must not be silent a second time.
+				if (modelless.kind === "reject") {
+					routeWarn(
+						`slate: could not plan thread ${thread.id}'s default model ` +
+							`(${sanitizeForNotify(modelless.reason, 160)}) — opening its worker session on the host's model instead, ` +
+							"so an omitted `model` will resolve there until the session is disposed. This action's own routing is unaffected.",
+					);
+				}
 
 				// A NEW session gets the CURRENT frozen worker-extension set. A LIVE
 				// cached session (reused when present) keeps whatever set it was opened
