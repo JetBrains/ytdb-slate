@@ -1,23 +1,36 @@
 /**
  * Model profiles: the STATIC routing data behind action-level model routing.
  *
- * Pure data. No I/O, no network, no runtime dependencies, nothing computed at
- * load time beyond a lookup index. Every field here is transcribed from the
- * research corpus committed in this repo by this same track — with ONE stated
- * exception, `id`, whose authority is pi's model registry rather than the
- * corpus (see the ID CHOICE judgment call below) —
+ * Pure data. No I/O, no network, no runtime dependencies; loading this module
+ * freezes the table and does nothing else, and the id/alias lookup index is
+ * built lazily on the first `findProfile` call. The content comes from the
+ * research corpus committed in this repo by this same track —
  * `research/digest-v5.md` (Artifact A field block, Artifact B routing table,
  * Artifact C one-liners, §D hazards, §E out-of-scope cheap tier, §M the
  * capability-evidence predicate, §V the effort vocabulary, §W context window
- * vs long-context billing) — and carries the digest's own trace tags so a
- * reader can find the source row. `asOf` on every profile, and PROFILES_AS_OF
- * for the set, is the date of that research: 2026-07-29.
+ * vs long-context billing) and, where the digest abbreviates a row, the
+ * underlying `gaps.md` / `openai.md` / `anthropic.md` row that digest cites —
+ * and carries the corpus's own trace tags so a reader can find the source row.
+ * `asOf` on every profile, and PROFILES_AS_OF for the set, is the date of that
+ * research: 2026-07-29.
  *
- * NEVER edit a number here without re-tracing it to the digest. A figure that
- * cannot be traced does not belong in this file; where the digest says UNKNOWN
- * the field is `null` AND the field's name appears in
- * `unknownRoutingCriticalFields`, which is what lets a caller warn about a
- * missing routing input instead of silently treating absence as zero.
+ * PROVENANCE RULE, stated WITHOUT A COUNT so it cannot fall out of date: a
+ * value here is transcribed from the corpus UNLESS this file marks it
+ * otherwise AT ITS OWN SITE, and every such mark is either a machine-readable
+ * field or a `derived` / `[registry]` tag on the value's own line. The marks in
+ * use today are `id` (pi's registry decides that spelling — see ID CHOICE),
+ * `tierUnsourced` (the tier is a cost class this module read off the prices,
+ * not a sourced ordinal), `ladderAssumed` (the ladder is a provider-family
+ * assumption, not a traced one), `capabilityMeasuredAt: []` on the §E models
+ * (marked `derived`, from §E.8 + §M), and `aliases`, which are resolution
+ * spellings rather than data (see ALIASES). Everything else is traced, and
+ * NEVER edit a traced value without re-tracing it.
+ *
+ * A figure that cannot be traced does not belong in this file. Where the
+ * corpus publishes no value — it says UNKNOWN, or is simply silent — the field
+ * is `null` AND its name appears in `unknownRoutingCriticalFields`, which is
+ * what lets a caller warn about a missing routing input instead of silently
+ * treating absence as zero.
  *
  * Rules this data must be read with, every one of them load-bearing:
  *
@@ -92,12 +105,13 @@
  *    whole ladder is then an evidence gap — advisory, per the rule above.
  *  - CLOUD-SURFACE ALIASES ARE DROPPED. The digest lists Bedrock
  *    (`anthropic.claude-sonnet-5`) and Google Cloud (`claude-sonnet-5`)
- *    spellings for each Claude. They are not pi `provider/id` forms, and a
+ *    spellings for each of the three ROUTED Claudes (it lists none for
+ *    claude-haiku-4-5). They are not pi `provider/id` forms, and a
  *    dispatch on either surface bills +10% regional uplift that this module
  *    does not carry [A2], so resolving them to these first-party prices would
  *    under-state cost by about 10%. Dropped rather than mis-priced.
  *  - ID CHOICE: THE REGISTRY WINS THE SPELLING, THE CORPUS KEEPS AN ALIAS.
- *    `id` is the one field this module does not take from the research corpus,
+ *    `id` is one of the marked fields the provenance rule above exempts,
  *    because its own contract is "canonical `provider/id` as pi resolves it"
  *    and `ModelRegistry.find` is an EXACT id lookup with no alias or fuzzy
  *    resolution: an id the registry does not carry is not a routing target at
@@ -110,16 +124,33 @@
  *    `anthropic/claude-haiku-4-5` already had. NOTHING RESEARCH-BEARING MOVES
  *    WITH A SPELLING: price, tier, ladder, measured/gap and window are exactly
  *    as traced, and a spelling change may never be used to smuggle one.
- *  - ALIASES COME IN TWO FLAVOURS, and provider-qualified does NOT imply
- *    routable: (a) research-traced identifiers — the dated cheap-tier spellings
- *    [G3] and the vendor's `gpt-5.6` for sol [O1, O2], which pi's registry does
- *    NOT list, so it resolves a config spelling to the right profile but can
- *    never itself be dispatched; (b) plain lookup spellings that are not
- *    research data (the bare, provider-less forms). Every alias is carried in
- *    provider-qualified form so it survives a canonical `provider/id` form
- *    gate, and a bare spelling appears only alongside its qualified twin — but
- *    surviving that gate is a FORM check, not registry existence. Only the
- *    registry decides what can actually be dispatched.
+ *  - ALIASES SIT ON TWO INDEPENDENT AXES. Neither implies the other, and
+ *    NEITHER IS IMPLIED BY WHETHER A SPELLING IS DATED:
+ *      · PROVENANCE — does the spelling appear in the corpus? The BARE forms
+ *        usually do, so "bare" must not be read as "not research data":
+ *        `gpt-5.4-nano-2026-03-17` / `gpt-5.4-mini-2026-03-17` are exactly how
+ *        `gaps.md` names those two models [G3, gaps.md:276-277],
+ *        `claude-haiku-4-5-20251001` is how it names haiku's pinned snapshot
+ *        [G3, gaps.md:278], and `gpt-5.6` is sol's vendor alias in Artifact A
+ *        [O1, O2]. What this module ADDS is the provider prefix: of the
+ *        qualified alias spellings, only `openai/gpt-5.4-nano-2026-03-17` and
+ *        `openai/gpt-5.4-mini-2026-03-17` occur in the corpus (digest §E), while
+ *        `openai/gpt-5.6` and `anthropic/claude-haiku-4-5-20251001` occur
+ *        nowhere in it and are this module's own qualification of a corpus
+ *        spelling.
+ *      · REGISTRY RESOLVABILITY — can pi actually dispatch that spelling? Only
+ *        `ModelRegistry.find` answers that, per exact spelling, and it must be
+ *        CHECKED rather than inferred. Checked against the installed registry
+ *        while this table was written: `anthropic/claude-haiku-4-5-20251001` IS
+ *        in the registry and dispatches, while the equally research-traced
+ *        `openai/gpt-5.4-nano-2026-03-17` and the vendor-published
+ *        `openai/gpt-5.6` are NOT. Registry contents change, so treat that
+ *        sentence as a dated observation [registry], never as a rule.
+ *    The RULE is narrower: an alias exists only to route a user's spelling to
+ *    the right profile. Every alias is carried provider-qualified so it passes
+ *    a canonical `provider/id` FORM gate, with a bare spelling only alongside
+ *    its qualified twin — but passing a form gate is not registry membership.
+ *    Only a canonical `id` is held to the promise of being registry-resolvable.
  *  - `anthropic/claude-sonnet-5`'s `off` IS BOTH: on pi's ladder per §V and
  *    rejected by the API (manual thinking control returns HTTP 400 [A2]). The
  *    ladder keeps it, `evidenceGapAt` keeps it as advisory per the rule above,
