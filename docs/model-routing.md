@@ -312,15 +312,17 @@ model's ladder is unreadable.
 - **In the orchestrator's own system prompt, every turn:** the
   doctrine gains a routing rule — a table with one row per routable
   model, plus the rules for reading it. This is the surface you do
-  not see, and it is the router's standing cost: 1,924 characters /
-  20 lines for six configured models, 2,502 / 23 for all nine,
+  not see, and it is the router's standing cost: 1,941 characters /
+  20 lines for six configured models, 2,519 / 23 for all nine,
   growing about 150–185 characters per model you add. Configuring
-  the router roughly doubles Slate's always-loaded block (1,874
-  characters with routing off). Those counts exclude the absolute
-  doc paths the doctrine embeds, whose length depends on where the
-  package is installed; `context-budget.md` has the full table, the
-  install-path arithmetic and what it means for the orchestrator's
-  token budget.
+  the router roughly doubles Slate's always-loaded block (1,929
+  characters with routing off). Those are PORTABLE characters — the
+  doctrine with each occurrence of the installed `docs/` directory
+  removed, filenames kept — because the doctrine embeds absolute doc
+  paths and its raw size therefore depends on where the package is
+  installed. `context-budget.md` states that convention, tabulates
+  every configuration with its full basis, and gives the arithmetic
+  for your own install.
 
 ## Expected first-session warnings
 
