@@ -62,9 +62,18 @@
 # absent when the script started, and .gitignore covers .pi/*.lock so even a
 # killed run cannot leave state a contributor could commit.
 #
+# When a check fails, the rpc stdout and stderr of each pi run that happened are
+# printed after the summary, one delimited section per stream, capped so a
+# pathological run cannot flood the log (the cap and the real size are stated
+# whenever a section is cut). That inlining is what makes a CI failure
+# diagnosable at all: the scratch directory holding the streams dies with the
+# job, so the `artifacts:` path it also prints is only ever useful locally. A
+# green run prints none of it.
+#
 # Exit status: 0 all checks passed · 1 a check failed · 2 refused to start (a
 # missing tool, a bad --repo, no resolvable pi CLI, or a CLI/pin version
-# mismatch — that is an out-of-sync environment, not a defect: run `npm ci`).
+# mismatch — that is an out-of-sync environment, not a defect: run
+# `npm ci --ignore-scripts`).
 # EVERY exit-2 message says "refused to start" in exactly those words, so that
 # phrase is greppable in a CI log.
 # =============================================================================
@@ -85,7 +94,7 @@ while [ $# -gt 0 ]; do
 		--repo) [ "$#" -ge 2 ] || die "option '--repo' requires a value"; REPO="$2"; shift 2 ;;
 		--only) [ "$#" -ge 2 ] || die "option '--only' requires a value"; ONLY="$2"; shift 2 ;;
 		--list-checks) printf '%s\n' $ALL_CHECKS; exit 0 ;;
-		-h|--help) sed -n '2,70p' "$0"; exit 0 ;;
+		-h|--help) sed -n '2,79p' "$0"; exit 0 ;;
 		*) die "unknown argument '$1' (try --help)" ;;
 	esac
 done
@@ -150,8 +159,8 @@ else
 	PI="$REPO/node_modules/.bin/pi"
 	[ -x "$PI" ] || die "no pi CLI at $PI
        This check runs the pi pinned by the checkout's devDependencies and never
-       falls back to a globally installed one. Remedy: run 'npm ci' in $REPO
-       (or set PI_BIN=<path to pi> if you know what you are doing)."
+       falls back to a globally installed one. Remedy: run 'npm ci --ignore-scripts'
+       in $REPO (or set PI_BIN=<path to pi> if you know what you are doing)."
 fi
 [ -x "$PI" ] || die "the pi CLI '$PI' is not executable"
 
@@ -161,8 +170,9 @@ PIVER="$("$PI" --version 2>/dev/null | tr -d '[:space:]')" || die "'$PI --versio
          $PI reports $PIVER
          package.json pins  $PIN
        This is an out-of-sync environment, not a defect: the rpc output shapes
-       asserted below are pinned to one pi version. Remedy: run 'npm ci' in
-       $REPO (after a deliberate pin bump, that is all this needs)."
+       asserted below are pinned to one pi version. Remedy: run
+       'npm ci --ignore-scripts' in $REPO (after a deliberate pin bump, that is
+       all this needs)."
 
 # ------------------------------------------------------------- scratch state --
 # Artifacts live under the work dir. It is removed on a clean run and KEPT when a
@@ -228,9 +238,11 @@ command -v timeout >/dev/null 2>&1 && TMO=(timeout 120)
 # EOF immediately, cwd = the checkout so .pi/ is the project config pi sees.
 RC=0
 PI_RAN=0
+PI_RUNS=()
 pirun() { # $1 label, $2 requests file, rest = extra pi args
 	local label="$1" reqs="$2"; shift 2
 	PI_RAN=1
+	PI_RUNS+=("$label")
 	local agent="$WORK/agent-$label"
 	mkdir -p "$agent" || die "cannot create the throwaway agent dir '$agent'"
 	( cd "$REPO" && env "${SCRUB[@]}" PI_CODING_AGENT_DIR="$agent" PI_OFFLINE=1 \
@@ -290,6 +302,43 @@ else if (q === "widget-lines") { let n = 0; for (const o of ui) if (o.method ===
 else if (q === "prompt-ok") say(objs.some((o) => o && o.type === "response" && o.command === "prompt" && o.success === true) ? "yes" : "no");
 else { process.stderr.write("rpcq: unknown query " + q + "\n"); process.exit(3); }
 ' "$1" "$2"
+}
+
+# One delimited section of a retained rpc stream, for the CI log. BOUNDED: a
+# stream is cut at STREAM_CAP bytes (on a line boundary where one is close
+# enough), and a cut section states both the real size and the cap, so nobody
+# reads a truncated stream as a whole one. C0 control characters other than tab
+# and newline — escape sequences above all — are neutralised on the way out: this
+# goes straight into a log, and the harness promises no ANSI anywhere. The bytes
+# on disk are untouched, so the artifacts copy stays faithful.
+STREAM_CAP=20000
+dump_stream() { # $1 section title, $2 stream file
+	node -e '
+const fs = require("node:fs");
+const title = process.argv[1];
+const cap = Number(process.argv[3]);
+let buf;
+try { buf = fs.readFileSync(process.argv[2]); } catch (e) {
+  process.stdout.write("---- " + title + " — unavailable: " + (e && e.message ? e.message : String(e)) + " ----\n");
+  process.exit(0);
+}
+if (buf.length === 0) {
+  process.stdout.write("---- " + title + " — 0 bytes (empty) ----\n");
+  process.exit(0);
+}
+let body = buf.subarray(0, Math.min(buf.length, cap)).toString("utf8");
+let note = "";
+if (buf.length > cap) {
+  const nl = body.lastIndexOf("\n");
+  if (nl > cap / 2) body = body.slice(0, nl);
+  note = ", TRUNCATED to the first " + Buffer.byteLength(body) + " (cap " + cap +
+         " bytes per stream; the whole stream is in the artifacts directory)";
+}
+body = body.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "?");
+if (!body.endsWith("\n")) body += "\n";
+process.stdout.write("---- " + title + " — " + buf.length + " bytes" + note + " ----\n" +
+  body + "---- end " + title + " ----\n");
+' "$1" "$2" "$STREAM_CAP"
 }
 
 # .pi/npm inside the checkout is npm-install debris from a run that was not
@@ -548,10 +597,25 @@ if [ "$RAN" -eq 0 ]; then
 	FAIL=$((FAIL+1))
 fi
 echo "== summary: $PASS pass, $FAIL fail =="
-# Only worth keeping when a pi run actually produced streams: T4 needs no pi, so
-# a T4-only failure would otherwise point at an empty directory.
+
+# Only when something failed, and only when a pi run actually produced streams:
+# T4 needs no pi, so a T4-only failure has nothing to show and must not print
+# empty sections (nor keep an empty directory).
 if [ "$FAIL" -ne 0 ] && [ "$PI_RAN" = 1 ]; then
 	KEEP=1
+	echo
+	echo "rpc streams below, inlined because a CI scratch directory does not outlive the"
+	echo "job — the artifacts path at the end is only reachable on the machine that ran."
+	for label in ${PI_RUNS[@]+"${PI_RUNS[@]}"}; do
+		case "$label" in
+			run1) title="run1 (the untrusted load run)" ;;
+			run2) title="run2 (the trusted config run, -a)" ;;
+			*) title="$label" ;;
+		esac
+		# stderr first: pi puts its own diagnostics and the canary line there.
+		dump_stream "$title stderr" "$WORK/$label.err"
+		dump_stream "$title stdout" "$WORK/$label.out"
+	done
 	echo "artifacts: $WORK (raw rpc streams, kept because a check failed)"
 fi
 [ "$FAIL" -eq 0 ]
