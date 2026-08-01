@@ -44,13 +44,15 @@ bash verification/run-ladder.sh --list-rungs
 bash verification/run-ladder.sh --help
 ```
 
-One line per rung:
+One line per rung, then the safety verdict and a summary. The `P6` line below is
+what a machine without `strace` prints; the summary is from a complete run, where
+it was available:
 
 ```
 RUNG R1     PASS    — failover probe-a/alpha-1⇒probe-b/beta-1 fired (model_change in session), settings byte-identical …
 RUNG P6     NOT RUN — strace not available
 SAFE          PASS    — real /home/you/.pi/agent/settings.json unchanged (57b3e320… 289:1785133943)
-== summary: 24 pass, 0 fail, 0 not run ==
+== summary: 25 pass, 0 fail, 0 not run ==
 ```
 
 Exit status: **0** all good; **1** a rung failed, **no rung ran**, the real
@@ -452,7 +454,7 @@ package fixtures, and assert the observable result.
 ## Running it
 
 ```sh
-bash verification/run-resolver-checks.sh --repo .   # ~1 s; --repo defaults to "."
+bash verification/run-resolver-checks.sh --repo .   # ~0.2 s; --repo defaults to "."
 ```
 
 One line per check, then a summary:
@@ -547,7 +549,7 @@ treated as "refused to start", never as a pass.
 ## Running it
 
 ```sh
-bash verification/run-packaging-checks.sh --repo .              # ~1 s; --repo defaults to "."
+bash verification/run-packaging-checks.sh --repo .              # ~0.3 s; --repo defaults to "."
 bash verification/run-packaging-checks.sh --repo . --self-test  # CI: prove the guards can still fail
 bash verification/run-packaging-checks.sh --help
 ```
@@ -712,8 +714,9 @@ CLI-versus-pin version mismatch, whose remedy is printed with it (`run 'npm ci'`
 
 Requirements: `node` and `mktemp`; `timeout` is used when present rather than
 required, purely so a hung pi cannot hang CI. Unknown `--only` ids are a hard
-error (exit 2), and every abort here names itself — each exit-2 line begins
-`verification: refused to start — `, so that phrase is greppable in a CI log.
+error (exit 2), and every abort begins `verification: refused to start — ` — the
+refusal vocabulary shared by all three tier-1 wrappers, not a local convention
+(see `AGENTS.md` § Tier-1 CI, which also says what a `2` does and does not mean).
 Artifacts — the raw rpc stdout/stderr streams of the pi runs — live under the
 scratch directory (`lab` in the header), which is removed on a clean run and
 **kept**, with its path printed, when a check failed *and* a pi run actually
