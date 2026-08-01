@@ -217,7 +217,7 @@ const ROUTER_IDS = [
 ];
 const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta"];
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
-const STATE_IDS = ["spec-invisible", "spec-config-key"];
+const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /**
  * Checks that need extension/route.ts — the dispatch guards. They also need
  * extension/model-router.ts, because the planner consumes its resolutions AND
@@ -785,12 +785,43 @@ try {
 				profiles: profiles([p]),
 			});
 			const w1 = found(warned, /context window/) ?? "";
-			checkAll("router-w1-canary", "a profile/registry context-window divergence warns with both values and the profile asOf date, and the REGISTRY value is what the candidate carries", [
+			// THE CANARY HAD GONE DECORATIVE. W1 was rewritten to stop DIAGNOSING which source
+			// is wrong (it used to declare the profile stale and the registry right, a verdict
+			// it had no evidence for) and to add a conditional hint for one arithmetic
+			// coincidence. The old terms — two numbers, a date, the phrase "context window" —
+			// pass either message word for word, so the change that mattered was unpinned. The
+			// terms below assert the new SEMANTICS: what the message must say, what it must NOT
+			// say, and that the hint appears exactly when its condition holds.
+			const VERDICT_WORDS = /\bstale\b|\bwins\b|\bauthoritative\b|\bis (wrong|right|correct)\b|\btrust\b|\boverrid/i;
+			// The hint fires on a coincidence: the registry figure IS this model's own
+			// long-context billing threshold. Same fixture twice, differing only in that.
+			const hinted = resolve({
+				registry: registry({ "p/hint": { contextWindow: 400000, auth: true } }),
+				models: ["p/hint"],
+				profiles: profiles([profile("p/hint", { contextWindow: 1050000, longContextThreshold: 400000 })]),
+			});
+			const unhinted = resolve({
+				registry: registry({ "p/nohint": { contextWindow: 400000, auth: true } }),
+				models: ["p/nohint"],
+				profiles: profiles([profile("p/nohint", { contextWindow: 1050000, longContextThreshold: 128000 })]),
+			});
+			const hintW1 = found(hinted.warned, /context window/) ?? "";
+			const noHintW1 = found(unhinted.warned, /context window/) ?? "";
+			const HINT = " NOTE: that registry figure is also this model's long-context BILLING threshold (";
+			checkAll("router-w1-canary", "the context-window divergence is REPORTED, not diagnosed: both figures and the profile's asOf date are named, the candidate carries the REGISTRY value, and the message explicitly declines to say which source is correct — no verdict word anywhere in it. The billing-threshold hint appears EXACTLY when the registry figure equals that model's own long-context threshold (a window that cannot be exceeded would put its own price tier out of reach) and is absent otherwise", [
 				["warned", w1 !== "", warned],
 				["profile value named", w1.includes("1050000"), w1],
 				["registry value named", w1.includes("400000"), w1],
 				["asOf named", w1.includes("2026-07-29"), w1],
 				["candidate carries the registry value", res.candidates[0]?.contextWindow === 400000, res.candidates[0]?.contextWindow],
+				["the message REPORTS a divergence between sources", w1.includes(" differs between sources — slate's profile records "), w1],
+				["...names the registry as the figure routing uses", w1.includes(" tokens. Routing uses the registry figure;"), w1],
+				["...and explicitly declines to judge which source is correct", w1.includes("which source is correct is not established here."), w1],
+				["no verdict about which source is wrong, anywhere in it", !VERDICT_WORDS.test(w1), w1.match(VERDICT_WORDS)?.[0] ?? w1],
+				["the hint fires when the registry window IS the billing threshold", hintW1.includes(HINT) && hintW1.includes("(400000 tokens) —"), hintW1],
+				["...explaining why that reading is suspect (RI32)", /price tier unreachable/.test(hintW1) && /billing-row-restated-as-a-capacity/.test(hintW1), hintW1],
+				["...and is ABSENT when the two figures differ", noHintW1 !== "" && !noHintW1.includes("NOTE:") && !noHintW1.includes("BILLING"), noHintW1],
+				["the hint is appended to the same line, not a second one", !hintW1.includes("\n") && hintW1.indexOf(HINT) > hintW1.indexOf("not established here."), hintW1],
 			]);
 
 			// TQ3: both absence guards. The shipped table leaves contextWindow null
@@ -2371,6 +2402,21 @@ try {
 				? plan({ resolution: off, requestedModel: shipped.spec, requestedEffort: shipped.offLadder, profiles: { findProfile: (spec) => (spec === shipped.spec ? { id: spec, capabilityMeasuredAt: [shipped.offLadder], evidenceGapAt: [] } : undefined), ladderFor: () => [] } })
 				: undefined;
 
+			// TQ9: the ROUTER-ON path has its own back door. `checkEffortFor` answers from the
+			// CANDIDATE's ladder there, so a rename-re-export of the shipped table consulted on
+			// that path evades both the import scanner and every router-OFF fixture above.
+			// Discriminator, built with the same runtime scan: a REAL shipped spec whose
+			// CANDIDATE ladder deliberately CONTAINS a level the shipped table says it lacks.
+			// The candidate is the authority — proceed; anything that prefers the table
+			// rejects.
+			const shippedOnPath = shipped
+				? plan({
+						resolution: routeResolution([{ spec: shipped.spec, tier: 1, price: 1, ladder: [shipped.offLadder], measured: [shipped.offLadder] }]),
+						requestedModel: shipped.spec,
+						requestedEffort: shipped.offLadder,
+					})
+				: undefined;
+
 			// The module must not reach the shipped table at RUNTIME at all: its only
 			// reference to it is the ERASED `import type` of the level union. A text check,
 			// like `wiring`, and for the same reason — it is the difference between "the
@@ -2437,6 +2483,7 @@ try {
 				["with NO source injected the table is still not consulted", shippedNoSource !== undefined && shippedNoSource.kind === "proceed" && shippedNoSource.effort === shipped?.offLadder, verdict(shippedNoSource ?? { kind: "proceed", model: "n/a", warnings: [] })],
 				["a DECLINED real spec does not fall back to the table (production's vetted lookup + real ladderFor)", shippedDeclined !== undefined && shippedDeclined.kind === "proceed" && shippedDeclined.effort === shipped?.offLadder, verdict(shippedDeclined ?? { kind: "proceed", model: "n/a", warnings: [] })],
 				["...nor does an UNREADABLE injected ladder send it to the table", shippedBlindLadder !== undefined && shippedBlindLadder.kind === "proceed" && shippedBlindLadder.effort === shipped?.offLadder, verdict(shippedBlindLadder ?? { kind: "proceed", model: "n/a", warnings: [] })],
+				["the ROUTER-ON path answers from the candidate, not the table either (TQ9)", shippedOnPath !== undefined && shippedOnPath.kind === "proceed" && shippedOnPath.effort === shipped?.offLadder, verdict(shippedOnPath ?? { kind: "proceed", model: "n/a", warnings: [] })],
 			]);
 		});
 
@@ -2595,6 +2642,22 @@ try {
 			// action's own model" — with a pin present the answer is the pin, and with no pin
 			// it is nothing (the caller then opens on the host), never `p/x`.
 			const openNeverRouted = openedPinned.model !== "p/x" && openedBare.model !== "p/x";
+			// TQ8: every fixture above is router-OFF, where the open model and the thread's
+			// BASE happen to coincide — so returning `baseModel` instead of `model` looks
+			// identical. They diverge under router-ON WINDOW SUBSTITUTION: the base stays the
+			// thread's own, while the model this action (and therefore the open) resolves to
+			// is the widest candidate. The open must report the RESOLVED model.
+			const wideRes = routeResolution([
+				{ spec: "p/small", tier: 1, price: 1, window: 100_000, ladder: ["medium"], measured: ["medium"] },
+				{ spec: "p/big", tier: 2, price: 2, window: 1_000_000, ladder: ["medium"], measured: ["medium"] },
+			]);
+			const openedSubstituted = openOf({
+				resolution: wideRes,
+				thread: { id: "t4", baseModel: "p/small" },
+				contextTokens: 90_000,
+				wouldCompact: compactAt(20_000),
+				reserveTokens: 20_000,
+			});
 			// The baseline is taken from what the SESSION reports, and it is validated on the
 			// way in (BG21's vocabulary rule applies to the level, the spec rule to the model).
 			const baselineOf = (observed) => route.captureSessionBaseline(observed);
@@ -2613,6 +2676,7 @@ try {
 				["the session-open decision ignores the action's own model (TQ4: the `?? opts.model` shape)", openNeverRouted, [openedPinned, openedBare]],
 				["...resolving the thread's pin when it has one", openedPinned.model === "p/pin", openedPinned],
 				["...and nothing when it has none, so the caller opens on the host", openedBare.model === undefined && openedBare.unplanned === undefined, openedBare],
+				["the open reports the RESOLVED model, not the thread's base (TQ8)", openedSubstituted.model === "p/big", openedSubstituted],
 				["the baseline is taken from the SESSION and validated on the way in", baselineSpec.model === "p/opened" && baselineSpec.effort === "medium", baselineSpec],
 				["...a non-spec model and a non-vocabulary level are discarded, not recorded", baselineJunk.model === undefined && baselineJunk.effort === undefined && baselineGood.model === undefined, [baselineJunk, baselineGood]],
 			]);
@@ -2914,6 +2978,122 @@ try {
 				["type reason", /got number/.test(wrongType.warned[0] ?? ""), wrongType.warned],
 				["display-safe: no control bytes, bounded length", allWarnings.every((m) => !/[\u0000-\u001f\u007f\u009b]/.test(m) && m.length <= 400), allWarnings.map((m) => m.length)],
 				["an unstringifiable value warns instead of throwing", survivedCyclic === true && cyclicRun?.value === undefined && cyclicRun?.warned.length === 1, [survivedCyclic, cyclicRun?.warned]],
+			]);
+		});
+
+		await section("state-thread-record", async () => {
+			// BG26. Every thread record is re-validated FIELD BY FIELD on the session-restore
+			// path, because nothing downstream re-checks it: a snapshot that was hand-edited,
+			// truncated, or written by another version of slate used to reach the dispatch
+			// path as-is, and the symptom was an exception thrown out of the `thread` tool
+			// from inside a warning message. This is the highest-blast-radius pure function in
+			// the track \u2014 it runs over the user's whole thread history at every restore \u2014 and
+			// the danger cuts both ways: a MISSED repair crashes a tool, and a FALSE repair
+			// silently destroys a thread the user still needs.
+			const sane = (raw) => {
+				const repairs = [];
+				return { out: state.sanitizeThreadRecord(raw, repairs), repairs };
+			};
+			// A well-formed record must come back BYTE-IDENTICAL. This is the term that stands
+			// between a user's history and an over-eager sanitizer.
+			const wellFormed = {
+				id: "t1",
+				name: "impl",
+				sessionFile: "/tmp/x.jsonl",
+				status: "idle",
+				model: "p/pin",
+				baseModel: "p/base",
+				baseEffort: "medium",
+				episodeIds: ["t1.e1"],
+				episodeSeq: 1,
+				createdAt: 111,
+				updatedAt: 222,
+			};
+			const roundTrip = sane(wellFormed);
+			// A record nothing can address is DROPPED, and silently \u2014 the caller writes that
+			// note, because only it knows what the record was.
+			const unaddressable = [
+				["no id", { name: "x" }],
+				["empty id", { id: "" }],
+				["non-string id", { id: 7 }],
+				["null", null],
+				["a bare string", "t1"],
+			].map(([label, raw]) => [label, sane(raw)]);
+			const kept = unaddressable.filter(([, r]) => r.out !== undefined).map(([label]) => label);
+			const noisy = unaddressable.filter(([, r]) => r.repairs.length > 0).map(([label]) => label);
+			// Per-field behaviour: a wrong TYPE is dropped to the documented default AND
+			// noted; the note names the field and the type it saw.
+			const nameBad = sane({ id: "t1", name: 7 });
+			const fileBad = sane({ id: "t1", sessionFile: {} });
+			const seqBad = sane({ id: "t1", episodeSeq: Number.NaN });
+			const stampBad = sane({ id: "t1", createdAt: "111" });
+			const idsBad = sane({ id: "t1", episodeIds: "a" });
+			const idsMixed = sane({ id: "t1", episodeIds: ["a", 7, "b"] });
+			const seqFromIds = sane({ id: "t1", episodeIds: ["a", "b"] });
+			const running = sane({ ...wellFormed, status: "running" });
+			// TYPE-CHECK ONLY on the specs and the level (the CQ13/RG1 and BG21 rule): a
+			// malformed-but-STRING value survives untouched, so pi still produces its own
+			// "unknown model" error and route.ts's `storedLevel` still owns the vocabulary.
+			// Repairing here would convert a caller's error into a silent substitution \u2014 the
+			// exact class of defect this track spent two rounds removing.
+			const padded = sane({ id: "t1", model: "  p/x  ", baseModel: "not a spec", baseEffort: "HIGH" });
+			const effortBad = sane({ id: "t1", baseEffort: 7 });
+			checkAll("state-thread-record", "a thread record is re-validated field by field on the restore path (BG26): a well-formed one round-trips BYTE-IDENTICALLY and reports no repair, an unaddressable one is dropped silently (the caller owns that note), every wrong-typed field falls back to its documented default WITH a note naming the field and the type \u2014 and the model, pin and level are TYPE-CHECKED ONLY, so a malformed-but-string value still reaches pi's own error and route.ts's vocabulary rule instead of being silently repaired here", [
+				["a well-formed record round-trips byte-identically", JSON.stringify(roundTrip.out) === JSON.stringify(wellFormed), roundTrip.out],
+				["...and reports no repair at all", roundTrip.repairs.length === 0, roundTrip.repairs],
+				["every unaddressable shape is dropped", kept.length === 0, kept],
+				["...silently, because the caller writes that note", noisy.length === 0, noisy],
+				["a live status is normalised to idle, silently", running.out?.status === "idle" && running.repairs.length === 0, [running.out?.status, running.repairs]],
+				["a wrong-typed name falls back to the id, noted", nameBad.out?.name === "t1" && nameBad.repairs.join() === "thread t1: ignoring name (number)", [nameBad.out?.name, nameBad.repairs]],
+				["a wrong-typed sessionFile falls back to empty, noted as an object", fileBad.out?.sessionFile === "" && /sessionFile \(object\)/.test(fileBad.repairs.join()), [fileBad.out?.sessionFile, fileBad.repairs]],
+				["a non-finite episodeSeq falls back to the id count, noted", seqBad.out?.episodeSeq === 0 && /episodeSeq \(number\)/.test(seqBad.repairs.join()), [seqBad.out?.episodeSeq, seqBad.repairs]],
+				["...and an absent one is derived from the ids, silently", seqFromIds.out?.episodeSeq === 2 && seqFromIds.repairs.length === 0, [seqFromIds.out?.episodeSeq, seqFromIds.repairs]],
+				["a wrong-typed timestamp becomes a real number, noted", typeof stampBad.out?.createdAt === "number" && /createdAt \(string\)/.test(stampBad.repairs.join()), [stampBad.out?.createdAt, stampBad.repairs]],
+				["a non-array episodeIds becomes empty, noted", JSON.stringify(idsBad.out?.episodeIds) === "[]" && /episodeIds \(string\)/.test(idsBad.repairs.join()), [idsBad.out?.episodeIds, idsBad.repairs]],
+				["...while a mixed array keeps its strings, silently", JSON.stringify(idsMixed.out?.episodeIds) === '["a","b"]' && idsMixed.repairs.length === 0, [idsMixed.out?.episodeIds, idsMixed.repairs]],
+				["a malformed-but-STRING spec or level survives untouched", padded.out?.model === "  p/x  " && padded.out?.baseModel === "not a spec" && padded.out?.baseEffort === "HIGH", padded.out],
+				["...and is not reported as a repair, because nothing was repaired", padded.repairs.length === 0, padded.repairs],
+				["a non-string level IS dropped and noted", effortBad.out?.baseEffort === undefined && /baseEffort \(number\)/.test(effortBad.repairs.join()), [effortBad.out?.baseEffort, effortBad.repairs]],
+			]);
+		});
+
+		await section("state-episode-record", async () => {
+			// The episode half of BG26. Same restore path, same round-trip obligation.
+			const sane = (raw) => {
+				const repairs = [];
+				return { out: state.sanitizeEpisodeRecord(raw, repairs), repairs };
+			};
+			const wellFormed = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", createdAt: 5 };
+			const roundTrip = sane(wellFormed);
+			const failed = sane({ ...wellFormed, status: "failed" });
+			// An episode with no id, no thread to belong to, or no file is unusable.
+			const unusable = [
+				["no file", { id: "e", threadId: "t" }],
+				["no threadId", { id: "e", file: "f" }],
+				["empty id", { id: "", threadId: "t", file: "f" }],
+				["non-string file", { id: "e", threadId: "t", file: 7 }],
+				["null", null],
+			].map(([label, raw]) => [label, sane(raw)]);
+			const kept = unusable.filter(([, r]) => r.out !== undefined).map(([label]) => label);
+			const base = { id: "e", threadId: "t", file: "f" };
+			const statusOther = sane({ ...base, status: "FAILED" });
+			const taskBad = sane({ ...base, task: 9 });
+			const markerString = sane({ ...base, effortUnmeasured: "true" });
+			const markerTrue = sane({ ...base, effortUnmeasured: true });
+			const specs = sane({ ...base, model: "  p/x  ", effort: "HIGH" });
+			const specsBad = sane({ ...base, model: 7, effort: {} });
+			const stampBad = sane({ ...base, createdAt: "5" });
+			checkAll("state-episode-record", "an episode record is re-validated the same way: a well-formed one round-trips byte-identically, a record with no id, thread or file is dropped, `failed` is the only value that survives as a failure, the unmeasured marker needs the boolean and not a truthy string, and model/effort are TYPE-CHECKED ONLY. Note the asymmetry with the thread sanitizer, pinned as observed: this one accepts a repairs sink and never writes to it, so an episode's dropped fields are silent", [
+				["a well-formed record round-trips byte-identically", JSON.stringify(roundTrip.out) === JSON.stringify(wellFormed), roundTrip.out],
+				["a failed episode keeps its status", failed.out?.status === "failed", failed.out?.status],
+				["every unusable shape is dropped", kept.length === 0, kept],
+				["only the exact string `failed` is a failure", statusOther.out?.status === "ok", statusOther.out?.status],
+				["a wrong-typed task becomes empty", taskBad.out?.task === "", taskBad.out?.task],
+				["the unmeasured marker needs the boolean, not a truthy string", markerString.out?.effortUnmeasured === undefined && markerTrue.out?.effortUnmeasured === true, [markerString.out, markerTrue.out]],
+				["a malformed-but-STRING spec or level survives untouched", specs.out?.model === "  p/x  " && specs.out?.effort === "HIGH", specs.out],
+				["...while non-strings are dropped", specsBad.out?.model === undefined && specsBad.out?.effort === undefined, specsBad.out],
+				["a wrong-typed timestamp becomes a real number", typeof stampBad.out?.createdAt === "number", stampBad.out?.createdAt],
+				["PINNED, asymmetric: episode repairs are silent (the sink is never written)", [roundTrip, statusOther, taskBad, specsBad, stampBad].every((r) => r.repairs.length === 0), [taskBad.repairs, specsBad.repairs]],
 			]);
 		});
 	}
@@ -3943,7 +4123,7 @@ try {
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
 		"route-failover", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
-		"wiring", "spec-invisible", "spec-config-key",
+		"wiring", "spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
 		"episode-load", "episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header",
