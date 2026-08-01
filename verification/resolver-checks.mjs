@@ -286,7 +286,14 @@ const VOIDABLE = [
 	["route-", ROUTE_IDS, "route-load"],
 	["router-", ROUTER_IDS, "router-load"],
 	["profiles-", PROFILE_IDS, "profiles-load"],
+	// STATE_IDS holds TWO id prefixes, so it needs two entries. With only "spec-" here
+	// the audit below never reached `state-thread-record`/`state-episode-record`: the
+	// `uncovered` filter walks EXPECTED by PREFIX, so an id in the list that matches no
+	// prefix is coverage nothing verifies, and dropping it from STATE_IDS again would
+	// turn an honest NOT RUN into a roster "missing" line with nothing to say why (TS3,
+	// TQ12). `state-load` is excluded by the filter's own `id !== loadId`.
 	["spec-", STATE_IDS, "state-load"],
+	["state-", STATE_IDS, "state-load"],
 	["base-", BASE_IDS, "base-load"],
 	["episode-", EPISODE_IDS, "episode-load"],
 ];
@@ -3057,6 +3064,38 @@ try {
 			// exact class of defect this track spent two rounds removing.
 			const padded = sane({ id: "t1", model: "  p/x  ", baseModel: "not a spec", baseEffort: "HIGH" });
 			const effortBad = sane({ id: "t1", baseEffort: 7 });
+			const stampBadUpdated = sane({ id: "t1", updatedAt: {} });
+			// ABSENT is a third case, distinct from wrong-typed and from present-and-valid: a
+			// bare id must fill every default and say NOTHING, because nothing was repaired.
+			// (Only the wrong-type half was covered when this section was recovered.)
+			const minimal = sane({ id: "t1" });
+			const filled =
+				minimal.out?.name === "t1" &&
+				minimal.out?.sessionFile === "" &&
+				minimal.out?.status === "idle" &&
+				JSON.stringify(minimal.out?.episodeIds) === "[]" &&
+				minimal.out?.episodeSeq === 0 &&
+				typeof minimal.out?.createdAt === "number" &&
+				typeof minimal.out?.updatedAt === "number";
+			// CQ22, from the OUTSIDE. state.ts exports the adoption checklist and the notice
+			// precisely so a checker can walk them: hand the sanitizer a record with every
+			// field valid and every key on the list must come back. That generalises the
+			// round-trip term above, which can only speak for the fields its fixture happens
+			// to carry — a field added to ThreadRecord and forgotten by the sanitizer would
+			// slip past a fixture nobody updated, and this term is what notices.
+			const adoptedKeys = Object.keys(state.ADOPTED_THREAD_FIELDS ?? {});
+			const builtKeys = Object.keys(roundTrip.out ?? {});
+			const unadopted = adoptedKeys.filter((k) => !builtKeys.includes(k));
+			const surplus = builtKeys.filter((k) => !adoptedKeys.includes(k));
+			// And the notice itself, driven directly — the one situation this codebase cannot
+			// produce on purpose (a field the snapshot has, that adoption claims to know, that
+			// the built record lacks and nobody refused).
+			const lost = [];
+			state.noteUnadoptedFields?.("thread", "t1", { ...wellFormed }, { id: "t1" }, new Set(), lost);
+			const lostRefused = [];
+			state.noteUnadoptedFields?.("thread", "t1", { ...wellFormed }, { id: "t1" }, new Set(["name"]), lostRefused);
+			const lostForeign = [];
+			state.noteUnadoptedFields?.("thread", "t1", { id: "t1", fieldFromAnotherVersion: 1 }, { id: "t1" }, new Set(), lostForeign);
 			checkAll("state-thread-record", "a thread record is re-validated field by field on the restore path (BG26): a well-formed one round-trips BYTE-IDENTICALLY and reports no repair, an unaddressable one is dropped silently (the caller owns that note), every wrong-typed field falls back to its documented default WITH a note naming the field and the type \u2014 and the model, pin and level are TYPE-CHECKED ONLY, so a malformed-but-string value still reaches pi's own error and route.ts's vocabulary rule instead of being silently repaired here", [
 				["a well-formed record round-trips byte-identically", JSON.stringify(roundTrip.out) === JSON.stringify(wellFormed), roundTrip.out],
 				["...and reports no repair at all", roundTrip.repairs.length === 0, roundTrip.repairs],
@@ -3073,6 +3112,12 @@ try {
 				["a malformed-but-STRING spec or level survives untouched", padded.out?.model === "  p/x  " && padded.out?.baseModel === "not a spec" && padded.out?.baseEffort === "HIGH", padded.out],
 				["...and is not reported as a repair, because nothing was repaired", padded.repairs.length === 0, padded.repairs],
 				["a non-string level IS dropped and noted", effortBad.out?.baseEffort === undefined && /baseEffort \(number\)/.test(effortBad.repairs.join()), [effortBad.out?.baseEffort, effortBad.repairs]],
+				["...and so is a non-number updatedAt, on the same rule as createdAt", typeof stampBadUpdated.out?.updatedAt === "number" && /updatedAt \(object\)/.test(stampBadUpdated.repairs.join()), [stampBadUpdated.out?.updatedAt, stampBadUpdated.repairs]],
+				["a bare id fills every default — ABSENT is not the same case as wrong-typed", filled, minimal.out],
+				["...and says nothing, because an absent field is not a repair", minimal.repairs.length === 0, minimal.repairs],
+				["every field the ADOPTION CHECKLIST names comes back, and no other (CQ22)", adoptedKeys.length > 0 && unadopted.length === 0 && surplus.length === 0, { unadopted, surplus, adoptedKeys }],
+				["...a field the snapshot has and the build lost is reported as a SLATE BUG, by name", lost.length === adoptedKeys.length - 1 && lost.every((m) => /^thread t1: field \w+ is in the snapshot but adoption does not handle it \(slate bug\)/.test(m)), lost],
+				["...one deliberately REFUSED is not reported twice, and a foreign key not at all", lostRefused.length === lost.length - 1 && !lostRefused.join().includes(" field name ") && lostForeign.length === 0, [lostRefused.length, lostForeign]],
 			]);
 		});
 
@@ -3099,27 +3144,64 @@ try {
 				["null", null],
 			].map(([label, raw]) => [label, sane(raw)]);
 			const kept = unusable.filter(([, r]) => r.out !== undefined).map(([label]) => label);
+			const noisy = unusable.filter(([, r]) => r.repairs.length > 0).map(([label]) => label);
 			const base = { id: "e", threadId: "t", file: "f" };
 			const statusOther = sane({ ...base, status: "FAILED" });
 			const taskBad = sane({ ...base, task: 9 });
 			const markerString = sane({ ...base, effortUnmeasured: "true" });
 			const markerTrue = sane({ ...base, effortUnmeasured: true });
+			// `false` is not a legal value of a `true`-only field, so it is REFUSED like any
+			// other wrong value rather than quietly read as "measured". Pinned because it is
+			// the one edge value a reader would expect to be accepted.
+			const markerFalse = sane({ ...base, effortUnmeasured: false });
 			const specs = sane({ ...base, model: "  p/x  ", effort: "HIGH" });
 			const specsBad = sane({ ...base, model: 7, effort: {} });
 			const stampBad = sane({ ...base, createdAt: "5" });
+			// ABSENT, the third case again: id + thread + file and nothing else must fill every
+			// default in silence, and must NOT invent the two optional keys.
+			const minimal = sane(base);
+			const filled =
+				minimal.out?.task === "" &&
+				minimal.out?.status === "ok" &&
+				typeof minimal.out?.createdAt === "number" &&
+				!("model" in (minimal.out ?? {})) &&
+				!("effort" in (minimal.out ?? {})) &&
+				!("effortUnmeasured" in (minimal.out ?? {}));
+			// CQ22 from the outside, the episode half — same claim, same reason as the thread
+			// section: the round-trip term can only speak for the fields its fixture carries,
+			// and `wellFormed` deliberately omits the optional unmeasured marker (a realistic
+			// record does not carry it). So the checklist is walked against a fixture that
+			// carries EVERY adopted field, which is the claim state.ts exports the map for.
+			// Written out rather than spread: byte-identity is KEY-ORDER sensitive (that is
+			// what makes the term strong), and the marker belongs before `createdAt`.
+			const everyField = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", effortUnmeasured: true, createdAt: 5 };
+			const everyRoundTrip = sane(everyField);
+			const adoptedKeys = Object.keys(state.ADOPTED_EPISODE_FIELDS ?? {});
+			const builtKeys = Object.keys(everyRoundTrip.out ?? {});
+			const unadopted = adoptedKeys.filter((k) => !builtKeys.includes(k));
+			const surplus = builtKeys.filter((k) => !adoptedKeys.includes(k));
+			const lost = [];
+			state.noteUnadoptedFields?.("episode", "e", { ...everyField }, { id: "e" }, new Set(), lost);
 			checkAll("state-episode-record", "an episode record is re-validated the same way: a well-formed one round-trips byte-identically, a record with no id, thread or file is dropped, `failed` is the only value that survives as a failure, the unmeasured marker needs the boolean and not a truthy string, and model/effort are TYPE-CHECKED ONLY — and every field it refuses is NOTED by name and type, in the thread sanitizer's own shape (CQ22), while an accepted value and a well-formed record stay silent", [
 				["a well-formed record round-trips byte-identically", JSON.stringify(roundTrip.out) === JSON.stringify(wellFormed), roundTrip.out],
 				["a failed episode keeps its status", failed.out?.status === "failed", failed.out?.status],
 				["every unusable shape is dropped", kept.length === 0, kept],
+				["...silently, because the caller writes that note", noisy.length === 0, noisy],
 				["only the exact string `failed` is a failure", statusOther.out?.status === "ok", statusOther.out?.status],
 				["a wrong-typed task becomes empty", taskBad.out?.task === "", taskBad.out?.task],
 				["the unmeasured marker needs the boolean, not a truthy string", markerString.out?.effortUnmeasured === undefined && markerTrue.out?.effortUnmeasured === true, [markerString.out, markerTrue.out]],
+				["...and `false` is refused too, not read as `measured`", markerFalse.out?.effortUnmeasured === undefined && /effortUnmeasured \(boolean\)/.test(markerFalse.repairs.join()), [markerFalse.out, markerFalse.repairs]],
+				["a bare id/thread/file fills every default and invents no optional key", filled, minimal.out],
+				["...in silence, because an absent field is not a repair", minimal.repairs.length === 0, minimal.repairs],
 				["a malformed-but-STRING spec or level survives untouched", specs.out?.model === "  p/x  " && specs.out?.effort === "HIGH", specs.out],
 				["...while non-strings are dropped", specsBad.out?.model === undefined && specsBad.out?.effort === undefined, specsBad.out],
 				["a wrong-typed timestamp becomes a real number", typeof stampBad.out?.createdAt === "number", stampBad.out?.createdAt],
 				["a refused field is noted by NAME and TYPE, prefixed with the episode id (CQ22)", taskBad.repairs.join("|") === "episode e: ignoring task (number)" && specsBad.repairs.join("|") === "episode e: ignoring model (number)|episode e: ignoring effort (object)", [taskBad.repairs, specsBad.repairs]],
 				["...on every axis that can be refused, not just the ones with a string default", /status \(string\)/.test(statusOther.repairs.join()) && /effortUnmeasured \(string\)/.test(markerString.repairs.join()) && /createdAt \(string\)/.test(stampBad.repairs.join()), [statusOther.repairs, markerString.repairs, stampBad.repairs]],
 				["...while an accepted value and a well-formed record report nothing at all", [roundTrip, failed, specs, markerTrue].every((r) => r.repairs.length === 0), [roundTrip.repairs, failed.repairs, specs.repairs, markerTrue.repairs]],
+				["every field the ADOPTION CHECKLIST names comes back, and no other (CQ22)", adoptedKeys.length > 0 && unadopted.length === 0 && surplus.length === 0, { unadopted, surplus, adoptedKeys }],
+				["...and that all-fields record round-trips byte-identically too", JSON.stringify(everyRoundTrip.out) === JSON.stringify(everyField) && everyRoundTrip.repairs.length === 0, [everyRoundTrip.out, everyRoundTrip.repairs]],
+				["...a field the snapshot has and the build lost is reported as a SLATE BUG, by name", lost.length === adoptedKeys.length - 1 && lost.every((m) => /^episode e: field \w+ is in the snapshot but adoption does not handle it \(slate bug\)/.test(m)), lost],
 			]);
 		});
 	}

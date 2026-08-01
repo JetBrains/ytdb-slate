@@ -829,13 +829,15 @@ Config-sanitizer wiring (`extension/index.ts`) — a **text** check:
 | --- | --- |
 | `wiring` | every config sanitizer is imported by `index.ts` and called at `session_start` with its own key **and the shared warn sink**. A sanitizer that exists but is never wired, or is wired with a sink that swallows its diagnostics, is precisely the silent failure RG20 was. `index.ts` cannot be *loaded* here (it reaches `@earendil-works/pi-ai` through `threads.ts` → `episodes.ts`, a peer dependency not installed in this repo), so this one asserts against the source text — weaker than execution, and still the difference between "the fix is wired" and "the fix compiles" |
 
-Model-spec vocabulary (`extension/state.ts`):
+Model-spec vocabulary and snapshot sanitizers (`extension/state.ts`):
 
 | id | what it proves |
 | --- | --- |
-| `state-load` | the module loads; a failure converts the `spec-*` checks into explicit NOT RUN lines |
+| `state-load` | the module loads; a failure converts the `spec-*` **and `state-*`** checks into explicit NOT RUN lines (both prefixes are paired with `STATE_IDS` in `VOIDABLE` — with only `spec-` there the roster's coverage audit walked past the two sanitizer checks entirely, since it filters `EXPECTED` by prefix and never notices a list member that matches none) |
 | `spec-invisible` | every zero-width or direction-changing character is **rejected** by the shared predicate — controls, bidi, soft hyphen, BOM, **variation selectors** (BMP *and* astral), **tag characters** and **Hangul fillers**, the three classes the first BG2 fix missed — each named by code point in the reason; a non-breaking space reports as whitespace; a *visible* non-ASCII spec (homoglyph, emoji) is accepted and merely annotated; a valid spec still splits on the first slash |
 | `spec-config-key` | an unusable `episodeModel` is dropped **with** a warning naming the key, the reason and the fallback (RG20), while absent and valid values stay silent and the returned value is unchanged from the old silent behaviour; an unstringifiable value warns instead of throwing |
+| `state-thread-record` | **BG26** — `sanitizeThreadRecord`, re-run over the user's whole thread history at every session restore, and the highest-blast-radius pure function in this track: a MISSED repair throws out of the `thread` tool, a FALSE one silently destroys a thread the user still needs. Pins all three input cases per field, not just the wrong-typed one: a well-formed record round-trips **byte-identically** (key order included) and reports nothing; a bare id fills every default in silence, because absent is not a repair; each wrong type falls back to its documented default **with** a note naming the field and the type it saw (`thread t1: ignoring name (number)`). An unaddressable record is dropped **silently** — the caller owns that note. A live `status` normalises to `idle`; `episodeSeq` derives from the id count; a mixed `episodeIds` array keeps its strings. Model, pin and level are **type-checked only** by design, so a malformed-but-string spec (`"  p/x  "`, `"not a spec"`) survives untouched and reaches pi's own byte-for-byte error and `route.ts`'s vocabulary rule (CQ13/RG1, BG21) instead of being repaired here — repairing at this boundary is how a caller's error becomes a silent substitution. CQ22 is walked from the outside too: every key in the exported `ADOPTED_THREAD_FIELDS` comes back and no other, and `noteUnadoptedFields` is driven directly — a field the snapshot has and the build lost is reported as a **slate bug** by name, a deliberately refused one is not reported twice, and a key from another slate version is not reported at all |
+| `state-episode-record` | the episode half of BG26, same restore path and same obligations. A well-formed record round-trips byte-identically, and so does an **all-fields** one (`wellFormed` omits the optional unmeasured marker, so the checklist walk needs its own fixture); a record with no id, no thread or no file is dropped, silently. `failed` is the only value that survives as a failure — `"FAILED"` reads as `ok` and is noted. The unmeasured marker needs the boolean: a truthy string is refused, and so is `false`, which is not a legal value of a `true`-only field. Model and effort are type-checked only, exactly as above. Since CQ22 this sanitizer has the thread sanitizer's **refuse-by-name** discipline — it used to take a repairs sink and never write to it, so an episode's dropped fields vanished while a thread's were reported — and every refusable axis is checked, while an accepted value, a bare record and a well-formed one report nothing at all |
 
 Orchestrator base-model tracker (`extension/base-model.ts`) — driven with
 fabricated `model_select` events and fabricated declarations. There is **no clock
@@ -887,6 +889,23 @@ dedup mechanism and the shipped-table default), the ordering tie-breaks, the
 price-row selection rules, the W1 absence guards, the `nonPreferred` rule, and
 the roster machinery itself (renaming or deleting a check fails `roster`). Never
 mutate the repository itself; the scratch copy is the point.
+
+The two BG26 sanitizer checks were validated the same way (TQ12) when they were
+reviewed — they had been committed unreviewed, recovered from a dispatch that died
+mid-flight, so nothing was taken on faith. Ten mutations of `extension/state.ts`,
+all killed, none surviving: dropping a valid field from the built record (thread
+`updatedAt`; episode `task`); refusing SILENTLY instead of by name, on each
+sanitizer separately (the episode one is the pre-CQ22 asymmetry restored);
+weakening the model/pin check from type-only to content validation (trim + spec
+shape, each sanitizer); suppressing the CQ22 adoption notice, which kills BOTH
+sections since they share the function; destroying a VALID name — the
+false-positive repair, the worst outcome in this track; noting a field that was
+ACCEPTED, i.e. a repair notice that fires spuriously; and throwing away the valid
+strings in `episodeIds`. Two gaps surfaced while writing them, both fixed: the
+round-trip term could only speak for the fields its fixture carried (hence the
+checklist walk over the exported `ADOPTED_*_FIELDS`), and only the wrong-TYPE case
+was covered per field — absent was not, so a bare record now has to fill every
+default in silence.
 
 `router-w1-canary` was re-validated this way after `98c63f3`, three mutants, all
 killed — and the point of the exercise is what the DECORATIVE version of the row
