@@ -25,12 +25,13 @@
 //
 // With --self-test it instead validates the guards THEMSELVES: each manifest
 // assertion is re-run against a deep clone of the REAL package.json carrying
-// exactly one violating mutation, and must FAIL. Fixtures are never hand-built
-// — an assertion that reads a misspelled field would not notice a mutation of
-// the real field, so the self-test fails instead of silently passing. The
-// pack-output assertions are not manifest-shaped, so they are self-tested the
-// same way against mutated clones of the REAL pack file list (said explicitly
-// in their output).
+// exactly one violating mutation, and the assertion must REJECT it. Fixtures
+// are never hand-built — an assertion that reads a misspelled field would not
+// notice a mutation of the real field, so a blind guard is reported instead of
+// silently passing. The pack-output assertions are not manifest-shaped, so they
+// are self-tested the same way against mutated clones of the REAL pack file
+// list (said explicitly in their output). A green self-test run says PASS on
+// every line: the verdict column carries the meaning, never the detail text.
 //
 // Run through run-packaging-checks.sh, which supplies the repo path as argv.
 // Prints one `CHECK <id> <PASS|FAIL> — <detail>` line per check plus a summary,
@@ -55,9 +56,20 @@ for (const a of REST) {
 
 let pass = 0;
 let fail = 0;
+// The repo's shared harness output convention (resolver-checks.mjs, run-ladder.sh):
+// one line per check, verdict in a fixed column. 26 characters is the shared id
+// width — wide enough for the longest id in any harness, self- prefixes included.
 function check(id, cond, detail) {
-	console.log(`CHECK ${id.padEnd(16)} ${(cond ? "PASS" : "FAIL").padEnd(4)} — ${detail}`);
+	console.log(`CHECK ${id.padEnd(26)} ${(cond ? "PASS" : "FAIL").padEnd(4)} — ${detail}`);
 	cond ? pass++ : fail++;
+}
+
+// One self-test verdict, worded so that a passing line never reads as a failure:
+// a green run says the guard REJECTED its mutated input. Only the two genuinely
+// broken outcomes — a blind guard, or a fixture that mutated nothing — shout.
+function rejected(changed, ok, subject) {
+	if (!changed) return "the mutation was a no-op, so this fixture proves nothing";
+	return ok ? `the guard ACCEPTED the mutated ${subject} — it is blind (wrong field or wrong input?)` : "the guard rejected it, as required";
 }
 
 // ------------------------------------------------------------------ helpers --
@@ -280,20 +292,20 @@ if (!SELF_TEST) {
 } else {
 	// A mutation that changes nothing would make its self-test vacuous, so each
 	// clone is compared against its source as well.
-	console.log("-- self-test: every guard must FAIL on a real input carrying exactly one violating mutation --");
+	console.log("== self-test: each guard must reject a real input carrying one violating mutation ==");
 	for (const [id, assertion] of MANIFEST) {
 		const clone = structuredClone(manifest);
 		const what = MUTATE.get(id)(clone);
 		const changed = JSON.stringify(clone) !== JSON.stringify(manifest);
 		const r = assertion(clone);
-		check(`self-${id}`, changed && !r.ok, `real manifest, ${what} → ${changed ? (r.ok ? "assertion still PASSED (the guard reads the wrong field)" : "assertion failed as required") : "mutation was a no-op (fixture void)"}`);
+		check(`self-${id}`, changed && !r.ok, `mutated the real manifest: ${what} → ${rejected(changed, r.ok, "manifest")}`);
 	}
 	for (const [id, assertion] of PACK) {
 		const clone = structuredClone(packCtx);
 		const what = MUTATE_PACK.get(id)(clone);
 		const changed = JSON.stringify(clone) !== JSON.stringify(packCtx);
 		const r = assertion(clone);
-		check(`self-${id}`, changed && !r.ok, `not manifest-shaped, so mutated the REAL pack list instead: ${what} → ${changed ? (r.ok ? "assertion still PASSED (the guard reads the wrong input)" : "assertion failed as required") : "mutation was a no-op (fixture void)"}`);
+		check(`self-${id}`, changed && !r.ok, `not manifest-shaped, so mutated the REAL pack list: ${what} → ${rejected(changed, r.ok, "pack list")}`);
 	}
 }
 

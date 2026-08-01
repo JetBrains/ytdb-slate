@@ -32,7 +32,7 @@ const mode = await jiti.import(`${REPO}/extension/mode.ts`);
 let pass = 0;
 let fail = 0;
 function check(id, cond, detail) {
-	console.log(`CHECK ${id.padEnd(16)} ${(cond ? "PASS" : "FAIL").padEnd(4)} — ${detail}`);
+	console.log(`CHECK ${id.padEnd(26)} ${(cond ? "PASS" : "FAIL").padEnd(4)} — ${detail}`);
 	cond ? pass++ : fail++;
 }
 
