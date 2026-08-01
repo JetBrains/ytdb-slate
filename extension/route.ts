@@ -331,6 +331,16 @@ function shown(value: unknown): string {
 	return sanitizeForNotify(text, 40);
 }
 
+/**
+ * A level read back from a THREAD RECORD, validated against pi's vocabulary; anything
+ * else (a junk string, a number, an object) reads as absent (BG21). The record's own
+ * type says `ThinkingLevel`, but the value arrives from an unversioned snapshot on
+ * disk, so the type is a claim about the writer, not the reader.
+ */
+function storedLevel(value: unknown): ThinkingLevel | undefined {
+	return typeof value === "string" && THINKING_LEVELS.includes(value as ThinkingLevel) ? (value as ThinkingLevel) : undefined;
+}
+
 /** Is this spec one of the effective candidates? */
 function isListed(resolution: ModelRouterResolution, spec: string): boolean {
 	return candidateSpecs(resolution).includes(spec);
@@ -564,7 +574,19 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		// snapshot is unversioned, so absence means "unknown", and the pre-router pin
 		// is the best available answer).
 		baseModel = thread.baseModel ?? thread.model;
-		baseEffort = thread.baseEffort;
+		// A STORED level is disk JSON, not a typed value: the snapshot is unversioned and
+		// hand-editable, and TypeScript's `ThinkingLevel` on the record is a claim about
+		// what slate wrote, not a guarantee about what it reads back. So it is re-validated
+		// against pi's vocabulary HERE, at the boundary it crosses (BG21) — exactly as the
+		// model fields are re-validated as specs. Anything else reads as ABSENT, which the
+		// branches below answer by deriving this model's own level.
+		//
+		// The downstream guards are NOT a substitute for this: guard 2 refuses an off-ladder
+		// level only when the ladder is KNOWN, and a ladder that could not be read is inert
+		// by design (the read-failure rule above), so a junk level on an unreadable ladder
+		// would otherwise sail through to pi and be silently CLAMPED — the orchestrator then
+		// believing the action ran at a level that never existed.
+		baseEffort = storedLevel(thread.baseEffort);
 		// SEED OR RE-SEED a base that is not a listed candidate — THE ONE RULE (module
 		// header). Two shapes reach this, and they are the SAME hole:
 		//
@@ -744,8 +766,15 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		// SILENTLY, and that is the point: the orchestrator did not ask for this level, so
 		// a stale cache is slate's problem to correct, not news to report. An EXPLICIT
 		// effort still warns and still rejects — that one the caller did ask for.
-		const stored = checkEffortFor(input, resolution, judgedModel, baseEffort);
-		effort = stored.verdict === "ok" ? baseEffort : lowestMeasuredEffort(resolution, baseModel);
+		//
+		// ONE model for both halves. `judgedModel === baseModel` is the branch's own
+		// condition, so binding it once here makes that equality a CHECKED precondition
+		// rather than something two lines happen to agree about: judging against one model
+		// while deriving from another would answer a question nobody asked, and the next
+		// edit to either line would not notice.
+		const storedFor = judgedModel;
+		const stored = checkEffortFor(input, resolution, storedFor, baseEffort);
+		effort = stored.verdict === "ok" ? baseEffort : lowestMeasuredEffort(resolution, storedFor);
 	} else if (resolution.on && model !== undefined) {
 		// Either the model differs from the one the stored level was derived for, or there
 		// is no stored level: derive this model's own lowest measured level. Deriving in

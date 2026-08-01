@@ -279,10 +279,15 @@ export class ThreadManager {
 	 * SDK then restores the session file's last model_change, which can be the
 	 * mapped model (CQ3).
 	 *
-	 * The marker is also DROPPED, not just on disposal, when a later dispatch
-	 * routes the same live session somewhere explicitly (see applyRoute): after
-	 * that switch the session no longer runs a failover model, so reporting one
-	 * would be a lie.
+	 * The marker is also DROPPED, not just on disposal, whenever a dispatch's own
+	 * ROUTING moves the session (see applyRoute) — an explicit `model` argument, and
+	 * with the router ON the thread's base, which a dispatch that omits `model`
+	 * resolves to. It is not limited to an "explicit" reroute, and it must not be:
+	 * this marker describes the model the live session is ACTUALLY on, so anything
+	 * that moves the session off the mapped model has to clear it or the report
+	 * becomes a lie. The one switch that never clears it is the REVERT (BG22), which
+	 * cannot run while the marker is held — that is exactly how a failover survives
+	 * the next action.
 	 */
 	liveFailoverModel(threadId: string): string | undefined {
 		return this.live.has(threadId) ? this.failoverLive.get(threadId) : undefined;
@@ -504,12 +509,20 @@ export class ThreadManager {
 		session: WorkerSession | undefined,
 		failover?: { target: string; from: string; contextWindow?: number },
 	): RoutePlanInput {
-		const settings = this.compactionSettings(ctx);
+		const resolution = this.routerResolution();
+		// CQ17: the window guard is router-ON only, so with the router OFF pi's compaction
+		// settings are NOT READ and no predicate is built. "Router off = invisible" is
+		// about what this feature DOES, not only about what it decides: the read is a
+		// lock-protected disk read, and performing it for a guard that cannot fire is the
+		// kind of side effect the invariant exists to forbid. (Memoized per manager, so
+		// this was never a cost question.) The router-ON path is untouched, including the
+		// `enabled: true` forcing below, which is load-bearing.
+		const settings = resolution.on ? this.compactionSettings(ctx) : undefined;
 		return {
 			thread,
 			requestedModel: failover ? failover.target : opts.model,
 			requestedEffort: failover ? undefined : opts.effort,
-			resolution: this.routerResolution(),
+			resolution,
 			allowUnmeasuredEffort: this.config.router?.allowUnmeasuredEffort,
 			// The orchestrator's tracked base model is deliberately NOT an input: with the
 			// router OFF nothing is seeded from it (BG16 — seeding and persisting it undid
@@ -525,9 +538,10 @@ export class ThreadManager {
 			// not make an over-window dispatch safe, it turns the compaction into an
 			// overflow error instead — and shouldCompact answers `false` for every input
 			// when compaction is disabled, which would silently delete guard 5 for those
-			// users.
-			wouldCompact: (tokens, window) => shouldCompact(tokens, window, { ...settings, enabled: true }),
-			reserveTokens: settings.reserveTokens,
+			// users. Absent with the router off (CQ17), where guard 5 never runs.
+			wouldCompact:
+				settings === undefined ? undefined : (tokens, window) => shouldCompact(tokens, window, { ...settings, enabled: true }),
+			reserveTokens: settings?.reserveTokens,
 			profiles: this.routerOffProfiles(ctx),
 			warnedLongContext: thread ? [...(this.longContextWarned.get(thread.id) ?? [])] : [],
 			failoverSwitch: failover !== undefined,
