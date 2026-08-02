@@ -1,6 +1,6 @@
 # Releasing ytdb-slate
 
-Nine steps, in order. The agent owns most of them. The user owns two: the merge and the publication.
+Nine steps, in order. The agent owns most of them. The user owns three: the merge, the publication, and the merge of the pin pull request. Everything that reaches npm or the default branch is the user's act.
 
 Every command block enables fail-closed shell behavior. Do not continue after a failed command unless the applicable recovery branch says to continue.
 
@@ -31,39 +31,38 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/
     artifact/          # the inspected tarball, retained until step 9
     registry/          # the tarball downloaded back from npm
     evidence/          # publish log, registry replies, escalation material
-    checkout/          # the release worktree, detached at the squash commit
-    pin/               # the pin worktree, detached at origin/main
+    checkout/          # the release worktree: detached at the squash commit,
+                       # then on the pin branch from step 8
 ```
 
-Keep the whole `<version>` directory until the release closes. Step 9 removes the worktrees and clears the `current` pointer; it keeps the evidence.
+Keep the whole `<version>` directory until the release closes. Step 9 removes the worktree and clears the `current` pointer; it keeps the evidence.
 
 ## Resume index
 
-What each step changes outside this machine, and how to find out whether it already ran. Read this before resuming a release in a new session: no block assumes it is the first to run, but only step 8's push probe detects its own completion for you.
+What each step changes outside this machine, and how to find out whether it already ran. Read this before resuming a release in a new session. Where completion cannot be detected, the entry says so and the answer is to re-run the step — an index that reads as authoritative and is wrong is worse than no index.
 
 | Step | Effect outside the repository | Determine whether it already ran |
 | --- | --- | --- |
 | 0 | None. Writes the release directory and the pointer. | `release.json` exists and holds your version. |
-| 1 | None. | The PR exists, is ready, and its `package.json` carries the version. |
+| 1 | None. | **Not detectable. Re-run it.** A bumped `package.json` shows an edit was made, not that the verification set passed; the runs leave no durable record except the load log, and a passing run yesterday says nothing about the tree today. |
 | 2 | The squash merge, by the user. | `gh pr view <PR> --json mergeCommit` reports a commit. |
-| 3 | Adds a worktree to this repository. | `release.json` has `SQUASH_SHA`, and `$RELEASE_DIR/checkout` sits at it. |
-| 4 | None. | `release.json` has `TARBALL_SHA256`, and the tarball hashes to it. |
+| 3 | Adds a worktree to this repository. | `release.json` has `SQUASH_SHA`, and `$RELEASE_DIR/checkout` exists. |
+| 4 | None. | `release.json` has `TARBALL_SHA256`, and the retained tarball hashes to it. Re-running is refused after the handoff. |
 | 5 | **Publishes to npm. Irreversible.** By the user. | `npm view <package>@<version> version` succeeds. |
-| 6 | None. Read-only; downloads the published tarball. | Always safe to re-run, and re-running is the intended way to resolve it. |
-| 7 | Pushes a tag and creates a GitHub release. | `git ls-remote --refs origin refs/tags/<tag>` and `gh release view <tag>`. The block checks both itself. |
-| 8 | Pushes the pin commit to `origin/main`. | `git show origin/main:.pi/settings.json`. The push probe reports `pushed` or `pending`. |
-| 9 | Removes the worktrees it added. | `git worktree list` shows no path under the release directory. |
+| 6 | None. Read-only; downloads the published tarball. | **Not detectable, and does not need to be.** Re-running it is the intended way to resolve it. |
+| 7 | Pushes a tag and creates a GitHub release. | `git ls-remote --refs origin refs/tags/<tag>` and `gh release view <tag> --repo <repo>`. The block determines this itself before it creates anything. |
+| 8 | Pushes a branch and opens a pull request. The user merges it. | `gh pr list --repo <repo> --head dogfood-<version> --state all` shows the PR and whether it merged. |
+| 9 | Removes the worktree it added. | `git worktree list` shows no path under the release directory. |
 
-Every step is safe to re-run except step 5, which is irreversible, and the two pushes, which detect their own prior completion. Steps 7 and 8 re-derive their gates on every run, so re-running them costs a registry read.
+Step 5 is the only irreversible step. Step 7 re-derives its gates on every run and detects its own prior completion. Step 8 reaches the default branch only through a pull request the user merges, so a repeated or stale run proposes a change rather than making one.
 
 ## Untested paths
 
 These have never run. Treat any of them as a hypothesis and read the commands before executing them.
 
-- The integrity-mismatch halt in step 6, and the deprecation proposal under it.
+- The integrity-mismatch halt in step 6.
 - The inconclusive branch and escalation in step 6.
 - Every restart state in step 7 except "nothing exists yet".
-- The `pushed` branch of step 8's push probe, and the `ERR` restore in step 8.
 - Teardown after a failure in step 9.
 
 ## Step 0 — the agent starts the release
@@ -118,7 +117,6 @@ const FIELDS = {
   RELEASE_DIR: /^\/[^'\n]*$/,
   SQUASH_SHA: /^[0-9a-f]{40}$/,
   WORKTREE: /^\/[^'\n]*$/,
-  PIN_WORKTREE: /^\/[^'\n]*$/,
   TARBALL: /^\/[^'\n]*\.tgz$/,
   TARBALL_SHA256: /^[0-9a-f]{64}$/,
   TARBALL_INTEGRITY: /^sha512-[A-Za-z0-9+/]+={0,2}$/,
@@ -133,7 +131,7 @@ const FIELDS = {
 // a different value means a different release, which starts again at step 0.
 const IMMUTABLE = new Set([
   "PACKAGE", "VERSION", "PRIOR_VERSION", "PR", "TAG", "REPO",
-  "REPO_DIR", "GIT_COMMON_DIR", "RELEASE_DIR", "SQUASH_SHA", "WORKTREE", "PIN_WORKTREE",
+  "REPO_DIR", "GIT_COMMON_DIR", "RELEASE_DIR", "SQUASH_SHA", "WORKTREE",
 ]);
 // The reference bytes may be re-derived by a re-pack, but not after the user
 // has been handed a command naming them.
@@ -572,7 +570,7 @@ if [[ "$REGISTRY_RESULT" == 'verified' ]]; then
 fi
 ```
 
-`cmp` returns 1 for files that differ and more than 1 for a comparison it could not make — an unreadable file, a truncated download, an I/O error. Only 1 is a mismatch. Anything above it leaves the result `inconclusive`, because a failed comparison is not evidence, and treating it as one would point a destructive recovery at a healthy release.
+`cmp` returns 1 for files that differ and more than 1 for a comparison it could not make — an unreadable file, a truncated download, an I/O error. Only 1 is a mismatch. Anything above it leaves the result `inconclusive`, because a failed comparison is not evidence, and reporting it as a mismatch would raise an alarm about a healthy release.
 
 `registry-result.txt` and the recorded timestamp are a record, not a key. Steps 7 and 8 re-run the registry comparison themselves, so writing `verified` into a file or a variable unlocks nothing.
 
@@ -580,45 +578,15 @@ Use the matching branch:
 
 - **`verified`.** npm serves the inspected bytes. Continue to step 7.
 
-- **`integrity-mismatch`. Untested.** npm serves something other than the inspected artifact under an immutable version number. **Stop and hand the decision to the user.** Do not tag, release or pin. Do not deprecate anything on the agent's own authority: deprecation is public and it burns the version number, and no automatic reading of a byte difference is worth that. Report to the user: the recorded integrity, the served integrity, the path of both tarballs, and the likely causes — a different file was published, a repack happened between inspection and publication, or the registry served a corrupted copy. Re-run the comparison once after a few minutes before concluding, because a mid-propagation read can differ.
+- **`integrity-mismatch`. Untested.** npm serves something other than the inspected artifact under an immutable version number. **Stop.** Do not tag, release or pin.
 
-  If, and only if, the user confirms the published artifact is wrong and authorises the recovery, these are the commands. They are a proposal, and they have never run.
+  The runbook does not deprecate the version, move a dist-tag or unpublish anything. Those are public, irreversible acts on a package other people install, and an earlier draft of this document automated them: it read a byte difference and reached for `npm deprecate`. Review found two ways that path could fire on evidence that was stale or malformed. The action was worth less than the ways of getting it wrong, so it is gone. The runbook's job here is to put the facts in front of the user; the decision is theirs and is made outside this document.
 
-  The block does not read `registry-result.txt`. Authorisation is permission to act, not evidence that acting is still right: the verdict in that file was true when it was written, and this is a public, irreversible action taken possibly hours later. So the block re-reads the registry immediately before deprecating, and refuses if the registry now serves the inspected bytes:
+  The evidence is already where step 6 wrote it, under `$RELEASE_DIR/evidence/`: `registry-view.json`, `registry-view.err` and `registry-result.txt`, with the inspected tarball under `$RELEASE_DIR/artifact/`, the downloaded one under `$RELEASE_DIR/registry/`, and the recorded hashes in `release.json`. Nothing further needs collecting.
 
-  ```bash
-  set -euo pipefail
-  : "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
-  RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-  STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION PRIOR_VERSION TARBALL TARBALL_SHA256 TARBALL_INTEGRITY)
-  eval "$STATE"
+  Re-run step 6 once after a few minutes before reporting: a mid-propagation read can differ. Then tell the user the version, the recorded sha256 and integrity of the inspected tarball, the integrity npm serves, the path of both tarballs, and whether the difference is in the integrity value, in the bytes, or in both.
 
-  # Re-derive the reference bytes.
-  [[ -f "$TARBALL" ]]
-  HASHES=$(node "$RELEASE_DIR/hash.cjs" "$TARBALL")
-  read -r NOW_SHA256 NOW_INTEGRITY <<<"$HASHES"
-  [[ "$NOW_SHA256" == "$TARBALL_SHA256" && "$NOW_INTEGRITY" == "$TARBALL_INTEGRITY" ]]
-
-  # Re-derive the fault, now, against the live registry.
-  LIVE_JSON=$(npm view "$PACKAGE@$VERSION" version dist.integrity --json)
-  LIVE_VERSION=$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x.version ?? ""))' "$LIVE_JSON")
-  LIVE_INTEGRITY=$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x["dist.integrity"] ?? x.dist?.integrity ?? ""))' "$LIVE_JSON")
-  [[ "$LIVE_VERSION" == "$VERSION" ]]
-  [[ "$LIVE_INTEGRITY" =~ ^sha512- ]]
-  if [[ "$LIVE_INTEGRITY" == "$TARBALL_INTEGRITY" ]]; then
-    printf 'The registry now serves the inspected bytes (%s). There is nothing to deprecate; stop.\n' "$LIVE_INTEGRITY" >&2
-    exit 1
-  fi
-  printf 'confirmed live: registry serves %s, inspected bytes are %s\n' "$LIVE_INTEGRITY" "$TARBALL_INTEGRITY"
-
-  DEPRECATION="Defective release; use $PRIOR_VERSION pending a corrected release"
-  npm deprecate "$PACKAGE@$VERSION" "$DEPRECATION"
-  [[ "$(npm view "$PACKAGE@$VERSION" deprecated)" == "$DEPRECATION" ]]
-  npm dist-tag add "$PACKAGE@$PRIOR_VERSION" latest
-  [[ "$(npm view "$PACKAGE" dist-tags.latest)" == "$PRIOR_VERSION" ]]
-  ```
-
-  A failed lookup stops the block too: `npm view` errors under `set -e`, and no answer from the registry is not confirmation of a fault. `npm deprecate` and `npm dist-tag` are also write operations against a two-factor account, so the user may have to run them too. Afterwards, start the next unused patch version at step 0. A published version cannot be replaced or reused.
+  Either way this version number is spent. A published version cannot be replaced or reused, so a corrected release starts at step 0 with the next unused patch version.
 
 - **`inconclusive`. Untested.** The lookup failed. That can mean absence, propagation delay, lost permission, or a registry or network failure, and none of them is authoritative. Do not publish again.
 
@@ -642,7 +610,7 @@ The block is restart-safe. It determines the local tag, the remote tag and the G
 set -euo pipefail
 : "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
 RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION TAG REPO REPO_DIR SQUASH_SHA WORKTREE TARBALL TARBALL_SHA256 TARBALL_INTEGRITY)
+STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION TAG REPO REPO_DIR SQUASH_SHA TARBALL TARBALL_SHA256 TARBALL_INTEGRITY)
 eval "$STATE"
 
 # Re-derive the artifact facts.
@@ -662,7 +630,6 @@ LIVE_INTEGRITY=$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.wri
 git -C "$REPO_DIR" fetch origin main
 [[ "$SQUASH_SHA" =~ ^[0-9a-f]{40}$ ]]
 git -C "$REPO_DIR" merge-base --is-ancestor "$SQUASH_SHA" origin/main
-[[ "$(git -C "$WORKTREE" rev-parse HEAD)" == "$SQUASH_SHA" ]]
 
 NOTE_FILE="$RELEASE_DIR/release-note.md"
 [[ -s "$NOTE_FILE" ]]
@@ -743,20 +710,22 @@ node "$RELEASE_DIR/state.cjs" save "$RELEASE_DIR/release.json" --expect "$SLATE_
 
 The normal restart states are: nothing exists (create, push, release); only the correct local tag exists (skip creation, then push and release); the correct remote tag exists with no release (ensure the local tag, skip the push, create the release); or the correct remote tag and release both exist (ensure the local tag, skip both remote actions). If any existing tag or release target is wrong, stop, inspect who created it and why, and resolve it manually under repository policy. This runbook never moves or deletes a conflicting tag. The tag must point at the umbrella squash SHA, not at the later pin-only commit.
 
-## Step 8 — the agent bumps and validates the dogfooding pin
+## Step 8 — the agent opens the dogfooding pin as a pull request
 
 Last, and only after npm serves the verified artifact and step 7 passes.
 
-The pin commit is made in its own detached worktree at `origin/main`, then pushed with `git push origin HEAD:main`. It never checks out the `main` branch, so it cannot collide with a worktree that already holds `main` — which is exactly where the first release stopped dead. Any local `main` elsewhere is left untouched and one commit behind; the note at the end of this step says how to catch it up.
+The pin bump is an ordinary pull request: a branch, one commit, the repository's review, a merge by the user. Earlier drafts pushed it straight to the default branch, which took a second worktree, a detached checkout, a completion probe and a chain of guards — and review still found two ways that push could carry content nobody had checked. All of it is gone. A pull request removes those failures by construction instead of by another guard, and no ruleset has to be worked around.
+
+One block does the whole preparation, from the gates to the pull request. It is deliberately not resumable in the middle: every seam between a check and an action was a place where the action ran on a stale check. The branch is made in the release worktree, which step 9 removes; a new branch is checked out nowhere else, so it cannot collide.
 
 ```bash
 set -euo pipefail
 : "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
 RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION PRIOR_VERSION TAG REPO REPO_DIR SQUASH_SHA TARBALL_INTEGRITY)
+STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION PRIOR_VERSION TAG REPO REPO_DIR SQUASH_SHA WORKTREE TARBALL_INTEGRITY)
 eval "$STATE"
 
-# Re-derive the gates: npm serves the inspected bytes, and the tag and release exist at the squash commit.
+# Re-derive the gates: npm serves the inspected bytes, and the tag and the release sit at the squash commit.
 LIVE_JSON=$(npm view "$PACKAGE@$VERSION" version dist.integrity --json)
 [[ "$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x.version ?? ""))' "$LIVE_JSON")" == "$VERSION" ]]
 [[ "$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x["dist.integrity"] ?? x.dist?.integrity ?? ""))' "$LIVE_JSON")" == "$TARBALL_INTEGRITY" ]]
@@ -764,22 +733,13 @@ git -C "$REPO_DIR" fetch origin main --tags
 [[ "$(git -C "$REPO_DIR" ls-remote --refs origin "refs/tags/$TAG" | awk '{print $1}')" == "$SQUASH_SHA" ]]
 [[ "$(gh release view "$TAG" --repo "$REPO" --json targetCommitish --jq '.targetCommitish')" == "$SQUASH_SHA" ]]
 
-PIN_WORKTREE="$RELEASE_DIR/pin"
-if [[ -e "$PIN_WORKTREE" ]]; then
-  git -C "$PIN_WORKTREE" fetch origin main
-  git -C "$PIN_WORKTREE" checkout --detach FETCH_HEAD
-else
-  git -C "$REPO_DIR" worktree add --detach "$PIN_WORKTREE" origin/main
-fi
-[[ -z "$(git -C "$PIN_WORKTREE" status --porcelain)" ]]
-git -C "$PIN_WORKTREE" merge-base --is-ancestor "$SQUASH_SHA" HEAD
-node "$RELEASE_DIR/state.cjs" save "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PIN_WORKTREE="$PIN_WORKTREE"
+# Branch from the default branch just fetched above, in the disposable release worktree.
+PIN_BRANCH="dogfood-$VERSION"
+git -C "$WORKTREE" switch -c "$PIN_BRANCH" origin/main
+[[ -z "$(git -C "$WORKTREE" status --porcelain)" ]]
+git -C "$WORKTREE" merge-base --is-ancestor "$SQUASH_SHA" HEAD
 
-PIN_BACKUP="$RELEASE_DIR/settings.json.bak"
-cp "$PIN_WORKTREE/.pi/settings.json" "$PIN_BACKUP"
-trap 'cp "$PIN_BACKUP" "$PIN_WORKTREE/.pi/settings.json"' ERR
-
-node - "$PIN_WORKTREE/.pi/settings.json" "$VERSION" "$PRIOR_VERSION" <<'NODE'
+node - "$WORKTREE/.pi/settings.json" "$VERSION" "$PRIOR_VERSION" <<'NODE'
 const fs = require("node:fs");
 const [path, version, priorVersion] = process.argv.slice(2);
 const before = fs.readFileSync(path, "utf8");
@@ -795,7 +755,7 @@ JSON.parse(after);
 fs.writeFileSync(path, after);
 NODE
 
-node - "$PIN_WORKTREE/.pi/settings.json" "$VERSION" <<'NODE'
+node - "$WORKTREE/.pi/settings.json" "$VERSION" <<'NODE'
 const fs = require("node:fs");
 const [path, version] = process.argv.slice(2);
 const settings = JSON.parse(fs.readFileSync(path, "utf8"));
@@ -805,27 +765,13 @@ const expected = `npm:ytdb-slate@${version}`;
 if (slate.length !== 1 || slate[0] !== expected) throw new Error(`new dogfood pin is ${JSON.stringify(slate)}`);
 NODE
 
-git -C "$PIN_WORKTREE" diff --numstat -- .pi/settings.json
-[[ "$(git -C "$PIN_WORKTREE" diff --numstat -- .pi/settings.json)" == $'1\t1\t.pi/settings.json' ]]
-```
+git -C "$WORKTREE" diff -- .pi/settings.json
+[[ "$(git -C "$WORKTREE" diff --numstat -- .pi/settings.json)" == $'1\t1\t.pi/settings.json' ]]
 
-The edit is a textual replacement of one quoted pin, not a JSON re-serialisation. Re-serialising with `JSON.stringify` reformatted the whole `packages` array on the 0.5.1 bump, which passed every check the runbook had and still produced a diff that was not the change anyone intended. The length assertion and the `1 1` numstat make a formatting change impossible to miss: any diff other than one line changed for one line is a failure.
-
-Now validate what pi actually resolves and loads, in the pin worktree. `-a` forces project trust for this non-interactive run. Plain redirection waits for pi to exit before either log is inspected, so there is no process-substitution race. The settings assertion above, pi's project-package listing, the installed manifest check and the forced-trust startup together prove that the exact pinned package — not local source, not a stale pin — was selected and loaded:
-
-```bash
-set -euo pipefail
-: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
-RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION PIN_WORKTREE)
-eval "$STATE"
-PIN_BACKUP="$RELEASE_DIR/settings.json.bak"
-[[ -f "$PIN_BACKUP" ]]
-trap 'cp "$PIN_BACKUP" "$PIN_WORKTREE/.pi/settings.json"' ERR
-
+# Validate what pi resolves and loads with the new pin, in this worktree.
 LOAD_STDOUT="$RELEASE_DIR/evidence/pin-load.out"
 LOAD_STDERR="$RELEASE_DIR/evidence/pin-load.err"
-if ! (cd "$PIN_WORKTREE" && pi -a -p "exit") >"$LOAD_STDOUT" 2>"$LOAD_STDERR"; then
+if ! (cd "$WORKTREE" && pi -a -p "exit") >"$LOAD_STDOUT" 2>"$LOAD_STDERR"; then
   cat "$LOAD_STDERR" >&2
   false
 fi
@@ -834,7 +780,7 @@ if grep -Eq 'Failed to load extension|Cannot find module|SyntaxError' "$LOAD_STD
   false
 fi
 PACKAGE_LIST="$RELEASE_DIR/evidence/pin-package-list.txt"
-(cd "$PIN_WORKTREE" && NO_COLOR=1 pi list -a) >"$PACKAGE_LIST"
+(cd "$WORKTREE" && NO_COLOR=1 pi list -a) >"$PACKAGE_LIST"
 INSTALLED_DIR=$(awk -v spec="  npm:$PACKAGE@$VERSION" '
   $0 == "Project packages:" { project = 1; next }
   project && $0 == spec { getline; sub(/^[[:space:]]+/, ""); print; exit }
@@ -847,82 +793,24 @@ const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
 if (manifest.name !== "ytdb-slate" || manifest.version !== version) throw new Error(`installed package is ${manifest.name}@${manifest.version}`);
 if (!Array.isArray(manifest.pi?.extensions) || !manifest.pi.extensions.includes("./extension/index.ts")) throw new Error("installed package has no Slate extension entry");
 NODE
-trap - ERR
+
+# Commit, check the commit itself, then propose it.
+git -C "$WORKTREE" add .pi/settings.json
+git -C "$WORKTREE" commit -m "Dogfood $VERSION"
+[[ "$(git -C "$WORKTREE" show --numstat --format= HEAD)" == $'1\t1\t.pi/settings.json' ]]
+git -C "$WORKTREE" push -u origin "$PIN_BRANCH"
+gh pr create --repo "$REPO" --base main --head "$PIN_BRANCH" --title "Dogfood $VERSION" \
+  --body "Bumps the dogfooding pin to $VERSION, published in this release. One line changes in .pi/settings.json. Before this branch was pushed, pi resolved and loaded npm:$PACKAGE@$VERSION from the registry in a clean checkout."
+gh pr view "$PIN_BRANCH" --repo "$REPO" --json url --jq '.url'
 ```
 
-Do not use `pi --no-extensions -e .` here: it loads local source and cannot validate the pin. Any nonzero pi exit, failure marker in the log, package-list mismatch or installed-manifest mismatch is a failure. The `ERR` trap restores the prior settings — **untested** — and the agent must not commit or push the new pin after any failure.
+The commit is checked after it exists, not before: `git show --numstat --format= HEAD` reads the commit object that will be pushed, so nothing between the working file and the commit can slip content past it.
 
-**First determine whether the push already happened.** A session can die between a successful push and the checks that follow it, and the pin edit is not repeatable — re-running it fails with `the new pin is already present`, which is a symptom, not an answer. Ask `origin/main` instead:
+Two failures to expect. `git switch -c` stops if the branch already exists, which means a previous attempt got that far — inspect that branch, then either push it and open the pull request by hand, or reset the worktree with `git -C "$WORKTREE" switch --detach "$SQUASH_SHA"` and `git -C "$WORKTREE" branch -D "$PIN_BRANCH"` and run the block again. `gh pr create` stops if a pull request for the branch already exists, and prints it; use that one.
 
-```bash
-set -euo pipefail
-: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
-RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" VERSION REPO_DIR)
-eval "$STATE"
-git -C "$REPO_DIR" fetch origin main
-REMOTE_SETTINGS="$RELEASE_DIR/evidence/origin-main-settings.json"
-git -C "$REPO_DIR" show origin/main:.pi/settings.json >"$REMOTE_SETTINGS"
-PIN_STATE=$(node - "$REMOTE_SETTINGS" "$VERSION" <<'NODE'
-const fs = require("node:fs");
-const [path, version] = process.argv.slice(2);
-const settings = JSON.parse(fs.readFileSync(path, "utf8"));
-const sources = (settings.packages ?? []).map(value => typeof value === "string" ? value : value.source);
-const slate = sources.filter(value => typeof value === "string" && value.startsWith("npm:ytdb-slate@"));
-if (slate.length !== 1) throw new Error(`origin/main carries ${JSON.stringify(slate)}; resolve that by hand`);
-process.stdout.write(slate[0] === `npm:ytdb-slate@${version}` ? "pushed" : "pending");
-NODE
-)
-printf 'pin on origin/main: %s\n' "$PIN_STATE"
-```
+**The user merges the pin pull request.** The agent must not merge it, exactly as in step 2. The pin PR is a normal one-line change and needs no release ceremony.
 
-- `pending` — the normal path. Run the commit and push block below.
-- `pushed` — the push already succeeded. **Untested.** Do not edit, commit or push anything. Skip the block below and run the final checks; they record `PINNED_AT` if it is missing. If the pin worktree still holds an unpushed commit, compare it with `origin/main` before removing it in step 9.
-
-The commit and push block stages only `.pi/settings.json`. It re-derives the whole edit from the commit it is based on, rather than trusting the earlier block to have validated the file that is now on disk: a session can resume here, and a file can change after it is checked. The push is not forced and is attempted once; a rejection means `origin/main` moved, so stop and restart this step from the worktree refresh:
-
-```bash
-set -euo pipefail
-: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
-RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" VERSION PRIOR_VERSION SQUASH_SHA PIN_WORKTREE)
-eval "$STATE"
-
-# Re-derive what is about to be pushed: one changed file, and nothing else.
-PIN_STATUS=$(git -C "$PIN_WORKTREE" status --porcelain)
-if [[ "$PIN_STATUS" != ' M .pi/settings.json' && "$PIN_STATUS" != 'M  .pi/settings.json' ]]; then
-  printf 'Expected .pi/settings.json as the only change in %s. Found:\n%s\n' "$PIN_WORKTREE" "$PIN_STATUS" >&2
-  exit 1
-fi
-git -C "$PIN_WORKTREE" merge-base --is-ancestor "$SQUASH_SHA" HEAD
-BASE_SETTINGS="$RELEASE_DIR/evidence/pin-base-settings.json"
-git -C "$PIN_WORKTREE" show HEAD:.pi/settings.json >"$BASE_SETTINGS"
-node - "$BASE_SETTINGS" "$PIN_WORKTREE/.pi/settings.json" "$VERSION" "$PRIOR_VERSION" <<'NODE'
-const fs = require("node:fs");
-const [basePath, currentPath, version, priorVersion] = process.argv.slice(2);
-const base = fs.readFileSync(basePath, "utf8");
-const current = fs.readFileSync(currentPath, "utf8");
-const prior = `"npm:ytdb-slate@${priorVersion}"`;
-const next = `"npm:ytdb-slate@${version}"`;
-if (base.split(prior).length - 1 !== 1) throw new Error(`the committed settings do not carry exactly one ${prior}`);
-if (base.replace(prior, next) !== current) throw new Error("the file to be pushed is not the committed file with only its pin replaced");
-const settings = JSON.parse(current);
-const sources = (settings.packages ?? []).map(value => typeof value === "string" ? value : value.source);
-const slate = sources.filter(value => typeof value === "string" && value.startsWith("npm:ytdb-slate@"));
-if (slate.length !== 1 || slate[0] !== `npm:ytdb-slate@${version}`) throw new Error(`the pin to be pushed is ${JSON.stringify(slate)}`);
-NODE
-
-git -C "$PIN_WORKTREE" add .pi/settings.json
-[[ "$(git -C "$PIN_WORKTREE" diff --cached --name-only)" == '.pi/settings.json' ]]
-[[ "$(git -C "$PIN_WORKTREE" diff --cached --numstat)" == $'1\t1\t.pi/settings.json' ]]
-git -C "$PIN_WORKTREE" diff --cached
-git -C "$PIN_WORKTREE" commit -m "Dogfood $VERSION"
-git -C "$PIN_WORKTREE" push origin HEAD:main
-```
-
-The re-derivation is the point: `base.replace(prior, next) !== current` reconstructs the intended file from the commit under it and requires the file on disk to equal it exactly. Nothing else can have been edited, and no earlier block's verdict is trusted.
-
-Finally, recheck every published target and the default-branch pin. This is also where a resumed `pushed` path lands:
+After the merge, recheck every published target and the default-branch pin:
 
 ```bash
 set -euo pipefail
@@ -953,14 +841,7 @@ if ! grep -q '"PINNED_AT"' "$RELEASE_DIR/release.json"; then
 fi
 ```
 
-Other worktrees that hold `main` are now one commit behind. Catch each one up when it is clean; never force it:
-
-```bash
-git -C /path/to/that/worktree status --porcelain
-git -C /path/to/that/worktree pull --ff-only origin main
-```
-
-## Step 9 — the agent tears down the release worktrees
+## Step 9 — the agent tears down the release worktree
 
 The first release left a worktree detached at the squash commit, carrying a stale pin, because no step removed it. This step is not optional, and it runs whether the release succeeded or was abandoned. **The failure path is untested**; the success path is the same commands.
 
@@ -971,24 +852,23 @@ RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/curr
 STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" REPO_DIR)
 eval "$STATE"
 
-for TREE in "$RELEASE_DIR/checkout" "$RELEASE_DIR/pin"; do
-  if [[ -e "$TREE" ]]; then
-    if [[ -n "$(git -C "$TREE" status --porcelain)" ]]; then
-      printf 'Worktree %s has uncommitted changes; inspect it before removing it.\n' "$TREE" >&2
-      git -C "$TREE" status --porcelain >&2
-      exit 1
-    fi
-    git -C "$REPO_DIR" worktree remove "$TREE"
+TREE="$RELEASE_DIR/checkout"
+if [[ -e "$TREE" ]]; then
+  if [[ -n "$(git -C "$TREE" status --porcelain)" ]]; then
+    printf 'Worktree %s has uncommitted changes; inspect it before removing it.\n' "$TREE" >&2
+    git -C "$TREE" status --porcelain >&2
+    exit 1
   fi
-done
+  git -C "$REPO_DIR" worktree remove "$TREE"
+fi
 git -C "$REPO_DIR" worktree prune
-[[ ! -e "$RELEASE_DIR/checkout" && ! -e "$RELEASE_DIR/pin" ]]
+[[ ! -e "$TREE" ]]
 git -C "$REPO_DIR" worktree list
 rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current"
 printf 'Release directory kept for the record: %s\n' "$RELEASE_DIR"
 ```
 
-Read the final `git worktree list`: no path under the release directory may remain, and no worktree may be left detached by this release. Keep `$RELEASE_DIR` — the tarball, the hashes and the evidence are the record of what was published. Delete it by hand when it is no longer wanted.
+Read the final `git worktree list`: no path under the release directory may remain, and no worktree may be left detached by this release. Removing the worktree leaves step 8's local branch behind; once its pull request is merged, delete it with `git -C <repository> branch -d dogfood-<version>`. Keep `$RELEASE_DIR` — the tarball, the hashes and the evidence are the record of what was published. Delete it by hand when it is no longer wanted.
 
 If an escalation is open, skip this step until the escalation closes, then run it.
 
