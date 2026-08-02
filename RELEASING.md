@@ -841,10 +841,28 @@ gh pr view "$PIN_BRANCH" --repo "$REPO" --json url --jq '.url'
 
 The commit is checked after it exists, not before: `git show --numstat --format= HEAD` reads the commit object that will be pushed, so no extra file and no larger edit reaches the branch unseen. It proves a one-line-for-one-line delta and not the exact bytes — a `pre-commit` or `commit-msg` hook, or a clean filter, can substitute one line for another and still pass it — which stays low severity only because the destination is a review-gated pull request branch and never `main`: read the diff on the pull request.
 
-**If it stopped partway.** The block is one shot, so find the state first and do only what that state says. Take the first case that matches.
+**If it stopped partway.** The block is one shot, so find the state first and do only what that state says. A new session holds nothing but `SLATE_RELEASE`, and the failed block's variables are gone with it, so run this probe first: it loads the release state, derives the branch name, and prints the three facts the cases turn on. It stops if the state is missing or belongs to another release, rather than probing the wrong repository.
 
-1. **A pull request already exists.** `gh pr list --repo "$REPO" --head "dogfood-$VERSION" --state all` shows it. The block has nothing left to do; go to the merge below. `gh pr create` reports the same thing and prints the existing pull request.
-2. **The branch is on the remote and there is no pull request.** `git -C "$REPO_DIR" ls-remote --refs origin "refs/heads/dogfood-$VERSION"` shows it. The push runs only after the validation and the commit check passed, so that branch is the checked commit: open the pull request by hand with the `gh pr create` and `gh pr view` commands above. Do not run the block again.
+```bash
+set -euo pipefail
+: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
+RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
+STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION REPO REPO_DIR SQUASH_SHA WORKTREE)
+eval "$STATE"
+PIN_BRANCH="dogfood-$VERSION"
+
+printf -- '--- pull requests for %s (empty list means none)\n' "$PIN_BRANCH"
+gh pr list --repo "$REPO" --head "$PIN_BRANCH" --state all --json number,state,url
+printf -- '--- remote branch (no line means it was never pushed)\n'
+git -C "$REPO_DIR" ls-remote --refs origin "refs/heads/$PIN_BRANCH"
+printf -- '--- release worktree %s\n' "$WORKTREE"
+git -C "$WORKTREE" status --short --branch
+```
+
+Take the first case that matches what it printed.
+
+1. **A pull request already exists.** The `gh pr list` output names one. The block has nothing left to do; go to the merge below. `gh pr create` reports the same thing and prints the existing pull request.
+2. **The branch is on the remote and there is no pull request.** The `ls-remote` line shows `refs/heads/$PIN_BRANCH` and the pull request list is empty. The push runs only after the validation and the commit check passed, so that branch is the checked commit: open the pull request by hand with the `gh pr create` and `gh pr view` commands above, in a shell where the probe has loaded the state. Do not run the block again.
 3. **Anything else.** Nothing was pushed, whatever the worktree and the local branch look like — including the common case where pi validation failed and left the new pin in the working file. Reset, then run the whole step 8 block again from the top:
 
 ```bash
