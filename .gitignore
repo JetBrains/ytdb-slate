@@ -10,3 +10,11 @@ node_modules/
 .pi/*.lock
 # IDE state
 .idea/
+# NOTE: package-lock.json is COMMITTED and is deliberately not ignored here.
+# It was ignored while the four pi SDK packages existed only as peerDependencies
+# at "*": npm resolved them to whatever was current locally, so a lockfile would
+# have pinned that drift and misled the reader. Tier-1 CI removed that premise.
+# The same four packages are now ALSO exact-pinned in devDependencies (0.83.0),
+# so the lockfile records a version this repo chose, not one it happened to get,
+# and `npm ci --ignore-scripts` — what the workflow runs — needs the file to
+# exist. See AGENTS.md § Packaging rules, "The devDependency carve-out".

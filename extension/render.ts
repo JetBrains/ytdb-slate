@@ -22,6 +22,7 @@ interface ThreadCallArgs {
 	task?: string;
 	context?: string[];
 	model?: string;
+	effort?: string;
 }
 
 interface ThreadDetails {
@@ -32,6 +33,13 @@ interface ThreadDetails {
 	lines?: string[];
 	usage?: UsageStats;
 	done?: boolean;
+	// What the action ACTUALLY ran on (tools.ts's `ran*` details). Distinct from the
+	// call's `model`/`effort` ARGUMENTS above: pi clamps a level the model cannot do,
+	// the window guard can substitute a wider model, and a failover switches it again —
+	// so the collapsed view showed only the request and hid all three (CQ16).
+	ranModel?: string;
+	ranEffort?: string;
+	ranEffortUnmeasured?: boolean;
 }
 
 function formatTokens(n: number): string {
@@ -71,7 +79,12 @@ function extractSection(episode: string, section: string): string {
 export function renderThreadCall(args: ThreadCallArgs, theme: ThemeLike) {
 	let text = theme.fg("toolTitle", theme.bold("thread "));
 	text += theme.fg("accent", args.thread ?? (args.name ? `new:"${args.name}"` : "new"));
-	if (args.model) text += theme.fg("muted", ` [${args.model}]`);
+	// What this action ASKED for: "[model @effort]", or just "[@effort]" when only the
+	// level was named. Both are per-DISPATCH. This is the REQUEST — the result line
+	// carries what actually ran (`[ran …]`, see renderThreadResult), because the two can
+	// legitimately differ (a clamped level, a window substitution, a failover).
+	const routed = [args.model, args.effort ? `@${args.effort}` : undefined].filter((part) => !!part).join(" ");
+	if (routed) text += theme.fg("muted", ` [${routed}]`);
 	if (args.context && args.context.length > 0) text += theme.fg("muted", ` ⇐ ${args.context.join(", ")}`);
 	const task = (args.task ?? "").replace(/\s+/g, " ");
 	text += `\n  ${theme.fg("dim", task.length > 100 ? `${task.slice(0, 100)}...` : task)}`;
@@ -122,6 +135,12 @@ export function renderThreadResult(
 
 	// Collapsed: headline + Key Findings digest (or Open Issues when failed).
 	let text = `${icon} ${theme.fg("toolTitle", theme.bold(name))} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`;
+	// What it ACTUALLY ran on, in the call badge's style but labelled `ran` so it cannot
+	// be read as the request (CQ16). Collapsed only: the EXPANDED view renders the full
+	// episode markdown, whose header already prints this — repeating it there would be
+	// the duplication that reporting was just consolidated out of.
+	const ran = [details.ranModel, details.ranEffort ? `@${details.ranEffort}` : undefined].filter((part) => !!part).join(" ");
+	if (ran) text += theme.fg("muted", ` [ran ${ran}${details.ranEffortUnmeasured ? " unmeasured" : ""}]`);
 	const digestSection = failed ? "Open Issues" : "Key Findings";
 	const digest = extractSection(full, digestSection);
 	if (digest) {

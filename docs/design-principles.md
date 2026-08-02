@@ -8,9 +8,22 @@ for its content. This document records the reasoning behind the
 extension's design so maintainers — and the orchestrator itself, on
 demand — can check changes and behavior against the original intent.
 
-Note: module headers cite ExecPlan decision ids (D3–D9, M1–M3) from the
-original implementation plan, which is not part of this repository. This
-document is the in-repo source for the architecture rationale.
+Note: module headers cite ids from design records that are not part of this
+repository — the original implementation plan (ExecPlan: D3–D9, M1–M3), later
+design rounds (higher-numbered D ids, and W ids for named warnings), and
+per-round review findings, whose prefix says which review raised them:
+AD (adversarial), AF (agent-failure), BG (blocker/bug), CN (concurrency),
+CQ (code quality), DF (data fidelity), N (numeric), RG (regression),
+RI (research integrity), SE (security), WB (worker boundary) and WS (worker
+safety). `extension/model-profiles.ts` additionally cites research TRACE keys
+(`G1a`, `GM3`, `O4.2`, `A4b`, …). Those name rows in the research corpus that
+produced the profile table; the corpus lives in the project repository and is
+NOT part of the published package, so in an installed copy the keys are
+provenance marks to quote when reporting a data problem, not links to follow.
+What a consumer can act on without the corpus is in `model-routing.md`
+(§ where the numbers come from): the table's provenance rules, its `asOf`
+date, and which fields are marked untraced. This document is the in-repo
+source for the architecture rationale.
 
 ## 1. The problems Slate is built to solve
 
@@ -167,6 +180,36 @@ while staying safe on common consumer API tiers; wider fan-outs only
 pay tail latency, and projects with higher-tier keys raise the cap in
 `slate.json`.
 
+Repo-local note (not from the report): **action-level model routing**
+applies P10's discipline to a second scarce resource. P10 treats
+CONTEXT as RAM; the optional `router.models` list treats SPEND the same
+way — each dispatched action gets a model and an effort level chosen to
+be up to the task and no more, instead of every action inheriting
+whatever model the orchestrator happens to be running. It is also a P1
+corollary: an action is only a bounded unit if what it may cost is
+bounded too, and the closed model list plus a derived (never inflated)
+effort level is what bounds it. The two disciplines even share
+machinery — pi's compaction settings, which clamp the orchestrator's
+context budget, also decide per dispatch whether a worker thread still
+fits the model it is routed to, in which case the action moves to the
+widest listed model rather than being blocked.
+
+The feature is OFF until `router.models` lists something, and it is
+built on a deliberate split that is worth holding onto when reasoning
+about the architecture: the code ENFORCES less than the routing data
+ADVISES. Dispatch guards refuse what is mechanically wrong — a model
+outside the configured list, a level a model does not offer — because
+those are decidable from the data. The obligations that require
+JUDGMENT about the work, such as which actions count as review or gate
+actions and what a compliance constraint demands of a given task, are
+stated in the doctrine for the orchestrator to honor and are not
+guards. That is the same reasoning as P6: the harness makes the right
+thing natural and blocks what it can decide, rather than pretending to
+adjudicate what it cannot see. Which obligations fall on which side of
+that line changes as the feature grows, so this document deliberately
+does not restate the list — `model-routing.md` in this directory owns
+it, along with the mechanics and the provenance of the routing data.
+
 Repo-local note (not from the report): the P7 guard was originally
 absolute — workers loaded no extensions, so Slate's `thread` tool simply
 never existed for them. The optional `workerExtensions` key (`slate.json`,
@@ -268,7 +311,19 @@ the load-on-demand discipline the extension itself prescribes:
   `review-rules.md`, and a pointer to the track-based workflow protocol
   that ships with this package (`track-workflow.md` in this directory),
   appended to the system prompt every turn while orchestrator mode is
-  on. It costs a few hundred tokens and covers everything routine
+  on. Sizing it matters to the tiering argument, so it is measured
+  rather than asserted: with both conditional tail rules and
+  `workflow.draftPRs` off, the block is **1,929 portable characters /
+  38 lines**, and configuring the router for six models roughly
+  DOUBLES it, to **3,870** on that same basis — the routing rule
+  renders one table row per routable model. (Portable characters, and
+  the rest of the configurations, are defined and tabulated in
+  `context-budget.md`; the raw count also depends on where the package
+  is installed, because the doctrine embeds absolute doc paths.) At a
+  rough 4 characters per token that is order-500 tokens, order-1,000
+  with the router on — so the original "a few hundred tokens" holds
+  only for the fixed rules, and a configured router buys its table with
+  a real slice of every request. It still covers everything routine
   dispatching needs.
 - **Tier 2 — on demand.** This document. The doctrine carries a short
   pointer to it (doctrine rule 10); the orchestrator reads it only when

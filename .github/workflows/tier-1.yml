@@ -37,7 +37,7 @@
 #   bash verification/run-packaging-checks.sh --repo .
 #   bash verification/run-packaging-checks.sh --repo . --self-test
 #   bash verification/run-load-check.sh --repo .
-#   bash verification/run-resolver-checks.sh --repo .
+#   bash verification/run-resolver-checks.sh --repo . --strict
 #
 # Third-party actions are pinned by commit SHA, not by tag: a tag is mutable and
 # would let an upstream compromise reach this workflow silently. The trailing
@@ -122,5 +122,9 @@ jobs:
       - name: Extension load check
         run: bash verification/run-load-check.sh --repo .
 
-      - name: Worker-extension resolver checks
-        run: bash verification/run-resolver-checks.sh --repo .
+      # --strict makes a NOT RUN fatal. A NOT RUN here means a module the suite
+      # loads did not load, which voids every check that depends on it; on a
+      # runner that is a defect, not a local limitation, and the run reports
+      # zero of them today.
+      - name: Pure-resolver checks
+        run: bash verification/run-resolver-checks.sh --repo . --strict

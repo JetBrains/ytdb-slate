@@ -26,9 +26,10 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { currentModelSpec, type BaseModelTracker } from "./base-model.ts";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import type { SlateConfig } from "./state.ts";
+import { isModelSpec, splitModelSpec, type SlateConfig } from "./state.ts";
 
 type RegistryModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
 
@@ -60,13 +61,6 @@ function notifyUi(ctx: ExtensionContext, message: string): void {
 	}
 }
 
-/** "provider/id": slash at index > 0 with a non-empty id after it. */
-function isModelSpec(value: unknown): value is string {
-	if (typeof value !== "string") return false;
-	const slash = value.indexOf("/");
-	return slash > 0 && slash < value.length - 1;
-}
-
 /**
  * Validate the raw `modelFailover` config value. Keeps only entries where key
  * and value are both "provider/id" strings and key !== value (a self-mapping
@@ -95,8 +89,8 @@ export function sanitizeModelFailover(
 	}
 	if (dropped.length > 0) {
 		warn(
-			`slate: dropped invalid modelFailover entries (need "provider/id" → "provider/id", key ≠ value):\n` +
-				dropped.join("\n"),
+			`slate: dropped invalid modelFailover entries (need "provider/id" → "provider/id", key ≠ value, ` +
+				`no whitespace or invisible characters):\n${dropped.join("\n")}`,
 		);
 	}
 	return map;
@@ -128,10 +122,9 @@ export async function resolveMappedModel(
 	currentProvider: string,
 	currentId: string,
 ): Promise<RegistryModel | undefined> {
-	const target = map[`${currentProvider}/${currentId}`];
-	if (!isModelSpec(target)) return undefined;
-	const slash = target.indexOf("/");
-	const model = ctx.modelRegistry.find(target.slice(0, slash), target.slice(slash + 1));
+	const target = splitModelSpec(map[`${currentProvider}/${currentId}`]);
+	if (!target) return undefined;
+	const model = ctx.modelRegistry.find(target.provider, target.id);
 	if (!model) return undefined;
 	try {
 		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
@@ -200,7 +193,11 @@ export async function isAuthFailure(ctx: ExtensionContext, model: RegistryModel)
  * Deliberately NOT gated on store.paused: failover must run while slate is
  * paused for handoff, so the handoff brief is written by a working model.
  */
-export function registerOrchestratorFailover(pi: ExtensionAPI, getConfig: () => SlateConfig): void {
+export function registerOrchestratorFailover(
+	pi: ExtensionAPI,
+	getConfig: () => SlateConfig,
+	getBaseModel: () => BaseModelTracker,
+): void {
 	/** Final assistant message of the last turn (agent_settled has no payload). */
 	let lastAssistant: { stopReason?: string; errorMessage?: string; usage?: unknown } | undefined;
 	/** Consecutive errored assistant turns in the current settle cycle (BG2). */
@@ -294,10 +291,23 @@ export function registerOrchestratorFailover(pi: ExtensionAPI, getConfig: () => 
 			mapped,
 			async () => {
 				try {
+					// A failover fallback must NOT become the base model new worker threads
+					// default to, so the switch runs THROUGH the tracker: ownSwitch declares
+					// the (from, to) pair immediately before the setter and retires the
+					// declaration the moment the setter SETTLES — on true, on false and on a
+					// throw alike — so the declaration lives exactly as long as the switch
+					// does, however long pi's live credential check takes (base-model.ts;
+					// a wall-clock bound was defect BG10). ownSwitch returns the setter's own
+					// value and re-throws its error unchanged, so the handling below is
+					// exactly what it was.
+					// The declared `from` is read FRESH here, matching the handoff site: the
+					// `from` in the messages below is the model whose turn FAILED, which is a
+					// deliberately different thing several awaits later. currentModelSpec is
+					// guarded (ctx.model throws on a stale context) and falls back to it.
 					// pi.setModel returns false when no API key is available, but can ALSO
 					// throw on a failed live auth check despite the Promise<boolean>
 					// contract — handle both.
-					if (!(await pi.setModel(mapped))) {
+					if (!(await getBaseModel().ownSwitch(currentModelSpec(ctx) ?? from, to, () => pi.setModel(mapped)))) {
 						reportFailure(ctx, `slate: model failover to ${to} skipped — no API key. Keeping ${from}.`);
 						return false;
 					}

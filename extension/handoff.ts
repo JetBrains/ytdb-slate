@@ -28,7 +28,9 @@
  * not inherit them: startup CLI flags (-m/--thinking) are re-applied to the
  * replacement runtime, enabledModels scoping picks its first entry, and a
  * parent resumed with a non-default session-file model falls back to the
- * settings default.
+ * settings default. A model restore that SUCCEEDS also re-seeds slate's
+ * base-model tracker (base-model.ts): a handoff adoption is a deliberate move of
+ * the orchestrator's base model, unlike a failover fallback.
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -41,6 +43,7 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { currentModelSpec, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
@@ -289,6 +292,7 @@ export function registerSlateHandoff(
 	pi: ExtensionAPI,
 	store: SlateStore,
 	getConfig: () => SlateConfig,
+	getBaseModel: () => BaseModelTracker,
 ): SlateHandoffHooks {
 	// pi's compaction reserve — read ONCE, lazily, then cached: it feeds a
 	// per-turn check and SettingsManager.create is a lock-protected disk read.
@@ -527,10 +531,28 @@ export function registerSlateHandoff(
 								const model = ctx.modelRegistry.find(provider, id);
 								if (model) {
 									calledSetter = true;
-									restored = await pi.setModel(model);
+									// Run the switch THROUGH the tracker: ownSwitch declares the (from, to)
+									// pair immediately before the setter and retires the declaration when
+									// the setter SETTLES, so the model_select event pi emits from inside it
+									// is recognised as slate's own for exactly the switch's own duration and
+									// no longer (base-model.ts). It returns the setter's value and re-throws
+									// its error unchanged. The deliberate move of the base is the adopt()
+									// below, which happens only once the restore is confirmed.
+									restored = await getBaseModel().ownSwitch(currentModelSpec(ctx), `${provider}/${id}`, () =>
+										pi.setModel(model),
+									);
 								}
 							}
 							if (restored) {
+								// CONFIRMED success only (the model is live in this session, either
+								// because the setter returned true or because it already was): a handoff
+								// adoption deliberately re-seeds the orchestrator's base model. Recorded
+								// BEFORE the thinking-level setter (BG12): that setter can throw — it
+								// emits events and appends to the session file — and a throw there must
+								// not lose an adoption that already succeeded. A failed or abandoned
+								// model restore never reaches this line, so the base then keeps the seed
+								// taken from this session's own model.
+								getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
 								// Thinking level rides only on a matching/restored model, and only
 								// AFTER setModel (which re-derives thinking internally). Like
 								// setModel, setThinkingLevel persists to the user's ONE GLOBAL
@@ -540,7 +562,25 @@ export function registerSlateHandoff(
 								// unknown string levels itself.
 								if (typeof pending.thinkingLevel === "string") {
 									calledSetter = true;
-									pi.setThinkingLevel(pending.thinkingLevel);
+									// Its OWN try/catch (BG12): the outer one reports "could not restore
+									// model … keeping the session default", which would be a false claim
+									// once the model IS restored. This failure is the thinking level's
+									// alone, and it is reported as such.
+									try {
+										pi.setThinkingLevel(pending.thinkingLevel);
+										// Re-record the base with the level pi actually clamped to, now that
+										// it is applied. adopt() is idempotent for the model; this only
+										// refreshes the observed effort.
+										getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
+									} catch (error) {
+										reportFailure(
+											ctx,
+											`slate: restored model ${label}, but could not apply the handoff's thinking level ` +
+												`"${sanitizeForNotify(pending.thinkingLevel, 20)}" — ${sanitizeForNotify(
+													error instanceof Error ? error.message : String(error),
+												)}. Keeping the session's own thinking level.`,
+										);
+									}
 								}
 							} else {
 								reportFailure(

@@ -42,6 +42,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import { describeSpecDefect, splitModelSpec } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
@@ -63,11 +64,16 @@ export function episodesDir(cwd: string): string {
 	return resolve(cwd, CONFIG_DIR_NAME, "slate", "episodes");
 }
 
-/** Resolve a "provider/id" model string against the registry; throws a clear error if unknown. */
+/**
+ * Resolve a "provider/id" model string against the registry; throws a clear error
+ * if unknown. Validation and splitting are the shared helpers (CQ2), so the
+ * message now names WHY a spec is malformed — including invisible characters,
+ * which an "unknown model" error could never have explained.
+ */
 export function resolveModel(ctx: ExtensionContext, spec: string) {
-	const slash = spec.indexOf("/");
-	if (slash <= 0) throw new Error(`Invalid model spec "${spec}" — expected "provider/id"`);
-	const model = ctx.modelRegistry.find(spec.slice(0, slash), spec.slice(slash + 1));
+	const parts = splitModelSpec(spec);
+	if (!parts) throw new Error(`Invalid model spec "${spec}" — ${describeSpecDefect(spec)}`);
+	const model = ctx.modelRegistry.find(parts.provider, parts.id);
 	if (!model) throw new Error(`Unknown model "${spec}" — not found in the model registry`);
 	return model;
 }
