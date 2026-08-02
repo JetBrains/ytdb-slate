@@ -1,6 +1,6 @@
 # Releasing ytdb-slate
 
-Nine steps, in order. The agent owns most of them. The user owns three: the merge, the publication, and the merge of the pin pull request. Everything that reaches npm or the default branch is the user's act.
+Ten steps, numbered 0 to 9, in order. The agent owns most of them. The user owns three: the merge, the publication, and the merge of the pin pull request. Everything that reaches npm or the default branch is the user's act.
 
 Every command block enables fail-closed shell behavior. Do not continue after a failed command unless the applicable recovery branch says to continue.
 
@@ -8,13 +8,22 @@ Every command block enables fail-closed shell behavior. Do not continue after a 
 
 **Steps may run in separate sessions.** The first real release ran across four agent actions. Nothing carries between them in shell variables, so no step trusts one. Every block reloads machine-written state from a file, revalidates it, and re-derives the facts it gates on. A block that gates on a registry fact re-reads the registry; a typed word never unlocks anything.
 
-**No step assumes a single checkout.** This repository is worked in many worktrees at once — eleven at the time of writing. Every git command names its repository with `git -C`, and every gh command names its repository with `--repo`. The release itself happens in a dedicated worktree that step 9 removes.
+**No step assumes the checkout you happen to be standing in.** This repository is worked in many worktrees at once — eleven at the time of writing. Every git command names its repository with `git -C`, and every gh command names its repository with `--repo`. The release itself happens in a dedicated worktree that step 9 removes. One checkout is bound, once: step 0 records the checkout it runs in as `REPO_DIR`, and steps 1, 3, 7, 8 and 9 work in that recorded path rather than the current directory. Run step 0 in the umbrella PR branch checkout.
 
 **Some paths have never executed.** They are marked **Untested.** where they appear, and listed under "Untested paths" below. A marked path is reviewed, not proven. Read it before you run it.
 
 **Never set a state value by hand.** If a block stops because a state key is missing or malformed, re-run the step that writes that key. Hand-setting the value is how the first release turned a guard into a formality.
 
 **Declare the release once per session.** `export SLATE_RELEASE=<version>` before running any block; step 0 prints the line. Every block refuses to run without it and stops if it disagrees with the state behind the pointer. It is the one fact a block cannot derive — which release you mean — and it is never used as evidence for anything else.
+
+## Before you start
+
+Have all of this before step 0. Steps 5, 7 and 8 act in public, and a missing tool or a missing permission is cheap to fix now and expensive to find after publication.
+
+- **Tools on `PATH`:** bash 4 or newer (the blocks use `mapfile`, arrays and `[[ ]]`), git, GNU coreutils, `gh`, `node`, `npm`, `pi`, `tar`, `cmp`, `awk`, `sed`, `grep`, `diff`.
+- **GitHub:** `gh auth status` reports you as logged in, against the host that serves this repository, with write access to it. Step 7 pushes a tag and creates a release; step 8 pushes a branch and opens a pull request.
+- **npm:** the user who runs step 5 has an account that may publish `ytdb-slate` and can answer its two-factor prompt. The agent never needs npm credentials; it only reads the registry.
+- **The step 1 verification set:** run it as a normal user, not as root. The ladder needs GNU coreutils; the resolver checks need `pi` and `node`.
 
 ## Release state
 
@@ -51,7 +60,7 @@ What each step changes outside this machine, and how to find out whether it alre
 | 5 | **Publishes to npm. Irreversible.** By the user. | `npm view <package>@<version> version` succeeds. |
 | 6 | None. Read-only; downloads the published tarball. | **Not detectable, and does not need to be.** Re-running it is the intended way to resolve it. |
 | 7 | Pushes a tag and creates a GitHub release. | `git ls-remote --refs origin refs/tags/<tag>` and `gh release view <tag> --repo <repo>`. The block determines this itself before it creates anything. |
-| 8 | Pushes a branch and opens a pull request. The user merges it. | `gh pr list --repo <repo> --head dogfood-<version> --state all` shows the PR and whether it merged. |
+| 8 | Pushes a branch and opens a pull request. The user merges it. | `gh pr list --repo <repo> --head dogfood-<version> --state all` shows the PR and whether it merged. No PR means the attempt stopped before that; step 8's "If it stopped partway" tells you which state you are in and what to run. |
 | 9 | Removes the worktree it added. | `git worktree list` shows no path under the release directory. |
 
 Step 5 is the only irreversible step. Step 7 re-derives its gates on every run and detects its own prior completion. Step 8 reaches the default branch only through a pull request the user merges, so a repeated or stale run proposes a change rather than making one.
@@ -63,9 +72,12 @@ These have never run. Treat any of them as a hypothesis and read the commands be
 - The integrity-mismatch halt in step 6.
 - The inconclusive branch and escalation in step 6.
 - Every restart state in step 7 except "nothing exists yet".
+- The whole of step 8: the pin branch, its validation, the pull request, the recovery after a partway stop, and the checks after the merge. It replaced the earlier direct push to the default branch and has never run as a release path.
 - Teardown after a failure in step 9.
 
 ## Step 0 — the agent starts the release
+
+Run this block in the umbrella PR branch checkout. It records that checkout as `REPO_DIR`, the value is immutable, and step 1 verifies the bumped version there.
 
 Replace every `REPLACE_*` value. The guards reject placeholders, empty values, invalid versions and an invalid PR number.
 
@@ -253,9 +265,9 @@ eval "$STATE"
 
 Bump only `version` in `package.json`. Leave `.pi/settings.json` pinned to `npm:ytdb-slate@$PRIOR_VERSION`; step 8 moves the pin, after npm serves the new version. Follow `docs/pr-publishing.md` through the ready flip. Do not publish from the PR branch.
 
-Run this in the PR branch checkout, not in a release worktree — none exists yet.
+This block works in `REPO_DIR`, the checkout step 0 ran in; it does not use the directory you are standing in, and no release worktree exists yet. If step 0 recorded a checkout that is not the PR branch, the version assertion below stops the block. `REPO_DIR` is immutable, so the repair is to start the state again: steps 0 and 1 change nothing outside this machine, so delete the release directory printed by step 0, then run step 0 from the PR branch checkout.
 
-**Run the full verification set, not only the typecheck.** `AGENTS.md` names three automated nets and one manual load test, each with its own trigger. A release ships every file, so the release runs all of the automated ones unconditionally rather than deciding which of them the diff implicated:
+**Run the full verification set, not only the typecheck.** `AGENTS.md` names a typecheck, two automated behavioural nets — the ladder and the resolver checks; the typecheck is deliberately not one of them, because it sees shapes and never behaviour — and manual load tests, each with its own trigger. A release ships every file, so the release runs all of the automated ones unconditionally rather than deciding which of them the diff implicated:
 
 - `npm run typecheck` — the type gate. Seconds.
 - `bash verification/run-resolver-checks.sh --repo . --strict` — the pure pipelines: worker extensions, the doctrine rules, the model router, the dispatch guards, the state sanitizers, the profile table. About a second.
@@ -304,7 +316,7 @@ fi
 
 Both halves of that check matter and neither is sufficient. A nonzero exit is a failure outright, and the old block discarded it with `|| true`. Exit 0 proves nothing, because pi exits 0 when extension loading fails — hence the marker scan. The scan is a floor, not a ceiling: it names the failures seen so far, so read the log rather than trusting the three patterns to be exhaustive.
 
-That headless run proves registration and `session_start` only. It never enters orchestrator mode, so it never builds the doctrine and never consults the router. **If the release changes doctrine rendering, the router, or any dispatch path, also open an interactive `pi --no-extensions -e .` session and exercise the tools by hand before flipping the PR to ready.** The automated nets cover the resolution and the rendering; only a live session proves the wiring runs.
+That headless run proves registration and `session_start` only. It never enters orchestrator mode, so it builds no doctrine, consults no router and runs no tool or failover path. **If the release changes failover, doctrine rendering, the router, or any dispatch path, also open an interactive `pi --no-extensions -e .` session before flipping the PR to ready, and exercise `thread`, `threads` and `episode` by hand along with whatever changed.** `AGENTS.md` requires failover explicitly for this reason; the automated nets cover the resolution and the rendering, and only a live session proves the wiring runs.
 
 Finally, re-read the full diff before requesting the merge.
 
@@ -422,6 +434,10 @@ if (manifest.dependencies && Object.keys(manifest.dependencies).length) throw ne
 for (const name of sdk) {
   if (manifest.peerDependencies?.[name] !== "*") throw new Error(`${name} is not a peer at *`);
 }
+for (const name of ["typescript", "@types/node"]) {
+  if (manifest.peerDependencies?.[name]) throw new Error(`${name} must stay dev-only, not a peer`);
+}
+if (!(manifest.keywords ?? []).includes("pi-package")) throw new Error("keywords must keep pi-package; it is what lists the package in the gallery");
 NODE
 
 for path in \
@@ -431,6 +447,7 @@ for path in \
 do
   [[ -f "$PACK_DIR/unpacked/package/$path" ]]
 done
+[[ ! -e "$PACK_DIR/unpacked/package/tsconfig.json" ]]
 
 EXPECTED_DOCS="$PACK_DIR/expected-docs.txt"
 PACKED_DOCS="$PACK_DIR/packed-docs.txt"
@@ -454,6 +471,8 @@ node "$RELEASE_DIR/state.cjs" save "$RELEASE_DIR/release.json" --expect "$SLATE_
   TARBALL="$TARBALL" TARBALL_SHA256="$TARBALL_SHA256" TARBALL_INTEGRITY="$TARBALL_INTEGRITY"
 printf 'tarball:   %s\nsha256:    %s\nintegrity: %s\n' "$TARBALL" "$TARBALL_SHA256" "$TARBALL_INTEGRITY"
 ```
+
+The manifest checks cover all four packaging rules in `AGENTS.md`: the four SDK packages stay peers at `*`, the typecheck's tooling stays dev-only and out of the artifact, `keywords` keeps `pi-package`, and the docs check below proves `docs/` shipped.
 
 The docs check compares the tarball against the `docs/` tree of the merged commit and requires exact equality, so it cannot go stale when a document is added — as it did when it named five of the seven shipped documents. The floor of seven catches an empty or truncated `docs/` tree, and the named five are the documents the doctrine dereferences at runtime; a publish without them ships a broken doctrine.
 
@@ -523,6 +542,18 @@ set -euo pipefail
 RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
 STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION TARBALL TARBALL_SHA256 TARBALL_INTEGRITY HANDOFF_AT)
 eval "$STATE"
+
+# Every run reports only what it derived itself. Clear the last run's registry
+# evidence before anything can fail, so no surviving file can be read as a fact
+# about this result.
+REGISTRY_DIR="$RELEASE_DIR/registry"
+mkdir -p "$RELEASE_DIR/evidence"
+rm -rf "$REGISTRY_DIR" \
+  "$RELEASE_DIR/evidence/registry-view.json" \
+  "$RELEASE_DIR/evidence/registry-view.err" \
+  "$RELEASE_DIR/evidence/registry-result.txt"
+mkdir -p "$REGISTRY_DIR"
+
 [[ -f "$TARBALL" ]]
 HASHES=$(node "$RELEASE_DIR/hash.cjs" "$TARBALL")
 read -r NOW_SHA256 NOW_INTEGRITY <<<"$HASHES"
@@ -542,9 +573,6 @@ if VIEW_JSON=$(npm view "$PACKAGE@$VERSION" version dist.integrity dist.tarball 
   elif [[ "$REGISTRY_INTEGRITY" != "$TARBALL_INTEGRITY" ]]; then
     REGISTRY_RESULT='integrity-mismatch'
   else
-    REGISTRY_DIR="$RELEASE_DIR/registry"
-    rm -rf "$REGISTRY_DIR"
-    mkdir -p "$REGISTRY_DIR"
     if REGISTRY_JSON=$(cd "$REGISTRY_DIR" && npm pack "$PACKAGE@$VERSION" --json --pack-destination "$REGISTRY_DIR" 2>>"$VIEW_ERROR"); then
       REGISTRY_TARBALL="$REGISTRY_DIR/$(node -e "const x=JSON.parse(process.argv[1]);if(x.length!==1)throw Error('unexpected registry pack result');process.stdout.write(x[0].filename)" "$REGISTRY_JSON")"
       [[ -f "$REGISTRY_TARBALL" ]]
@@ -570,6 +598,8 @@ if [[ "$REGISTRY_RESULT" == 'verified' ]]; then
 fi
 ```
 
+The block clears `$RELEASE_DIR/registry/` and its three evidence files at the top, before any check can stop it. So whatever is there afterwards came from this run, on every branch: an empty `registry/` means this run downloaded nothing, and a missing `registry-view.json` means this run's `npm view` did not answer. Nothing needs a timestamp, because nothing outlives the run that wrote it.
+
 `cmp` returns 1 for files that differ and more than 1 for a comparison it could not make — an unreadable file, a truncated download, an I/O error. Only 1 is a mismatch. Anything above it leaves the result `inconclusive`, because a failed comparison is not evidence, and reporting it as a mismatch would raise an alarm about a healthy release.
 
 `registry-result.txt` and the recorded timestamp are a record, not a key. Steps 7 and 8 re-run the registry comparison themselves, so writing `verified` into a file or a variable unlocks nothing.
@@ -582,15 +612,18 @@ Use the matching branch:
 
   The runbook does not deprecate the version, move a dist-tag or unpublish anything. Those are public, irreversible acts on a package other people install, and an earlier draft of this document automated them: it read a byte difference and reached for `npm deprecate`. Review found two ways that path could fire on evidence that was stale or malformed. The action was worth less than the ways of getting it wrong, so it is gone. The runbook's job here is to put the facts in front of the user; the decision is theirs and is made outside this document.
 
-  The evidence is already where step 6 wrote it, under `$RELEASE_DIR/evidence/`: `registry-view.json`, `registry-view.err` and `registry-result.txt`, with the inspected tarball under `$RELEASE_DIR/artifact/`, the downloaded one under `$RELEASE_DIR/registry/`, and the recorded hashes in `release.json`. Nothing further needs collecting.
+  This run's evidence is under `$RELEASE_DIR/evidence/`: `registry-view.json`, `registry-view.err` and `registry-result.txt`, with the inspected tarball under `$RELEASE_DIR/artifact/`, the recorded hashes in `release.json`, and the downloaded tarball under `$RELEASE_DIR/registry/` — which is empty when the integrity values already differed, because the block downloads nothing once it knows they do. Nothing further needs collecting.
 
-  Re-run step 6 once after a few minutes before reporting: a mid-propagation read can differ. Then tell the user the version, the recorded sha256 and integrity of the inspected tarball, the integrity npm serves, the path of both tarballs, and whether the difference is in the integrity value, in the bytes, or in both.
+  Re-run step 6 once after a few minutes before reporting: a mid-propagation read can differ, and the re-run replaces the evidence with its own. Then tell the user the version, the recorded sha256 and integrity of the inspected tarball, the integrity npm serves, whether the difference is in the integrity value, in the bytes, or in both, and the path of the inspected tarball — with the downloaded one only if `$RELEASE_DIR/registry/` holds it.
 
   Either way this version number is spent. A published version cannot be replaced or reused, so a corrected release starts at step 0 with the next unused patch version.
 
-- **`inconclusive`. Untested.** The lookup failed. That can mean absence, propagation delay, lost permission, or a registry or network failure, and none of them is authoritative. Do not publish again.
+- **`inconclusive`. Untested.** The block reached no conclusion. Do not publish again. Two different causes end here and they need different work, so read `registry-view.err` and the block's own stderr first and name the one you have:
 
-  1. Preserve the evidence. It already belongs in `$RELEASE_DIR/evidence/`: `publish.log` from the user, `registry-view.err`, `registry-view.json` if it exists, `registry-result.txt`. Add the recorded `sha256` and integrity from `release.json`, which is already there. This directory is outside `/tmp` and outside the repository, so it survives a reboot and a worktree removal.
+  - **The registry read failed** — `npm view` errored, served another version, or served an integrity value the block could not compare. That can mean absence, propagation delay, lost permission, or a registry or network failure, and none of them is authoritative. This is what the numbered steps below are for.
+  - **The local evidence collection failed** — `npm pack` could not write the download, or `cmp` could not read a file: a full disk, a permission error, an unreadable path. The registry may be perfectly healthy; the block just could not look. Fix the local condition and re-run step 6. Do not wait, and do not escalate to npm: nothing here is evidence about the publication.
+
+  1. Preserve the evidence. It already belongs in `$RELEASE_DIR/evidence/`: `publish.log` from the user, `registry-view.err`, `registry-view.json` if this run's read answered, `registry-result.txt`. Add the recorded `sha256` and integrity from `release.json`, which is already there. This directory is outside `/tmp` and outside the repository, so it survives a reboot and a worktree removal.
   2. Wait and re-read. Re-run the step 6 block after 15 minutes, up to four times over an hour. Propagation delay resolves in that window.
   3. Widen the read once before escalating. `npm view "$PACKAGE" --json` returns the whole package document; enumerate its `versions` array rather than trusting a single-version E404. That distinction was what identified the true state during the first release.
   4. Escalate if it is still unresolved. Open a ticket at <https://www.npmjs.com/support> against the package `ytdb-slate`. Include: the version, the publish timestamp from `publish.log`, the full publish log, the `npm view` error output, the recorded sha256 and sha512 integrity, and the question asked plainly — was the publish transaction for this version accepted?
@@ -716,7 +749,9 @@ Last, and only after npm serves the verified artifact and step 7 passes.
 
 The pin bump is an ordinary pull request: a branch, one commit, the repository's review, a merge by the user. Earlier drafts pushed it straight to the default branch, which took a second worktree, a detached checkout, a completion probe and a chain of guards — and review still found two ways that push could carry content nobody had checked. All of it is gone. A pull request removes those failures by construction instead of by another guard, and no ruleset has to be worked around.
 
-One block does the whole preparation, from the gates to the pull request. It is deliberately not resumable in the middle: every seam between a check and an action was a place where the action ran on a stale check. The branch is made in the release worktree, which step 9 removes; a new branch is checked out nowhere else, so it cannot collide.
+One block does the whole preparation, from the gates to the pull request. It is deliberately not resumable in the middle: every seam between a check and an action was a place where the action ran on a stale check. If it stops partway, the way back is the reset below — a return to a clean start, not a resume. The branch is made in the release worktree, which step 9 removes; a new branch is checked out nowhere else, so it cannot collide.
+
+**Untested.** This whole step — the branch, the validation, the pull request, the reset, and the checks after the merge — replaced the earlier direct push to the default branch and has never run as a release path.
 
 ```bash
 set -euo pipefail
@@ -804,9 +839,40 @@ gh pr create --repo "$REPO" --base main --head "$PIN_BRANCH" --title "Dogfood $V
 gh pr view "$PIN_BRANCH" --repo "$REPO" --json url --jq '.url'
 ```
 
-The commit is checked after it exists, not before: `git show --numstat --format= HEAD` reads the commit object that will be pushed, so nothing between the working file and the commit can slip content past it.
+The commit is checked after it exists, not before: `git show --numstat --format= HEAD` reads the commit object that will be pushed, so no extra file and no larger edit reaches the branch unseen. It proves a one-line-for-one-line delta and not the exact bytes — a `pre-commit` or `commit-msg` hook, or a clean filter, can substitute one line for another and still pass it — which stays low severity only because the destination is a review-gated pull request branch and never `main`: read the diff on the pull request.
 
-Two failures to expect. `git switch -c` stops if the branch already exists, which means a previous attempt got that far — inspect that branch, then either push it and open the pull request by hand, or reset the worktree with `git -C "$WORKTREE" switch --detach "$SQUASH_SHA"` and `git -C "$WORKTREE" branch -D "$PIN_BRANCH"` and run the block again. `gh pr create` stops if a pull request for the branch already exists, and prints it; use that one.
+**If it stopped partway.** The block is one shot, so find the state first and do only what that state says. Take the first case that matches.
+
+1. **A pull request already exists.** `gh pr list --repo "$REPO" --head "dogfood-$VERSION" --state all` shows it. The block has nothing left to do; go to the merge below. `gh pr create` reports the same thing and prints the existing pull request.
+2. **The branch is on the remote and there is no pull request.** `git -C "$REPO_DIR" ls-remote --refs origin "refs/heads/dogfood-$VERSION"` shows it. The push runs only after the validation and the commit check passed, so that branch is the checked commit: open the pull request by hand with the `gh pr create` and `gh pr view` commands above. Do not run the block again.
+3. **Anything else.** Nothing was pushed, whatever the worktree and the local branch look like — including the common case where pi validation failed and left the new pin in the working file. Reset, then run the whole step 8 block again from the top:
+
+```bash
+set -euo pipefail
+: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
+RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
+STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" VERSION SQUASH_SHA WORKTREE)
+eval "$STATE"
+PIN_BRANCH="dogfood-$VERSION"
+
+# Drop the pin edit wherever it got to: working file, index, or a local commit.
+git -C "$WORKTREE" restore --source=HEAD --staged --worktree -- .pi/settings.json
+git -C "$WORKTREE" switch --detach "$SQUASH_SHA"
+if git -C "$WORKTREE" show-ref --verify --quiet "refs/heads/$PIN_BRANCH"; then
+  git -C "$WORKTREE" branch -D "$PIN_BRANCH"
+fi
+
+# Step 8 starts from a clean worktree at the squash commit. Prove it is one.
+[[ "$(git -C "$WORKTREE" rev-parse HEAD)" == "$SQUASH_SHA" ]]
+if [[ -n "$(git -C "$WORKTREE" status --porcelain)" ]]; then
+  printf 'Worktree %s is still not clean; inspect these paths before running step 8 again.\n' "$WORKTREE" >&2
+  git -C "$WORKTREE" status --porcelain >&2
+  exit 1
+fi
+printf 'Clean at %s. Run the step 8 block again from the top.\n' "$SQUASH_SHA"
+```
+
+The restore comes first on purpose. `git switch --detach` carries an uncommitted edit across, or refuses to move at all, so deleting the branch without it leaves the new pin in the working file and the rerun stops on its own cleanliness check — which is what the earlier reset did.
 
 **The user merges the pin pull request.** The agent must not merge it, exactly as in step 2. The pin PR is a normal one-line change and needs no release ceremony.
 
@@ -868,7 +934,7 @@ rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current"
 printf 'Release directory kept for the record: %s\n' "$RELEASE_DIR"
 ```
 
-Read the final `git worktree list`: no path under the release directory may remain, and no worktree may be left detached by this release. Removing the worktree leaves step 8's local branch behind; once its pull request is merged, delete it with `git -C <repository> branch -d dogfood-<version>`. Keep `$RELEASE_DIR` — the tarball, the hashes and the evidence are the record of what was published. Delete it by hand when it is no longer wanted.
+Read the final `git worktree list`: no path under the release directory may remain, and no worktree may be left detached by this release. Removing the worktree leaves step 8's local branch behind; once `gh pr list --repo <repo> --head dogfood-<version> --state all` shows its pull request merged, delete it with `git -C <repository> branch -D dogfood-<version>`. Use `-D`, because a squash merge leaves the branch tip outside the history of `main` and `-d` then refuses; the pull request state is the check that the work is in, not the ancestry. Keep `$RELEASE_DIR` — the tarball, the hashes and the evidence are the record of what was published. Delete it by hand when it is no longer wanted.
 
 If an escalation is open, skip this step until the escalation closes, then run it.
 
