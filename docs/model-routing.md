@@ -45,7 +45,7 @@ continuation alike:
 
 The arguments themselves do not become thread defaults. An explicit
 `effort` never governs a later action. An explicit `model` governs
-only its own action too, outside M1, M3 and M7. An omitted `effort`
+only its own action too, outside M1, M3, M6 and M7. An omitted `effort`
 is never "whatever the last action asked for":
 
 - **router on** — the thread's base effort, re-validated, or a level
@@ -89,9 +89,10 @@ ones known to bite, each with the code that implements it. **This
 list is not exhaustive.** `planRoute`, `decideModelSwitch` and
 `decideEffortSwitch` in `extension/route.ts`, applied by `applyRoute`
 in `extension/threads.ts`, are the authority: read them when you need
-certainty rather than a map. Every other statement in this document,
-in the README, in `model-failover.md` and in the tool descriptions
-names a case from this list instead of restating its conditions.
+certainty rather than a map. This section is the reference for these
+cases. Other sites may name or summarise them; if a summary disagrees,
+this section governs, with the source functions above the ultimate
+authority.
 
 Why the MODEL can differ:
 
@@ -111,7 +112,7 @@ Why the MODEL can differ:
   the mapped model and re-prompts once. One episode covers both
   attempts, and its `ran:` line names the model the action ended on
   rather than the planned one. *Code:* the `isFailoverCandidate`
-  block in `dispatch` (`threads.ts`) and `planFailoverSwitch`,
+  block in `runDispatch` (`threads.ts`) and `planFailoverSwitch`,
   guard 7 (`route.ts`).
 - **M3 — the revert was attempted and failed.** A dispatch that names
   no model switches the session back to the model it opened on. When
@@ -155,7 +156,7 @@ Why the MODEL can differ:
 
 Why the LEVEL can differ. There is no counterpart to M1 here: a
 dispatch that names no `effort` returns the session to the level it
-opened on, and M7 is the only case in which it does not.
+opened on. M7 and E6 are known cases in which it does not.
 
 - **E1 — pi clamps a level Slate cannot judge.** When the ladder for
   the judged model is unreadable — no profile, a throwing lookup, a
@@ -658,7 +659,8 @@ concern; a green suite says nothing about it.
   guard, billing notice, seeded base or candidate substitution, and
   Slate derives no effort level. A model-less plan targets the
   thread's pre-router pin, else nothing, so the session returns to the
-  model and level it opened on — outside M1, M3 and M7. An explicit `effort` is still judged against
+  model it opened on outside M1, M3 and M7, and to the level it opened
+  on outside M7 and E6. An explicit `effort` is still judged against
   the shipped profile for the plan target when pi's registry can serve
   that model. The `model` argument itself is passed through
   byte-for-byte, so a malformed spec still produces pi's own error.

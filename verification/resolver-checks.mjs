@@ -2100,7 +2100,7 @@ try {
 				["no warnings on a rejection", bad.warnings.length === 0, bad.warnings],
 				["case matters (pi's levels are lower-case)", upper.kind === "reject", verdict(upper)],
 				["a padded valid level is accepted", verdict(padded) === "proceed:p/a@high", verdict(padded)],
-				["...and is judged for the model that runs", padded.effortJudgedFor === "p/a", padded.effortJudgedFor],
+				["...and is judged for the model the planner routes to", padded.effortJudgedFor === "p/a", padded.effortJudgedFor],
 				["whitespace-only effort is not INVALID — it names no level, so one is derived", verdict(blank) === "proceed:p/a@off" && blank.effortJudgedFor === "p/a", [verdict(blank), blank.effortJudgedFor]],
 				["an omitted effort likewise derives the model's lowest measured level", verdict(omitted) === "proceed:p/a@off" && omitted.effortJudgedFor === "p/a", [verdict(omitted), omitted.effortJudgedFor]],
 				["guard 0 precedes guard 1", both.kind === "reject" && /thinking levels/.test(why(both)), why(both)],
@@ -2442,11 +2442,11 @@ try {
 		});
 
 		await section("route-effort-derived-for-model", async () => {
-			// THE ONE RULE, effort half (route.ts's header): the level an action runs at
-			// ALWAYS belongs to the model it actually runs on. A level stored on the thread
-			// was derived for the BASE model, so the moment the action runs somewhere else —
-			// an explicit `model`, or a window substitution — it is dropped and re-derived
-			// for the model that runs. Carrying it across was BG14: an action routed
+			// THE ONE RULE, effort half (route.ts's header): the level a plan resolves
+			// ALWAYS belongs to the model it routes to. A level stored on the thread was
+			// derived for the BASE model, so the moment the plan routes somewhere else — an
+			// explicit `model`, or a window substitution — it is dropped and re-derived for
+			// the routed model. Carrying it across was BG14: an action routed
 			// elsewhere inherited a budget derived for the base and was warned about, or
 			// (with allowUnmeasuredEffort false) REJECTED, for a level nobody requested.
 			//
@@ -2482,8 +2482,8 @@ try {
 			// inherits is caught only because the inherited level is invalid on the new model,
 			// and BG23's re-validation now corrects exactly that: it re-derives, so the
 			// disjoint fixture can no longer tell inheriting from deriving. When the stored
-			// level is VALID on the model that runs, nothing corrects it — the action simply
-			// runs at a level chosen for a different model, which is the whole of BG14. Here
+			// level is VALID on the routed model, nothing corrects it — the plan simply
+			// carries a level chosen for a different model, which is the whole of BG14. Here
 			// the stored level is `medium`, legal on both, while the target's own lowest
 			// measured level is `low`: deriving says `low`, inheriting says `medium`.
 			const shared = routeResolution([
@@ -2491,13 +2491,13 @@ try {
 				{ spec: "p/to", tier: 2, price: 2, ladder: ["low", "medium"], measured: ["low", "medium"] },
 			]);
 			const overlapping = plan({ resolution: shared, thread: { id: "t3", baseModel: "p/from", baseEffort: "medium" }, requestedModel: "p/to" });
-			checkAll("route-effort-derived-for-model", "a level stored on the thread is INHERITED only while the action runs on the base model it was derived for: an explicit per-action model gets that MODEL's own lowest measured level instead (so an inheriting implementation, which would refuse a level absent from the new model's ladder, cannot pass), and so does a model the window guard substituted in — while an EXPLICIT level is still judged hard against the model that runs, and `effortJudgedFor` always names that model", [
+			checkAll("route-effort-derived-for-model", "a level stored on the thread is INHERITED only while the planner routes to the base model it was derived for: an explicit per-action model gets that MODEL's own lowest measured level instead (so an inheriting implementation, which would refuse a level absent from the new model's ladder, cannot pass), and so does a model the window guard substituted in — while an EXPLICIT level is still judged hard against the routed model, and `effortJudgedFor` always names the model used for that judgement", [
 				["an explicit model derives its OWN lowest measured level", verdict(elsewhere) === "proceed:p/other@high", verdict(elsewhere)],
 				["...naming the model the level was judged for", elsewhere.effortJudgedFor === "p/other", elsewhere.effortJudgedFor],
 				["...with no warning: a derived level is measured by construction", elsewhere.warnings.length === 0 && elsewhere.effortUnmeasured === false, [elsewhere.warnings, elsewhere.effortUnmeasured]],
 				["...and no rejection even under allowUnmeasuredEffort:false (BG14)", verdict(strict) === "proceed:p/other@high", verdict(strict)],
-				["the stored level DOES apply while the action runs on its own base", verdict(onBase) === "proceed:p/base@low" && onBase.effortJudgedFor === "p/base", [verdict(onBase), onBase.effortJudgedFor]],
-				["an EXPLICIT level is still judged against the model that runs", explicitLevel.kind === "reject" && /p\/other's effort ladder \(high, max\)/.test(why(explicitLevel)), verdict(explicitLevel)],
+				["the stored level DOES apply while the planner routes to its own base", verdict(onBase) === "proceed:p/base@low" && onBase.effortJudgedFor === "p/base", [verdict(onBase), onBase.effortJudgedFor]],
+				["an EXPLICIT level is still judged against the routed model", explicitLevel.kind === "reject" && /p\/other's effort ladder \(high, max\)/.test(why(explicitLevel)), verdict(explicitLevel)],
 				["...and an explicit level that model HAS is honoured", verdict(explicitOk) === "proceed:p/other@max" && explicitOk.effortJudgedFor === "p/other", [verdict(explicitOk), explicitOk.effortJudgedFor]],
 				["a window substitution re-derives the level for the substituted model", verdict(substituted) === "proceed:p/wide@high" && substituted.effortJudgedFor === "p/wide", [verdict(substituted), substituted.effortJudgedFor]],
 				["with OVERLAPPING ladders the level is still DERIVED, not inherited", verdict(overlapping) === "proceed:p/to@low" && overlapping.effortJudgedFor === "p/to", verdict(overlapping)],
@@ -2825,7 +2825,7 @@ try {
 				contextTokens: 250_000,
 				wouldCompact: () => false,
 			});
-			// The notice belongs to the model the action actually runs on, so a window
+			// The notice belongs to the model the planner routes to, so a window
 			// substitution moves it to the substituted model.
 			const subRes = routeResolution([
 				{ spec: "p/small", tier: 1, price: 1, window: 100_000, measured: ["medium"] },
@@ -2838,7 +2838,7 @@ try {
 				wouldCompact: compactAt(20_000),
 				reserveTokens: 20_000,
 			});
-			checkAll("route-long-context", "the long-context BILLING notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a window substitution the notice belongs to the model the action actually runs on", [
+			checkAll("route-long-context", "the long-context BILLING notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a window substitution the notice belongs to the model the planner routes to", [
 				["fires above the threshold", warns(first, /long-context billing threshold/).length === 1, first.warnings],
 				["reports the spec for the caller to remember", first.longContextWarned === "p/lc", first.longContextWarned],
 				["names the threshold and both multipliers", /\(200,000 tokens\)/.test(first.warnings[0]) && /input bills ×2 and output ×1.5/.test(first.warnings[0]), first.warnings],

@@ -15,11 +15,11 @@
  * this, `model` was accepted only when a thread was created and silently ignored
  * on every later dispatch. The rules the dispatch path implements:
  *
- *  - RESOLUTION: the effective model is the explicit argument, else the thread's
- *    base model. The effective effort is the explicit argument, else the thread's
- *    base effort WHEN THE BASE MODEL IS THE ONE THAT RUNS, else a level derived
- *    for the model that does — a level never travels between models (route.ts's
- *    THE ONE RULE, effort half). The GUARDS ALWAYS VALIDATE THE RESOLVED PAIR,
+ *  - RESOLUTION: the planner's model is the explicit argument, else the thread's
+ *    base model. Its effort is the explicit argument, else the thread's base effort
+ *    WHEN THE BASE MODEL IS THE ROUTE TARGET, else a level derived for that target —
+ *    a level never travels between planner targets (route.ts's THE ONE RULE, effort
+ *    half). The GUARDS ALWAYS VALIDATE THE RESOLVED PAIR,
  *    never only the explicit arguments — an omitted argument must not escape
  *    validation.
  *

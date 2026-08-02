@@ -29,10 +29,10 @@
  *   refused: the fall-through path must always have a valid destination, or
  *   configuring a list would strand every thread that predates it.
  *
- *   EFFORT — the level an action runs at is ALWAYS one that belongs to the model it
- *   actually runs on: either the caller named it, in which case it is judged against
- *   THAT model's own ladder, or it is derived from that model (its lowest MEASURED
- *   level). A level derived for one model is never carried onto another, and a level
+ *   EFFORT — the level the planner resolves is ALWAYS one that belongs to the model
+ *   it routes to: either the caller named it, in which case it is judged against THAT
+ *   model's own ladder, or it is derived from that model (its lowest MEASURED level).
+ *   A level derived for one model is never carried onto another, and a level
  *   STORED for this one is only replayed while today's table still reads it as `ok` —
  *   a cached derivation must not outlive the evidence it was derived from. `effort`
  *   therefore reports one and only one thing, and `effortJudgedFor` names the model
@@ -75,7 +75,7 @@
  *      above: absent or off-list, it is re-seeded, so only an EXPLICIT off-list
  *      model is ever refused.
  *   5. CONTEXT WINDOW: never a hard block, and it runs BEFORE the effort guards so
- *      that every effort judgement is about the model that will actually run. The
+ *      that every effort judgement is about the model the planner routes to. The
  *      REGISTRY window (which is what a RouterCandidate carries; a profile's own
  *      figure is documentation only) reduced by pi's compaction reserve, judged by
  *      pi's OWN predicate. A model that cannot hold the thread's context is
@@ -430,7 +430,7 @@ export type EffortSwitchDecision =
  * whole rule, in one pure function, mirroring decideModelSwitch:
  *
  *   1. the level the PLAN resolved (an explicit `effort`, the thread's stored default
- *      once re-validated, or one derived for the model that runs);
+ *      once re-validated, or one derived for the model the planner routes to);
  *   2. failing that, the level the session was OPENED on — pi's clamped settings
  *      default. This is the RESTORE, and it is what makes `effort` per-ACTION: without
  *      it a level set by one action silently governs the next (BG18).
@@ -995,17 +995,17 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		}
 	}
 
-	// ---- the EFFORT, for the model that will ACTUALLY run (THE ONE RULE, effort half)
+	// ---- the EFFORT, for the model the planner routes to (THE ONE RULE, effort half)
 	//
-	// The model is final now (guard 1 accepted it, guard 5 may have moved it), so the
-	// level can be settled against THAT model and nothing else:
+	// The routed model is final inside planRoute (guard 1 accepted it, guard 5 may have
+	// moved it), so the level can be settled against THAT model and nothing else:
 	//
 	//  · an EXPLICIT `effort` is judged against it, hard — the caller named a level and
 	//    is entitled to be told it does not exist there rather than silently clamped;
 	//  · a level INHERITED from the thread's base applies only while the base model is
-	//    the model that runs. The moment they differ — an explicit `model`, or a window
-	//    substitution — the inherited level is DROPPED and re-derived for the model that
-	//    runs (its lowest MEASURED level, or nothing when it has none). Carrying it over
+	//    the routed model. The moment they differ — an explicit `model`, or a window
+	//    substitution — the inherited level is DROPPED and re-derived for the routed
+	//    model (its lowest MEASURED level, or nothing when it has none). Carrying it over
 	//    was BG14: an action explicitly routed to another model inherited a budget
 	//    derived for the base, and was warned about — or, with allowUnmeasuredEffort
 	//    false, REJECTED — for a level nobody had asked for.

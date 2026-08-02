@@ -49,7 +49,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					description:
 						"Worker model \"provider/id\" for THIS action. Omit it to plan for the thread's base model with " +
 						"routing on, or for its pre-router pin with routing off. With no pin the worker session returns to " +
-						"the model it opened on. Cases M1, M3, M6 and M7 in docs/model-routing.md are when it does not.",
+						"the model it opened on. Cases M1, M3 and M7 in docs/model-routing.md are when it does not.",
 				}),
 			),
 			effort: Type.Optional(
