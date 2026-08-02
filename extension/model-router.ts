@@ -770,8 +770,11 @@ function frozenResolution(
  * decides anything — `router.allowUnmeasuredEffort` and the refusal wording
  * live in the dispatch path.
  *
- * With the router OFF every pair is `ok`: the list guard is inert exactly as it
- * was before the router existed. An omitted/empty effort is also `ok` — the
+ * With the router OFF this predicate reports `ok` for every pair, having no
+ * candidate list to judge against — a statement about THIS function only, since
+ * route.ts feeds it a SYNTHESISED one-candidate resolution built from its
+ * injected profile source, so a router-OFF explicit level can still be refused.
+ * An omitted/empty effort is also `ok` — the
  * ladder question only arises for a level the caller actually asked for.
  * `listedGap` distinguishes an authored evidence gap from one the table never
  * mentioned (see EffortVerdict/BG9); both are advisory.

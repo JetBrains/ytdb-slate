@@ -2880,7 +2880,7 @@ try {
 				contextWindow: 200_000,
 				wouldCompact: compactAt(20_000),
 			});
-			checkAll("route-failover", "a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a NON-SUBSTITUTING window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-off session keeps its pre-router failover behaviour exactly", [
+			checkAll("route-failover", "a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a NON-SUBSTITUTING window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-OFF failover emits no window warning at all, which is the only pre-router equivalence asserted here", [
 				["an unlisted target is allowed", bypass.kind === "proceed" && bypass.model === "p/unlisted", verdict(bypass)],
 				["an off-vocabulary effort argument is ignored, not rejected", bypass.effort === undefined && bypass.effortUnmeasured === false, verdict(bypass)],
 				["silently", bypass.warnings.length === 0, bypass.warnings],

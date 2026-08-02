@@ -90,15 +90,18 @@ Failover applies at three sites:
   nudge. The transcript is preserved; usage and cost accumulate across
   both attempts. The thread stays on the mapped model while its
   session is live, including across later model-less actions. The hold
-  ends when the session is reopened or disposed, or when a later
-  non-`openOnly` route actually moves the live session. Such a route is
-  an explicit per-action model on either router state, or the thread's
-  base route while the router is ON; an OFF pre-router pin is
-  `openOnly` and therefore does not release the hold. The `threads`
-  listing marks the held session as `live=<model> (failover)`, where
-  `<model>` is the fallback the live worker currently runs. The marker
-  disappears on session disposal or reopen, or when a later
-  non-`openOnly` route moves the live session.
+  ends when the session is disposed, and when a later non-`openOnly`
+  route moves the live session: an explicit per-action model on either
+  router state, or the thread's routed base while the router is ON. An
+  OFF pre-router pin is `openOnly` and therefore does not release it. A
+  reopen ends the hold too, with one exception (CQ3 in `threads.ts`):
+  when the reopening dispatch resolves no model at all and the host
+  session has none either, pi restores the session file's last model
+  change, which can be the fallback. The `threads` listing marks the
+  held session `live=<model> (failover)`, naming the fallback the live
+  worker runs. That marker is cleared on disposal and on reopen —
+  including in the CQ3 case, where the fallback outlives its marker —
+  and when a route moves the live session.
 - **Episode compression.** The compression call is retried once with
   the mapped compressor model — only if it is distinct from the
   original, resolvable, and authed. If the retry also fails, the

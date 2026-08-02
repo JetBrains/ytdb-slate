@@ -47,8 +47,8 @@
  * window guard, billing notice, seeded or persisted base, or tracker input. The
  * plan target is the `model` ARGUMENT (honoured per action) or else the thread's
  * PRE-ROUTER PIN; the pin only opens a NEW worker session and never instructs a
- * live one to switch (`openOnly`). A later switch decision may keep a successful
- * failover fallback active instead of applying that open-only target. The raw
+ * live one to switch (`openOnly`). A later switch decision KEEPS a held failover
+ * fallback rather than applying an open-only target (decideModelSwitch). The raw
  * argument still passes through byte-for-byte, so a malformed spec produces pi's
  * own error rather than a router opinion.
  *
@@ -719,8 +719,9 @@ function count(tokens: number): string {
  * failover. What remains is the one rule failover itself must obey (never the
  * model that just failed) and a NON-SUBSTITUTING window check that warns and
  * proceeds — substituting here would be the router vetoing failover by another
- * name. Gated on the router being ON so a router-off session keeps exactly its
- * pre-router failover behaviour.
+ * name. Gated on the router being ON, so a router-OFF failover gets no window
+ * warning at all: that is the pre-router behaviour of THIS branch, not of the
+ * dispatch path, where a router-OFF action's own `model` still moves a session.
  */
 function planFailoverSwitch(input: RoutePlanInput, resolution: ModelRouterResolution, target: string | undefined): RoutePlanVerdict {
 	const warnings: string[] = [];

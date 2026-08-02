@@ -8,15 +8,16 @@ ladder — chosen to be up to the task and no more, so the bill is
 bounded by the action rather than by the session's current model.
 The list is empty by default. With no entries the router is OFF: no
 model list is enforced, no thread gets a seeded base, and the
-router's window, billing and substitution paths are inert. A
-dispatch that names no model has the thread's pre-router pin, else
-the host session's model, as its plan target. That target is not
-always the model that ultimately runs. If a successful
-`modelFailover` holds a live worker on its fallback, a later
-model-less dispatch leaves the fallback active until the worker
-session is reopened or disposed, or a later non-`openOnly` route
-moves it. The per-action `model` and `effort` arguments themselves
-are honoured on both router states; see the accepted limitations.
+router's window, billing and substitution paths are inert, and no
+effort level is derived. A dispatch that names no model plans for the
+thread's pre-router pin, and for no model at all when the thread has
+none: a new worker then opens on the host session's model, and a
+reused one stays on the model it opened on. That plan target is not
+always the model that runs — a successful `modelFailover` holds a
+live worker on its fallback, and a later model-less dispatch leaves
+that fallback in place. The per-action `model` and `effort` arguments
+themselves are honoured on both router states; see the accepted
+limitations.
 
 This document is reference documentation, not workflow doctrine.
 
@@ -35,15 +36,17 @@ Two route inputs are per dispatch — on a new thread and on a
 continuation alike:
 
 - **the model** — the `model` argument (`"provider/id"`), else the
-  thread's base model (router ON), else the thread's pre-router pin
-  or the host session's model (router OFF);
+  thread's base model (router ON), else the thread's pre-router pin,
+  else no plan target at all, in which case the worker session's own
+  model applies (router OFF);
 - **the effort level** — the `effort` argument (one of pi's thinking
   levels), else a level Slate resolves for the model that actually
   runs (router ON) or the level the worker session opened on (router
   OFF). See [Effort levels](#effort-levels).
 
-The arguments themselves do not become thread defaults: an explicit
-`model` or `effort` ordinarily governs only its own action. An
+The arguments themselves do not become thread defaults. An explicit
+`effort` never governs a later action. An explicit `model` governs
+only its own action as well, with the single exception below. An
 omitted `effort` is never "whatever the last action asked for":
 
 - **router on** — the thread's base effort, re-validated, or a level
@@ -59,11 +62,15 @@ omitted `effort` is never "whatever the last action asked for":
 
 The model axis has one live-session exception. A successful
 `modelFailover` holds the worker on its fallback, so a later dispatch
-that omits `model` leaves that fallback active even though its OFF
-plan target is the thread's pin or the host model. The hold ends when
-the worker session is reopened or disposed, or when a later
-non-`openOnly` route moves it. This stickiness predates action-level
-routing; see [Accepted limitations](#accepted-limitations) and
+that omits `model` keeps that fallback instead of its own plan
+target. The hold ends on disposal, and when a later non-`openOnly`
+route moves the live session; a reopen ends it as well, except when
+the reopening dispatch resolves no model and the host session has
+none (CQ3), where pi can restore the fallback from the session file.
+The effort axis has no such exception: a dispatch naming no `effort`
+always returns the session to the level it opened on. This stickiness
+predates action-level routing; see [Accepted
+limitations](#accepted-limitations) and
 [model-failover.md](model-failover.md).
 
 A thread's base model and base effort are separate planning state,
@@ -210,7 +217,8 @@ The vocabulary is pi's ladder and nothing else: `off`, `minimal`,
 actually offers is per model — the shipped table records a ladder
 per model id, not a family rule.
 
-**An omitted `effort` never resolves to a fixed default.** In order:
+**An omitted `effort` never resolves to a fixed default.** With the
+router ON, in order:
 
 1. the thread's stored base effort — but only when the action runs
    on the thread's base model, and only while that stored level
@@ -228,14 +236,18 @@ per model id, not a family rule.
    the level the worker session opened on applies, which is pi's own
    settings default — never a level another action left behind.
 
+With the router OFF Slate resolves no level at all, so that same
+opening level applies to every action that omits `effort`.
+
 So a higher level is only ever reached by naming it: pass `effort`
 explicitly on the dispatch. A derived level is measured by
 construction and therefore cannot trip the effort guards; only an
 explicit one can.
 
-An explicit level is judged against the model the action will
-actually run on, and the difference between a warning and a refusal
-is:
+An explicit level is judged against the model the action is PLANNED
+to run on — `effortJudgedFor` names it, and a later failover can move
+the action to another model without changing that judgement. The
+difference between a warning and a refusal is:
 
 - **evidence gap** (the level is on that model's ladder but no
   traced source reports a capability result there) — advisory. The
@@ -537,15 +549,17 @@ concern; a green suite says nothing about it.
   `slate.json`, both need a new pi session.
 - **Router OFF disables candidate routing, not action arguments or
   failover.** With an empty list there is no model list, window
-  guard, billing notice, seeded base or candidate substitution. A
-  model-less plan targets the thread's pre-router pin, else the host
-  session's model, but that target does not undo a live
-  `modelFailover`: a held fallback remains active until the worker
-  session is reopened or disposed, or a later non-`openOnly` route
-  moves it. An explicit `effort` is still judged against the shipped
-  profile for the plan target when pi's registry can serve that model.
-  The `model` argument itself is passed through byte-for-byte,
-  so a malformed spec still produces pi's own error.
+  guard, billing notice, seeded base or candidate substitution, and
+  Slate derives no effort level. A model-less plan targets the
+  thread's pre-router pin, else nothing, and the worker session's own
+  model and opening level then apply. That plan does not undo a live
+  `modelFailover`: a held fallback stays until the session is disposed
+  or a later non-`openOnly` route moves it, and a reopen releases it
+  unless the reopening dispatch resolves no model and the host session
+  has none (CQ3). An explicit `effort` is still judged against the
+  shipped profile for the plan target when pi's registry can serve
+  that model. The `model` argument itself is passed through
+  byte-for-byte, so a malformed spec still produces pi's own error.
 - **A mid-thread model switch costs the prompt cache.** A long
   thread runs overwhelmingly on cache reads; routing a small action
   to a cheaper model on a cold cache can cost more than staying on

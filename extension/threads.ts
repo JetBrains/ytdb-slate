@@ -39,14 +39,17 @@
  *  - ROUTER OFF MAKES ROUTER-OWNED MECHANISMS INERT. No list guard, window guard,
  *    billing notice, seeded or persisted base, or consultation of the
  *    orchestrator's tracked model: a model-less plan targets the thread's
- *    creation-time PIN — which only opens a NEW worker session (`openOnly`) — else
- *    the host's current model. The `model` and `effort` arguments still apply per
- *    action. An explicitly passed `effort` is validated against the plan target's
+ *    creation-time PIN — which only opens a NEW worker session (`openOnly`) — and
+ *    nothing at all when there is no pin, so a NEW session opens on the host's
+ *    current model (worker.ts) and a reused one keeps the model it opened on. The
+ *    `model` and `effort` arguments still apply per action, and an `effort`
+ *    explicitly passed is validated against the plan target's
  *    ladder, and a level set by one action is put back to the session's opening
  *    level by the next. The MODEL an explicit argument routes to is normally
  *    reverted the same way (BG22), but a successful failover holds the live session
- *    on its fallback until a non-open-only route moves it or the session is reopened
- *    or disposed (BG16). The hold predates the router; an OFF plan does not undo it.
+ *    on its fallback until a non-open-only route moves it or the session is disposed
+ *    (BG16); a reopen ends it too, outside the one shape CQ3 records below. The hold
+ *    predates the router; an OFF plan does not undo it.
  *
  *    An earlier iteration seeded the base from the tracker here and persisted it.
  *    That undid failovers on reused sessions, could strand a thread once its
@@ -520,11 +523,12 @@ export class ThreadManager {
 	): RoutePlanInput {
 		const resolution = this.routerResolution();
 		// CQ17: the window guard is router-ON only, so with the router OFF pi's compaction
-		// settings are NOT READ and no predicate is built. "Router off = invisible" is
-		// about what this feature DOES, not only about what it decides: the read is a
+		// settings are NOT READ and no predicate is built. The router-OFF path must add no
+		// router-owned SIDE EFFECT, not merely no router-owned decision: the read is a
 		// lock-protected disk read, and performing it for a guard that cannot fire is the
-		// kind of side effect the invariant exists to forbid. (Memoized per manager, so
-		// this was never a cost question.) The router-ON path is untouched, including the
+		// kind of side effect that rule exists to forbid. (Memoized per manager, so this
+		// was never a cost question.) Per-action argument and effort paths are unaffected
+		// by it. The router-ON path is untouched, including the
 		// `enabled: true` forcing below, which is load-bearing.
 		const settings = resolution.on ? this.compactionSettings(ctx) : undefined;
 		return {

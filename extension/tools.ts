@@ -20,9 +20,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"to continue that thread — it retains the context of all its previous actions.",
 			"Use `context` to inject prior episodes (by id, from any thread) into the action.",
 			"Threads are serial; to parallelize, dispatch to DIFFERENT threads in one message.",
-			"`model` (\"provider/id\") and `effort` (pi thinking level) route THIS ACTION ONLY — new thread",
-			"or continuation alike; the next action reverts to the thread's defaults, which is also what",
-			"an omitted argument runs on.",
+			"`model` (\"provider/id\") and `effort` (pi thinking level) route THIS ACTION ONLY, on a new thread",
+			"or a continuation. With routing on the next action returns to the thread's base model and level.",
+			"With routing off it returns to the model and level its worker session opened on.",
+			"One exception: while a failover holds the worker on a fallback, a later action that omits `model` keeps it.",
 			"`tools` applies only when creating a new thread.",
 			"Guarded: a level the model does not offer is a tool error, as is a model outside the routable",
 			"list where a project configures one; advisory notices (evidence gaps, cost cliffs, window",
@@ -43,14 +44,20 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				Type.Array(Type.String(), { description: "Episode ids to inject as context (e.g. [\"t1.e2\"])" }),
 			),
 			model: Type.Optional(
-				Type.String({ description: "Worker model \"provider/id\" for THIS action; omit to use the thread's base model" }),
+				Type.String({
+					description:
+						"Worker model \"provider/id\" for THIS action. Omit it to use the thread's base model with routing " +
+						"on, or the model its worker session opened on with routing off. A held failover fallback stays " +
+						"in place for an action that omits this.",
+				}),
 			),
 			effort: Type.Optional(
 				Type.String({
 					description:
-						"Thinking level for THIS action: off, minimal, low, medium, high, xhigh or max " +
-						"(only levels the target model offers); omit to let slate choose — the thread's " +
-						"default level, or one measured for the model that runs",
+						"Thinking level for THIS action: off, minimal, low, medium, high, xhigh or max. " +
+						"Slate refuses a level the planned model does not offer whenever it has that model's ladder. " +
+						"Omit it for the thread's default or a measured level with routing on, or for the level the " +
+						"worker session opened on with routing off.",
 				}),
 			),
 			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
@@ -148,7 +155,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const marks: string[] = [];
 				// The thread's NOMINAL model — the planner target for a dispatch that omits
 				// `model` (?? t.model: an older thread carries only the pre-router pin).
-				// Absent means the planner falls through to the host model. A separate
+				// Absent means the plan has no model: a NEW session then opens on the host
+				// model and a reused one keeps the model it opened on. A separate
 				// `live=` marker below overrides this display while failover holds the session.
 				const base = t.baseModel ?? t.model;
 				// CQ19: the MODEL half is authoritative as nominal planning state (an unroutable
