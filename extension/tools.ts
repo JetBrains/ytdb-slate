@@ -146,15 +146,15 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			const lines = threads.map((t) => {
 				const episodes = t.episodeIds.length > 0 ? t.episodeIds.join(", ") : "(none)";
 				const marks: string[] = [];
-				// The thread's DEFAULT model — what a dispatch that omits `model` runs on
-				// (?? t.model: a thread created before per-action routing existed carries
-				// only the pre-router pin). Absent for a thread whose base could not be
-				// resolved: it then runs on the host's current model, as it always did.
+				// The thread's NOMINAL model — the planner target for a dispatch that omits
+				// `model` (?? t.model: an older thread carries only the pre-router pin).
+				// Absent means the planner falls through to the host model. A separate
+				// `live=` marker below overrides this display while failover holds the session.
 				const base = t.baseModel ?? t.model;
-				// CQ19: the MODEL half is authoritative (an unroutable base is re-seeded, so this
-				// is what a dispatch that omits `model` will use), but the LEVEL half is only a
-				// STORED default: every dispatch re-checks it against the model's current
-				// capability data and silently derives a fresh one if the profile table has moved
+				// CQ19: the MODEL half is authoritative as nominal planning state (an unroutable
+				// base is re-seeded, so this is what an omitted `model` resolves to), but the
+				// LEVEL half is only a STORED default: every dispatch re-checks it against the
+				// model's current capability data and silently derives a fresh one if the table has moved
 				// under it (BG23). Reporting it bare would present a value that may not survive
 				// contact with the next action as fact — the `?` says so, and the tool description
 				// says what it means. `last=` below carries no such caveat: that one is what ran.

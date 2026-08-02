@@ -43,13 +43,14 @@
  * DIFFERENT model, and applying it produced evidence-gap warnings — or, with
  * allowUnmeasuredEffort:false, outright rejections — for a level nobody requested.
  *
- * WITH THE ROUTER OFF THIS MODULE IS INVISIBLE. No list, no window guard, no
- * billing notice, no seeded or persisted base, no tracker: the model a dispatch
- * runs on is the `model` ARGUMENT (honoured per action, which is the one addition)
- * or else the thread's PRE-ROUTER PIN — and the pin is only ever the model a NEW
- * worker session opens with, never a reason to switch a live one (`openOnly`).
- * The argument itself is passed through byte-for-byte, so a malformed spec still
- * produces pi's own error rather than a router opinion.
+ * WITH THE ROUTER OFF ITS PLANNER-OWNED MECHANISMS ARE INERT. There is no list,
+ * window guard, billing notice, seeded or persisted base, or tracker input. The
+ * plan target is the `model` ARGUMENT (honoured per action) or else the thread's
+ * PRE-ROUTER PIN; the pin only opens a NEW worker session and never instructs a
+ * live one to switch (`openOnly`). A later switch decision may keep a successful
+ * failover fallback active instead of applying that open-only target. The raw
+ * argument still passes through byte-for-byte, so a malformed spec produces pi's
+ * own error rather than a router opinion.
  *
  * A FAILURE TO READ EVIDENCE IS NOT EVIDENCE OF A PROBLEM. Every injected data
  * source may be missing, throwing or malformed — a profile lookup, a ladder
@@ -68,8 +69,8 @@
  *      is one that is not a STRING at all, since reading a malformed argument as
  *      absent would quietly run the action at the thread's base level instead.
  *   1. LIST MEMBERSHIP (router ON only): a resolved model outside the effective
- *      candidate list is rejected, naming the list. With the router OFF the model
- *      argument behaves exactly as it did before the router existed.
+ *      candidate list is rejected, naming the list. With the router OFF this guard
+ *      does not enforce a list; the raw model argument continues to pi unchanged.
  *      A THREAD'S BASE is exempt by REPAIR, not by exception — see THE ONE RULE
  *      above: absent or off-list, it is re-seeded, so only an EXPLICIT off-list
  *      model is ever refused.
@@ -153,7 +154,7 @@ export interface RoutePlanInput {
 	requestedModel?: string;
 	/** The dispatch's `effort` argument, raw and unvalidated. */
 	requestedEffort?: string;
-	/** The session's FROZEN router resolution. An off resolution = the pre-router dispatch path. */
+	/** The session's FROZEN router resolution. An off resolution supplies no router candidates. */
 	resolution: ModelRouterResolution;
 	/** router.allowUnmeasuredEffort. Default TRUE: only an explicit false refuses an evidence gap. */
 	allowUnmeasuredEffort?: boolean;
@@ -515,11 +516,10 @@ export type RoutePlanVerdict = RoutePlanProceed | RoutePlanReject;
 /**
  * Normalise whatever the session's router resolver handed back.
  *
- * A malformed or half-built resolution must leave the dispatch path exactly as it
- * is with the router OFF — that is the pre-router behaviour, so it is always a
- * safe answer — because the guards below walk `candidates` directly. (checkEffort
- * tolerates a junk resolution on its own, CQ5; this is about the list guard and
- * the window guard.) Shared with threads.ts so the shape check has ONE definition.
+ * A malformed or half-built resolution falls back to the shared ROUTER_OFF value
+ * because candidate-dependent planner paths below walk `candidates` directly.
+ * (checkEffort tolerates a junk resolution on its own, CQ5.) Shared with threads.ts
+ * so the shape check has ONE definition.
  */
 export function usableResolution(value: unknown): ModelRouterResolution {
 	const resolution = value as ModelRouterResolution | undefined;
@@ -810,10 +810,10 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	/** Router OFF only: the thread's pre-router `model` pin, which OPENS a session and never switches one. */
 	let pin: string | undefined;
 	if (!resolution.on) {
-		// ROUTER OFF — this module is INVISIBLE (module header). The pre-router code
-		// passed ONE thing to the worker opener — the thread's `model` pin, undefined for
-		// most threads — and never touched a live session's model again. So that is all
-		// that happens here, for existing and new threads alike:
+		// ROUTER OFF — this planner seeds no base and applies no candidate-dependent
+		// guard. The pre-router code passed ONE thing to the worker opener — the thread's
+		// `model` pin, undefined for most threads — and never used that pin to move a
+		// live session. This branch preserves that open-only planning rule:
 		//
 		//  · nothing is SEEDED and nothing is PERSISTED: `baseModel`/`baseEffort` stay
 		//    undefined, so the caller writes no base onto the record. An earlier version
@@ -924,9 +924,9 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	let model = explicit ?? baseModel ?? pin;
 	const openOnly = model !== undefined && model === pin && explicit === undefined;
 
-	// GUARD 1 — list membership. Router ON only; with the router off the `model`
-	// argument behaves exactly as it did before the router existed. Validated on the
-	// RESOLVED model, but only an EXPLICIT one can trip it: a new thread's base is a
+	// GUARD 1 — list membership. Router ON only; with the router off this guard does
+	// not inspect or reject the raw `model` argument. Validated on the RESOLVED model,
+	// but only an EXPLICIT one can trip it: a new thread's base is a
 	// listed candidate by construction (D48), and an existing thread's was re-seeded
 	// above if it was not — which is what keeps a dispatch that omitted `model` from
 	// ever landing here.

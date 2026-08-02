@@ -4,7 +4,7 @@
 
 This repo is a [pi package](https://pi.dev/docs/latest/packages) providing the **slate** extension: thread-weaving orchestration for pi (orchestrator dispatches bounded actions to persistent worker threads; results come back as compressed episodes; a shipped doctrine enforces the research/design-review/adversarial-review/track-review workflow, with optional draft-PR publishing).
 
-Dispatch also carries **action-level model routing**: `router.models` in the project's `slate.json` names a CLOSED candidate list, resolved once per session, from which each action's model and effort are chosen and guarded. It is off by default — an empty list is byte-for-byte the pre-router behaviour. Reference: `docs/model-routing.md`, which the doctrine now cites at runtime alongside the workflow/review/design docs.
+Dispatch also carries **action-level model routing**: `router.models` in the project's `slate.json` names a CLOSED candidate list, resolved once per session, from which each action's model and effort are chosen and guarded. It is off by default: an empty list adds no candidate-routing policy, base seed, context-window substitution, billing notice, or routing doctrine rule. Per-action arguments and pre-existing live failover holds remain active. Reference: `docs/model-routing.md`, which the doctrine cites at runtime alongside the workflow/review/design docs.
 
 - Extension entry point: `extension/index.ts`
 - Shipped doctrine docs: `docs/` — `track-workflow.md`, `review-rules.md`, `design-principles.md`, `pr-publishing.md` and (since routing shipped) `model-routing.md` are cited by ABSOLUTE path resolved inside the installed package (`extension/paths.ts`)

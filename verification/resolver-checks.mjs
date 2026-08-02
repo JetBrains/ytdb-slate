@@ -2181,9 +2181,9 @@ try {
 				["a listed model routes the action, at a level derived FOR IT", verdict(listed) === "proceed:p/dear@medium" && listed.effortJudgedFor === "p/dear", [verdict(listed), listed.effortJudgedFor]],
 			]);
 
-			// Router OFF: the SAME input must behave exactly as it did before the router
-			// existed — the model argument is passed through unvalidated (pi's own "unknown
-			// model" error is what a bad one must still hit), and nothing is warned.
+			// Router OFF: no candidate-list policy applies to the same input. The raw model
+			// argument passes through for pi to resolve, while a valid-vocabulary effort with
+			// no usable ladder data passes without a ladder verdict or warning.
 			const off = plan({ resolution: router.ROUTER_OFF, thread: { id: "t1", baseModel: "p/cheap" }, requestedModel: "p/other" });
 			const offEffort = plan({ resolution: router.ROUTER_OFF, requestedModel: "p/other", requestedEffort: "max" });
 			// The pre-router pin is the ONLY thing router-off resolves a model from — and a
@@ -2200,7 +2200,7 @@ try {
 				wouldCompact: compactAt(20_000),
 				reserveTokens: 20_000,
 			});
-			checkAll("route-list-off", "with the router OFF every guard is inert and the module is INVISIBLE — the pre-router dispatch path: an unlisted model and a ladder-less effort pass through unvalidated and unwarned, the `model` argument is passed through byte-for-byte (so pi still owns malformed-spec errors), the thread's PRE-ROUTER PIN is the only fall-through and it is open-only, a stored baseModel resolves nothing, and no effort is derived", [
+			checkAll("route-list-off", "with the router OFF the candidate-list and window guards are inert: an unlisted model and a ladder-less valid-vocabulary effort pass through unwarned, the `model` argument is preserved byte-for-byte for pi to resolve, the thread's PRE-ROUTER PIN is the planner's only model-field fall-through and is open-only, a stored baseModel resolves nothing, and no effort is derived; this check stops at planner output", [
 				["unlisted model proceeds", verdict(off) === "proceed:p/other@undefined", verdict(off)],
 				["silently", off.warnings.length === 0, off.warnings],
 				["a valid-vocabulary effort survives with no ladder data", verdict(offEffort) === "proceed:p/other@max", verdict(offEffort)],
@@ -2506,10 +2506,11 @@ try {
 		});
 
 		await section("route-off-invisible", async () => {
-			// WITH THE ROUTER OFF THIS MODULE IS INVISIBLE (route.ts's header). Nothing is
-			// seeded, nothing is persisted, no tracker is consulted, no guard fires. An
-			// earlier version DID seed the orchestrator's tracked model here and persist it,
-			// which was worse than not having the feature: a reused session was switched off
+			// ROUTER-OFF PLANNER STATE. Nothing is seeded or persisted, no tracker is
+			// consulted, and candidate-dependent guards do not fire. The explicit-effort
+			// vocabulary and known-ladder guards remain active, as the fixtures below state
+			// directly. An earlier version DID seed the orchestrator's tracked model here and
+			// persist it, which was worse than not having the feature: a reused session was switched off
 			// its failover model, a thread whose tracked model lost its credentials could
 			// never dispatch again, and a restarted thread stopped following the host.
 			const off = router.ROUTER_OFF;
@@ -2551,7 +2552,7 @@ try {
 			//
 			// A malformed argument is pi's error to raise, not the router's opinion.
 			const malformed = plan({ resolution: off, thread, requestedModel: "not a spec at all" });
-			checkAll("route-off-invisible", "with the router OFF nothing is seeded, persisted, derived or consulted: the verdict carries no base model, no base effort and no re-seed signal, no effort is derived (only an explicit one survives), the thread's pre-router pin is the resolved model and is open-only, every guard is silent even with a 5M-token context and a profile source present, a malformed model argument is passed through for pi to reject, and passing the REMOVED orchestrator-tracker input changes nothing", [
+			checkAll("route-off-invisible", "with the router OFF no planner base is seeded or persisted, no effort is derived, no tracker is consulted, and no candidate-dependent guard speaks: the verdict has no base or re-seed fields, the pin is the open-only plan target, a malformed model argument passes through for pi to reject, and the removed tracker input changes nothing; the explicit-effort ladder guard remains active, and this check does not assert the live model after switching", [
 				["the pin is the resolved model", bare.kind === "proceed" && bare.model === "p/pin", verdict(bare)],
 				["no base model is seeded", bare.baseModel === undefined, bare.baseModel],
 				["no base effort is seeded", bare.baseEffort === undefined, bare.baseEffort],
@@ -2571,8 +2572,8 @@ try {
 
 		await section("route-resolution", async () => {
 			// usableResolution: anything that is not a live, non-empty ON resolution must
-			// collapse to the SHARED ROUTER_OFF constant, because the guards walk
-			// `candidates` directly and router-off is always the safe answer.
+			// collapse to the SHARED ROUTER_OFF constant, because candidate-dependent
+			// guards walk `candidates` directly and an empty resolution is safe to inspect.
 			const off = router.ROUTER_OFF;
 			const live = routeResolution([{ spec: "p/a" }]);
 			const coerced = [
@@ -2589,7 +2590,7 @@ try {
 			// ...and a half-built resolution must therefore not reject an unlisted model.
 			const halfBuilt = plan({ resolution: { on: true, candidates: [] }, requestedModel: "p/anything" });
 			const junk = plan({ resolution: "nonsense", requestedModel: "p/anything", requestedEffort: "high" });
-			checkAll("route-resolution", "a malformed, half-built or absent resolution collapses to the shared ROUTER_OFF constant, so the guards fall back to the pre-router path instead of walking a shape they cannot read; a live resolution is returned unchanged", [
+			checkAll("route-resolution", "a malformed, half-built or absent resolution collapses to the shared ROUTER_OFF constant, so candidate-dependent planner guards become inert instead of walking a shape they cannot read; a live resolution is returned unchanged", [
 				["every malformed value collapses to ROUTER_OFF", notOff.length === 0, notOff],
 				["a live resolution is identity", route.usableResolution(live) === live, route.usableResolution(live) === live],
 				["an empty candidate list does not reject an unlisted model", verdict(halfBuilt) === "proceed:p/anything@undefined", verdict(halfBuilt)],
@@ -2920,8 +2921,8 @@ try {
 			// ROUTER-OFF LADDER SOURCE. With the router off there is no candidate list, so
 			// the ladder used for effort validation comes from the `profiles` source the
 			// CALLER injects — and threads.ts injects a REGISTRY- AND AUTH-VETTED one: a
-			// model pi cannot actually serve yields no profile, so its levels are not
-			// judged and pi's own clamp decides, exactly as before the router existed.
+			// model pi cannot actually serve yields no profile, so Slate declines a ladder
+			// verdict and leaves pi to clamp the level.
 			// Reading the shipped profile table directly instead would judge (and refuse)
 			// levels for models the session cannot even run.
 			//

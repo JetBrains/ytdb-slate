@@ -2,9 +2,9 @@
  * Model router: resolving WHICH models an action may be dispatched to, and at
  * which effort levels.
  *
- * The router is OFF by default and OFF-behaviour is the pre-router behaviour:
- * with no `router.models` configured nothing here changes a dispatch. When a
- * project DOES list models, this module maps that list plus pi's model registry
+ * The router is OFF by default: with no `router.models` configured this resolver
+ * returns no candidates and emits no router warning. When a project DOES list
+ * models, this module maps that list plus pi's model registry
  * plus the benchmark profiles in model-profiles.ts onto a small, ordered set of
  * routable candidates — and the warnings that make the gaps in that data
  * visible instead of silent.
@@ -423,9 +423,9 @@ function tierOf(profile: ModelProfile): number {
  * Resolve the routable candidate set.
  *
  * An empty model list returns ROUTER_OFF WITHOUT touching the registry or the
- * profile table — the fast path, since the router is off by default and that
- * path must stay behaviourally identical to the pre-router extension. Every
- * warning is emitted at most once per condition (D58), sanitized, through
+ * profile table — the fast path, since the router is off by default and there
+ * are no candidates to resolve. Every warning is emitted at most once per
+ * condition (D58), sanitized, through
  * `warn` (default no-op) and collected on the result.
  *
  * Hostile/raw input is handled here rather than assumed away: `models` may be
@@ -823,9 +823,9 @@ export function checkEffort(resolution: ModelRouterResolution, spec: string, eff
  * The memo holds unconditionally (BG3). Warnings already go through a
  * try/catch, and a throw from `getInput` or from anything else in resolution is
  * caught here and cached as an OFF resolution carrying one warning: the router
- * failing is not a reason to keep re-running it every turn, and OFF is the
- * pre-router behaviour, so dispatch keeps working. There is deliberately NO
- * second message-level dedup layer — it made the real dedup untestable (CQ4)
+ * failing is not a reason to keep re-running it every turn, and an empty
+ * candidate result is safe for candidate-dependent guards. There is deliberately
+ * NO second message-level dedup layer — it made the real dedup untestable (CQ4)
  * while adding nothing the memo does not already guarantee.
  *
  * CQ7: what is frozen includes the registry and auth SNAPSHOT. A key added to

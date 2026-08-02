@@ -36,27 +36,23 @@
  *    once, in route.ts's header: with the router ON a thread's base is ALWAYS a
  *    listed candidate.
  *
- *  - ROUTER OFF = PRE-ROUTER BEHAVIOUR, exactly, and INVISIBLY. No list guard, no
- *    window guard, no billing notice, no seeded or persisted base, and no
- *    consultation of the orchestrator's tracked model: a dispatch runs on the
- *    `model` ARGUMENT, else on the thread's creation-time PIN — which, exactly as
- *    before, is only the model a NEW worker session opens with and never a reason
- *    to switch a live one (`openOnly`) — else on the host's current model, which
- *    is what worker.ts did before. Two additions: an explicitly passed `effort` is
- *    validated against the target model's ladder (that argument did not exist
- *    before, and pi would otherwise silently CLAMP a level the model does not
- *    offer), and a level set by one action is put back to the session's opening
- *    level by the next, so it cannot leak between actions. The MODEL an explicit
- *    argument routes to is reverted the same way (BG22): both axes are per-ACTION,
- *    and the revert target is what the session opened on — except while a failover
- *    holds the session, which slate must not undo (BG16).
+ *  - ROUTER OFF MAKES ROUTER-OWNED MECHANISMS INERT. No list guard, window guard,
+ *    billing notice, seeded or persisted base, or consultation of the
+ *    orchestrator's tracked model: a model-less plan targets the thread's
+ *    creation-time PIN — which only opens a NEW worker session (`openOnly`) — else
+ *    the host's current model. The `model` and `effort` arguments still apply per
+ *    action. An explicitly passed `effort` is validated against the plan target's
+ *    ladder, and a level set by one action is put back to the session's opening
+ *    level by the next. The MODEL an explicit argument routes to is normally
+ *    reverted the same way (BG22), but a successful failover holds the live session
+ *    on its fallback until a non-open-only route moves it or the session is reopened
+ *    or disposed (BG16). The hold predates the router; an OFF plan does not undo it.
  *
- *    An earlier iteration seeded the base from the tracker here and persisted it,
- *    which was strictly worse than the pre-router code in the same file: it undid
- *    failovers on reused sessions, could strand a thread for good once its tracked
- *    model lost credentials, and stopped a restarted thread following the host's
- *    model. Equivalence is the requirement; the tracker survives only as the
- *    episode compressor's last-resort rung.
+ *    An earlier iteration seeded the base from the tracker here and persisted it.
+ *    That undid failovers on reused sessions, could strand a thread once its
+ *    tracked model lost credentials, and stopped a restarted thread following the
+ *    host's model. The tracker survives only as the episode compressor's
+ *    last-resort rung.
  *
  *  - VALIDATION HAPPENS TWICE. Early, in dispatch(), before any state mutation
  *    or session work, so a bad pick is a TOOL ERROR rather than a billed failed
@@ -266,13 +262,12 @@ export class ThreadManager {
 		// This session's MEMOIZED model-router resolution (model-router.ts's
 		// createModelRouterResolver), bound by value for the same reason as the
 		// resolver above: a manager orphaned by a session swap must keep answering
-		// with its own session's frozen candidate list. Defaults to the OFF
-		// resolution, which is byte-for-byte the pre-router dispatch path.
+		// with its own session's frozen candidate list. Defaults to the shared OFF
+		// resolution, which supplies no candidates or router-owned base.
 		private resolveRouter: () => ModelRouterResolution = () => ROUTER_OFF,
 		// The orchestrator's base model, EXCLUDING failover fallbacks (base-model.ts).
-		// Consulted only when the router is off, to seed a new thread's base model.
-		// undefined (the default) = no tracker ⇒ fall back to the pre-router
-		// behaviour, where the worker opens on the host session's current model.
+		// Consulted only for the episode compressor's last-resort model rung; route
+		// planning never seeds a worker-thread base from this tracker.
 		private baseModelTracker?: BaseModelTracker,
 	) {
 		this.semaphore = new Semaphore(config.maxConcurrent ?? 4); // default rationale: docs/design-principles.md §5 repo-local note
@@ -412,11 +407,11 @@ export class ThreadManager {
 	/**
 	 * This session's frozen router resolution, defensively.
 	 *
-	 * A THROWING resolver, or one that hands back a malformed object, must leave the
-	 * dispatch path exactly as it is with the router off: OFF is the pre-router
-	 * behaviour, so it is always a safe answer. The SHAPE check itself is route.ts's
-	 * usableResolution, so the planner and this module cannot disagree about what a
-	 * usable resolution is.
+	 * A THROWING resolver, or one that hands back a malformed object, falls back to
+	 * the shared OFF resolution. That answer supplies no candidates, so list, window,
+	 * billing and substitution paths cannot walk an unreadable shape. The SHAPE check
+	 * itself is route.ts's usableResolution, so the planner and this module cannot
+	 * disagree about what a usable resolution is.
 	 */
 	private routerResolution(): ModelRouterResolution {
 		try {
@@ -1169,11 +1164,11 @@ export class ThreadManager {
 			workerEffortUnmeasured: effortIsAsPlanned,
 			workerEffortJudgedFor: plan?.effortJudgedFor,
 			configuredModel: this.config.episodeModel,
-			// The compressor's LAST-RESORT rung: the ORCHESTRATOR's base model, from the
-			// same tracker the router-off base resolution uses (failover fallbacks
-			// excluded, spec-validated). Without this the pin's bottom rung could never
-			// fire, and a project with no episodeModel and no usable Sonnet would drop
-			// straight to the uncompressed fallback.
+			// The compressor's LAST-RESORT rung: the ORCHESTRATOR's base model from the
+			// tracker (failover fallbacks excluded, spec-validated). Route planning no
+			// longer consumes this tracker. Without it the compressor pin's bottom rung
+			// could never fire, and a project with no episodeModel and no usable Sonnet
+			// would drop straight to the uncompressed fallback.
 			orchestratorBaseModel: this.trackedBaseModel(),
 			modelFailover: this.config.modelFailover,
 			signal: signal?.aborted ? undefined : signal,
