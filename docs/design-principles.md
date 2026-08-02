@@ -194,7 +194,9 @@ context budget, also decide per dispatch whether a worker thread still
 fits the model it is routed to, in which case the action moves to the
 widest listed model rather than being blocked.
 
-The feature is OFF until `router.models` lists something, and it is
+Candidate routing is OFF until `router.models` lists something — the
+per-action `model` and `effort` arguments, and a fallback a failover
+is holding, stay active either way. The feature is
 built on a deliberate split that is worth holding onto when reasoning
 about the architecture: the code ENFORCES less than the routing data
 ADVISES. Dispatch guards refuse what is mechanically wrong — a model

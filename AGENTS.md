@@ -4,7 +4,7 @@
 
 This repo is a [pi package](https://pi.dev/docs/latest/packages) providing the **slate** extension: thread-weaving orchestration for pi (orchestrator dispatches bounded actions to persistent worker threads; results come back as compressed episodes; a shipped doctrine enforces the research/design-review/adversarial-review/track-review workflow, with optional draft-PR publishing).
 
-Dispatch also carries **action-level model routing**: `router.models` in the project's `slate.json` names a CLOSED candidate list, resolved once per session, from which each action's model and effort are chosen and guarded. It is off by default — an empty list is byte-for-byte the pre-router behaviour. Reference: `docs/model-routing.md`, which the doctrine now cites at runtime alongside the workflow/review/design docs.
+Dispatch also carries **action-level model routing**: `router.models` in the project's `slate.json` names a CLOSED candidate list, resolved once per session, from which each action's model and effort are chosen and guarded. It is off by default: an empty list adds no candidate-routing policy, base seed, context-window substitution, billing notice, or routing doctrine rule. Per-action arguments and pre-existing live failover holds remain active. Reference: `docs/model-routing.md`, which the doctrine cites at runtime alongside the workflow/review/design docs.
 
 - Extension entry point: `extension/index.ts`
 - Shipped doctrine docs: `docs/` — `track-workflow.md`, `review-rules.md`, `design-principles.md`, `pr-publishing.md` and (since routing shipped) `model-routing.md` are cited by ABSOLUTE path resolved inside the installed package (`extension/paths.ts`)
@@ -63,6 +63,10 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 - It does NOT touch `extension/worker.ts`: the worker-session load path — the allowlist-mode extension load, the `excludeTools` deny list that keeps slate's dispatch tools out of a worker, and the post-load collision re-check — is out of its scope. Exercise those with the isolated-load smoke test (`pi --no-extensions -e .`) above after changing `extension/worker.ts`, and the ladder's `WK1` rung for that module's settings isolation. It likewise stops at the PURE boundary: it proves what the planner DECIDES, not what `threads.ts` does with a verdict (applying the switch, raising a tool error, aborting without an episode, remembering the long-context notice). Those are separate mechanisms; the ladder's `WK1` rung covers one slice of the first.
 - **Doctrine size figures are install-path dependent — compare a PORTABLE one.** The doctrine cites its docs by absolute path (three always, one more with `workflow.draftPRs`, one more with the router on), so every character of installed-`docs/`-directory length costs **3–5 characters of rendered doctrine**. A raw count measured in a deeper checkout or under `node_modules` is therefore larger and nothing is wrong. Nothing needs re-deriving to see past that: `doctrine-budget` bounds an install-INVARIANT figure — the rendered text with each occurrence of the docs directory removed, filename kept — and carries two terms that fail if that normalisation ever degrades to the identity; `docs/context-budget.md` (with `docs/model-routing.md` deferring to it) and `verification/README.md` publish portable figures on that same convention, and `docs/context-budget.md` names the check as the definition of record. Their published rows are not all identical — they were measured against different commits and fixtures — so when a figure matters, re-measure it rather than reconciling two tables.
 
+## Writing convention
+
+New or changed README text, PR descriptions, delivery commit bodies in either mode, issues, comments, release notes and agent messages to users: use short, active, plain language; keep exact terms. Excluded are research logs and worker-thread task text; deliberately, `docs/`, where precision wins; and `AGENTS.md`, whose agent rules need a dense, exact register. ASD-STE100 inspires only; Slate claims no conformance. Copy no standard material or examples.
+
 ## Packaging rules
 
 - Pi-bundled SDK packages (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `typebox`) must stay in `peerDependencies` with version `"*"` — never bundle them.
@@ -72,7 +76,4 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 
 ## Release & versioning (AD8)
 
-1. Bump `version` in `package.json`.
-2. `npm publish`.
-3. Bump the pin in `.pi/settings.json` (`npm:ytdb-slate@<version>`) so this repo dogfoods the new release.
-4. Consumers install pinned (`pi install -l npm:ytdb-slate@<version>`); pinned specs are skipped by `pi update`, so consumers bump their pin deliberately — and on every bump they must re-review their project delta docs (`doctrineExtraPath`, `reviewPerspectivesPath`, prompt-doc lists) against the shipped doctrine for drift.
+Before any release, read and follow `RELEASING.md` in full.

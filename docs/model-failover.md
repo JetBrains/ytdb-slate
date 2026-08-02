@@ -89,11 +89,11 @@ Failover applies at three sites:
   model and the failed action is re-prompted once with a continuation
   nudge. The transcript is preserved; usage and cost accumulate across
   both attempts. The thread stays on the mapped model while its
-  session is live and returns to its configured model when the session
-  is reopened (e.g. after a pi restart). The `threads` listing marks a
-  switched live session as `model=A ⇒B (live)` — the marker means a
-  live failover switch happened (it is not a value comparison) and
-  disappears when the session is reopened.
+  session is live, including across later model-less actions, and the
+  `threads` listing marks it `live=<model> (failover)`. The hold, the
+  marker and the retry inside the failing dispatch are cases M1, M6
+  and M2 of [Known cases where the model or level
+  differs](model-routing.md#known-cases-where-the-model-or-level-differs).
 - **Episode compression.** The compression call is retried once with
   the mapped compressor model — only if it is distinct from the
   original, resolvable, and authed. If the retry also fails, the

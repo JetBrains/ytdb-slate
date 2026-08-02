@@ -14,21 +14,21 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		name: "thread",
 		label: "Thread",
 		description: [
-			"Dispatch ONE bounded action to a persistent worker thread and receive back an episode",
-			"(a compressed, structured record of what the thread did).",
-			"Omit `thread` to create a new thread (give it a short `name`); pass an existing thread id",
-			"to continue that thread — it retains the context of all its previous actions.",
-			"Use `context` to inject prior episodes (by id, from any thread) into the action.",
-			"Threads are serial; to parallelize, dispatch to DIFFERENT threads in one message.",
-			"`model` (\"provider/id\") and `effort` (pi thinking level) route THIS ACTION ONLY — new thread",
-			"or continuation alike; the next action reverts to the thread's defaults, which is also what",
-			"an omitted argument runs on.",
-			"`tools` applies only when creating a new thread.",
-			"Guarded: a level the model does not offer is a tool error, as is a model outside the routable",
-			"list where a project configures one; advisory notices (evidence gaps, cost cliffs, window",
-			"substitution) are prefixed to the episode as ⚠ lines.",
-			"An episode header of STATUS: FAILED means the action failed — read it and adapt.",
-			"Tasks that modify repository files require the track workflow's pre-implementation gates to have run first.",
+			"Dispatch ONE bounded action to a persistent worker thread; receive an episode",
+			"(a compressed, structured record of its work).",
+			"Omit `thread` and give a short `name` to create one; pass its id to continue with all prior-action context.",
+			"Use `context` to inject episodes by id from any thread.",
+			"Each thread is serial; use DIFFERENT threads in one message for parallel work.",
+			"`model` (\"provider/id\") and `effort` (pi thinking level) route THIS ACTION ONLY on new or continued threads.",
+			"With routing on, omission plans for the thread's base pair. With routing off, an omitted model",
+			"plans for its pre-router pin; no pin gives no target. Omitted effort resolves no level. The session",
+			"then returns to what it opened on. See docs/model-routing.md § Known cases where the model or level",
+			"differs for what can run instead.",
+			"`tools` applies only when creating a thread.",
+			"Slate rejects a level the model does not offer and, when configured, a model outside the routable list.",
+			"⚠ advisory notices before the episode report evidence gaps, cost cliffs, or window substitution.",
+			"STATUS: FAILED means the action failed — read the episode and adapt.",
+			"File-changing tasks require the track workflow's pre-implementation gates first.",
 		].join(" "),
 		promptSnippet: "Dispatch one bounded action to a persistent worker thread; returns a compressed episode",
 		promptGuidelines: [
@@ -43,14 +43,21 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				Type.Array(Type.String(), { description: "Episode ids to inject as context (e.g. [\"t1.e2\"])" }),
 			),
 			model: Type.Optional(
-				Type.String({ description: "Worker model \"provider/id\" for THIS action; omit to use the thread's base model" }),
+				Type.String({
+					description:
+						"Worker model \"provider/id\" for THIS action. Omit it to plan for the thread's base model with " +
+						"routing on, or for its pre-router pin with routing off. With no pin the worker session returns to " +
+						"the model it opened on. Cases M1, M3 and M7 in docs/model-routing.md § Known cases where the model " +
+						"or level differs are when it does not.",
+				}),
 			),
 			effort: Type.Optional(
 				Type.String({
 					description:
-						"Thinking level for THIS action: off, minimal, low, medium, high, xhigh or max " +
-						"(only levels the target model offers); omit to let slate choose — the thread's " +
-						"default level, or one measured for the model that runs",
+						"Thinking level for THIS action: off, minimal, low, medium, high, xhigh or max. " +
+						"Slate refuses a level the routed model's known ladder lacks, outside case E2 in " +
+						"docs/model-routing.md. Omit it to plan for the thread's default or a measured level with routing " +
+						"on, or for the level the worker session opened on with routing off.",
 				}),
 			),
 			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
@@ -131,12 +138,11 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		name: "threads",
 		label: "Threads",
 		description:
-			"List all worker threads: id, name, status, episodes so far, last activity, and models — " +
-			"base=<the thread's default model>@<effort>? (what a dispatch that omits `model` runs on; " +
-			"the trailing ? marks the LEVEL as provisional — it is the stored default, re-checked against " +
-			"the model's current capability data on every dispatch and silently re-derived if it no longer " +
-			"holds) and last=<the model its last action actually ran on>@<effort>, which is fact. " +
-			"Use this to decide whether to continue an existing thread or create a new one.",
+			"List worker threads, their status, episodes, activity, and models. " +
+			"base=<model>@<effort>? is the nominal plan target when `model` is omitted. " +
+			"The ? marks effort as provisional because Slate re-checks and may re-derive it. " +
+			"last=<model>@<effort> records the last action. live=<model> (failover) shows a held fallback " +
+			"that currently overrides the nominal base.",
 		promptSnippet: "List worker threads and their episodes",
 		parameters: Type.Object({}),
 		async execute() {
@@ -147,15 +153,16 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			const lines = threads.map((t) => {
 				const episodes = t.episodeIds.length > 0 ? t.episodeIds.join(", ") : "(none)";
 				const marks: string[] = [];
-				// The thread's DEFAULT model — what a dispatch that omits `model` runs on
-				// (?? t.model: a thread created before per-action routing existed carries
-				// only the pre-router pin). Absent for a thread whose base could not be
-				// resolved: it then runs on the host's current model, as it always did.
+				// The thread's NOMINAL model — the planner target for a dispatch that omits
+				// `model` (?? t.model: an older thread carries only the pre-router pin).
+				// Absent means the plan has no model: a NEW session then opens on the host
+				// model and a reused one is reverted to the model it opened on. A separate
+				// `live=` marker below overrides this display while failover holds the session.
 				const base = t.baseModel ?? t.model;
-				// CQ19: the MODEL half is authoritative (an unroutable base is re-seeded, so this
-				// is what a dispatch that omits `model` will use), but the LEVEL half is only a
-				// STORED default: every dispatch re-checks it against the model's current
-				// capability data and silently derives a fresh one if the profile table has moved
+				// CQ19: the MODEL half is authoritative as nominal planning state (an unroutable
+				// base is re-seeded, so this is what an omitted `model` resolves to), but the
+				// LEVEL half is only a STORED default: every dispatch re-checks it against the
+				// model's current capability data and silently derives a fresh one if the table has moved
 				// under it (BG23). Reporting it bare would present a value that may not survive
 				// contact with the next action as fact — the `?` says so, and the tool description
 				// says what it means. `last=` below carries no such caveat: that one is what ran.

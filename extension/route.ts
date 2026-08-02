@@ -29,10 +29,10 @@
  *   refused: the fall-through path must always have a valid destination, or
  *   configuring a list would strand every thread that predates it.
  *
- *   EFFORT — the level an action runs at is ALWAYS one that belongs to the model it
- *   actually runs on: either the caller named it, in which case it is judged against
- *   THAT model's own ladder, or it is derived from that model (its lowest MEASURED
- *   level). A level derived for one model is never carried onto another, and a level
+ *   EFFORT — the level the planner resolves is ALWAYS one that belongs to the model
+ *   it routes to: either the caller named it, in which case it is judged against THAT
+ *   model's own ladder, or it is derived from that model (its lowest MEASURED level).
+ *   A level derived for one model is never carried onto another, and a level
  *   STORED for this one is only replayed while today's table still reads it as `ok` —
  *   a cached derivation must not outlive the evidence it was derived from. `effort`
  *   therefore reports one and only one thing, and `effortJudgedFor` names the model
@@ -43,13 +43,14 @@
  * DIFFERENT model, and applying it produced evidence-gap warnings — or, with
  * allowUnmeasuredEffort:false, outright rejections — for a level nobody requested.
  *
- * WITH THE ROUTER OFF THIS MODULE IS INVISIBLE. No list, no window guard, no
- * billing notice, no seeded or persisted base, no tracker: the model a dispatch
- * runs on is the `model` ARGUMENT (honoured per action, which is the one addition)
- * or else the thread's PRE-ROUTER PIN — and the pin is only ever the model a NEW
- * worker session opens with, never a reason to switch a live one (`openOnly`).
- * The argument itself is passed through byte-for-byte, so a malformed spec still
- * produces pi's own error rather than a router opinion.
+ * WITH THE ROUTER OFF ITS PLANNER-OWNED MECHANISMS ARE INERT. There is no list,
+ * window guard, billing notice, seeded or persisted base, or tracker input. The
+ * plan target is the `model` ARGUMENT (honoured per action) or else the thread's
+ * PRE-ROUTER PIN; the pin only opens a NEW worker session and never instructs a
+ * live one to switch (`openOnly`). A later switch decision KEEPS a held failover
+ * fallback rather than applying an open-only target (decideModelSwitch). The raw
+ * argument still passes through byte-for-byte, so a malformed spec produces pi's
+ * own error rather than a router opinion.
  *
  * A FAILURE TO READ EVIDENCE IS NOT EVIDENCE OF A PROBLEM. Every injected data
  * source may be missing, throwing or malformed — a profile lookup, a ladder
@@ -68,13 +69,13 @@
  *      is one that is not a STRING at all, since reading a malformed argument as
  *      absent would quietly run the action at the thread's base level instead.
  *   1. LIST MEMBERSHIP (router ON only): a resolved model outside the effective
- *      candidate list is rejected, naming the list. With the router OFF the model
- *      argument behaves exactly as it did before the router existed.
+ *      candidate list is rejected, naming the list. With the router OFF this guard
+ *      does not enforce a list; the raw model argument continues to pi unchanged.
  *      A THREAD'S BASE is exempt by REPAIR, not by exception — see THE ONE RULE
  *      above: absent or off-list, it is re-seeded, so only an EXPLICIT off-list
  *      model is ever refused.
  *   5. CONTEXT WINDOW: never a hard block, and it runs BEFORE the effort guards so
- *      that every effort judgement is about the model that will actually run. The
+ *      that every effort judgement is about the model the planner routes to. The
  *      REGISTRY window (which is what a RouterCandidate carries; a profile's own
  *      figure is documentation only) reduced by pi's compaction reserve, judged by
  *      pi's OWN predicate. A model that cannot hold the thread's context is
@@ -153,7 +154,7 @@ export interface RoutePlanInput {
 	requestedModel?: string;
 	/** The dispatch's `effort` argument, raw and unvalidated. */
 	requestedEffort?: string;
-	/** The session's FROZEN router resolution. An off resolution = the pre-router dispatch path. */
+	/** The session's FROZEN router resolution. An off resolution supplies no router candidates. */
 	resolution: ModelRouterResolution;
 	/** router.allowUnmeasuredEffort. Default TRUE: only an explicit false refuses an evidence gap. */
 	allowUnmeasuredEffort?: boolean;
@@ -429,7 +430,7 @@ export type EffortSwitchDecision =
  * whole rule, in one pure function, mirroring decideModelSwitch:
  *
  *   1. the level the PLAN resolved (an explicit `effort`, the thread's stored default
- *      once re-validated, or one derived for the model that runs);
+ *      once re-validated, or one derived for the model the planner routes to);
  *   2. failing that, the level the session was OPENED on — pi's clamped settings
  *      default. This is the RESTORE, and it is what makes `effort` per-ACTION: without
  *      it a level set by one action silently governs the next (BG18).
@@ -515,11 +516,10 @@ export type RoutePlanVerdict = RoutePlanProceed | RoutePlanReject;
 /**
  * Normalise whatever the session's router resolver handed back.
  *
- * A malformed or half-built resolution must leave the dispatch path exactly as it
- * is with the router OFF — that is the pre-router behaviour, so it is always a
- * safe answer — because the guards below walk `candidates` directly. (checkEffort
- * tolerates a junk resolution on its own, CQ5; this is about the list guard and
- * the window guard.) Shared with threads.ts so the shape check has ONE definition.
+ * A malformed or half-built resolution falls back to the shared ROUTER_OFF value
+ * because candidate-dependent planner paths below walk `candidates` directly.
+ * (checkEffort tolerates a junk resolution on its own, CQ5.) Shared with threads.ts
+ * so the shape check has ONE definition.
  */
 export function usableResolution(value: unknown): ModelRouterResolution {
 	const resolution = value as ModelRouterResolution | undefined;
@@ -719,8 +719,9 @@ function count(tokens: number): string {
  * failover. What remains is the one rule failover itself must obey (never the
  * model that just failed) and a NON-SUBSTITUTING window check that warns and
  * proceeds — substituting here would be the router vetoing failover by another
- * name. Gated on the router being ON so a router-off session keeps exactly its
- * pre-router failover behaviour.
+ * name. Gated on the router being ON, so a router-OFF failover gets no window
+ * warning at all: that is the pre-router behaviour of THIS branch, not of the
+ * dispatch path, where a router-OFF action's own `model` still moves a session.
  */
 function planFailoverSwitch(input: RoutePlanInput, resolution: ModelRouterResolution, target: string | undefined): RoutePlanVerdict {
 	const warnings: string[] = [];
@@ -810,10 +811,10 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	/** Router OFF only: the thread's pre-router `model` pin, which OPENS a session and never switches one. */
 	let pin: string | undefined;
 	if (!resolution.on) {
-		// ROUTER OFF — this module is INVISIBLE (module header). The pre-router code
-		// passed ONE thing to the worker opener — the thread's `model` pin, undefined for
-		// most threads — and never touched a live session's model again. So that is all
-		// that happens here, for existing and new threads alike:
+		// ROUTER OFF — this planner seeds no base and applies no candidate-dependent
+		// guard. The pre-router code passed ONE thing to the worker opener — the thread's
+		// `model` pin, undefined for most threads — and never used that pin to move a
+		// live session. This branch preserves that open-only planning rule:
 		//
 		//  · nothing is SEEDED and nothing is PERSISTED: `baseModel`/`baseEffort` stay
 		//    undefined, so the caller writes no base onto the record. An earlier version
@@ -924,9 +925,9 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	let model = explicit ?? baseModel ?? pin;
 	const openOnly = model !== undefined && model === pin && explicit === undefined;
 
-	// GUARD 1 — list membership. Router ON only; with the router off the `model`
-	// argument behaves exactly as it did before the router existed. Validated on the
-	// RESOLVED model, but only an EXPLICIT one can trip it: a new thread's base is a
+	// GUARD 1 — list membership. Router ON only; with the router off this guard does
+	// not inspect or reject the raw `model` argument. Validated on the RESOLVED model,
+	// but only an EXPLICIT one can trip it: a new thread's base is a
 	// listed candidate by construction (D48), and an existing thread's was re-seeded
 	// above if it was not — which is what keeps a dispatch that omitted `model` from
 	// ever landing here.
@@ -942,8 +943,8 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	}
 
 	// GUARD 5 — CONTEXT WINDOW, and it runs BEFORE the effort guards on purpose: the
-	// model this action runs on must be settled before any level is judged against
-	// it, or the judgement is about a model that will be substituted away. Never a
+	// model the planner routes this action to must be settled before any level is judged
+	// against it, or the judgement is about a model that will be substituted away. Never a
 	// hard block, and router ON only: with the router off there is no candidate list
 	// to fall back to, and the pre-router behaviour is no check at all.
 	let substitutedFrom: string | undefined;
@@ -994,17 +995,17 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		}
 	}
 
-	// ---- the EFFORT, for the model that will ACTUALLY run (THE ONE RULE, effort half)
+	// ---- the EFFORT, for the model the planner routes to (THE ONE RULE, effort half)
 	//
-	// The model is final now (guard 1 accepted it, guard 5 may have moved it), so the
-	// level can be settled against THAT model and nothing else:
+	// The routed model is final inside planRoute (guard 1 accepted it, guard 5 may have
+	// moved it), so the level can be settled against THAT model and nothing else:
 	//
 	//  · an EXPLICIT `effort` is judged against it, hard — the caller named a level and
 	//    is entitled to be told it does not exist there rather than silently clamped;
 	//  · a level INHERITED from the thread's base applies only while the base model is
-	//    the model that runs. The moment they differ — an explicit `model`, or a window
-	//    substitution — the inherited level is DROPPED and re-derived for the model that
-	//    runs (its lowest MEASURED level, or nothing when it has none). Carrying it over
+	//    the routed model. The moment they differ — an explicit `model`, or a window
+	//    substitution — the inherited level is DROPPED and re-derived for the routed
+	//    model (its lowest MEASURED level, or nothing when it has none). Carrying it over
 	//    was BG14: an action explicitly routed to another model inherited a budget
 	//    derived for the base, and was warned about — or, with allowUnmeasuredEffort
 	//    false, REJECTED — for a level nobody had asked for.

@@ -108,6 +108,35 @@ explicitly hands any remaining Open Questions to the user, then
 deletes the log file. On abandonment the agent deletes the log file
 after offering its content to the user for archiving.
 
+Aim to keep the final delivery commit body at or below 16,384 UTF-8
+bytes, excluding the subject. This is a target, not a gate. Measure
+the exact body text as UTF-8 without adding a newline: count the byte
+sequence after the subject separator in `git cat-file commit <sha>`.
+Do not use a formatted `git log` value such as `%b`, which adds an
+output newline. For a proposed commit, apply the same rule to the
+exact body text before committing.
+
+If the body is larger, first remove repetition and merge overlapping
+material. Then add a `Size exception` paragraph to the delivery commit
+body carrying measurements, not assurances: the overrun, by the
+canonical method above; every top-level section's byte count by that
+same method, largest first; and, for each section that was condensed,
+its byte count before condensing. A section with no before-count is
+visibly untouched, so the user weighs any claim that nothing could be
+removed against the counts beside it, and can refuse the exception. Do
+not remove decisions, risks, verdicts, or evidence needed to
+understand or review the change only to meet the target. Immediately
+before presenting the final delivery commit to the user, measure it by
+that method and obtain the user's approval of the body and of any size
+exception; repeat both steps if the body changes before it lands.
+
+By this canonical measurement, the most recent accepted delivery body
+from the publishing-enabled path was 20,957 bytes, 27.9% above the
+target. That precedent establishes only that a justified overrun can
+pass in that path. Publishing-enabled descriptions can carry material
+that this path does not, so the figure is neither a direct measurement
+nor an exercised exception for publishing-disabled delivery.
+
 ### Under-trigger guardrail
 
 When shaping the planned-changes statement without a log, state this
