@@ -76,13 +76,4 @@ New or changed README text, PR descriptions, delivery commit bodies in either mo
 
 ## Release & versioning (AD8)
 
-1. In the umbrella PR, bump only `version` in `package.json`; leave `.pi/settings.json` pinned to the currently published version, run all required verification, and follow `docs/pr-publishing.md` through the ready flip.
-2. The user squash-merges the umbrella PR; the agent must not merge it.
-3. After the merge, fetch `origin/main`, obtain the PR's exact squash SHA from GitHub rather than inferring it from recent history, and verify both that SHA's identity and that it is an ancestor of `origin/main`.
-4. At that exact SHA, verify that `package.json` names the intended release version and `.pi/settings.json` still names the prior serviceable version; publish only from a clean tree at that SHA.
-5. Publish the intended version to npm only after those checks pass.
-6. Verify the registry serves that exact version and inspect the published artifact for the expected version, files and peer-only pi SDK dependencies; if publication partially fails, record recovery guidance and never try to reuse an npm version.
-7. At the verified umbrella squash SHA, create and push the lightweight tag `v<version>`; create the GitHub release at that tag, title it `ytdb-slate <version>`, then recheck the tag and release targets against the exact SHA.
-8. LAST, after npm serves the version, bump `.pi/settings.json` to `npm:ytdb-slate@<version>` in its own post-publication commit on the default branch; open an isolated session and judge loading by the absence of `Failed to load extension`, not by exit code alone.
-
-Consumers install pinned (`pi install -l npm:ytdb-slate@<version>`); pinned specs are skipped by `pi update`, so consumers bump their pin deliberately — and on every bump they must re-review their project delta docs (`doctrineExtraPath`, `reviewPerspectivesPath`, prompt-doc lists) against the shipped doctrine for drift.
+Before any release, read and follow `RELEASING.md` in full.
