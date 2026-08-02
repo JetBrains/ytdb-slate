@@ -14,23 +14,21 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		name: "thread",
 		label: "Thread",
 		description: [
-			"Dispatch ONE bounded action to a persistent worker thread and receive back an episode",
-			"(a compressed, structured record of what the thread did).",
-			"Omit `thread` to create a new thread (give it a short `name`); pass an existing thread id",
-			"to continue that thread — it retains the context of all its previous actions.",
-			"Use `context` to inject prior episodes (by id, from any thread) into the action.",
-			"Threads are serial; to parallelize, dispatch to DIFFERENT threads in one message.",
-			"`model` (\"provider/id\") and `effort` (pi thinking level) route THIS ACTION ONLY, on a new thread",
-			"or a continuation. The next action plans for the thread's base pair with routing on, and for its",
-			"pre-router pin with routing off. A thread with no pin gives it no plan target, and an action that",
-			"omits `effort` resolves no level: the worker session returns to what it opened on. See",
-			"docs/model-routing.md § Known cases where the model or level differs for what can run instead.",
-			"`tools` applies only when creating a new thread.",
-			"Guarded: a level the model does not offer is a tool error, as is a model outside the routable",
-			"list where a project configures one; advisory notices (evidence gaps, cost cliffs, window",
-			"substitution) are prefixed to the episode as ⚠ lines.",
-			"An episode header of STATUS: FAILED means the action failed — read it and adapt.",
-			"Tasks that modify repository files require the track workflow's pre-implementation gates to have run first.",
+			"Dispatch ONE bounded action to a persistent worker thread; receive an episode",
+			"(a compressed, structured record of its work).",
+			"Omit `thread` and give a short `name` to create one; pass its id to continue with all prior-action context.",
+			"Use `context` to inject episodes by id from any thread.",
+			"Each thread is serial; use DIFFERENT threads in one message for parallel work.",
+			"`model` (\"provider/id\") and `effort` (pi thinking level) route THIS ACTION ONLY on new or continued threads.",
+			"With routing on, omission plans for the thread's base pair. With routing off, an omitted model",
+			"plans for its pre-router pin; no pin gives no target. Omitted effort resolves no level. The session",
+			"then returns to what it opened on. See docs/model-routing.md § Known cases where the model or level",
+			"differs for what can run instead.",
+			"`tools` applies only when creating a thread.",
+			"Slate rejects a level the model does not offer and, when configured, a model outside the routable list.",
+			"⚠ advisory notices before the episode report evidence gaps, cost cliffs, or window substitution.",
+			"STATUS: FAILED means the action failed — read the episode and adapt.",
+			"File-changing tasks require the track workflow's pre-implementation gates first.",
 		].join(" "),
 		promptSnippet: "Dispatch one bounded action to a persistent worker thread; returns a compressed episode",
 		promptGuidelines: [
@@ -49,7 +47,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					description:
 						"Worker model \"provider/id\" for THIS action. Omit it to plan for the thread's base model with " +
 						"routing on, or for its pre-router pin with routing off. With no pin the worker session returns to " +
-						"the model it opened on. Cases M1, M3 and M7 in docs/model-routing.md are when it does not.",
+						"the model it opened on. Cases M1, M3 and M7 in docs/model-routing.md § Known cases where the model " +
+						"or level differs are when it does not.",
 				}),
 			),
 			effort: Type.Optional(
