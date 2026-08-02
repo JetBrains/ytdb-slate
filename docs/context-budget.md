@@ -118,6 +118,114 @@ paused, threshold compactions pass through as an escape valve.
 Overflow-recovery compaction and manual `/compact` are never
 touched.
 
+## What the always-loaded doctrine costs the budget
+
+The budget's denominator includes Slate's own always-loaded block.
+While orchestrator mode is on, the doctrine sits in the
+orchestrator's system prompt for the whole session — and, like the
+rest of the conversation (see the pricing cliff above), it is sent
+again with every request. It occupies its space in the window once;
+you pay its input tokens every turn.
+
+**Its size depends on where the package is installed.** That is not
+obvious, and it catches anyone who measures: the doctrine cites the
+shipped docs by ABSOLUTE path, so three to five full filesystem
+paths are embedded in the block — three at minimum
+(`track-workflow.md`, `review-rules.md`, `design-principles.md`),
+plus `pr-publishing.md` when `workflow.draftPRs` is on, plus
+`model-routing.md` when the routing rule renders. Every additional
+character in the installed `docs/` directory therefore costs 3–5
+characters of doctrine.
+
+So the figures below are **portable characters**, defined exactly as
+Slate's own automated size check defines them: the block with each
+occurrence of the installed `docs/` DIRECTORY removed, keeping the
+filename. That makes them install-invariant by construction —
+verified by measuring at a 12-character docs path and at this repo's
+58-character one, which give identical portable counts — and it
+makes the arithmetic one multiplication:
+
+> rendered characters = portable + (embedded paths × length of your
+> installed `docs/` directory)
+
+Every row below states its full basis, because router state, model
+count and `draftPRs` each move the number:
+
+| router | models | `draftPRs` | paths | portable | lines | rendered at a 58-char docs dir |
+| --- | --- | --- | --- | --- | --- | --- |
+| off | — | off | 3 | 1,929 | 38 | 2,103 |
+| off | — | on | 4 | 1,948 | 38 | 2,180 |
+| on | 6 configured | off | 4 | 3,870 | 58 | 4,102 |
+| on | 6 configured | on | 5 | 3,889 | 58 | 4,179 |
+| on | all 9 shipped | off | 4 | 4,448 | 61 | 4,680 |
+| on | all 9 shipped | on | 5 | 4,467 | 61 | 4,757 |
+
+An untrusted project reads the first row whatever its `slate.json`
+says: no project config is loaded, so neither optional rule renders.
+Line counts do not vary with the install path. Enabling `draftPRs`
+costs 19 portable characters plus one more embedded path.
+
+Two parts of the block grow with configuration rather than with the
+path:
+
+- The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
+  so what renders is the models you CONFIGURE — not the nine Slate
+  ships profiles for. It is 1,941 portable characters / 20 lines for
+  six configured models and 2,519 / 23 for all nine. A model ROW
+  costs 154–186 characters; the legend adds a one-off clause per
+  marker it has to explain, so listing the first cheap-tier model
+  costs ~50 characters more than its row (two new clauses). That is
+  why stepping from six to nine averages 193 per model where the
+  first six average 171.
+- The worker-extension rule grows per whitelisted extension and per
+  tool that extension contributes, so it has no fixed size; one
+  extension contributing two tools measured 373 portable characters
+  / 7 lines.
+
+Against a 256,000-token budget none of this is material — as a rough
+estimate, at 4 characters per token (no tokenizer was run, and the
+table is denser than prose, so treat it as a floor) the whole block
+is ≈480–525 tokens with both optional rules off and ≈970–1,025 with
+six models routed, each range spanning portable to as-rendered-here.
+That is under half a percent of the default budget, though it is
+re-sent on every request rather than paid once. It is listed here
+because it is context Slate itself puts in front of the model on
+every turn, and because it is the number to check before assuming
+the budget's headroom is all conversation.
+
+## Worker threads: the routing window guard
+
+The budget above is the ORCHESTRATOR's. Worker threads have no
+budget and never pause; with action-level routing on, they get a
+weaker but automatic counterpart. Before each dispatch — whenever
+the thread's context size is knowable, so not for a thread whose
+worker session has not been opened yet — the routed model's
+REGISTRY context window is checked against that size using pi's OWN
+compaction settings, the same settings whose `reserveTokens` clamps
+the budget above. (The check runs even if you disabled
+auto-compaction: turning compaction off does not make an
+over-window dispatch safe, it only turns the compaction into an
+overflow error.) If the thread no longer fits, the action is moved
+to the widest listed model when that one is strictly wider, with a
+warning; if nothing listed is wider it runs anyway and pi compacts.
+The guard never blocks a dispatch and never pauses a thread.
+
+Two consequences for this document's subject:
+
+- The registry window is what decides the substitution, so the
+  overrides in the next section change worker routing too: raising
+  `gpt-5.6-*` to 1,050,000 makes those models genuinely wide
+  candidates rather than 272K ones.
+- A narrow model in `router.models` is not a hazard the way it would
+  be for the orchestrator — it is a model long threads get routed
+  AWAY from, paying the wider model's rate instead. That is not
+  silent: the substituted action carries a ⚠ notice naming both
+  models.
+
+Routing itself — the two `router` keys, what makes a model routable,
+how effort levels resolve and the full guard list — is documented in
+`model-routing.md` in this directory.
+
 ## Using GPT-5.6's full 1.05M window
 
 Two deliberate steps. First, raise the registry window in
@@ -155,6 +263,17 @@ dropped:
 WARNING: beyond 272K total input every request bills at the
 long-context rates listed above.
 
+With action-level routing on, this override also settles a warning
+you will otherwise see once per session for each configured
+`gpt-5.6-*` model: Slate's own profile for those models records a
+1,050,000-token window, pi's stock registry reports 272,000, and the
+router reports that divergence without adjudicating it (routing uses
+the registry figure). Raising the registry window removes the
+disagreement at its source. Leaving it alone is equally valid — the
+registry figure is the conservative one — and `model-routing.md`
+explains why Slate does not silence the warning by editing its own
+number.
+
 ## Accepted limitations
 
 - On models with a 272K pricing tier and a larger registry window
@@ -174,3 +293,9 @@ long-context rates listed above.
   compaction can land in the same cycle and the handoff brief is
   written from compacted context — episodes and thread state survive
   on disk, so handoff still functions.
+- The doctrine sizes above cover the shipped rules only. A project
+  that also injects `doctrineExtraPath` or `orchestratorPromptDocs`,
+  or whitelists worker extensions, pays for those on top in the same
+  always-loaded position, and Slate measures none of it against the
+  budget separately — it simply arrives as context the budget then
+  has less room for.

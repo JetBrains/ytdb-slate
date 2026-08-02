@@ -2,7 +2,7 @@
 
 Slate is a thread-weaving orchestration extension for the [pi coding agent](https://pi.dev).
 
-The orchestrator (your main pi session) dispatches **bounded actions** to persistent **worker threads**. Each completed action is compressed by an LLM into an **episode** — a durable, structured record (intent, actions, findings, artifacts, open issues, handoff notes) that the orchestrator composes into further dispatches instead of re-reading raw transcripts. On top of that, Slate injects a mandatory workflow doctrine: research before design, design review, adversarial review, and track review — with optional umbrella **draft-PR publishing** for tracks. An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative.
+The orchestrator (your main pi session) dispatches **bounded actions** to persistent **worker threads**. Each completed action is compressed by an LLM into an **episode** — a durable, structured record (intent, actions, findings, artifacts, open issues, handoff notes) that the orchestrator composes into further dispatches instead of re-reading raw transcripts. On top of that, Slate injects a mandatory workflow doctrine: research before design, design review, adversarial review, and track review — with optional umbrella **draft-PR publishing** for tracks. An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative. A second opt-in, **action-level model routing**, gives each dispatched action a model and an effort level chosen to be up to the task and no more, so cost is bounded per action instead of per session.
 
 ## Why Slate?
 
@@ -51,6 +51,12 @@ This summary is orientation only; the shipped docs listed below are normative.
 
 Slate can ride through model API outages. The opt-in `modelFailover` map in `.pi/slate.json` (trusted projects only) maps a model (`provider/id`) to an equal-quality alternative; on an eligible model API failure — not an abort or a context overflow, and for the orchestrator and worker sites only after pi's own retries are exhausted — the affected site (orchestrator, worker thread, or episode compression) retries once on the mapped model (single hop, never chained). An orchestrator failover — like the handoff adoption that re-applies a parent session's model — would otherwise leave pi's global model defaults changed, so Slate restores them on a best-effort basis unless `preserveGlobalModelDefault` is `false`. The map is empty by default (feature off) and read once at session start. Full semantics: the `modelFailover` row in [Configuration](#configuration) and the shipped [`docs/model-failover.md`](docs/model-failover.md) — if they disagree, that document wins.
 
+## Action-level model routing
+
+Slate can pick the model and the effort level per dispatched action rather than running every action on whatever model the orchestrator happens to be on. `router.models` in `.pi/slate.json` (trusted projects only) is a closed list of `provider/id` specs; a dispatch then runs on the `model` and `effort` arguments of that action, else on the thread's own base model and a level DERIVED for the model that actually runs — the lowest level that model has a capability measurement at, never a fixed default. The list is empty by default, and empty means off: no list is enforced, nothing is seeded, and model selection is exactly what it was before the router existed. Only models Slate ships a benchmark profile for can be routed to; entries pi cannot serve, or has no profile for, are dropped with a warning naming them.
+
+What the code enforces is deliberately narrower than what the routing data advises. The dispatch guards refuse an unlisted model, a level off the target model's ladder and a level the provider rejects outright; they warn about — and mark — an unmeasured level, refusing it only when `router.allowUnmeasuredEffort` is `false`; and the context-window guard substitutes a wider listed model instead of ever blocking an action. The obligations that come from the profile data itself — keeping review and gate actions on measured levels, and honoring a REFUSE such as `anthropic/claude-fable-5`'s for zero-data-retention work — are stated in the doctrine for the orchestrator to honor; they are **not** code-enforced guards. Full semantics: the `router.*` rows in [Configuration](#configuration) and the shipped [`docs/model-routing.md`](docs/model-routing.md) — if they disagree, that document wins.
+
 ## Install
 
 Install into a project (pinned, project-scoped — recorded in `.pi/settings.json`):
@@ -68,7 +74,7 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | Key | Type | Default | Semantics |
 | --- | --- | --- | --- |
 | `orchestratorModeDefault` | boolean | `false` | Start fresh interactive sessions with orchestrator mode ON. |
-| `episodeModel` | string | newest available Anthropic Sonnet, else the worker's own model | Model (`provider/id`) used to compress a finished action into an episode. |
+| `episodeModel` | string | newest available Anthropic Sonnet, else the orchestrator's own base model | Model (`provider/id`) used to compress a finished action into an episode. Never the model an action was routed to: an episode is read by every later consumer of the thread, so one cheap route must not degrade the record. An unusable value is reported and the default is used. |
 | `workerTools` | string[] | `["read", "bash", "edit", "write", "grep", "find", "ls"]` | Tools available to worker threads (an empty list also falls back to the default). |
 | `workerExtensions` | string[] | `[]` | Regex patterns (matched **unanchored**) selecting which of the host session's already-loaded extensions also load into every worker thread; each matched extension's tools are added **on top of** `workerTools`. Empty (default) means workers load no extensions. The orchestrator keeps its restricted tool set but its doctrine is told what was whitelisted. Invalid patterns are dropped with a warning at session start. |
 | `maxConcurrent` | number | `4` | Maximum number of worker actions running concurrently (must be ≥ 1 — unenforced: a value of 0 or less silently hangs all dispatches). Excess dispatches wait in a queue; actions on the same thread always run in dispatch order. Default rationale: shipped `docs/design-principles.md` §5 (repo-local note). |
@@ -80,6 +86,8 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `reviewPerspectivesPath` | string | — | Project review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
 | `modelFailover` | object (string → string) | — (empty, failover off) | Map of `provider/id` → equal-quality alternative model; on a model API failure the affected site retries once on the mapped model (worker/orchestrator sites only after pi's own retries are exhausted; episode compression has no pi retry loop). Read once at session start — see [`docs/model-failover.md`](docs/model-failover.md). |
 | `preserveGlobalModelDefault` | boolean | `true` | Put pi's global model defaults (`defaultProvider`, `defaultModel`, `defaultThinkingLevel`) back after a Slate-initiated model switch — orchestrator failover and handoff adoption — so the switch stays session-scoped. `false` turns that restore off at both sites (the switches themselves are unaffected), leaving each one persisted in pi's global settings. Best-effort: Slate reverts only a value its own switch produced, and can stand down or give up — limits in [`docs/model-failover.md`](docs/model-failover.md). |
+| `router.models` | string[] | `[]` (empty — routing off) | Closed list of models (`provider/id`) an action may be routed to. **Empty or absent means the router is OFF and dispatch behaves exactly as it did before the router existed** — no model list is enforced and no thread gets a seeded base model. A listed model becomes routable only where four things intersect: your list, a benchmark profile Slate ships for that model, pi's model registry, and credentials pi actually has configured; anything that fails one of those is dropped with a warning naming it (if every entry drops, routing turns off with one summary warning). Read once at session start and resolved once per session — see [`docs/model-routing.md`](docs/model-routing.md). |
+| `router.allowUnmeasuredEffort` | boolean | `true` | What happens when an explicitly requested effort level is on the target model's ladder but has no capability measurement in Slate's profiles: `true` dispatches it with a ⚠ notice and marks the episode `(unmeasured level)`; `false` refuses the dispatch. Either way a level that is off the model's ladder, or one the provider rejects outright, is refused, and a level Slate DERIVES for an action is always a measured one. |
 
 Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point them at markdown files that actually exist in **your** project):
 
@@ -93,7 +101,8 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
   "workflow": { "draftPRs": true },
   "doctrineExtraPath": "docs/agents/workflow-additions.md",
   "reviewPerspectivesPath": "docs/agents/review-perspectives.md",
-  "modelFailover": { "anthropic/claude-sonnet-5": "openai/gpt-5.2" }
+  "modelFailover": { "anthropic/claude-sonnet-5": "openai/gpt-5.2" },
+  "router": { "models": ["openai/gpt-5.6-luna", "anthropic/claude-opus-5"] }
 }
 ```
 
@@ -126,7 +135,7 @@ Slate reads project configuration (`.pi/slate.json`) and injects project files (
 
 ## Shipped docs
 
-In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand:
+In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths are also why the block's character count depends on your install location; [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
 
 - `docs/track-workflow.md` — the track-based workflow (research → design review → adversarial review → track review)
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
@@ -134,6 +143,7 @@ In orchestrator mode, Slate appends a short **doctrine** (a block of numbered ru
 - `docs/design-principles.md` — Slate's own design rationale
 - `docs/model-failover.md` — the opt-in `modelFailover` map (**reference documentation** — unlike the entries above it is not workflow doctrine and is not cited by the doctrine)
 - `docs/context-budget.md` — the orchestrator `contextBudget`: defaults, per-model overrides, the window clamp, and the pricing rationale (also **reference documentation**, not cited by the doctrine)
+- `docs/model-routing.md` — action-level model routing: the two `router` keys, how a model becomes routable, how an omitted effort level resolves, the dispatch guards, and the warnings a first routed session emits. Unlike the two entries above it **is** cited by the doctrine, by absolute path, but only while the routing rule renders — it is the extra embedded path that appears with the rule, the fourth normally and the fifth when `workflow.draftPRs` is also on, which the size arithmetic in `docs/context-budget.md` accounts for. The routable model list itself is never read from this file: the rule renders it live from the session's own resolution, because that set depends on your registry and credentials.
 
 Project-specific additions layer on top — they extend, not replace, the shipped doctrine — via two distinct mechanisms:
 

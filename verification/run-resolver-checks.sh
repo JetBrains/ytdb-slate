@@ -1,20 +1,32 @@
 #!/usr/bin/env bash
 # =============================================================================
-# slate — worker-extension resolver checks
+# slate — pure-resolver checks
 # =============================================================================
-# Exercises the pure resolver pipeline in extension/worker-extensions.ts and the
-# doctrine rule it feeds in extension/mode.ts. Prints one
-#   CHECK <id> <PASS|FAIL> — <detail>
-# line per check plus a summary. See verification/README.md.
+#:HELP_START
+# Exercises the pure resolver pipelines that have no other regression net:
+#   · the worker-extension resolver in extension/worker-extensions.ts and the
+#     doctrine rule it feeds in extension/mode.ts;
+#   · the model router in extension/model-router.ts — config sanitizer,
+#     candidate resolution and its warnings, the effort predicate — against
+#     fabricated registries and fabricated profile tables;
+#   · structural invariants of the shipped table in extension/model-profiles.ts
+#     (shape and internal consistency only, never a research number).
+# Prints one
+#   CHECK <id> <PASS|FAIL|NOT RUN> — <detail>
+# line per check (a FAIL adds an `observed:` line), then a `roster` check that
+# every expected check reported, then a summary. See verification/README.md.
 #
 # Usage:
 #   bash verification/run-resolver-checks.sh --repo .
 #   bash verification/run-resolver-checks.sh            # --repo defaults to .
+#   bash verification/run-resolver-checks.sh --strict    # CI: NOT RUN is fatal
 #
 #   --repo <dir>   slate checkout under test (default: ".")
+#   --strict       any NOT RUN check fails the run (automation should pass this)
 #
-# Exit status: 0 all checks passed · 1 a check failed · 2 refused to start
-# (a missing tool, a bad --repo, or jiti could not be located).
+# Exit status: 0 all checks passed · 1 a check failed, a check went missing, or
+# --strict was given and a check reported NOT RUN · 2 refused to start (a missing
+# tool, a bad --repo, or jiti could not be located).
 #
 # Everything runs against fabricated in-memory inputs — no network, no real pi
 # session. The only writes land in a throwaway temp dir this script creates and
@@ -24,17 +36,24 @@
 # ladder this script uses only POSIX shell plus node — no GNU coreutils — so it
 # runs on non-GNU platforms too (symlink canonicalisation is done by node's
 # realpathSync, not the GNU-only `readlink -f`).
+#:HELP_END
 # =============================================================================
 set -uo pipefail
 
 exec 8>&2
 die() { echo "verification: $*" >&8; exit 2; }
 
+# --help prints the block between the markers above, so editing the header can
+# never silently truncate the help text (WH1: a hard-coded line range did).
+usage() { sed -n '/^#:HELP_START/,/^#:HELP_END/p' "$0" | sed '1d;$d;s/^# \{0,1\}//'; }
+
 REPO="."
+STRICT=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--repo) [ "$#" -ge 2 ] || die "option '--repo' requires a value"; REPO="$2"; shift 2 ;;
-		-h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+		--strict) STRICT="strict"; shift ;;
+		-h|--help) usage; exit 0 ;;
 		*) die "unknown argument '$1' (try --help)" ;;
 	esac
 done
@@ -57,6 +76,11 @@ JITI="$(node -e 'const {realpathSync}=require("node:fs");const {createRequire}=r
 	|| die "could not locate jiti (it ships with pi) via $PI_BIN — see the node error above"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/slate-resolver.XXXXXX")" || die "could not create a scratch directory"
-trap 'rm -rf "$WORK"' EXIT INT TERM
+# INT/TERM exit explicitly after cleanup, the way run-ladder.sh does (WH2):
+# without it an interrupted run leaves the shell's own signal disposition to
+# decide the exit status.
+trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"; exit 130' INT
+trap 'rm -rf "$WORK"; exit 143' TERM
 
-node --no-warnings "$(dirname "$0")/resolver-checks.mjs" "$REPO" "$JITI" "$WORK"
+node --no-warnings "$(dirname "$0")/resolver-checks.mjs" "$REPO" "$JITI" "$WORK" "$STRICT"
