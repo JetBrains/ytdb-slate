@@ -65,11 +65,7 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 
 ## Writing convention
 
-For new or changed prose in scope, prefer short sentences, active voice and familiar words. Keep exact identifiers and technical terms when precision requires them. Use ASD-STE100 as inspiration only: Slate claims no conformance, endorsement or certification, and has no glossary program. Do not copy the standard's rule text, dictionary material, word lists or examples.
-
-It covers the README, PR descriptions, issues, comments, release notes and the agent's messages to the user; it excludes the research log, worker-thread task text, documents under `docs/`, and `AGENTS.md` itself because this guide needs a dense, exact register for agent-facing rules.
-
-Apply the convention prospectively; unchanged prose does not need rewriting.
+New or changed README text, PR descriptions, delivery commit bodies in either mode, issues, comments, release notes and agent messages to users: use short, active, plain language; keep exact terms. Excluded are research logs and worker-thread task text; deliberately, `docs/`, where precision wins; and `AGENTS.md`, whose agent rules need a dense, exact register. ASD-STE100 inspires only; Slate claims no conformance. Copy no standard material or examples.
 
 ## Packaging rules
 

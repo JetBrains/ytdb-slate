@@ -60,14 +60,24 @@ development branch — it is the permanent git-archaeology record for
 the change. Write it accordingly.
 
 Aim to keep the final delivery commit body at or below 16,384 UTF-8
-bytes, excluding the subject. This is a target, not a gate. If the
-body must be larger, condense it where possible and state briefly why
-the retained detail is necessary. Do not remove decisions, risks,
-verdicts, or evidence needed to understand or review the change only
-to meet the target. The most recent accepted delivery body was 20,958
-bytes, 27.9% above the target; exceeding it is therefore an exercised
-exception that carries the condensation and justification duties, not
-a prohibited outcome.
+bytes, excluding the subject. This is a target, not a gate. Measure
+the exact body text as UTF-8 without adding a newline: for a PR, count
+the GitHub API `body` string; for a delivered commit, count the byte
+sequence after the subject separator in `git cat-file commit <sha>`.
+Do not use a formatted `git log` value such as `%b`, which adds an
+output newline.
+
+If the body is larger, first remove repetition and merge overlapping
+material. In Risks & accepted trade-offs, itemize what was removed or
+merged and why each retained section is necessary for review. This
+account, not a claim that condensation was attempted, is the required
+justification. Do not remove decisions, risks, verdicts, or evidence
+needed to understand or review the change only to meet the target. By
+the canonical measurement above, the most recent accepted delivery
+body, from the publishing-enabled path, was 20,957 bytes: 27.9% above
+the target. That precedent establishes that a justified overrun can
+pass; it does not establish the typical size of either delivery path
+or a content-equivalent exception in the publishing-disabled path.
 
 ## Tracks table
 
@@ -115,10 +125,10 @@ executed in order:
 - Resolve every remaining Open Question, or record its user-approved
   deferral or accepted uncertainty in Risks & accepted trade-offs. A
   mention without the user's disposition is not enough.
-- Measure the final PR description in UTF-8 bytes. If it exceeds the
-  target in § Description rules, confirm that condensation was
-  attempted and that the description briefly justifies the detail
-  retained above the target.
+- Measure the final PR description by the canonical method in §
+  Description rules. If it exceeds the target, verify that Risks &
+  accepted trade-offs itemizes material actually removed or merged
+  and explains why each retained section is necessary for review.
 - Last, re-read the whole PR description end-to-end to confirm the
   as-flipped text tells one consistent story.
 
@@ -127,10 +137,13 @@ executed in order:
 The user may wait for CI green and/or peer-review completion and ask
 the agent to fix test failures or review observations. The agent lands
 fixes as normal commits, keeps the description in sync, and presents
-agent-landed commits to the user as they land. Commits pushed directly
-by reviewers are visible in the PR UI; the agent reconciles the
-description with them on its next task. The user's merge act is the
-final approval.
+agent-landed commits to the user as they land. After every post-flip
+description change, and again at the final handoff for merge, repeat
+the byte measurement and any over-target condensation account required
+by § Description rules. Commits pushed directly by reviewers are
+visible in the PR UI; the agent reconciles the description with them
+on its next task. The user's merge act is the final approval, including
+acceptance of any recorded size exception.
 
 ## After the merge
 

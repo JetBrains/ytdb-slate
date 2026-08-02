@@ -109,16 +109,30 @@ deletes the log file. On abandonment the agent deletes the log file
 after offering its content to the user for archiving.
 
 Aim to keep the final delivery commit body at or below 16,384 UTF-8
-bytes, excluding the subject. This is a target, not a gate. If the
-body must be larger, condense it where possible and state briefly why
-the retained detail is necessary. Do not remove decisions, risks,
-verdicts, or evidence needed to understand or review the change only
-to meet the target. The most recent accepted delivery body in the
-publishing-enabled path was 20,958 bytes, 27.9% above the target; it is
-a content-equivalent cross-mode proxy, not a direct measurement of
-this publishing-disabled path. Exceeding the target is therefore an
-exercised exception that carries the condensation and justification
-duties, not a prohibited outcome.
+bytes, excluding the subject. This is a target, not a gate. Measure
+the exact body text as UTF-8 without adding a newline: count the byte
+sequence after the subject separator in `git cat-file commit <sha>`.
+Do not use a formatted `git log` value such as `%b`, which adds an
+output newline. For a proposed commit, apply the same rule to the
+exact body text before committing.
+
+If the body is larger, first remove repetition and merge overlapping
+material. Add a `Size exception` paragraph to the delivery commit body
+that itemizes what was removed or merged and explains why each
+retained section is necessary for review. This account, not a claim
+that condensation was attempted, is the required justification. Do
+not remove decisions, risks, verdicts, or evidence needed to
+understand or review the change only to meet the target. Immediately
+before presenting the final delivery commit to the user, measure it
+and obtain the user's approval of the body and any size exception;
+repeat both steps if the body changes before it lands.
+
+By this canonical measurement, the most recent accepted delivery body
+from the publishing-enabled path was 20,957 bytes, 27.9% above the
+target. That precedent establishes only that a justified overrun can
+pass in that path. Publishing-enabled descriptions can carry material
+that this path does not, so the figure is neither a direct measurement
+nor an exercised exception for publishing-disabled delivery.
 
 ### Under-trigger guardrail
 
