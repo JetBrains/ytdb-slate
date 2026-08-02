@@ -117,15 +117,18 @@ output newline. For a proposed commit, apply the same rule to the
 exact body text before committing.
 
 If the body is larger, first remove repetition and merge overlapping
-material. Add a `Size exception` paragraph to the delivery commit body
-that itemizes what was removed or merged and explains why each
-retained section is necessary for review. This account, not a claim
-that condensation was attempted, is the required justification. Do
+material. Then add a `Size exception` paragraph to the delivery commit
+body carrying measurements, not assurances: the overrun, by the
+canonical method above; every top-level section's byte count by that
+same method, largest first; and, for each section that was condensed,
+its byte count before condensing. A section with no before-count is
+visibly untouched, so the user weighs any claim that nothing could be
+removed against the counts beside it, and can refuse the exception. Do
 not remove decisions, risks, verdicts, or evidence needed to
 understand or review the change only to meet the target. Immediately
-before presenting the final delivery commit to the user, measure it
-and obtain the user's approval of the body and any size exception;
-repeat both steps if the body changes before it lands.
+before presenting the final delivery commit to the user, measure it by
+that method and obtain the user's approval of the body and of any size
+exception; repeat both steps if the body changes before it lands.
 
 By this canonical measurement, the most recent accepted delivery body
 from the publishing-enabled path was 20,957 bytes, 27.9% above the

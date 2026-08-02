@@ -68,12 +68,17 @@ Do not use a formatted `git log` value such as `%b`, which adds an
 output newline.
 
 If the body is larger, first remove repetition and merge overlapping
-material. In Risks & accepted trade-offs, itemize what was removed or
-merged and why each retained section is necessary for review. This
-account, not a claim that condensation was attempted, is the required
-justification. Do not remove decisions, risks, verdicts, or evidence
-needed to understand or review the change only to meet the target. By
-the canonical measurement above, the most recent accepted delivery
+material. Then record a size exception in Risks & accepted trade-offs
+carrying measurements, not assurances: the overrun, by the canonical
+method above; every top-level section's byte count by that same
+method, largest first; and, for each section that was condensed, its
+byte count before condensing. A section with no before-count is
+visibly untouched, so the user weighs any claim that nothing could be
+removed against the counts beside it, and can refuse the exception. Do
+not remove decisions, risks, verdicts, or evidence needed to
+understand or review the change only to meet the target.
+
+By the canonical measurement above, the most recent accepted delivery
 body, from the publishing-enabled path, was 20,957 bytes: 27.9% above
 the target. That precedent establishes that a justified overrun can
 pass; it does not establish the typical size of either delivery path
@@ -127,8 +132,9 @@ executed in order:
   mention without the user's disposition is not enough.
 - Measure the final PR description by the canonical method in §
   Description rules. If it exceeds the target, verify that Risks &
-  accepted trade-offs itemizes material actually removed or merged
-  and explains why each retained section is necessary for review.
+  accepted trade-offs carries the size exception's measurements: the
+  overrun, the per-section counts, and the before-counts of whatever
+  was condensed.
 - Last, re-read the whole PR description end-to-end to confirm the
   as-flipped text tells one consistent story.
 
@@ -139,11 +145,11 @@ the agent to fix test failures or review observations. The agent lands
 fixes as normal commits, keeps the description in sync, and presents
 agent-landed commits to the user as they land. After every post-flip
 description change, and again at the final handoff for merge, repeat
-the byte measurement and any over-target condensation account required
-by § Description rules. Commits pushed directly by reviewers are
-visible in the PR UI; the agent reconciles the description with them
-on its next task. The user's merge act is the final approval, including
-acceptance of any recorded size exception.
+the byte measurement and any over-target size exception required by §
+Description rules. Commits pushed directly by reviewers are visible in
+the PR UI; the agent reconciles the description with them on its next
+task. The user's merge act is the final approval, including acceptance
+of any recorded size exception.
 
 ## After the merge
 
