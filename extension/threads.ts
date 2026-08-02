@@ -41,15 +41,15 @@
  *    orchestrator's tracked model: a model-less plan targets the thread's
  *    creation-time PIN — which only opens a NEW worker session (`openOnly`) — and
  *    nothing at all when there is no pin, so a NEW session opens on the host's
- *    current model (worker.ts) and a reused one keeps the model it opened on. The
- *    `model` and `effort` arguments still apply per action, and an `effort`
- *    explicitly passed is validated against the plan target's
- *    ladder, and a level set by one action is put back to the session's opening
- *    level by the next. The MODEL an explicit argument routes to is normally
- *    reverted the same way (BG22), but a successful failover holds the live session
- *    on its fallback until a non-open-only route moves it or the session is disposed
- *    (BG16); a reopen ends it too, outside the one shape CQ3 records below. The hold
- *    predates the router; an OFF plan does not undo it.
+ *    current model (worker.ts) and a reused one is reverted to the model it opened
+ *    on — unless a failover holds it (BG16) or that revert cannot be performed
+ *    (BG24). The `model` and `effort` arguments still apply per action: an explicit
+ *    `effort` is validated against the plan target's ladder whenever that ladder is
+ *    readable, and a level set by one action is put back to the session's opening
+ *    level by the next. The MODEL an explicit argument routes to is reverted the same
+ *    way (BG22), with the two exceptions above; the failover hold predates the
+ *    router, and an OFF plan does not undo it. docs/model-routing.md's "Exceptions
+ *    to the planned pair" enumerates every case, this file's included.
  *
  *    An earlier iteration seeded the base from the tracker here and persisted it.
  *    That undid failovers on reused sessions, could strand a thread once its
