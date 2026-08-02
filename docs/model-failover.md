@@ -90,11 +90,10 @@ Failover applies at three sites:
   nudge. The transcript is preserved; usage and cost accumulate across
   both attempts. The thread stays on the mapped model while its
   session is live, including across later model-less actions, and the
-  `threads` listing marks it `live=<model> (failover)`. What ends that
-  hold, what clears the marker, and the one reopen that keeps the
-  fallback without its marker are M1 and M6 of [Exceptions to the
-  planned pair](model-routing.md#exceptions-to-the-planned-pair). The
-  retry inside the failing dispatch is M2 there.
+  `threads` listing marks it `live=<model> (failover)`. The hold, the
+  marker and the retry inside the failing dispatch are cases M1, M6
+  and M2 of [Known cases where the model or level
+  differs](model-routing.md#known-cases-where-the-model-or-level-differs).
 - **Episode compression.** The compression call is retried once with
   the mapped compressor model — only if it is distinct from the
   original, resolvable, and authed. If the retry also fails, the

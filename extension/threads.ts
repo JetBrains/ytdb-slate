@@ -42,14 +42,15 @@
  *    creation-time PIN — which only opens a NEW worker session (`openOnly`) — and
  *    nothing at all when there is no pin, so a NEW session opens on the host's
  *    current model (worker.ts) and a reused one is reverted to the model it opened
- *    on — unless a failover holds it (BG16) or that revert cannot be performed
- *    (BG24). The `model` and `effort` arguments still apply per action: an explicit
+ *    on — outside cases M1, M3 and M7 of the doc named below (BG16, BG24).
+ *    The `model` and `effort` arguments still apply per action: an explicit
  *    `effort` is validated against the plan target's ladder whenever that ladder is
  *    readable, and a level set by one action is put back to the session's opening
  *    level by the next. The MODEL an explicit argument routes to is reverted the same
- *    way (BG22), with the two exceptions above; the failover hold predates the
- *    router, and an OFF plan does not undo it. docs/model-routing.md's "Exceptions
- *    to the planned pair" enumerates every case, this file's included.
+ *    way (BG22), outside those same cases; the failover hold predates the router, and
+ *    an OFF plan does not undo it. docs/model-routing.md's "Known cases where the
+ *    model or level differs" collects the ones known to bite, this file's included.
+ *    It does not claim to be exhaustive, and this code is the authority.
  *
  *    An earlier iteration seeded the base from the tracker here and persisted it.
  *    That undid failovers on reused sessions, could strand a thread once its

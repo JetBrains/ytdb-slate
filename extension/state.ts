@@ -53,8 +53,8 @@ export interface ThreadRecord {
 	baseModel?: string;
 	/**
 	 * The thread's DEFAULT effort level, derived for `baseModel` and valid only for
-	 * it: a dispatch whose model differs re-derives the level for the model that
-	 * actually runs. Absent = unknown ⇒ the worker session's own opening level.
+	 * it: a dispatch whose model differs re-derives the level for the model it
+	 * routes to. Absent = unknown ⇒ the worker session's own opening level.
 	 *
 	 * The type is a claim about what slate WROTE, not a guarantee about what it reads
 	 * back: this record is restored from an unversioned, hand-editable snapshot, so the

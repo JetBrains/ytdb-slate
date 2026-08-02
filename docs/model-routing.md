@@ -13,10 +13,10 @@ are inert. A dispatch that names no model then plans for the thread's
 pre-router pin, and for no model at all when the thread has none: a
 new worker opens on the host session's model, and a reused one stays
 on the model it opened on. The per-action `model` and `effort`
-arguments are honoured on both router states. What a dispatch PLANS
-is not always what it runs, and the conditions are enumerated once,
-under [Exceptions to the planned
-pair](#exceptions-to-the-planned-pair).
+arguments are honoured on both router states. What a dispatch plans
+is not always what it runs; the cases known to bite are collected
+under [Known cases where the model or level
+differs](#known-cases-where-the-model-or-level-differs).
 
 This document is reference documentation, not workflow doctrine.
 
@@ -36,8 +36,8 @@ continuation alike:
 
 - **the model** — the `model` argument (`"provider/id"`), else the
   thread's base model (router ON), else the thread's pre-router pin,
-  else no plan target at all, so the session returns to the model it
-  opened on — M1 and M3 aside (router OFF);
+  else no plan target at all, in which case the session returns to
+  the model it opened on (router OFF; M1, M3, M7);
 - **the effort level** — the `effort` argument (one of pi's thinking
   levels), else a level Slate resolves for the model it routes to
   (router ON) or the level the worker session opened on (router
@@ -45,9 +45,8 @@ continuation alike:
 
 The arguments themselves do not become thread defaults. An explicit
 `effort` never governs a later action. An explicit `model` governs
-only its own action too, unless a model-axis exception below applies
-(M1, M3). An omitted `effort` is never "whatever the last action
-asked for":
+only its own action too, outside M1, M3 and M7. An omitted `effort`
+is never "whatever the last action asked for":
 
 - **router on** — the thread's base effort, re-validated, or a level
   derived for the model it routes to (see [Effort
@@ -60,13 +59,11 @@ asked for":
   the session's current model rather than inherited from the session
   file.
 
-The model axis carries live-session exceptions the effort axis does
-not: a held failover (M1) and a revert that cannot be performed (M3)
-each leave a model-less dispatch on the model the session is already
-running, and both predate action-level routing. The effort axis has
-no counterpart: a dispatch naming no `effort` always returns the
-session to the level it opened on. All of them are listed under
-[Exceptions to the planned pair](#exceptions-to-the-planned-pair).
+The model axis carries live-session cases the effort axis does not,
+M1 and M3 among them, and they predate action-level routing. The
+effort axis shares only M7. All of them, with the code that
+implements each, are under [Known cases where the model or level
+differs](#known-cases-where-the-model-or-level-differs).
 
 A thread's base model and base effort are separate planning state,
 visible in the `threads` listing, and are never set from an action's
@@ -84,17 +81,19 @@ Two things can come back instead of a normal episode:
   result — advisory: an evidence gap, a window substitution, a
   long-context billing cliff, a re-seeded base. The action ran.
 
-## Exceptions to the planned pair
+## Known cases where the model or level differs
 
-Planning is not execution. The pair a dispatch PLANS — one model and
-one level — is what the guards judge and what `effortJudgedFor`
-names. Below is the complete list of conditions under which the
-action runs on something else. Every other statement in this
-document, in the README, in `model-failover.md` and in the tool
-descriptions defers to this list instead of restating it, so a
-condition is written down once and cannot drift between copies.
+The model and the level an action runs on are not always the ones it
+asked for, or the ones its thread implies. The cases below are the
+ones known to bite, each with the code that implements it. **This
+list is not exhaustive.** `planRoute`, `decideModelSwitch` and
+`decideEffortSwitch` in `extension/route.ts`, applied by `applyRoute`
+in `extension/threads.ts`, are the authority: read them when you need
+certainty rather than a map. Every other statement in this document,
+in the README, in `model-failover.md` and in the tool descriptions
+names a case from this list instead of restating its conditions.
 
-On the MODEL axis:
+Why the MODEL can differ:
 
 - **M1 — a live failover holds the thread.** After a successful
   `modelFailover` the worker stays on its fallback, and a dispatch
@@ -104,59 +103,96 @@ On the MODEL axis:
   explicit `model` on either router state, or the thread's routed
   base while the router is ON. An OFF pre-router pin is `openOnly`
   and does not release it. A reopen ends it too, except in M6.
+  *Code:* the `failover-held` keep in `decideModelSwitch`
+  (`route.ts`); `applyRoute` clears the marker after a plan-driven
+  `setModel`, and `liveFailoverModel` reports it (`threads.ts`).
 - **M2 — a failover fires inside the dispatch.** When the attempt
   fails with a model-API error, Slate switches the live session to
   the mapped model and re-prompts once. One episode covers both
   attempts, and its `ran:` line names the model the action ended on
-  rather than the planned one.
-- **M3 — a revert cannot be performed.** A dispatch that names no
-  model reverts the session to the model it opened on. When that
-  model no longer resolves, or `setModel` throws, Slate warns and
-  leaves the session where the previous action left it (BG24). A
-  PLAN-driven switch that fails is the opposite case: the dispatch
-  aborts, nothing runs and no episode is written.
+  rather than the planned one. *Code:* the `isFailoverCandidate`
+  block in `dispatch` (`threads.ts`) and `planFailoverSwitch`,
+  guard 7 (`route.ts`).
+- **M3 — the revert was attempted and failed.** A dispatch that names
+  no model switches the session back to the model it opened on. When
+  that spec no longer resolves, or `setModel` throws, Slate warns and
+  leaves the session on the model the previous action left it on
+  (BG24). A PLAN-driven switch that fails is the opposite case: the
+  dispatch aborts, nothing runs and no episode is written. M7 is the
+  case where no revert is attempted at all. *Code:* `giveUp` inside
+  `applyRoute` (`threads.ts`).
 - **M4 — the window guard substitutes** (router ON). A model that
   cannot hold the thread's context is replaced by the widest listed
-  candidate, with a warning naming both and `substitutedFrom`
-  recording what it replaced. It never blocks the action.
+  candidate, and only when one is STRICTLY wider than the model it
+  would replace. When nothing listed is wider, the action runs on the
+  original model and a warning says pi will compact. It never blocks
+  the action, and `substitutedFrom` records a replacement. *Code:*
+  `strictlyWider` in `planRoute`'s guard 5 (`route.ts`).
 - **M5 — the thread's base was not routable** (router ON). A base
   that is absent or has fallen off the list is re-seeded to a listed
   candidate with a warning, so a model-less dispatch runs on the
-  seeded base and not on the value the record carried.
+  seeded base and not on the value the record carried. *Code:* the
+  re-seed branch of `planRoute` with `defaultBase` (`route.ts`),
+  written back by `persistReseededBase` (`threads.ts`).
 - **M6 — a reopened session restores a model from its file** (CQ3).
   Slate passes the reopening model explicitly whenever the dispatch
-  resolves one, and that overrides the session file. When the dispatch
-  resolves no model at all and the host session has none either, pi
-  restores the file's last model change instead, which can be a
-  fallback M1 was holding.
-  The `live=` marker is cleared on every reopen, so in this one shape
-  the fallback outlives its marker.
+  resolves one, and that overrides the session file. When the
+  dispatch resolves no model at all and the host session has none
+  either, pi restores the file's last model change instead, which can
+  be a fallback M1 was holding. The `live=` marker is cleared on every
+  reopen, so in this one shape the fallback outlives its marker.
+  *Code:* `opts.model ? resolveModel(ctx, opts.model) : ctx.model` in
+  `openWorkerSession` (`worker.ts`); the marker delete in
+  `openWorkerFor` and the CQ3 note on `liveFailoverModel`
+  (`threads.ts`).
+- **M7 — nothing was captured to return to.** When the worker session
+  reported no model as it opened, there is no revert target, and a
+  dispatch that names no model leaves the session where it is with no
+  switch attempted. The effort axis has the same keep when no opening
+  level was captured. *Code:* `NO_SESSION_BASELINE` and the
+  `no-baseline` keeps in `decideModelSwitch` and `decideEffortSwitch`,
+  fed by `captureSessionBaseline` (`route.ts`).
 
-On the EFFORT axis. There is no counterpart to M1 here: a dispatch
-that names no `effort` always returns the session to the level it
-opened on, including while a failover holds the model.
+Why the LEVEL can differ. There is no counterpart to M1 here: a
+dispatch that names no `effort` returns the session to the level it
+opened on, and M7 is the only case in which it does not.
 
 - **E1 — pi clamps a level Slate cannot judge.** When the ladder for
   the judged model is unreadable — no profile, a throwing lookup, a
   non-array ladder — the guards stand down and the level goes to pi,
   which clamps it to something the model offers. Slate reports
-  nothing, because it has no evidence to report.
+  nothing, because it has no evidence to report. *Code:*
+  `checkEffortFor` and `guardEffort`'s `ladderKnown` (`route.ts`).
 - **E2 — M4 moved the model under an explicit level.** A level that
   is not valid on the substituted model is DROPPED with a warning
   rather than refusing the action — a context size must never
   hard-block a dispatch — and the session's opening level applies.
+  *Code:* the `soft` branch of `guardEffort` (`route.ts`).
 - **E3 — a stored base level no longer holds.** A base effort is a
   cached derivation over a table that ships with Slate. When today's
   table no longer reads it as `ok`, it is silently re-derived for
   that model: nobody asked for that level, so a stale cache is
-  Slate's to correct rather than news to report.
+  Slate's to correct rather than news to report. *Code:* the stored
+  base-effort branch of `planRoute`, with `lowestMeasuredEffort`
+  (`route.ts`).
 - **E4 — the action's model is not the base model.** An explicit
   `model`, or M4, drops the inherited base level and derives the new
   model's own lowest measured level instead. A level derived for one
-  model is never carried onto another.
+  model is never carried onto another. *Code:* the effort resolution
+  in `planRoute`, keyed on `judgedModel` (`route.ts`).
 - **E5 — M2 re-clamps the level.** The failover route requests no
   level, and pi re-clamps the session's current level for the
-  fallback model.
+  fallback model. *Code:* `session.setModel(mapped)` in the failover
+  block (`threads.ts`); `openWorkerSession` passes the settings
+  default explicitly at every open for the same reason (`worker.ts`).
+- **E6 — the level was judged for one model and another model runs.**
+  When M1, M3 or M7 leaves the session on a model other than the plan
+  target, the level the plan resolved is still applied, and pi clamps
+  it to that model's own ladder with nothing reported.
+  `effortJudgedFor` names the model the judgement was about, which is
+  then not the model that ran. *Code:* the effort switch in
+  `applyRoute`, which runs after a model `keep` (`threads.ts`), and
+  `decideEffortSwitch` (`route.ts`).
 
 ## Configuration
 
@@ -300,7 +336,7 @@ router ON, in order:
    — the lowest level on that model's ladder that carries a traced
    capability measurement. A level derived for one model is never
    carried onto another, so an explicit `model`, or a window
-   substitution, re-derives it (E4);
+   substitution, re-derives it;
 3. and if that model has no measured level at all, nothing is set:
    the level the worker session opened on applies, which is pi's own
    settings default — never a level another action left behind.
@@ -314,10 +350,10 @@ construction and therefore cannot trip the effort guards; only an
 explicit one can.
 
 An explicit level is judged against the model the action routes to,
-which `effortJudgedFor` names. [Exceptions to the planned
-pair](#exceptions-to-the-planned-pair) lists what can move the model
-or the level after that judgement. The difference between a warning
-and a refusal is:
+which `effortJudgedFor` names. [Known cases where the model or level
+differs](#known-cases-where-the-model-or-level-differs) collects what
+can move either afterwards. The difference between a warning and a
+refusal is:
 
 - **evidence gap** (the level is on that model's ladder but no
   traced source reports a capability result there) — advisory. The
@@ -326,8 +362,7 @@ and a refusal is:
   `router.allowUnmeasuredEffort: false` turns this one case into a
   hard refusal for the whole project;
 - **off the model's ladder** — refused, whenever the ladder is
-  known (E2 is the one case where the level is dropped with a
-  warning instead). pi would otherwise clamp the level silently and
+  known, outside E2. pi would otherwise clamp the level silently and
   the orchestrator would believe the action ran at a level the model
   never offered;
 - **rejected outright by the provider** — refused, always. Such a
@@ -623,8 +658,7 @@ concern; a green suite says nothing about it.
   guard, billing notice, seeded base or candidate substitution, and
   Slate derives no effort level. A model-less plan targets the
   thread's pre-router pin, else nothing, so the session returns to the
-  model and level it opened on. That plan does not undo a live
-  `modelFailover` (M1), and M3 is the other way it can stay put. An explicit `effort` is still judged against
+  model and level it opened on — outside M1, M3 and M7. An explicit `effort` is still judged against
   the shipped profile for the plan target when pi's registry can serve
   that model. The `model` argument itself is passed through
   byte-for-byte, so a malformed spec still produces pi's own error.

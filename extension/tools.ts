@@ -21,9 +21,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"Use `context` to inject prior episodes (by id, from any thread) into the action.",
 			"Threads are serial; to parallelize, dispatch to DIFFERENT threads in one message.",
 			"`model` (\"provider/id\") and `effort` (pi thinking level) route THIS ACTION ONLY, on a new thread",
-			"or a continuation. The next action plans for the thread's base pair with routing on, or for what its",
-			"worker session opened with when routing is off. docs/model-routing.md § Exceptions to the planned pair",
-			"lists every condition under which the pair that runs differs from the pair that was planned.",
+			"or a continuation. The next action plans for the thread's base pair with routing on, and for its",
+			"pre-router pin with routing off. A thread with no pin gives it no plan target, and an action that",
+			"omits `effort` resolves no level: the worker session returns to what it opened on. See",
+			"docs/model-routing.md § Known cases where the model or level differs for what can run instead.",
 			"`tools` applies only when creating a new thread.",
 			"Guarded: a level the model does not offer is a tool error, as is a model outside the routable",
 			"list where a project configures one; advisory notices (evidence gaps, cost cliffs, window",
@@ -47,17 +48,17 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				Type.String({
 					description:
 						"Worker model \"provider/id\" for THIS action. Omit it to plan for the thread's base model with " +
-						"routing on, or for the model its worker session opened on with routing off. A fallback a failover " +
-						"is holding (exception M1) stays in place for an action that omits this.",
+						"routing on, or for its pre-router pin with routing off. With no pin the worker session returns to " +
+						"the model it opened on. Cases M1, M3, M6 and M7 in docs/model-routing.md are when it does not.",
 				}),
 			),
 			effort: Type.Optional(
 				Type.String({
 					description:
 						"Thinking level for THIS action: off, minimal, low, medium, high, xhigh or max. " +
-						"Slate refuses a level the routed model's known ladder lacks, except after a window substitution " +
-						"(exception E2), where it drops the level with a warning instead. Omit it to plan for the thread's " +
-						"default or a measured level with routing on, or for the worker session's opening level with routing off.",
+						"Slate refuses a level the routed model's known ladder lacks, outside case E2 in " +
+						"docs/model-routing.md. Omit it to plan for the thread's default or a measured level with routing " +
+						"on, or for the level the worker session opened on with routing off.",
 				}),
 			),
 			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
