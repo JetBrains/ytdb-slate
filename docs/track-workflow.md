@@ -108,6 +108,18 @@ explicitly hands any remaining Open Questions to the user, then
 deletes the log file. On abandonment the agent deletes the log file
 after offering its content to the user for archiving.
 
+Aim to keep the final delivery commit body at or below 16,384 UTF-8
+bytes, excluding the subject. This is a target, not a gate. If the
+body must be larger, condense it where possible and state briefly why
+the retained detail is necessary. Do not remove decisions, risks,
+verdicts, or evidence needed to understand or review the change only
+to meet the target. The most recent accepted delivery body in the
+publishing-enabled path was 20,958 bytes, 27.9% above the target; it is
+a content-equivalent cross-mode proxy, not a direct measurement of
+this publishing-disabled path. Exceeding the target is therefore an
+exercised exception that carries the condensation and justification
+duties, not a prohibited outcome.
+
 ### Under-trigger guardrail
 
 When shaping the planned-changes statement without a log, state this

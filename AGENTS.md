@@ -63,6 +63,14 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 - It does NOT touch `extension/worker.ts`: the worker-session load path — the allowlist-mode extension load, the `excludeTools` deny list that keeps slate's dispatch tools out of a worker, and the post-load collision re-check — is out of its scope. Exercise those with the isolated-load smoke test (`pi --no-extensions -e .`) above after changing `extension/worker.ts`, and the ladder's `WK1` rung for that module's settings isolation. It likewise stops at the PURE boundary: it proves what the planner DECIDES, not what `threads.ts` does with a verdict (applying the switch, raising a tool error, aborting without an episode, remembering the long-context notice). Those are separate mechanisms; the ladder's `WK1` rung covers one slice of the first.
 - **Doctrine size figures are install-path dependent — compare a PORTABLE one.** The doctrine cites its docs by absolute path (three always, one more with `workflow.draftPRs`, one more with the router on), so every character of installed-`docs/`-directory length costs **3–5 characters of rendered doctrine**. A raw count measured in a deeper checkout or under `node_modules` is therefore larger and nothing is wrong. Nothing needs re-deriving to see past that: `doctrine-budget` bounds an install-INVARIANT figure — the rendered text with each occurrence of the docs directory removed, filename kept — and carries two terms that fail if that normalisation ever degrades to the identity; `docs/context-budget.md` (with `docs/model-routing.md` deferring to it) and `verification/README.md` publish portable figures on that same convention, and `docs/context-budget.md` names the check as the definition of record. Their published rows are not all identical — they were measured against different commits and fixtures — so when a figure matters, re-measure it rather than reconciling two tables.
 
+## Writing convention
+
+For new or changed prose in scope, prefer short sentences, active voice and familiar words. Keep exact identifiers and technical terms when precision requires them. Use ASD-STE100 as inspiration only: Slate claims no conformance, endorsement or certification, and has no glossary program. Do not copy the standard's rule text, dictionary material, word lists or examples.
+
+It covers the README, PR descriptions, issues, comments, release notes and the agent's messages to the user; it excludes the research log, worker-thread task text, documents under `docs/`, and `AGENTS.md` itself because this guide needs a dense, exact register for agent-facing rules.
+
+Apply the convention prospectively; unchanged prose does not need rewriting.
+
 ## Packaging rules
 
 - Pi-bundled SDK packages (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `typebox`) must stay in `peerDependencies` with version `"*"` — never bundle them.

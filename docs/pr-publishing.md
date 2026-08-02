@@ -59,6 +59,16 @@ The description becomes the squash-commit body on the default
 development branch — it is the permanent git-archaeology record for
 the change. Write it accordingly.
 
+Aim to keep the final delivery commit body at or below 16,384 UTF-8
+bytes, excluding the subject. This is a target, not a gate. If the
+body must be larger, condense it where possible and state briefly why
+the retained detail is necessary. Do not remove decisions, risks,
+verdicts, or evidence needed to understand or review the change only
+to meet the target. The most recent accepted delivery body was 20,958
+bytes, 27.9% above the target; exceeding it is therefore an exercised
+exception that carries the condensation and justification duties, not
+a prohibited outcome.
+
 ## Tracks table
 
 The description's Tracks section holds the track table; its
@@ -102,6 +112,13 @@ executed in order:
   description, including the Planned changes section, describes the
   change as implemented, folding in everything added, dropped, or
   reshaped since the draft PR was opened.
+- Resolve every remaining Open Question, or record its user-approved
+  deferral or accepted uncertainty in Risks & accepted trade-offs. A
+  mention without the user's disposition is not enough.
+- Measure the final PR description in UTF-8 bytes. If it exceeds the
+  target in § Description rules, confirm that condensation was
+  attempted and that the description briefly justifies the detail
+  retained above the target.
 - Last, re-read the whole PR description end-to-end to confirm the
   as-flipped text tells one consistent story.
 
