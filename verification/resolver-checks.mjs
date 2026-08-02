@@ -84,11 +84,15 @@ function fmt(value) {
 	}
 }
 
-// The id column is 26 characters in every tier-1 harness (packaging guards,
-// load check, these checks), so a verdict sits in the same place whichever one
-// you are reading. padEnd never truncates: the four ids longer than 26 push
-// their own verdict right rather than losing any text.
-const ID_COLUMN = 26;
+// The id column is 32 characters in every tier-1 CHECK harness (packaging
+// guards, load check, these checks), so a verdict sits in the same place
+// whichever one you are reading. The width is the longest id in any of them
+// plus two: 30 here (route-stored-effort-vocabulary), 24 in the packaging
+// guards (self-keywords-pi-package, --self-test only), 2 in the load check.
+// padEnd never truncates, so an id longer than the column would push its own
+// verdict right rather than lose text — but widening the three harnesses
+// together is what keeps that from happening.
+const ID_COLUMN = 32;
 
 // TS2: a FAIL prints the observed value, not just the claim. `observed` may be
 // any value or omitted.

@@ -361,12 +361,13 @@ npmdir_state() {
 
 # ---------------------------------------------------------------- bookkeeping
 PASS=0; FAIL=0; RAN=0
-# The id column is 26 wide across all three check harnesses in verification/ (the
-# longest id in the suite is 24 characters), so their output lines up with each
-# other and the verdict column never shifts (CQ1).
+# The id column is 32 wide across all three check harnesses in verification/: the
+# longest id in any of them is 30 characters (route-stored-effort-vocabulary, in
+# the resolver checks; 24 in the packaging guards, 2 here), plus two. So their
+# output lines up with each other and the verdict column never shifts (CQ1).
 check() { # $1 id, $2 condition (0 = pass), $3 detail
-	if [ "$2" = 0 ]; then PASS=$((PASS+1)); printf 'CHECK %-26s %-4s — %s\n' "$1" "PASS" "$3"
-	else FAIL=$((FAIL+1)); printf 'CHECK %-26s %-4s — %s\n' "$1" "FAIL" "$3"; fi
+	if [ "$2" = 0 ]; then PASS=$((PASS+1)); printf 'CHECK %-32s %-4s — %s\n' "$1" "PASS" "$3"
+	else FAIL=$((FAIL+1)); printf 'CHECK %-32s %-4s — %s\n' "$1" "FAIL" "$3"; fi
 }
 want() { # selected by --only?
 	if [ -n "$ONLY" ]; then

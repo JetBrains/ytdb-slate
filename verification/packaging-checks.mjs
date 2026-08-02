@@ -56,11 +56,12 @@ for (const a of REST) {
 
 let pass = 0;
 let fail = 0;
-// The repo's shared harness output convention (resolver-checks.mjs, run-ladder.sh):
-// one line per check, verdict in a fixed column. 26 characters is the shared id
-// width — wide enough for the longest id in any harness, self- prefixes included.
+// The shared output convention of the tier-1 CHECK harnesses (resolver-checks.mjs,
+// run-load-check.sh): one line per check, verdict in a fixed column. 32 is the
+// shared id width — the longest id in any of the three plus two (30 in the
+// resolver checks, 24 here counting the --self-test prefix, 2 in the load check).
 function check(id, cond, detail) {
-	console.log(`CHECK ${id.padEnd(26)} ${(cond ? "PASS" : "FAIL").padEnd(4)} — ${detail}`);
+	console.log(`CHECK ${id.padEnd(32)} ${(cond ? "PASS" : "FAIL").padEnd(4)} — ${detail}`);
 	cond ? pass++ : fail++;
 }
 
