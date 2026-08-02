@@ -48,6 +48,12 @@ name: Tier 1
 
 on:
   pull_request:
+  # A merge queue evaluates a candidate merge commit on its own temporary
+  # gh-readonly-queue/<base> branch and dispatches merge_group, not pull_request
+  # or push. A workflow without this trigger never runs there, so a required
+  # check never reports and every queued pull request waits forever.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   workflow_dispatch:
@@ -60,8 +66,12 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Superseded pull-request runs are noise, so cancel them. A run on the default
-  # branch is that branch's status, so it must be allowed to finish.
+  # Superseded pull-request runs are noise, so cancel them. Every other event
+  # must finish: a run on the default branch is that branch's status, and a
+  # merge_group run is the gate the queue is waiting for — cancelling it would
+  # drop the pull request out of the queue. The group key cannot collide between
+  # the two, because github.ref is refs/pull/<n>/merge for the pull request and
+  # refs/heads/gh-readonly-queue/<base>/... for its queued merge.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
