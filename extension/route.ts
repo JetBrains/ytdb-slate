@@ -943,8 +943,8 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	}
 
 	// GUARD 5 — CONTEXT WINDOW, and it runs BEFORE the effort guards on purpose: the
-	// model this action runs on must be settled before any level is judged against
-	// it, or the judgement is about a model that will be substituted away. Never a
+	// model the planner routes this action to must be settled before any level is judged
+	// against it, or the judgement is about a model that will be substituted away. Never a
 	// hard block, and router ON only: with the router off there is no candidate list
 	// to fall back to, and the pre-router behaviour is no check at all.
 	let substitutedFrom: string | undefined;

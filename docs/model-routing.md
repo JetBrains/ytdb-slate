@@ -112,7 +112,7 @@ Why the MODEL can differ:
   the mapped model and re-prompts once. One episode covers both
   attempts, and its `ran:` line names the model the action ended on
   rather than the planned one. *Code:* the `isFailoverCandidate`
-  block in `runDispatch` (`threads.ts`) and `planFailoverSwitch`,
+  block in `runDispatchInner` (`threads.ts`) and `planFailoverSwitch`,
   guard 7 (`route.ts`).
 - **M3 — the revert was attempted and failed.** A dispatch that names
   no model switches the session back to the model it opened on. When

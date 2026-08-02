@@ -650,7 +650,7 @@ export class ThreadManager {
 			);
 		};
 		abortIfBlocked();
-		// WHICH MODEL this action runs on is decided by route.ts's pure `decideModelSwitch`
+		// WHICH MODEL this action starts on is decided by route.ts's pure `decideModelSwitch`
 		// (the plan's model, else the session's opening model as a REVERT, standing down
 		// while a failover holds it). Everything it needs is passed explicitly, so the
 		// decision — the part with the interesting cases — is checkable without a
