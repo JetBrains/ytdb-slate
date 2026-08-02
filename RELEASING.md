@@ -194,23 +194,87 @@ export TAG="v$VERSION"
      After those checks pass, prepare the next unused patch version through this full procedure. A published version cannot be replaced or reused.
    - `inconclusive`: do not run `npm publish` again. Keep the prior pin, create no tag or release, preserve `PUBLISH_LOG` and `REGISTRY_ERROR`, and wait or escalate to npm support. A CLI error or E404 alone is never authoritative absence after an ambiguous publish. Authoritative absence means npm support or a registry operator has confirmed that the publish transaction was not accepted. Only after that confirmation may the agent retry step 5 for the same version; otherwise, if the version later becomes visible, verify it through this step.
 
-7. **The agent tags and creates the release at the verified squash commit.** The first check prevents an inconclusive or bad registry result from advancing. Create a lightweight tag—never an annotated tag—and verify its target before and after pushing. Create the GitHub release in the project's title convention and include the prepared release note:
+7. **The agent tags and creates the release at the verified squash commit.** The first check prevents an inconclusive or bad registry result from advancing. This block is restart-safe: it determines the local tag, remote tag and GitHub release states before it creates anything. It accepts only a lightweight tag at the intended commit.
 
    ```bash
    set -euo pipefail
    : "${PACKAGE:?Run the initialization block}" "${VERSION:?}" "${TAG:?}" "${SQUASH_SHA:?Run step 3}" "${REGISTRY_RESULT:?Run step 6}"
    [[ "$REGISTRY_RESULT" == 'verified' ]]
    [[ "$PACKAGE" == 'ytdb-slate' && "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$TAG" == "v$VERSION" && "$SQUASH_SHA" =~ ^[0-9a-f]{40}$ ]]
-   git tag "$TAG" "$SQUASH_SHA"
+
+   halt_wrong_tag() {
+     local location=$1 actual=$2
+     printf 'SERIOUS: %s tag %s points at %s, expected %s.\n' "$location" "$TAG" "$actual" "$SQUASH_SHA" >&2
+     printf 'Stop. Inspect the tag provenance and resolve the conflicting ref manually; never move, delete, or force-push it from this runbook.\n' >&2
+     exit 1
+   }
+
+   LOCAL_TAG_EXISTS=false
+   if git show-ref --verify --quiet "refs/tags/$TAG"; then
+     LOCAL_TAG_EXISTS=true
+     LOCAL_TAG_TYPE=$(git cat-file -t "$TAG")
+     [[ "$LOCAL_TAG_TYPE" == 'commit' ]] || halt_wrong_tag 'local (non-lightweight)' "$LOCAL_TAG_TYPE"
+     LOCAL_TAG_SHA=$(git rev-parse "$TAG^{commit}")
+     [[ "$LOCAL_TAG_SHA" == "$SQUASH_SHA" ]] || halt_wrong_tag 'local' "$LOCAL_TAG_SHA"
+   fi
+
+   REMOTE_TAG_FILE=$(mktemp)
+   git ls-remote --refs origin "refs/tags/$TAG" >"$REMOTE_TAG_FILE"
+   mapfile -t REMOTE_TAG_LINES <"$REMOTE_TAG_FILE"
+   (( ${#REMOTE_TAG_LINES[@]} <= 1 ))
+   REMOTE_TAG_EXISTS=false
+   if (( ${#REMOTE_TAG_LINES[@]} == 1 )); then
+     REMOTE_TAG_EXISTS=true
+     read -r REMOTE_TAG_SHA REMOTE_TAG_REF <<<"${REMOTE_TAG_LINES[0]}"
+     [[ "$REMOTE_TAG_REF" == "refs/tags/$TAG" && "$REMOTE_TAG_SHA" =~ ^[0-9a-f]{40}$ ]]
+     [[ "$REMOTE_TAG_SHA" == "$SQUASH_SHA" ]] || halt_wrong_tag 'remote' "$REMOTE_TAG_SHA"
+   fi
+
+   REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+   [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+   RELEASE_PROBE=$(mktemp)
+   RELEASE_ERROR=$(mktemp)
+   RELEASE_EXISTS=false
+   if gh api --include "repos/$REPO/releases/tags/$TAG" >"$RELEASE_PROBE" 2>"$RELEASE_ERROR"; then
+     RELEASE_EXISTS=true
+     RELEASE_JSON=$(gh release view "$TAG" --json tagName,targetCommitish)
+     [[ "$(node -e "const x=JSON.parse(process.argv[1]);process.stdout.write(x.tagName)" "$RELEASE_JSON")" == "$TAG" ]]
+     RELEASE_TARGET=$(node -e "const x=JSON.parse(process.argv[1]);process.stdout.write(x.targetCommitish)" "$RELEASE_JSON")
+     [[ "$RELEASE_TARGET" == "$SQUASH_SHA" ]] || halt_wrong_tag 'release target' "$RELEASE_TARGET"
+   else
+     RELEASE_HTTP_STATUS=$(awk 'NR == 1 { print $2 }' "$RELEASE_PROBE")
+     if [[ "$RELEASE_HTTP_STATUS" != '404' ]]; then
+       cat "$RELEASE_ERROR" >&2
+       printf 'Cannot determine whether release %s exists; stop.\n' "$TAG" >&2
+       exit 1
+     fi
+   fi
+
+   if [[ "$RELEASE_EXISTS" == true && "$REMOTE_TAG_EXISTS" != true ]]; then
+     printf 'SERIOUS: release %s exists without its expected remote tag; stop and inspect the repository state.\n' "$TAG" >&2
+     exit 1
+   fi
+
+   if [[ "$LOCAL_TAG_EXISTS" != true ]]; then
+     git tag "$TAG" "$SQUASH_SHA"
+     [[ "$(git cat-file -t "$TAG")" == 'commit' ]]
+     [[ "$(git rev-parse "$TAG^{commit}")" == "$SQUASH_SHA" ]]
+   fi
+   if [[ "$REMOTE_TAG_EXISTS" != true ]]; then
+     git push origin "refs/tags/$TAG"
+   fi
+   if [[ "$RELEASE_EXISTS" != true ]]; then
+     gh release create "$TAG" --verify-tag --title "$PACKAGE $VERSION" --notes-file /tmp/release-note.md
+   fi
+
+   [[ "$(git cat-file -t "$TAG")" == 'commit' ]]
    [[ "$(git rev-parse "$TAG^{commit}")" == "$SQUASH_SHA" ]]
-   git push origin "refs/tags/$TAG"
-   gh release create "$TAG" --verify-tag --title "$PACKAGE $VERSION" --notes-file /tmp/release-note.md
-   [[ "$(git rev-list -n 1 "$TAG")" == "$SQUASH_SHA" ]]
+   [[ "$(git ls-remote --refs origin "refs/tags/$TAG" | awk '{print $1}')" == "$SQUASH_SHA" ]]
    [[ "$(gh release view "$TAG" --json targetCommitish --jq '.targetCommitish')" == "$SQUASH_SHA" ]]
    [[ "$(npm view "$PACKAGE@$VERSION" version)" == "$VERSION" ]]
    ```
 
-   Use the real prepared release-note path in place of `/tmp/release-note.md`. The tag must point to the umbrella squash SHA, not to the later pin-only commit.
+   The normal restart states are: nothing exists (create, push, release); only the correct local tag exists (skip creation, then push and release); the correct remote tag exists with no release (ensure the local tag, skip the push, then create the release); or the correct remote tag and release both exist (ensure the local tag and skip both remote actions). Use the real prepared release-note path in place of `/tmp/release-note.md`. If any existing tag or release target is wrong, stop, inspect who created it and why, and resolve it manually under repository policy; this runbook never moves or deletes a conflicting tag. The tag must point to the umbrella squash SHA, not to the later pin-only commit.
 
 8. **The agent bumps and validates the dogfooding pin LAST.** Only after npm serves the verified artifact and step 7 passes, return to the default branch and fast-forward it. Back up the serviceable settings, install the exact new pin, and make every failed check restore the prior file:
 
