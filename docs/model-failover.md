@@ -89,11 +89,16 @@ Failover applies at three sites:
   model and the failed action is re-prompted once with a continuation
   nudge. The transcript is preserved; usage and cost accumulate across
   both attempts. The thread stays on the mapped model while its
-  session is live and returns to its configured model when the session
-  is reopened (e.g. after a pi restart). The `threads` listing marks a
-  switched live session as `model=A ⇒B (live)` — the marker means a
-  live failover switch happened (it is not a value comparison) and
-  disappears when the session is reopened.
+  session is live, including across later model-less actions. The hold
+  ends when the session is reopened or disposed, or when a later
+  non-`openOnly` route actually moves the live session. Such a route is
+  an explicit per-action model on either router state, or the thread's
+  base route while the router is ON; an OFF pre-router pin is
+  `openOnly` and therefore does not release the hold. The `threads`
+  listing marks the held session as `live=<model> (failover)`, where
+  `<model>` is the fallback the live worker currently runs. The marker
+  disappears on session disposal or reopen, or when a later
+  non-`openOnly` route moves the live session.
 - **Episode compression.** The compression call is retried once with
   the mapped compressor model — only if it is distinct from the
   original, resolvable, and authed. If the retry also fails, the

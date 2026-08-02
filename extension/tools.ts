@@ -131,12 +131,11 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		name: "threads",
 		label: "Threads",
 		description:
-			"List all worker threads: id, name, status, episodes so far, last activity, and models — " +
-			"base=<the thread's default model>@<effort>? (what a dispatch that omits `model` runs on; " +
-			"the trailing ? marks the LEVEL as provisional — it is the stored default, re-checked against " +
-			"the model's current capability data on every dispatch and silently re-derived if it no longer " +
-			"holds) and last=<the model its last action actually ran on>@<effort>, which is fact. " +
-			"Use this to decide whether to continue an existing thread or create a new one.",
+			"List worker threads, their status, episodes, activity, and models. " +
+			"base=<model>@<effort>? is the nominal plan target when `model` is omitted. " +
+			"The ? marks effort as provisional because Slate re-checks and may re-derive it. " +
+			"last=<model>@<effort> records the last action. live=<model> (failover) shows a held fallback " +
+			"that currently overrides the nominal base.",
 		promptSnippet: "List worker threads and their episodes",
 		parameters: Type.Object({}),
 		async execute() {
