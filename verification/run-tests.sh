@@ -69,14 +69,27 @@ if [ "$gate" -eq 0 ]; then
 fi
 
 printf 'run-tests: coverage gate base=%s head=HEAD lines=%s branches=%s\n' "$base" "$line_threshold" "$branch_threshold"
+gate_output="$work/gate.out"
 set +e
 node "$repo/verification/coverage-gate.mjs" --repo "$repo" --base "$base" --head HEAD \
-  --lcov "$lcov" --threshold-lines "$line_threshold" --threshold-branches "$branch_threshold"
-gate_status=$?
+  --lcov "$lcov" --threshold-lines "$line_threshold" --threshold-branches "$branch_threshold" \
+  | tee "$gate_output"
+gate_status=${PIPESTATUS[0]}
 set -e
-if [ "$gate_status" -eq 0 ]; then
-  echo "RUN VERDICT: PASS — tests passed and coverage gate accepted the patch"
-else
+if [ "$gate_status" -ne 0 ]; then
   echo "RUN VERDICT: FAIL — tests passed but coverage gate rejected the patch"
+  exit "$gate_status"
 fi
-exit "$gate_status"
+if grep -q '^VERDICT: WARN —' "$gate_output"; then
+  # WARN remains exit 0 because the minimum-denominator policy says "warn
+  # instead of fail". It is nevertheless a distinct final outcome that must be
+  # reviewed by hand; never collapse it into PASS.
+  echo "RUN VERDICT: WARN — tests passed; coverage requires manual review"
+  exit 0
+fi
+if grep -q '^VERDICT: PASS —' "$gate_output"; then
+  echo "RUN VERDICT: PASS — tests passed and coverage gate accepted the patch"
+  exit 0
+fi
+echo "RUN VERDICT: FAIL — coverage gate exited 0 without a PASS or WARN verdict"
+exit 2

@@ -25,8 +25,17 @@ for (let i = 2; i < process.argv.length; i++) {
   else usage(`unknown option ${flag}`);
 }
 if (!options.base || !options.lcov) usage("--base and --lcov are required");
-for (const [name, value] of [["line", options.line], ["branch", options.branch]]) {
-  if (!Number.isFinite(value) || value < 0 || value > 100) usage(`${name} threshold must be from 0 to 100`);
+const rawOption = (flag) => {
+  const index = process.argv.lastIndexOf(flag);
+  return index < 0 ? undefined : process.argv[index + 1];
+};
+for (const [name, value, raw] of [
+  ["line", options.line, rawOption("--threshold-lines")],
+  ["branch", options.branch, rawOption("--threshold-branches")],
+]) {
+  if ((raw !== undefined && raw.trim() === "") || !Number.isFinite(value) || value < 0 || value > 100) {
+    usage(`${name} threshold must be a number from 0 to 100`);
+  }
 }
 if (options.includes.length === 0) options.includes.push("extension/**/*.ts");
 const repo = resolve(options.repo);
@@ -69,7 +78,12 @@ if (uncommitted.size) {
   for (const name of [...uncommitted].sort()) console.log(`  ${name}`);
 }
 
-const diffRun = spawnSync("git", ["-c", "core.quotePath=false", "diff", "--unified=0", `${options.base}..${options.head}`, "--"], {
+// These options are the gate's input boundary. Local external-diff, textconv,
+// and prefix configuration must never change the grammar parsed below.
+const diffRun = spawnSync("git", [
+  "-c", "core.quotePath=false", "diff", "--no-ext-diff", "--no-textconv",
+  "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", `${options.base}..${options.head}`, "--",
+], {
   cwd: repo,
   encoding: "utf8",
   maxBuffer: 128 * 1024 * 1024,
@@ -82,8 +96,18 @@ const changed = new Map();
 const addedText = new Map();
 let file;
 let newLine = 0;
+let inHunk = false;
+let parsedFiles = 0;
 for (const text of diffRun.stdout.split("\n")) {
-  if (text.startsWith("+++ ")) {
+  if (text.startsWith("diff --git ")) {
+    parsedFiles++;
+    file = undefined;
+    inHunk = false;
+    continue;
+  }
+  // A source line beginning `++ ` is encoded as `+++ ` by unified diff. A file
+  // header is therefore recognized only before the first hunk in that file.
+  if (!inHunk && text.startsWith("+++ ")) {
     const name = text.slice(4);
     file = name === "/dev/null" ? undefined : name.replace(/^b\//, "");
     if (file) {
@@ -93,9 +117,12 @@ for (const text of diffRun.stdout.split("\n")) {
     continue;
   }
   const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(text);
-  if (hunk) { newLine = Number(hunk[1]); continue; }
-  if (!file || text.startsWith("diff --git ")) continue;
-  if (text.startsWith("+") && !text.startsWith("+++")) {
+  if (hunk) { newLine = Number(hunk[1]); inHunk = true; continue; }
+  if (!file || !inHunk) continue;
+  // Git's no-trailing-newline annotation describes the preceding line. It is
+  // not content and advances neither side of the hunk.
+  if (text.startsWith("\\ ")) continue;
+  if (text.startsWith("+")) {
     changed.get(file).add(newLine);
     addedText.get(file).push({ line: newLine, text: text.slice(1) });
     newLine++;
@@ -103,20 +130,27 @@ for (const text of diffRun.stdout.split("\n")) {
     newLine++;
   }
 }
+// CENTRAL INVARIANT: nonempty diff bytes must identify at least one file. A
+// successful parse of nothing is indistinguishable from disabling the gate.
+if (diffRun.stdout.length > 0 && parsedFiles === 0) {
+  console.error("coverage-gate: nonempty git diff produced zero parsed files; refusing to report coverage");
+  process.exit(2);
+}
 
 const directiveFailures = [];
 for (const [name, lines] of addedText) {
   for (let i = 0; i < lines.length; i++) {
     const entry = lines[i];
-    const match = /node:coverage\s+(ignore|disable|enable)\b/i.exec(entry.text);
+    // Match actual JavaScript comment directives, not prose that merely names
+    // one. A reason must be explicit and on the directive's own line: adjacent
+    // prose and punctuation are too easy to accept accidentally.
+    const match = /^\s*(?:\/\/|\/\*|\*)\s*node:coverage\s+(ignore|disable|enable)\b/i.exec(entry.text);
     if (!match) continue;
     console.log(`IGNORE DIRECTIVE: ${name}:${entry.line}: ${entry.text.trim()}`);
     let suffix = entry.text.slice((match.index ?? 0) + match[0].length);
-    // `ignore next` and its optional count are directive syntax, not a reason.
     if (match[1].toLowerCase() === "ignore") suffix = suffix.replace(/^\s+next(?:\s+\d+)?\b/i, "");
-    suffix = suffix.replace(/\*\//g, "").replace(/^\s*(?:[-:]+\s*)?/, "").trim();
-    const neighbours = lines.slice(Math.max(0, i - 1), i + 2).map((item) => item.text).join(" ");
-    const reason = suffix.length > 0 || /\b(?:reason|because|rationale)\b\s*[:=-]?\s*\S+/i.test(neighbours);
+    suffix = suffix.replace(/^\s*(?:\*\/)?\s*(?:\/\/|[-—])?\s*/, "");
+    const reason = /^(?:reason|because|rationale)\s*[:=-]\s*(?=.*[\p{L}\p{N}]{2})\S(?:.*\S)?$/iu.test(suffix);
     if (!reason) directiveFailures.push(`${name}:${entry.line}`);
   }
 }
@@ -130,10 +164,16 @@ for (const text of readFileSync(resolve(options.lcov), "utf8").split("\n")) {
     if (!coverage.has(source)) coverage.set(source, { lines: new Map(), branches: [] });
   } else if (source && text.startsWith("DA:")) {
     const [line, hits] = text.slice(3).split(",", 2).map(Number);
-    coverage.get(source).lines.set(line, Math.max(coverage.get(source).lines.get(line) ?? 0, hits));
+    if (Number.isInteger(line) && line > 0 && Number.isFinite(hits) && hits >= 0) {
+      coverage.get(source).lines.set(line, Math.max(coverage.get(source).lines.get(line) ?? 0, hits));
+    }
   } else if (source && text.startsWith("BRDA:")) {
-    const [line, block, branch, rawHits] = text.slice(5).split(",");
-    coverage.get(source).branches.push({ line: Number(line), block, branch, hits: rawHits === "-" ? 0 : Number(rawHits) });
+    const [rawLine, block, branch, rawHits] = text.slice(5).split(",");
+    const line = Number(rawLine);
+    const hits = rawHits === "-" ? 0 : Number(rawHits);
+    if (Number.isInteger(line) && line > 0 && Number.isFinite(hits) && hits >= 0) {
+      coverage.get(source).branches.push({ line, block, branch, hits });
+    }
   } else if (text === "end_of_record") source = undefined;
 }
 
@@ -142,13 +182,18 @@ const scoped = [...changed.entries()].filter(([name, lines]) => inScope(name) &&
 for (const [name, added] of scoped) {
   const record = coverage.get(name);
   let lines, branches, note = "";
-  if (!record) {
+  if (!record || record.lines.size === 0) {
     lines = [...added].map((line) => ({ line, hits: 0 }));
     branches = [{ line: Math.min(...added), hits: 0 }];
-    note = " [NO LCOV; fail-closed synthetic branch]";
+    note = " [NO USABLE LCOV; fail-closed synthetic branch]";
   } else {
     lines = [...added].filter((line) => record.lines.has(line)).map((line) => ({ line, hits: record.lines.get(line) }));
     branches = record.branches.filter((branch) => added.has(branch.line));
+    const uncoveredOrUnmeasured = [...added].some((line) => !record.lines.has(line) || record.lines.get(line) <= 0);
+    if (branches.length === 0 && uncoveredOrUnmeasured) {
+      branches = [{ line: Math.min(...added), hits: 0 }];
+      note = " [LCOV GAP; fail-closed synthetic branch]";
+    }
   }
   const lh = lines.filter((entry) => entry.hits > 0).length;
   const bh = branches.filter((entry) => entry.hits > 0).length;
