@@ -14,7 +14,7 @@ interface RunResult { status: number | null; stdout: string; stderr: string }
 function command(cwd: string, executable: string, args: string[], env?: NodeJS.ProcessEnv): RunResult {
   const mergedEnv = { ...process.env, ...env };
   for (const [name, value] of Object.entries(mergedEnv)) if (value === undefined) delete mergedEnv[name];
-  const result = spawnSync(executable, args, { cwd, encoding: "utf8", env: mergedEnv });
+  const result = spawnSync(executable, args, { cwd, encoding: "utf8", env: mergedEnv, timeout: 20_000 });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -70,7 +70,7 @@ test("gate parser keeps no-newline markers and ++ source lines out of file accou
 
   await t.test("source beginning with ++ and a space", (t) => {
     const { repo, base } = fixture(t);
-    write(repo, "extension/sample.ts", "export const before = 1;\n++ tmp/notes.txt\nfollowing line\n");
+    write(repo, "extension/sample.ts", "export const before = 1;\nexport const text = `\n++ tmp/notes.txt\nfollowing line\n`;\n");
     commit(repo);
     const additions = Number(git(repo, "diff", "--numstat", `${base}..HEAD`).split("\t")[0]);
     const result = runGate(repo, base, emptyLcov());
@@ -215,7 +215,7 @@ test("pre-base suppression counts executable DA gaps as uncovered, but types sta
   });
 });
 
-test("DA-bearing lines survive classifier comment confusion (RG27)", (t) => {
+test("DA-bearing lines survive classifier comment confusion (RG27)", { timeout: 20_000 }, (t) => {
   const { repo, base } = fixture(t);
   write(repo, "extension/sample.ts", [
     "export const before = 1;",
@@ -257,15 +257,134 @@ test("DA-bearing lines survive classifier comment confusion (RG27)", (t) => {
   const brda = [...lcov.matchAll(/^BRDA:(\d+),[^,]*,[^,]*,([^\r\n]+)/gm)]
     .map((match) => ({ line: Number(match[1]), hits: match[2] === "-" ? 0 : Number(match[2]) }))
     .filter((entry) => entry.line >= 2);
-  const lineHits = da.filter((entry) => entry.hits > 0).length;
-  const branchHits = brda.filter((entry) => entry.hits > 0).length;
   assert.ok(da.some((entry) => entry.hits === 0), "fixture must contain real uncovered DA records");
   assert.ok(brda.filter((entry) => entry.hits === 0).length >= 2, "fixture must contain multiple real uncovered BRDA records before the terminator");
-  assert.ok(100 * lineHits / da.length < 85, "fixture must fail the line floor when fully measured");
   const result = runGate(repo, base, lcov);
   assert.equal(result.status, 1, result.stdout);
-  assert.match(result.stdout, new RegExp(`lines ${lineHits}/${da.length}=`));
-  assert.match(result.stdout, new RegExp(`branches ${branchHits}/${brda.length}=`));
+  // The classifier excludes the added blank line, three JSDoc lines and
+  // TypeScript-only syntax. Raw DA/BRDA counts are not executable denominators.
+  assert.match(result.stdout, /lines 13\/17=76\.47%/);
+  assert.match(result.stdout, /branches 2\/4=50\.00%/);
+  assert.match(result.stdout, /VERDICT: FAIL/);
+});
+
+test("ordinary comments and erased types cannot dilute uncovered code (RG30, RG31)", { timeout: 20_000 }, (t) => {
+  const seeded = fixture(t);
+  git(seeded.repo, "mv", "extension/sample.ts", "extension/base.ts");
+  commit(seeded.repo, "base module");
+  const repo = seeded.repo;
+  const base = git(repo, "rev-parse", "HEAD");
+  write(repo, "extension/sample.ts", [
+    "// Route planning helpers for the dispatch path.",
+    "import { basename } from 'node:path';",
+    "",
+    "/** A resolved candidate model with its effort ladder. */",
+    "export interface Candidate {",
+    "  id: string;",
+    "  tier: number;",
+    "  ladder: string[];",
+    "  price: { input: number; output: number };",
+    "}",
+    "",
+    "/** The verdict a guard renders for one dispatch. */",
+    "export type Verdict =",
+    "  | { kind: 'allow'; model: string }",
+    "  | { kind: 'deny'; reason: string };",
+    "",
+    "",
+    "/** Options accepted by the dispatch assembler. */",
+    "export interface DispatchOptions {",
+    "  thread: string;",
+    "  action: string;",
+    "  model?: string;",
+    "  effort?: string;",
+    "  attachments?: string[];",
+    "}",
+    "",
+    "/**",
+    " * Pick the cheapest candidate that supports the requested effort.",
+    " * Returns a deny verdict when no candidate has the level on its ladder.",
+    " */",
+    "export function pick(candidates: Candidate[], effort: string): Verdict {",
+    "  const usable = candidates.filter((entry) => entry.ladder.includes(effort));",
+    "  if (usable.length === 0) return { kind: 'deny', reason: 'no ladder support' };",
+    "  const best = usable.sort((a, b) => a.price.input - b.price.input)[0];",
+    "  return { kind: 'allow', model: best.id };",
+    "}",
+    "",
+    "/**",
+    " * Format a guard denial for the episode log. Never called in tests today.",
+    " */",
+    "export function describe(verdict: Verdict, file: string): string {",
+    "  if (verdict.kind === 'allow') {",
+    "    return `allow ${verdict.model} for ${basename(file)}`;",
+    "  }",
+    "  const suffix = verdict.reason.length > 20 ? '...' : '';",
+    "  return `deny (${verdict.reason.slice(0, 20)}${suffix}) for ${basename(file)}`;",
+    "}",
+    "",
+  ].join("\n"));
+  commit(repo);
+  write(repo, "fixture.test.mjs", "import test from 'node:test';\nimport { pick } from './extension/sample.ts';\ntest('allow', () => { if (pick([{ id: 'a', tier: 1, ladder: ['high'], price: { input: 1, output: 2 } }], 'high').kind !== 'allow') throw new Error('bad'); });\ntest('deny', () => { if (pick([], 'high').kind !== 'deny') throw new Error('bad'); });\n");
+  const lcovPath = join(repo, "real.lcov");
+  const coverageRun = command(repo, process.execPath, [
+    "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "--test", "--experimental-test-coverage",
+    "--test-coverage-include=extension/sample.ts", "--test-reporter=lcov",
+    `--test-reporter-destination=${lcovPath}`, "fixture.test.mjs",
+  ], { NODE_TEST_CONTEXT: undefined });
+  assert.equal(coverageRun.status, 0, coverageRun.stderr);
+  const result = runGate(repo, base, readFileSync(lcovPath, "utf8"));
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stdout, /lines 8\/14=57\.14%/);
+  assert.match(result.stdout, /branches 3\/4=75\.00%/);
+  assert.match(result.stdout, /VERDICT: FAIL/);
+});
+
+test("uncovered branches on erased lines remain evidence (RG31)", (t) => {
+  const { repo, base } = fixture(t);
+  write(repo, "extension/sample.ts", "export const before = 1;\nexport interface Shape {\n  name: string;\n}\n");
+  commit(repo);
+  const result = runGate(repo, base, sourceLcov(["2,1", "3,1", "4,1"], ["2,0,0,0"]));
+  assert.match(result.stdout, /lines 0\/0=n\/a \| branches 0\/1=0\.00%/);
+});
+
+test("comment lexer uncertainty fails closed and keeps lexical markers inside values", (t) => {
+  const gateSource = readFileSync(GATE, "utf8");
+  const body = /function blankComments\(text\) \{[\s\S]*?\n\}\n\nfunction executableLinesAtHead/.exec(gateSource)?.[0]
+    .replace(/\n\nfunction executableLinesAtHead$/, "");
+  assert.ok(body, "blankComments source must remain extractable for boundary fixtures");
+  const blank = Function(`${body}; return blankComments;`)() as (text: string) => string | undefined;
+  for (const source of ["/*", "'unterminated", "/unterminated", "`unterminated"]) {
+    assert.equal(blank(source), undefined, source);
+  }
+  const residual = "if (ready) /a\\/*b/.test(value);\nconst kept = 1;";
+  assert.equal(blank(residual), residual, "a control-body regex containing /* must stay code");
+  const nested = "const value = `a${ { item: `b${1}` }.item /* nested note */ }c`;";
+  const nestedBlanked = nested.replace("/* nested note */", "                 ");
+  assert.equal(blank(nested), nestedBlanked, "template expressions must preserve nested braces and templates");
+
+  const { repo, base } = fixture(t);
+  write(repo, "extension/sample.ts", "export const before = 1;\nexport const covered = 2;\n");
+  commit(repo);
+  const mutant = join(repo, "coverage-gate-void.mjs");
+  writeFileSync(mutant, gateSource.replace("const withoutComments = blankComments(stripped);", "const withoutComments = undefined;"));
+  const lcovPath = join(repo, "gate.lcov");
+  writeFileSync(lcovPath, sourceLcov(["2,1"], ["2,0,0,1"]));
+  const result = command(repo, process.execPath, [mutant, "--repo", repo, "--base", base, "--head", "HEAD", "--lcov", lcovPath]);
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stdout, /lines 0\/1=0\.00%/);
+  assert.match(result.stdout, /CLASSIFIER VOID; all additions counted uncovered/);
+  assert.match(result.stdout, /VERDICT: FAIL/);
+});
+
+test("non-erasable TypeScript stops coverage reporting", (t) => {
+  const { repo, base } = fixture(t);
+  write(repo, "extension/sample.ts", "export const before = 1;\nenum Direction { Left, Right }\n");
+  commit(repo);
+  const result = runGate(repo, base, emptyLcov());
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /is not erasable TypeScript \(ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX\); refusing to report coverage/);
+  assert.doesNotMatch(result.stdout, /VERDICT:/);
 });
 
 test("directive scan catches every raw-line shape Node 24.18 matches (RG21)", (t) => {

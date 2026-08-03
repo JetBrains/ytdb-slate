@@ -142,6 +142,8 @@ if (diffRun.stdout.length > 0 && parsedFiles === 0) {
 // these regexes directly to raw source lines: no anchoring, lexical analysis,
 // case folding or whitespace normalization. Diverging in either direction can
 // hide coverage or reject inert text, so keep these byte-for-byte equivalent.
+// That exact-matching rule governs these directives; comment classification
+// instead has to be monotone whenever its lexer cannot decide.
 const NODE_IGNORE_DIRECTIVE = /\/\* node:coverage ignore next (?<count>\d+ )?\*\//;
 const NODE_STATUS_DIRECTIVE = /\/\* node:coverage (?<status>enable|disable) \*\//;
 function directivesOnLine(text) {
@@ -197,11 +199,84 @@ for (const text of lcovText.split("\n")) {
   } else if (text === "end_of_record") source = undefined;
 }
 
-// Native stripping preserves line positions while erasing TypeScript-only
-// syntax. After comments are blanked as well, any remaining token is runtime
-// syntax. This is the discriminator LCOV alone cannot provide: an added runtime
-// line with no DA record is uncovered (whether the file was unloaded or a
-// pre-base directive suppressed it); a blank/comment/type-only line is excluded.
+// Node emits DA records for every physical line of a loaded file, including
+// blanks, comments, interfaces and type-only imports, so DA presence does not
+// prove executability. DA absence does not disprove it either: an ordinary
+// executable `if` inside Node's coverage-disable region has no DA.
+// Source classification decides which lines are counted; LCOV decides whether
+// those lines are covered. Exclusion needs positive proof. Any unresolved
+// classification counts every addition as uncovered.
+function blankComments(text) {
+  const out = text.split("");
+  const blank = (a, b) => { for (let k = a; k < b; k++) if (out[k] !== "\n" && out[k] !== "\r") out[k] = " "; };
+  // Stack entries distinguish a template body from `${` and ordinary braces.
+  const stack = [];
+  let prev = "";
+  let i = 0;
+  const inTemplate = () => stack.length && stack[stack.length - 1].kind === "tpl";
+  while (i < text.length) {
+    const ch = text[i];
+    if (inTemplate()) {
+      if (ch === "\\") { i += 2; continue; }
+      if (ch === "`") { stack.pop(); prev = "`"; i++; continue; }
+      if (ch === "$" && text[i + 1] === "{") { stack.push({ kind: "brace" }); prev = "{"; i += 2; continue; }
+      i++; continue;
+    }
+    const next = text[i + 1];
+    if (ch === "/" && next === "*") {
+      const end = text.indexOf("*/", i + 2);
+      if (end < 0) return undefined;
+      blank(i, end + 2); i = end + 2; continue;
+    }
+    if (ch === "/" && next === "/") {
+      let j = i; while (j < text.length && text[j] !== "\n" && text[j] !== "\r") j++;
+      blank(i, j); i = j; continue;
+    }
+    if (ch === "\"" || ch === "'") {
+      let j = i + 1;
+      for (;;) {
+        if (j >= text.length) return undefined;
+        const c = text[j];
+        if (c === "\\") { j += 2; continue; }
+        if (c === "\n" || c === "\r") return undefined;
+        if (c === ch) { j++; break; }
+        j++;
+      }
+      prev = "x"; i = j; continue;
+    }
+    if (ch === "`") { stack.push({ kind: "tpl" }); i++; continue; }
+    if (ch === "{") { stack.push({ kind: "brace" }); prev = "{"; i++; continue; }
+    if (ch === "}") {
+      if (stack.length && stack[stack.length - 1].kind === "brace") stack.pop();
+      prev = "}"; i++; continue;
+    }
+    if (ch === "/") {
+      const regexOk = prev === "" || /[=(,:[!&|?{};+\-*%~^<>]$/.test(prev)
+        || /\b(return|typeof|case|in|of|new|delete|void|do|else|yield|await)$/.test(prev)
+        || /\b(?:if|while|for|with)\s*\([^)]*\)$/.test(prev);
+      if (regexOk) {
+        let j = i + 1, cls = false, closed = false;
+        while (j < text.length) {
+          const c = text[j];
+          if (c === "\\") { j += 2; continue; }
+          if (c === "\n" || c === "\r") break;
+          if (c === "[") cls = true;
+          else if (c === "]") cls = false;
+          else if (c === "/" && !cls) { j++; closed = true; break; }
+          j++;
+        }
+        if (!closed) return undefined;
+        prev = "x"; i = j; continue;
+      }
+      prev = "/"; i++; continue;
+    }
+    if (!/\s/.test(ch)) prev = (prev + ch).slice(-12);
+    i++;
+  }
+  if (stack.length) return undefined;
+  return out.join("");
+}
+
 function executableLinesAtHead(name) {
   const sourceText = gitOutput(["show", `${options.head}:${name}`], `reading ${name} at ${options.head}`);
   let stripped;
@@ -211,42 +286,55 @@ function executableLinesAtHead(name) {
     // harness's execution path. Keep that process-global warning out of output.
     process.emitWarning = () => {};
     stripped = stripTypeScriptTypes(sourceText, { mode: "strip" });
-  } catch {
-    // Unsupported syntax cannot safely be classified. Count every addition as
-    // executable: false-failing is preferable to silently omitting runtime code.
-    return undefined;
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? ` ${error.code}` : "";
+    console.error(`coverage-gate: ${name} at ${options.head} is not erasable TypeScript (${code.trim() || "parse error"}); refusing to report coverage`);
+    process.exit(2);
   } finally {
     process.emitWarning = emitWarning;
   }
-  const withoutComments = stripped.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, (comment) => comment.replace(/[^\r\n]/g, " "));
-  const executable = new Set();
-  for (const [index, text] of withoutComments.split("\n").entries()) {
-    if (text.trim() !== "") executable.add(index + 1);
+  try {
+    const withoutComments = blankComments(stripped);
+    if (withoutComments === undefined) return { status: "void" };
+    const executable = new Set();
+    for (const [index, text] of withoutComments.split("\n").entries()) {
+      if (text.trim() !== "") executable.add(index + 1);
+    }
+    return { status: "ok", lines: executable };
+  } catch {
+    return { status: "void" };
   }
-  return executable;
 }
 
 let lineHit = 0, lineTotal = 0, branchHit = 0, branchTotal = 0;
+const classifierFailures = [];
 const scoped = [...changed.entries()].filter(([name, lines]) => inScope(name) && lines.size > 0).sort(([a], [b]) => a.localeCompare(b));
 for (const [name, added] of scoped) {
   const record = coverage.get(name);
   const classified = executableLinesAtHead(name);
-  const executableAdded = [...added].filter((line) => record?.lines.has(line) || classified === undefined || classified.has(line));
+  const executableAdded = [...added].filter((line) => classified.status === "void" || classified.lines.has(line));
   let lines, branches, note = "";
   if (!record || record.lines.size === 0) {
     lines = executableAdded.map((line) => ({ line, hits: 0 }));
     branches = lines.length === 0 ? [] : [{ line: Math.min(...executableAdded), hits: 0 }];
-    note = lines.length === 0
+    note = lines.length === 0 && classified.status === "ok"
       ? " [NO EXECUTABLE ADDITIONS]"
       : " [NO USABLE LCOV; fail-closed synthetic branch]";
   } else {
-    lines = executableAdded.map((line) => ({ line, hits: record.lines.get(line) ?? 0 }));
-    branches = [...record.branches.values()].filter((branch) => added.has(branch.line));
+    lines = executableAdded.map((line) => ({ line, hits: classified.status === "void" ? 0 : record.lines.get(line) ?? 0 }));
+    branches = [...record.branches.values()].filter((branch) =>
+      added.has(branch.line) && (classified.status === "void" || classified.lines.has(branch.line) || branch.hits <= 0));
     const uncoveredOrUnmeasured = lines.some((entry) => entry.hits <= 0);
-    if (uncoveredOrUnmeasured && !branches.some((branch) => branch.hits <= 0)) {
+    if (classified.status === "void" || (uncoveredOrUnmeasured && !branches.some((branch) => branch.hits <= 0))) {
       branches.push({ line: Math.min(...executableAdded), hits: 0 });
-      note = " [LCOV GAP; fail-closed synthetic branch]";
+      note = classified.status === "void"
+        ? " [CLASSIFIER VOID; all additions counted uncovered]"
+        : " [LCOV GAP; fail-closed synthetic branch]";
     }
+  }
+  if (classified.status === "void") {
+    note = " [CLASSIFIER VOID; all additions counted uncovered]";
+    classifierFailures.push(`classifier could not resolve ${name}; all additions counted uncovered`);
   }
   const lh = lines.filter((entry) => entry.hits > 0).length;
   const bh = branches.filter((entry) => entry.hits > 0).length;
@@ -260,7 +348,7 @@ const branchPct = branchTotal ? 100 * branchHit / branchTotal : undefined;
 const pct = (value) => value === undefined ? "n/a" : `${value.toFixed(2)}%`;
 console.log(`OVERALL: lines ${lineHit}/${lineTotal}=${pct(linePct)} (floor ${options.line.toFixed(2)}%) | branches ${branchHit}/${branchTotal}=${pct(branchPct)} (floor ${options.branch.toFixed(2)}%)`);
 
-const failures = [];
+const failures = [...classifierFailures];
 const warnings = [];
 if (uncommitted.size) warnings.push(`${uncommitted.size} uncommitted in-scope file(s) are outside the committed range; commit or stash them before treating this result as complete`);
 if (lineTotal === 0) warnings.push("no changed executable line had an LCOV DA record; manual review is required");
