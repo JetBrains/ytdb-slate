@@ -206,7 +206,7 @@ const FAILOVER_NUDGE =
 	"and partial changes may exist — verify the current state, then complete the original action.";
 
 class Semaphore {
-	private waiters: Array<() => void> = [];
+	private waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
 	private active = 0;
 	private limit: number;
 	constructor(limit: number) {
@@ -221,18 +221,85 @@ class Semaphore {
 		}
 		// Wait for a slot transferred directly by release(); do NOT increment
 		// here — the releasing side keeps `active` unchanged when handing over.
-		await new Promise<void>((r) => this.waiters.push(r));
+		// The wait can also END WITHOUT A SLOT, by abortWaiters() below.
+		await new Promise<void>((resolve, reject) => this.waiters.push({ resolve, reject }));
 	}
 	release(): void {
 		const next = this.waiters.shift();
 		if (next) {
 			// Transfer the slot to the next waiter without decrementing:
 			// the slot never becomes observable as free.
-			next();
+			next.resolve();
 		} else {
 			this.active--;
 		}
 	}
+	/**
+	 * Wake every QUEUED waiter WITHOUT a slot, rejecting its acquire() (CN45).
+	 *
+	 * A holder that never settles used to strand every queued waiter forever: only
+	 * release() could wake one, and a hung dispatch never releases. The registry
+	 * calls this when it abandons its entries, so a dispatch that had not started
+	 * ends as a rejected promise instead of a permanently pending one.
+	 *
+	 * `active` is deliberately UNCHANGED: a woken waiter never held a slot, and the
+	 * holders still do — each release() then finds no waiter and decrements as usual.
+	 * Callers must not release on a rejected acquire(); runDispatch's release sits
+	 * inside a try that starts AFTER the acquire, which is what guarantees that.
+	 */
+	abortWaiters(reason: () => Error): void {
+		const woken = this.waiters;
+		this.waiters = [];
+		for (const waiter of woken) waiter.reject(reason());
+	}
+}
+
+/**
+ * A dispatch that ended because its registry entry was ABANDONED — the session
+ * that owned it was replaced or shut down — rather than because the action ran
+ * and failed. Exported so the turn-end join can tell the two apart: nothing was
+ * billed and no episode exists.
+ */
+export class DispatchAbandoned extends Error {}
+
+/**
+ * One-shot "this entry was abandoned" signal, per dispatch.
+ *
+ * It RESOLVES and never rejects, deliberately: it is awaited in several places
+ * (the join, the queue gate) and a rejecting signal whose rejection lands after
+ * a race has already been decided is an unhandled rejection waiting to happen.
+ * Each consumer turns resolution into whatever failure IT needs.
+ */
+interface AbandonSignal {
+	readonly promise: Promise<void>;
+	readonly abandoned: boolean;
+	abandon(): void;
+}
+
+/** One wording for both abandon exits, so the orchestrator reads the same sentence either way. */
+function abandonedMessage(ticket: DispatchTicket): string {
+	return (
+		`slate: dispatch ${ticket} was abandoned before it started — its session was replaced or shut down. ` +
+		"Nothing ran and no episode was recorded."
+	);
+}
+
+function createAbandonSignal(): AbandonSignal {
+	let fire!: () => void;
+	const promise = new Promise<void>((resolve) => {
+		fire = resolve;
+	});
+	let abandoned = false;
+	return {
+		promise,
+		get abandoned() {
+			return abandoned;
+		},
+		abandon() {
+			abandoned = true;
+			fire(); // idempotent: a settled promise ignores later resolve calls
+		},
+	};
 }
 
 export interface OutstandingDispatch {
@@ -241,14 +308,26 @@ export interface OutstandingDispatch {
 	state: DispatchRegistryState;
 }
 
+/**
+ * The registry's own entry. It carries the abandon signal, which is deliberately
+ * NOT part of the public OutstandingDispatch shape: `outstanding()` hands out entry
+ * references, and abandoning one dispatch is the registry's decision, not a
+ * caller's.
+ */
+interface RegistryEntry extends OutstandingDispatch {
+	readonly abandon: AbandonSignal;
+}
+
 export interface JoinedDispatch {
 	readonly ticket: DispatchTicket;
 	readonly result: PromiseSettledResult<DispatchResult>;
+	/** Set when the join ended because the entry was abandoned, not because the work settled. */
+	readonly abandoned?: true;
 }
 
 export class ThreadManager {
 	private live = new Map<string, WorkerSession>();
-	private dispatches = new Map<DispatchTicket, OutstandingDispatch>();
+	private dispatches = new Map<DispatchTicket, RegistryEntry>();
 	/** threadId → "provider/id" a LIVE session was switched to by model failover (AF12). */
 	private failoverLive = new Map<string, string>();
 	private queues = new Map<string, Promise<unknown>>();
@@ -356,13 +435,16 @@ export class ThreadManager {
 		// see every sibling, and a same-tick rejection is never unhandled.
 		const minted = mintDispatchTicket(this.store.dispatchSeq);
 		this.store.dispatchSeq = minted.sequence;
-		let entry!: OutstandingDispatch;
+		// Created HERE, in the prelude, because both the queue gate below and any join
+		// must be able to observe it from the moment the dispatch exists (CN45).
+		const abandon = createAbandonSignal();
+		let entry!: RegistryEntry;
 		const promise = Promise.resolve()
 			.then(() => {
 				// Persist the high-water mark before any route can expose work. A stale
 				// context/save failure is itself tracked and cleaned like every other exit.
 				this.store.save();
-				return this.startDispatch(opts, ctx, signal, onProgress);
+				return this.startDispatch(opts, ctx, signal, minted.ticket, abandon, onProgress);
 			})
 			.then(
 				(value) => {
@@ -377,39 +459,112 @@ export class ThreadManager {
 			.finally(() => {
 				this.dispatches.delete(minted.ticket);
 			});
-		entry = { ticket: minted.ticket, promise, state: "pending" };
+		entry = { ticket: minted.ticket, promise, state: "pending", abandon };
 		this.dispatches.set(minted.ticket, entry);
 		void promise.catch(() => undefined); // registry-owned, same-tick rejection observer (I1/I2)
 		return promise;
 	}
 
-	/** Current session registry. The copy prevents callers mutating manager ownership. */
+	/**
+	 * The dispatches this registry currently owns.
+	 *
+	 * A SNAPSHOT, not the live map: a caller iterating it while dispatches settle
+	 * must not see the collection mutate underneath, and must not be able to
+	 * deregister work by deleting from it. The entry OBJECTS are shared (their
+	 * `state` is live), which is what makes a captured entry a usable handle.
+	 */
 	outstanding(): ReadonlyMap<DispatchTicket, OutstandingDispatch> {
 		return new Map(this.dispatches);
 	}
 
-	/** Join the entries visible at call time; later sibling registrations form the next batch. */
+	/**
+	 * Join the entries visible at call time; later sibling registrations form the
+	 * next batch.
+	 *
+	 * THIS ALWAYS RESOLVES (CN45). It used to `allSettled` the dispatch promises,
+	 * which meant a single worker that never answered left the join pending forever
+	 * — and the caller is `agent_end`, so that hung the turn, Esc, a model switch,
+	 * a fork and quit. Each entry is therefore observed as a race between its own
+	 * settlement and its ABANDONMENT, and abandonment is a state change the registry
+	 * itself performs (clear/disposeAll), never a timer: the plan rejects timeouts
+	 * anywhere in the dispatch path (R5).
+	 *
+	 * An abandoned entry is reported as a REJECTED result carrying DispatchAbandoned
+	 * and flagged `abandoned`, so a caller can tell "the action failed" from "nobody
+	 * waited for the action" — nothing was billed and no episode exists.
+	 */
 	async join(): Promise<JoinedDispatch[]> {
 		const entries = [...this.dispatches.values()];
-		const settled = await Promise.allSettled(entries.map((entry) => entry.promise));
-		return entries.map((entry, index) => {
-			if (entry.state === "settled") entry.state = transitionDispatchState(entry.state, "join");
-			return { ticket: entry.ticket, result: settled[index]! };
+		return Promise.all(entries.map((entry) => this.observeForJoin(entry)));
+	}
+
+	/** One entry's join outcome: whichever of settlement or abandonment happens first. */
+	private observeForJoin(entry: RegistryEntry): Promise<JoinedDispatch> {
+		return new Promise<JoinedDispatch>((resolve) => {
+			const joinState = () => {
+				// Only a SETTLED entry can be joined; an abandoned one is already terminal.
+				if (entry.state === "settled") entry.state = transitionDispatchState(entry.state, "join");
+			};
+			entry.promise.then(
+				(value) => {
+					joinState();
+					resolve({ ticket: entry.ticket, result: { status: "fulfilled", value } });
+				},
+				(reason: unknown) => {
+					joinState();
+					resolve({ ticket: entry.ticket, result: { status: "rejected", reason } });
+				},
+			);
+			// The second half of the race. Resolving twice is a no-op, so whichever
+			// arrives first wins and the other side is harmless.
+			void entry.abandon.promise.then(() => {
+				resolve({
+					ticket: entry.ticket,
+					result: { status: "rejected", reason: new DispatchAbandoned(abandonedMessage(entry.ticket)) },
+					abandoned: true,
+				});
+			});
 		});
 	}
 
-	/** Abandon registry ownership without waiting; promise observers remain attached. */
+	/**
+	 * Give up ownership of every outstanding dispatch WITHOUT joining it (I11/R6).
+	 *
+	 * Abandoning is a WAKE, not just a forget: each entry's signal releases any join
+	 * observing it, and every dispatch still QUEUED on the global semaphore is woken
+	 * without a slot so its promise rejects instead of waiting on a holder that may
+	 * never release. Work already in flight keeps running — its own tail is still
+	 * observed by the rejection handler attached at registration (I1/I2) — because
+	 * stopping a live worker is session_shutdown's job, not this method's.
+	 */
 	clear(): void {
 		for (const entry of this.dispatches.values()) {
-			entry.state = transitionDispatchState(entry.state, "abandon");
+			// Guarded rather than unconditional: this runs on the shutdown path, where an
+			// exception would abort the rest of the teardown. Only the two non-terminal
+			// states can be abandoned; a terminal one is left as it is.
+			if (entry.state === "pending" || entry.state === "settled") {
+				entry.state = transitionDispatchState(entry.state, "abandon");
+			}
+			entry.abandon.abandon();
 		}
 		this.dispatches.clear();
+		// Waiters belong to entries, so nothing queued survives the loop above with a
+		// reason to keep waiting.
+		this.semaphore.abortWaiters(
+			() =>
+				new DispatchAbandoned(
+					"slate: this dispatch was abandoned while it waited for a concurrency slot — its session was replaced or shut down. " +
+						"Nothing ran and no episode was recorded.",
+				),
+		);
 	}
 
 	private startDispatch(
 		opts: DispatchOptions,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
+		ticket: DispatchTicket,
+		abandon: AbandonSignal,
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
 		// Pause blocks only NEW dispatches — in-flight ones already hold their
@@ -429,11 +584,24 @@ export class ThreadManager {
 		if (early.kind === "reject") return Promise.reject(new Error(early.reason));
 		const thread = existing ?? this.createThread(opts, early);
 
-		// Per-thread FIFO: chain onto the previous dispatch for this thread.
+		// Per-thread FIFO: chain onto the previous dispatch for this thread — but the
+		// WAIT is abandonable (CN45). A predecessor that never settles used to strand
+		// every successor on this thread forever, in a wait no state change could end.
+		// The work itself is never abandoned mid-flight: losing this race means the
+		// action has not started, so refusing to start it costs nothing and starting
+		// billed work for a session that has gone away would be worse.
 		const prev = this.queues.get(thread.id) ?? Promise.resolve();
-		const run = prev
-			.catch(() => undefined) // a failed predecessor must not poison the queue
-			.then(() => this.runDispatch(thread, opts, ctx, signal, onProgress));
+		const gate = Promise.race([
+			prev.then(
+				() => "start" as const,
+				() => "start" as const, // a failed predecessor must not poison the queue
+			),
+			abandon.promise.then(() => "abandoned" as const),
+		]);
+		const run = gate.then((verdict) => {
+			if (verdict === "abandoned") throw new DispatchAbandoned(abandonedMessage(ticket));
+			return this.runDispatch(thread, opts, ctx, signal, onProgress);
+		});
 		this.queues.set(thread.id, run);
 		return run;
 	}
