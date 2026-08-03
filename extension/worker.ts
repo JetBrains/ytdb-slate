@@ -54,6 +54,7 @@ const WORKER_PREAMBLE = [
 	"Do the action fully, then stop.",
 	"Your final message must state: what you did, what you found, files you touched,",
 	"and anything the orchestrator must know.",
+	"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions.",
 ].join(" ");
 
 export function threadsDir(cwd: string): string {

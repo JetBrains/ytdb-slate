@@ -350,6 +350,18 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    — read it only for an unusual routing decision; skip if already in context.`;
 }
 
+function buildWritingRule(n: number): string {
+	return `
+${n}. Check all user-facing prose before delivery. Use short, active sentences and
+   plain language. A sentence over 25 words fails the check. Rewrite it before
+   delivery. A sentence over 20 words warns. Shorten it when meaning stays clear.
+   Do not use semicolons or contractions. Keep exact technical terms. The check
+   does not test vocabulary. Apply it to README changes, pull request text,
+   commit bodies, issues, comments, release notes, and messages to the user.
+   Exclude research logs, worker task text, and docs where precision needs more
+   detail.`;
+}
+
 function buildDoctrine(
 	cwd: string,
 	config: SlateConfig,
@@ -419,6 +431,9 @@ threads execute. Rules:
 		// become the orchestrator's instructions, and because a future caller of
 		// buildDoctrine must not be able to lose that property by accident.
 		(n) => (trusted ? buildRoutingRule(router, config.router?.allowUnmeasuredEffort !== false, n) : ""),
+		// Append-only conditional tail. Re-check trust where project config becomes
+		// prompt text, even though index.ts loads that config only when trusted.
+		(n) => (trusted && config.writing?.check === true ? buildWritingRule(n) : ""),
 	])}`;
 }
 
