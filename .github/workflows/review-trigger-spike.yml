@@ -1,0 +1,24 @@
+name: Review Trigger Spike
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions: {}
+
+jobs:
+  review-trigger-spike:
+    name: Review Trigger Spike Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print event SHAs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SHA_VALUE: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          printf 'event=%s\n' "$EVENT_NAME"
+          printf 'github.sha=%s\n' "$GITHUB_SHA_VALUE"
+          printf 'github.event.pull_request.head.sha=%s\n' "$HEAD_SHA"
