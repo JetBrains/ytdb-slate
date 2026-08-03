@@ -52,6 +52,11 @@
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
     "forceConsistentCasingInFileNames": true,
+    // A side-effect-only import (`import "./x"`) is the one specifier TS resolves
+    // silently by default: get the path wrong and the compiler says nothing while
+    // jiti throws at load time. Green on the current tree, and cheap insurance for
+    // a repo whose modules are loaded one by one rather than bundled.
+    "noUncheckedSideEffectImports": true,
 
     // REQUIRED, not a convenience: with skipLibCheck off, the only additional
     // errors are 9 inside third-party declarations vendored under the pi SDK's
@@ -88,8 +93,10 @@
 
   // extension/** is the shipped code. verification/probe.ts is TypeScript that
   // imports the SDK and drives the real model-default module, so it is checked
-  // too. verification/*.mjs (the resolver-check harness) is plain, unannotated
-  // JavaScript: checking it would need allowJs+checkJs and would measure a
-  // different codebase, so it is excluded.
-  "include": ["extension/**/*.ts", "verification/probe.ts"]
+  // too, and so is verification/ci-canary.ts — the load check's positive control
+  // is a real pi extension, and a type error in it would fake a load failure.
+  // verification/*.mjs (the resolver-check and packaging-guard drivers) is plain,
+  // unannotated JavaScript: checking it would need allowJs+checkJs and would
+  // measure a different codebase, so it is excluded.
+  "include": ["extension/**/*.ts", "verification/probe.ts", "verification/ci-canary.ts"]
 }

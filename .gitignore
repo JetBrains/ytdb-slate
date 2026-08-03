@@ -3,10 +3,18 @@ node_modules/
 # Slate runtime state (worker transcripts, episodes, pending handoff) —
 # session data must never be committed.
 .pi/slate/
+# pi's transient lock on the project settings file — a directory it creates and
+# removes around every read of .pi/settings.json. A session (or a verification
+# run) that is killed outright can leave one behind, and it must never be
+# committed. The glob covers a file as well as a directory.
+.pi/*.lock
 # IDE state
 .idea/
-# npm lockfile: the four pi SDK peers are declared "*" and resolve to whatever
-# is current locally, which drifts from the versions pi actually bundles — a
-# committed lockfile would pin that drift and mislead. devDependencies are
-# exact-pinned instead.
-package-lock.json
+# NOTE: package-lock.json is COMMITTED and is deliberately not ignored here.
+# It was ignored while the four pi SDK packages existed only as peerDependencies
+# at "*": npm resolved them to whatever was current locally, so a lockfile would
+# have pinned that drift and misled the reader. Tier-1 CI removed that premise.
+# The same four packages are now ALSO exact-pinned in devDependencies (0.83.0),
+# so the lockfile records a version this repo chose, not one it happened to get,
+# and `npm ci --ignore-scripts` — what the workflow runs — needs the file to
+# exist. See AGENTS.md § Packaging rules, "The devDependency carve-out".
