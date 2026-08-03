@@ -256,10 +256,15 @@ export class ThreadManager {
 	private liveBaselines = new Map<string, SessionBaseline>();
 	/** pi's compaction settings, read once (a lock-protected disk read) — see compactionSettings(). */
 	private cachedCompaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
+	/** Session-owned persisted thread and episode state. */
 	private store: SlateStore;
+	/** This manager's immutable session configuration. */
 	private config: SlateConfig;
+	/** Frozen worker-extension resolver, bound by value to this session (AD41/CN20). */
 	private resolveExtensions: () => WorkerExtensionSet;
+	/** Memoized router resolver, bound by value to this session. */
 	private resolveRouter: () => ModelRouterResolution;
+	/** Orchestrator base model used only by the episode compressor's last-resort rung. */
 	private baseModelTracker?: BaseModelTracker;
 
 	constructor(

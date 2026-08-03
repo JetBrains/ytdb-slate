@@ -66,38 +66,63 @@ test("ThreadManager preserves explicit constructor arguments and resolver defaul
   assert.strictEqual(defaults.resolveRouter(), ROUTER_OFF);
 });
 
-test("ThreadManager's semaphore admits its limit and transfers a released slot", async () => {
-  const manager = new ThreadManager(
+// A missed wakeup must fail this test instead of hanging the test process. Keep
+// an explicit timeout on every waiter-based test that follows this pattern.
+test("ThreadManager's semaphore honours configured and default limits and returns capacity", { timeout: 1000 }, async () => {
+  const configured = constructorFields(new ThreadManager(
     { paused: false } as unknown as SlateStore,
-    { maxConcurrent: 2 },
-  );
-  const semaphore = constructorFields(manager).semaphore;
-  let firstAdmitted = false;
-  let secondAdmitted = false;
-  let waiterAdmitted = false;
-
-  const first = semaphore.acquire().then(() => {
-    firstAdmitted = true;
-  });
-  const second = semaphore.acquire().then(() => {
-    secondAdmitted = true;
-  });
-  const waiter = semaphore.acquire().then(() => {
-    waiterAdmitted = true;
+    { maxConcurrent: 3 },
+  )).semaphore;
+  const configuredHolders = [configured.acquire(), configured.acquire(), configured.acquire()];
+  await Promise.all(configuredHolders);
+  let configuredWaiterAdmitted = false;
+  const configuredWaiter = configured.acquire().then(() => {
+    configuredWaiterAdmitted = true;
   });
 
   await Promise.resolve();
-  assert.equal(firstAdmitted, true);
-  assert.equal(secondAdmitted, true);
-  assert.equal(waiterAdmitted, false);
+  assert.equal(configuredWaiterAdmitted, false);
+  configured.release();
+  await configuredWaiter;
+  assert.equal(configuredWaiterAdmitted, true);
 
-  semaphore.release();
-  await waiter;
-  assert.equal(waiterAdmitted, true);
+  // All three releases take the no-waiter branch. Capacity must return: deleting
+  // its active-count decrement makes the following acquisitions time out.
+  configured.release();
+  configured.release();
+  configured.release();
+  const reacquired = [configured.acquire(), configured.acquire(), configured.acquire()];
+  await Promise.all(reacquired);
+  configured.release();
+  configured.release();
+  configured.release();
 
-  await Promise.all([first, second]);
-  semaphore.release();
-  semaphore.release();
+  const defaulted = constructorFields(new ThreadManager(
+    { paused: false } as unknown as SlateStore,
+    {},
+  )).semaphore;
+  const defaultHolders = [
+    defaulted.acquire(),
+    defaulted.acquire(),
+    defaulted.acquire(),
+    defaulted.acquire(),
+  ];
+  await Promise.all(defaultHolders);
+  let defaultWaiterAdmitted = false;
+  const defaultWaiter = defaulted.acquire().then(() => {
+    defaultWaiterAdmitted = true;
+  });
+
+  await Promise.resolve();
+  assert.equal(defaultWaiterAdmitted, false);
+  defaulted.release();
+  await defaultWaiter;
+  assert.equal(defaultWaiterAdmitted, true);
+
+  defaulted.release();
+  defaulted.release();
+  defaulted.release();
+  defaulted.release();
 });
 
 test("SlateStore saves through the ExtensionAPI supplied to its constructor", () => {
