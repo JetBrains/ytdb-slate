@@ -57,6 +57,7 @@ import { createBaseModelTracker, readLiveEffort, type BaseModelTracker } from ".
 import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.ts";
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
+import { sanitizeForNotify } from "./notify.ts";
 import { createModelRouterResolver, ROUTER_OFF, sanitizeRouterConfig, type ModelRouterResolution } from "./model-router.ts";
 import { sanitizeEpisodeModel, sanitizeMaxConcurrent, SlateStore, type SlateConfig } from "./state.ts";
 import { ThreadManager } from "./threads.ts";
@@ -196,7 +197,22 @@ export default function (pi: ExtensionAPI) {
 		// manager orphaned by a session swap must not start answering with a newer
 		// session's frozen candidate list or a newer base model.
 		manager = new ThreadManager(store, config, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel);
-		store.restore(ctx);
+		try {
+			store.restore(ctx);
+		} catch (error) {
+			const detail = sanitizeForNotify(error instanceof Error ? error.message : String(error));
+			const message =
+				`slate: could not restore persisted state — ${detail}. ` +
+				"The in-memory state was left unchanged and slate will refuse to save until the snapshot is repaired and the session is reloaded.";
+			console.error(message);
+			if (ctx.hasUI) {
+				try {
+					ctx.ui.notify(message, "error");
+				} catch {
+					/* the console line above remains visible */
+				}
+			}
+		}
 	});
 
 	pi.on("session_shutdown", async () => {

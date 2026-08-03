@@ -524,6 +524,17 @@ function readDispatchSeq(raw: unknown): number {
 	return raw;
 }
 
+interface PreparedSnapshot {
+	threads: Map<string, ThreadRecord>;
+	episodes: Map<string, EpisodeRecord>;
+	orchestratorMode: boolean;
+	paused: boolean;
+	dispatchSeq: number;
+	workerCostUsd: number;
+	carriedCostUsd: number;
+	dropped: string[];
+}
+
 export class SlateStore {
 	threads = new Map<string, ThreadRecord>();
 	episodes = new Map<string, EpisodeRecord>();
@@ -544,6 +555,8 @@ export class SlateStore {
 	onDidChange?: () => void;
 
 	private pi: ExtensionAPI;
+	/** A rejected session restore makes all later persistence fail closed. */
+	private saveBlockedReason?: string;
 
 	constructor(pi: ExtensionAPI) {
 		this.pi = pi;
@@ -571,58 +584,77 @@ export class SlateStore {
 	}
 
 	save(): void {
+		if (this.saveBlockedReason !== undefined) {
+			throw new Error(`slate: refusing to save after a failed state restore — ${this.saveBlockedReason}`);
+		}
 		this.pi.appendEntry("slate-state", this.snapshot() as unknown as Record<string, unknown>);
 		this.onDidChange?.();
 	}
 
 	/** Rebuild from the last slate-state entry on the current branch. */
 	restore(ctx: ExtensionContext): void {
-		let latest: SlateSnapshot | undefined;
-		for (const entry of ctx.sessionManager.getBranch()) {
-			const e = entry as { type: string; customType?: string; data?: unknown };
-			if (e.type === "custom" && e.customType === "slate-state" && e.data) {
-				latest = e.data as SlateSnapshot;
+		try {
+			let latest: SlateSnapshot | undefined;
+			for (const entry of ctx.sessionManager.getBranch()) {
+				const e = entry as { type: string; customType?: string; data?: unknown };
+				if (e.type === "custom" && e.customType === "slate-state" && e.data) {
+					latest = e.data as SlateSnapshot;
+				}
 			}
-		}
-		this.adoptSnapshot(latest, ctx);
-		// Cost counters and dispatch tickets are NOT branch-scoped like the records
-		// above: money never un-spends, and a ticket must never be reused after a
-		// branch switch. Take the MAX over ALL slate-state entries so none rolls back.
-		for (const entry of ctx.sessionManager.getEntries()) {
-			const e = entry as {
-				type: string;
-				customType?: string;
-				data?: { dispatchSeq?: unknown; workerCostUsd?: number; carriedCostUsd?: number };
-			};
-			if (e.type !== "custom" || e.customType !== "slate-state") continue;
-			this.dispatchSeq = Math.max(this.dispatchSeq, readDispatchSeq(e.data?.dispatchSeq));
-			this.workerCostUsd = Math.max(this.workerCostUsd, e.data?.workerCostUsd ?? 0);
-			this.carriedCostUsd = Math.max(this.carriedCostUsd, e.data?.carriedCostUsd ?? 0);
+
+			// Validate and prepare the branch snapshot before touching live state. The
+			// lineage scan is part of the same transaction: a malformed sequence on an
+			// abandoned branch must not throw after the branch records were adopted.
+			const prepared = this.prepareSnapshot(latest);
+			for (const entry of ctx.sessionManager.getEntries()) {
+				const e = entry as {
+					type: string;
+					customType?: string;
+					data?: { dispatchSeq?: unknown; workerCostUsd?: number; carriedCostUsd?: number };
+				};
+				if (e.type !== "custom" || e.customType !== "slate-state") continue;
+				prepared.dispatchSeq = Math.max(prepared.dispatchSeq, readDispatchSeq(e.data?.dispatchSeq));
+				prepared.workerCostUsd = Math.max(prepared.workerCostUsd, e.data?.workerCostUsd ?? 0);
+				prepared.carriedCostUsd = Math.max(prepared.carriedCostUsd, e.data?.carriedCostUsd ?? 0);
+			}
+			this.commitSnapshot(prepared, ctx);
+			this.saveBlockedReason = undefined;
+		} catch (error) {
+			// A session whose persisted state cannot be trusted must never append a
+			// replacement snapshot. Keep the live store unchanged and make every later
+			// save fail closed until a successful restore (normally after repair/reload).
+			this.saveBlockedReason = error instanceof Error ? error.message : String(error);
+			throw error;
 		}
 	}
 
 	/**
 	 * Replace all state with a snapshot (undefined clears), dropping records
 	 * whose files vanished. Shared by restore() and the cross-session handoff
-	 * adoption in handoff.ts.
+	 * adoption in handoff.ts. Preparation can throw; commit happens only after
+	 * every field and filesystem dependency has been checked (BG27).
 	 */
 	adoptSnapshot(latest: SlateSnapshot | undefined, ctx: ExtensionContext): void {
-		this.threads.clear();
-		this.episodes.clear();
-		this.orchestratorMode = false;
-		this.paused = false;
-		this.dispatchSeq = 0;
-		this.workerCostUsd = 0;
-		this.carriedCostUsd = 0;
-		if (!latest) return;
+		if (this.saveBlockedReason !== undefined) {
+			throw new Error(`slate: refusing to adopt state after a failed restore — ${this.saveBlockedReason}`);
+		}
+		this.commitSnapshot(this.prepareSnapshot(latest), ctx);
+	}
 
-		this.orchestratorMode = latest.orchestratorMode ?? false;
-		this.paused = latest.paused ?? false;
-		// Old snapshots lack the sequence and cost fields.
-		this.dispatchSeq = readDispatchSeq(latest.dispatchSeq);
-		this.workerCostUsd = latest.workerCostUsd ?? 0;
-		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
-		const dropped: string[] = [];
+	private prepareSnapshot(latest: SlateSnapshot | undefined): PreparedSnapshot {
+		const prepared: PreparedSnapshot = {
+			threads: new Map(),
+			episodes: new Map(),
+			orchestratorMode: latest?.orchestratorMode ?? false,
+			paused: latest?.paused ?? false,
+			// Old snapshots lack the sequence and cost fields.
+			dispatchSeq: readDispatchSeq(latest?.dispatchSeq),
+			workerCostUsd: latest?.workerCostUsd ?? 0,
+			carriedCostUsd: latest?.carriedCostUsd ?? 0,
+			dropped: [],
+		};
+		if (!latest) return prepared;
+
 		// EVERY record is validated field by field on the way in (BG26) — see
 		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
 		// that has been hand-edited, truncated or written by another version must be made
@@ -630,39 +662,57 @@ export class SlateStore {
 		// inside a warning message.
 		const threadList = Array.isArray(latest.threads) ? latest.threads : [];
 		for (const raw of threadList) {
-			const t = sanitizeThreadRecord(raw, dropped);
+			const t = sanitizeThreadRecord(raw, prepared.dropped);
 			if (t === undefined) {
-				dropped.push(`thread record without a usable id: ${typeof raw === "object" ? "ignored" : typeof raw}`);
+				prepared.dropped.push(`thread record without a usable id: ${typeof raw === "object" ? "ignored" : typeof raw}`);
 				continue;
 			}
 			if (t.sessionFile && !existsSync(t.sessionFile)) {
-				dropped.push(`thread ${t.id} (${t.name}): missing ${t.sessionFile}`);
+				prepared.dropped.push(`thread ${t.id} (${t.name}): missing ${t.sessionFile}`);
 				continue;
 			}
-			this.threads.set(t.id, t);
+			prepared.threads.set(t.id, t);
 		}
 		const episodeList = Array.isArray(latest.episodes) ? latest.episodes : [];
 		for (const raw of episodeList) {
-			const e = sanitizeEpisodeRecord(raw, dropped);
+			const e = sanitizeEpisodeRecord(raw, prepared.dropped);
 			if (e === undefined) {
-				dropped.push(`episode record without a usable id, thread id or file: ${typeof raw === "object" ? "ignored" : typeof raw}`);
+				prepared.dropped.push(`episode record without a usable id, thread id or file: ${typeof raw === "object" ? "ignored" : typeof raw}`);
 				continue;
 			}
 			if (!existsSync(e.file)) {
-				dropped.push(`episode ${e.id}: missing ${e.file}`);
+				prepared.dropped.push(`episode ${e.id}: missing ${e.file}`);
 				continue;
 			}
-			if (!this.threads.has(e.threadId)) continue;
-			this.episodes.set(e.id, e);
+			if (!prepared.threads.has(e.threadId)) continue;
+			prepared.episodes.set(e.id, e);
 		}
 		// Prune episode ids that did not survive.
-		for (const t of this.threads.values()) {
-			t.episodeIds = t.episodeIds.filter((id) => this.episodes.has(id));
+		for (const t of prepared.threads.values()) {
+			t.episodeIds = t.episodeIds.filter((id) => prepared.episodes.has(id));
 		}
-		if (dropped.length > 0 && ctx.hasUI) {
-			ctx.ui.notify(`slate: dropped or repaired stale records:\n${dropped.join("\n")}`, "warning");
+		return prepared;
+	}
+
+	private commitSnapshot(prepared: PreparedSnapshot, ctx: ExtensionContext): void {
+		this.threads = prepared.threads;
+		this.episodes = prepared.episodes;
+		this.orchestratorMode = prepared.orchestratorMode;
+		this.paused = prepared.paused;
+		this.dispatchSeq = prepared.dispatchSeq;
+		this.workerCostUsd = prepared.workerCostUsd;
+		this.carriedCostUsd = prepared.carriedCostUsd;
+		// UI refreshes are observers, not snapshot validation. They run only after
+		// the atomic commit and cannot turn a successful restore into a rejected,
+		// apparently-partial one.
+		try {
+			if (prepared.dropped.length > 0 && ctx.hasUI) {
+				ctx.ui.notify(`slate: dropped or repaired stale records:\n${prepared.dropped.join("\n")}`, "warning");
+			}
+			this.onDidChange?.();
+		} catch (error) {
+			console.warn(`slate: state restored, but its UI refresh failed — ${error instanceof Error ? error.message : String(error)}`);
 		}
-		this.onDidChange?.();
 	}
 }
 

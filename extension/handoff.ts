@@ -449,6 +449,7 @@ export function registerSlateHandoff(
 	pi.on("session_start", async (_event, ctx) => {
 		if (store.threads.size > 0 || store.orchestratorMode) return; // state already restored on this branch
 		const file = pendingFile(ctx.cwd);
+		let adopted = false;
 		try {
 			if (!existsSync(file)) return;
 			const pending = JSON.parse(readFileSync(file, "utf8")) as PendingHandoff;
@@ -474,6 +475,7 @@ export function registerSlateHandoff(
 			store.adoptSnapshot(pending.snapshot, ctx);
 			store.paused = false;
 			store.save();
+			adopted = true;
 			rmSync(file, { force: true });
 			if (ctx.hasUI) {
 				const t = store.threads.size;
@@ -607,8 +609,18 @@ export function registerSlateHandoff(
 					(calledSetter) => calledSetter,
 				);
 			}
-		} catch {
-			/* a broken pending file must never break session start */
+		} catch (error) {
+			// Adoption is atomic in SlateStore. Make a malformed pending snapshot
+			// visible and retain the file for diagnosis; never save a partial state.
+			if (!adopted) {
+				reportFailure(
+					ctx,
+					`slate: could not adopt pending handoff state — ${sanitizeForNotify(
+						error instanceof Error ? error.message : String(error),
+					)}. The current session state was left unchanged and the pending file was retained.`,
+				);
+			}
+			/* model-restore failures after a committed adoption report at their source */
 		}
 	});
 
