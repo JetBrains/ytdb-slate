@@ -450,6 +450,7 @@ export function registerSlateHandoff(
 		if (store.threads.size > 0 || store.orchestratorMode) return; // state already restored on this branch
 		const file = pendingFile(ctx.cwd);
 		let adopted = false;
+		let saved = false;
 		try {
 			if (!existsSync(file)) return;
 			const pending = JSON.parse(readFileSync(file, "utf8")) as PendingHandoff;
@@ -473,9 +474,12 @@ export function registerSlateHandoff(
 			const matches = !!pending.parentSession && pending.parentSession === ctx.sessionManager.getHeader()?.parentSession;
 			if (!matches) return;
 			store.adoptSnapshot(pending.snapshot, ctx);
+			// adoptSnapshot returning is the commit point. Set this before anything
+			// else can fail so every later report describes the live store truthfully.
+			adopted = true;
 			store.paused = false;
 			store.save();
-			adopted = true;
+			saved = true;
 			rmSync(file, { force: true });
 			if (ctx.hasUI) {
 				const t = store.threads.size;
@@ -619,8 +623,15 @@ export function registerSlateHandoff(
 						error instanceof Error ? error.message : String(error),
 					)}. The current session state was left unchanged and the pending file was retained.`,
 				);
+			} else if (!saved) {
+				reportFailure(
+					ctx,
+					`slate: pending handoff state was adopted in memory, but could not be saved — ${sanitizeForNotify(
+						error instanceof Error ? error.message : String(error),
+					)}. It is active for this session but is not in session history; the pending file was retained so reload can retry.`,
+				);
 			}
-			/* model-restore failures after a committed adoption report at their source */
+			/* failures after persistence either report at their source or leave committed state intact */
 		}
 	});
 
