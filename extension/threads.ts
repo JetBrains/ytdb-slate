@@ -255,12 +255,21 @@ class Semaphore {
 }
 
 /**
- * A dispatch that ended because its registry entry was ABANDONED — the session
- * that owned it was replaced or shut down — rather than because the action ran
- * and failed. Exported so the turn-end join can tell the two apart: nothing was
- * billed and no episode exists.
+ * A dispatch that NEVER STARTED and then lost its owner — the session was
+ * replaced or shut down while it was still queued, behind a predecessor on its
+ * thread or waiting for a concurrency slot. Nothing ran, nothing was billed and
+ * no episode exists. That claim is load-bearing, so this class must never be
+ * used for work that had already begun (see DispatchAbandonedInFlight).
  */
 export class DispatchAbandoned extends Error {}
+
+/**
+ * A dispatch that WAS ALREADY RUNNING when its owner went away. The opposite
+ * claim to the class above: a worker session was executing, so the action may
+ * have been billed and may still write its episode — the join simply cannot wait
+ * to find out (it must always resolve; see join()).
+ */
+export class DispatchAbandonedInFlight extends Error {}
 
 /**
  * One-shot "this entry was abandoned" signal, per dispatch.
@@ -269,18 +278,58 @@ export class DispatchAbandoned extends Error {}
  * (the join, the queue gate) and a rejecting signal whose rejection lands after
  * a race has already been decided is an unhandled rejection waiting to happen.
  * Each consumer turns resolution into whatever failure IT needs.
+ *
+ * It deliberately carries NO `abandoned` boolean (CQ30). One existed, nothing
+ * read it, and no test could tell whether it was still written — an accessor in
+ * that state is a trap for the next reader who trusts it. The registry's own
+ * `entry.state === "abandoned"` is the fact, and it is pinned by tests.
  */
 interface AbandonSignal {
 	readonly promise: Promise<void>;
-	readonly abandoned: boolean;
 	abandon(): void;
 }
 
-/** One wording for both abandon exits, so the orchestrator reads the same sentence either way. */
+/**
+ * The registry's write-back handles for one dispatch, threaded down to the code
+ * that actually runs it.
+ *
+ * They exist because of BG29's second half. The join must know two facts about a
+ * dispatch — has it STARTED, and has it FINISHED (with what) — and it must know
+ * them WHERE THEY BECOME TRUE, not several promise hops later. Recording the
+ * outcome only on the outer chain that `dispatch()` returns was not enough:
+ * returning a promise from a `.then` handler costs extra microtask hops for
+ * adoption, so a dispatch could be genuinely finished while the registry still
+ * believed it was pending, and an abandonment landing in that gap reported
+ * "nothing ran" about completed work.
+ *
+ * With the recording at the completion site, plain microtask FIFO gives a real
+ * guarantee rather than a speed contest: if the work completed before the
+ * teardown, the registry knows before any abandonment can be decided. If the two
+ * genuinely coincide in one batch, the answer degrades to `abandoned-in-flight`,
+ * which is honest — never to "nothing ran".
+ */
+interface DispatchLifecycle {
+	readonly ticket: DispatchTicket;
+	readonly abandon: AbandonSignal;
+	/** The dispatch holds a concurrency slot and has entered execution. */
+	markStarted(): void;
+	/** The work itself finished, well or badly. First writer wins. */
+	recordOutcome(result: PromiseSettledResult<DispatchResult>): void;
+}
+
+/** Wording for the never-started exit, so every such report reads the same. */
 function abandonedMessage(ticket: DispatchTicket): string {
 	return (
 		`slate: dispatch ${ticket} was abandoned before it started — its session was replaced or shut down. ` +
 		"Nothing ran and no episode was recorded."
+	);
+}
+
+/** Wording for the in-flight exit. It must not claim that nothing ran. */
+function abandonedInFlightMessage(ticket: DispatchTicket): string {
+	return (
+		`slate: dispatch ${ticket} was already running when its session was replaced or shut down. ` +
+		"It may have been billed and may still record an episode; this join does not know its outcome."
 	);
 }
 
@@ -289,14 +338,9 @@ function createAbandonSignal(): AbandonSignal {
 	const promise = new Promise<void>((resolve) => {
 		fire = resolve;
 	});
-	let abandoned = false;
 	return {
 		promise,
-		get abandoned() {
-			return abandoned;
-		},
 		abandon() {
-			abandoned = true;
 			fire(); // idempotent: a settled promise ignores later resolve calls
 		},
 	};
@@ -306,23 +350,48 @@ export interface OutstandingDispatch {
 	readonly ticket: DispatchTicket;
 	readonly promise: Promise<DispatchResult>;
 	state: DispatchRegistryState;
+	/**
+	 * True once the dispatch holds a concurrency slot and has entered execution.
+	 * This is the billing-relevant boundary the join reports on: before it, nothing
+	 * ran; after it, an episode may be written. Distinct from `state`, which tracks
+	 * who OWNS the dispatch, not whether it is executing.
+	 */
+	started: boolean;
 }
 
 /**
  * The registry's own entry. It carries the abandon signal, which is deliberately
  * NOT part of the public OutstandingDispatch shape: `outstanding()` hands out entry
  * references, and abandoning one dispatch is the registry's decision, not a
- * caller's.
+ * caller's. It also RECORDS the dispatch's real outcome the moment there is one,
+ * which is what lets the join decide by state instead of by promise timing (BG29).
  */
 interface RegistryEntry extends OutstandingDispatch {
 	readonly abandon: AbandonSignal;
+	settled?: PromiseSettledResult<DispatchResult>;
 }
+
+/**
+ * How a joined dispatch left the registry. THREE outcomes, because three things
+ * are genuinely different and a two-way "abandoned" flag lied about one of them
+ * (BG29):
+ *
+ *  - `settled` — the action finished, well or badly. `result` is its REAL result.
+ *  - `abandoned-before-start` — nothing ran, nothing was billed, no episode
+ *    exists. The only honest use of the word.
+ *  - `abandoned-in-flight` — the action was executing when its session went
+ *    away. It may have been billed and may still record an episode; this join
+ *    does not know which.
+ *
+ * For both abandoned outcomes `result` is a SYNTHETIC rejection carrying the
+ * matching error class, not the action's own outcome — read `outcome` first.
+ */
+export type DispatchJoinOutcome = "settled" | "abandoned-before-start" | "abandoned-in-flight";
 
 export interface JoinedDispatch {
 	readonly ticket: DispatchTicket;
+	readonly outcome: DispatchJoinOutcome;
 	readonly result: PromiseSettledResult<DispatchResult>;
-	/** Set when the join ended because the entry was abandoned, not because the work settled. */
-	readonly abandoned?: true;
 }
 
 export class ThreadManager {
@@ -439,27 +508,54 @@ export class ThreadManager {
 		// must be able to observe it from the moment the dispatch exists (CN45).
 		const abandon = createAbandonSignal();
 		let entry!: RegistryEntry;
+		// RECORD the real outcome on the entry, not just on the promise. The join needs
+		// "has this finished, and with what" as a FACT it can read, because deciding it
+		// from which promise reaction happened to run first is what made an
+		// already-finished dispatch report as abandoned (BG29). First writer wins: the
+		// completion site below writes first when there was any work to do, and this
+		// outer chain is the backstop for the exits that never reach it (paused, unknown
+		// thread, early route rejection, an unknown context episode, an abandoned wait).
+		const recordSettled = (result: PromiseSettledResult<DispatchResult>) => {
+			// FIRST WRITER WINS. Both writers see the same outcome today — nothing
+			// transforms it between the completion site and this chain — so no test can
+			// distinguish this from a plain assignment, and mutating it to one survives the
+			// suite. It stays because the two-writer design is the point: if a later change
+			// ever makes the outer chain report something different, overwriting would
+			// replace an outcome a join has already read, and that is the class of defect
+			// this whole decision procedure exists to prevent.
+			entry.settled ??= result;
+			// An abandoned entry is terminal and keeps its state; only its result is news.
+			if (entry.state === "pending") entry.state = transitionDispatchState(entry.state, "settle");
+		};
+		const lifecycle: DispatchLifecycle = {
+			ticket: minted.ticket,
+			abandon,
+			markStarted: () => {
+				entry.started = true;
+			},
+			recordOutcome: recordSettled,
+		};
 		const promise = Promise.resolve()
 			.then(() => {
 				// Persist the high-water mark before any route can expose work. A stale
 				// context/save failure is itself tracked and cleaned like every other exit.
 				this.store.save();
-				return this.startDispatch(opts, ctx, signal, minted.ticket, abandon, onProgress);
+				return this.startDispatch(opts, ctx, signal, lifecycle, onProgress);
 			})
 			.then(
 				(value) => {
-					if (entry.state === "pending") entry.state = transitionDispatchState(entry.state, "settle");
+					recordSettled({ status: "fulfilled", value });
 					return value;
 				},
 				(error: unknown) => {
-					if (entry.state === "pending") entry.state = transitionDispatchState(entry.state, "settle");
+					recordSettled({ status: "rejected", reason: error });
 					throw error;
 				},
 			)
 			.finally(() => {
 				this.dispatches.delete(minted.ticket);
 			});
-		entry = { ticket: minted.ticket, promise, state: "pending", abandon };
+		entry = { ticket: minted.ticket, promise, state: "pending", started: false, abandon };
 		this.dispatches.set(minted.ticket, entry);
 		void promise.catch(() => undefined); // registry-owned, same-tick rejection observer (I1/I2)
 		return promise;
@@ -484,46 +580,76 @@ export class ThreadManager {
 	 * THIS ALWAYS RESOLVES (CN45). It used to `allSettled` the dispatch promises,
 	 * which meant a single worker that never answered left the join pending forever
 	 * — and the caller is `agent_end`, so that hung the turn, Esc, a model switch,
-	 * a fork and quit. Each entry is therefore observed as a race between its own
-	 * settlement and its ABANDONMENT, and abandonment is a state change the registry
-	 * itself performs (clear/disposeAll), never a timer: the plan rejects timeouts
-	 * anywhere in the dispatch path (R5).
+	 * a fork and quit. It is woken instead by ABANDONMENT, a state change the
+	 * registry itself performs (clear/disposeAll), never a timer: the plan rejects
+	 * timeouts anywhere in the dispatch path (R5).
 	 *
-	 * An abandoned entry is reported as a REJECTED result carrying DispatchAbandoned
-	 * and flagged `abandoned`, so a caller can tell "the action failed" from "nobody
-	 * waited for the action" — nothing was billed and no episode exists.
+	 * WHAT IT REPORTS IS DECIDED BY STATE, NOT BY TIMING (BG29). The first version
+	 * raced settlement against abandonment and let the winner decide, and
+	 * abandonment always won — one microtask against six — so a dispatch that had
+	 * finished, or was mid-flight and billing, was reported as "nothing ran". A race
+	 * is not a decision procedure: whichever side is faster today, the other becomes
+	 * tomorrow's defect. See observeForJoin for the precedence rules and
+	 * DispatchJoinOutcome for the three outcomes.
 	 */
 	async join(): Promise<JoinedDispatch[]> {
 		const entries = [...this.dispatches.values()];
 		return Promise.all(entries.map((entry) => this.observeForJoin(entry)));
 	}
 
-	/** One entry's join outcome: whichever of settlement or abandonment happens first. */
+	/**
+	 * One entry's join outcome, decided from the ENTRY'S RECORDED STATE whenever
+	 * anything relevant happens — never from which promise reaction ran first.
+	 *
+	 * Precedence, in order:
+	 *  1. a recorded result wins over everything, so a dispatch that finished is
+	 *     reported as it finished even if the registry was torn down around it;
+	 *  2. otherwise an abandoned entry is reported by whether it had STARTED, which
+	 *     is the difference between "nothing ran" and "it was billing when we let
+	 *     go";
+	 *  3. otherwise nothing is decidable yet, and the wake-ups below re-decide.
+	 *
+	 * Both facts can be true at once (settled AND abandoned). The precedence makes
+	 * that deterministic instead of order-dependent, which is the whole point.
+	 */
 	private observeForJoin(entry: RegistryEntry): Promise<JoinedDispatch> {
 		return new Promise<JoinedDispatch>((resolve) => {
-			const joinState = () => {
-				// Only a SETTLED entry can be joined; an abandoned one is already terminal.
-				if (entry.state === "settled") entry.state = transitionDispatchState(entry.state, "join");
+			const decide = (): void => {
+				if (entry.settled !== undefined) {
+					// Only a SETTLED entry can be joined; an abandoned one is already terminal,
+					// so its recorded result is reported without a further transition.
+					if (entry.state === "settled") entry.state = transitionDispatchState(entry.state, "join");
+					resolve({ ticket: entry.ticket, outcome: "settled", result: entry.settled });
+					return;
+				}
+				if (entry.state === "abandoned") {
+					resolve(
+						entry.started
+							? {
+									ticket: entry.ticket,
+									outcome: "abandoned-in-flight",
+									result: { status: "rejected", reason: new DispatchAbandonedInFlight(abandonedInFlightMessage(entry.ticket)) },
+								}
+							: {
+									ticket: entry.ticket,
+									outcome: "abandoned-before-start",
+									result: { status: "rejected", reason: new DispatchAbandoned(abandonedMessage(entry.ticket)) },
+								},
+					);
+				}
+				// Nothing decidable yet: a later wake-up asks again.
 			};
-			entry.promise.then(
-				(value) => {
-					joinState();
-					resolve({ ticket: entry.ticket, result: { status: "fulfilled", value } });
-				},
-				(reason: unknown) => {
-					joinState();
-					resolve({ ticket: entry.ticket, result: { status: "rejected", reason } });
-				},
-			);
-			// The second half of the race. Resolving twice is a no-op, so whichever
-			// arrives first wins and the other side is harmless.
-			void entry.abandon.promise.then(() => {
-				resolve({
-					ticket: entry.ticket,
-					result: { status: "rejected", reason: new DispatchAbandoned(abandonedMessage(entry.ticket)) },
-					abandoned: true,
-				});
-			});
+			// Decide on either event. Resolving twice is a no-op, so a second wake-up is
+			// harmless; what it must NOT do is decide differently, and it cannot, because
+			// both call the same state-based function.
+			//
+			// There is deliberately no "decide immediately if it is already decidable" fast
+			// path. Both wake-ups are attached permanently and an entry cannot be decidable
+			// without one of them having fired or being about to, so such a branch only ever
+			// saved a microtask — mutation testing confirmed removing it changed no answer,
+			// and an inert branch no test can distinguish is a trap, not a safeguard.
+			entry.promise.then(decide, decide);
+			void entry.abandon.promise.then(decide);
 		});
 	}
 
@@ -563,8 +689,7 @@ export class ThreadManager {
 		opts: DispatchOptions,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
-		ticket: DispatchTicket,
-		abandon: AbandonSignal,
+		lifecycle: DispatchLifecycle,
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
 		// Pause blocks only NEW dispatches — in-flight ones already hold their
@@ -591,18 +716,32 @@ export class ThreadManager {
 		// action has not started, so refusing to start it costs nothing and starting
 		// billed work for a session that has gone away would be worse.
 		const prev = this.queues.get(thread.id) ?? Promise.resolve();
+		const prevDone = prev.then(
+			() => undefined,
+			() => undefined, // a failed predecessor must not poison the queue
+		);
 		const gate = Promise.race([
-			prev.then(
-				() => "start" as const,
-				() => "start" as const, // a failed predecessor must not poison the queue
-			),
-			abandon.promise.then(() => "abandoned" as const),
+			prevDone.then(() => "start" as const),
+			lifecycle.abandon.promise.then(() => "abandoned" as const),
 		]);
 		const run = gate.then((verdict) => {
-			if (verdict === "abandoned") throw new DispatchAbandoned(abandonedMessage(ticket));
-			return this.runDispatch(thread, opts, ctx, signal, onProgress);
+			if (verdict === "abandoned") throw new DispatchAbandoned(abandonedMessage(lifecycle.ticket));
+			return this.runDispatch(thread, opts, ctx, signal, lifecycle, onProgress);
 		});
-		this.queues.set(thread.id, run);
+		// WHAT THE NEXT DISPATCH ON THIS THREAD WAITS FOR is deliberately NOT `run`
+		// (CN46). `run` can reject the moment this dispatch is abandoned, without its
+		// predecessor having finished; storing that in the queue would let a later
+		// dispatch overtake a predecessor still talking to the thread's worker session,
+		// which breaks the one-serial-stream-per-thread rule (D9). The tail therefore
+		// waits for the TRUE predecessor first and only then for this dispatch's own
+		// work — of which there is none when it was abandoned before starting.
+		const tail = prevDone.then(() =>
+			run.then(
+				() => undefined,
+				() => undefined,
+			),
+		);
+		this.queues.set(thread.id, tail);
 		return run;
 	}
 
@@ -1056,12 +1195,27 @@ export class ThreadManager {
 		opts: DispatchOptions,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
+		lifecycle: DispatchLifecycle,
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
 		const prompt = this.buildPrompt(opts); // may throw on unknown episode ids (before any state change)
 		await this.semaphore.acquire();
+		// PAST THIS LINE THE DISPATCH IS EXECUTING: it holds a slot, it is about to
+		// mutate the thread record, and every exit from here on except an apply-time
+		// abort writes an episode. A join that lets go now must say so rather than
+		// claim nothing ran (BG29). An acquire REJECTED by abortWaiters never reaches
+		// this line, which is what keeps a queued dispatch reported as never started.
+		lifecycle.markStarted();
 		try {
-			return await this.runDispatchInner(thread, opts, prompt, ctx, signal, onProgress);
+			const value = await this.runDispatchInner(thread, opts, prompt, ctx, signal, onProgress);
+			// THE COMPLETION SITE (BG29). Telling the registry here, rather than letting
+			// the answer travel out through the returned promise, is what makes "it had
+			// already finished" a fact the join can read instead of a race it can lose.
+			lifecycle.recordOutcome({ status: "fulfilled", value });
+			return value;
+		} catch (error) {
+			lifecycle.recordOutcome({ status: "rejected", reason: error });
+			throw error;
 		} finally {
 			this.semaphore.release();
 		}
