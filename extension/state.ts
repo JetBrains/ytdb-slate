@@ -89,6 +89,8 @@ export interface SlateSnapshot {
 	episodes: EpisodeRecord[];
 	orchestratorMode: boolean;
 	paused: boolean;
+	/** Global per-project dispatch-ticket high-water mark. Absent only in old snapshots. */
+	dispatchSeq?: number;
 	workerCostUsd: number;
 	carriedCostUsd: number; // orchestrator spend banked from ancestor sessions at handoff
 }
@@ -485,7 +487,7 @@ export interface SlateConfig {
 	episodeModel?: string; // "provider/id" for the episode compressor (D5)
 	workerTools?: string[];
 	workerExtensions?: string[]; // regex patterns selecting which of the HOST session's pi extensions worker threads may load (default [] = none); see worker-extensions.ts
-	maxConcurrent?: number; // global cap on concurrently running worker actions (default 4; must be ≥ 1 — unenforced, ≤ 0 silently hangs all dispatches; rationale: docs/design-principles.md §5 repo-local note)
+	maxConcurrent?: number; // global cap on concurrently running worker actions (default 4; numeric ≤ 0 clamps to 1; rationale: docs/design-principles.md §5 repo-local note)
 	pauseThresholdPercent?: number; // DEPRECATED: legacy percent-based auto-pause (default 40); applies only when set AND contextBudget is absent or entirely invalid (invalid sanitizes to absent — a partially invalid object stays budget mode)
 	contextBudget?: number | ContextBudgetObject; // absolute orchestrator token budget; bare number = { tokens: N }; {} opts into built-in defaults (256k, 400k for anthropic/*) — see handoff.ts
 	orchestratorModeDefault?: boolean; // seed orchestrator mode ON for fresh interactive sessions (unsaved until first real mutation)
@@ -497,6 +499,29 @@ export interface SlateConfig {
 	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
 	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
 	router?: RouterConfig; // action-level model router: the closed model list + the evidence-gap policy (default: off) — see model-router.ts
+}
+
+/** Sanitize the global worker cap at session start. */
+export function sanitizeMaxConcurrent(raw: unknown, warn: (msg: string) => void): number | undefined {
+	if (raw === undefined) return undefined;
+	if (typeof raw !== "number" || !Number.isFinite(raw) || Number.isNaN(raw)) {
+		warn("slate: ignoring maxConcurrent because it is not a finite number — using the default 4");
+		return undefined;
+	}
+	if (raw <= 0) {
+		warn("slate: maxConcurrent must be greater than zero — clamping it to 1");
+		return 1;
+	}
+	return raw;
+}
+
+/** Missing means an old snapshot; malformed present values must not silently reuse d1. */
+function readDispatchSeq(raw: unknown): number {
+	if (raw === undefined) return 0;
+	if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw < 0) {
+		throw new Error("slate: snapshot dispatchSeq must be a non-negative safe integer.");
+	}
+	return raw;
 }
 
 export class SlateStore {
@@ -511,6 +536,8 @@ export class SlateStore {
 	 * compression spend too.
 	 */
 	workerCostUsd = 0;
+	/** Persisted high-water mark for session-scoped d<N> dispatch tickets. */
+	dispatchSeq = 0;
 	/** Orchestrator spend inherited from ancestor sessions across handoffs. */
 	carriedCostUsd = 0;
 	/** Invoked after every save/restore; used by mode.ts to refresh the widget. */
@@ -537,6 +564,7 @@ export class SlateStore {
 			episodes: [...this.episodes.values()],
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
+			dispatchSeq: this.dispatchSeq,
 			workerCostUsd: this.workerCostUsd,
 			carriedCostUsd: this.carriedCostUsd,
 		};
@@ -557,17 +585,17 @@ export class SlateStore {
 			}
 		}
 		this.adoptSnapshot(latest, ctx);
-		// Cost counters are NOT branch-scoped like the records above: money never
-		// un-spends, and dispatches on now-abandoned branches were still billed.
-		// Take the MAX over ALL slate-state entries (both counters are monotonic
-		// within a session file) so a branch switch cannot roll them back.
+		// Cost counters and dispatch tickets are NOT branch-scoped like the records
+		// above: money never un-spends, and a ticket must never be reused after a
+		// branch switch. Take the MAX over ALL slate-state entries so none rolls back.
 		for (const entry of ctx.sessionManager.getEntries()) {
 			const e = entry as {
 				type: string;
 				customType?: string;
-				data?: { workerCostUsd?: number; carriedCostUsd?: number };
+				data?: { dispatchSeq?: unknown; workerCostUsd?: number; carriedCostUsd?: number };
 			};
 			if (e.type !== "custom" || e.customType !== "slate-state") continue;
+			this.dispatchSeq = Math.max(this.dispatchSeq, readDispatchSeq(e.data?.dispatchSeq));
 			this.workerCostUsd = Math.max(this.workerCostUsd, e.data?.workerCostUsd ?? 0);
 			this.carriedCostUsd = Math.max(this.carriedCostUsd, e.data?.carriedCostUsd ?? 0);
 		}
@@ -583,13 +611,15 @@ export class SlateStore {
 		this.episodes.clear();
 		this.orchestratorMode = false;
 		this.paused = false;
+		this.dispatchSeq = 0;
 		this.workerCostUsd = 0;
 		this.carriedCostUsd = 0;
 		if (!latest) return;
 
 		this.orchestratorMode = latest.orchestratorMode ?? false;
 		this.paused = latest.paused ?? false;
-		// ?? 0: old snapshots lack the cost fields.
+		// Old snapshots lack the sequence and cost fields.
+		this.dispatchSeq = readDispatchSeq(latest.dispatchSeq);
 		this.workerCostUsd = latest.workerCostUsd ?? 0;
 		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
 		const dropped: string[] = [];

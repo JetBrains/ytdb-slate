@@ -58,7 +58,7 @@ import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
 import { createModelRouterResolver, ROUTER_OFF, sanitizeRouterConfig, type ModelRouterResolution } from "./model-router.ts";
-import { sanitizeEpisodeModel, SlateStore, type SlateConfig } from "./state.ts";
+import { sanitizeEpisodeModel, sanitizeMaxConcurrent, SlateStore, type SlateConfig } from "./state.ts";
 import { ThreadManager } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
 import {
@@ -142,6 +142,7 @@ export default function (pi: ExtensionAPI) {
 		config.modelFailover = sanitizeModelFailover(config.modelFailover, warn);
 		config.contextBudget = sanitizeContextBudget(config.contextBudget, warn);
 		config.workerExtensions = sanitizeWorkerExtensions(config.workerExtensions, warn);
+		config.maxConcurrent = sanitizeMaxConcurrent(config.maxConcurrent, warn);
 		// router likewise: a malformed model list must surface at session start, not
 		// when a dispatch is refused for naming a model the list silently dropped.
 		config.router = sanitizeRouterConfig(config.router, warn);

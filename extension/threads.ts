@@ -105,6 +105,12 @@ import {
 // switch is not an orchestrator switch, so it must not be announced as one).
 import type { BaseModelTracker } from "./base-model.ts";
 import { compressEpisode } from "./episodes.ts";
+import {
+	mintDispatchTicket,
+	transitionDispatchState,
+	type DispatchRegistryState,
+	type DispatchTicket,
+} from "./dispatch-plan.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 import type { ThinkingLevel } from "./model-profiles.ts";
 import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
@@ -204,7 +210,9 @@ class Semaphore {
 	private active = 0;
 	private limit: number;
 	constructor(limit: number) {
-		this.limit = limit;
+		// Defence in depth: ThreadManager also exists before session_start and in
+		// tests, where the config sanitizer has not necessarily run.
+		this.limit = Number.isFinite(limit) && limit > 0 ? limit : 1;
 	}
 	async acquire(): Promise<void> {
 		if (this.active < this.limit) {
@@ -227,8 +235,20 @@ class Semaphore {
 	}
 }
 
+export interface OutstandingDispatch {
+	readonly ticket: DispatchTicket;
+	readonly promise: Promise<DispatchResult>;
+	state: DispatchRegistryState;
+}
+
+export interface JoinedDispatch {
+	readonly ticket: DispatchTicket;
+	readonly result: PromiseSettledResult<DispatchResult>;
+}
+
 export class ThreadManager {
 	private live = new Map<string, WorkerSession>();
+	private dispatches = new Map<DispatchTicket, OutstandingDispatch>();
 	/** threadId → "provider/id" a LIVE session was switched to by model failover (AF12). */
 	private failoverLive = new Map<string, string>();
 	private queues = new Map<string, Promise<unknown>>();
@@ -324,7 +344,69 @@ export class ThreadManager {
 		return this.live.has(threadId) ? this.failoverLive.get(threadId) : undefined;
 	}
 
-	async dispatch(
+	dispatch(
+		opts: DispatchOptions,
+		ctx: ExtensionContext,
+		signal: AbortSignal | undefined,
+		onProgress?: (p: DispatchProgress) => void,
+	): Promise<DispatchResult> {
+		// LOAD-BEARING AWAIT-FREE PRELUDE (I1/I3/I15): mint, persist in memory,
+		// create the whole dispatch promise, register it, and attach its rejection
+		// observer before returning control to pi. Sibling tool calls can therefore
+		// see every sibling, and a same-tick rejection is never unhandled.
+		const minted = mintDispatchTicket(this.store.dispatchSeq);
+		this.store.dispatchSeq = minted.sequence;
+		let entry!: OutstandingDispatch;
+		const promise = Promise.resolve()
+			.then(() => {
+				// Persist the high-water mark before any route can expose work. A stale
+				// context/save failure is itself tracked and cleaned like every other exit.
+				this.store.save();
+				return this.startDispatch(opts, ctx, signal, onProgress);
+			})
+			.then(
+				(value) => {
+					if (entry.state === "pending") entry.state = transitionDispatchState(entry.state, "settle");
+					return value;
+				},
+				(error: unknown) => {
+					if (entry.state === "pending") entry.state = transitionDispatchState(entry.state, "settle");
+					throw error;
+				},
+			)
+			.finally(() => {
+				this.dispatches.delete(minted.ticket);
+			});
+		entry = { ticket: minted.ticket, promise, state: "pending" };
+		this.dispatches.set(minted.ticket, entry);
+		void promise.catch(() => undefined); // registry-owned, same-tick rejection observer (I1/I2)
+		return promise;
+	}
+
+	/** Current session registry. The copy prevents callers mutating manager ownership. */
+	outstanding(): ReadonlyMap<DispatchTicket, OutstandingDispatch> {
+		return new Map(this.dispatches);
+	}
+
+	/** Join the entries visible at call time; later sibling registrations form the next batch. */
+	async join(): Promise<JoinedDispatch[]> {
+		const entries = [...this.dispatches.values()];
+		const settled = await Promise.allSettled(entries.map((entry) => entry.promise));
+		return entries.map((entry, index) => {
+			if (entry.state === "settled") entry.state = transitionDispatchState(entry.state, "join");
+			return { ticket: entry.ticket, result: settled[index]! };
+		});
+	}
+
+	/** Abandon registry ownership without waiting; promise observers remain attached. */
+	clear(): void {
+		for (const entry of this.dispatches.values()) {
+			entry.state = transitionDispatchState(entry.state, "abandon");
+		}
+		this.dispatches.clear();
+	}
+
+	private startDispatch(
 		opts: DispatchOptions,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
@@ -333,29 +415,18 @@ export class ThreadManager {
 		// Pause blocks only NEW dispatches — in-flight ones already hold their
 		// queue slot and are allowed to finish (their episodes still get written).
 		if (this.store.paused) {
-			throw new Error(
-				"Slate is paused for handoff: the context budget was exceeded and new dispatches are rejected. " +
-					"Reply to the user with a handoff brief (overall goal, per-thread state with episode ids, immediate next actions) " +
-					"and ask them to run /slate handoff [focus] to continue in a fresh session.",
+			return Promise.reject(
+				new Error(
+					"Slate is paused for handoff: the context budget was exceeded and new dispatches are rejected. " +
+						"Reply to the user with a handoff brief (overall goal, per-thread state with episode ids, immediate next actions) " +
+						"and ask them to run /slate handoff [focus] to continue in a fresh session.",
+				),
 			);
 		}
-		// EARLY route validation (see the header): the RESOLVED model/effort pair is
-		// validated here, before any state mutation and before any session work, so a
-		// bad pick is a tool error the orchestrator can correct — not a billed failed
-		// episode. Reject-only: no warnings and no window substitution, both of which
-		// belong to the apply-time plan that runs with the thread's real context size.
-		// Ordering inside this method matters: the unknown-thread error above comes
-		// first (it explains itself better than a routing complaint would), the
-		// routing guards next, and only then is a new thread created.
 		const existing = opts.threadId ? this.requireThread(opts.threadId) : undefined;
 		const liveSession = existing ? this.live.get(existing.id) : undefined;
 		const early = planRoute(this.routeInputs(ctx, existing, opts, liveSession));
-		// Reject-only here: a rejection is a TOOL ERROR the orchestrator can correct,
-		// raised before the thread record exists. The plan's WARNINGS are deliberately
-		// dropped — the apply-time plan re-derives them with the thread's real context
-		// size, and reporting them twice (or consuming guard 6's once-per-pair notice
-		// before anyone could see it) would both be wrong.
-		if (early.kind === "reject") throw new Error(early.reason);
+		if (early.kind === "reject") return Promise.reject(new Error(early.reason));
 		const thread = existing ?? this.createThread(opts, early);
 
 		// Per-thread FIFO: chain onto the previous dispatch for this thread.
@@ -1231,6 +1302,7 @@ export class ThreadManager {
 	}
 
 	disposeAll(): void {
+		this.clear();
 		for (const session of this.live.values()) {
 			try {
 				session.dispose();
