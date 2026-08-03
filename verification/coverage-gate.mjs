@@ -5,6 +5,14 @@ import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { stripTypeScriptTypes } from "node:module";
+let ts;
+try {
+  ({ default: ts } = await import("typescript"));
+} catch (error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(`coverage-gate: infrastructure error loading exact-pinned devDependency typescript: ${detail}`);
+  process.exit(2);
+}
 
 function usage(message) {
   if (message) console.error(`coverage-gate: ${message}`);
@@ -142,8 +150,8 @@ if (diffRun.stdout.length > 0 && parsedFiles === 0) {
 // these regexes directly to raw source lines: no anchoring, lexical analysis,
 // case folding or whitespace normalization. Diverging in either direction can
 // hide coverage or reject inert text, so keep these byte-for-byte equivalent.
-// That exact-matching rule governs these directives; comment classification
-// instead has to be monotone whenever its lexer cannot decide.
+// That exact-matching rule governs these directives; source classification
+// instead has to be monotone whenever the TypeScript parser cannot decide.
 const NODE_IGNORE_DIRECTIVE = /\/\* node:coverage ignore next (?<count>\d+ )?\*\//;
 const NODE_STATUS_DIRECTIVE = /\/\* node:coverage (?<status>enable|disable) \*\//;
 function directivesOnLine(text) {
@@ -206,75 +214,37 @@ for (const text of lcovText.split("\n")) {
 // Source classification decides which lines are counted; LCOV decides whether
 // those lines are covered. Exclusion needs positive proof. Any unresolved
 // classification counts every addition as uncovered.
-function blankComments(text) {
-  const out = text.split("");
-  const blank = (a, b) => { for (let k = a; k < b; k++) if (out[k] !== "\n" && out[k] !== "\r") out[k] = " "; };
-  // Stack entries distinguish a template body from `${` and ordinary braces.
-  const stack = [];
-  let prev = "";
-  let i = 0;
-  const inTemplate = () => stack.length && stack[stack.length - 1].kind === "tpl";
-  while (i < text.length) {
-    const ch = text[i];
-    if (inTemplate()) {
-      if (ch === "\\") { i += 2; continue; }
-      if (ch === "`") { stack.pop(); prev = "`"; i++; continue; }
-      if (ch === "$" && text[i + 1] === "{") { stack.push({ kind: "brace" }); prev = "{"; i += 2; continue; }
-      i++; continue;
+function executableTokenLines(text, name) {
+  const sourceFile = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  if (sourceFile.parseDiagnostics.length > 0) return undefined;
+  const lineStarts = sourceFile.getLineStarts();
+  const lineAt = (position) => {
+    let low = 0, high = lineStarts.length;
+    while (low + 1 < high) {
+      const middle = (low + high) >> 1;
+      if (lineStarts[middle] <= position) low = middle;
+      else high = middle;
     }
-    const next = text[i + 1];
-    if (ch === "/" && next === "*") {
-      const end = text.indexOf("*/", i + 2);
-      if (end < 0) return undefined;
-      blank(i, end + 2); i = end + 2; continue;
+    return low + 1;
+  };
+  const executable = new Set();
+  const visit = (node) => {
+    if (String(ts.SyntaxKind[node.kind]).startsWith("JSDoc")) return;
+    const children = node.getChildren(sourceFile);
+    if (children.length > 0) {
+      for (const child of children) visit(child);
+      return;
     }
-    if (ch === "/" && next === "/") {
-      let j = i; while (j < text.length && text[j] !== "\n" && text[j] !== "\r") j++;
-      blank(i, j); i = j; continue;
+    if (node.kind === ts.SyntaxKind.EndOfFileToken) return;
+    const start = node.getStart(sourceFile, false);
+    let offset = start;
+    for (const segment of text.slice(start, node.getEnd()).split("\n")) {
+      if (segment.trim() !== "") executable.add(lineAt(offset));
+      offset += segment.length + 1;
     }
-    if (ch === "\"" || ch === "'") {
-      let j = i + 1;
-      for (;;) {
-        if (j >= text.length) return undefined;
-        const c = text[j];
-        if (c === "\\") { j += 2; continue; }
-        if (c === "\n" || c === "\r") return undefined;
-        if (c === ch) { j++; break; }
-        j++;
-      }
-      prev = "x"; i = j; continue;
-    }
-    if (ch === "`") { stack.push({ kind: "tpl" }); i++; continue; }
-    if (ch === "{") { stack.push({ kind: "brace" }); prev = "{"; i++; continue; }
-    if (ch === "}") {
-      if (stack.length && stack[stack.length - 1].kind === "brace") stack.pop();
-      prev = "}"; i++; continue;
-    }
-    if (ch === "/") {
-      const regexOk = prev === "" || /[=(,:[!&|?{};+\-*%~^<>]$/.test(prev)
-        || /\b(return|typeof|case|in|of|new|delete|void|do|else|yield|await)$/.test(prev)
-        || /\b(?:if|while|for|with)\s*\([^)]*\)$/.test(prev);
-      if (regexOk) {
-        let j = i + 1, cls = false, closed = false;
-        while (j < text.length) {
-          const c = text[j];
-          if (c === "\\") { j += 2; continue; }
-          if (c === "\n" || c === "\r") break;
-          if (c === "[") cls = true;
-          else if (c === "]") cls = false;
-          else if (c === "/" && !cls) { j++; closed = true; break; }
-          j++;
-        }
-        if (!closed) return undefined;
-        prev = "x"; i = j; continue;
-      }
-      prev = "/"; i++; continue;
-    }
-    if (!/\s/.test(ch)) prev = (prev + ch).slice(-12);
-    i++;
-  }
-  if (stack.length) return undefined;
-  return out.join("");
+  };
+  visit(sourceFile);
+  return executable;
 }
 
 function executableLinesAtHead(name) {
@@ -282,8 +252,8 @@ function executableLinesAtHead(name) {
   let stripped;
   const emitWarning = process.emitWarning;
   try {
-    // Node labels the API experimental even though native type stripping is the
-    // harness's execution path. Keep that process-global warning out of output.
+    // Preserve Node's exact erasable-syntax boundary. The TypeScript parser
+    // classifies tokens after type-only syntax has been replaced with spaces.
     process.emitWarning = () => {};
     stripped = stripTypeScriptTypes(sourceText, { mode: "strip" });
   } catch (error) {
@@ -294,13 +264,8 @@ function executableLinesAtHead(name) {
     process.emitWarning = emitWarning;
   }
   try {
-    const withoutComments = blankComments(stripped);
-    if (withoutComments === undefined) return { status: "void" };
-    const executable = new Set();
-    for (const [index, text] of withoutComments.split("\n").entries()) {
-      if (text.trim() !== "") executable.add(index + 1);
-    }
-    return { status: "ok", lines: executable };
+    const lines = executableTokenLines(stripped, name);
+    return lines === undefined ? { status: "void" } : { status: "ok", lines };
   } catch {
     return { status: "void" };
   }

@@ -348,29 +348,78 @@ test("uncovered branches on erased lines remain evidence (RG31)", (t) => {
   assert.match(result.stdout, /lines 0\/0=n\/a \| branches 0\/1=0\.00%/);
 });
 
-test("comment lexer uncertainty fails closed and keeps lexical markers inside values", (t) => {
-  const gateSource = readFileSync(GATE, "utf8");
-  const body = /function blankComments\(text\) \{[\s\S]*?\n\}\n\nfunction executableLinesAtHead/.exec(gateSource)?.[0]
-    .replace(/\n\nfunction executableLinesAtHead$/, "");
-  assert.ok(body, "blankComments source must remain extractable for boundary fixtures");
-  const blank = Function(`${body}; return blankComments;`)() as (text: string) => string | undefined;
-  for (const source of ["/*", "'unterminated", "/unterminated", "`unterminated"]) {
-    assert.equal(blank(source), undefined, source);
-  }
-  const residual = "if (ready) /a\\/*b/.test(value);\nconst kept = 1;";
-  assert.equal(blank(residual), residual, "a control-body regex containing /* must stay code");
-  const nested = "const value = `a${ { item: `b${1}` }.item /* nested note */ }c`;";
-  const nestedBlanked = nested.replace("/* nested note */", "                 ");
-  assert.equal(blank(nested), nestedBlanked, "template expressions must preserve nested braces and templates");
+test("a covered regex after a long non-braced if condition stays executable (RG32)", { timeout: 20_000 }, (t) => {
+  const seeded = fixture(t);
+  git(seeded.repo, "mv", "extension/sample.ts", "extension/base.ts");
+  commit(seeded.repo, "base module");
+  const repo = seeded.repo;
+  const base = git(repo, "rev-parse", "HEAD");
+  write(repo, "extension/sample.ts", [
+    "export function testQuoted(value: string): boolean {",
+    "  let matched = false;",
+    "  if (valueHasEnoughCharacters(value)) /[\\\"'`]/.test(value) && (matched = true);",
+    "  return matched;",
+    "}",
+    "function valueHasEnoughCharacters(value: string): boolean {",
+    "  return value.length > 2;",
+    "}",
+    "export const observed = testQuoted('abc');",
+  ].join("\n"));
+  commit(repo);
+  write(repo, "fixture.test.mjs", "import test from 'node:test';\nimport { observed } from './extension/sample.ts';\ntest('covered', () => { if (observed !== false) throw new Error('bad'); });\n");
+  const lcovPath = join(repo, "real.lcov");
+  const coverageRun = command(repo, process.execPath, [
+    "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "--test", "--experimental-test-coverage",
+    "--test-coverage-include=extension/sample.ts", "--test-reporter=lcov",
+    `--test-reporter-destination=${lcovPath}`, "fixture.test.mjs",
+  ], { NODE_TEST_CONTEXT: undefined });
+  assert.equal(coverageRun.status, 0, coverageRun.stderr);
+  const result = runGate(repo, base, readFileSync(lcovPath, "utf8"));
+  assert.equal(result.status, 0, result.stdout);
+  assert.match(result.stdout, /lines 9\/9=100\.00%/);
+  assert.match(result.stdout, /VERDICT: WARN/);
+  assert.doesNotMatch(result.stdout, /CLASSIFIER VOID|FAIL:/);
+});
 
+test("a missing exact-pinned TypeScript devDependency is a legible infrastructure error", { timeout: 20_000 }, (t) => {
+  const isolated = mkdtempSync(join(tmpdir(), "slate-gate-no-typescript-"));
+  t.after(() => rmSync(isolated, { recursive: true, force: true }));
+  const copiedGate = join(isolated, "coverage-gate.mjs");
+  cpSync(GATE, copiedGate);
+  const result = command(isolated, process.execPath, [copiedGate]);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /infrastructure error loading exact-pinned devDependency typescript/i);
+  assert.doesNotMatch(result.stderr, /\n\s+at /);
+});
+
+test("classifier void forces zero hits and a failing verdict", { timeout: 20_000 }, (t) => {
   const { repo, base } = fixture(t);
   write(repo, "extension/sample.ts", "export const before = 1;\nexport const covered = 2;\n");
   commit(repo);
-  const mutant = join(repo, "coverage-gate-void.mjs");
-  writeFileSync(mutant, gateSource.replace("const withoutComments = blankComments(stripped);", "const withoutComments = undefined;"));
+  const gateSource = readFileSync(GATE, "utf8");
+  const mutantDir = mkdtempSync(join(dirname(GATE), ".gate-void-"));
+  t.after(() => rmSync(mutantDir, { recursive: true, force: true }));
+  const mutant = join(mutantDir, "coverage-gate-void.mjs");
+  const needle = "const lines = executableTokenLines(stripped, name);";
+  assert.equal(gateSource.split(needle).length, 2, "classifier injection point must remain unique");
+  writeFileSync(mutant, gateSource.replace(needle, "const lines = undefined;"));
   const lcovPath = join(repo, "gate.lcov");
   writeFileSync(lcovPath, sourceLcov(["2,1"], ["2,0,0,1"]));
   const result = command(repo, process.execPath, [mutant, "--repo", repo, "--base", base, "--head", "HEAD", "--lcov", lcovPath]);
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stdout, /lines 0\/1=0\.00%/);
+  assert.match(result.stdout, /CLASSIFIER VOID; all additions counted uncovered/);
+  assert.match(result.stdout, /classifier could not resolve extension\/sample\.ts/);
+  assert.match(result.stdout, /VERDICT: FAIL/);
+});
+
+test("a TypeScript parser diagnostic makes classification void", { timeout: 20_000 }, (t) => {
+  const { repo, base } = fixture(t, "const before = 1;\n");
+  // Node's stripper accepts this legacy numeric spelling in a script, while
+  // TypeScript's JS parser reports diagnostic 1489. The gate must fail closed.
+  write(repo, "extension/sample.ts", "const before = 1;\nconst legacy = 08;\n");
+  commit(repo);
+  const result = runGate(repo, base, sourceLcov(["2,1"], ["2,0,0,1"]));
   assert.equal(result.status, 1, result.stdout);
   assert.match(result.stdout, /lines 0\/1=0\.00%/);
   assert.match(result.stdout, /CLASSIFIER VOID; all additions counted uncovered/);
