@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Print version and event data
         env:
-          VERSION: base
+          VERSION: pr
           EVENT_NAME: ${{ github.event_name }}
           GITHUB_SHA_VALUE: ${{ github.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -27,6 +27,7 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           printf 'VERSION=%s\n' "$VERSION"
+          printf 'PR_MARKER=workflow-from-pull-request\n'
           printf 'event=%s\n' "$EVENT_NAME"
           printf 'github.sha=%s\n' "$GITHUB_SHA_VALUE"
           printf 'github.event.pull_request.head.sha=%s\n' "$HEAD_SHA"
