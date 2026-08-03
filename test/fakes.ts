@@ -33,6 +33,22 @@ import type { WorkerSession } from "../extension/worker.ts";
 
 // --------------------------------------------------------------- fake pi.* --
 
+export type ArgumentSnapshot<T> =
+	| { status: "captured"; value: T }
+	| { status: "unavailable"; reason: string };
+
+interface RecordedMessage {
+	customType: string;
+	content?: unknown;
+	display?: unknown;
+	details?: unknown;
+}
+
+interface RecordedMessageOptions {
+	triggerTurn?: boolean;
+	deliverAs?: "steer" | "followUp" | "nextTurn";
+}
+
 /** One recorded pi.sendMessage call, in the shape sendMessage actually receives it. */
 export interface RecordedSendMessageCall {
 	kind: "sendMessage";
@@ -42,8 +58,14 @@ export interface RecordedSendMessageCall {
 	 * ordering between the two kinds, not just within one kind.
 	 */
 	seq: number;
-	message: { customType: string; content?: unknown; display?: unknown; details?: unknown };
-	options: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" } | undefined;
+	/** Exact argument identity, for reference and instanceof assertions. */
+	message: RecordedMessage;
+	/** Exact argument identity, for reference assertions. */
+	options: RecordedMessageOptions | undefined;
+	/** Call-time value, or an explicit reason why a faithful snapshot was impossible. */
+	messageSnapshot: ArgumentSnapshot<RecordedMessage>;
+	/** Call-time value, or an explicit reason why a faithful snapshot was impossible. */
+	optionsSnapshot: ArgumentSnapshot<RecordedMessageOptions | undefined>;
 }
 
 /** One recorded pi.appendEntry call. */
@@ -51,22 +73,74 @@ export interface RecordedAppendEntryCall {
 	kind: "appendEntry";
 	seq: number;
 	customType: string;
+	/** Exact argument identity. */
 	data: unknown;
+	/** Call-time value, or an explicit reason why a faithful snapshot was impossible. */
+	dataSnapshot: ArgumentSnapshot<unknown>;
 }
 
 export type RecordedCall = RecordedSendMessageCall | RecordedAppendEntryCall;
 
 /**
- * Record arguments as they were at call time. Keeping caller-owned references
- * would let later mutation rewrite history and make two different call orders
- * produce the same recording. Extension messages and entries are persistence
- * payloads, so a non-cloneable test argument is a loud fixture error.
+ * Check that structuredClone did not silently erase a custom prototype at any
+ * depth. That is how Error subclasses collapse to Error. The raw argument is
+ * always recorded separately; this check governs only whether the call-time
+ * snapshot may claim fidelity.
  */
-function snapshotArgument<T>(value: T, label: string): T {
+function preservesPrototypeGraph(source: unknown, clone: unknown, seen = new WeakMap<object, object>()): boolean {
+	if (source === null || typeof source !== "object") return Object.is(source, clone);
+	if (clone === null || typeof clone !== "object") return false;
+	const prior = seen.get(source);
+	if (prior !== undefined) return prior === clone;
+	seen.set(source, clone);
+	if (Object.getPrototypeOf(source) !== Object.getPrototypeOf(clone)) return false;
+
+	if (source instanceof Map && clone instanceof Map) {
+		if (source.size !== clone.size) return false;
+		const sourceEntries = [...source.entries()];
+		const cloneEntries = [...clone.entries()];
+		return sourceEntries.every(([key, value], index) => {
+			const cloned = cloneEntries[index];
+			return cloned !== undefined
+				&& preservesPrototypeGraph(key, cloned[0], seen)
+				&& preservesPrototypeGraph(value, cloned[1], seen);
+		});
+	}
+	if (source instanceof Set && clone instanceof Set) {
+		if (source.size !== clone.size) return false;
+		const cloneValues = [...clone.values()];
+		return [...source.values()].every((value, index) => preservesPrototypeGraph(value, cloneValues[index], seen));
+	}
+
+	const sourceKeys = Reflect.ownKeys(source);
+	const cloneKeys = Reflect.ownKeys(clone);
+	if (sourceKeys.length !== cloneKeys.length || sourceKeys.some((key) => !cloneKeys.includes(key))) return false;
+	return sourceKeys.every((key) => {
+		const sourceDescriptor = Object.getOwnPropertyDescriptor(source, key);
+		const cloneDescriptor = Object.getOwnPropertyDescriptor(clone, key);
+		if (!sourceDescriptor || !cloneDescriptor || !("value" in sourceDescriptor) || !("value" in cloneDescriptor)) {
+			return false;
+		}
+		return preservesPrototypeGraph(sourceDescriptor.value, cloneDescriptor.value, seen);
+	});
+}
+
+/**
+ * Snapshot without ever throwing. Raw identity and snapshot value are separate
+ * because no single field can be both reference-identical and mutation-proof.
+ * Unsupported values remain available through the raw argument while the
+ * snapshot exposes a loud, test-assertable degradation state.
+ */
+function snapshotArgument<T>(value: T, label: string): ArgumentSnapshot<T> {
 	try {
-		return structuredClone(value);
+		const clone = structuredClone(value);
+		if (!preservesPrototypeGraph(value, clone)) {
+			return { status: "unavailable", reason: `${label} snapshot would lose prototype or property fidelity` };
+		}
+		return { status: "captured", value: clone };
 	} catch (error) {
-		throw new Error(`createFakeExtensionAPI: ${label} must be structured-cloneable`, { cause: error });
+		const detail = error instanceof Error ? error.message : String(error);
+		return { status: "unavailable", reason: `${label} is not structured-cloneable: ${detail}` };
 	}
 }
 
@@ -112,8 +186,10 @@ export function createFakeExtensionAPI(): FakeExtensionAPI {
 			const call: RecordedSendMessageCall = {
 				kind: "sendMessage",
 				seq: seq++,
-				message: snapshotArgument(message, "sendMessage message") as RecordedSendMessageCall["message"],
-				options: snapshotArgument(options, "sendMessage options") as RecordedSendMessageCall["options"],
+				message: message as RecordedSendMessageCall["message"],
+				options: options as RecordedSendMessageCall["options"],
+				messageSnapshot: snapshotArgument(message, "sendMessage message") as RecordedSendMessageCall["messageSnapshot"],
+				optionsSnapshot: snapshotArgument(options, "sendMessage options") as RecordedSendMessageCall["optionsSnapshot"],
 			};
 			calls.push(call);
 			sendMessageCalls.push(call);
@@ -123,7 +199,8 @@ export function createFakeExtensionAPI(): FakeExtensionAPI {
 				kind: "appendEntry",
 				seq: seq++,
 				customType,
-				data: snapshotArgument(data, "appendEntry data"),
+				data,
+				dataSnapshot: snapshotArgument(data, "appendEntry data"),
 			};
 			calls.push(call);
 			appendEntryCalls.push(call);
@@ -254,9 +331,9 @@ function createDeferred<T>(): Deferred<T> {
 export type FakeSessionEvent = { type: string; [key: string]: unknown };
 
 export type RecordedWorkerSessionCall =
-	| { kind: "prompt"; text: unknown }
-	| { kind: "setModel"; model: unknown }
-	| { kind: "setThinkingLevel"; level: unknown }
+	| { kind: "prompt"; text: unknown; textSnapshot: ArgumentSnapshot<unknown> }
+	| { kind: "setModel"; model: unknown; modelSnapshot: ArgumentSnapshot<unknown> }
+	| { kind: "setThinkingLevel"; level: unknown; levelSnapshot: ArgumentSnapshot<unknown> }
 	| { kind: "dispose" };
 
 export interface FakeWorkerSessionOptions {
@@ -315,17 +392,17 @@ export function createFakeWorkerSession(options: FakeWorkerSessionOptions = {}):
 			};
 		}) as WorkerSession["subscribe"],
 		prompt: ((text: unknown) => {
-			calls.push({ kind: "prompt", text });
+			calls.push({ kind: "prompt", text, textSnapshot: snapshotArgument(text, "worker prompt text") });
 			const deferred = createDeferred<unknown>();
 			pendingPrompts.push(deferred);
 			return deferred.promise;
 		}) as WorkerSession["prompt"],
 		setModel: (async (next: unknown) => {
-			calls.push({ kind: "setModel", model: next });
+			calls.push({ kind: "setModel", model: next, modelSnapshot: snapshotArgument(next, "worker model") });
 			model = next as { provider: string; id: string };
 		}) as WorkerSession["setModel"],
 		setThinkingLevel: ((level: unknown) => {
-			calls.push({ kind: "setThinkingLevel", level });
+			calls.push({ kind: "setThinkingLevel", level, levelSnapshot: snapshotArgument(level, "worker thinking level") });
 		}) as WorkerSession["setThinkingLevel"],
 		dispose: (() => {
 			calls.push({ kind: "dispose" });

@@ -95,7 +95,57 @@ test("createFakeExtensionAPI records sendMessage and appendEntry calls, interlea
 	assert.equal(fake.sendMessageCalls[1]?.options?.triggerTurn, true);
 });
 
-test("createFakeExtensionAPI snapshots arguments so later mutation cannot rewrite call order", () => {
+type TestSnapshot<T> =
+	| { status: "captured"; value: T }
+	| { status: "unavailable"; reason: string };
+
+function captured<T>(snapshot: TestSnapshot<T>): T {
+	assert.equal(snapshot.status, "captured", snapshot.status === "unavailable" ? snapshot.reason : undefined);
+	return snapshot.value;
+}
+
+test("createFakeExtensionAPI preserves Error subclass and argument identity", () => {
+	class BilledOutcomeUnknown extends Error {}
+	const fake = createFakeExtensionAPI();
+	const reason = new BilledOutcomeUnknown("worker was abandoned in flight");
+	const message = { customType: "joined", content: "result", display: true, details: { reason } };
+
+	fake.api.sendMessage(message);
+
+	const call = fake.sendMessageCalls[0] as unknown as {
+		message: typeof message;
+		messageSnapshot: TestSnapshot<typeof message>;
+	};
+	assert.strictEqual(call.message, message);
+	assert.strictEqual(call.message.details.reason, reason);
+	assert.equal(call.message.details.reason instanceof BilledOutcomeUnknown, true);
+	assert.equal(call.messageSnapshot.status, "unavailable");
+	assert.match(
+		call.messageSnapshot.status === "unavailable" ? call.messageSnapshot.reason : "",
+		/lose prototype or property fidelity/,
+	);
+});
+
+test("createFakeExtensionAPI records function and symbol payloads without throwing and exposes snapshot degradation", () => {
+	const fake = createFakeExtensionAPI();
+	const marker = Symbol("marker");
+	const callback = () => "called";
+	const data = { callback, marker };
+
+	assert.doesNotThrow(() => fake.api.appendEntry("edge", data));
+
+	const call = fake.appendEntryCalls[0] as unknown as {
+		data: typeof data;
+		dataSnapshot: TestSnapshot<typeof data>;
+	};
+	assert.strictEqual(call.data, data);
+	assert.strictEqual(call.data.callback, callback);
+	assert.strictEqual(call.data.marker, marker);
+	assert.equal(call.dataSnapshot.status, "unavailable");
+	assert.match(call.dataSnapshot.status === "unavailable" ? call.dataSnapshot.reason : "", /not structured-cloneable/);
+});
+
+test("createFakeExtensionAPI preserves argument identity and snapshots call-time values against later mutation", () => {
 	const fake = createFakeExtensionAPI();
 	const message = { customType: "first", content: "one", display: true, details: { step: 1 } };
 	const options: { deliverAs: "steer" | "followUp" } = { deliverAs: "steer" };
@@ -103,6 +153,20 @@ test("createFakeExtensionAPI snapshots arguments so later mutation cannot rewrit
 
 	fake.api.sendMessage(message, options);
 	fake.api.appendEntry("state", data);
+	const firstMessageCall = fake.sendMessageCalls[0] as unknown as {
+		message: typeof message;
+		options: typeof options;
+		messageSnapshot: TestSnapshot<typeof message>;
+		optionsSnapshot: TestSnapshot<typeof options>;
+	};
+	const firstEntryCall = fake.appendEntryCalls[0] as unknown as {
+		data: typeof data;
+		dataSnapshot: TestSnapshot<typeof data>;
+	};
+	assert.strictEqual(firstMessageCall.message, message);
+	assert.strictEqual(firstMessageCall.options, options);
+	assert.strictEqual(firstEntryCall.data, data);
+
 	message.customType = "second";
 	message.details.step = 2;
 	options.deliverAs = "followUp";
@@ -111,18 +175,27 @@ test("createFakeExtensionAPI snapshots arguments so later mutation cannot rewrit
 	fake.api.appendEntry("state", data);
 
 	assert.deepEqual(
-		fake.sendMessageCalls.map((call) => ({
-			customType: call.message.customType,
-			step: (call.message.details as { step: number }).step,
-			deliverAs: call.options?.deliverAs,
-		})),
 		[
-			{ customType: "first", step: 1, deliverAs: "steer" },
-			{ customType: "second", step: 2, deliverAs: "followUp" },
+			captured(firstMessageCall.messageSnapshot),
+			captured((fake.sendMessageCalls[1] as unknown as typeof firstMessageCall).messageSnapshot),
+		].map((value) => ({ customType: value.customType, step: value.details.step })),
+		[
+			{ customType: "first", step: 1 },
+			{ customType: "second", step: 2 },
 		],
 	);
 	assert.deepEqual(
-		fake.appendEntryCalls.map((call) => call.data),
+		[
+			captured(firstMessageCall.optionsSnapshot),
+			captured((fake.sendMessageCalls[1] as unknown as typeof firstMessageCall).optionsSnapshot),
+		].map((value) => value.deliverAs),
+		["steer", "followUp"],
+	);
+	assert.deepEqual(
+		[
+			captured(firstEntryCall.dataSnapshot),
+			captured((fake.appendEntryCalls[1] as unknown as typeof firstEntryCall).dataSnapshot),
+		],
 		[{ nested: { step: 1 } }, { nested: { step: 2 } }],
 	);
 });
@@ -208,6 +281,36 @@ test("createFakeWorkerSession can leave a prompt() deliberately unsettled withou
 	// process is still alive.
 	fake.resolvePrompt("late-answer");
 	await hanging;
+});
+
+test("createFakeWorkerSession preserves argument identity and snapshots call-time values", { timeout: 1000 }, async () => {
+	const fake = createFakeWorkerSession();
+	const prompt = { text: "first" };
+	const model = { provider: "p", id: "m1", metadata: { revision: 1 } };
+
+	const pending = fake.session.prompt(prompt as never);
+	await fake.session.setModel(model as never);
+	const promptCall = fake.calls[0];
+	const modelCall = fake.calls[1];
+	assert.equal(promptCall?.kind, "prompt");
+	assert.equal(modelCall?.kind, "setModel");
+	if (promptCall?.kind !== "prompt" || modelCall?.kind !== "setModel") {
+		assert.fail("worker call recorder lost prompt/setModel order");
+	}
+	assert.strictEqual(promptCall.text, prompt);
+	assert.strictEqual(modelCall.model, model);
+
+	prompt.text = "second";
+	model.metadata.revision = 2;
+	assert.deepEqual(captured(promptCall.textSnapshot), { text: "first" });
+	assert.deepEqual(captured(modelCall.modelSnapshot), {
+		provider: "p",
+		id: "m1",
+		metadata: { revision: 1 },
+	});
+
+	fake.resolvePrompt();
+	await pending;
 });
 
 test("createFakeWorkerSession records dispose(), setModel(), setThinkingLevel(), and delivers subscribe() events in order", async () => {
