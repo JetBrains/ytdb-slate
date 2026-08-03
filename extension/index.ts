@@ -101,9 +101,9 @@ export default function (pi: ExtensionAPI) {
 	// One MEMOIZED model-router resolution per session (model-router.ts), reassigned
 	// every session_start below for the same reason as the resolver above: the
 	// candidate list is frozen at first use, and a dispatch guard built from a
-	// different resolution than the doctrine describes would be a bug. Starts as the
-	// off resolution — dispatch then behaves exactly as it did before the router
-	// existed — until session_start has sanitized `router.models`.
+	// different resolution than the doctrine describes would be a bug. Starts at the
+	// shared OFF resolution — no candidate list is available — until session_start
+	// has sanitized `router.models`.
 	let resolveModelRouterResolution: () => ModelRouterResolution = () => ROUTER_OFF;
 
 	// One base-model tracker per session (base-model.ts), reassigned every

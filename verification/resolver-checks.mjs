@@ -2110,7 +2110,7 @@ try {
 				["no warnings on a rejection", bad.warnings.length === 0, bad.warnings],
 				["case matters (pi's levels are lower-case)", upper.kind === "reject", verdict(upper)],
 				["a padded valid level is accepted", verdict(padded) === "proceed:p/a@high", verdict(padded)],
-				["...and is judged for the model that runs", padded.effortJudgedFor === "p/a", padded.effortJudgedFor],
+				["...and is judged for the model the planner routes to", padded.effortJudgedFor === "p/a", padded.effortJudgedFor],
 				["whitespace-only effort is not INVALID — it names no level, so one is derived", verdict(blank) === "proceed:p/a@off" && blank.effortJudgedFor === "p/a", [verdict(blank), blank.effortJudgedFor]],
 				["an omitted effort likewise derives the model's lowest measured level", verdict(omitted) === "proceed:p/a@off" && omitted.effortJudgedFor === "p/a", [verdict(omitted), omitted.effortJudgedFor]],
 				["guard 0 precedes guard 1", both.kind === "reject" && /thinking levels/.test(why(both)), why(both)],
@@ -2191,9 +2191,9 @@ try {
 				["a listed model routes the action, at a level derived FOR IT", verdict(listed) === "proceed:p/dear@medium" && listed.effortJudgedFor === "p/dear", [verdict(listed), listed.effortJudgedFor]],
 			]);
 
-			// Router OFF: the SAME input must behave exactly as it did before the router
-			// existed — the model argument is passed through unvalidated (pi's own "unknown
-			// model" error is what a bad one must still hit), and nothing is warned.
+			// Router OFF: no candidate-list policy applies to the same input. The raw model
+			// argument passes through for pi to resolve, while a valid-vocabulary effort with
+			// no usable ladder data passes without a ladder verdict or warning.
 			const off = plan({ resolution: router.ROUTER_OFF, thread: { id: "t1", baseModel: "p/cheap" }, requestedModel: "p/other" });
 			const offEffort = plan({ resolution: router.ROUTER_OFF, requestedModel: "p/other", requestedEffort: "max" });
 			// The pre-router pin is the ONLY thing router-off resolves a model from — and a
@@ -2210,7 +2210,7 @@ try {
 				wouldCompact: compactAt(20_000),
 				reserveTokens: 20_000,
 			});
-			checkAll("route-list-off", "with the router OFF every guard is inert and the module is INVISIBLE — the pre-router dispatch path: an unlisted model and a ladder-less effort pass through unvalidated and unwarned, the `model` argument is passed through byte-for-byte (so pi still owns malformed-spec errors), the thread's PRE-ROUTER PIN is the only fall-through and it is open-only, a stored baseModel resolves nothing, and no effort is derived", [
+			checkAll("route-list-off", "with the router OFF the candidate-list and window guards are inert: an unlisted model and a ladder-less valid-vocabulary effort pass through unwarned, the `model` argument is preserved byte-for-byte for pi to resolve, the thread's PRE-ROUTER PIN is the planner's only model-field fall-through and is open-only, a stored baseModel resolves nothing, and no effort is derived; this check stops at planner output", [
 				["unlisted model proceeds", verdict(off) === "proceed:p/other@undefined", verdict(off)],
 				["silently", off.warnings.length === 0, off.warnings],
 				["a valid-vocabulary effort survives with no ladder data", verdict(offEffort) === "proceed:p/other@max", verdict(offEffort)],
@@ -2452,11 +2452,11 @@ try {
 		});
 
 		await section("route-effort-derived-for-model", async () => {
-			// THE ONE RULE, effort half (route.ts's header): the level an action runs at
-			// ALWAYS belongs to the model it actually runs on. A level stored on the thread
-			// was derived for the BASE model, so the moment the action runs somewhere else —
-			// an explicit `model`, or a window substitution — it is dropped and re-derived
-			// for the model that runs. Carrying it across was BG14: an action routed
+			// THE ONE RULE, effort half (route.ts's header): the level a plan resolves
+			// ALWAYS belongs to the model it routes to. A level stored on the thread was
+			// derived for the BASE model, so the moment the plan routes somewhere else — an
+			// explicit `model`, or a window substitution — it is dropped and re-derived for
+			// the routed model. Carrying it across was BG14: an action routed
 			// elsewhere inherited a budget derived for the base and was warned about, or
 			// (with allowUnmeasuredEffort false) REJECTED, for a level nobody requested.
 			//
@@ -2492,8 +2492,8 @@ try {
 			// inherits is caught only because the inherited level is invalid on the new model,
 			// and BG23's re-validation now corrects exactly that: it re-derives, so the
 			// disjoint fixture can no longer tell inheriting from deriving. When the stored
-			// level is VALID on the model that runs, nothing corrects it — the action simply
-			// runs at a level chosen for a different model, which is the whole of BG14. Here
+			// level is VALID on the routed model, nothing corrects it — the plan simply
+			// carries a level chosen for a different model, which is the whole of BG14. Here
 			// the stored level is `medium`, legal on both, while the target's own lowest
 			// measured level is `low`: deriving says `low`, inheriting says `medium`.
 			const shared = routeResolution([
@@ -2501,13 +2501,13 @@ try {
 				{ spec: "p/to", tier: 2, price: 2, ladder: ["low", "medium"], measured: ["low", "medium"] },
 			]);
 			const overlapping = plan({ resolution: shared, thread: { id: "t3", baseModel: "p/from", baseEffort: "medium" }, requestedModel: "p/to" });
-			checkAll("route-effort-derived-for-model", "a level stored on the thread is INHERITED only while the action runs on the base model it was derived for: an explicit per-action model gets that MODEL's own lowest measured level instead (so an inheriting implementation, which would refuse a level absent from the new model's ladder, cannot pass), and so does a model the window guard substituted in — while an EXPLICIT level is still judged hard against the model that runs, and `effortJudgedFor` always names that model", [
+			checkAll("route-effort-derived-for-model", "a level stored on the thread is INHERITED only while the planner routes to the base model it was derived for: an explicit per-action model gets that MODEL's own lowest measured level instead (so an inheriting implementation, which would refuse a level absent from the new model's ladder, cannot pass), and so does a model the window guard substituted in — while an EXPLICIT level is still judged hard against the routed model, and `effortJudgedFor` always names the model used for that judgement", [
 				["an explicit model derives its OWN lowest measured level", verdict(elsewhere) === "proceed:p/other@high", verdict(elsewhere)],
 				["...naming the model the level was judged for", elsewhere.effortJudgedFor === "p/other", elsewhere.effortJudgedFor],
 				["...with no warning: a derived level is measured by construction", elsewhere.warnings.length === 0 && elsewhere.effortUnmeasured === false, [elsewhere.warnings, elsewhere.effortUnmeasured]],
 				["...and no rejection even under allowUnmeasuredEffort:false (BG14)", verdict(strict) === "proceed:p/other@high", verdict(strict)],
-				["the stored level DOES apply while the action runs on its own base", verdict(onBase) === "proceed:p/base@low" && onBase.effortJudgedFor === "p/base", [verdict(onBase), onBase.effortJudgedFor]],
-				["an EXPLICIT level is still judged against the model that runs", explicitLevel.kind === "reject" && /p\/other's effort ladder \(high, max\)/.test(why(explicitLevel)), verdict(explicitLevel)],
+				["the stored level DOES apply while the planner routes to its own base", verdict(onBase) === "proceed:p/base@low" && onBase.effortJudgedFor === "p/base", [verdict(onBase), onBase.effortJudgedFor]],
+				["an EXPLICIT level is still judged against the routed model", explicitLevel.kind === "reject" && /p\/other's effort ladder \(high, max\)/.test(why(explicitLevel)), verdict(explicitLevel)],
 				["...and an explicit level that model HAS is honoured", verdict(explicitOk) === "proceed:p/other@max" && explicitOk.effortJudgedFor === "p/other", [verdict(explicitOk), explicitOk.effortJudgedFor]],
 				["a window substitution re-derives the level for the substituted model", verdict(substituted) === "proceed:p/wide@high" && substituted.effortJudgedFor === "p/wide", [verdict(substituted), substituted.effortJudgedFor]],
 				["with OVERLAPPING ladders the level is still DERIVED, not inherited", verdict(overlapping) === "proceed:p/to@low" && overlapping.effortJudgedFor === "p/to", verdict(overlapping)],
@@ -2516,10 +2516,11 @@ try {
 		});
 
 		await section("route-off-invisible", async () => {
-			// WITH THE ROUTER OFF THIS MODULE IS INVISIBLE (route.ts's header). Nothing is
-			// seeded, nothing is persisted, no tracker is consulted, no guard fires. An
-			// earlier version DID seed the orchestrator's tracked model here and persist it,
-			// which was worse than not having the feature: a reused session was switched off
+			// ROUTER-OFF PLANNER STATE. Nothing is seeded or persisted, no tracker is
+			// consulted, and candidate-dependent guards do not fire. The explicit-effort
+			// vocabulary and known-ladder guards remain active, as the fixtures below state
+			// directly. An earlier version DID seed the orchestrator's tracked model here and
+			// persist it, which was worse than not having the feature: a reused session was switched off
 			// its failover model, a thread whose tracked model lost its credentials could
 			// never dispatch again, and a restarted thread stopped following the host.
 			const off = router.ROUTER_OFF;
@@ -2561,7 +2562,7 @@ try {
 			//
 			// A malformed argument is pi's error to raise, not the router's opinion.
 			const malformed = plan({ resolution: off, thread, requestedModel: "not a spec at all" });
-			checkAll("route-off-invisible", "with the router OFF nothing is seeded, persisted, derived or consulted: the verdict carries no base model, no base effort and no re-seed signal, no effort is derived (only an explicit one survives), the thread's pre-router pin is the resolved model and is open-only, every guard is silent even with a 5M-token context and a profile source present, a malformed model argument is passed through for pi to reject, and passing the REMOVED orchestrator-tracker input changes nothing", [
+			checkAll("route-off-invisible", "with the router OFF no planner base is seeded or persisted, no effort is derived, no tracker is consulted, and no candidate-dependent guard speaks: the verdict has no base or re-seed fields, the pin is the open-only plan target, a malformed model argument passes through for pi to reject, and the removed tracker input changes nothing; the explicit-effort ladder guard remains active, and this check does not assert the live model after switching", [
 				["the pin is the resolved model", bare.kind === "proceed" && bare.model === "p/pin", verdict(bare)],
 				["no base model is seeded", bare.baseModel === undefined, bare.baseModel],
 				["no base effort is seeded", bare.baseEffort === undefined, bare.baseEffort],
@@ -2581,8 +2582,8 @@ try {
 
 		await section("route-resolution", async () => {
 			// usableResolution: anything that is not a live, non-empty ON resolution must
-			// collapse to the SHARED ROUTER_OFF constant, because the guards walk
-			// `candidates` directly and router-off is always the safe answer.
+			// collapse to the SHARED ROUTER_OFF constant, because candidate-dependent
+			// guards walk `candidates` directly and an empty resolution is safe to inspect.
 			const off = router.ROUTER_OFF;
 			const live = routeResolution([{ spec: "p/a" }]);
 			const coerced = [
@@ -2599,7 +2600,7 @@ try {
 			// ...and a half-built resolution must therefore not reject an unlisted model.
 			const halfBuilt = plan({ resolution: { on: true, candidates: [] }, requestedModel: "p/anything" });
 			const junk = plan({ resolution: "nonsense", requestedModel: "p/anything", requestedEffort: "high" });
-			checkAll("route-resolution", "a malformed, half-built or absent resolution collapses to the shared ROUTER_OFF constant, so the guards fall back to the pre-router path instead of walking a shape they cannot read; a live resolution is returned unchanged", [
+			checkAll("route-resolution", "a malformed, half-built or absent resolution collapses to the shared ROUTER_OFF constant, so candidate-dependent planner guards become inert instead of walking a shape they cannot read; a live resolution is returned unchanged", [
 				["every malformed value collapses to ROUTER_OFF", notOff.length === 0, notOff],
 				["a live resolution is identity", route.usableResolution(live) === live, route.usableResolution(live) === live],
 				["an empty candidate list does not reject an unlisted model", verdict(halfBuilt) === "proceed:p/anything@undefined", verdict(halfBuilt)],
@@ -2834,7 +2835,7 @@ try {
 				contextTokens: 250_000,
 				wouldCompact: () => false,
 			});
-			// The notice belongs to the model the action actually runs on, so a window
+			// The notice belongs to the model the planner routes to, so a window
 			// substitution moves it to the substituted model.
 			const subRes = routeResolution([
 				{ spec: "p/small", tier: 1, price: 1, window: 100_000, measured: ["medium"] },
@@ -2847,7 +2848,7 @@ try {
 				wouldCompact: compactAt(20_000),
 				reserveTokens: 20_000,
 			});
-			checkAll("route-long-context", "the long-context BILLING notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a window substitution the notice belongs to the model the action actually runs on", [
+			checkAll("route-long-context", "the long-context BILLING notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a window substitution the notice belongs to the model the planner routes to", [
 				["fires above the threshold", warns(first, /long-context billing threshold/).length === 1, first.warnings],
 				["reports the spec for the caller to remember", first.longContextWarned === "p/lc", first.longContextWarned],
 				["names the threshold and both multipliers", /\(200,000 tokens\)/.test(first.warnings[0]) && /input bills ×2 and output ×1.5/.test(first.warnings[0]), first.warnings],
@@ -2889,7 +2890,7 @@ try {
 				contextWindow: 200_000,
 				wouldCompact: compactAt(20_000),
 			});
-			checkAll("route-failover", "a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a NON-SUBSTITUTING window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-off session keeps its pre-router failover behaviour exactly", [
+			checkAll("route-failover", "a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a NON-SUBSTITUTING window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-OFF failover emits no window warning at all, which is the only pre-router equivalence asserted here", [
 				["an unlisted target is allowed", bypass.kind === "proceed" && bypass.model === "p/unlisted", verdict(bypass)],
 				["an off-vocabulary effort argument is ignored, not rejected", bypass.effort === undefined && bypass.effortUnmeasured === false, verdict(bypass)],
 				["silently", bypass.warnings.length === 0, bypass.warnings],
@@ -2930,8 +2931,8 @@ try {
 			// ROUTER-OFF LADDER SOURCE. With the router off there is no candidate list, so
 			// the ladder used for effort validation comes from the `profiles` source the
 			// CALLER injects — and threads.ts injects a REGISTRY- AND AUTH-VETTED one: a
-			// model pi cannot actually serve yields no profile, so its levels are not
-			// judged and pi's own clamp decides, exactly as before the router existed.
+			// model pi cannot actually serve yields no profile, so Slate declines a ladder
+			// verdict and leaves pi to clamp the level.
 			// Reading the shipped profile table directly instead would judge (and refuse)
 			// levels for models the session cannot even run.
 			//

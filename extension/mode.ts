@@ -339,7 +339,7 @@ ${n}. Route every action to the cheapest model and effort that clears it. Routab
 ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    \`model\` and \`effort\` route THAT action only. Omit \`model\` for the thread's
    base${newThreadBase}; omit \`effort\` for its base
-   level, else the FIRST measured level of the model that runs — never a higher
+   level, else the FIRST measured level of the model it routes to — never a higher
    one, so name the level harder work needs. Off-ladder and provider-rejected
    levels are tool errors; an unmeasured one ${gap}.
    Prices are base rates: some models bill a long-context multiplier above a

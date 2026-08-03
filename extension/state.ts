@@ -36,26 +36,25 @@ export interface ThreadRecord {
 	status: "idle" | "running";
 	/**
 	 * PRE-ROUTER pin: "provider/id" passed as `model` when the thread was created
-	 * WITH THE ROUTER OFF. It keeps exactly its pre-router meaning — the model a NEW
-	 * worker session for this thread OPENS on, never a reason to switch a live one —
-	 * so with the router off this feature stays invisible. With the router ON a
-	 * `model` argument routes ONE action and is deliberately NOT recorded here; see
-	 * `baseModel`.
+	 * WITH THE ROUTER OFF. It names what a NEW worker session opens on and never
+	 * instructs a live one to switch. With the router ON a `model` argument routes
+	 * ONE action and is deliberately NOT recorded here; see `baseModel`.
 	 */
 	model?: string;
 	/**
-	 * The thread's DEFAULT model, canonical "provider/id" — what a dispatch that
-	 * omits `model` runs on. Written ONLY while the router is on (with the router off
+	 * The thread's DEFAULT plan model, canonical "provider/id" — the target when a
+	 * dispatch omits `model`. Written ONLY while the router is on (with the router off
 	 * nothing is seeded or persisted), and always one of the effective candidates:
 	 * a base that is absent or has fallen off the list is re-seeded on the next
 	 * dispatch (route.ts's THE ONE RULE). DISTINCT from whatever a single action was
-	 * routed to: a routed action never becomes the thread's base. Absent = unknown.
+	 * routed to: a routed action never becomes the thread's base. A live failover may
+	 * temporarily override it without changing this record. Absent = unknown.
 	 */
 	baseModel?: string;
 	/**
 	 * The thread's DEFAULT effort level, derived for `baseModel` and valid only for
-	 * it: a dispatch whose model differs re-derives the level for the model that
-	 * actually runs. Absent = unknown ⇒ the worker session's own opening level.
+	 * it: a dispatch whose model differs re-derives the level for the model it
+	 * routes to. Absent = unknown ⇒ the worker session's own opening level.
 	 *
 	 * The type is a claim about what slate WROTE, not a guarantee about what it reads
 	 * back: this record is restored from an unversioned, hand-editable snapshot, so the
@@ -469,11 +468,13 @@ export interface ContextBudgetObject {
 /**
  * Action-level model router (D4/D53). `models` is the CLOSED list of models the
  * router may route an action to, in canonical "provider/id" form; empty or
- * absent means the router is OFF and dispatch behaves exactly as it did before
- * the router existed. `allowUnmeasuredEffort` (default TRUE) decides what the
- * dispatch path does with an effort level that is ladder-valid but has no
- * capability evidence — an evidence gap is advisory, not a prohibition.
- * Validated by sanitizeRouterConfig in model-router.ts.
+ * absent means the router is OFF, so no candidate list or router-owned base,
+ * window, billing or substitution mechanism applies. Per-action arguments and
+ * pre-existing failover remain outside that feature-off statement.
+ * `allowUnmeasuredEffort` (default TRUE) decides what the dispatch path does
+ * with an effort level that is ladder-valid but has no capability evidence —
+ * an evidence gap is advisory, not a prohibition. Validated by
+ * sanitizeRouterConfig in model-router.ts.
  */
 export interface RouterConfig {
 	models?: string[];
