@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -174,6 +174,47 @@ test("coverage directives require an explicit same-line reason (WH26)", (t) => {
   assert.doesNotMatch(accepted.stdout, /coverage directives without a diff-recorded reason/);
 });
 
+test("directive scan matches Node's effective comment positions (RG20)", (t) => {
+  const rejected = [
+    "run(); /* node:coverage disable */",
+    "run(); /* node:coverage enable */",
+    "/* node:coverage ignore next */",
+    "// node:coverage ignore next",
+    // Node 24.18 omits the next DA record for this trailing block form too.
+    "run(); /* node:coverage ignore next */",
+  ];
+  for (const text of rejected) {
+    const { repo, base } = fixture(t);
+    write(repo, "extension/sample.ts", `export const before = 1;\n${text}\n`);
+    commit(repo);
+    const result = runGate(repo, base, emptyLcov(), ["--threshold-lines", "0"]);
+    assert.equal(result.status, 1, `${text}\n${result.stdout}`);
+    assert.match(result.stdout, /IGNORE DIRECTIVE:/);
+    assert.match(result.stdout, /coverage directives without a diff-recorded reason/);
+  }
+
+  const ignored = [
+    "run(); // node:coverage disable",
+    "run(); // node:coverage ignore next",
+    "const text = '/* node:coverage disable */';",
+    "run(); /* note node:coverage disable */",
+  ];
+  for (const text of ignored) {
+    const { repo, base } = fixture(t);
+    write(repo, "extension/sample.ts", `export const before = 1;\n${text}\n`);
+    commit(repo);
+    const result = runGate(repo, base, emptyLcov(), ["--threshold-lines", "0"]);
+    assert.doesNotMatch(result.stdout, /IGNORE DIRECTIVE:/, text);
+  }
+
+  const { repo, base } = fixture(t);
+  write(repo, "extension/sample.ts", "export const before = 1;\nrun(); /* node:coverage disable */ // reason: generated fallback cannot execute\n");
+  commit(repo);
+  const reasoned = runGate(repo, base, emptyLcov(), ["--threshold-lines", "0"]);
+  assert.match(reasoned.stdout, /IGNORE DIRECTIVE:/);
+  assert.doesNotMatch(reasoned.stdout, /coverage directives without a diff-recorded reason/);
+});
+
 test("run-tests preserves a gate WARN as its final verdict (WH23)", (t) => {
   const repo = mkdtempSync(join(tmpdir(), "slate-runner-test-"));
   t.after(() => rmSync(repo, { recursive: true, force: true }));
@@ -209,6 +250,48 @@ printf 'VERDICT: WARN — fixture requires manual review\\n'
   assert.doesNotMatch(result.stdout, /RUN VERDICT: PASS/);
 });
 
+test("missing LCOV is an infrastructure error and the runner labels it (WH41)", (t) => {
+  const { repo, base } = fixture(t);
+  write(repo, "extension/sample.ts", "export const changed = 2;\n");
+  commit(repo);
+  const missing = command(repo, process.execPath, [
+    GATE, "--repo", repo, "--base", base, "--head", "HEAD", "--lcov", join(repo, "absent.lcov"),
+  ]);
+  assert.equal(missing.status, 2);
+  assert.match(missing.stderr, /coverage-gate: infrastructure error.*LCOV/i);
+
+  const runnerRepo = mkdtempSync(join(tmpdir(), "slate-runner-error-test-"));
+  t.after(() => rmSync(runnerRepo, { recursive: true, force: true }));
+  mkdirSync(join(runnerRepo, "verification"), { recursive: true });
+  mkdirSync(join(runnerRepo, "test"), { recursive: true });
+  cpSync(RUNNER, join(runnerRepo, "verification/run-tests.sh"));
+  writeFileSync(join(runnerRepo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(runnerRepo, "verification/coverage-gate.mjs"), "process.exitCode = 2;\n");
+  writeFileSync(join(runnerRepo, "test/smoke.test.ts"), "// fixture\n");
+  const bin = join(runnerRepo, "bin");
+  mkdirSync(bin);
+  const fakeNode = join(bin, "node");
+  writeFileSync(fakeNode, `#!/bin/sh
+for arg in "$@"; do case "$arg" in --test-reporter-destination=*) destination="\${arg#*=}" ;; esac; done
+case " $* " in *' --test '*) printf 'TN:\\n' > "$destination"; exit 0 ;; esac
+exit 2
+`);
+  chmodSync(fakeNode, 0o755);
+  git(runnerRepo, "init", "-q", "-b", "main");
+  git(runnerRepo, "config", "user.email", "gate@example.invalid");
+  git(runnerRepo, "config", "user.name", "Gate Test");
+  git(runnerRepo, "add", ".");
+  git(runnerRepo, "commit", "-qm", "fixture");
+  const runner = command(runnerRepo, "bash", ["verification/run-tests.sh"], { PATH: `${bin}:${process.env.PATH ?? ""}` });
+  assert.equal(runner.status, 2);
+  assert.match(runner.stdout, /RUN VERDICT: ERROR — coverage infrastructure failed/);
+  assert.doesNotMatch(runner.stdout, /rejected the patch/);
+  const retained = /retained failure artifacts at (.+)/.exec(runner.stderr)?.[1]?.trim();
+  assert.ok(retained, runner.stderr);
+  assert.equal(existsSync(join(retained, "lcov.info")), true);
+  rmSync(retained, { recursive: true, force: true });
+});
+
 test("ordinary non-line diffs remain parseable", async (t) => {
   for (const kind of ["rename", "deletion", "binary", "mode"] as const) {
     await t.test(kind, (t) => {
@@ -235,13 +318,30 @@ test("CRLF additions and duplicate, malformed, truncated, and foreign LCOV recor
     assert.match(result.stdout, new RegExp(`line denominator ${additions}(?:;|$)`));
   });
 
-  await t.test("duplicate SF takes the highest hit count", (t) => {
+  await t.test("duplicate SF takes the highest line and branch hit counts", (t) => {
     const { repo, base } = fixture(t);
     write(repo, "extension/sample.ts", "export const before = 1;\nexport const duplicate = 2;\n");
     commit(repo);
-    const lcov = "TN:\nSF:extension/sample.ts\nDA:2,0\nend_of_record\nSF:extension/sample.ts\nDA:2,1\nend_of_record\n";
-    const result = runGate(repo, base, lcov, ["--threshold-lines", "100"]);
-    assert.match(result.stdout, /lines 1\/1=100\.00%/);
+    const blocks = [
+      "SF:extension/sample.ts\nDA:2,0\nBRDA:2,0,0,0\nend_of_record",
+      "SF:extension/sample.ts\nDA:2,1\nBRDA:2,0,0,1\nend_of_record",
+    ];
+    const result = runGate(repo, base, `TN:\n${blocks.join("\n")}\n`, ["--threshold-lines", "100"]);
+    assert.match(result.stdout, /lines 1\/1=100\.00% \| branches 1\/1=100\.00%/);
+  });
+
+  await t.test("duplicate BRDA identities cannot dilute uncovered branches (WH40)", (t) => {
+    const { repo, base } = fixture(t);
+    write(repo, "extension/sample.ts", "export const before = 1;\nexport const duplicate = 2;\n");
+    commit(repo);
+    const identity = (index: number, hits: number) => `BRDA:2,0,${index},${hits}`;
+    const truth = Array.from({ length: 40 }, (_, index) => identity(index, index < 20 ? 1 : 0));
+    const duplicateCovered = Array.from({ length: 20 }, (_, index) => identity(index, 1));
+    const records = [truth, ...Array.from({ length: 6 }, () => duplicateCovered)]
+      .map((branches) => `SF:extension/sample.ts\nDA:2,1\n${branches.join("\n")}\nend_of_record`);
+    const result = runGate(repo, base, `TN:\n${records.join("\n")}\n`);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stdout, /branches 20\/40=50\.00%/);
   });
 
   for (const [name, lcov] of [

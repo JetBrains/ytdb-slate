@@ -137,31 +137,77 @@ if (diffRun.stdout.length > 0 && parsedFiles === 0) {
   process.exit(2);
 }
 
+const DIRECTIVE = /^\s*node:coverage\s+(ignore|disable|enable)\b/i;
+function directivesOnLine(text) {
+  const found = [];
+  const record = (content, tail = "") => {
+    const match = DIRECTIVE.exec(content);
+    if (!match) return;
+    let suffix = content.slice(match[0].length);
+    if (match[1].toLowerCase() === "ignore") suffix = suffix.replace(/^\s+next(?:\s+\d+)?\b/i, "");
+    suffix = `${suffix.replace(/\s*$/, "")} ${tail}`.replace(/^\s*(?:\/\/|[-—])?\s*/, "").trim();
+    found.push({ suffix });
+  };
+
+  // A line-leading // comment is recognized by Node. The same comment after
+  // code is not. Block comments are recognized anywhere, provided the
+  // directive starts the COMMENT; quoted lookalikes and prefixed prose are not.
+  let quote;
+  for (let i = 0; i < text.length;) {
+    const char = text[i];
+    if (quote) {
+      if (char === "\\") { i += 2; continue; }
+      if (char === quote) quote = undefined;
+      i++;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") { quote = char; i++; continue; }
+    if (char === "/" && text[i + 1] === "/") {
+      if (text.slice(0, i).trim() === "") record(text.slice(i + 2));
+      break;
+    }
+    if (char === "/" && text[i + 1] === "*") {
+      const close = text.indexOf("*/", i + 2);
+      const end = close < 0 ? text.length : close;
+      record(text.slice(i + 2, end), close < 0 ? "" : text.slice(close + 2));
+      i = close < 0 ? text.length : close + 2;
+      continue;
+    }
+    i++;
+  }
+  // Covers a directive added inside a block comment whose opening line is
+  // unchanged and therefore absent from a zero-context diff.
+  const continuation = /^\s*\*\s*(node:coverage.*)$/i.exec(text);
+  if (continuation) record(continuation[1]);
+  return found;
+}
+
 const directiveFailures = [];
 for (const [name, lines] of addedText) {
-  for (let i = 0; i < lines.length; i++) {
-    const entry = lines[i];
-    // Match actual JavaScript comment directives, not prose that merely names
-    // one. A reason must be explicit and on the directive's own line: adjacent
-    // prose and punctuation are too easy to accept accidentally.
-    const match = /^\s*(?:\/\/|\/\*|\*)\s*node:coverage\s+(ignore|disable|enable)\b/i.exec(entry.text);
-    if (!match) continue;
-    console.log(`IGNORE DIRECTIVE: ${name}:${entry.line}: ${entry.text.trim()}`);
-    let suffix = entry.text.slice((match.index ?? 0) + match[0].length);
-    if (match[1].toLowerCase() === "ignore") suffix = suffix.replace(/^\s+next(?:\s+\d+)?\b/i, "");
-    suffix = suffix.replace(/^\s*(?:\*\/)?\s*(?:\/\/|[-—])?\s*/, "");
-    const reason = /^(?:reason|because|rationale)\s*[:=-]\s*(?=.*[\p{L}\p{N}]{2})\S(?:.*\S)?$/iu.test(suffix);
-    if (!reason) directiveFailures.push(`${name}:${entry.line}`);
+  for (const entry of lines) {
+    for (const directive of directivesOnLine(entry.text)) {
+      console.log(`IGNORE DIRECTIVE: ${name}:${entry.line}: ${entry.text.trim()}`);
+      const reason = /^(?:reason|because|rationale)\s*[:=-]\s*(?=.*[\p{L}\p{N}]{2})\S(?:.*\S)?$/iu.test(directive.suffix);
+      if (!reason) directiveFailures.push(`${name}:${entry.line}`);
+    }
   }
 }
 
+let lcovText;
+try {
+  lcovText = readFileSync(resolve(options.lcov), "utf8");
+} catch (error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(`coverage-gate: infrastructure error reading LCOV: ${detail}`);
+  process.exit(2);
+}
 const coverage = new Map();
 let source;
-for (const text of readFileSync(resolve(options.lcov), "utf8").split("\n")) {
+for (const text of lcovText.split("\n")) {
   if (text.startsWith("SF:")) {
     const raw = text.slice(3);
     source = slash(isAbsolute(raw) ? relative(repo, raw) : raw);
-    if (!coverage.has(source)) coverage.set(source, { lines: new Map(), branches: [] });
+    if (!coverage.has(source)) coverage.set(source, { lines: new Map(), branches: new Map() });
   } else if (source && text.startsWith("DA:")) {
     const [line, hits] = text.slice(3).split(",", 2).map(Number);
     if (Number.isInteger(line) && line > 0 && Number.isFinite(hits) && hits >= 0) {
@@ -172,7 +218,9 @@ for (const text of readFileSync(resolve(options.lcov), "utf8").split("\n")) {
     const line = Number(rawLine);
     const hits = rawHits === "-" ? 0 : Number(rawHits);
     if (Number.isInteger(line) && line > 0 && Number.isFinite(hits) && hits >= 0) {
-      coverage.get(source).branches.push({ line, block, branch, hits });
+      const identity = JSON.stringify([line, block, branch]);
+      const previous = coverage.get(source).branches.get(identity);
+      if (!previous || hits > previous.hits) coverage.get(source).branches.set(identity, { line, block, branch, hits });
     }
   } else if (text === "end_of_record") source = undefined;
 }
@@ -188,7 +236,7 @@ for (const [name, added] of scoped) {
     note = " [NO USABLE LCOV; fail-closed synthetic branch]";
   } else {
     lines = [...added].filter((line) => record.lines.has(line)).map((line) => ({ line, hits: record.lines.get(line) }));
-    branches = record.branches.filter((branch) => added.has(branch.line));
+    branches = [...record.branches.values()].filter((branch) => added.has(branch.line));
     const uncoveredOrUnmeasured = [...added].some((line) => !record.lines.has(line) || record.lines.get(line) <= 0);
     if (branches.length === 0 && uncoveredOrUnmeasured) {
       branches = [{ line: Math.min(...added), hits: 0 }];

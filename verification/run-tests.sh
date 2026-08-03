@@ -34,9 +34,17 @@ fi
 
 bash "$repo/verification/link-peers.sh"
 work="$(mktemp -d "${TMPDIR:-/tmp}/slate-node-test.XXXXXX")" || fail "cannot create temporary directory"
-trap 'rm -rf "$work"' EXIT
-trap 'rm -rf "$work"; exit 130' INT
-trap 'rm -rf "$work"; exit 143' TERM
+cleanup() {
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    rm -rf "$work"
+  else
+    printf 'run-tests: retained failure artifacts at %s\n' "$work" >&2
+  fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 lcov="$work/lcov.info"
 
 shopt -s globstar nullglob
@@ -76,8 +84,12 @@ node "$repo/verification/coverage-gate.mjs" --repo "$repo" --base "$base" --head
   | tee "$gate_output"
 gate_status=${PIPESTATUS[0]}
 set -e
-if [ "$gate_status" -ne 0 ]; then
+if [ "$gate_status" -eq 1 ]; then
   echo "RUN VERDICT: FAIL — tests passed but coverage gate rejected the patch"
+  exit 1
+fi
+if [ "$gate_status" -ne 0 ]; then
+  echo "RUN VERDICT: ERROR — coverage infrastructure failed (exit $gate_status)"
   exit "$gate_status"
 fi
 if grep -q '^VERDICT: WARN —' "$gate_output"; then
