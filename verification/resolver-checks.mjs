@@ -2043,11 +2043,15 @@ try {
 				"Do the action fully, then stop.",
 				"Your final message must state: what you did, what you found, files you touched,",
 				"and anything the orchestrator must know.",
-				"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply it to final messages, file prose, commits, issues, comments, and pull requests.",
+				"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply these rules to all your prose.",
 			].join(" ");
-			checkAll("worker-preamble", "the worker preamble contains the writing rule as its final sentence, with the exact bounded scope and the historical preamble intact", [
+			const workerSource = readFileSync(join(REPO, "extension", "worker.ts"), "utf8")
+				.replace(/\/\*[\s\S]*?\*\//g, " ")
+				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+			checkAll("worker-preamble", "the worker preamble contains the writing rule as its final sentence, preserves its bounded scope, and injects the constant into the worker system prompt", [
 				["exact preamble is preserved", worker.WORKER_PREAMBLE === expectedPreamble, worker.WORKER_PREAMBLE],
-				["writing rule is appended after the historical preamble", worker.WORKER_PREAMBLE.startsWith(expectedPreamble.slice(0, expectedPreamble.indexOf("Use short"))) && worker.WORKER_PREAMBLE.endsWith("pull requests."), worker.WORKER_PREAMBLE],
+				["writing rule is appended after the historical preamble", worker.WORKER_PREAMBLE.startsWith(expectedPreamble.slice(0, expectedPreamble.indexOf("Use short"))) && worker.WORKER_PREAMBLE.endsWith("all your prose."), worker.WORKER_PREAMBLE],
+				["preamble is passed into the worker system prompt", /appendSystemPrompt\s*:\s*\[\s*WORKER_PREAMBLE\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,80}/)?.[0] ?? "not found"],
 			]);
 		}
 
