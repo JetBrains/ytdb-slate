@@ -529,10 +529,13 @@ A second, much smaller net, for these subjects:
   `extension/model-profiles.ts` (`profiles-*`) — shape and internal consistency
   only, never a research number.
 
-Eight modules are loaded: `worker-extensions.ts`, `mode.ts`, `model-router.ts`,
-`route.ts`, `state.ts`, `base-model.ts`, `model-profiles.ts` and — through the
-aliased loader — `episodes.ts`. All eight are therefore re-run triggers — and
-because `state.ts`'s spec helpers are also used by `failover.ts`, a change to **them** additionally needs the ladder above.
+Eight TypeScript modules are loaded: `worker-extensions.ts`, `mode.ts`,
+`model-router.ts`, `route.ts`, `state.ts`, `base-model.ts`, `model-profiles.ts`
+and — through the aliased loader — `episodes.ts`. The shipped command
+`extension/writing-check.mjs` is also imported and spawned by its own checks.
+All eight TypeScript modules are therefore re-run triggers — and because
+`state.ts`'s spec helpers are also used by `failover.ts`, a change to **them**
+additionally needs the ladder above.
 
 The ladder above covers slate's model-switch machinery — the model-default
 restore and, in `WK1`, worker-session settings isolation — and says nothing about
@@ -576,8 +579,8 @@ CHECK off-inert        PASS    — empty pattern list → shared empty set, regi
 CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
 CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
       observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
-CHECK roster           PASS    — all 110 expected checks reported exactly once and the counters agree …
-== summary: 110 pass, 1 fail, 0 not run (111 result lines = 110 expected checks + this roster audit) ==
+CHECK roster           PASS    — all 137 expected checks reported exactly once and the counters agree …
+== summary: 137 pass, 1 fail, 0 not run (138 result lines = 137 expected checks + this roster audit) ==
 ```
 
 ### Why the summary counts one more than the roster
@@ -590,7 +593,7 @@ therefore prints `EXPECTED + 1` result lines.
 
 That is the whole of the old off-by-one, and it is now **stated in the output**
 rather than left to be re-derived: the summary prints the identity
-(`111 result lines = 110 expected checks + this roster audit`), and on a run where it
+(`138 result lines = 137 expected checks + this roster audit`), and on a run where it
 does not hold — a deleted check, a duplicate report, a crashed section adding an id
 — it prints the residual as `±N unaccounted — see the roster line`. The roster
 additionally asserts the identity it *can* own: `pass + fail + notrun` equals the
@@ -649,7 +652,35 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
 | `doctrine-budget` | a **guard**, not a recorded fact — and measured on an **install-invariant** figure, which is the only way it can be a guard at all. The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the length of wherever the package is installed: the same router-off doctrine measures **1,968** chars under a 13-character docs directory and **2,103** under this repo's 58-character one — 3 embedded paths × 45 characters, and 4 or 5 paths in the other configurations. A raw-count budget passes on one machine and fails on another, and the failure reads as bloat rather than as a longer home directory. Every bound is therefore on the text with each occurrence of the docs **directory** removed, keeping the filename: invariant by construction (no path count is assumed, so a 4- or 5-path configuration normalises the same way) while still charging a maintainer for the part they control — subtracting whole paths instead would stop a doc rename from ever registering. Bounded separately, with ~55% headroom: the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row — because `cell()` imposes no cap, so a research refresh writing a 2,000-character `routeFor` would bloat every prompt silently — and the rule's share of the whole doctrine, asserted to be the *only* thing router-on adds. Two terms guard the normalisation itself, since a `portable()` that silently became the identity would put the bounds back on raw counts |
 
-**These six checks are the ONLY automated coverage of doctrine rendering, and the
+The **writing checker command** (`extension/writing-check.mjs`) is covered both by direct import and by spawned command tests:
+
+| id | what it proves |
+| --- | --- |
+| `writing-checker-length` / `writing-checker-para` / `writing-checker-semicolon` / `writing-checker-contraction` | each fail rule has positive and negative cases; 21–25 words produce one warning, more than 25 words produce one fail, and no sentence produces both length levels |
+| `writing-checker-class` / `writing-checker-not-checked` | house-style findings stay out of fail counts; the fixed not-checked list is non-empty and every item has a reason |
+| `writing-checker-caps` | spawned command input caps reject an oversized regular file and a symlink to a special file with non-zero, explanatory errors |
+| `writing-checker-modes` / `writing-checker-determinism` | JSONL, direct-file and unified-diff modes work; diff mode checks only added lines; repeated input produces byte-identical output |
+
+The **human-only writing status line** is covered through `registerSlateMode` with fabricated hooks and contexts:
+
+| id | what it proves |
+| --- | --- |
+| `writing-status-gate-switch` / `writing-status-gate-trust` / `writing-status-gate-mode` / `writing-status-gate-ui` | each visibility condition independently suppresses the rate: switch off, untrusted project, orchestrator mode off and no UI |
+| `writing-status-fail-open` / `writing-status-cap-skip` | a throwing checker leaves the counters unchanged; an oversized assistant message is skipped rather than failing the turn |
+| `writing-status-counting` | only fail findings count; warnings, house-style findings and advisories do not |
+| `writing-status-no-store-write` | counter updates do not call `SlateStore.save()` or persist the orchestrator-mode seed |
+
+Track 02's four required mutations were run against throwaway copies. Each exited
+1 and named the intended check before the copy was removed:
+
+| mutation | killed by |
+| --- | --- |
+| count house-style findings as fail-level | `writing-status-counting` |
+| remove the trust gate | `writing-status-gate-trust` |
+| rethrow checker errors | `writing-status-crash` (the fail-open section cannot complete) |
+| emit a fail with the 21–25-word warning | `writing-checker-length` |
+
+**The doctrine checks are the ONLY automated coverage of doctrine rendering, and the
 smoke test is not a backstop.** Stated plainly because the opposite is easy to
 assume: `AGENTS.md` names the isolated-load smoke test (`pi --no-extensions -e .`)
 as this repo's third net, and a reader could reasonably take it to corroborate these
@@ -1613,7 +1644,7 @@ than a FAIL — it names a section, not a claim — so every reason read in this
 now goes through one helper that yields `""` for a proceed. The mutation testing is
 what surfaced it; a suite that only ever runs against correct code cannot.
 
-It loads only those eight modules, so it does **not** exercise
+It loads those eight TypeScript modules plus the standalone checker, so it does **not** exercise
 `extension/worker.ts`'s worker-session load path — the allowlist-mode extension
 load, the `excludeTools` deny list that structurally keeps slate's dispatch
 tools out of a worker, and the post-load collision re-check. Those need a live

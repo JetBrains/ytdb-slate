@@ -24,7 +24,8 @@
 // piped output): 1 if anything failed, or if a NOT RUN happened under --strict.
 // See verification/README.md.
 // =============================================================================
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -72,6 +73,8 @@ const writing = writingLoad.module;
 const worker = workerLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
+const checker = await import(pathToFileURL(`${REPO}/extension/writing-check.mjs`).href);
+const CHECKER_PATH = `${REPO}/extension/writing-check.mjs`;
 
 // ----------------------------------------------------------------- reporting --
 let pass = 0;
@@ -142,6 +145,48 @@ function file(rel, content = "//x") {
 	mkdirSync(dirname(abs), { recursive: true });
 	writeFileSync(abs, content);
 	return abs;
+}
+
+function writingStatusFixture({ writing = true, trusted = true, orchestrator = true, hasUI = true } = {}) {
+	const handlers = {};
+	let status;
+	let saves = 0;
+	const pi = {
+		on: (event, handler) => { handlers[event] = handler; },
+		registerCommand: () => {},
+		getActiveTools: () => [],
+		setActiveTools: () => {},
+		getAllTools: () => [],
+	};
+	const store = {
+		orchestratorMode: orchestrator,
+		paused: false,
+		threads: new Map(),
+		workerCostUsd: 0,
+		carriedCostUsd: 0,
+		save: () => { saves++; },
+		set onDidChange(_value) {},
+	};
+	const ctx = {
+		cwd: REPO,
+		mode: "tui",
+		hasUI,
+		isProjectTrusted: () => trusted,
+		sessionManager: { getEntries: () => [] },
+		ui: {
+			setStatus: (_key, value) => { status = value; },
+			setWidget: () => {},
+			notify: () => {},
+		},
+	};
+	mode.registerSlateMode(pi, store, { startHandoff: async () => {} }, () => ({ writing: { check: writing } }), () => ({ units: [] }));
+	return { handlers, ctx, getStatus: () => status, getSaves: () => saves };
+}
+
+async function writingTurn(fixture, message = { role: "assistant", content: "Open the panel; stop." }) {
+	await fixture.handlers.session_start({}, fixture.ctx);
+	await fixture.handlers.turn_end({ message }, fixture.ctx);
+	return fixture;
 }
 
 // Build a fake package: a package.json declaring `entries`, plus each of `files`
@@ -930,6 +975,98 @@ try {
 					["the guidance columns that DO render are audited clean of tags", table.MODEL_PROFILES.every((p) => !/\[[A-Z]{1,3}\d+[a-z]?\]/.test(`${p.routeFor} ${p.avoidFor}`)), table.MODEL_PROFILES.filter((p) => /\[[A-Z]{1,3}\d+[a-z]?\]/.test(`${p.routeFor} ${p.avoidFor}`)).map((p) => p.id)],
 				],
 			);
+		});
+
+		await section("writing-checker", async () => {
+			const w = (count) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
+			const lengthWarning = checker.checkText(`${w(21)}.`);
+			const lengthFail = checker.checkText(`${w(26)}.`);
+			const lengthNegative = checker.checkText(`${w(20)}.`);
+			checkAll("writing-checker-length", "21–25 words warn, more than 25 words fail, shorter sentences stay silent, and one sentence never emits both levels", [
+				["21 words warns", lengthWarning.findings.some((f) => f.id === "SENT20" && f.class === "warning"), lengthWarning.findings],
+				["26 words fails", lengthFail.findings.some((f) => f.id === "SENT25" && f.class === "fail"), lengthFail.findings],
+				["20 words is silent", !lengthNegative.findings.some((f) => f.id === "SENT20" || f.id === "SENT25"), lengthNegative.findings],
+				["warning and fail are mutually exclusive", !lengthWarning.findings.some((f) => f.id === "SENT25") && !lengthFail.findings.some((f) => f.id === "SENT20"), [lengthWarning.findings, lengthFail.findings]],
+			]);
+			const paraPositive = checker.checkText("One. Two. Three. Four. Five. Six. Seven.");
+			const paraNegative = checker.checkText("One. Two. Three. Four. Five. Six.");
+			checkAll("writing-checker-para", "PARA6 fires above six paragraph sentences and stays silent at six", [
+				["seven fires", paraPositive.findings.some((f) => f.id === "PARA6" && f.class === "fail"), paraPositive.findings],
+				["six stays silent", !paraNegative.findings.some((f) => f.id === "PARA6"), paraNegative.findings],
+			]);
+			const semicolonPositive = checker.checkText("Open the panel; stop.");
+			const semicolonNegative = checker.checkText("Open the panel. Stop.");
+			checkAll("writing-checker-semicolon", "SEMICOLON fires in prose and stays silent without a semicolon", [
+				["positive fires", semicolonPositive.findings.some((f) => f.id === "SEMICOLON" && f.class === "fail"), semicolonPositive.findings],
+				["negative stays silent", !semicolonNegative.findings.some((f) => f.id === "SEMICOLON"), semicolonNegative.findings],
+			]);
+			const contractionPositive = checker.checkText("It isn't ready.");
+			const contractionNegative = checker.checkText("The pump's cover is red.");
+			checkAll("writing-checker-contraction", "CONTRACTION fires for a contraction and stays silent for possessive s", [
+				["positive fires", contractionPositive.findings.some((f) => f.id === "CONTRACTION" && f.class === "fail"), contractionPositive.findings],
+				["negative stays silent", !contractionNegative.findings.some((f) => f.id === "CONTRACTION"), contractionNegative.findings],
+			]);
+
+			const house = checker.checkText("Select and/or replace it.");
+			const aggregate = checker.run([{ text: "Select and/or replace it." }]).aggregate;
+			check("writing-checker-class", house.findings.some((f) => f.class === "house-style") && aggregate.houseStyleFindings > 0 && aggregate.failFindings === 0, "house-style findings remain separate from fail-level counts", [house.findings, aggregate]);
+			check("writing-checker-not-checked", Array.isArray(checker.NOT_CHECKED) && checker.NOT_CHECKED.length > 0 && checker.NOT_CHECKED.every((x) => typeof x.id === "string" && x.id && typeof x.reason === "string" && x.reason), "the fixed not-checked list is non-empty and gives a reason for every item", checker.NOT_CHECKED);
+
+			const oversized = file("writing/oversized.md", Buffer.alloc(checker.MAX_INPUT_BYTES + 1, 0x61));
+			const special = join(WORK, "writing", "special");
+			symlinkSync("/dev/zero", special);
+			const largeRun = spawnSync(process.execPath, [CHECKER_PATH, "--file", oversized], { encoding: "utf8" });
+			const specialRun = spawnSync(process.execPath, [CHECKER_PATH, "--file", special], { encoding: "utf8" });
+			check("writing-checker-caps", largeRun.status !== 0 && /byte|limit/i.test(largeRun.stderr) && specialRun.status !== 0 && /regular file|symlink|special/i.test(specialRun.stderr), "the command refuses oversized and symlink/special-file inputs with bounded errors", { large: [largeRun.status, largeRun.stderr], special: [specialRun.status, specialRun.stderr] });
+
+			const jsonl = file("writing/input.jsonl", JSON.stringify({ id: "r1", text: "Open the panel; stop." }) + "\n");
+			const direct = file("writing/direct.md", "Open the panel; stop.");
+			const diff = file("writing/change.diff", "--- a/a.md\n+++ b/a.md\n@@ -1 +1 @@\n-Old text;\n+New text.\n");
+			const jsonRun = spawnSync(process.execPath, [CHECKER_PATH, "--input", jsonl], { encoding: "utf8" });
+			const fileRun = spawnSync(process.execPath, [CHECKER_PATH, "--file", direct], { encoding: "utf8" });
+			const diffRun = spawnSync(process.execPath, [CHECKER_PATH, "--diff", diff], { encoding: "utf8" });
+			const jsonResult = JSON.parse(jsonRun.stdout);
+			const fileResult = JSON.parse(fileRun.stdout);
+			const diffResult = JSON.parse(diffRun.stdout);
+			checkAll("writing-checker-modes", "JSONL, direct-file, and unified-diff command modes work, and diff mode ignores deleted lines", [
+				["JSONL works", jsonRun.status === 0 && jsonResult.aggregate.rules.SEMICOLON.findings === 1, jsonRun.stderr],
+				["file works", fileRun.status === 0 && fileResult.aggregate.rules.SEMICOLON.findings === 1, fileRun.stderr],
+				["diff reports only added lines", diffRun.status === 0 && diffResult.aggregate.rules.SEMICOLON.findings === 0, diffResult],
+			]);
+			const repeatA = spawnSync(process.execPath, [CHECKER_PATH, "--file", direct, "--format", "json"], { encoding: "utf8" });
+			const repeatB = spawnSync(process.execPath, [CHECKER_PATH, "--file", direct, "--format", "json"], { encoding: "utf8" });
+			check("writing-checker-determinism", repeatA.status === 0 && repeatA.stdout === repeatB.stdout, "the same command input produces byte-identical output", [repeatA.stdout, repeatB.stdout]);
+		});
+
+		await section("writing-status", async () => {
+			const w = (count) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
+			const on = await writingTurn(writingStatusFixture());
+			check("writing-status-gate-switch", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ writing: false }))).getStatus() ?? ""), "writing.check off suppresses the status rate", on.getStatus());
+			check("writing-status-gate-trust", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ trusted: false }))).getStatus() ?? ""), "an untrusted project suppresses the status rate", on.getStatus());
+			check("writing-status-gate-mode", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ orchestrator: false }))).getStatus() ?? ""), "orchestrator mode off suppresses the status rate", on.getStatus());
+			check("writing-status-gate-ui", (await writingTurn(writingStatusFixture({ hasUI: false }))).getStatus() === undefined, "a session without UI suppresses the status rate", on.getStatus());
+
+			const throwing = writingStatusFixture();
+			const originalChecker = checker.checkText;
+			const throwResult = { measuredTurns: 0, findingTurns: 0 };
+			checker.measureWritingTurn({ role: "assistant", content: "Open the panel; stop." }, { checkText: () => { throw new Error("synthetic checker failure"); } }, throwResult);
+			check("writing-status-fail-open", throwResult.measuredTurns === 0 && throwResult.findingTurns === 0 && throwing.getStatus() === undefined, "a throwing checker leaves counters unchanged and cannot fail the turn", throwResult);
+			void originalChecker;
+
+			const capCounters = { measuredTurns: 0, findingTurns: 0 };
+			checker.measureWritingTurn({ role: "assistant", content: "x".repeat(checker.MAX_INPUT_BYTES + 1) }, checker, capCounters);
+			check("writing-status-cap-skip", capCounters.measuredTurns === 0 && capCounters.findingTurns === 0, "an oversized assistant message is skipped rather than counted or thrown", capCounters);
+
+			const counters = { measuredTurns: 0, findingTurns: 0 };
+			checker.measureWritingTurn({ role: "assistant", content: "Open the panel; stop." }, checker, counters);
+			checker.measureWritingTurn({ role: "assistant", content: `${w(21)}.` }, checker, counters);
+			checker.measureWritingTurn({ role: "assistant", content: "Select and/or replace it." }, checker, counters);
+			checker.measureWritingTurn({ role: "assistant", content: "The report was written." }, checker, counters);
+			check("writing-status-counting", counters.measuredTurns === 4 && counters.findingTurns === 1, "only a fail-level finding counts; warnings, house-style, and advisories do not", counters);
+
+			const noWrite = writingStatusFixture();
+			await writingTurn(noWrite);
+			check("writing-status-no-store-write", noWrite.getSaves() === 0, "in-memory writing counters never cause a Slate store write", noWrite.getSaves());
 		});
 
 		await section("writing-doctrine", async () => {
@@ -5279,6 +5416,10 @@ try {
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget",
 		"writing-config-default", "writing-config-invalid", "writing-config-hostile",
 		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject",
+		"writing-checker-length", "writing-checker-para", "writing-checker-semicolon", "writing-checker-contraction",
+		"writing-checker-class", "writing-checker-not-checked", "writing-checker-caps", "writing-checker-modes", "writing-checker-determinism",
+		"writing-status-gate-switch", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui",
+		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-counting", "writing-status-no-store-write",
 		"worker-load", "worker-preamble",
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",
