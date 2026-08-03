@@ -65,20 +65,24 @@
     // --- Evaluated and DEFERRED (re-measured 2026-08-03) --------------------
     // Recorded so these are not silently re-litigated. NONE of them found a
     // genuine type defect: every site below was hand-checked and is safe today.
-    // Counts are from that measurement, against this same flag set.
+    // Counts are from that measurement, against this same flag set. They are
+    // sensitive to the include list and must be re-measured when it grows.
     // (noUncheckedIndexedAccess and erasableSyntaxOnly were adopted above.)
     //
     // "exactOptionalPropertyTypes": 24 errors across slate-owned records and
-    //   calls into both slate and SDK option types. They distinguish omitted
+    //   calls into both slate and SDK option types: episodes.ts 3, handoff.ts 2,
+    //   index.ts 2, route.ts 3, state.ts 2, threads.ts 8, tools.ts 1,
+    //   worker-extensions.ts 1, worker.ts 2. They distinguish omitted
     //   properties from explicit undefined, while these paths use value-based
     //   fallbacks and persisted records pass through JSON.stringify, which
     //   drops undefined-valued keys. Moderate churn, low value — deferred, not
     //   rejected.
     //
-    // "noPropertyAccessFromIndexSignature": REJECTED. 50 errors, 44 of them
+    // "noPropertyAccessFromIndexSignature": REJECTED. 52 errors: 44
     //   `t.id` / `t.episodeIds`-style reads of parsed JSON typed as
-    //   Record<string, unknown> in extension/state.ts, plus 6 process.env reads
-    //   in verification/probe.ts. Pure style churn, zero safety gain.
+    //   Record<string, unknown> in extension/state.ts, 2 process.env.PATH reads
+    //   in test/coverage-gate.test.ts, and 6 process.env reads in
+    //   verification/probe.ts. Pure style churn, zero safety gain.
   },
 
   // extension/** is the shipped code. test/** and verification/probe.ts are
