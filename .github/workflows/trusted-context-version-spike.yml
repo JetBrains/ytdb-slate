@@ -33,3 +33,5 @@ jobs:
           printf 'github.event.pull_request.head.sha=%s\n' "$HEAD_SHA"
           printf 'github.event.pull_request.base.sha=%s\n' "$BASE_SHA"
           printf 'github.event.pull_request.base.ref=%s\n' "$BASE_REF"
+
+# Synchronization event marker.
