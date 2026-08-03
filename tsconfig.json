@@ -13,7 +13,7 @@
     // "type" field, yet the sources use ESM syntax and load fine). "preserve" +
     // "bundler" is the faithful model, traced against the installed SDKs' real
     // export maps: @earendil-works/pi-ai exposes "./compat" ONLY through its
-    // `exports` map (node10-style resolution cannot see it at all), all three pi
+    // `exports` map (node10-style resolution cannot see it at all), the pi SDK
     // packages are "type": "module" with `types` conditions, and the sources
     // import relatives with an explicit ".ts" extension. "nodenext" would be
     // WRONG here: with no "type" field it classifies every source as CJS and
@@ -22,29 +22,30 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
-    // All three hold today with zero errors. The first two match jiti's
-    // per-file transpile; erasableSyntaxOnly also keeps every shipped source
-    // executable by Node's stable native type stripping, which runs the tests.
+    // isolatedModules and verbatimModuleSyntax match jiti's per-file
+    // transpile; erasableSyntaxOnly also keeps every shipped source executable
+    // by Node's stable native type stripping, which runs the tests.
+    // `npm run typecheck` validates these settings together with the rest.
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
 
     // --- Runtime surface ----------------------------------------------------
-    // pi requires Node >= 22.19; this repo runs on Node 24.
+    // pi requires Node >= 22.19.
     "target": "ES2023",
     "lib": ["ES2023"],
     "types": ["node"],
 
     // --- Strictness ---------------------------------------------------------
-    // Everything below is GREEN on the current tree. Adding a flag that is not
-    // green turns this gate into a nuisance nobody runs, so any future addition
-    // comes with the fix in the same change.
+    // `npm run typecheck` must remain green. Adding a flag that is not green
+    // turns this gate into a nuisance nobody runs, so any future addition comes
+    // with the fix in the same change.
     "strict": true,
-    // Its 9 sites were all provably-safe indexing that TS could not see; each was
-    // made visible to the compiler (a length-test type guard in model-router.ts,
-    // the loop bound stated with `!` in base-model.ts, `.at(-1)` in tools.ts)
-    // rather than papered over with a fallback. The value is the NEXT index, the
-    // unguarded one.
+    // Provably-safe indexing that TS could not see was made visible to the
+    // compiler (a length-test type guard in model-router.ts, the loop bound
+    // stated with `!` in base-model.ts, `.at(-1)` in tools.ts) rather than
+    // papered over with a fallback. The value is the NEXT index, the unguarded
+    // one.
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "noImplicitReturns": true,
@@ -55,11 +56,12 @@
     "allowUnusedLabels": false,
     "forceConsistentCasingInFileNames": true,
 
-    // REQUIRED, not a convenience: with skipLibCheck off, the only additional
-    // errors are 9 inside third-party declarations vendored under the pi SDK's
-    // own node_modules (@anthropic-ai/sdk/internal/types.d.mts x6,
-    // @google/genai/dist/genai.d.ts x3). They are unfixable from this repo and
-    // say nothing about slate's code.
+    // REQUIRED, not a convenience. At commit abac3bc, disabling it added
+    // diagnostics only inside third-party declarations vendored under the pi
+    // SDK's own node_modules. Re-check that boundary with:
+    //   npx --no-install tsc --noEmit -p tsconfig.json --skipLibCheck false
+    // Those declarations are unfixable from this repo and say nothing about
+    // slate's code.
     "skipLibCheck": true
 
     // --- Evaluated and DEFERRED ---------------------------------------------
