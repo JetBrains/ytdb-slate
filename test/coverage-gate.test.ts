@@ -171,11 +171,16 @@ test("coverage directives require a substantive reason after the directive (WH26
     assert.equal(result.status, 1);
     assert.match(result.stdout, /coverage directives without a diff-recorded reason/);
   }
-  const { repo, base } = fixture(t);
-  write(repo, "extension/sample.ts", "export const before = 1;\n/* node:coverage disable */ // reason: generated fallback cannot execute\n");
-  commit(repo);
-  const accepted = runGate(repo, base, emptyLcov(), ["--threshold-lines", "0"]);
-  assert.doesNotMatch(accepted.stdout, /coverage directives without a diff-recorded reason/);
+  for (const reason of [
+    "// reason: generated fallback cannot execute",
+    "// reason - generated fallback cannot execute",
+  ]) {
+    const { repo, base } = fixture(t);
+    write(repo, "extension/sample.ts", `export const before = 1;\n/* node:coverage disable */ ${reason}\n`); // reason: fixture tests accepted reason separators
+    commit(repo);
+    const accepted = runGate(repo, base, emptyLcov(), ["--threshold-lines", "0"]);
+    assert.doesNotMatch(accepted.stdout, /coverage directives without a diff-recorded reason/);
+  }
 });
 
 test("pre-base suppression counts executable DA gaps as uncovered, but types stay excluded (RG26)", async (t) => {
@@ -210,6 +215,7 @@ test("pre-base suppression counts executable DA gaps as uncovered, but types sta
     const result = runGate(repo, base, emptyLcov());
     assert.equal(result.status, 0, result.stdout);
     assert.match(result.stdout, /extension\/types\.ts: lines 0\/0=n\/a \| branches 0\/0=n\/a/);
+    assert.match(result.stdout, /no changed executable line had an LCOV DA record; manual review is required/);
     assert.match(result.stdout, /VERDICT: WARN/);
     assert.doesNotMatch(result.stdout, /FAIL:/);
   });
@@ -471,8 +477,10 @@ test("directive scan ignores every shape Node 24.18 does not match (RG23)", (t) 
     "run(); // node:coverage ignore next",
     "* node:coverage disable */",
     "/* node:coverage DISABLE */",
+    "/* node:coverage IGNORE next */",
     "/*  node:coverage disable */",
     "/* node:coverage  disable */",
+    "/* node:coverage ignore  next */",
     "run(); /* note node:coverage disable */",
   ];
   for (const text of ignored) {
@@ -481,7 +489,24 @@ test("directive scan ignores every shape Node 24.18 does not match (RG23)", (t) 
     commit(repo);
     const result = runGate(repo, base, emptyLcov(), ["--threshold-lines", "0"]);
     assert.doesNotMatch(result.stdout, /IGNORE DIRECTIVE:/, text);
+    assert.doesNotMatch(result.stdout, /coverage directives without a diff-recorded reason/, text);
   }
+});
+
+test("--head controls both the diff and source classification", (t) => {
+  const { repo, base } = fixture(t);
+  write(repo, "extension/sample.ts", "export const before = 1;\nexport const atTarget = 2;\n");
+  commit(repo, "target");
+  const target = git(repo, "rev-parse", "HEAD");
+  write(repo, "extension/sample.ts", "export const before = 1;\nexport type AtHead = number;\n");
+  commit(repo, "later head");
+  const lcovPath = join(repo, "gate.lcov");
+  writeFileSync(lcovPath, sourceLcov(["2,1"]));
+  const result = command(repo, process.execPath, [
+    GATE, "--repo", repo, "--base", base, "--head", target, "--lcov", lcovPath,
+  ]);
+  assert.equal(result.status, 0, result.stdout);
+  assert.match(result.stdout, /lines 1\/1=100\.00%/);
 });
 
 test("run-tests preserves a gate WARN as its final verdict (WH23)", (t) => {
@@ -639,6 +664,7 @@ test("CRLF additions and duplicate, malformed, truncated, and foreign LCOV recor
       const result = runGate(repo, base, lcov);
       assert.equal(result.status, 1);
       assert.match(result.stdout, /lines 0\/1=0\.00%/);
+      if (name !== "foreign") assert.match(result.stdout, /NO USABLE LCOV; fail-closed synthetic branch/);
     });
   }
 });
