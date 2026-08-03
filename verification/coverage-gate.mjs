@@ -137,49 +137,21 @@ if (diffRun.stdout.length > 0 && parsedFiles === 0) {
   process.exit(2);
 }
 
-const DIRECTIVE = /^\s*node:coverage\s+(ignore|disable|enable)\b/i;
+// Copied from Node 24.18's internal/test_runner/coverage.js. Node applies
+// these regexes directly to raw source lines: no anchoring, lexical analysis,
+// case folding or whitespace normalization. Diverging in either direction can
+// hide coverage or reject inert text, so keep these byte-for-byte equivalent.
+const NODE_IGNORE_DIRECTIVE = /\/\* node:coverage ignore next (?<count>\d+ )?\*\//;
+const NODE_STATUS_DIRECTIVE = /\/\* node:coverage (?<status>enable|disable) \*\//;
 function directivesOnLine(text) {
-  const found = [];
-  const record = (content, tail = "") => {
-    const match = DIRECTIVE.exec(content);
-    if (!match) return;
-    let suffix = content.slice(match[0].length);
-    if (match[1].toLowerCase() === "ignore") suffix = suffix.replace(/^\s+next(?:\s+\d+)?\b/i, "");
-    suffix = `${suffix.replace(/\s*$/, "")} ${tail}`.replace(/^\s*(?:\/\/|[-—])?\s*/, "").trim();
-    found.push({ suffix });
-  };
-
-  // A line-leading // comment is recognized by Node. The same comment after
-  // code is not. Block comments are recognized anywhere, provided the
-  // directive starts the COMMENT; quoted lookalikes and prefixed prose are not.
-  let quote;
-  for (let i = 0; i < text.length;) {
-    const char = text[i];
-    if (quote) {
-      if (char === "\\") { i += 2; continue; }
-      if (char === quote) quote = undefined;
-      i++;
-      continue;
-    }
-    if (char === "'" || char === '"' || char === "`") { quote = char; i++; continue; }
-    if (char === "/" && text[i + 1] === "/") {
-      if (text.slice(0, i).trim() === "") record(text.slice(i + 2));
-      break;
-    }
-    if (char === "/" && text[i + 1] === "*") {
-      const close = text.indexOf("*/", i + 2);
-      const end = close < 0 ? text.length : close;
-      record(text.slice(i + 2, end), close < 0 ? "" : text.slice(close + 2));
-      i = close < 0 ? text.length : close + 2;
-      continue;
-    }
-    i++;
-  }
-  // Covers a directive added inside a block comment whose opening line is
-  // unchanged and therefore absent from a zero-context diff.
-  const continuation = /^\s*\*\s*(node:coverage.*)$/i.exec(text);
-  if (continuation) record(continuation[1]);
-  return found;
+  return [NODE_IGNORE_DIRECTIVE.exec(text), NODE_STATUS_DIRECTIVE.exec(text)]
+    .filter((match) => match !== null)
+    .sort((left, right) => left.index - right.index)
+    .map((match) => ({ suffix: text.slice(match.index + match[0].length) }));
+}
+function hasDirectiveReason(suffix) {
+  const match = /\b(?:reason|because|rationale)\s*[:=-]\s*(.*)$/iu.exec(suffix);
+  return match !== null && /[\p{L}\p{N}]{2}/u.test(match[1]);
 }
 
 const directiveFailures = [];
@@ -187,8 +159,7 @@ for (const [name, lines] of addedText) {
   for (const entry of lines) {
     for (const directive of directivesOnLine(entry.text)) {
       console.log(`IGNORE DIRECTIVE: ${name}:${entry.line}: ${entry.text.trim()}`);
-      const reason = /^(?:reason|because|rationale)\s*[:=-]\s*(?=.*[\p{L}\p{N}]{2})\S(?:.*\S)?$/iu.test(directive.suffix);
-      if (!reason) directiveFailures.push(`${name}:${entry.line}`);
+      if (!hasDirectiveReason(directive.suffix)) directiveFailures.push(`${name}:${entry.line}`);
     }
   }
 }

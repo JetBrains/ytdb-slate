@@ -157,8 +157,8 @@ test("an uncovered addition in an LCOV-recorded file gets a synthetic branch (WH
 test("coverage directives require an explicit same-line reason (WH26)", (t) => {
   // Use explicit fixtures rather than a shared file so one accepted reason cannot mask another.
   for (const text of [
-    "/* node:coverage disable */ // .",
-    "// reason: unrelated neighbouring prose\n/* node:coverage disable */",
+    "/* node:coverage disable */ // .", // reason: fixture tests a one-character pseudo-reason
+    "// reason: unrelated neighbouring prose\n/* node:coverage disable */", // reason: fixture tests neighboring prose
   ]) {
     const { repo, base } = fixture(t);
     write(repo, "extension/sample.ts", `export const before = 1;\n${text}\n`);
@@ -174,14 +174,14 @@ test("coverage directives require an explicit same-line reason (WH26)", (t) => {
   assert.doesNotMatch(accepted.stdout, /coverage directives without a diff-recorded reason/);
 });
 
-test("directive scan matches Node's effective comment positions (RG20)", (t) => {
+test("directive scan catches every raw-line shape Node 24.18 matches (RG21)", (t) => {
   const rejected = [
-    "run(); /* node:coverage disable */",
-    "run(); /* node:coverage enable */",
-    "/* node:coverage ignore next */",
-    "// node:coverage ignore next",
-    // Node 24.18 omits the next DA record for this trailing block form too.
-    "run(); /* node:coverage ignore next */",
+    "/* node:coverage disable */", // reason: fixture tests a leading status directive
+    "run(); /* node:coverage enable */", // reason: fixture tests a trailing status directive
+    "/* node:coverage ignore next */", // reason: fixture tests the default ignore count
+    "run(); /* node:coverage ignore next 3 */", // reason: fixture tests an explicit ignore count
+    "const text = '/* node:coverage disable */';", // reason: fixture tests raw matching in a string
+    "const text = `/* node:coverage enable */`;", // reason: fixture tests raw matching in a template
   ];
   for (const text of rejected) {
     const { repo, base } = fixture(t);
@@ -193,10 +193,24 @@ test("directive scan matches Node's effective comment positions (RG20)", (t) => 
     assert.match(result.stdout, /coverage directives without a diff-recorded reason/);
   }
 
+  const { repo, base } = fixture(t);
+  write(repo, "extension/sample.ts", "export const before = 1;\nconst marker = '/* node:coverage disable */'; // reason: fixture validates raw matching\n");
+  commit(repo);
+  const reasoned = runGate(repo, base, emptyLcov(), ["--threshold-lines", "0"]);
+  assert.match(reasoned.stdout, /IGNORE DIRECTIVE:/);
+  assert.doesNotMatch(reasoned.stdout, /coverage directives without a diff-recorded reason/);
+});
+
+test("directive scan ignores every shape Node 24.18 does not match (RG23)", (t) => {
   const ignored = [
-    "run(); // node:coverage disable",
+    "// node:coverage disable",
+    "run(); // node:coverage enable",
+    "// node:coverage ignore next",
     "run(); // node:coverage ignore next",
-    "const text = '/* node:coverage disable */';",
+    "* node:coverage disable */",
+    "/* node:coverage DISABLE */",
+    "/*  node:coverage disable */",
+    "/* node:coverage  disable */",
     "run(); /* note node:coverage disable */",
   ];
   for (const text of ignored) {
@@ -206,13 +220,6 @@ test("directive scan matches Node's effective comment positions (RG20)", (t) => 
     const result = runGate(repo, base, emptyLcov(), ["--threshold-lines", "0"]);
     assert.doesNotMatch(result.stdout, /IGNORE DIRECTIVE:/, text);
   }
-
-  const { repo, base } = fixture(t);
-  write(repo, "extension/sample.ts", "export const before = 1;\nrun(); /* node:coverage disable */ // reason: generated fallback cannot execute\n");
-  commit(repo);
-  const reasoned = runGate(repo, base, emptyLcov(), ["--threshold-lines", "0"]);
-  assert.match(reasoned.stdout, /IGNORE DIRECTIVE:/);
-  assert.doesNotMatch(reasoned.stdout, /coverage directives without a diff-recorded reason/);
 });
 
 test("run-tests preserves a gate WARN as its final verdict (WH23)", (t) => {
@@ -318,16 +325,30 @@ test("CRLF additions and duplicate, malformed, truncated, and foreign LCOV recor
     assert.match(result.stdout, new RegExp(`line denominator ${additions}(?:;|$)`));
   });
 
-  await t.test("duplicate SF takes the highest line and branch hit counts", (t) => {
+  await t.test("duplicate SF takes the highest line and branch hit counts in either order (RG22)", (t) => {
     const { repo, base } = fixture(t);
     write(repo, "extension/sample.ts", "export const before = 1;\nexport const duplicate = 2;\n");
     commit(repo);
     const blocks = [
-      "SF:extension/sample.ts\nDA:2,0\nBRDA:2,0,0,0\nend_of_record",
-      "SF:extension/sample.ts\nDA:2,1\nBRDA:2,0,0,1\nend_of_record",
+      "SF:extension/sample.ts\nDA:2,1\nBRDA:2,0,0,1\nBRDA:2,0,1,0\nend_of_record",
+      "SF:extension/sample.ts\nDA:2,0\nBRDA:2,0,0,0\nBRDA:2,0,1,1\nend_of_record",
     ];
     const result = runGate(repo, base, `TN:\n${blocks.join("\n")}\n`, ["--threshold-lines", "100"]);
-    assert.match(result.stdout, /lines 1\/1=100\.00% \| branches 1\/1=100\.00%/);
+    assert.match(result.stdout, /lines 1\/1=100\.00% \| branches 2\/2=100\.00%/);
+  });
+
+  await t.test("BRDA identity includes both line and block (RG22)", (t) => {
+    const { repo, base } = fixture(t);
+    write(repo, "extension/sample.ts", "export const before = 1;\nexport const second = 2;\nexport const third = 3;\n");
+    commit(repo);
+    const lcov = [
+      "TN:", "SF:extension/sample.ts", "DA:2,1", "DA:3,1",
+      "BRDA:2,0,0,1", "BRDA:3,0,0,0",
+      "BRDA:2,1,1,1", "BRDA:2,2,1,0",
+      "end_of_record", "",
+    ].join("\n");
+    const result = runGate(repo, base, lcov);
+    assert.match(result.stdout, /branches 2\/4=50\.00%/);
   });
 
   await t.test("duplicate BRDA identities cannot dilute uncovered branches (WH40)", (t) => {
