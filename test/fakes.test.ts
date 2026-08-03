@@ -35,6 +35,26 @@ test("createFakeExtensionAPI.handler throws before anything registers, and captu
 	assert.deepEqual(seen, [["EVENT", "CTX"]]);
 });
 
+test("createFakeExtensionAPI preserves multiple handlers for one event in registration order", () => {
+	const fake = createFakeExtensionAPI();
+	const seen: string[] = [];
+	fake.api.on("agent_end", () => {
+		seen.push("first");
+	});
+	fake.api.on("agent_end", () => {
+		seen.push("second");
+	});
+
+	const captured = fake.handlersFor<() => void>("agent_end");
+	assert.equal(captured.length, 2);
+	for (const handler of captured) handler();
+	assert.deepEqual(seen, ["first", "second"]);
+	assert.throws(
+		() => fake.handler("agent_end"),
+		/expected exactly one handler for "agent_end", found 2; use handlersFor/,
+	);
+});
+
 test("createFakeExtensionAPI records sendMessage and appendEntry calls, interleaved, in observed order", () => {
 	const fake = createFakeExtensionAPI();
 
@@ -54,6 +74,16 @@ test("createFakeExtensionAPI records sendMessage and appendEntry calls, interlea
 		fake.calls.map((call) => call.seq),
 		[0, 1, 2, 3],
 	);
+	// Pin arguments at each position too. Checking only the kind sequence would
+	// miss a recorder that swapped two calls of the same kind.
+	assert.deepEqual(
+		fake.calls.map((call) =>
+			call.kind === "appendEntry"
+				? `${call.kind}:${call.customType}`
+				: `${call.kind}:${call.message.customType}`,
+		),
+		["appendEntry:a", "sendMessage:b", "appendEntry:c", "sendMessage:d"],
+	);
 
 	assert.equal(fake.appendEntryCalls.length, 2);
 	assert.deepEqual(
@@ -63,6 +93,38 @@ test("createFakeExtensionAPI records sendMessage and appendEntry calls, interlea
 	assert.equal(fake.sendMessageCalls.length, 2);
 	assert.equal(fake.sendMessageCalls[0]?.options?.deliverAs, "nextTurn");
 	assert.equal(fake.sendMessageCalls[1]?.options?.triggerTurn, true);
+});
+
+test("createFakeExtensionAPI snapshots arguments so later mutation cannot rewrite call order", () => {
+	const fake = createFakeExtensionAPI();
+	const message = { customType: "first", content: "one", display: true, details: { step: 1 } };
+	const options: { deliverAs: "steer" | "followUp" } = { deliverAs: "steer" };
+	const data = { nested: { step: 1 } };
+
+	fake.api.sendMessage(message, options);
+	fake.api.appendEntry("state", data);
+	message.customType = "second";
+	message.details.step = 2;
+	options.deliverAs = "followUp";
+	data.nested.step = 2;
+	fake.api.sendMessage(message, options);
+	fake.api.appendEntry("state", data);
+
+	assert.deepEqual(
+		fake.sendMessageCalls.map((call) => ({
+			customType: call.message.customType,
+			step: (call.message.details as { step: number }).step,
+			deliverAs: call.options?.deliverAs,
+		})),
+		[
+			{ customType: "first", step: 1, deliverAs: "steer" },
+			{ customType: "second", step: 2, deliverAs: "followUp" },
+		],
+	);
+	assert.deepEqual(
+		fake.appendEntryCalls.map((call) => call.data),
+		[{ nested: { step: 1 } }, { nested: { step: 2 } }],
+	);
 });
 
 test("createFakeExtensionContext's signal starts live and flips only when the test drives it", () => {
@@ -75,6 +137,16 @@ test("createFakeExtensionContext's signal starts live and flips only when the te
 
 	assert.equal(fake.isAborted(), true);
 	assert.equal(fake.ctx.signal?.aborted, true);
+});
+
+test("createFakeExtensionContext rejects a supplied signal instead of returning an abort() that cannot control it", () => {
+	const external = new AbortController();
+
+	assert.throws(
+		() => createFakeExtensionContext({ signal: external.signal }),
+		/a supplied AbortSignal is not controllable; omit signal and drive the returned abort\(\) instead/,
+	);
+	assert.equal(external.signal.aborted, false);
 });
 
 test("createFakeExtensionContext supports a chosen mid-flight abort point, not just start-aborted", { timeout: 1000 }, async () => {

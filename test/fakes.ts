@@ -56,35 +56,47 @@ export interface RecordedAppendEntryCall {
 
 export type RecordedCall = RecordedSendMessageCall | RecordedAppendEntryCall;
 
+/**
+ * Record arguments as they were at call time. Keeping caller-owned references
+ * would let later mutation rewrite history and make two different call orders
+ * produce the same recording. Extension messages and entries are persistence
+ * payloads, so a non-cloneable test argument is a loud fixture error.
+ */
+function snapshotArgument<T>(value: T, label: string): T {
+	try {
+		return structuredClone(value);
+	} catch (error) {
+		throw new Error(`createFakeExtensionAPI: ${label} must be structured-cloneable`, { cause: error });
+	}
+}
+
 export interface FakeExtensionAPI {
 	/** Hand this to code under test as its `pi: ExtensionAPI`. */
 	api: ExtensionAPI;
 	/**
-	 * Every `pi.on(event, handler)` registration, keyed by event name. A second
-	 * registration for the same event OVERWRITES the first here, mirroring a
-	 * real ExtensionAPI (one extension does not register the same event twice
-	 * in this codebase; the map is not a multi-map on purpose).
+	 * Every `pi.on(event, handler)` registration, grouped by event name. Each
+	 * array preserves registration order, matching pi's sequential dispatch of
+	 * handlers within one extension.
 	 */
-	handlers: Map<string, (...args: unknown[]) => unknown>;
+	handlers: ReadonlyMap<string, readonly ((...args: unknown[]) => unknown)[]>;
 	/** Every sendMessage/appendEntry call, interleaved in the order they occurred. */
 	calls: RecordedCall[];
 	/** sendMessage calls only, still in their original relative order. */
 	sendMessageCalls: RecordedSendMessageCall[];
 	/** appendEntry calls only, still in their original relative order. */
 	appendEntryCalls: RecordedAppendEntryCall[];
+	/** Return all handlers for an event, in registration order. */
+	handlersFor<H = (...args: unknown[]) => unknown>(event: string): readonly H[];
 	/**
-	 * Look up a captured handler by event name, cast to the caller's expected
-	 * signature. Throws with a descriptive message when nothing registered for
-	 * that event, so a test that expected the code under test to call
-	 * `pi.on(event, ...)` gets a clear failure instead of the code under test
-	 * silently never having fired — the exact failure mode this fake exists to
-	 * make loud rather than silent.
+	 * Return the sole handler for an event. Throws when there are zero OR more
+	 * than one, so a test that means "exactly one" cannot silently drive the
+	 * wrong handler.
 	 */
 	handler<H = (...args: unknown[]) => unknown>(event: string): H;
 }
 
 export function createFakeExtensionAPI(): FakeExtensionAPI {
-	const handlers = new Map<string, (...args: unknown[]) => unknown>();
+	const handlers = new Map<string, Array<(...args: unknown[]) => unknown>>();
 	const calls: RecordedCall[] = [];
 	const sendMessageCalls: RecordedSendMessageCall[] = [];
 	const appendEntryCalls: RecordedAppendEntryCall[] = [];
@@ -92,20 +104,27 @@ export function createFakeExtensionAPI(): FakeExtensionAPI {
 
 	const api: Partial<ExtensionAPI> = {
 		on: (event, h) => {
-			handlers.set(event, h as (...args: unknown[]) => unknown);
+			const registered = handlers.get(event) ?? [];
+			registered.push(h as (...args: unknown[]) => unknown);
+			handlers.set(event, registered);
 		},
 		sendMessage: (message, options) => {
 			const call: RecordedSendMessageCall = {
 				kind: "sendMessage",
 				seq: seq++,
-				message: message as RecordedSendMessageCall["message"],
-				options: options as RecordedSendMessageCall["options"],
+				message: snapshotArgument(message, "sendMessage message") as RecordedSendMessageCall["message"],
+				options: snapshotArgument(options, "sendMessage options") as RecordedSendMessageCall["options"],
 			};
 			calls.push(call);
 			sendMessageCalls.push(call);
 		},
 		appendEntry: (customType, data) => {
-			const call: RecordedAppendEntryCall = { kind: "appendEntry", seq: seq++, customType, data };
+			const call: RecordedAppendEntryCall = {
+				kind: "appendEntry",
+				seq: seq++,
+				customType,
+				data: snapshotArgument(data, "appendEntry data"),
+			};
 			calls.push(call);
 			appendEntryCalls.push(call);
 		},
@@ -134,14 +153,22 @@ export function createFakeExtensionAPI(): FakeExtensionAPI {
 		calls,
 		sendMessageCalls,
 		appendEntryCalls,
+		handlersFor<H>(event: string): readonly H[] {
+			return [...(handlers.get(event) ?? [])] as unknown as readonly H[];
+		},
 		handler<H>(event: string): H {
-			const found = handlers.get(event);
-			if (!found) {
+			const found = handlers.get(event) ?? [];
+			if (found.length === 0) {
 				throw new Error(
 					`createFakeExtensionAPI: no handler registered for "${event}" — the code under test never called pi.on("${event}", ...)`,
 				);
 			}
-			return found as unknown as H;
+			if (found.length !== 1) {
+				throw new Error(
+					`createFakeExtensionAPI: expected exactly one handler for "${event}", found ${found.length}; use handlersFor("${event}") to drive all handlers in registration order`,
+				);
+			}
+			return found[0] as unknown as H;
 		},
 	};
 }
@@ -153,7 +180,11 @@ export interface FakeExtensionContextOptions {
 	mode?: ExtensionContext["mode"];
 	hasUI?: boolean;
 	isProjectTrusted?: () => boolean;
-	/** Pre-existing signal to use instead of a fresh AbortController's. */
+	/**
+	 * Unsupported by this controllable fake: an AbortSignal has no public abort
+	 * operation. Supplying one throws at construction instead of making the
+	 * returned `abort()` a silent no-op. Use the fake's own signal and abort().
+	 */
 	signal?: AbortSignal;
 }
 
@@ -173,8 +204,13 @@ export interface FakeExtensionContext {
 }
 
 export function createFakeExtensionContext(options: FakeExtensionContextOptions = {}): FakeExtensionContext {
+	if (options.signal !== undefined) {
+		throw new Error(
+			"createFakeExtensionContext: a supplied AbortSignal is not controllable; omit signal and drive the returned abort() instead",
+		);
+	}
 	const controller = new AbortController();
-	const signal = options.signal ?? controller.signal;
+	const signal = controller.signal;
 
 	const ctx: Partial<ExtensionContext> = {
 		mode: options.mode ?? "tui",
