@@ -154,10 +154,12 @@ test("an uncovered addition in an LCOV-recorded file gets a synthetic branch (WH
   assert.match(result.stdout, /branch denominator 1/);
 });
 
-test("coverage directives require an explicit same-line reason (WH26)", (t) => {
+test("coverage directives require a substantive reason after the directive (WH26, RG24, RG25)", (t) => {
   // Use explicit fixtures rather than a shared file so one accepted reason cannot mask another.
   for (const text of [
     "/* node:coverage disable */ // .", // reason: fixture tests a one-character pseudo-reason
+    "/* node:coverage disable */ // reason: x", // reason: fixture tests an insubstantial named reason
+    "// reason: substantial but before /* node:coverage disable */", // reason: fixture tests reason position
     "// reason: unrelated neighbouring prose\n/* node:coverage disable */", // reason: fixture tests neighboring prose
   ]) {
     const { repo, base } = fixture(t);
@@ -172,6 +174,43 @@ test("coverage directives require an explicit same-line reason (WH26)", (t) => {
   commit(repo);
   const accepted = runGate(repo, base, emptyLcov(), ["--threshold-lines", "0"]);
   assert.doesNotMatch(accepted.stdout, /coverage directives without a diff-recorded reason/);
+});
+
+test("pre-base suppression counts executable DA gaps as uncovered, but types stay excluded (RG26)", async (t) => {
+  await t.test("pre-base disable cannot hide half the added executable lines", (t) => {
+    const { repo, base } = fixture(t, "/* node:coverage disable */\n/* node:coverage enable */\n"); // reason: fixture establishes pre-base suppression
+    const hidden = Array.from({ length: 12 }, (_, index) => `export const hidden${index} = ${index};`);
+    const visible = Array.from({ length: 12 }, (_, index) => `export const visible${index} = ${index};`);
+    write(repo, "extension/sample.ts", ["/* node:coverage disable */", ...hidden, "/* node:coverage enable */", ...visible, ""].join("\n")); // reason: fixture preserves pre-base directive scope
+    commit(repo);
+    const da = visible.map((_, index) => `${15 + index},1`);
+    const branches = visible.flatMap((_, index) => [`${15 + index},0,0,1`, `${15 + index},0,1,1`]);
+    const result = runGate(repo, base, sourceLcov(da, branches));
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stdout, /lines 12\/24=50\.00%/);
+    assert.match(result.stdout, /branches 24\/25=96\.00%.*synthetic branch/i);
+  });
+
+  await t.test("a new type-only module has no executable denominator", (t) => {
+    const { repo, base } = fixture(t);
+    write(repo, "extension/types.ts", [
+      "// This comment and the blank line below have no runtime coverage.",
+      "",
+      "import type { Readable } from 'node:stream';",
+      "export interface Shape {",
+      "  readonly name: string;",
+      "}",
+      "export type Maybe<T> = T | null;",
+      "export type StreamShape = Readable & Shape;",
+      "",
+    ].join("\n"));
+    commit(repo);
+    const result = runGate(repo, base, emptyLcov());
+    assert.equal(result.status, 0, result.stdout);
+    assert.match(result.stdout, /extension\/types\.ts: lines 0\/0=n\/a \| branches 0\/0=n\/a/);
+    assert.match(result.stdout, /VERDICT: WARN/);
+    assert.doesNotMatch(result.stdout, /FAIL:/);
+  });
 });
 
 test("directive scan catches every raw-line shape Node 24.18 matches (RG21)", (t) => {

@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
+import { stripTypeScriptTypes } from "node:module";
 
 function usage(message) {
   if (message) console.error(`coverage-gate: ${message}`);
@@ -196,21 +197,54 @@ for (const text of lcovText.split("\n")) {
   } else if (text === "end_of_record") source = undefined;
 }
 
+// Native stripping preserves line positions while erasing TypeScript-only
+// syntax. After comments are blanked as well, any remaining token is runtime
+// syntax. This is the discriminator LCOV alone cannot provide: an added runtime
+// line with no DA record is uncovered (whether the file was unloaded or a
+// pre-base directive suppressed it); a blank/comment/type-only line is excluded.
+function executableLinesAtHead(name) {
+  const sourceText = gitOutput(["show", `${options.head}:${name}`], `reading ${name} at ${options.head}`);
+  let stripped;
+  const emitWarning = process.emitWarning;
+  try {
+    // Node labels the API experimental even though native type stripping is the
+    // harness's execution path. Keep that process-global warning out of output.
+    process.emitWarning = () => {};
+    stripped = stripTypeScriptTypes(sourceText, { mode: "strip" });
+  } catch {
+    // Unsupported syntax cannot safely be classified. Count every addition as
+    // executable: false-failing is preferable to silently omitting runtime code.
+    return undefined;
+  } finally {
+    process.emitWarning = emitWarning;
+  }
+  const withoutComments = stripped.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, (comment) => comment.replace(/[^\r\n]/g, " "));
+  const executable = new Set();
+  for (const [index, text] of withoutComments.split("\n").entries()) {
+    if (text.trim() !== "") executable.add(index + 1);
+  }
+  return executable;
+}
+
 let lineHit = 0, lineTotal = 0, branchHit = 0, branchTotal = 0;
 const scoped = [...changed.entries()].filter(([name, lines]) => inScope(name) && lines.size > 0).sort(([a], [b]) => a.localeCompare(b));
 for (const [name, added] of scoped) {
   const record = coverage.get(name);
+  const classified = executableLinesAtHead(name);
+  const executableAdded = [...added].filter((line) => classified === undefined || classified.has(line));
   let lines, branches, note = "";
   if (!record || record.lines.size === 0) {
-    lines = [...added].map((line) => ({ line, hits: 0 }));
-    branches = [{ line: Math.min(...added), hits: 0 }];
-    note = " [NO USABLE LCOV; fail-closed synthetic branch]";
+    lines = executableAdded.map((line) => ({ line, hits: 0 }));
+    branches = lines.length === 0 ? [] : [{ line: Math.min(...executableAdded), hits: 0 }];
+    note = lines.length === 0
+      ? " [NO EXECUTABLE ADDITIONS]"
+      : " [NO USABLE LCOV; fail-closed synthetic branch]";
   } else {
-    lines = [...added].filter((line) => record.lines.has(line)).map((line) => ({ line, hits: record.lines.get(line) }));
-    branches = [...record.branches.values()].filter((branch) => added.has(branch.line));
-    const uncoveredOrUnmeasured = [...added].some((line) => !record.lines.has(line) || record.lines.get(line) <= 0);
-    if (branches.length === 0 && uncoveredOrUnmeasured) {
-      branches = [{ line: Math.min(...added), hits: 0 }];
+    lines = executableAdded.map((line) => ({ line, hits: record.lines.get(line) ?? 0 }));
+    branches = [...record.branches.values()].filter((branch) => added.has(branch.line) && (classified === undefined || classified.has(branch.line)));
+    const uncoveredOrUnmeasured = lines.some((entry) => entry.hits <= 0);
+    if (uncoveredOrUnmeasured && !branches.some((branch) => branch.hits <= 0)) {
+      branches.push({ line: Math.min(...executableAdded), hits: 0 });
       note = " [LCOV GAP; fail-closed synthetic branch]";
     }
   }
