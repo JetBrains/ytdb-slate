@@ -63,11 +63,16 @@ const baseLoad = await tryImport("extension/base-model.ts");
 // PURE module for exactly this harness (threads.ts transitively imports
 // @earendil-works/pi-ai, which this repo does not install).
 const routeLoad = await tryImport("extension/route.ts");
+// The dispatch registry/join decisions are pure for the same reason as route.ts:
+// this harness cannot load threads.ts, and a silently weakened transition or
+// abort gate still leaves a dispatch that appears to work.
+const dispatchLoad = await tryImport("extension/dispatch-plan.ts");
 const router = routerLoad.module;
 const table = profilesLoad.module;
 const state = stateLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
+const dispatch = dispatchLoad.module;
 
 // ----------------------------------------------------------------- reporting --
 let pass = 0;
@@ -273,6 +278,8 @@ const ROUTE_IDS = [
  * (see the episode section for what each stub does and why it is faithful).
  */
 const EPISODE_IDS = ["episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header"];
+/** Checks that need extension/dispatch-plan.ts — tickets, lifecycle, outcome and delivery. */
+const DISPATCH_IDS = ["dispatch-ticket", "dispatch-transition", "dispatch-outcome", "dispatch-delivery"];
 /** Checks that need extension/base-model.ts — the orchestrator base-model tracker. */
 const BASE_IDS = [
 	"base-seed",
@@ -312,6 +319,7 @@ const VOIDABLE = [
 	["state-", STATE_IDS, "state-load"],
 	["base-", BASE_IDS, "base-load"],
 	["episode-", EPISODE_IDS, "episode-load"],
+	["dispatch-", DISPATCH_IDS, "dispatch-load"],
 ];
 
 // ------------------------------------------------------------------ fixtures --
@@ -4996,6 +5004,78 @@ try {
 	}
 
 	// =========================================================================
+	// Dispatch registry + join decisions (extension/dispatch-plan.ts)
+	// =========================================================================
+	check("dispatch-load", dispatch !== undefined, "the pure dispatch decision module loads without an SDK dependency", dispatchLoad.error?.stack);
+	if (!dispatch) {
+		for (const id of DISPATCH_IDS) skip(id, "extension/dispatch-plan.ts could not be loaded");
+	} else {
+		await section("dispatch-ticket", async () => {
+			const invalid = ["d0", "d01", "d-1", "d1 ", "t1.e1", "t1#3", `d${Number.MAX_SAFE_INTEGER + 1}`];
+			const restored = dispatch.mintDispatchTicket(41);
+			let badPersistedRefused = false;
+			try { dispatch.mintDispatchTicket(undefined); } catch { badPersistedRefused = true; }
+			checkAll("dispatch-ticket", "tickets are exact d<N> handles, never episode-shaped; a restored high-water mark continues monotonically and malformed persisted state is refused rather than reset", [
+				["valid d<N>", dispatch.isDispatchTicket("d7") === true, dispatch.parseDispatchTicket("d7")],
+				["all hostile shapes refused", invalid.every((v) => !dispatch.isDispatchTicket(v)), invalid.filter((v) => dispatch.isDispatchTicket(v))],
+				["restored sequence continues", restored.ticket === "d42" && restored.sequence === 42, restored],
+				["missing persisted sequence refused", badPersistedRefused, badPersistedRefused],
+			]);
+		});
+
+		await section("dispatch-transition", async () => {
+			const states = ["pending", "settled", "joined", "abandoned"];
+			const events = ["settle", "join", "abandon"];
+			const allowed = new Map([
+				["pending:settle", "settled"], ["pending:abandon", "abandoned"],
+				["settled:join", "joined"], ["settled:abandon", "abandoned"],
+			]);
+			const wrong = [];
+			for (const state of states) for (const event of events) {
+				const expected = allowed.get(`${state}:${event}`);
+				try {
+					const observed = dispatch.transitionDispatchState(state, event);
+					if (observed !== expected) wrong.push(`${state}:${event} returned ${observed}, expected ${expected ?? "throw"}`);
+				} catch (error) {
+					if (expected !== undefined) wrong.push(`${state}:${event} threw ${error}`);
+				}
+			}
+			check("dispatch-transition", wrong.length === 0, "all four legal registry edges succeed and every other state/event pair is refused", wrong);
+		});
+
+		await section("dispatch-outcome", async () => {
+			const clean = { episode: { status: "ok" }, text: "could not complete the task" };
+			const failed = { episode: { status: "failed" } };
+			const error = new Error("late failure");
+			const kinds = [
+				dispatch.classifyDispatchOutcome({ status: "fulfilled", value: clean }, false).kind,
+				dispatch.classifyDispatchOutcome({ status: "fulfilled", value: failed }, false).kind,
+				dispatch.classifyDispatchOutcome({ status: "rejected", reason: error }, false).kind,
+				dispatch.classifyDispatchOutcome({ status: "fulfilled", value: clean }, true).kind,
+				dispatch.classifyDispatchOutcome({ status: "rejected", reason: error }, true).kind,
+			];
+			check("dispatch-outcome", JSON.stringify(kinds) === JSON.stringify(["ok", "failed", "rejected", "aborted", "aborted"]), "classification covers clean-stop, failed episode, rejection and explicit abort; clean-stop prose is never interpreted as task success", kinds);
+		});
+
+		await section("dispatch-delivery", async () => {
+			const run1 = {};
+			const run2 = {};
+			const first = dispatch.decideDispatchDelivery({ aborted: false, settledCount: 1, runIdentity: run1 });
+			const duplicate = dispatch.decideDispatchDelivery({ aborted: false, settledCount: 1, runIdentity: run1, alreadyJoined: run1 });
+			const rearmed = dispatch.decideDispatchDelivery({ aborted: false, settledCount: 1, runIdentity: run2, alreadyJoined: run1 });
+			const aborted = dispatch.decideDispatchDelivery({ aborted: true, settledCount: 1, runIdentity: run2 });
+			const empty = dispatch.decideDispatchDelivery({ aborted: false, settledCount: 0, runIdentity: run2 });
+			checkAll("dispatch-delivery", "delivery is followUp-only, idempotent for one run, re-armed for another, abort-gated and suppressed for an empty join", [
+				["active delivery uses followUp", first.kind === "deliver" && first.mode === "followUp", first],
+				["same run skipped", duplicate.kind === "skip" && duplicate.reason === "already-joined", duplicate],
+				["new run re-armed", rearmed.kind === "deliver", rearmed],
+				["abort skips", aborted.kind === "skip" && aborted.reason === "aborted", aborted],
+				["empty skips", empty.kind === "skip" && empty.reason === "empty", empty],
+			]);
+		});
+	}
+
+	// =========================================================================
 	// Shipped profile table (extension/model-profiles.ts) — STRUCTURAL only
 	// =========================================================================
 	// TQ11. These assert SHAPE and internal consistency, never a research
@@ -5154,6 +5234,7 @@ try {
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
 		"route-failover", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
+		"dispatch-load", "dispatch-ticket", "dispatch-transition", "dispatch-outcome", "dispatch-delivery",
 		"wiring", "spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
