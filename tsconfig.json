@@ -22,10 +22,12 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
-    // Both hold today with zero errors, and both are what jiti's per-file
-    // transpile actually requires.
+    // All three hold today with zero errors. The first two match jiti's
+    // per-file transpile; erasableSyntaxOnly also keeps every shipped source
+    // executable by Node's stable native type stripping, which runs the tests.
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
 
     // --- Runtime surface ----------------------------------------------------
     // pi requires Node >= 22.19; this repo runs on Node 24.
@@ -60,30 +62,23 @@
     // say nothing about slate's code.
     "skipLibCheck": true
 
-    // --- Evaluated and DEFERRED (measured 2026-08-01, first-ever typecheck) --
+    // --- Evaluated and DEFERRED (re-measured 2026-08-03) --------------------
     // Recorded so these are not silently re-litigated. NONE of them found a
     // genuine type defect: every site below was hand-checked and is safe today.
     // Counts are from that measurement, against this same flag set.
-    // (noUncheckedIndexedAccess was the fourth entry here; it was adopted above.)
+    // (noUncheckedIndexedAccess and erasableSyntaxOnly were adopted above.)
     //
-    // "exactOptionalPropertyTypes": 23 errors — 17 in slate-owned declarations
-    //   (each fixed by `prop?: T` -> `prop?: T | undefined`) and 6 at the SDK
-    //   boundary, where pi's own options types declare `prop?: T` and slate
-    //   passes an explicit undefined. Verified harmless at runtime: pi reads
-    //   those with value-based fallbacks (`let model = options.model`,
-    //   `if (options?.parentSession)`), and persisted records go through
-    //   JSON.stringify, which drops undefined-valued keys. Moderate cost, low
-    //   value — deferred, not rejected.
+    // "exactOptionalPropertyTypes": 24 errors across slate-owned records and
+    //   calls into both slate and SDK option types. They distinguish omitted
+    //   properties from explicit undefined, while these paths use value-based
+    //   fallbacks and persisted records pass through JSON.stringify, which
+    //   drops undefined-valued keys. Moderate churn, low value — deferred, not
+    //   rejected.
     //
     // "noPropertyAccessFromIndexSignature": REJECTED. 50 errors, 44 of them
     //   `t.id` / `t.episodeIds`-style reads of parsed JSON typed as
-    //   Record<string, unknown> in extension/state.ts, plus 6 process.env reads.
-    //   Pure style churn, zero safety gain.
-    //
-    // "erasableSyntaxOnly": not adopted. 7 errors, all constructor parameter
-    //   properties (extension/state.ts, extension/threads.ts). jiti transpiles
-    //   them fine; only relevant if this repo ever needs Node's native
-    //   --experimental-strip-types.
+    //   Record<string, unknown> in extension/state.ts, plus 6 process.env reads
+    //   in verification/probe.ts. Pure style churn, zero safety gain.
   },
 
   // extension/** is the shipped code. test/** and verification/probe.ts are

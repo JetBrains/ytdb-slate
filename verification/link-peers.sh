@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Link pi's bundled SDK peers into this checkout for native node:test imports.
-# Real packages already installed in node_modules are left untouched.
+# Replace any other package or link: tests must use the SDK that pi itself runs.
 set -euo pipefail
 
 fail() { printf 'link-peers: %s\n' "$*" >&2; exit 2; }
@@ -51,15 +51,22 @@ NODE
 while IFS=$'\t' read -r name source; do
   [ -n "$source" ] || continue
   target="$repo/node_modules/$name"
-  if [ -e "$target" ] || [ -L "$target" ]; then
-    if [ -L "$target" ] && [ "$(cd "$(dirname "$target")" && realpath "$(readlink "$target")")" = "$source" ]; then
-      printf 'link-peers: already linked %s -> %s\n' "$name" "$source"
-    else
-      printf 'link-peers: keeping existing %s (will not overwrite a real package or different link)\n' "$target"
-    fi
+  current="$(realpath "$target" 2>/dev/null || true)"
+  if [ "$current" = "$source" ]; then
+    printf 'link-peers: verified %s uses pi copy %s\n' "$name" "$source"
     continue
   fi
+
+  if [ -L "$target" ]; then
+    printf 'link-peers: replacing stale or wrong link %s -> %s\n' "$target" "$(readlink "$target")"
+    rm -f -- "$target"
+  elif [ -e "$target" ]; then
+    printf 'link-peers: replacing installed package at %s; tests require pi copy %s\n' "$target" "$source"
+    rm -rf -- "$target"
+  fi
+
   mkdir -p "$(dirname "$target")"
   ln -s "$source" "$target"
-  printf 'link-peers: linked %s -> %s\n' "$name" "$source"
+  [ "$(realpath "$target" 2>/dev/null || true)" = "$source" ] || fail "linked $name but could not verify target $target"
+  printf 'link-peers: linked %s to pi copy %s\n' "$name" "$source"
 done <<< "$resolved"
