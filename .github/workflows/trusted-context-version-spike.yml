@@ -1,0 +1,34 @@
+name: Trusted Context Version Spike
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, dismissed]
+  merge_group:
+    types: [checks_requested]
+
+permissions: {}
+
+jobs:
+  trusted-context-version-spike:
+    name: Trusted Context Version Spike Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print version and event data
+        env:
+          VERSION: base
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SHA_VALUE: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          printf 'VERSION=%s\n' "$VERSION"
+          printf 'event=%s\n' "$EVENT_NAME"
+          printf 'github.sha=%s\n' "$GITHUB_SHA_VALUE"
+          printf 'github.event.pull_request.head.sha=%s\n' "$HEAD_SHA"
+          printf 'github.event.pull_request.base.sha=%s\n' "$BASE_SHA"
+          printf 'github.event.pull_request.base.ref=%s\n' "$BASE_REF"
