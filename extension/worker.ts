@@ -49,12 +49,12 @@ export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["sess
 
 export const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
-const WORKER_PREAMBLE = [
+export const WORKER_PREAMBLE = [
 	"You are a worker thread executing ONE bounded action for an orchestrator.",
 	"Do the action fully, then stop.",
 	"Your final message must state: what you did, what you found, files you touched,",
 	"and anything the orchestrator must know.",
-	"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions.",
+	"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply it to final messages, file prose, commits, issues, comments, and pull requests.",
 ].join(" ");
 
 export function threadsDir(cwd: string): string {

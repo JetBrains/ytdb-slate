@@ -353,8 +353,8 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
 function buildWritingRule(n: number): string {
 	return `
 ${n}. Check all user-facing prose before delivery. Use short, active sentences and
-   plain language. A sentence over 25 words fails the check. Rewrite it before
-   delivery. A sentence over 20 words warns. Shorten it when meaning stays clear.
+   plain language. A sentence over 25 words fails the check. Rewrite it.
+   A sentence over 20 words warns. Shorten it when meaning stays clear.
    Do not use semicolons or contractions. Keep exact technical terms. The check
    does not test vocabulary. Apply it to README changes, pull request text,
    commit bodies, issues, comments, release notes, and messages to the user.

@@ -56,6 +56,7 @@ const routerLoad = await tryImport("extension/model-router.ts");
 const profilesLoad = await tryImport("extension/model-profiles.ts");
 const stateLoad = await tryImport("extension/state.ts");
 const writingLoad = await tryImport("extension/writing.ts");
+const workerLoad = await tryImport("extension/worker.ts");
 // The base-model tracker is a PURE reducer over model-selection events (its own
 // module header says so), so it belongs here rather than in the ladder: it
 // touches no pi, no filesystem and no clock other than the injected one.
@@ -68,6 +69,7 @@ const router = routerLoad.module;
 const table = profilesLoad.module;
 const state = stateLoad.module;
 const writing = writingLoad.module;
+const worker = workerLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
 
@@ -231,6 +233,7 @@ const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "pro
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
 const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject"];
+const WORKER_IDS = ["worker-preamble"];
 /**
  * Checks that need extension/route.ts — the dispatch guards. They also need
  * extension/model-router.ts, because the planner consumes its resolutions AND
@@ -304,6 +307,7 @@ const VOIDABLE = [
 	["route-", ROUTE_IDS, "route-load"],
 	["router-", ROUTER_IDS, "router-load"],
 	["profiles-", PROFILE_IDS, "profiles-load"],
+	["worker-", WORKER_IDS, "worker-load"],
 	// STATE_IDS holds TWO id prefixes, so it needs two entries. With only "spec-" here
 	// the audit below never reached `state-thread-record`/`state-episode-record`: the
 	// `uncovered` filter walks EXPECTED by PREFIX, so an id in the list that matches no
@@ -1993,11 +1997,14 @@ try {
 			const unknown = writing.sanitizeWritingConfig({ check: true, typo: true }, (m) => unknownWarn.push(m));
 			const typeWarn = [];
 			const wrongType = writing.sanitizeWritingConfig({ check: "yes" }, (m) => typeWarn.push(m));
-			checkAll("writing-config-invalid", "invalid writing shapes warn once and default, unknown keys warn and disappear, and a non-boolean check warns and falls back to false", [
+			const falseWarn = [];
+			const explicitFalse = writing.sanitizeWritingConfig({ check: false }, (m) => falseWarn.push(m));
+			checkAll("writing-config-invalid", "invalid writing shapes warn once and default, unknown keys warn and disappear, and boolean check values preserve their explicit setting", [
 				["every invalid shape warns once and defaults", invalid.every(({ result, warned }) => result.check === false && warned.length === 1), invalid],
 				["unknown key warns", unknown.check === true && unknownWarn.length === 1 && /unknown writing key/.test(unknownWarn[0]), [unknown, unknownWarn]],
 				["unknown key is not rebuilt", !Object.prototype.hasOwnProperty.call(unknown, "typo"), unknown],
 				["wrong type warns and defaults", wrongType.check === false && typeWarn.length === 1, [wrongType, typeWarn]],
+				["explicit false stays false and silent", explicitFalse.check === false && falseWarn.length === 0, [explicitFalse, falseWarn]],
 			]);
 
 			const proto = Object.create(null);
@@ -2007,7 +2014,8 @@ try {
 			let deep = { nested: null };
 			let cursor = deep;
 			for (let i = 0; i < 30000; i++) { cursor.nested = { nested: null }; cursor = cursor.nested; }
-			const hostile = [proto, getter, { check: deep }];
+			const inherited = Object.create({ check: true });
+			const hostile = [proto, getter, inherited, { check: deep }];
 			const hostileResults = hostile.map((raw) => {
 				const warned = [];
 				let result;
@@ -2017,14 +2025,31 @@ try {
 			const safeCheck = (result) => {
 				try { return result?.check === false; } catch { return false; }
 			};
-			checkAll("writing-config-hostile", "hostile prototype, getter, and deeply nested values do not crash or pollute the sanitizer, and sanitization returns a fresh object", [
+			checkAll("writing-config-hostile", "hostile prototype, inherited check, getter, and deeply nested values do not crash or pollute the sanitizer, and sanitization returns a fresh object", [
 				["all hostile inputs survive", hostileResults.every(({ result }) => result !== null), hostileResults.map(({ result }) => result === null)],
 				["all hostile inputs default", hostileResults.every(({ result }) => safeCheck(result)), hostileResults.map(({ result }) => safeCheck(result))],
-				["warnings are emitted", hostileResults.every(({ warned }) => warned.length >= 1), hostileResults.map(({ warned }) => warned.length)],
+				["malformed hostile inputs warn while inherited input stays silent", hostileResults[0].warned.length >= 1 && hostileResults[1].warned.length >= 1 && hostileResults[2].warned.length === 0 && hostileResults[3].warned.length >= 1, hostileResults.map(({ warned }) => warned.length)],
 				["result is fresh", hostileResults.every(({ raw, result }) => result !== raw), hostileResults.map(({ raw, result }) => raw === result)],
 				["no prototype pollution", ({}).polluted === undefined && ({}).typo === undefined, Object.prototype],
 			]);
 		});
+
+		check("worker-load", worker !== undefined, "extension/worker.ts loads for direct preamble verification", workerLoad.error?.stack ?? workerLoad.error);
+		if (worker === undefined) {
+			skip("worker-preamble", "extension/worker.ts could not be loaded");
+		} else {
+			const expectedPreamble = [
+				"You are a worker thread executing ONE bounded action for an orchestrator.",
+				"Do the action fully, then stop.",
+				"Your final message must state: what you did, what you found, files you touched,",
+				"and anything the orchestrator must know.",
+				"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply it to final messages, file prose, commits, issues, comments, and pull requests.",
+			].join(" ");
+			checkAll("worker-preamble", "the worker preamble contains the writing rule as its final sentence, with the exact bounded scope and the historical preamble intact", [
+				["exact preamble is preserved", worker.WORKER_PREAMBLE === expectedPreamble, worker.WORKER_PREAMBLE],
+				["writing rule is appended after the historical preamble", worker.WORKER_PREAMBLE.startsWith(expectedPreamble.slice(0, expectedPreamble.indexOf("Use short"))) && worker.WORKER_PREAMBLE.endsWith("pull requests."), worker.WORKER_PREAMBLE],
+			]);
+		}
 
 		// TQ2: the injected-profiles default. Every other router check passes its
 		// own table, so nothing above would notice the shipped wiring being cut.
@@ -5250,6 +5275,7 @@ try {
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget",
 		"writing-config-default", "writing-config-invalid", "writing-config-hostile",
 		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject",
+		"worker-load", "worker-preamble",
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",
 		"bar-self-exclude", "bar-collision",

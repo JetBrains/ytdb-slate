@@ -28,10 +28,12 @@ export function sanitizeWritingConfig(raw: unknown, warn: (msg: string) => void)
 	}
 
 	let rawCheck: unknown;
-	try {
-		rawCheck = value.check;
-	} catch {
-		warn("slate: ignoring writing.check — could not read the value (defaulting to false)");
+	if (Object.prototype.hasOwnProperty.call(value, "check")) {
+		try {
+			rawCheck = value.check;
+		} catch {
+			warn("slate: ignoring writing.check — could not read the value (defaulting to false)");
+		}
 	}
 	let check = false;
 	if (rawCheck !== undefined) {
