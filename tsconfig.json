@@ -86,10 +86,9 @@
     //   --experimental-strip-types.
   },
 
-  // extension/** is the shipped code. verification/probe.ts is TypeScript that
-  // imports the SDK and drives the real model-default module, so it is checked
-  // too. verification/*.mjs (the resolver-check harness) is plain, unannotated
-  // JavaScript: checking it would need allowJs+checkJs and would measure a
-  // different codebase, so it is excluded.
-  "include": ["extension/**/*.ts", "verification/probe.ts"]
+  // extension/** is the shipped code. test/** and verification/probe.ts are
+  // TypeScript that import shipped modules, so they are checked too.
+  // verification/*.mjs is plain, unannotated JavaScript: checking it would need
+  // allowJs+checkJs and would measure a different codebase, so it is excluded.
+  "include": ["extension/**/*.ts", "test/**/*.ts", "verification/probe.ts"]
 }
