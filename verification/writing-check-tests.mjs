@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  checkRecord, checkText, normalizeMarkdown, segmentSentences, wordTokens, run, formatText,
+  checkRecord, checkText, measureWritingTurn, normalizeMarkdown, segmentSentences, wordTokens, run, formatText,
   recordsFromFiles, recordsFromUnifiedDiff, NOT_CHECKED, MAX_FINDINGS, MAX_INPUT_BYTES,
 } from '../extension/writing-check.mjs';
 
@@ -185,6 +185,24 @@ test('CLI refuses a five-MiB regular file before reading it', () => {
     const p = spawnSync(process.execPath, [CHECKER, '--file', path], { encoding: 'utf8' });
     assert.notEqual(p.status, 0); assert.match(p.stderr, new RegExp(`${MAX_INPUT_BYTES}-byte`));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+test('writing status counts only fail findings on completed assistant text', () => {
+  const counters = { measuredTurns: 0, findingTurns: 0 };
+  measureWritingTurn({ role: 'assistant', content: 'This is a clean turn.' }, { checkText: text => ({ findings: [] }) }, counters);
+  measureWritingTurn({ role: 'assistant', content: 'Open the panel; stop.' }, { checkText: text => ({ findings: [{ class: 'fail' }] }) }, counters);
+  measureWritingTurn({ role: 'assistant', content: 'A warning.' }, { checkText: text => ({ findings: [{ class: 'warning' }] }) }, counters);
+  measureWritingTurn({ role: 'user', content: 'Open the panel; stop.' }, { checkText: text => ({ findings: [{ class: 'fail' }] }) }, counters);
+  assert.deepEqual(counters, { measuredTurns: 3, findingTurns: 1 });
+});
+test('writing status fails open when the checker throws', () => {
+  const counters = { measuredTurns: 0, findingTurns: 0 };
+  measureWritingTurn({ role: 'assistant', content: 'This message is too large.' }, { checkText: () => { throw new Error('cap'); } }, counters);
+  assert.deepEqual(counters, { measuredTurns: 0, findingTurns: 0 });
+});
+test('writing status skips a capped assistant message', () => {
+  const counters = { measuredTurns: 0, findingTurns: 0 };
+  measureWritingTurn({ role: 'assistant', content: 'x'.repeat(2 * 1024 * 1024) }, { checkText: text => checkText(text) }, counters);
+  assert.deepEqual(counters, { measuredTurns: 0, findingTurns: 0 });
 });
 test('CLI refuses a symlink to a special file', () => {
   const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-link-'));

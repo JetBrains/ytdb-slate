@@ -333,6 +333,30 @@ export function checkText(text, options = {}) {
   return checkRecord({ id: options.id ?? 'text', text }, 0, options);
 }
 
+function assistantText(message) {
+  if (!message || typeof message !== 'object' || message.role !== 'assistant') return undefined;
+  if (typeof message.content === 'string') return message.content;
+  if (!Array.isArray(message.content)) return undefined;
+  const text = message.content
+    .filter(part => part && typeof part === 'object' && part.type === 'text' && typeof part.text === 'string')
+    .map(part => part.text)
+    .join('\n');
+  return text || undefined;
+}
+
+/** Human-only turn telemetry. It never returns a hook result and always fails open. */
+export function measureWritingTurn(message, checker, counters) {
+  try {
+    const text = assistantText(message);
+    if (text === undefined) return;
+    const result = checker.checkText(text);
+    counters.measuredTurns += 1;
+    if (result.findings.some(finding => finding.class === 'fail')) counters.findingTurns += 1;
+  } catch {
+    // A cap, checker load error, or implementation error must never fail a turn.
+  }
+}
+
 export function run(records, options = {}) {
   if (records.length > MAX_RECORDS) throw new Error(`Input exceeds the ${MAX_RECORDS}-record limit`);
   const bytes = records.reduce((total, record) => total + Buffer.byteLength(String(record.text ?? ''), 'utf8'), 0);

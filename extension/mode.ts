@@ -26,6 +26,7 @@ import {
 	PR_PUBLISHING_DOC,
 	REVIEW_RULES_DOC,
 	TRACK_WORKFLOW_DOC,
+	WRITING_CHECKER,
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { THINKING_LEVELS } from "./route.ts";
@@ -91,6 +92,15 @@ function sanitizeForDoctrine(value: string, max: number): string {
  * site in buildDoctrine, not because this module pins them to that slot.
  */
 const FIXED_DOCTRINE_RULES = 10;
+
+interface WritingChecker {
+	checkText(text: string): { findings: readonly { class: string }[] };
+	measureWritingTurn(message: unknown, checker: WritingChecker, counters: WritingCounters): void;
+}
+export interface WritingCounters {
+	measuredTurns: number;
+	findingTurns: number;
+}
 
 /**
  * Number the conditional tail rules by position. Each builder is handed the
@@ -486,6 +496,12 @@ export function registerSlateMode(
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
+	const writingCounters: WritingCounters = { measuredTurns: 0, findingTurns: 0 };
+	let writingCheckerPromise: Promise<WritingChecker> | undefined;
+
+	const writingIsVisible = (ctx: ExtensionContext): boolean =>
+		ctx.hasUI && store.orchestratorMode && getConfig().writing?.check === true && ctx.isProjectTrusted();
+
 
 	const updateWidget = () => {
 		if (!uiCtx?.hasUI) return;
@@ -501,7 +517,8 @@ export function registerSlateMode(
 		// Keep the line short in the common no-handoff case.
 		const carried = store.carriedCostUsd > 0 ? ` + carried $${store.carriedCostUsd.toFixed(4)}` : "";
 		const costLine = `total $${total.toFixed(4)} (me $${orchestratorCost.toFixed(4)} + workers $${store.workerCostUsd.toFixed(4)}${carried})`;
-		uiCtx.ui.setStatus("slate", `slate: orchestrator ⋅ ${costLine}`);
+		const writingLine = writingIsVisible(uiCtx) ? ` ⋅ writing ${writingCounters.findingTurns}/${writingCounters.measuredTurns}` : "";
+		uiCtx.ui.setStatus("slate", `slate: orchestrator ⋅ ${costLine}${writingLine}`);
 		const threads = [...store.threads.values()];
 		const lines = [
 			`slate ⋅ orchestrator mode ⋅ ${threads.length} thread${threads.length === 1 ? "" : "s"}`,
@@ -590,6 +607,22 @@ export function registerSlateMode(
 		return { systemPrompt: event.systemPrompt + parts.join("") };
 	});
 
+	// The writing checker reads only the completed assistant message from
+	// turn_end. It returns no hook result, so it is human-only telemetry and
+	// cannot alter what the model receives.
+	pi.on("turn_end", async (event, ctx) => {
+		uiCtx = ctx;
+		if (!writingIsVisible(ctx)) return;
+		try {
+			writingCheckerPromise ??= import(WRITING_CHECKER);
+			const checker = await writingCheckerPromise;
+			checker.measureWritingTurn(event.message, checker, writingCounters);
+			updateWidget();
+		} catch {
+			// Loading the optional checker is also fail-open.
+		}
+	});
+
 	// Refresh the orchestrator's own cost after each of its settled runs.
 	pi.on("agent_settled", async (_event, ctx) => {
 		uiCtx = ctx;
@@ -598,6 +631,9 @@ export function registerSlateMode(
 
 	pi.on("session_start", async (_event, ctx) => {
 		uiCtx = ctx;
+		writingCounters.measuredTurns = 0;
+		writingCounters.findingTurns = 0;
+		writingCheckerPromise = undefined;
 		// store.restore() (index.ts) and pending-handoff adoption (handoff.ts)
 		// ran before this handler in registration order; re-apply the persisted
 		// mode to the fresh runtime.
