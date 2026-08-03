@@ -27,12 +27,18 @@ export function sanitizeWritingConfig(raw: unknown, warn: (msg: string) => void)
 		);
 	}
 
+	let rawCheck: unknown;
+	try {
+		rawCheck = value.check;
+	} catch {
+		warn("slate: ignoring writing.check — could not read the value (defaulting to false)");
+	}
 	let check = false;
-	if (value.check !== undefined) {
-		if (typeof value.check !== "boolean") {
+	if (rawCheck !== undefined) {
+		if (typeof rawCheck !== "boolean") {
 			warn("slate: ignoring writing.check — expected true or false (defaulting to false)");
 		} else {
-			check = value.check;
+			check = rawCheck;
 		}
 	}
 

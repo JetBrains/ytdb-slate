@@ -55,6 +55,7 @@ async function tryImport(rel) {
 const routerLoad = await tryImport("extension/model-router.ts");
 const profilesLoad = await tryImport("extension/model-profiles.ts");
 const stateLoad = await tryImport("extension/state.ts");
+const writingLoad = await tryImport("extension/writing.ts");
 // The base-model tracker is a PURE reducer over model-selection events (its own
 // module header says so), so it belongs here rather than in the ladder: it
 // touches no pi, no filesystem and no clock other than the injected one.
@@ -66,6 +67,7 @@ const routeLoad = await tryImport("extension/route.ts");
 const router = routerLoad.module;
 const table = profilesLoad.module;
 const state = stateLoad.module;
+const writing = writingLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
 
@@ -154,7 +156,7 @@ function mkpkg(name, entries, files) {
 // Drive the doctrine builder the way index.ts does — through registerSlateMode's
 // before_agent_start handler — with a fixed (empty) config and an untrusted
 // project, so only the worker-extension rule varies between calls.
-async function doctrine(extSet, getRouter, trusted = false) {
+async function doctrine(extSet, getRouter, trusted = false, config = {}) {
 	const handlers = {};
 	const pi = {
 		on: (e, h) => (handlers[e] = h),
@@ -175,7 +177,7 @@ async function doctrine(extSet, getRouter, trusted = false) {
 	// The 6th parameter is OPTIONAL and defaults to the shared off resolution, which is
 	// why every pre-router caller of this helper kept passing. It is passed only when a
 	// check supplies one, so the DEFAULT path stays exercised too (b092f92).
-	const args = [pi, store, { startHandoff: async () => {} }, () => ({}), () => extSet];
+	const args = [pi, store, { startHandoff: async () => {} }, () => config, () => extSet];
 	if (getRouter !== undefined) args.push(getRouter);
 	mode.registerSlateMode(...args);
 	// TRUST defaults to FALSE, which is what every pre-74a728c caller of this helper
@@ -228,7 +230,7 @@ const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "pro
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
-const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget"];
+const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject"];
 /**
  * Checks that need extension/route.ts — the dispatch guards. They also need
  * extension/model-router.ts, because the planner consumes its resolutions AND
@@ -487,7 +489,7 @@ try {
 		 * pins that trusted and untrusted render byte-identically for the configurations
 		 * used here, and `doctrine-untrusted` pins the gate itself.
 		 */
-		const asTrusted = (extSet, getRouter) => doctrine(extSet, getRouter, true);
+		const asTrusted = (extSet, getRouter, config = {}) => doctrine(extSet, getRouter, true, config);
 		const WITH_EXT = { units: [{ path: "/x", source: "npm:demo", isDirectory: true, tools: [{ name: "d", description: "d" }] }], paths: [], toolNames: [] };
 		/** A RouterCandidate as model-router freezes them — only the fields mode.ts reads. */
 		const cand = (spec, o = {}) => ({
@@ -926,6 +928,60 @@ try {
 			);
 		});
 
+		await section("writing-doctrine", async () => {
+			const offConfig = { writing: { check: false } };
+			const onConfig = { writing: { check: true } };
+			const noConfig = {};
+			const off = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), offConfig);
+			const absent = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), noConfig);
+			const on = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), onConfig);
+			checkAll("writing-doctrine-off", "writing.check false renders doctrine byte-identically to an absent writing config", [
+				["off equals absent", off === absent, { off: off.length, absent: absent.length }],
+				["on renders the writing rule", /Check all user-facing prose before delivery/.test(on), on.slice(-700)],
+			]);
+
+			const untrustedOn = await doctrine(EMPTY_EXT, () => ({ on: false, candidates: [] }), false, onConfig);
+			const untrustedOff = await doctrine(EMPTY_EXT, () => ({ on: false, candidates: [] }), false, offConfig);
+			const trustedOn = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), onConfig);
+			checkAll("writing-doctrine-untrusted", "an untrusted project gets no writing rule and remains byte-identical to writing.check false", [
+				["untrusted on equals off", untrustedOn === untrustedOff, { on: untrustedOn.length, off: untrustedOff.length }],
+				["trusted on renders the rule", /Check all user-facing prose before delivery/.test(trustedOn), trustedOn.slice(-700)],
+			]);
+
+			const routing = onReal;
+			const offRouter = () => ({ on: false, candidates: [] });
+			const combos = {
+				writing: await asTrusted(EMPTY_EXT, offRouter, onConfig),
+				"writing + router": await asTrusted(EMPTY_EXT, routing, onConfig),
+				"writing + extensions": await asTrusted(WITH_EXT, offRouter, onConfig),
+				"all three": await asTrusted(WITH_EXT, routing, onConfig),
+				"router without writing": await asTrusted(EMPTY_EXT, routing, offConfig),
+				"extensions without writing": await asTrusted(WITH_EXT, offRouter, offConfig),
+				"all without writing": await asTrusted(WITH_EXT, routing, offConfig),
+			};
+			const numbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, tailNumbers(text)]));
+			const writingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Check all user-facing prose")]));
+			const routingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Route every action")]));
+			const extensionNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Delegate any action that needs")]));
+			checkAll("writing-doctrine-numbering", "the writing rule is appended and numbered by tail position, without renumbering any rule before it", [
+				["writing alone is 11", writingNumbers.writing === 11 && numbers.writing.join() === "11", numbers],
+				["writing follows router", writingNumbers["writing + router"] === 12 && routingNumbers["writing + router"] === 11, [writingNumbers, routingNumbers]],
+				["writing follows extensions", writingNumbers["writing + extensions"] === 12 && extensionNumbers["writing + extensions"] === 11, [writingNumbers, extensionNumbers]],
+				["writing is last with all three", writingNumbers["all three"] === 13 && routingNumbers["all three"] === 12 && extensionNumbers["all three"] === 11, [writingNumbers, routingNumbers, extensionNumbers]],
+				["router number stays unchanged when writing is added", routingNumbers["writing + router"] === numberOf(combos["router without writing"], "Route every action"), [routingNumbers, numberOf(combos["router without writing"], "Route every action")]],
+				["extension number stays unchanged when writing is added", extensionNumbers["writing + extensions"] === numberOf(combos["extensions without writing"], "Delegate any action that needs"), [extensionNumbers, numberOf(combos["extensions without writing"], "Delegate any action that needs")]],
+				["both preceding numbers stay unchanged when writing is added", routingNumbers["all three"] === numberOf(combos["all without writing"], "Route every action") && extensionNumbers["all three"] === numberOf(combos["all without writing"], "Delegate any action that needs"), [routingNumbers, extensionNumbers]],
+			]);
+
+			const hostileConfigs = [
+				{ writing: { check: true, extra: "ignored" } },
+				{ writing: { check: true, checkAgain: "ignored" } },
+				{ writing: { check: true, nested: { text: "ignored" } } },
+			];
+			const renderedHostile = await Promise.all(hostileConfigs.map((config) => asTrusted(EMPTY_EXT, offRouter, config)));
+			check("writing-doctrine-inject", renderedHostile.every((text) => text === on), "the writing doctrine is static: config-derived text beyond the boolean check never reaches the rendered rule", renderedHostile.map((text) => text.length));
+		});
+
 		await section("doctrine-budget", async () => {
 			// A BUDGET GUARD, not a recorded fact — and measured on an INSTALL-INVARIANT
 			// figure, which is the only way it can be a guard at all.
@@ -952,6 +1008,10 @@ try {
 			// degrades to the identity and the first two terms below say so loudly.
 			const off = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }));
 			const on = await asTrusted(EMPTY_EXT, onReal);
+			const writingOn = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { writing: { check: true } });
+			const writingRouterOn = await asTrusted(EMPTY_EXT, onReal, { writing: { check: true } });
+			const writingExtensionsOn = await asTrusted(WITH_EXT, () => ({ on: false, candidates: [] }), { writing: { check: true } });
+			const writingAllOn = await asTrusted(WITH_EXT, onReal, { writing: { check: true } });
 			const DOCS_DIR = /^\s*(\S*\/docs)\/[a-z0-9-]+\.md\s*$/m.exec(on)?.[1] ?? "";
 			const portable = (text) => (DOCS_DIR === "" ? text : text.split(DOCS_DIR).join(""));
 			const rule = ruleOf(on);
@@ -977,6 +1037,12 @@ try {
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
 					["...and the whole router-on doctrine stays under 6500 portable chars", portable(on).length <= 6500, { portable: portable(on).length, raw: on.length }],
+					["writing-only doctrine stays under the stricter 5600 portable-char bound", portable(writingOn).length <= 5600, { portable: portable(writingOn).length }],
+					["writing plus router stays under the stricter 5600 portable-char bound", portable(writingRouterOn).length <= 5600, { portable: portable(writingRouterOn).length }],
+					["writing plus extensions stays under the stricter 5600 portable-char bound", portable(writingExtensionsOn).length <= 5600, { portable: portable(writingExtensionsOn).length }],
+					["all three features stay under the stricter 5600 portable-char bound", portable(writingAllOn).length <= 5600, { portable: portable(writingAllOn).length }],
+					["writing-on text is actually larger than writing-off text", writingOn.length > off.length, { off: off.length, writing: writingOn.length }],
+					["writing-on with extensions is larger than writing-on without them", writingAllOn.length > writingRouterOn.length, { router: writingRouterOn.length, all: writingAllOn.length }],
 				],
 			);
 		});
@@ -1907,6 +1973,56 @@ try {
 				["unknown keys named", warnedE.length === 1 && /unknown router key/.test(warnedE[0]) && warnedE[0].includes("model") && warnedE[0].includes("allowUnmeasured"), warnedE],
 				["typo'd config still yields defaults", typo.models.length === 0 && typo.allowUnmeasuredEffort === true, typo],
 				["a zero-width-bearing entry is dropped, naming U+200B", invisibleCfg.models.join(",") === "p/good" && warnedF.length === 1 && /invisible or control characters \([^)]*U\+200B/.test(warnedF[0]), [invisibleCfg.models, warnedF]],
+			]);
+		});
+
+		await section("writing-config", async () => {
+			const warnedA = [];
+			const dflt = writing.sanitizeWritingConfig(undefined, (m) => warnedA.push(m));
+			checkAll("writing-config-default", "an absent writing config silently yields { check: false }", [
+				["check is false", dflt.check === false, dflt],
+				["no warning", warnedA.length === 0, warnedA],
+			]);
+
+			const invalid = [null, [], "yes", 7].map((raw) => {
+				const warned = [];
+				const result = writing.sanitizeWritingConfig(raw, (m) => warned.push(m));
+				return { result, warned };
+			});
+			const unknownWarn = [];
+			const unknown = writing.sanitizeWritingConfig({ check: true, typo: true }, (m) => unknownWarn.push(m));
+			const typeWarn = [];
+			const wrongType = writing.sanitizeWritingConfig({ check: "yes" }, (m) => typeWarn.push(m));
+			checkAll("writing-config-invalid", "invalid writing shapes warn once and default, unknown keys warn and disappear, and a non-boolean check warns and falls back to false", [
+				["every invalid shape warns once and defaults", invalid.every(({ result, warned }) => result.check === false && warned.length === 1), invalid],
+				["unknown key warns", unknown.check === true && unknownWarn.length === 1 && /unknown writing key/.test(unknownWarn[0]), [unknown, unknownWarn]],
+				["unknown key is not rebuilt", !Object.prototype.hasOwnProperty.call(unknown, "typo"), unknown],
+				["wrong type warns and defaults", wrongType.check === false && typeWarn.length === 1, [wrongType, typeWarn]],
+			]);
+
+			const proto = Object.create(null);
+			Object.defineProperty(proto, "__proto__", { value: { polluted: true }, enumerable: true });
+			const getter = {};
+			Object.defineProperty(getter, "check", { enumerable: true, get() { throw new Error("getter exploded"); } });
+			let deep = { nested: null };
+			let cursor = deep;
+			for (let i = 0; i < 30000; i++) { cursor.nested = { nested: null }; cursor = cursor.nested; }
+			const hostile = [proto, getter, { check: deep }];
+			const hostileResults = hostile.map((raw) => {
+				const warned = [];
+				let result;
+				try { result = writing.sanitizeWritingConfig(raw, (m) => warned.push(m)); } catch { result = null; }
+				return { raw, result, warned };
+			});
+			const safeCheck = (result) => {
+				try { return result?.check === false; } catch { return false; }
+			};
+			checkAll("writing-config-hostile", "hostile prototype, getter, and deeply nested values do not crash or pollute the sanitizer, and sanitization returns a fresh object", [
+				["all hostile inputs survive", hostileResults.every(({ result }) => result !== null), hostileResults.map(({ result }) => result === null)],
+				["all hostile inputs default", hostileResults.every(({ result }) => safeCheck(result)), hostileResults.map(({ result }) => safeCheck(result))],
+				["warnings are emitted", hostileResults.every(({ warned }) => warned.length >= 1), hostileResults.map(({ warned }) => warned.length)],
+				["result is fresh", hostileResults.every(({ raw, result }) => result !== raw), hostileResults.map(({ raw, result }) => raw === result)],
+				["no prototype pollution", ({}).polluted === undefined && ({}).typo === undefined, Object.prototype],
 			]);
 		});
 
@@ -3823,6 +3939,7 @@ try {
 			["contextBudget", "sanitizeContextBudget"],
 			["workerExtensions", "sanitizeWorkerExtensions"],
 			["router", "sanitizeRouterConfig"],
+			["writing", "sanitizeWritingConfig"],
 			["episodeModel", "sanitizeEpisodeModel"],
 		];
 		const notAssigned = required.filter(([key, fn]) => !new RegExp(`config\\.${key}\\s*=\\s*${fn}\\(`).test(src)).map(([key]) => key);
@@ -5131,6 +5248,8 @@ try {
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget",
+		"writing-config-default", "writing-config-invalid", "writing-config-hostile",
+		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject",
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",
 		"bar-self-exclude", "bar-collision",
