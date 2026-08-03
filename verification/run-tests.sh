@@ -45,7 +45,11 @@ test_files=("$repo"/test/**/*.test.ts)
 printf 'run-tests: node --test test/ (%s file(s); LCOV: %s)\n' "${#test_files[@]}" "$lcov"
 set +e
 (
-  cd "$repo" && node --test --experimental-test-coverage \
+  # Suppress only Node's package-type inference warning. Adding `type: module`
+  # would alter the shipped package, while renaming the required .ts test would
+  # complicate discovery and typecheck coverage for no runtime benefit.
+  cd "$repo" && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
+    --test --experimental-test-coverage \
     --test-coverage-include='extension/**/*.ts' \
     --test-reporter=spec --test-reporter-destination=stdout \
     --test-reporter=lcov --test-reporter-destination="$lcov" \

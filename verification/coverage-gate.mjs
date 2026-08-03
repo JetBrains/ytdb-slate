@@ -45,6 +45,30 @@ function globRegex(glob) {
 const includePatterns = options.includes.map(globRegex);
 const inScope = (file) => includePatterns.some((pattern) => pattern.test(file));
 
+function gitOutput(args, purpose) {
+  const run = spawnSync("git", args, { cwd: repo, encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
+  if (run.error || run.status !== 0) {
+    process.stderr.write(run.stderr || String(run.error || `git ${purpose} failed`));
+    process.exit(run.status || 2);
+  }
+  return run.stdout;
+}
+const uncommitted = new Set();
+for (const args of [
+  ["-c", "core.quotePath=false", "diff", "--name-only", "--"],
+  ["-c", "core.quotePath=false", "diff", "--cached", "--name-only", "--"],
+  ["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"],
+]) {
+  for (const name of gitOutput(args, "working-tree inspection").split("\n")) {
+    const normalized = slash(name.trim());
+    if (normalized && inScope(normalized)) uncommitted.add(normalized);
+  }
+}
+if (uncommitted.size) {
+  console.log(`WORKTREE WARNING: ${uncommitted.size} uncommitted in-scope file(s) are INVISIBLE to ${options.base}..${options.head}:`);
+  for (const name of [...uncommitted].sort()) console.log(`  ${name}`);
+}
+
 const diffRun = spawnSync("git", ["-c", "core.quotePath=false", "diff", "--unified=0", `${options.base}..${options.head}`, "--"], {
   cwd: repo,
   encoding: "utf8",
@@ -140,6 +164,7 @@ console.log(`OVERALL: lines ${lineHit}/${lineTotal}=${pct(linePct)} (floor ${opt
 
 const failures = [];
 const warnings = [];
+if (uncommitted.size) warnings.push(`${uncommitted.size} uncommitted in-scope file(s) are outside the committed range; commit or stash them before treating this result as complete`);
 if (lineTotal === 0) warnings.push("no changed executable line had an LCOV DA record; manual review is required");
 else if (linePct + Number.EPSILON < options.line) failures.push(`line patch coverage ${linePct.toFixed(2)}% is below ${options.line.toFixed(2)}%`);
 if (branchTotal === 0) warnings.push("zero changed branches; branch coverage is not auto-passed and needs manual review");
