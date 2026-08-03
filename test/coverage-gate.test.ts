@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +12,9 @@ const RUNNER = fileURLToPath(new URL("../verification/run-tests.sh", import.meta
 interface RunResult { status: number | null; stdout: string; stderr: string }
 
 function command(cwd: string, executable: string, args: string[], env?: NodeJS.ProcessEnv): RunResult {
-  const result = spawnSync(executable, args, { cwd, encoding: "utf8", env: { ...process.env, ...env } });
+  const mergedEnv = { ...process.env, ...env };
+  for (const [name, value] of Object.entries(mergedEnv)) if (value === undefined) delete mergedEnv[name];
+  const result = spawnSync(executable, args, { cwd, encoding: "utf8", env: mergedEnv });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -211,6 +213,59 @@ test("pre-base suppression counts executable DA gaps as uncovered, but types sta
     assert.match(result.stdout, /VERDICT: WARN/);
     assert.doesNotMatch(result.stdout, /FAIL:/);
   });
+});
+
+test("DA-bearing lines survive classifier comment confusion (RG27)", (t) => {
+  const { repo, base } = fixture(t);
+  write(repo, "extension/sample.ts", [
+    "export const before = 1;",
+    "export const providerPattern = 'anthropic/*';",
+    "export function hiddenA(value: number) {",
+    "  const first = value + 1;",
+    "  if (first > 10) return first;",
+    "  if (first > 5) return first + 1;",
+    "  return 0;",
+    "}",
+    "export function hiddenB(value: number) {",
+    "  const second = value + 2;",
+    "  if (second > 3) return second;",
+    "  return 0;",
+    "}",
+    "/**",
+    " * This real terminator closes the wildcard-like substring above.",
+    " */",
+    "export function visible(value: number) {",
+    "  const result = value + 1;",
+    "  return result;",
+    "}",
+    "export const visibleValue = visible(1);",
+    "",
+  ].join("\n"));
+  commit(repo);
+  write(repo, "fixture.test.mjs", "import test from 'node:test';\nimport { hiddenA, visibleValue } from './extension/sample.ts';\ntest('visible path', () => { if (hiddenA(0) !== 0 || visibleValue !== 2) throw new Error('bad value'); });\n");
+  const lcovPath = join(repo, "real.lcov");
+  const coverageRun = command(repo, process.execPath, [
+    "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "--test", "--experimental-test-coverage",
+    "--test-coverage-include=extension/sample.ts", "--test-reporter=lcov",
+    `--test-reporter-destination=${lcovPath}`, "fixture.test.mjs",
+  ], { NODE_TEST_CONTEXT: undefined });
+  assert.equal(coverageRun.status, 0, coverageRun.stderr);
+  const lcov = readFileSync(lcovPath, "utf8");
+  const da = [...lcov.matchAll(/^DA:(\d+),(\d+)/gm)]
+    .map((match) => ({ line: Number(match[1]), hits: Number(match[2]) }))
+    .filter((entry) => entry.line >= 2);
+  const brda = [...lcov.matchAll(/^BRDA:(\d+),[^,]*,[^,]*,([^\r\n]+)/gm)]
+    .map((match) => ({ line: Number(match[1]), hits: match[2] === "-" ? 0 : Number(match[2]) }))
+    .filter((entry) => entry.line >= 2);
+  const lineHits = da.filter((entry) => entry.hits > 0).length;
+  const branchHits = brda.filter((entry) => entry.hits > 0).length;
+  assert.ok(da.some((entry) => entry.hits === 0), "fixture must contain real uncovered DA records");
+  assert.ok(brda.filter((entry) => entry.hits === 0).length >= 2, "fixture must contain multiple real uncovered BRDA records before the terminator");
+  assert.ok(100 * lineHits / da.length < 85, "fixture must fail the line floor when fully measured");
+  const result = runGate(repo, base, lcov);
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stdout, new RegExp(`lines ${lineHits}/${da.length}=`));
+  assert.match(result.stdout, new RegExp(`branches ${branchHits}/${brda.length}=`));
 });
 
 test("directive scan catches every raw-line shape Node 24.18 matches (RG21)", (t) => {

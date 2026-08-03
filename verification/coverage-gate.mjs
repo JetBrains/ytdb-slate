@@ -231,7 +231,7 @@ const scoped = [...changed.entries()].filter(([name, lines]) => inScope(name) &&
 for (const [name, added] of scoped) {
   const record = coverage.get(name);
   const classified = executableLinesAtHead(name);
-  const executableAdded = [...added].filter((line) => classified === undefined || classified.has(line));
+  const executableAdded = [...added].filter((line) => record?.lines.has(line) || classified === undefined || classified.has(line));
   let lines, branches, note = "";
   if (!record || record.lines.size === 0) {
     lines = executableAdded.map((line) => ({ line, hits: 0 }));
@@ -241,7 +241,7 @@ for (const [name, added] of scoped) {
       : " [NO USABLE LCOV; fail-closed synthetic branch]";
   } else {
     lines = executableAdded.map((line) => ({ line, hits: record.lines.get(line) ?? 0 }));
-    branches = [...record.branches.values()].filter((branch) => added.has(branch.line) && (classified === undefined || classified.has(branch.line)));
+    branches = [...record.branches.values()].filter((branch) => added.has(branch.line));
     const uncoveredOrUnmeasured = lines.some((entry) => entry.hits <= 0);
     if (uncoveredOrUnmeasured && !branches.some((branch) => branch.hits <= 0)) {
       branches.push({ line: Math.min(...executableAdded), hits: 0 });
