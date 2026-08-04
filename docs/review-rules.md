@@ -68,6 +68,37 @@ bullet below is that perspective's charter:
   and safety of any scripts/hooks/config touched.
 - **Mixed diffs**: scope each reviewer to its in-scope files. Code
   reviewers never review process/docs files, and vice versa.
+- **Text-review execution**: run the shipped proxy checker at
+  `extension/writing-check.mjs` over changed prose before reaching a
+  verdict. Use `--file PATH` for complete prose
+  artifacts and `--diff PATH` for added lines in a unified diff. Diff
+  mode deliberately selects only prose file types. It does not review
+  added source code as prose. This exclusion includes user-facing
+  strings and comments in source files. Inspect those directly or supply
+  extracted text by another input mode.
+
+  Checker classes direct attention and do not replace §4 severity:
+  - `fail`: inspect the passage. A confirmed mechanical violation is
+    normally `should-fix`. Use `blocker` only when the underlying writing
+    defect itself prevents safe or correct delivery.
+  - `warning`: inspect the passage and normally report at most a
+    `suggestion`. Raise it only when independent evidence establishes a
+    more consequential defect.
+  - `house-style`: report at most a `suggestion` when the applicable
+    artifact convention calls for the change. Otherwise, report nothing.
+  - `advisory`: never report the checker result itself as a defect. File
+    a finding only when independent review establishes an underlying
+    defect, and grade that defect on its own consequences.
+
+  The checker is a dictionary-free proxy, not an authority. It embeds no
+  controlled vocabulary and establishes no ASD-STE100 conformance. A
+  clean run does not prove that writing is good, and a reported match is
+  not automatically a defect. Reviewer judgment governs.
+
+  In particular, the checker cannot decide meaning, factual accuracy, claim truth,
+  document structure, topic unity, or instruction completeness. Review
+  those directly. They are usually more valuable than a mechanical
+  finding.
 - Selection is a judgment call, not a rigid filter — when in doubt,
   include the perspective. Risk/complexity changes how deep iteration
   goes (§6), never which perspectives run.
@@ -156,13 +187,19 @@ review dispatch:
   library code instead of assuming its semantics.
 - Enumerate cases exhaustively along the changed execution paths
   (branches, error paths, boundary values); mark each case as checked
-  or explicitly out of scope.
+  or explicitly out of scope. For prose, enumerate the affected
+  audiences, reader tasks, claims, definitions, cross-references,
+  examples, exceptions, and boundary conditions instead of execution
+  paths.
 - Back every defect claim (blocker or should-fix) with a concrete
   counterexample: the input, state, or interleaving that triggers the
   defect, traced through the code.
 - Back every correctness claim ("no issue here") with a justification
   for why no counterexample exists — not merely the absence of one
-  found.
+  found. For prose, proof of absence means a bounded, reproducible check
+  of the relevant set. Examples include checker output, targeted
+  searches, re-resolved references, and comparison with authoritative
+  sources. State explicitly what those checks cannot establish.
 - Before finalizing, run an alternative-hypothesis check: "if the
   opposite verdict were true, what evidence would exist?" — then look
   for that evidence.
@@ -170,3 +207,7 @@ review dispatch:
   sought → confirmed / refuted / refined) instead of wandering.
 - Derive the final verdict explicitly from the stated definitions and
   claims, not from overall impression.
+- Treat a fix series as a changed artifact that needs review. Verify the
+  addressed finding, then review the fix diff and the cumulative result
+  for new paths, claims, and regressions. Clearing the original finding
+  does not clear defects introduced by its fix.
