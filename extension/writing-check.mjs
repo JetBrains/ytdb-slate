@@ -10,6 +10,12 @@ import { pathToFileURL } from 'node:url';
 export const MAX_INPUT_BYTES = 1024 * 1024;
 export const MAX_RECORDS = 10000;
 export const MAX_FINDINGS = 1000;
+// SC7: findings were capped but these two arrays were not, so a 1 MiB input
+// produced 62 MB of stdout. Both bounds sit far above real documents (the
+// largest file in this repository reports 591 blocks and 1229 stripped spans),
+// so they truncate only pathological input.
+export const MAX_STRIPPED = 5000;
+export const MAX_BLOCK_DETAILS = 5000;
 
 export const NOT_CHECKED = [
   { id: 'APPROVED_WORD', reason: 'Approved-word membership needs an authorized controlled dictionary.' },
@@ -39,6 +45,193 @@ function blankRange(chars, start, end) {
   for (let i = start; i < end; i++) if (chars[i] !== '\n' && chars[i] !== '\r') chars[i] = ' ';
 }
 
+// ------------------------------------------------------------- scanners ----
+// Five patterns in this module were quadratic: each restarted a forward scan at
+// every candidate position, so one failed attempt was repeated for every
+// character before it. At the module's own 1 MiB input cap that cost minutes
+// (SC1, SC2), and the checker runs inside a turn hook.
+//
+// Each is replaced below by a scanner that visits the input a bounded number of
+// times. Every scanner reproduces its regex's match list EXACTLY, including
+// leftmost-first order and the resume point after a match; the equivalence is
+// pinned by fixtures in verification/writing-check-tests.mjs and the growth is
+// gated by verification/writing-check-scaling.mjs.
+
+/**
+ * `<!--[\s\S]*?-->`. The closer is the first `-->` at or after the opener, so
+ * indexOf finds it directly. An opener with no closer after it means no LATER
+ * opener has one either, which is what makes the failing case linear instead of
+ * a rescan per opener.
+ */
+export function scanHtmlComments(text) {
+  const out = [];
+  for (let from = 0; ; ) {
+    const open = text.indexOf('<!--', from);
+    if (open < 0) break;
+    const close = text.indexOf('-->', open + 4);
+    if (close < 0) break;
+    out.push({ start: open, end: close + 3 });
+    from = close + 3;
+  }
+  return out;
+}
+
+const AUTOLINK_OPEN = /<(?:https?:\/\/|mailto:)/gi;
+const AUTOLINK_RUN = /[^>\s]*/y;
+/**
+ * `<(?:https?://|mailto:)[^>\s]+>`. The run excludes `>`, so only the maximal
+ * run can be followed by one and there is exactly one candidate end per opener.
+ * `guard` is the terminator cursor: terminators are non-decreasing in the start
+ * position, so it never moves backwards and the whole scan reads each character
+ * once.
+ */
+export function scanAutolinks(text) {
+  const out = [];
+  let guard = 0;
+  let lastEnd = 0;
+  AUTOLINK_OPEN.lastIndex = 0;
+  for (let m = AUTOLINK_OPEN.exec(text); m; m = AUTOLINK_OPEN.exec(text)) {
+    if (m.index < lastEnd) continue;
+    const runStart = m.index + m[0].length;
+    AUTOLINK_RUN.lastIndex = Math.max(guard, runStart);
+    AUTOLINK_RUN.exec(text);
+    const stop = AUTOLINK_RUN.lastIndex;
+    guard = stop;
+    if (stop > runStart && text[stop] === '>') {
+      out.push({ start: m.index, end: stop + 1 });
+      lastEnd = stop + 1;
+    }
+  }
+  return out;
+}
+
+const TICK_RUN = /`+/g;
+/**
+ * `` (`+)(?!`)([^\n]*?)\1 ``. The negative lookahead forces the opening group to
+ * run to the end of its backtick run, so every candidate opener is a suffix of
+ * one run and the candidates are enumerable from the runs alone. For an opener
+ * of K backticks the lazy body takes the EARLIEST later run of at least K
+ * backticks, on the same line.
+ *
+ * The per-line suffix maximum is what keeps this linear: it answers "is any
+ * later run long enough" without walking, and the walk that follows is paid for
+ * by the text the match then consumes.
+ */
+export function scanInlineCode(text) {
+  const runs = [];
+  TICK_RUN.lastIndex = 0;
+  for (let m = TICK_RUN.exec(text); m; m = TICK_RUN.exec(text)) {
+    runs.push({ start: m.index, end: m.index + m[0].length });
+  }
+  if (runs.length === 0) return [];
+  // lineEnd[i] — the newline that bounds run i's body, since the body cannot
+  // cross one. sufMax[i] — the longest run from i to the end of run i's line.
+  const sufMax = new Int32Array(runs.length + 1);
+  const lineEnd = new Int32Array(runs.length);
+  // Forward pass with a cursor that only advances. Calling indexOf per run
+  // instead re-scans the tail for every run, which is the very shape being
+  // removed here: with no newline in the input that is quadratic again.
+  let newline = text.indexOf('\n');
+  for (let i = 0; i < runs.length; i++) {
+    while (newline >= 0 && newline < runs[i].end) newline = text.indexOf('\n', newline + 1);
+    lineEnd[i] = newline < 0 ? text.length : newline;
+  }
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const sameLine = i + 1 < runs.length && runs[i + 1].start < lineEnd[i];
+    sufMax[i] = Math.max(runs[i].end - runs[i].start, sameLine ? sufMax[i + 1] : 0);
+  }
+  const out = [];
+  let lastEnd = 0;
+  for (let i = 0; i < runs.length; i++) {
+    if (runs[i].end <= lastEnd) continue;
+    // A match may resume mid-run, so the opener starts at the later of the run
+    // start and the previous match's end.
+    const from = Math.max(runs[i].start, lastEnd);
+    const bound = lineEnd[i];
+    const reach = i + 1 < runs.length && runs[i + 1].start < bound ? sufMax[i + 1] : 0;
+    // Openers are tried longest first (leftmost start wins), and an opener of K
+    // needs a later run of at least K, so the longest workable opener is K*.
+    const kStar = Math.min(runs[i].end - from, reach);
+    if (kStar < 1) continue;
+    let partner = -1;
+    for (let j = i + 1; j < runs.length && runs[j].start < bound; j++) {
+      if (runs[j].end - runs[j].start >= kStar) { partner = j; break; }
+    }
+    if (partner < 0) continue;
+    const openerStart = runs[i].end - kStar;
+    const end = runs[partner].start + kStar;
+    out.push({ start: openerStart, end });
+    lastEnd = end;
+    // Resume inside the partner run when it had backticks to spare.
+    if (end < runs[partner].end) i = partner - 1;
+    else i = partner;
+  }
+  return out;
+}
+
+const LOG_LINE_CORE = /^[^\S\n]*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)?\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b.*$/gm;
+const WHITESPACE = /\s/;
+/**
+ * The log-line pattern opened with `^\s*`, and `\s` matches a newline, so at
+ * every line start the scan ran to the end of the whitespace and backtracked
+ * over all of it. The anchor here is horizontal-only, which is linear; the
+ * start is then extended back over the same whitespace the original consumed,
+ * so the reported span is unchanged. The walk stops at the previous match's
+ * end, because the original could not start before it either.
+ */
+export function scanLogLines(text) {
+  const out = [];
+  let lastEnd = 0;
+  LOG_LINE_CORE.lastIndex = 0;
+  for (let m = LOG_LINE_CORE.exec(text); m; m = LOG_LINE_CORE.exec(text)) {
+    if (m.index < lastEnd) continue;
+    let p = m.index;
+    while (p > lastEnd && WHITESPACE.test(text[p - 1])) p--;
+    let start = p;
+    if (p !== 0 && text[p - 1] !== '\n') {
+      // Not a line start, so the earliest `^` the original could use is the
+      // first one after p.
+      const nl = text.indexOf('\n', p);
+      start = nl >= 0 && nl < m.index ? nl + 1 : m.index;
+    }
+    const end = m.index + m[0].length;
+    out.push({ start, end });
+    lastEnd = end;
+    if (LOG_LINE_CORE.lastIndex === m.index) LOG_LINE_CORE.lastIndex++;
+  }
+  return out;
+}
+
+const PATH_SEGMENT = /[A-Za-z0-9_.-]+/g;
+/**
+ * `\/?[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+`. On a long run with no slash the
+ * first group matched to the end and then backtracked over every length looking
+ * for one, at every start position (SC2 — a single call, not a rescan).
+ *
+ * A match is just a maximal chain of segments joined by single slashes, plus a
+ * leading slash when one is there, so listing the segments once decides every
+ * match. A chain of one segment is not a match, which is why `a//b` yields
+ * nothing and `a//b/c` yields only `/b/c`.
+ */
+export function scanPathTokens(text) {
+  const segments = [];
+  PATH_SEGMENT.lastIndex = 0;
+  for (let m = PATH_SEGMENT.exec(text); m; m = PATH_SEGMENT.exec(text)) {
+    segments.push({ start: m.index, end: m.index + m[0].length });
+  }
+  const out = [];
+  for (let i = 0; i < segments.length; ) {
+    let j = i;
+    while (j + 1 < segments.length && segments[j + 1].start === segments[j].end + 1 && text[segments[j].end] === '/') j++;
+    if (j > i) {
+      const head = segments[i].start;
+      out.push({ start: head > 0 && text[head - 1] === '/' ? head - 1 : head, end: segments[j].end });
+    }
+    i = j + 1;
+  }
+  return out;
+}
+
 export function normalizeMarkdown(text) {
   // Use UTF-16 code units because RegExp indices and JSON offsets use JS string indices.
   const chars = text.split('');
@@ -58,32 +251,47 @@ export function normalizeMarkdown(text) {
 
   // Markdown indented code and pasted machine blocks are not prose. Keep the
   // source length and offsets, but blank their content before block parsing.
+  const spansOf = (re) => {
+    const out = [];
+    for (const m of text.matchAll(re)) out.push({ start: m.index, end: m.index + m[0].length });
+    return out;
+  };
   const literalLines = [
-    ['indented-code', /^(?: {4,}(?![-+*]|\d+[.)]\s)\S).*$/gm],
-    ['git-diff', /^(?:diff --git |@@ |--- |\+\+\+ ).*$/gm],
-    ['log-line', /^\s*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)?\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b.*$/gm],
+    ['indented-code', spansOf(/^(?: {4,}(?![-+*]|\d+[.)]\s)\S).*$/gm)],
+    ['git-diff', spansOf(/^(?:diff --git |@@ |--- |\+\+\+ ).*$/gm)],
+    ['log-line', scanLogLines(text)],
   ];
-  for (const [type, re] of literalLines) for (const m of text.matchAll(re)) {
-    const start = m.index, end = start + m[0].length;
+  for (const [type, spans] of literalLines) for (const { start, end } of spans) {
     blankRange(chars, start, end); stripped.push({ type, start, end });
   }
 
-  const alreadyBlank = (s, e) => chars.slice(s, e).every(c => /\s/.test(c));
+  // No slice: the old copy allocated a fresh array per match, and one match can
+  // span the whole input.
+  const alreadyBlank = (s, e) => {
+    for (let i = s; i < e; i++) if (!WHITESPACE.test(chars[i])) return false;
+    return true;
+  };
   const patterns = [
-    ['html-comment', /<!--[\s\S]*?-->/g],
-    ['inline-code', /(`+)(?!`)([^\n]*?)\1/g],
-    ['autolink', /<(?:https?:\/\/|mailto:)[^>\s]+>/gi],
-    ['url', /\b(?:https?:\/\/|www\.)[^\s<>()]+/gi],
+    ['html-comment', scanHtmlComments(text)],
+    ['inline-code', scanInlineCode(text)],
+    ['autolink', scanAutolinks(text)],
+    ['url', spansOf(/\b(?:https?:\/\/|www\.)[^\s<>()]+/gi)],
   ];
-  for (const [type, re] of patterns) {
-    for (const m of text.matchAll(re)) {
-      const start = m.index, end = start + m[0].length;
+  for (const [type, spans] of patterns) {
+    for (const { start, end } of spans) {
       if (alreadyBlank(start, end)) continue;
       blankRange(chars, start, end); stripped.push({ type, start, end });
     }
   }
   stripped.sort((a, b) => a.start - b.start);
-  return { normalized: chars.join(''), stripped };
+  // SC7: blanking above is complete; only the REPORTED list is bounded.
+  const omittedStripped = Math.max(0, stripped.length - MAX_STRIPPED);
+  return {
+    normalized: chars.join(''),
+    stripped: omittedStripped > 0 ? stripped.slice(0, MAX_STRIPPED) : stripped,
+    strippedTruncated: omittedStripped > 0,
+    omittedStripped,
+  };
 }
 
 function classifyLine(raw) {
@@ -189,8 +397,9 @@ function prose(type) { return type === 'paragraph' || type === 'list-item' || ty
 
 function excludedHeuristicRanges(text, base) {
   const ranges = [];
+  // The path pattern is scanned, not matched: see scanPathTokens (SC2).
+  for (const span of scanPathTokens(text)) ranges.push({ start: base + span.start, end: base + span.end });
   const patterns = [
-    /\/?[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+/g,
     /\b(?:[A-Za-z0-9_-]+\.)+[A-Za-z]{1,8}\b/g,
     /\b[A-Za-z_]*_[A-Za-z0-9_-]+\b/g,
     /\b[a-z]+[A-Z][A-Za-z0-9]*\b/g,
@@ -208,16 +417,27 @@ function withoutExcluded(tokens, ranges) {
   }
   return kept;
 }
-function quotedDashRange(text, start, end) {
-  for (const re of [/“[^”\n]*—[^”\n]*”/g, /"[^"\n]*—[^"\n]*"/g]) for (const m of text.matchAll(re)) if (m.index <= start && m.index + m[0].length >= end) return true;
-  return false;
+/**
+ * BG1/PF1: this used to re-scan the whole block for every dash candidate, which
+ * is O(candidates × block). The spans are the same for every candidate, so they
+ * are collected once and swept with a pointer. Sorting by start is what lets a
+ * single span decide each query: candidates arrive left to right, so once a
+ * span ends before the query it can never contain a later one, and the first
+ * span that reaches far enough also starts earliest.
+ */
+export function quotedDashSpans(text) {
+  const spans = [];
+  for (const re of [/“[^”\n]*—[^”\n]*”/g, /"[^"\n]*—[^"\n]*"/g]) {
+    for (const m of text.matchAll(re)) spans.push({ start: m.index, end: m.index + m[0].length });
+  }
+  return spans.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
 export function checkRecord(record, ordinal = 0, options = {}) {
   const source = String(record.text ?? '');
   if (Buffer.byteLength(source, 'utf8') > MAX_INPUT_BYTES) throw new Error(`Text exceeds the ${MAX_INPUT_BYTES}-byte limit`);
   const id = record.id ?? `${record.session ?? 'record'}:${record.line ?? ordinal + 1}`;
-  const { normalized, stripped } = normalizeMarkdown(source);
+  const { normalized, stripped, strippedTruncated, omittedStripped } = normalizeMarkdown(source);
   const blocks = makeBlocks(normalized);
   const findings = []; let sentenceCount = 0, totalWords = 0, omittedFindings = 0;
   const maxFindings = Math.max(0, Math.min(MAX_FINDINGS, Number.isSafeInteger(options.maxFindings) ? options.maxFindings : MAX_FINDINGS));
@@ -241,8 +461,16 @@ export function checkRecord(record, ordinal = 0, options = {}) {
     for (const m of block.text.matchAll(/(?<!\/)\b[\p{L}]+\/[\p{L}]+\b(?!\/)/gu)) add('SLASHED', 'house-style', block, null, block.start + m.index, block.start + m.index + m[0].length);
 
     for (const m of block.text.matchAll(/\(([^()]*)\)/g)) if (finiteCandidate(m[1])) add('PARENTHETICAL_PAREN', 'house-style', block, null, block.start + m.index, block.start + m.index + m[0].length);
+    // Only a block with a dash candidate can produce one, and quotedDashSpans
+    // costs two scans of the block.
+    const quoted = block.text.includes('—') || block.text.includes('–') ? quotedDashSpans(block.text) : [];
+    let quotedIndex = 0;
     for (const m of block.text.matchAll(/(?:—|\s–\s)([^—–\n]+?)(?:—|\s–\s)/g)) {
-      if (!quotedDashRange(block.text, m.index, m.index + m[0].length)) add('PARENTHETICAL_DASH', 'house-style', block, null, block.start + m.index, block.start + m.index + m[0].length);
+      const dashStart = m.index, dashEnd = m.index + m[0].length;
+      while (quotedIndex < quoted.length && quoted[quotedIndex].end < dashEnd) quotedIndex++;
+      const span = quoted[quotedIndex];
+      const inQuote = span !== undefined && span.start <= dashStart && span.end >= dashEnd;
+      if (!inQuote) add('PARENTHETICAL_DASH', 'house-style', block, null, block.start + dashStart, block.start + dashEnd);
     }
 
     block.sentences.forEach((sentence, si) => {
@@ -283,10 +511,16 @@ export function checkRecord(record, ordinal = 0, options = {}) {
     });
   }
   // Headings and tables remain visible as blocks but do not contribute to prose statistics.
+  // SC7: `blocks` still counts every block; only the per-block detail array is
+  // bounded, because one 1 MiB record can hold 262,144 of them.
+  const detailed = blocks.length > MAX_BLOCK_DETAILS ? blocks.slice(0, MAX_BLOCK_DETAILS) : blocks;
   return {
     id, blocks: blocks.length, sentences: sentenceCount, words: totalWords,
-    blockDetails: blocks.map(({ index, type, start, end, words, sentences }) => ({ index, type, start, end, words: words ?? wordTokens(blocks[index].text).length, sentences: sentences?.length ?? segmentSentences(blocks[index].text).length })),
-    stripped, findings, findingsTruncated: omittedFindings > 0, omittedFindings,
+    blockDetails: detailed.map(({ index, type, start, end, words, sentences }) => ({ index, type, start, end, words: words ?? wordTokens(blocks[index].text).length, sentences: sentences?.length ?? segmentSentences(blocks[index].text).length })),
+    blockDetailsTruncated: blocks.length > MAX_BLOCK_DETAILS,
+    omittedBlockDetails: Math.max(0, blocks.length - MAX_BLOCK_DETAILS),
+    stripped, strippedTruncated, omittedStripped,
+    findings, findingsTruncated: omittedFindings > 0, omittedFindings,
   };
 }
 

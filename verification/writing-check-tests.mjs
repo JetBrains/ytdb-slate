@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import {
   checkRecord, checkText, measureWritingTurn, normalizeMarkdown, segmentSentences, wordTokens, run, formatText,
   recordsFromFiles, recordsFromUnifiedDiff, NOT_CHECKED, MAX_FINDINGS, MAX_INPUT_BYTES,
+  MAX_STRIPPED, MAX_BLOCK_DETAILS,
+  scanHtmlComments, scanAutolinks, scanInlineCode, scanLogLines, scanPathTokens,
 } from '../extension/writing-check.mjs';
 
 const CHECKER = fileURLToPath(new URL('../extension/writing-check.mjs', import.meta.url));
@@ -211,6 +213,79 @@ test('CLI refuses a symlink to a special file', () => {
     const p = spawnSync(process.execPath, [CHECKER, '--file', path], { encoding: 'utf8' });
     assert.notEqual(p.status, 0); assert.match(p.stderr, /regular file/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// --------------------------------------------------------------------------
+// Scanner equivalence.
+//
+// Five quadratic regexes were replaced by linear scanners. The scanners are
+// only safe if they match the SAME spans the regexes did, so each is pinned
+// here against the exact pattern it replaced, on fixtures chosen for the edges
+// the rewrite had to reason about: an unterminated opener, a nested one, an
+// opener whose shorter suffix matches where the full run does not, a partner
+// run with backticks to spare, whitespace-only lines before a log line (the
+// case that decides where its span STARTS), and `//` inside a path, which the
+// original refuses. Growth is a separate concern and lives in
+// verification/writing-check-scaling.mjs.
+const spansVia = (re, text) => {
+  const out = [];
+  for (const m of text.matchAll(re)) out.push({ start: m.index, end: m.index + m[0].length });
+  return out;
+};
+const EQUIVALENCE = [
+  ['scanHtmlComments', scanHtmlComments, /<!--[\s\S]*?-->/g,
+    ['', '<!--', '<!--a-->', '<!--a--><!--b', '<!--<!--x-->y-->', '<!-->', '<!----->', 'a<!--b-->c<!--d', '<!--\n-->']],
+  ['scanAutolinks', scanAutolinks, /<(?:https?:\/\/|mailto:)[^>\s]+>/gi,
+    ['', '<https://a>', '<https://a <https://b>', '<HTTPS://A>', '<mailto:a@b>', '<https://>', '<http://a><http://b>',
+      '<https://a b>', 'x <https://a', '<https://<https://x>']],
+  ['scanInlineCode', scanInlineCode, /(`+)(?!`)([^\n]*?)\1/g,
+    ['', '`', '``', '`a`', '``a`', '`a``b`', '```x```', '``a\nb``', '`a`b`c`', '````', '`a``', '``a``b``', '`\n`', '``x`y``']],
+  ['scanLogLines', scanLogLines, /^\s*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)?\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b.*$/gm,
+    ['', '2026-01-01T00:00:00Z INFO a', '\n\n  2026-01-01T00:00:00Z INFO a', 'x\n\t \n \n2026-01-01T00:00:00Z ERROR e',
+      '2026-01-01T00:00:00Z INFO a\n\n\n2026-01-02T00:00:00Z INFO b', '  2026-01-01T00:00:00 WARN w', '2026-01-01T00:00:00Z NOPE x']],
+  ['scanPathTokens', scanPathTokens, /\/?[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+/g,
+    ['', 'a', 'a/b', '/a/b', '//a/b', 'a//b', 'a//b/c', 'a/b//c/d', 'see /x/y/ end', 'a.b/c-d_e/f', 'a/ /b', '/a', 'a/b/c/d']],
+];
+for (const [name, scanner, reference, fixtures] of EQUIVALENCE) {
+  test(`${name} matches the regex it replaced on every fixture`, () => {
+    for (const text of fixtures) {
+      assert.deepEqual(scanner(text), spansVia(reference, text), `${name} diverged on ${JSON.stringify(text)}`);
+    }
+  });
+}
+test('scanners keep whole-record output identical for a mixed document', () => {
+  const doc = 'Intro text.\n\n<!-- hidden; note -->\n\nUse `a; b` and <https://e.test/x?y=1>.\n\n' +
+    '2026-01-01T00:00:00Z INFO started\n\n    indented; code\n\nSee /usr/local/share/x.json here.\n';
+  const r = checkText(doc);
+  assert.equal(r.stripped.map(s => s.type).join(','), 'html-comment,inline-code,autolink,log-line,indented-code');
+  assert.equal(r.findings.some(f => f.id === 'SEMICOLON'), false);
+});
+
+test('stripped spans are capped and report the shortfall (SC7)', () => {
+  // `a`a`a… pairs up, so two repeats yield roughly one span.
+  const r = checkText('`a'.repeat((MAX_STRIPPED + 500) * 2));
+  assert.equal(r.stripped.length, MAX_STRIPPED);
+  assert.equal(r.strippedTruncated, true);
+  assert.equal(r.omittedStripped > 0, true);
+});
+test('stripped spans below the cap are untouched and report no shortfall', () => {
+  const r = checkText('`a` `b` `c`');
+  assert.equal(r.strippedTruncated, false);
+  assert.equal(r.omittedStripped, 0);
+  assert.equal(r.stripped.length, 3);
+});
+test('block details are capped while the block count stays exact (SC7)', () => {
+  const r = checkText('A.\n\n'.repeat(MAX_BLOCK_DETAILS + 200));
+  assert.equal(r.blocks, MAX_BLOCK_DETAILS + 200);
+  assert.equal(r.blockDetails.length, MAX_BLOCK_DETAILS);
+  assert.equal(r.blockDetailsTruncated, true);
+  assert.equal(r.omittedBlockDetails, 200);
+});
+test('block details below the cap are untouched', () => {
+  const r = checkText('A.\n\nB.\n');
+  assert.equal(r.blockDetailsTruncated, false);
+  assert.equal(r.omittedBlockDetails, 0);
+  assert.equal(r.blockDetails.length, 2);
 });
 
 console.log(`1..${passed}`);

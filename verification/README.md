@@ -1674,6 +1674,118 @@ the size budget — by rendering it through `registerSlateMode`'s own handler.
 | --- | --- |
 | `run-resolver-checks.sh` | the entry point: tool checks, jiti location, temp dir, `--strict`, exit code |
 | `resolver-checks.mjs` | the driver: imports the modules through jiti, builds fixtures, runs the checks, prints the roster and the summary |
+| `writing-check-tests.mjs` | the writing checker's correctness suite: rules, adversarial fixtures, command modes, resource caps, scanner equivalence |
+| `writing-check-scaling.mjs` | the writing checker's **growth** gate — see below |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
 whitelist is `extension`, `docs`, `README.md`, `LICENSE`).
+
+# Writing-checker scaling gate — `writing-check-scaling.mjs`
+
+A third net, for one property of one module: **nothing in
+`extension/writing-check.mjs` may grow faster than linearly.**
+
+## Why it exists
+
+Three independent reviews of the shipped checker found **six** separate
+superlinear paths in that one module (SC1 ×4 in `normalizeMarkdown`, SC2 in the
+path-exclusion pattern, BG1/PF1 in the quoted-dash rescan). Every one of them
+was *correct*: the findings were right, so `writing-check-tests.mjs` stayed
+green, `run-resolver-checks.sh` stayed green, and a legal 1 MiB message still
+took **50–186 seconds** — synchronously, inside the `turn_end` hook, which is to
+say with the TUI frozen.
+
+That is the same silent-failure shape as everything else in this directory, and
+it needs the same treatment: a check that fails when the property is lost rather
+than when the output is wrong. Six offenders in one module also means the *class*
+is the problem — the module holds ~30 more regexes nobody had shown to be linear
+— so this gate covers all of them and refuses to let a new one in unclassified.
+
+## Running it
+
+```sh
+node verification/writing-check-scaling.mjs           # ~11 s
+node verification/writing-check-scaling.mjs --quick   # smaller sizes, looser budget
+```
+
+Exit **0** all checks passed · **1** a check failed · **2** refused to start. No
+arguments needed and nothing is written anywhere; it imports the module directly
+(plain `.mjs`, so no jiti) and generates its own inputs.
+
+**Re-run it after any change to `extension/writing-check.mjs`** — in particular
+after adding or editing a regex, which is the change that reintroduces the class.
+It is a separate file from `writing-check-tests.mjs` on purpose: that suite is a
+sub-second, machine-independent correctness net, while this one is a wall-clock
+gate that takes ~11 s, and folding a timing assertion into the correctness suite
+would make the correctness suite read as machine-dependent.
+
+## What it covers
+
+| id | what it proves |
+| --- | --- |
+| `roster` | every regex literal in the module, **extracted from its source**, is named in the coverage table — either with a hostile generator or with a written reason it cannot scale ("applied to one character", "applied to one already-bounded token"). This is the part that makes the net permanent: a newly added regex FAILS this check by name until someone classifies it, so the table cannot quietly fall behind the code. It also fails on a *stale* entry, so a deleted pattern does not leave dead coverage behind |
+| `regex-scaling` | every scanning regex runs its hostile generator at four doubling sizes and at the module's own `MAX_INPUT_BYTES`, and must clear both rules below |
+| `pass-scaling` | the same two rules for every exported pass (`normalizeMarkdown`, `makeBlocks`, `segmentSentences`, `wordTokens`, the five scanners, `quotedDashSpans`) and for **each of the eight end-to-end shapes the three reviews filed** — the inputs that actually stalled, kept as fixtures so a regression is measured on the real thing rather than on a proxy |
+| `canary` | the html-comment pattern **exactly as it shipped before the fix**, on the input that stalled it, must still be judged superlinear by these very thresholds. A timing gate that has stopped discriminating — a faster machine, an edited threshold, an engine optimisation — is otherwise indistinguishable from a clean run |
+| `cap-output` / `cap-stripped` | **SC7** — a 1 MiB input reports at most `MAX_BLOCK_DETAILS` block details and `MAX_STRIPPED` stripped spans, says how many it dropped, keeps `blocks` exact, and stays under 4 MB of JSON. Before the cap that input produced **62,066,044 bytes** of stdout |
+
+Two rules decide every subject:
+
+- **Budget.** The hostile input at `MAX_INPUT_BYTES` must finish inside
+  `BUDGET_MS` (1200 ms). This is the property that actually protects the hook,
+  and it is an absolute rather than a ratio because the margin is enormous: the
+  linear forms measure 16–250 ms where the quadratic ones measured
+  50,000–186,000 ms.
+- **Growth.** A doubling must not quadruple the cost, measured across a factor-8
+  span (linear ≈ 8×, quadratic ≈ 64×, threshold 24×). Enforced wherever the
+  signal clears a 4 ms noise floor; below it the budget rule still binds and the
+  output line says which rule decided, so nothing is left silently unguarded.
+
+### Why a wall-clock gate here is not flaky
+
+Because it is deliberately loose everywhere it can afford to be. Timings are
+**min-of-3**, not mean — scheduler noise is one-sided, so the minimum is the
+stable estimator. The growth threshold sits at 3× the ideal. The budget carries
+~4× headroom over the slowest honest subject and two to three **orders of
+magnitude** over any real defect. Inputs are fixed generators; nothing is random.
+A machine five times slower than the reference still passes every linear subject.
+
+### Failing fast
+
+Nothing can interrupt a running regex in-process, so every subject is escalated
+from an 8 KiB probe upwards and abandoned the moment it breaks a ceiling scaled
+to the size in hand. Without that the gate inherits the very cost it exists to
+reject — reinstating the old inline-code pattern made this file run for over
+**400 seconds** before saying anything, which in practice reads as a hung suite
+rather than as a failure. With it, every mutation below reports in ~11 s. A
+failure line names the generator and the size it was abandoned at.
+
+### Teeth
+
+Nine mutations against a scratch copy, each reverting one fix or defeating one
+rule. All nine were caught, all in 11–12 s:
+
+| mutation | caught by |
+| --- | --- |
+| revert the `html-comment` regex (SC1) | `roster` naming the pattern, **and** `pass-scaling` |
+| revert the `autolink` regex (SC1) | `roster` naming the pattern, **and** `pass-scaling` |
+| revert the `inline-code` regex (SC1) | `roster` naming the pattern, **and** `pass-scaling` abandoning `repro-ticks` at 8 KiB |
+| revert the `log-line` regex (SC1) | `roster` naming the pattern, **and** `pass-scaling` abandoning `repro-logblank` at 64 KiB |
+| revert the path-exclusion regex (SC2) | `roster` naming the pattern, **and** `pass-scaling` abandoning `repro-path` at 8 KiB |
+| reinstate the per-candidate quoted-dash rescan (BG1/PF1) | `pass-scaling` **only** — the regex literals are unchanged, so this one is invisible to the roster and proves the timing rules catch an *algorithmic* regression, not just a pattern swap |
+| remove the `MAX_STRIPPED` / `MAX_BLOCK_DETAILS` caps (SC7) | `cap-stripped` and `cap-output` |
+| add a new, unclassified regex to the module | `roster`, naming the new literal |
+| widen `GROWTH_LIMIT` until it stops discriminating | `canary` |
+
+The last two are the ones that matter for the net's own durability: the roster
+catches coverage rot, and the canary catches the gate going blind.
+
+### What it does NOT cover
+
+Growth only. It says nothing about whether a finding is *right* — that is
+`writing-check-tests.mjs`, which pins each of the five linear scanners against
+the exact regex it replaced. It also does not bound **memory**: a 1 MiB input
+still peaks around 300 MB of RSS, and the excerpt attached to a finding is still
+proportional to the matched span, so a single finding over a 1 MiB block carries
+a 1 MiB excerpt. Both are linear, neither stalls a turn, and neither was in the
+filed scope.
