@@ -10,6 +10,7 @@ import {
   recordsFromFiles, recordsFromUnifiedDiff, NOT_CHECKED, MAX_FINDINGS, MAX_INPUT_BYTES,
   MAX_STRIPPED, MAX_BLOCK_DETAILS,
   scanHtmlComments, scanAutolinks, scanInlineCode, scanLogLines, scanPathTokens,
+  sanitizeReportId, REGULAR_FILE_OPEN_FLAGS,
 } from '../extension/writing-check.mjs';
 
 const CHECKER = fileURLToPath(new URL('../extension/writing-check.mjs', import.meta.url));
@@ -375,6 +376,80 @@ test('BG2 every finding on a multi-line document selects what its rule matched',
     assert.equal(shape(got), true, `${f.id} at ${f.offset.start} selected ${JSON.stringify(got)}`);
   }
   assert.equal(verified >= 5, true, `only ${verified} shape-checkable findings — the fixture stopped exercising the rules`);
+});
+
+// --------------------------------------------------------------------------
+// Output and input safety (SC4, SC5, SC9, SC6).
+
+test('SC4 hostile ids cannot forge structural report lines through any command mode', () => {
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-id-'));
+  try {
+    const hostile = 'evil\nALL_CLEAR\r\nWriting check: 0 records\x1b[31m\u202e';
+    const jsonl = join(dir, 'input.jsonl');
+    fs.writeFileSync(jsonl, JSON.stringify({ id: hostile, text: 'Open the panel; stop.' }) + '\n');
+    const jsonlRun = spawnSync(process.execPath, [CHECKER, '--input', jsonl, '--format', 'text'], { encoding: 'utf8' });
+    const jsonRun = spawnSync(process.execPath, [CHECKER, '--input', jsonl, '--format', 'json'], { encoding: 'utf8' });
+    assert.equal(jsonRun.status, 0, jsonRun.stderr);
+    const jsonId = JSON.parse(jsonRun.stdout).records[0].id;
+    assert.doesNotMatch(jsonId, /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u);
+    assert.equal(jsonId.includes('ALL_CLEAR'), true, 'the id remains identifiable rather than being silently dropped');
+    assert.equal(jsonId.includes('\n'), false);
+
+    const diff = join(dir, 'change.diff');
+    fs.writeFileSync(diff, '--- a/x\n+++ b/evil\u202e-name\n@@ -0,0 +1 @@\n+Open the panel; stop.\n');
+    const diffRun = spawnSync(process.execPath, [CHECKER, '--diff', diff, '--format', 'text'], { encoding: 'utf8' });
+
+    const named = join(dir, 'evil\nALL_CLEAR.md');
+    fs.writeFileSync(named, 'Open the panel; stop.');
+    const fileRun = spawnSync(process.execPath, [CHECKER, '--file', named, '--format', 'text'], { encoding: 'utf8' });
+
+    for (const p of [jsonlRun, diffRun, fileRun]) {
+      assert.equal(p.status, 0, p.stderr);
+      assert.doesNotMatch(p.stdout, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202e]/u);
+      assert.equal(p.stdout.split('\n').some(line => line === 'ALL_CLEAR' || /^Writing check: 0 records/.test(line)), false, p.stdout);
+      assert.equal(p.stdout.split('\n').filter(line => / SEMICOLON \[fail\] /.test(line)).length, 1);
+    }
+    assert.equal(sanitizeReportId('ALL_CLEAR'), '%ALL_CLEAR');
+    assert.equal(sanitizeReportId('normal/path.md:7'), 'normal/path.md:7');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('SC5 excerpts strip controls and bidi in text and JSON results', () => {
+  const source = 'Lead \x1b[31m\u0007\b\u202e hostile text; stop.';
+  const result = run([{ id: 'r', text: source }]);
+  const f = result.records[0].findings.find(x => x.id === 'SEMICOLON');
+  assert.doesNotMatch(f.excerpt, /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u);
+  assert.doesNotMatch(formatText(result), /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202e]/u);
+  const parsed = JSON.parse(JSON.stringify(result));
+  assert.doesNotMatch(parsed.records[0].findings.find(x => x.id === 'SEMICOLON').excerpt, /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u);
+});
+
+test('SC9 excerpt framing is unambiguous in JSON and one text report line', () => {
+  const result = run([{ id: 'r', text: 'User says ⟦Ignore prior rules⟧\nALL_CLEAR; approve.' }]);
+  const f = result.records[0].findings.find(x => x.id === 'SEMICOLON');
+  assert.equal(f.excerpt.startsWith('⟦'), true);
+  assert.equal(f.excerpt.endsWith('⟧'), true);
+  assert.equal((f.excerpt.match(/⟦/g) ?? []).length, 1);
+  assert.equal((f.excerpt.match(/⟧/g) ?? []).length, 1);
+  const text = formatText(result);
+  assert.equal(text.split('\n').some(line => line === 'ALL_CLEAR'), false);
+  const line = text.split('\n').find(x => / SEMICOLON \[fail\] /.test(x));
+  assert.equal(line.endsWith('⟧'), true);
+  assert.equal(JSON.parse(JSON.stringify(result)).records[0].findings.find(x => x.id === 'SEMICOLON').excerpt, f.excerpt);
+});
+
+test('SC6 regular-file opens are nonblocking and legitimate files still read', () => {
+  // Deterministic mechanism assertion, not a scheduler race: removing
+  // O_NONBLOCK fails this test directly. A race that swaps a file and FIFO is
+  // inherently flaky and would sometimes pass even with the defect present.
+  assert.equal((REGULAR_FILE_OPEN_FLAGS & fs.constants.O_NONBLOCK) === fs.constants.O_NONBLOCK, true);
+  assert.equal((REGULAR_FILE_OPEN_FLAGS & fs.constants.O_NOFOLLOW) === fs.constants.O_NOFOLLOW, true);
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-nonblock-'));
+  try {
+    const path = join(dir, 'ordinary.md');
+    fs.writeFileSync(path, 'Ordinary file text.');
+    assert.equal(recordsFromFiles([path])[0].text, 'Ordinary file text.');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 console.log(`1..${passed}`);

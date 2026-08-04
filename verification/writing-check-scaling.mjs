@@ -112,6 +112,10 @@ const COVERAGE = {
   '^[^\\S\\n]*\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d\\d:?\\d\\d)?\\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\\b.*$':
     { gen: { 'log-blank': rep(' \n'), 'log-timestamps': rep('2026-01-01T00:00:00 \n'), 'log-real': rep('2026-01-01T00:00:00 INFO x\n') } },
   '\\b(?:https?:\\/\\/|www\\.)[^\\s<>()]+': { gen: { url: rep('www.'), 'url-long': rep('www.aaaaaaaa ') } },
+  '[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}\\p{Cs}]+': { gen: { 'report-controls': rep('\u001b\u0007\u202e a') } },
+  '[^A-Za-z0-9._/@:+-]': { gen: { 'report-id-unsafe': rep('safe id\n') } },
+  '^(?:ALL_CLEAR|Writing|NOT|FINDINGS|STE)$': { gen: { 'report-id-reserved': rep('ALL_CLEAR') } },
+  '[⟦⟧]': { gen: { 'excerpt-delimiters': rep('⟦hostile⟧') } },
   '<(?:https?:\\/\\/|mailto:)': { gen: { 'autolink-open': rep('<https://') } },
   '[^>\\s]*': { gen: { 'autolink-run': rep('<https://a>') } },
   '`+': { gen: { 'tick-runs': rep('`a'), 'tick-solid': rep('`') } },

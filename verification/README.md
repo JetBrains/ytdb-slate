@@ -1674,7 +1674,7 @@ the size budget — by rendering it through `registerSlateMode`'s own handler.
 | --- | --- |
 | `run-resolver-checks.sh` | the entry point: tool checks, jiti location, temp dir, `--strict`, exit code |
 | `resolver-checks.mjs` | the driver: imports the modules through jiti, builds fixtures, runs the checks, prints the roster and the summary |
-| `writing-check-tests.mjs` | the writing checker's correctness suite: rules, adversarial fixtures, command modes, resource caps, scanner equivalence, **source-offset mapping** |
+| `writing-check-tests.mjs` | the writing checker's correctness suite: rules, adversarial fixtures, command modes, resource caps, scanner equivalence, source-offset mapping, **report/input safety** |
 | `writing-check-scaling.mjs` | the writing checker's **growth** gate — see below |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
@@ -1833,3 +1833,65 @@ Three mutations against a scratch copy, all caught:
 | reinstate the join with no offset map (the reviewer's own mutation) | `BG2 semicolon on a continuation line` — offset 22, want 25 |
 | keep the map but make `blockOffset` ignore it | same check, same numbers — the map has to be *consulted*, not merely built |
 | revert the marker-lead correction to `indexOf(content)` | `BG2 every block is a verbatim run` — got `'   deeper; t'`, want `'deeper; text'` |
+
+# Writing-checker report and file-input safety (SC4/SC5/SC9/SC6)
+
+Four checks at the end of `writing-check-tests.mjs`, one per security-review
+finding.
+
+## Report interpolation boundary
+
+Every value interpolated by `formatText` is enumerated at its finding-line call
+site:
+
+- `r.id` is attacker-controlled through JSONL `id`, a unified-diff `+++` label,
+  or a direct-file path. `sanitizeReportId` strips Unicode control/format/line
+  categories, collapses whitespace, encodes every character outside a narrow id
+  alphabet, and reserves `ALL_CLEAR` plus the report's structural first words.
+  Safe ids are unchanged, so ordinary reports do not churn.
+- `f.excerpt` is attacker-controlled source prose. It goes through the category
+  sanitizer and is framed as `⟦…⟧`; source occurrences of those two reserved
+  delimiters are removed first, so the frame is unambiguous in JSON and text.
+- `f.id` / `f.class` come from the closed `RULES` table. Block, sentence and
+  offsets are generated integers. The summary, distribution, rule and
+  `NOT_CHECKED` lines contain only checker-owned literals, closed rule data,
+  fixed reasons, and computed numbers. No other source text reaches the report.
+
+The category sanitizer follows `mode.ts`'s `cell()` rule: strip `Cc`, `Cf`, `Zl`,
+`Zp` and `Cs`, which covers ESC/BEL/BS, bidi overrides, Unicode separators and
+lone surrogates. It is repeated locally rather than imported because this file
+must stay a plain-Node command with zero dependencies; importing `mode.ts` would
+pull TypeScript and the pi SDK into it. `cell()` also strips `|` for its table
+grammar. A writing report has no pipe grammar, so that one grammar-specific
+character is not part of this sanitizer; the Unicode safety categories are the
+same in intent.
+
+The excerpt **length** remains deliberately unchanged except for its two framing
+characters. A separate decision owns the pending excerpt-length cap.
+
+## Nonblocking open
+
+`O_NOFOLLOW` rejects a path that is already a symlink, but it does not close the
+`lstat`→`open` race. If the path becomes a FIFO during that window, blocking
+`O_RDONLY` waits forever before `fstat` can reject it. The open flags now include
+`O_NONBLOCK`: a swapped FIFO opens without waiting, then `fstat` rejects the
+non-regular descriptor. Regular files still read normally.
+
+The SC6 check asserts the **mechanism** (`O_NONBLOCK` and `O_NOFOLLOW` are both in
+the exported flags) and reads a legitimate regular file through the same path.
+It does not race a scheduler: the review reproduced only 2 hangs in 60 trials,
+so a race test would intermittently pass with the defect present and would be
+worse than no test.
+
+## Checks and teeth
+
+| id | what it proves | mutation |
+| --- | --- | --- |
+| `SC4 hostile ids …` | JSONL id, diff label and newline-bearing filename cannot create control bytes, `ALL_CLEAR`, a fake summary, or a second finding line | storing the raw `record.id` fails this check |
+| `SC5 excerpts …` | ESC, BEL, BS and U+202E are absent from the in-memory/JSON excerpt and text report | restoring whitespace-only collapse fails this check |
+| `SC9 excerpt framing …` | exactly one reserved opener and closer frame each excerpt in JSON and text; hostile source delimiters cannot become frame delimiters | returning clean but unframed text fails this check |
+| `SC6 regular-file opens …` | the actual open flags cannot block on a FIFO and a normal file still reads | removing `O_NONBLOCK` fails this check |
+
+Each mutation ran against a scratch copy and named only its intended check
+(tests 92–95). The scaling roster also caught the four new regex literals and
+refused to pass until each was classified.

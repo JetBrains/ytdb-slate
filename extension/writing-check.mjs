@@ -17,6 +17,41 @@ export const MAX_FINDINGS = 1000;
 export const MAX_STRIPPED = 5000;
 export const MAX_BLOCK_DETAILS = 5000;
 
+// SC6: O_NOFOLLOW closes the symlink path but not the lstat→open race. If a
+// regular file is replaced by a FIFO in that window, a blocking O_RDONLY open
+// waits forever for a writer and fstat is never reached. O_NONBLOCK makes the
+// open return; fstat below then rejects the swapped non-regular descriptor.
+// It has no effect on ordinary regular-file reads.
+export const REGULAR_FILE_OPEN_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
+
+const EXCERPT_OPEN = '⟦';
+const EXCERPT_CLOSE = '⟧';
+// Same categories as mode.ts cell(): controls (including ESC, BEL and BS),
+// format characters (including bidi overrides), Unicode line/paragraph
+// separators, and lone surrogates. The modules must stay independent: this is a
+// plain Node command and importing mode.ts would pull the pi SDK and TypeScript
+// into it. The shared INTENT is kept explicit here instead.
+const REPORT_UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]+/gu;
+
+function visibleReportText(value) {
+  let text;
+  try { text = String(value); } catch { text = '(unprintable)'; }
+  return text.replace(REPORT_UNSAFE, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * SC4. Finding lines begin with the record id, so an id containing a newline
+ * could create a fake `ALL_CLEAR`, summary, rule or NOT CHECKED line. Keep safe
+ * ids byte-identical (so ordinary reports do not churn); encode every unsafe
+ * code point for the rest. A literal ALL_CLEAR is reserved too, even without a
+ * newline, because it would otherwise occupy the structural first column.
+ */
+export function sanitizeReportId(value) {
+  const visible = visibleReportText(value);
+  const safe = visible.replace(/[^A-Za-z0-9._/@:+-]/g, (c) => `%${c.codePointAt(0).toString(16).toUpperCase()}`);
+  return /^(?:ALL_CLEAR|Writing|NOT|FINDINGS|STE)$/i.test(safe) ? `%${safe}` : (safe || '(unnamed)');
+}
+
 export const NOT_CHECKED = [
   { id: 'APPROVED_WORD', reason: 'Approved-word membership needs an authorized controlled dictionary.' },
   { id: 'APPROVED_MEANING_POS', reason: 'Approved meaning and part of speech need authorized dictionary data and contextual review.' },
@@ -452,8 +487,18 @@ export function wordTokens(text, base = 0) {
   return tokens;
 }
 
-function excerpt(text, start, end) {
-  return text.slice(Math.max(0, start - 28), Math.min(text.length, end + 28)).replace(/\s+/g, ' ').trim();
+export function excerpt(text, start, end) {
+  // SC5: strip the same Unicode safety categories as doctrine table cells.
+  // SC9: reserve and add the delimiters in BOTH JSON and text output. Removing
+  // delimiter characters from source prose means the first ⟦ and final ⟧ are
+  // unambiguously framing, never attacker content. The excerpt length remains
+  // unchanged by policy except for this two-character frame; a separate action
+  // owns any length cap.
+  const content = visibleReportText(text.slice(Math.max(0, start - 28), Math.min(text.length, end + 28)))
+    .replace(/[⟦⟧]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${EXCERPT_OPEN}${content}${EXCERPT_CLOSE}`;
 }
 function finiteCandidate(s) {
   const words = wordTokens(s).map(t => t.lower);
@@ -502,7 +547,7 @@ export function quotedDashSpans(text) {
 export function checkRecord(record, ordinal = 0, options = {}) {
   const source = String(record.text ?? '');
   if (Buffer.byteLength(source, 'utf8') > MAX_INPUT_BYTES) throw new Error(`Text exceeds the ${MAX_INPUT_BYTES}-byte limit`);
-  const id = record.id ?? `${record.session ?? 'record'}:${record.line ?? ordinal + 1}`;
+  const id = sanitizeReportId(record.id ?? `${record.session ?? 'record'}:${record.line ?? ordinal + 1}`);
   const { normalized, stripped, strippedTruncated, omittedStripped } = normalizeMarkdown(source);
   const blocks = makeBlocks(normalized);
   const findings = []; let sentenceCount = 0, totalWords = 0, omittedFindings = 0;
@@ -694,6 +739,13 @@ export function formatText(result) {
   if (a.findingsTruncated) lines.push(`FINDINGS CAPPED: ${a.omittedFindings} additional findings omitted after the ${MAX_FINDINGS}-finding limit.`);
   lines.push('NOT CHECKED:');
   for (const x of a.notChecked) lines.push(`- ${x.id}: ${x.reason}`);
+  // Report interpolation audit (SC4/SC5/SC9):
+  // - r.id is attacker-controlled and sanitized at record creation.
+  // - f.excerpt is attacker-controlled and category-stripped + framed.
+  // - f.id and f.class come from the closed RULES table.
+  // - block, sentence and offsets are checker-generated integers.
+  // Everything above this loop is checker-owned literals, closed rule ids/classes,
+  // fixed NOT_CHECKED reasons, or computed numbers. No other source text enters.
   for (const r of result.records) for (const f of r.findings) lines.push(`${r.id} b${f.block} s${f.sentence ?? '-'} ${f.id} [${f.class}] ${f.offset.start}-${f.offset.end}: ${f.excerpt}`);
   return lines.join('\n');
 }
@@ -707,7 +759,7 @@ function readRegularFile(path, budget) {
 
   let fd;
   try {
-    fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    fd = fs.openSync(path, REGULAR_FILE_OPEN_FLAGS);
     const stat = fs.fstatSync(fd);
     if (!stat.isFile()) throw new Error('opened input is not a regular file');
     if (stat.size > budget) throw new Error(`input exceeds the ${MAX_INPUT_BYTES}-byte total limit`);
