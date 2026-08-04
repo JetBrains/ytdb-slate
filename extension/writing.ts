@@ -60,8 +60,9 @@ export function measureWritingTurn(
 	if (text === undefined) return "no-text";
 	try {
 		const result = checker.checkText(text);
+		const hasFailFinding = result.findings.some((finding) => finding.class === "fail");
 		counters.measuredTurns += 1;
-		if (result.findings.some((finding) => finding.class === "fail")) counters.findingTurns += 1;
+		if (hasFailFinding) counters.findingTurns += 1;
 		return "measured";
 	} catch {
 		// A checker cap or implementation error must never fail a turn.

@@ -297,6 +297,12 @@ test('FX3 a small run still gets the whole per-record cap', () => {
   assert.equal(findingAllowance(MAX_TOTAL_FINDINGS + 1), 1, 'the floor keeps every record visible');
   assert.equal(MAX_TOTAL_FINDINGS >= MAX_RECORDS, true, 'a budget under the record limit would be overridden by that floor');
   assert.equal(findingAllowance(0), MAX_FINDINGS);
+  assert.equal(findingAllowance(1, 0), 0, 'an explicit zero cap must not be raised to the visibility floor');
+  const zero = run([{ id: 'zero', text: 'Open; stop.' }], { maxFindings: 0 });
+  assert.equal(zero.records[0].findings.length, 0);
+  assert.equal(zero.records[0].findingsTruncated, true);
+  assert.equal(zero.aggregate.findingAllowance, 0);
+  assert.equal(checkRecord({ text: 'Open; stop.' }, 0, { maxFindings: 0 }).findings.length, 0);
   const result = run([{ id: 'a', text: 'Open; ' }, { id: 'b', text: 'Close; ' }]);
   assert.equal(result.aggregate.findingAllowance, MAX_FINDINGS);
   assert.equal(result.aggregate.runBudgetApplied, false);
@@ -396,6 +402,38 @@ test('FX4 Git C-quoted paths are decoded for classification and reporting', () =
   assert.deepEqual(checked.records.map(record => record.id), expected.map(path => sanitizeReportId(`${path}:1`)));
   assert.equal(decodeGitPath('"b/d\\303\\263c.md"'), 'b/dóc.md');
   assert.equal(decodeGitPath('b/space name.md'), 'b/space name.md');
+});
+test('GT3 diff mode reports an undecodable path and keeps other files', () => {
+  const bad = '"b/bad\\377.md"';
+  const diff = [
+    '+++ b/before.md', '@@ -0,0 +1 @@', '+Before; keep.',
+    `+++ ${bad}`, '@@ -0,0 +1 @@', '+Hidden; skip.',
+    '+++ b/after.md', '@@ -0,0 +1 @@', '+After; keep.',
+  ].join('\n') + '\n';
+  const records = recordsFromUnifiedDiff(diff);
+  assert.deepEqual(records.map(record => record.path), ['before.md', 'after.md']);
+  const expectedSkips = [{ label: sanitizeReportId(bad), line: 4, reason: 'path is not valid UTF-8' }];
+  const result = run(records);
+  assert.deepEqual(result.aggregate.skippedDiffFiles, expectedSkips);
+  const report = formatText(result).split('\n');
+  assert.equal(report[1], 'DIFF FILES SKIPPED: 1 path could not be decoded.');
+  assert.equal(report[2], `- ${sanitizeReportId(bad)} at diff line 4: path is not valid UTF-8.`);
+
+  assert.throws(() => recordsFromUnifiedDiff('+++ "b/unterminated.md\n'), /Malformed quoted Git path/);
+  assert.throws(() => recordsFromUnifiedDiff('+++ "b/bad\\q.md"\n'), /Unsupported Git path escape/);
+
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-utf8-diff-'));
+  try {
+    const path = join(dir, 'change.diff');
+    fs.writeFileSync(path, diff);
+    const json = spawnSync(process.execPath, [CHECKER, '--diff', path], { encoding: 'utf8' });
+    const text = spawnSync(process.execPath, [CHECKER, '--diff', path, '--format', 'text'], { encoding: 'utf8' });
+    assert.equal(json.status, 0, json.stderr);
+    assert.equal(text.status, 0, text.stderr);
+    assert.deepEqual(JSON.parse(json.stdout).aggregate.skippedDiffFiles, expectedSkips);
+    assert.match(text.stdout, /^DIFF FILES SKIPPED:/m);
+    assert.equal(JSON.parse(json.stdout).records.length, 2);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 test('CLI unified-diff mode reports only an added finding', () => {
   const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-diff-'));
@@ -499,10 +537,12 @@ test('FX2 array content with a text part is measured like string content', () =>
   assert.equal(measureWritingTurn(assistantParts(toolCall), failChecker, counters), 'no-text');
   assert.deepEqual(counters, { measuredTurns: 2, findingTurns: 1 });
 });
-test('FX2 a throwing checker reports failed, which no-text never does', () => {
+test('FX2 a throwing or malformed checker reports failed without moving counters', () => {
   const counters = { measuredTurns: 2, findingTurns: 0 };
   const thrower = { checkText: () => { throw new Error('synthetic checker failure'); } };
+  const malformed = { checkText: () => ({ findings: null }) };
   assert.equal(measureWritingTurn(assistantParts(textPart('Prose to measure.')), thrower, counters), 'failed');
+  assert.equal(measureWritingTurn(assistantParts(textPart('Malformed result.')), malformed, counters), 'failed');
   assert.equal(measureWritingTurn(assistantParts(toolCall), thrower, counters), 'no-text');
   assert.deepEqual(counters, { measuredTurns: 2, findingTurns: 0 });
 });
@@ -905,6 +945,7 @@ const EXPECTED = [
   'BG7 malformed hunk content reports its line instead of truncating',
   'BG7 an incomplete final hunk is rejected instead of returned partially',
   'FX4 Git C-quoted paths are decoded for classification and reporting',
+  'GT3 diff mode reports an undecodable path and keeps other files',
   'CLI unified-diff mode reports only an added finding',
   'pre-read size refusal rejects an oversized file without opening it',
   'post-open size refusal catches a file larger than its pre-read snapshot',
@@ -914,7 +955,7 @@ const EXPECTED = [
   'writing measurement fails open on the checker byte cap',
   'FX2 a turn with no text part reports no-text and leaves the counters alone',
   'FX2 array content with a text part is measured like string content',
-  'FX2 a throwing checker reports failed, which no-text never does',
+  'FX2 a throwing or malformed checker reports failed without moving counters',
   'FX2 the turn hook reads the outcome instead of inferring failure from a counter',
   'CLI refuses a symlink to a special file',
   'BG8 CLI runs when its module path is a symlink',

@@ -24,10 +24,9 @@
 //     pass runs its hostile input at the module's own MAX_INPUT_BYTES and must
 //     finish inside BUDGET_MS. This is the property that matters — "no legal
 //     input stalls a turn" — and it is stated as an absolute, not a ratio,
-//     because the margin is enormous: the linear forms measure single-digit to
-//     ~250 ms where the quadratic ones measured 50,000-186,000 ms. Two to three
-//     orders of magnitude of headroom is what makes a wall-clock assertion safe
-//     to gate on.
+//     because the defective forms measured 50,000-186,000 ms. BUDGET_MS below
+//     is the ceiling of record; a failing subject prints its current timings, so
+//     this comment does not copy a slowest-subject figure that will go stale.
 //
 //   * GROWTH. Timings at four doubling sizes; a doubling must not quadruple the
 //     cost. Reported for every subject and ENFORCED wherever the signal clears
@@ -36,16 +35,16 @@
 //     left unguarded — the line says which rule decided.
 //
 //   * CANARY. A deliberately quadratic pattern is measured alongside the real
-//     ones and the gate must judge it superlinear AND over budget. A timing gate
-//     that has silently stopped discriminating — a machine too fast, a threshold
+//     ones and the gate must judge it superlinear. A timing gate that has
+//     silently stopped discriminating — a machine too fast, a threshold
 //     edited, an engine optimisation — is otherwise indistinguishable from a
 //     clean run. If the canary passes, this whole file failed.
 //
 // Timing gates are flaky when they are tight. This one is deliberately loose:
 // min-of-REPEATS (minimum, not mean — scheduler noise is one-sided, so the
 // minimum is the stable estimator), a growth threshold at 3x the ideal, and a
-// budget with ~4x headroom over the slowest honest subject. Determinism comes
-// from fixed generators; nothing here is random.
+// fixed budget. The canary separately validates the growth discriminator.
+// Determinism comes from fixed generators; nothing here is random.
 //
 // Run:  node verification/writing-check-scaling.mjs [--quick]
 // Exit: 0 all checks passed · 1 a check failed · 2 refused to start.
@@ -61,7 +60,7 @@ const SOURCE = readFileSync(MODULE_PATH, 'utf8');
 
 const QUICK = process.argv.includes('--quick');
 const CAP = M.MAX_INPUT_BYTES;
-/** Wall-clock ceiling at the input cap. Slowest honest subject measures ~250 ms. */
+/** Wall-clock ceiling at the input cap; this constant is the definition of record. */
 const BUDGET_MS = QUICK ? 4000 : 1200;
 /** Growth sizes: a factor-8 span, so linear is ~8x and quadratic is ~64x. */
 const SIZES = QUICK ? [32768, 262144] : [65536, 131072, 262144, 524288];
@@ -99,13 +98,16 @@ function check(id, ok, detail, observed) {
 // Sized in UTF-8 BYTES, because MAX_INPUT_BYTES is: a generator holding an em
 // dash or a curly quote would otherwise build an input the checker refuses.
 const rep = (unit) => (n) => unit.repeat(Math.max(1, Math.floor(n / Buffer.byteLength(unit))));
-// PR1: one mapped paragraph with many source segments and findings near its
-// start. A linear scan through the segment map for every finding turns this
-// legal shape superlinear. Keep the result at exactly the requested byte size.
-const mappedFindings = (n) => {
-  const findingLines = 'Open;\n'.repeat(Math.floor(n / 512));
-  const remaining = n - Buffer.byteLength(findingLines);
-  return findingLines + 'a\n'.repeat(Math.floor(remaining / 2)) + 'a'.repeat(remaining % 2);
+// GT1: query one mapped paragraph at evenly spaced positions. This catches the
+// class, not one scan direction: a per-lookup linear walk from the start, the
+// end, or the nearer end still visits a linear fraction of all segments across
+// this grid. Binary search makes the lookup cost negligible beside makeBlocks.
+const OFFSET_LOOKUPS = 16384;
+const exerciseBlockOffsets = (input) => {
+  const block = M.makeBlocks(input)[0];
+  if (!block?.segments || block.text.length === 0) throw new Error('mapped offset fixture produced no segment map');
+  const last = block.text.length - 1;
+  for (let i = 0; i < OFFSET_LOOKUPS; i++) M.blockOffset(block, Math.floor(last * i / (OFFSET_LOOKUPS - 1)));
 };
 
 /**
@@ -190,6 +192,7 @@ const PASSES = {
   'pass:scanLogLines': [(n) => M.scanLogLines(n), { 'log-blank2': rep(' \n'), 'log-crlf2': rep('x\r\t\u00a0\n2026-01-01T00:00:00 INFO x\r\n'), 'log-unicode2': rep('x\u2028\t\u00a0\u20292026-01-01T00:00:00 INFO x\u2029'), 'log-real2': rep('2026-01-01T00:00:00 INFO x\n') }],
   'pass:scanPathTokens': [(n) => M.scanPathTokens(n), { 'path-flat': rep('a'), 'path-chain': rep('a/b/c ') }],
   'pass:quotedDashSpans': [(n) => M.quotedDashSpans(n), { 'qd-open': rep('"a'), 'qd-pairs': rep('"a—a" ') }],
+  'pass:blockOffset': [exerciseBlockOffsets, { 'mapped-offset-grid': rep('a\n') }],
   // The end-to-end shapes the three reviews filed, each the input that stalled.
   'pass:checkText': [(n) => M.checkText(n), {
     'repro-html': rep('<!--'),
@@ -200,7 +203,6 @@ const PASSES = {
     'repro-quoted-dash': rep('"q—q" a—x—a "'),
     'repro-bare-dash': rep('a—x—a '),
     'repro-prose': rep('The unit is connected and the operator then starts it. '),
-    'repro-mapped-findings': mappedFindings,
   }],
 };
 

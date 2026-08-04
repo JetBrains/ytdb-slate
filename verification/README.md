@@ -1866,7 +1866,7 @@ would make the correctness suite read as machine-dependent.
 | --- | --- |
 | `roster` | every regex literal in the module, **extracted from its source**, is named in the coverage table — either with a hostile generator or with a written reason it cannot scale ("applied to one character", "applied to one already-bounded token"). This is the part that makes the net permanent: a newly added regex FAILS this check by name until someone classifies it, so the table cannot quietly fall behind the code. It also fails on a *stale* entry, so a deleted pattern does not leave dead coverage behind. The check's own line reports how many literals it found |
 | `regex-scaling` | every scanning regex runs its hostile generator at four doubling sizes and at the module's own `MAX_INPUT_BYTES`, and must clear both rules below |
-| `pass-scaling` | the same two rules for every exported pass (`normalizeMarkdown`, `makeBlocks`, `segmentSentences`, `wordTokens`, the five scanners, `quotedDashSpans`) and for every end-to-end shape the reviews filed — including one mapped paragraph that combines many source segments with findings near its start, so each finding drives `blockOffset` (PR1) |
+| `pass-scaling` | the same two rules for every exported pass and every end-to-end shape the reviews filed. `blockOffset` gets a mapped paragraph plus an evenly spaced grid of lookups. Any per-lookup linear walk from the start, end or nearer end visits a linear fraction of the segment map across that grid (GT1) |
 | `canary` | the html-comment pattern **exactly as it shipped before the fix**, on the input that stalled it, must still be judged superlinear by these very thresholds. A timing gate that has stopped discriminating — a faster machine, an edited threshold, an engine optimisation — is otherwise indistinguishable from a clean run |
 | `cap-output` / `cap-stripped` | **SC7** — a 1 MiB input reports at most `MAX_BLOCK_DETAILS` block details and `MAX_STRIPPED` stripped spans, says how many it dropped, keeps `blocks` exact, and stays under 4 MB of JSON. Before the cap that input produced **62,066,044 bytes** of stdout |
 | `cap-run-findings` | **FX3** — a many-record `run()` applies the equal per-record allowance, reports every truncated record, and keeps the reported total inside `MAX_TOTAL_FINDINGS`. A per-record-only mutant reports too many findings and fails this check |
@@ -1921,7 +1921,7 @@ was caught in one gate run:
 | revert the `log-line` regex (SC1) | `roster` naming the pattern, **and** `pass-scaling` abandoning `repro-logblank` at 64 KiB |
 | revert the path-exclusion regex (SC2) | `roster` naming the pattern, **and** `pass-scaling` abandoning `repro-path` at 8 KiB |
 | reinstate the per-candidate quoted-dash rescan (BG1/PF1) | `pass-scaling` **only** — the regex literals are unchanged, so this one is invisible to the roster and proves the timing rules catch an *algorithmic* regression, not just a pattern swap |
-| replace `blockOffset`'s binary search with a reverse linear scan (PR1) | `pass-scaling` on `repro-mapped-findings`; the legal cap-size input exceeds the unchanged 1200 ms budget |
+| replace `blockOffset`'s binary search with a forward, reverse or nearer-end linear scan (PR1/GT1) | `pass-scaling` on `pass:blockOffset/mapped-offset-grid`; the evenly spaced lookups catch the algorithmic class without depending on where findings cluster |
 | remove the whole-run finding allowance (FX3) | `cap-run-findings` |
 | remove the `MAX_STRIPPED` / `MAX_BLOCK_DETAILS` caps (SC7) | `cap-stripped` and `cap-output` |
 | add a new, unclassified regex to the module | `roster`, naming the new literal |
@@ -1930,11 +1930,11 @@ was caught in one gate run:
 The last two are the ones that matter for the net's own durability: the roster
 catches coverage rot, and the canary catches the gate going blind.
 
-The PR1 row is also the reason the gate costs what it does. Its generator builds
-the full mapped shape at the cap size, which is what the reverse-linear-scan
-mutant needs to break the budget; cheaper shapes did not kill it. If gate
-runtime ever has to come down, that generator is the first place to look — and
-the mutant is what must still fail afterwards.
+The mapped-offset subject replaces the earlier start-clustered findings shape.
+It builds one segment map and queries positions across the whole block. This is
+both broader and cheaper: direction no longer matters, and binary-search lookup
+cost stays negligible beside building the map. If gate runtime must decrease,
+keep the forward, reverse and nearer-end mutants as the acceptance test.
 
 ### What it does NOT cover
 
@@ -2107,8 +2107,15 @@ label during reporting.
 | `"b/slash\\\\name.md"` | a literal backslash in the decoded path, included |
 | `"b/code\\303\\263.ts"` | `codeó.ts`, correctly excluded as non-prose |
 
-Unsupported escapes, an unterminated quote and invalid UTF-8 throw a malformed
-path error. They cannot degrade to a clean-looking report.
+Unsupported escapes and an unterminated quote throw a malformed-path error,
+because the input is not the unified diff it claims to be. Invalid UTF-8 is a
+file-local failure instead: the parser consumes that file's hunks but emits no
+records for it, then continues with later files. The returned records carry
+non-enumerable skip metadata that `run()` copies to `skippedDiffFiles` in the
+aggregate when it is non-empty. JSON therefore reports the labels, lines and
+reasons. Text output puts a `DIFF FILES SKIPPED:` block directly after the
+summary and before rule or finding lines. The encoded label is sanitized before
+it reaches either report.
 
 | id | what it proves | mutation |
 | --- | --- | --- |
@@ -2117,6 +2124,7 @@ path error. They cannot degrade to a clean-looking report.
 | `BG7 an incomplete final hunk …` | a truncated final hunk is rejected, naming the missing line counts | remove the final incomplete-hunk guard |
 | `BG8 CLI runs …` | a symlinked checker executes and emits JSON | restore the URL/path string comparison |
 | `FX4 Git C-quoted paths …` | the decoded path drives classification AND reporting | classify and report the raw Git label |
+| `GT3 diff mode reports …` | invalid UTF-8 skips only its file and is prominent in library, JSON and text results; malformed quoting and unsupported escapes remain hard errors | restore whole-diff abort, or skip every decode failure |
 
 The two surrogate-boundary regexes and the revised hunk-header regex are
 classified in the scaling roster. The Git-path decoder added no regex literal,
@@ -2194,14 +2202,16 @@ Both findings hold together because the run budget is spread as an **equal
 allowance**, not as a first-come budget:
 
 ```
-allowance = max(1, min(MAX_FINDINGS, floor(MAX_TOTAL_FINDINGS / recordCount)))
+allowance = perRecordLimit == 0 ? 0 : max(1, min(perRecordLimit, floor(MAX_TOTAL_FINDINGS / recordCount)))
 ```
 
 - BG6: the allowance depends only on the record count, so it is the same in any
   record order and for any record content. No record is starved by its position,
   and a quiet record still reports everything it found.
 - FX3: a run reports at most `recordCount * allowance` findings, so the total is
-  bounded by `MAX_TOTAL_FINDINGS`.
+  bounded by `MAX_TOTAL_FINDINGS`. An explicit `maxFindings: 0` stays zero in
+  both `run()` and `checkRecord()`; the visibility floor applies only to a
+  positive limit (GT2).
 - Loss is never quiet. Each record keeps its own `findingsTruncated` and
   `omittedFindings`, the aggregate reports the total omission count, and
   `formatText` prints an `OUTPUT BUDGET:` line **before** every rule and finding
@@ -2235,7 +2245,7 @@ per-record cap and no `OUTPUT BUDGET:` line appears.
 | id | what it proves | mutation |
 | --- | --- | --- |
 | `FX3 the run budget …` | 500 records of 60 findings report 40 each, the total stays inside the budget, a quiet record keeps all 5 of its findings, the `OUTPUT BUDGET:` line is the second line, and reversing the record order changes no count | drop the allowance, silence the notice, or restore a first-come shared budget |
-| `FX3 a small run …` | the allowance arithmetic at 1, 20, 21 and over-budget record counts, the one-finding floor, and a two-record run that keeps the whole per-record cap with no budget line | remove the `max(1, …)` floor |
+| `FX3 a small run …` | the allowance boundaries, the positive-limit visibility floor, an explicit zero limit, and a small run that keeps the whole per-record cap with no budget line | remove the positive-limit floor or raise zero to one |
 | `MAX_FINDINGS caps …` / `BG6 finding caps …` | two noisy records each keep findings and report every omission | restore the shared `remaining` budget |
 
 The scaling gate drives `run()` with many noisy records too: its
@@ -2261,6 +2271,10 @@ session, so the status line was wrong most of the time.
 | `no-text` | untouched | unchanged, so an earlier rate survives |
 | `failed` | untouched | `unavailable` |
 
+The checker result is validated before either counter moves. A throw or a
+malformed `findings` value therefore returns `failed` with both counters
+untouched; `failed` can never describe a partly measured turn (GT4).
+
 CQ2's five states are unchanged. `fresh`, `skipped` and the four visibility
 gates never reached this branch, a rejected import still throws into the hook's
 own catch, and a throwing checker now says so through `failed` rather than
@@ -2270,7 +2284,7 @@ through a counter that did not move.
 | --- | --- | --- |
 | `FX2 a turn with no text part …` | five real message shapes (tool call, thinking plus tool call, empty content, empty text part, non-assistant) report `no-text` and leave healthy counters at 3/1 | return `failed` for a text-less turn, or measure an empty text part |
 | `FX2 array content …` | array content with a text part measures exactly like string content, and a following tool-only turn does not disturb the counters | as above |
-| `FX2 a throwing checker …` | the checker's own failure is `failed` while a text-less turn beside it is still `no-text` | as above |
+| `FX2 a throwing or malformed checker …` | a throw and malformed findings both return `failed` without moving counters, while a text-less turn remains `no-text` | move `measuredTurns` before result validation |
 | `FX2 the turn hook …` | `mode.ts`'s `turn_end` handler branches on the outcome and holds no counter-delta inference | reinstate `measuredTurns > measuredBefore` |
 
 `FX2 the turn hook …` is a source scan of `extension/mode.ts`. That module pulls

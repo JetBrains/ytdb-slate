@@ -400,7 +400,7 @@ function classifyLine(raw) {
  * position in it is displaced by the indent, the trailing spaces and the newline
  * the join removed. Every rule reported `block.start + indexInBlockText`, so
  * every offset on a multi-line paragraph pointed at the wrong character — about a
- * quarter of every finding over this repository's own Markdown. The exact count
+ * quarter of all findings over this repository's own Markdown. The exact count
  * moves with the documents; disable the map and diff the offsets to re-derive it.
  *
  * The text itself is deliberately UNCHANGED. Rules must keep matching what they
@@ -600,6 +600,7 @@ export function quotedDashSpans(text) {
 }
 
 const ANALYSIS = Symbol('writing-check-analysis');
+const DIFF_SKIPS = Symbol('writing-check-diff-skips');
 
 export function checkRecord(record, ordinal = 0, options = {}) {
   const source = String(record.text ?? '');
@@ -733,15 +734,17 @@ function distribution(values) {
  * allowance (FX3). The allowance depends only on the record count, so it is the
  * same in any order and for any content.
  *
- * The floor is one finding per record: a run of more records than the total
- * budget still shows every offending record rather than silencing the tail, and
- * `MAX_RECORDS` keeps that floor bounded. Unused allowance is deliberately NOT
- * redistributed to noisier records, because that would make one record's
- * reported count depend on other records again.
+ * For a positive per-record limit, the floor is one finding per record: a run
+ * of more records than the total budget still shows every offending record
+ * rather than silencing the tail, and `MAX_RECORDS` keeps that floor bounded.
+ * An explicit zero limit stays zero, matching `checkRecord`. Unused allowance
+ * is deliberately NOT redistributed to noisier records, because that would make
+ * one record's reported count depend on other records again.
  */
 export function findingAllowance(recordCount, perRecord = MAX_FINDINGS, total = MAX_TOTAL_FINDINGS) {
-  if (!Number.isSafeInteger(recordCount) || recordCount <= 0) return perRecord;
-  return Math.max(1, Math.min(perRecord, Math.floor(total / recordCount)));
+  const limit = Math.max(0, Math.min(MAX_FINDINGS, Number.isSafeInteger(perRecord) ? perRecord : MAX_FINDINGS));
+  if (limit === 0 || !Number.isSafeInteger(recordCount) || recordCount <= 0) return limit;
+  return Math.max(1, Math.min(limit, Math.floor(total / recordCount)));
 }
 
 export function aggregate(checked, options = {}) {
@@ -791,12 +794,20 @@ export function run(records, options = {}) {
   // own shortfall, and formatText states the budget before any finding line.
   const allowance = findingAllowance(records.length, limit);
   const checked = records.map((record, ordinal) => checkRecord(record, ordinal, { maxFindings: allowance }));
-  return { records: checked, aggregate: aggregate(checked, { findingAllowance: allowance, perRecordLimit: limit }) };
+  const summary = aggregate(checked, { findingAllowance: allowance, perRecordLimit: limit });
+  if (Array.isArray(records[DIFF_SKIPS]) && records[DIFF_SKIPS].length > 0) {
+    summary.skippedDiffFiles = records[DIFF_SKIPS];
+  }
+  return { records: checked, aggregate: summary };
 }
 
 export function formatText(result) {
   const a = result.aggregate;
   const lines = [`Writing check: ${a.records} records, ${a.words} prose words, ${a.failFindings} fail, ${a.warningFindings} warning, ${a.houseStyleFindings} house-style, ${a.advisoryFindings} advisory findings`];
+  if (Array.isArray(a.skippedDiffFiles) && a.skippedDiffFiles.length > 0) {
+    lines.push(`DIFF FILES SKIPPED: ${a.skippedDiffFiles.length} path${a.skippedDiffFiles.length === 1 ? '' : 's'} could not be decoded.`);
+    for (const skipped of a.skippedDiffFiles) lines.push(`- ${skipped.label} at diff line ${skipped.line}: ${skipped.reason}.`);
+  }
   // FX3: the run budget is stated BEFORE the rule and finding lines, so a
   // reduced report can never read as a complete one.
   if (a.runBudgetApplied) {
@@ -915,7 +926,11 @@ export function decodeGitPath(label) {
     throw new Error(`Unsupported Git path escape \\${escaped}`);
   }
   try { return UTF8_FATAL.decode(Uint8Array.from(bytes)); }
-  catch { throw new Error(`Quoted Git path is not valid UTF-8: ${JSON.stringify(label)}`); }
+  catch {
+    const error = new Error(`Quoted Git path is not valid UTF-8: ${JSON.stringify(label)}`);
+    error.code = 'GIT_PATH_UTF8';
+    throw error;
+  }
 }
 
 /**
@@ -934,7 +949,7 @@ export function isProseDiffPath(path) {
 
 export function recordsFromUnifiedDiff(text, id = 'diff') {
   if (Buffer.byteLength(text, 'utf8') > MAX_INPUT_BYTES) throw new Error(`Diff exceeds the ${MAX_INPUT_BYTES}-byte limit`);
-  const records = [];
+  const records = [], skippedDiffFiles = [];
   let file = id, includeFile = isProseDiffPath(file), newLine = 0, runStart = 0, run = [];
   let oldRemaining = 0, newRemaining = 0, inHunk = false;
   const flush = () => {
@@ -952,7 +967,15 @@ export function recordsFromUnifiedDiff(text, id = 'diff') {
     if (!inHunk && raw.startsWith('+++ ')) {
       flush();
       const label = raw.slice(4).split(/\t/)[0];
-      const decoded = decodeGitPath(label);
+      let decoded;
+      try { decoded = decodeGitPath(label); }
+      catch (error) {
+        if (error?.code !== 'GIT_PATH_UTF8') throw error;
+        skippedDiffFiles.push({ label: sanitizeReportId(label), line: index + 1, reason: 'path is not valid UTF-8' });
+        file = id;
+        includeFile = false;
+        continue;
+      }
       file = decoded.startsWith('b/') ? decoded.slice(2) : decoded;
       includeFile = isProseDiffPath(file);
       continue;
@@ -990,6 +1013,7 @@ export function recordsFromUnifiedDiff(text, id = 'diff') {
     throw new Error(`Malformed unified diff: final hunk ended early (${oldRemaining} old and ${newRemaining} new lines missing)`);
   }
   flush();
+  Object.defineProperty(records, DIFF_SKIPS, { value: Object.freeze(skippedDiffFiles), enumerable: false });
   return records;
 }
 
