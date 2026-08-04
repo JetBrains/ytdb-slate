@@ -1744,7 +1744,7 @@ Three nets watch it, and they see different failures:
 | net | file | what it can see |
 | --- | --- | --- |
 | correctness suite | `verification/writing-check-tests.mjs` | whether a finding is RIGHT: the rules, source offsets, the caps, report and file-input safety, command modes, and the five hand-written scanners against the regexes they replaced. Under a second, machine-independent |
-| scaling gate | `verification/writing-check-scaling.mjs` | whether anything in the module GROWS faster than linearly, and whether the output caps hold at the input cap. A wall-clock gate, ~15 s |
+| scaling gate | `verification/writing-check-scaling.mjs` | whether anything in the module GROWS faster than linearly, and whether the output caps hold at the input cap. A wall-clock gate, ~18 s |
 | pure-resolver checks | `verification/resolver-checks.mjs`, the `writing-*` families | the WIRING around it: the status line's states and visibility gates, the config sanitizer, the doctrine rule, and the command's spawned modes. Documented above, in § Pure-resolver checks |
 
 A correct but quadratic module passes the first and fails the second; a fast
@@ -1845,7 +1845,7 @@ unclassified.
 ### Running it
 
 ```sh
-node verification/writing-check-scaling.mjs           # ~15 s
+node verification/writing-check-scaling.mjs           # ~18 s
 node verification/writing-check-scaling.mjs --quick   # smaller sizes, looser budget
 ```
 
@@ -1857,7 +1857,7 @@ arguments needed and nothing is written anywhere; it imports the module directly
 after adding or editing a regex, which is the change that reintroduces the class.
 It is a separate file from `writing-check-tests.mjs` on purpose: that suite is a
 sub-second, machine-independent correctness net, while this one is a wall-clock
-gate that takes ~15 s, and folding a timing assertion into the correctness suite
+gate that takes ~18 s, and folding a timing assertion into the correctness suite
 would make the correctness suite read as machine-dependent.
 
 ### What it covers
@@ -1866,7 +1866,7 @@ would make the correctness suite read as machine-dependent.
 | --- | --- |
 | `roster` | every regex literal in the module, **extracted from its source**, is named in the coverage table — either with a hostile generator or with a written reason it cannot scale ("applied to one character", "applied to one already-bounded token"). This is the part that makes the net permanent: a newly added regex FAILS this check by name until someone classifies it, so the table cannot quietly fall behind the code. It also fails on a *stale* entry, so a deleted pattern does not leave dead coverage behind. The check's own line reports how many literals it found |
 | `regex-scaling` | every scanning regex runs its hostile generator at four doubling sizes and at the module's own `MAX_INPUT_BYTES`, and must clear both rules below |
-| `pass-scaling` | the same two rules for every exported pass and every end-to-end shape the reviews filed. `blockOffset` gets a mapped paragraph plus an evenly spaced grid of lookups. Any per-lookup linear walk from the start, end or nearer end visits a linear fraction of the segment map across that grid (GT1) |
+| `pass-scaling` | the same two rules for every exported pass and every end-to-end shape the reviews filed. The direct `blockOffset` subject uses an evenly spaced lookup grid to catch linear walks inside the exported helper. Two `checkText` subjects cluster findings at opposite ends of mapped paragraphs, so the real finding cap and the translation in `add()` are also exercised (GT1/GT7) |
 | `canary` | the html-comment pattern **exactly as it shipped before the fix**, on the input that stalled it, must still be judged superlinear by these very thresholds. A timing gate that has stopped discriminating — a faster machine, an edited threshold, an engine optimisation — is otherwise indistinguishable from a clean run |
 | `cap-output` / `cap-stripped` | **SC7** — a 1 MiB input reports at most `MAX_BLOCK_DETAILS` block details and `MAX_STRIPPED` stripped spans, says how many it dropped, keeps `blocks` exact, and stays under 4 MB of JSON. Before the cap that input produced **62,066,044 bytes** of stdout |
 | `cap-run-findings` | **FX3** — a many-record `run()` applies the equal per-record allowance, reports every truncated record, and keeps the reported total inside `MAX_TOTAL_FINDINGS`. A per-record-only mutant reports too many findings and fails this check |
@@ -1905,7 +1905,7 @@ from an 8 KiB probe upwards and abandoned the moment it breaks a ceiling scaled
 to the size in hand. Without that the gate inherits the very cost it exists to
 reject — reinstating the old inline-code pattern made this file run for over
 **400 seconds** before saying anything, which in practice reads as a hung suite
-rather than as a failure. With it, every mutation below reports in about 15 s. A
+rather than as a failure. With it, every mutation below reports in about 18 s. A
 failure line names the generator and the size it was abandoned at.
 
 ### Teeth
@@ -1921,7 +1921,8 @@ was caught in one gate run:
 | revert the `log-line` regex (SC1) | `roster` naming the pattern, **and** `pass-scaling` abandoning `repro-logblank` at 64 KiB |
 | revert the path-exclusion regex (SC2) | `roster` naming the pattern, **and** `pass-scaling` abandoning `repro-path` at 8 KiB |
 | reinstate the per-candidate quoted-dash rescan (BG1/PF1) | `pass-scaling` **only** — the regex literals are unchanged, so this one is invisible to the roster and proves the timing rules catch an *algorithmic* regression, not just a pattern swap |
-| replace `blockOffset`'s binary search with a forward, reverse or nearer-end linear scan (PR1/GT1) | `pass-scaling` on `pass:blockOffset/mapped-offset-grid`; the evenly spaced lookups catch the algorithmic class without depending on where findings cluster |
+| replace `blockOffset`'s binary search with a forward, reverse or nearer-end linear scan (PR1/GT1) | `pass-scaling` on `pass:blockOffset/mapped-offset-grid`; this direct subject isolates the exported helper and uses a deliberately high lookup volume |
+| inline a forward or reverse segment walk at `checkRecord`'s `add()` translation site (GT7) | `pass-scaling` on `repro-mapped-findings-tail` or `repro-mapped-findings-head`; these end-to-end subjects keep the production finding cap and prove that `checkText` builds and uses a mapped block |
 | remove the whole-run finding allowance (FX3) | `cap-run-findings` |
 | remove the `MAX_STRIPPED` / `MAX_BLOCK_DETAILS` caps (SC7) | `cap-stripped` and `cap-output` |
 | add a new, unclassified regex to the module | `roster`, naming the new literal |
@@ -1930,11 +1931,14 @@ was caught in one gate run:
 The last two are the ones that matter for the net's own durability: the roster
 catches coverage rot, and the canary catches the gate going blind.
 
-The mapped-offset subject replaces the earlier start-clustered findings shape.
-It builds one segment map and queries positions across the whole block. This is
-both broader and cheaper: direction no longer matters, and binary-search lookup
-cost stays negligible beside building the map. If gate runtime must decrease,
-keep the forward, reverse and nearer-end mutants as the acceptance test.
+The three mapped-offset subjects are complementary. The grid makes direction
+irrelevant only for calls that still route through exported `blockOffset`; its
+power also comes from doing more lookups than the production finding cap allows.
+It cannot prove that `checkText` still uses the helper or that translation code
+inlined at `add()` stays logarithmic. The head- and tail-clustered subjects keep
+the real pipeline and make a full-map walk expensive at realistic lookup volume.
+Neither cluster catches both directions alone. Keep all five mutants — three in
+`blockOffset`, two at `add()` — as the acceptance test for any runtime reduction.
 
 ### What it does NOT cover
 

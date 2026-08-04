@@ -109,6 +109,20 @@ const exerciseBlockOffsets = (input) => {
   const last = block.text.length - 1;
   for (let i = 0; i < OFFSET_LOOKUPS; i++) M.blockOffset(block, Math.floor(last * i / (OFFSET_LOOKUPS - 1)));
 };
+// GT7: the grid above tests the exported helper with a deliberately high lookup
+// volume. These two shapes keep the real checkText pipeline and its finding cap:
+// clustering at opposite ends makes either directional full-map walk expensive,
+// including one inlined at add() instead of delegated to blockOffset.
+const mappedFindings = (n) => {
+  const findingLines = 'Open;\n'.repeat(Math.floor(n / 512));
+  const remaining = n - Buffer.byteLength(findingLines);
+  return findingLines + 'a\n'.repeat(Math.floor(remaining / 2)) + 'a'.repeat(remaining % 2);
+};
+const mappedFindingsTail = (n) => {
+  const findingLines = 'Open;\n'.repeat(Math.floor(n / 512));
+  const remaining = n - Buffer.byteLength(findingLines);
+  return 'a\n'.repeat(Math.floor(remaining / 2)) + 'a'.repeat(remaining % 2) + findingLines;
+};
 
 /**
  * source -> { gen } for a pattern that scans text, or { bounded } naming why it
@@ -203,6 +217,8 @@ const PASSES = {
     'repro-quoted-dash': rep('"q—q" a—x—a "'),
     'repro-bare-dash': rep('a—x—a '),
     'repro-prose': rep('The unit is connected and the operator then starts it. '),
+    'repro-mapped-findings-head': mappedFindings,
+    'repro-mapped-findings-tail': mappedFindingsTail,
   }],
 };
 
