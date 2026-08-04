@@ -1674,7 +1674,7 @@ the size budget — by rendering it through `registerSlateMode`'s own handler.
 | --- | --- |
 | `run-resolver-checks.sh` | the entry point: tool checks, jiti location, temp dir, `--strict`, exit code |
 | `resolver-checks.mjs` | the driver: imports the modules through jiti, builds fixtures, runs the checks, prints the roster and the summary |
-| `writing-check-tests.mjs` | the writing checker's correctness suite: rules, adversarial fixtures, command modes, resource caps, scanner equivalence |
+| `writing-check-tests.mjs` | the writing checker's correctness suite: rules, adversarial fixtures, command modes, resource caps, scanner equivalence, **source-offset mapping** |
 | `writing-check-scaling.mjs` | the writing checker's **growth** gate — see below |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
@@ -1789,3 +1789,47 @@ still peaks around 300 MB of RSS, and the excerpt attached to a finding is still
 proportional to the matched span, so a single finding over a 1 MiB block carries
 a 1 MiB excerpt. Both are linear, neither stalls a turn, and neither was in the
 filed scope.
+
+# Writing-checker source offsets (BG2)
+
+In `writing-check-tests.mjs`, six checks named `BG2 …`.
+
+## Why they exist
+
+A paragraph's block text is its lines **trimmed and joined with one space**, so
+past the first line a block position is not a source position: the indent, the
+trailing spaces and the newline are gone. Every rule reported
+`block.start + blockIndex`, so every offset on a multi-line paragraph pointed at
+the wrong character — **1370 of the 5057 findings** over this repository's own
+Markdown, including 29% of `SEMICOLON`. Two smaller sites of the same class sat
+beside it: non-paragraph blocks were positioned with `indexOf(content)`, which
+finds an *earlier* copy when one exists (`> > x` reported its content at 0
+instead of 2), and the second trim after a marker was not counted at all.
+
+The text is deliberately unchanged — a sentence split across two source lines
+must still segment as one sentence — so the block carries a **segment map**
+instead, and `blockOffset` translates block positions to source positions once,
+inside `add`.
+
+The reviewer's finding (TQ3) was that the paragraph-join mutation **survived
+both suites untouched**: nothing anywhere asserted a source offset. These checks
+assert exact numbers, so it cannot survive again.
+
+| id | what it proves |
+| --- | --- |
+| `BG2 semicolon on a continuation line …` | the exact source offset of a finding on line 2 of a paragraph (25, not the block index 22), and that the character there is `;` |
+| `BG2 a finding on the third line …` | offsets after **two** joins, so a map that only corrects the first continuation line fails |
+| `BG2 a span crossing a line break …` | a range that spans the join covers the source newline: the reported slice is `(which\nis near it)` |
+| `BG2 a list item indented after its marker …` | the marker-lead correction — `blockDetails[0].start` is the text, not the whitespace before it |
+| `BG2 every block is a verbatim run …` | the root invariant: a block with no map IS the normalized source at `block.start`, and every segment of a mapped block is verbatim. Carries a non-vacuity term, since a fixture with no joined paragraph would prove nothing |
+| `BG2 every finding … selects what its rule matched` | property check over a multi-line document: each finding's source slice has its own rule's shape (a `SEMICOLON` really selects `;`). Fails if fewer than five findings were checkable, so the fixture cannot silently stop exercising the rules |
+
+### Teeth
+
+Three mutations against a scratch copy, all caught:
+
+| mutation | caught by |
+| --- | --- |
+| reinstate the join with no offset map (the reviewer's own mutation) | `BG2 semicolon on a continuation line` — offset 22, want 25 |
+| keep the map but make `blockOffset` ignore it | same check, same numbers — the map has to be *consulted*, not merely built |
+| revert the marker-lead correction to `indexOf(content)` | `BG2 every block is a verbatim run` — got `'   deeper; t'`, want `'deeper; text'` |

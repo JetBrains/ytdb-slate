@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  checkRecord, checkText, measureWritingTurn, normalizeMarkdown, segmentSentences, wordTokens, run, formatText,
+  checkRecord, checkText, measureWritingTurn, normalizeMarkdown, makeBlocks, segmentSentences, wordTokens, run, formatText,
   recordsFromFiles, recordsFromUnifiedDiff, NOT_CHECKED, MAX_FINDINGS, MAX_INPUT_BYTES,
   MAX_STRIPPED, MAX_BLOCK_DETAILS,
   scanHtmlComments, scanAutolinks, scanInlineCode, scanLogLines, scanPathTokens,
@@ -286,6 +286,95 @@ test('block details below the cap are untouched', () => {
   assert.equal(r.blockDetailsTruncated, false);
   assert.equal(r.omittedBlockDetails, 0);
   assert.equal(r.blockDetails.length, 2);
+});
+
+// --------------------------------------------------------------------------
+// BG2 — block offsets map back to the source.
+//
+// A paragraph's lines are trimmed and joined with one space, so past the first
+// line a block position is NOT a source position: the indent, the trailing
+// spaces and the newline are all gone. Every rule used to report
+// `block.start + blockIndex`, which put 1370 of this repository's own 5057
+// findings on the wrong character.
+//
+// The reviewer's point (TQ3) was that the paragraph-join mutation survived both
+// suites untouched, so these assert EXACT source offsets. A join without the
+// offset map moves them and the numbers below stop matching.
+
+// Alpha beta gamma\n   delta; epsilon\nzeta eta.\n
+// 0123456789...       ^20 delta      ^25 semicolon
+const MULTILINE = 'Alpha beta gamma\n   delta; epsilon\nzeta eta.\n';
+test('BG2 semicolon on a continuation line reports its true source offset', () => {
+  const f = check(MULTILINE).findings.find(x => x.id === 'SEMICOLON');
+  // Block text is 'Alpha beta gamma delta; epsilon zeta eta.', so the semicolon
+  // sits at block index 22 and at source index 25. The join swallowed the
+  // newline and the three-space indent.
+  assert.equal(f.offset.start, 25);
+  assert.equal(f.offset.end, 26);
+  assert.equal(MULTILINE.slice(f.offset.start, f.offset.end), ';');
+  assert.equal(MULTILINE.slice(f.offset.start - 5, f.offset.end), 'delta;');
+});
+test('BG2 a finding on the third line is displaced by both joins', () => {
+  // Three spaces, not four: four would make the line indented code and blank it.
+  const doc = 'One two;\n  three four;\n   five six;\n';
+  const at = check(doc).findings.filter(x => x.id === 'SEMICOLON').map(x => x.offset.start);
+  assert.deepEqual(at, [7, 21, 34]);
+  for (const i of at) assert.equal(doc[i], ';');
+});
+test('BG2 a span crossing a line break covers the source newline', () => {
+  const doc = 'The valve (which\nis near it) moves.\n';
+  const f = check(doc).findings.find(x => x.id === 'PARENTHETICAL_PAREN');
+  assert.equal(doc.slice(f.offset.start, f.offset.end), '(which\nis near it)');
+});
+test('BG2 a list item indented after its marker starts at its text', () => {
+  const doc = '-    Open the panel; stop.\n';
+  const f = check(doc).findings.find(x => x.id === 'SEMICOLON');
+  assert.equal(doc.slice(f.offset.start, f.offset.end), ';');
+  assert.equal(checkText(doc).blockDetails[0].start, 5);
+});
+test('BG2 every block is a verbatim run of the normalized source', () => {
+  const doc = MULTILINE + '\n> quoted;   text\n>    deeper; text\n\n-   item; one\n\n| a; b | c |\n\n# head; ing\n';
+  const normalized = normalizeMarkdown(doc).normalized;
+  const blocks = makeBlocks(normalized);
+  let mapped = 0;
+  for (const b of blocks) {
+    if (b.segments) {
+      mapped++;
+      assert.equal(b.segments.length > 1, true, 'a segment map is only kept for a joined block');
+      for (const s of b.segments) {
+        assert.equal(normalized.slice(s.source, s.source + s.length), b.text.slice(s.text, s.text + s.length));
+      }
+    } else {
+      assert.equal(normalized.slice(b.start, b.start + b.text.length), b.text);
+    }
+  }
+  assert.equal(mapped > 0, true, 'the fixture must contain a joined paragraph or this proves nothing');
+});
+test('BG2 every finding on a multi-line document selects what its rule matched', () => {
+  const doc = [
+    'The operator opens it; the valve',
+    'then closes and/or stops (which is',
+    'expected) before the unit—when cold—',
+    'stops rotating and the crew',
+    "isn't ready for the main engine fuel",
+    'pump controller failure today.',
+  ].join('\n') + '\n';
+  const SHAPE = {
+    SEMICOLON: (s) => s === ';',
+    SLASHED: (s) => /^[\p{L}]+\/[\p{L}]+$/u.test(s),
+    CONTRACTION: (s) => /['’]/.test(s),
+    PARENTHETICAL_PAREN: (s) => s.startsWith('(') && s.endsWith(')'),
+    PARENTHETICAL_DASH: (s) => /^(?:—|\s–\s)/.test(s) && /(?:—|\s–\s)$/.test(s),
+  };
+  let verified = 0;
+  for (const f of check(doc).findings) {
+    const shape = SHAPE[f.id];
+    if (!shape) continue;
+    verified++;
+    const got = doc.slice(f.offset.start, f.offset.end);
+    assert.equal(shape(got), true, `${f.id} at ${f.offset.start} selected ${JSON.stringify(got)}`);
+  }
+  assert.equal(verified >= 5, true, `only ${verified} shape-checkable findings — the fixture stopped exercising the rules`);
 });
 
 console.log(`1..${passed}`);

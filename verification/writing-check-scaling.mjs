@@ -120,6 +120,7 @@ const COVERAGE = {
   // --- block and sentence structure ---------------------------------------
   '^\\s*\\|.*\\|\\s*$': { gen: { 'table-row': (n) => '|' + 'a'.repeat(n - 1) } },
   '^\\s*\\|?|\\|?\\s*$': { gen: { 'table-trim': (n) => '|' + 'a'.repeat(n - 1) } },
+  '^\\s*\\|?': { gen: { 'table-lead': (n) => '|' + 'a'.repeat(n - 1), 'table-lead-spaces': (n) => ' '.repeat(n - 1) + '|' } },
   '(?<=\\n)': { gen: { 'line-split': rep('a\n') } },
   '[\\r\\n]+$': { gen: { 'line-strip': rep('a') } },
   '[A-Za-z]\\.[A-Za-z]\\.$': { bounded: 'applied to a 4-character window around one period' },
@@ -148,7 +149,6 @@ const COVERAGE = {
   '^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@': { gen: { 'hunk-digits': (n) => '@@ -' + '1'.repeat(n - 4) } },
   '\\s+': { gen: { 'ws-collapse': rep(' a') } },
   '\\s': { bounded: 'applied to one character' },
-  '\\S': { bounded: 'applied by String.search to find the first non-space' },
   '\\d': { bounded: 'applied to one character' },
   '\\p{L}': { bounded: 'applied to one already-bounded token' },
   '’': { bounded: 'applied to one already-bounded token' },

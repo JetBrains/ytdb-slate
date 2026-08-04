@@ -294,14 +294,48 @@ export function normalizeMarkdown(text) {
   };
 }
 
+/**
+ * [type, content, offset] — `offset` is where `content` begins inside `raw`.
+ *
+ * The offset is taken from the length of the prefix the classifier strips, not
+ * from indexOf(content) as it once was. indexOf can find an EARLIER copy of the
+ * content and report a position the text is not at: `> > x` strips to `> x`,
+ * which indexOf then locates at 0 rather than at 2 (BG2, same class as the
+ * paragraph join). A strip length cannot be wrong that way.
+ */
 function classifyLine(raw) {
-  if (/^\s*\|.*\|\s*$/.test(raw)) return ['table-row', raw.replace(/^\s*\|?|\|?\s*$/g, '')];
-  if (/^\s{0,3}#{1,6}\s+/.test(raw)) return ['heading', raw.replace(/^\s{0,3}#{1,6}\s+/, '')];
-  if (/^\s{0,3}>\s?/.test(raw)) return ['blockquote', raw.replace(/^\s{0,3}>\s?/, '')];
-  if (/^\s*(?:[-+*]|\d+[.)])\s+/.test(raw)) return ['list-item', raw.replace(/^\s*(?:[-+*]|\d+[.)])\s+/, '')];
-  return ['paragraph', raw.trim()];
+  if (/^\s*\|.*\|\s*$/.test(raw)) {
+    return ['table-row', raw.replace(/^\s*\|?|\|?\s*$/g, ''), raw.match(/^\s*\|?/)[0].length];
+  }
+  const heading = raw.match(/^\s{0,3}#{1,6}\s+/);
+  if (heading) return ['heading', raw.slice(heading[0].length), heading[0].length];
+  const quote = raw.match(/^\s{0,3}>\s?/);
+  if (quote) return ['blockquote', raw.slice(quote[0].length), quote[0].length];
+  const item = raw.match(/^\s*(?:[-+*]|\d+[.)])\s+/);
+  if (item) return ['list-item', raw.slice(item[0].length), item[0].length];
+  return ['paragraph', raw.trim(), raw.length - raw.trimStart().length];
 }
 
+/**
+ * BG2. A paragraph's block text is its lines TRIMMED and joined with a single
+ * space, so it is not a verbatim slice of the source: past the first line every
+ * position in it is displaced by the indent, the trailing spaces and the newline
+ * the join removed. Every rule reported `block.start + indexInBlockText`, so
+ * every offset on a multi-line paragraph pointed at the wrong character — 303 of
+ * the 1035 shape-checkable findings over this repository's own Markdown.
+ *
+ * The text itself is deliberately UNCHANGED. Rules must keep matching what they
+ * match today: a sentence split across two source lines has to segment as one
+ * sentence, and a rule whose pattern spans the line break has to keep firing. So
+ * the join stays and the block carries a MAP instead.
+ *
+ * `segments` lists the verbatim runs: block.text.slice(text, text + length) is
+ * exactly normalized.slice(source, source + length). The gaps between segments
+ * are the injected join spaces, which stand for source whitespace rather than
+ * copying it. A block whose text IS a verbatim slice carries no segments at all
+ * and maps by addition — that is every heading, list item, table row and
+ * single-line paragraph, so the common case allocates nothing.
+ */
 export function makeBlocks(normalized) {
   const blocks = [];
   const lines = [];
@@ -312,22 +346,54 @@ export function makeBlocks(normalized) {
   }
   if (!normalized.endsWith('\n') && lines.length === 0) lines.push({ body: normalized, start: 0 });
   let para = null;
-  const flush = () => { if (para) { blocks.push(para); para = null; } };
+  const flush = () => { if (para) { if (para.segments.length < 2) delete para.segments; blocks.push(para); para = null; } };
   for (const line of lines) {
     if (!line.body.trim()) { flush(); continue; }
-    const [type, content] = classifyLine(line.body);
-    const local = line.body.indexOf(content);
+    const [type, content, offset] = classifyLine(line.body);
     if (type === 'paragraph') {
-      const trimmedStart = line.body.search(/\S/);
-      const start = line.start + Math.max(0, trimmedStart);
-      if (para) { para.text += ' ' + content; para.end = line.start + line.body.length; }
-      else para = { type, text: content, start, end: line.start + line.body.length };
+      const start = line.start + offset;
+      if (para) {
+        // The injected space sits at para.text.length; the line follows it.
+        para.segments.push({ text: para.text.length + 1, source: start, length: content.length });
+        para.text += ' ' + content;
+        para.end = line.start + line.body.length;
+      } else {
+        para = { type, text: content, start, end: line.start + line.body.length, segments: [{ text: 0, source: start, length: content.length }] };
+      }
     } else {
-      flush(); blocks.push({ type, text: content.trim(), start: line.start + Math.max(0, local), end: line.start + line.body.length });
+      flush();
+      // These are trimmed a SECOND time, so the kept run can start after the
+      // stripped marker. `start` counts that too; it used to point at the
+      // whitespace instead.
+      const trimmed = content.trim();
+      const lead = content.length - content.trimStart().length;
+      blocks.push({ type, text: trimmed, start: line.start + offset + lead, end: line.start + line.body.length });
     }
   }
   flush();
   return blocks.map((b, index) => ({ ...b, index }));
+}
+
+/**
+ * One position in a block's text, as a source offset. Used for both ends of a
+ * range: an exclusive end maps by the same rule, so a range that crosses a join
+ * correctly covers the source newline between the two lines.
+ *
+ * An index that lands ON an injected space maps to the first source character
+ * the join replaced, which is where the whitespace run actually begins.
+ */
+export function blockOffset(block, index) {
+  const segments = block.segments;
+  if (segments === undefined) return block.start + index;
+  let lo = 0, hi = segments.length - 1, before = segments[0];
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const seg = segments[mid];
+    if (index < seg.text) hi = mid - 1;
+    else if (index >= seg.text + seg.length) { before = seg; lo = mid + 1; }
+    else return seg.source + (index - seg.text);
+  }
+  return before.source + before.length;
 }
 
 const MAX_ABBREVIATION_LENGTH = Math.max(...[...ABBREVIATIONS].map(x => x.length));
@@ -441,26 +507,39 @@ export function checkRecord(record, ordinal = 0, options = {}) {
   const blocks = makeBlocks(normalized);
   const findings = []; let sentenceCount = 0, totalWords = 0, omittedFindings = 0;
   const maxFindings = Math.max(0, Math.min(MAX_FINDINGS, Number.isSafeInteger(options.maxFindings) ? options.maxFindings : MAX_FINDINGS));
+  /**
+   * `start` and `end` are BLOCK-TEXT positions. Rules work in block coordinates
+   * throughout and the translation to source happens here, once, so a rule
+   * cannot report a raw block index by forgetting to add anything (BG2 was the
+   * reverse mistake: every rule added `block.start`, which is only correct while
+   * the block text is a verbatim slice).
+   */
   const add = (rule, cls, block, sentence, start, end) => {
     if (findings.length >= maxFindings) { omittedFindings++; return; }
-    findings.push({ id: rule, class: cls, block: block.index, sentence, offset: { start, end }, excerpt: excerpt(source, start, end) });
+    const from = blockOffset(block, start), to = blockOffset(block, end);
+    findings.push({ id: rule, class: cls, block: block.index, sentence, offset: { start: from, end: to }, excerpt: excerpt(source, from, to) });
+  };
+  /** PARA6 marks the whole block, whose bounds are already source offsets. */
+  const addSourceSpan = (rule, cls, block, start, end) => {
+    if (findings.length >= maxFindings) { omittedFindings++; return; }
+    findings.push({ id: rule, class: cls, block: block.index, sentence: null, offset: { start, end }, excerpt: excerpt(source, start, end) });
   };
 
   for (const block of blocks) {
-    block.sentences = segmentSentences(block.text, block.start);
-    block.words = wordTokens(block.text, block.start).length;
+    block.sentences = segmentSentences(block.text, 0);
+    block.words = wordTokens(block.text, 0).length;
     if (!prose(block.type)) continue;
     sentenceCount += block.sentences.length; totalWords += block.words;
-    if (block.type === 'paragraph' && block.sentences.length > 6) add('PARA6', 'fail', block, null, block.start, block.end);
+    if (block.type === 'paragraph' && block.sentences.length > 6) addSourceSpan('PARA6', 'fail', block, block.start, block.end);
 
     const scans = [
       ['SEMICOLON', /;/g],
       ['CONTRACTION', /\b(?:i|you|we|they|he|she|it|that|there|here|what|who|how|where|when|why|let)(?:n['’]t|['’](?:re|ll|ve|d|m|s))\b|\b(?:is|are|was|were|do|does|did|has|have|had|can|could|should|would|will|must|might|need|dare|wo|sha)n['’]t\b/gi],
     ];
-    for (const [rule, re] of scans) for (const m of block.text.matchAll(re)) add(rule, 'fail', block, null, block.start + m.index, block.start + m.index + m[0].length);
-    for (const m of block.text.matchAll(/(?<!\/)\b[\p{L}]+\/[\p{L}]+\b(?!\/)/gu)) add('SLASHED', 'house-style', block, null, block.start + m.index, block.start + m.index + m[0].length);
+    for (const [rule, re] of scans) for (const m of block.text.matchAll(re)) add(rule, 'fail', block, null, m.index, m.index + m[0].length);
+    for (const m of block.text.matchAll(/(?<!\/)\b[\p{L}]+\/[\p{L}]+\b(?!\/)/gu)) add('SLASHED', 'house-style', block, null, m.index, m.index + m[0].length);
 
-    for (const m of block.text.matchAll(/\(([^()]*)\)/g)) if (finiteCandidate(m[1])) add('PARENTHETICAL_PAREN', 'house-style', block, null, block.start + m.index, block.start + m.index + m[0].length);
+    for (const m of block.text.matchAll(/\(([^()]*)\)/g)) if (finiteCandidate(m[1])) add('PARENTHETICAL_PAREN', 'house-style', block, null, m.index, m.index + m[0].length);
     // Only a block with a dash candidate can produce one, and quotedDashSpans
     // costs two scans of the block.
     const quoted = block.text.includes('—') || block.text.includes('–') ? quotedDashSpans(block.text) : [];
@@ -470,7 +549,7 @@ export function checkRecord(record, ordinal = 0, options = {}) {
       while (quotedIndex < quoted.length && quoted[quotedIndex].end < dashEnd) quotedIndex++;
       const span = quoted[quotedIndex];
       const inQuote = span !== undefined && span.start <= dashStart && span.end >= dashEnd;
-      if (!inQuote) add('PARENTHETICAL_DASH', 'house-style', block, null, block.start + dashStart, block.start + dashEnd);
+      if (!inQuote) add('PARENTHETICAL_DASH', 'house-style', block, null, dashStart, dashEnd);
     }
 
     block.sentences.forEach((sentence, si) => {
