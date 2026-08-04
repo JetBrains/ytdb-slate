@@ -534,13 +534,15 @@ A second net, much smaller than the ladder, for these subjects:
   `extension/mode.ts` (`writing-status-*`), plus the **writing config sanitizer**
   (`writing-config-*`) and the **writing doctrine rule** (`writing-doctrine-*`).
   The module itself has two nets of its own — see § The writing checker;
-- the **worker preamble** in `extension/worker.ts` (`worker-preamble`) — the
-  constant, and that it is injected into the worker system prompt. Nothing else
-  in `worker.ts` is in scope here (see the load-path note below).
+- the **worker preamble** across `extension/worker.ts` and `extension/threads.ts`
+  (`worker-preamble`) — the historical feature-off bytes, the current feature-on
+  bytes, the literal-true gate, and the sanitized config plumbing into the worker
+  system prompt. Nothing else in these modules is in scope here (see the load-path
+  note below).
 
 The TypeScript modules loaded are `worker-extensions.ts`, `mode.ts`, `paths.ts`,
 `model-router.ts`, `route.ts`, `state.ts`, `writing.ts`, `worker.ts`,
-`base-model.ts`, `model-profiles.ts` and — through the aliased loader —
+`threads.ts` (source inspection only), `base-model.ts`, `model-profiles.ts` and — through the aliased loader —
 `episodes.ts`. The shipped command `extension/writing-check.mjs` is also imported
 and spawned by its own checks. Every one of them is a re-run trigger — and
 because `state.ts`'s spec helpers are also used by `failover.ts`, a change to
@@ -710,7 +712,11 @@ The **worker preamble** (`extension/worker.ts`):
 
 | id | what it proves |
 | --- | --- |
-| `worker-load` / `worker-preamble` | the module loads; `WORKER_PREAMBLE` is exactly the historical bounded-action text with the writing rule appended as its final sentence, and it is passed into the worker system prompt. Nothing else in `worker.ts` is in scope here |
+| `worker-load` / `worker-preamble` | the module loads; feature-off is the exact historical 226-byte bounded-action preamble, feature-on is the exact current 384-byte text, only literal `true` adds guidance, and `ThreadManager` passes the sanitized switch into the worker system prompt. Nothing else in `worker.ts` or `threads.ts` is in scope here |
+
+The worker check was mutation-verified three ways: weaken the literal-true gate to a
+truthiness gate, replace `ThreadManager`'s config value with `false`, and change one
+word of the guidance. Each mutation makes `worker-preamble` fail.
 
 The mutations that give all of these checks teeth are recorded with the module
 they defend, in § The writing checker.
@@ -1719,6 +1725,31 @@ module itself.
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
 whitelist is `extension`, `docs`, `README.md`, `LICENSE`).
+
+# Package-content check — `package-content-check.mjs`
+
+The package-content check guards the publish boundary that runtime path resolution
+cannot test. Run it from any checkout:
+
+```sh
+node verification/package-content-check.mjs --repo .
+```
+
+It runs `npm pack --dry-run --json --ignore-scripts`, then checks the resulting
+publish file list. It derives `WRITING_CHECKER` and every `*_DOC` name used by the
+doctrine from `extension/paths.ts` and `extension/mode.ts`. A missing file fails by
+its exported name, such as `WRITING_CHECKER` or `REVIEW_RULES_DOC`, rather than as
+one aggregate packaging failure. It creates no tarball, runs no package scripts,
+uses no network, and normally takes under 1 second.
+
+Run it after a change to `package.json`'s `files` whitelist, a package-resolved
+path in `extension/paths.ts`, or doctrine document references in
+`extension/mode.ts`. Run it before release too. Its scope is package presence;
+the resolver checks cover doctrine rendering and checker behavior.
+
+Mutation verification uses scratch checkouts under `/tmp`: removing `docs` from
+the `files` whitelist must fail every cited document by name, and removing the
+checker must fail `WRITING_CHECKER`. The production checkout must pass unchanged.
 
 # The writing checker — `extension/writing-check.mjs`
 

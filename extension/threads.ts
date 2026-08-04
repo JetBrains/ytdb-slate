@@ -771,6 +771,7 @@ export class ThreadManager {
 			tools: args.tools,
 			promptDocs: this.config.workerPromptDocs,
 			extensionPaths: this.resolveExtensions().paths,
+			writingCheck: this.config.writing?.check === true,
 		});
 		this.live.set(args.thread.id, session);
 		// A freshly opened session starts on its configured model — drop any stale

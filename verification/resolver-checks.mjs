@@ -2200,20 +2200,25 @@ try {
 		if (worker === undefined) {
 			skip("worker-preamble", "extension/worker.ts could not be loaded");
 		} else {
-			const expectedPreamble = [
+			const historicalPreamble = [
 				"You are a worker thread executing ONE bounded action for an orchestrator.",
 				"Do the action fully, then stop.",
 				"Your final message must state: what you did, what you found, files you touched,",
 				"and anything the orchestrator must know.",
-				"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply these rules to all your prose.",
 			].join(" ");
+			const currentGuidance = "Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply these rules to all your prose.";
 			const workerSource = readFileSync(join(REPO, "extension", "worker.ts"), "utf8")
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
-			checkAll("worker-preamble", "the worker preamble contains the writing rule as its final sentence, preserves its bounded scope, and injects the constant into the worker system prompt", [
-				["exact preamble is preserved", worker.WORKER_PREAMBLE === expectedPreamble, worker.WORKER_PREAMBLE],
-				["writing rule is appended after the historical preamble", worker.WORKER_PREAMBLE.startsWith(expectedPreamble.slice(0, expectedPreamble.indexOf("Use short"))) && worker.WORKER_PREAMBLE.endsWith("all your prose."), worker.WORKER_PREAMBLE],
-				["preamble is passed into the worker system prompt", /appendSystemPrompt\s*:\s*\[\s*WORKER_PREAMBLE\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,80}/)?.[0] ?? "not found"],
+			const threadsSource = readFileSync(join(REPO, "extension", "threads.ts"), "utf8")
+				.replace(/\/\*[\s\S]*?\*\//g, " ")
+				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+			checkAll("worker-preamble", "worker writing guidance is off by default, preserves both historical states byte-for-byte, and follows the sanitized config into the system prompt", [
+				["feature-off preamble is the 226-byte historical text", worker.WORKER_PREAMBLE === historicalPreamble && Buffer.byteLength(worker.workerPreamble(false)) === 226, worker.workerPreamble(false)],
+				["absent and false are byte-identical to the historical preamble", worker.workerPreamble(undefined) === historicalPreamble && worker.workerPreamble(false) === historicalPreamble, { absent: worker.workerPreamble(undefined), false: worker.workerPreamble(false) }],
+				["only literal true enables the current 384-byte guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true) === `${historicalPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true)) === 384 && worker.workerPreamble("true") === historicalPreamble, { on: worker.workerPreamble(true), malformed: worker.workerPreamble("true") }],
+				["worker prompt applies a literal-true gate", /appendSystemPrompt\s*:\s*\[\s*workerPreamble\(opts\.writingCheck\s*===\s*true\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,120}/)?.[0] ?? "not found"],
+				["ThreadManager passes its sanitized writing switch", /writingCheck\s*:\s*this\.config\.writing\?\.check\s*===\s*true/.test(threadsSource), threadsSource.match(/writingCheck\s*:[^,\n]*/)?.[0] ?? "not found"],
 			]);
 		}
 

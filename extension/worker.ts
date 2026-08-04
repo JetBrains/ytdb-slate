@@ -49,13 +49,21 @@ export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["sess
 
 export const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
+// Keep this historical feature-off preamble byte-identical. Optional guidance is
+// added by workerPreamble only when the already-sanitized writing switch is on.
 export const WORKER_PREAMBLE = [
 	"You are a worker thread executing ONE bounded action for an orchestrator.",
 	"Do the action fully, then stop.",
 	"Your final message must state: what you did, what you found, files you touched,",
 	"and anything the orchestrator must know.",
-	"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply these rules to all your prose.",
 ].join(" ");
+
+export const WORKER_WRITING_GUIDANCE =
+	"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply these rules to all your prose.";
+
+export function workerPreamble(writingCheck: boolean): string {
+	return writingCheck === true ? `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}` : WORKER_PREAMBLE;
+}
 
 export function threadsDir(cwd: string): string {
 	return resolve(cwd, CONFIG_DIR_NAME, "slate", "threads");
@@ -86,6 +94,7 @@ export async function openWorkerSession(opts: {
 	tools?: string[];
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
 	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
+	writingCheck?: boolean; // sanitized writing.check; only literal true enables worker guidance
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
 	const dir = threadsDir(ctx.cwd);
@@ -159,7 +168,7 @@ export async function openWorkerSession(opts: {
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
-		appendSystemPrompt: [WORKER_PREAMBLE, ...promptDocs],
+		appendSystemPrompt: [workerPreamble(opts.writingCheck === true), ...promptDocs],
 	});
 	await loader.reload();
 
