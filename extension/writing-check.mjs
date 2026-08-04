@@ -375,9 +375,11 @@ export function normalizeMarkdown(text) {
  *
  * The offset is taken from the length of the prefix the classifier strips, not
  * from indexOf(content) as it once was. indexOf can find an EARLIER copy of the
- * content and report a position the text is not at: `> > x` strips to `> x`,
- * which indexOf then locates at 0 rather than at 2 (BG2, same class as the
- * paragraph join). A strip length cannot be wrong that way.
+ * content and report a position the text is not at. Punctuation-only content is
+ * where that really happens: `>>` strips to `>`, which is at offset 1 while
+ * indexOf reports 0, and `# #` strips to `#`, which is at 2 while indexOf
+ * reports 0 (BG2, same class as the paragraph join). A strip length cannot be
+ * wrong that way.
  */
 function classifyLine(raw) {
   if (/^\s*\|.*\|\s*$/.test(raw)) {
@@ -397,8 +399,9 @@ function classifyLine(raw) {
  * space, so it is not a verbatim slice of the source: past the first line every
  * position in it is displaced by the indent, the trailing spaces and the newline
  * the join removed. Every rule reported `block.start + indexInBlockText`, so
- * every offset on a multi-line paragraph pointed at the wrong character — 303 of
- * the 1035 shape-checkable findings over this repository's own Markdown.
+ * every offset on a multi-line paragraph pointed at the wrong character — about a
+ * quarter of every finding over this repository's own Markdown. The exact count
+ * moves with the documents; disable the map and diff the offsets to re-derive it.
  *
  * The text itself is deliberately UNCHANGED. Rules must keep matching what they
  * match today: a sentence split across two source lines has to segment as one

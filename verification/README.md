@@ -28,9 +28,10 @@ unguarded:
   own pi configuration, so the harness treats not touching real state as a
   hard requirement, not a convention (see § Safety model).
 
-The repo has **no test suite** (see `AGENTS.md` § Build & verification), so this
-ladder is the only regression net any part of the codebase has. It exists
-because several earlier ad-hoc verification passes silently proved nothing: a
+This ladder was the repo's first automated net, and three more exist now (see
+`AGENTS.md` § Build & verification). None of them touches the model-switch
+machinery, so it remains the **only** regression net for that mechanism. It
+exists because several earlier ad-hoc verification passes silently proved nothing: a
 probe that waited for pi's write from inside the wrapped switch made the
 macrotask-yield rung unable to fail, and rungs with no recorded after-state
 could not be re-checked. Rungs that cannot demonstrate their own teeth now
@@ -496,7 +497,7 @@ Also expected, and not a harness problem:
 
 # Pure-resolver checks — `run-resolver-checks.sh`
 
-A second, much smaller net, for these subjects:
+A second net, much smaller than the ladder, for these subjects:
 
 - the **worker-extension resolver** in `extension/worker-extensions.ts` and the
   doctrine rule it feeds in `extension/mode.ts`;
@@ -527,15 +528,23 @@ A second, much smaller net, for these subjects:
   threads inherit;
 - **structural invariants of the shipped profile table** in
   `extension/model-profiles.ts` (`profiles-*`) — shape and internal consistency
-  only, never a research number.
+  only, never a research number;
+- the **writing checker** `extension/writing-check.mjs` (`writing-checker-*`) and
+  the **writing status line** it feeds through `extension/writing.ts` and
+  `extension/mode.ts` (`writing-status-*`), plus the **writing config sanitizer**
+  (`writing-config-*`) and the **writing doctrine rule** (`writing-doctrine-*`).
+  The module itself has two nets of its own — see § The writing checker;
+- the **worker preamble** in `extension/worker.ts` (`worker-preamble`) — the
+  constant, and that it is injected into the worker system prompt. Nothing else
+  in `worker.ts` is in scope here (see the load-path note below).
 
-Eight TypeScript modules are loaded: `worker-extensions.ts`, `mode.ts`,
-`model-router.ts`, `route.ts`, `state.ts`, `base-model.ts`, `model-profiles.ts`
-and — through the aliased loader — `episodes.ts`. The shipped command
-`extension/writing-check.mjs` is also imported and spawned by its own checks.
-All eight TypeScript modules are therefore re-run triggers — and because
-`state.ts`'s spec helpers are also used by `failover.ts`, a change to **them**
-additionally needs the ladder above.
+The TypeScript modules loaded are `worker-extensions.ts`, `mode.ts`, `paths.ts`,
+`model-router.ts`, `route.ts`, `state.ts`, `writing.ts`, `worker.ts`,
+`base-model.ts`, `model-profiles.ts` and — through the aliased loader —
+`episodes.ts`. The shipped command `extension/writing-check.mjs` is also imported
+and spawned by its own checks. Every one of them is a re-run trigger — and
+because `state.ts`'s spec helpers are also used by `failover.ts`, a change to
+**them** additionally needs the ladder above.
 
 The ladder above covers slate's model-switch machinery — the model-default
 restore and, in `WK1`, worker-session settings isolation — and says nothing about
@@ -579,9 +588,14 @@ CHECK off-inert        PASS    — empty pattern list → shared empty set, regi
 CHECK router-cheapest  PASS    — the base model is the cheapest PREFERRED candidate — a non-preferred model is skipped …
 CHECK profiles-ladder  FAIL    — for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary …
       observed: no violation → ["openai/gpt-5.6-luna: ladder level in neither list (minimal)"]
-CHECK roster           PASS    — all 137 expected checks reported exactly once and the counters agree …
-== summary: 137 pass, 1 fail, 0 not run (138 result lines = 137 expected checks + this roster audit) ==
+CHECK roster           PASS    — all N expected checks reported exactly once and the counters agree …
+== summary: N pass, 1 fail, 0 not run (N+1 result lines = N expected checks + this roster audit) ==
 ```
+
+The run prints the numbers; this document deliberately does not. The expected
+check count moves with every check added, and a transcribed copy of it here has
+gone stale more than once. **The suite output is the definition of record** —
+read the `roster` line and the summary identity, never a figure in this file.
 
 ### Why the summary counts one more than the roster
 
@@ -593,7 +607,7 @@ therefore prints `EXPECTED + 1` result lines.
 
 That is the whole of the old off-by-one, and it is now **stated in the output**
 rather than left to be re-derived: the summary prints the identity
-(`138 result lines = 137 expected checks + this roster audit`), and on a run where it
+(`N result lines = N−1 expected checks + this roster audit`), and on a run where it
 does not hold — a deleted check, a duplicate report, a crashed section adding an id
 — it prints the residual as `±N unaccounted — see the roster line`. The roster
 additionally asserts the identity it *can* own: `pass + fail + notrun` equals the
@@ -652,7 +666,10 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
 | `doctrine-budget` | a **guard**, not a recorded fact — and measured on an **install-invariant** figure, which is the only way it can be a guard at all. The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the length of wherever the package is installed: the same router-off doctrine measures **1,968** chars under a 13-character docs directory and **2,103** under this repo's 58-character one — 3 embedded paths × 45 characters, and 4 or 5 paths in the other configurations. A raw-count budget passes on one machine and fails on another, and the failure reads as bloat rather than as a longer home directory. Every bound is therefore on the text with each occurrence of the docs **directory** removed, keeping the filename: invariant by construction (no path count is assumed, so a 4- or 5-path configuration normalises the same way) while still charging a maintainer for the part they control — subtracting whole paths instead would stop a doc rename from ever registering. Bounded separately, with ~55% headroom: the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row — because `cell()` imposes no cap, so a research refresh writing a 2,000-character `routeFor` would bloat every prompt silently — and the rule's share of the whole doctrine, asserted to be the *only* thing router-on adds. Two terms guard the normalisation itself, since a `portable()` that silently became the identity would put the bounds back on raw counts |
 
-The **writing checker command** (`extension/writing-check.mjs`) is covered both by direct import and by spawned command tests:
+The **writing checker command** (`extension/writing-check.mjs`) is covered both by
+direct import and by spawned command tests. This is the checker's smallest net:
+its rules, its caps, its offsets and its growth are covered by two suites of its
+own — see § The writing checker:
 
 | id | what it proves |
 | --- | --- |
@@ -668,41 +685,41 @@ The **human-only writing status line** is covered through `registerSlateMode` wi
 | `writing-status-fresh` / `writing-status-clean` / `writing-status-positive` | real hook cycles distinguish no completed turns (`0/0`), one clean turn (`0/1`), and one failing turn (`1/1`) |
 | `writing-status-import-fail` / `writing-status-fail-open` | a rejected checker import and a checker throw both fail open through `turn_end` and render `writing unavailable` |
 | `writing-status-gate-switch` / `writing-status-gate-trust` / `writing-status-gate-mode` / `writing-status-gate-ui` | each visibility condition independently suppresses the rate: switch off, untrusted project, orchestrator mode off and no UI |
-| `writing-status-cap-skip` / `writing-status-cap-visible` | the checker’s own oversized-input cap fails open; a message above the 16 KiB hook bound is skipped and the status line says so |
+| `writing-status-cap-skip` | the **checker's own** 1 MiB input cap (`MAX_INPUT_BYTES`) fails open: an oversized message is skipped rather than counted or thrown. It calls `measureWritingTurn` directly with `MAX_INPUT_BYTES + 1` bytes, so it says nothing about the 16 KiB turn bound — that is the row below |
+| `writing-status-cap-visible` | the **turn** bound (`WRITING_TURN_MAX_BYTES`, 16 KiB in `mode.ts`): a larger assistant message goes through the real `turn_end` hook, is never handed to the checker, and the status line says `writing skipped (message too large)` |
 | `writing-status-counting` | only fail findings count; warnings, house-style findings and advisories do not |
 | `writing-status-no-store-write` | counter updates do not call `SlateStore.save()` or persist the orchestrator-mode seed |
-
-Track 02's four required mutations were run against throwaway copies. Each exited
-1 and named the intended check before the copy was removed:
-
-| mutation | killed by |
-| --- | --- |
-| count house-style findings as fail-level | `writing-status-counting` |
-| remove the trust gate | `writing-status-gate-trust` |
-| rethrow checker errors | `writing-status-crash` (the fail-open section cannot complete) |
-| emit a fail with the 21–25-word warning | `writing-checker-length` |
-
-The extension-wiring mutations are also required to fail:
-
-| mutation | killed by |
-| --- | --- |
-| blank the rendered writing status line | `writing-status-positive` |
-| remove the `measureWritingTurn` call | `writing-status-positive` |
-| break the checker import path | `writing-status-positive` |
-| remove the visible size-bound status | `writing-status-cap-visible` |
-| remove the file-URL conversion | `writing-status-import-url` |
-| render `unavailable` as `writing 0/0` | `writing-status-import-fail`, `writing-status-fail-open` |
-| remove unavailable detection and silence the catch | `writing-status-import-fail`, `writing-status-fail-open` |
 
 `measureWritingTurn` lives in `extension/writing.ts`, beside the writing config
 boundary. This keeps the pi-shaped message handling typechecked while the standalone
 checker and CLI remain dependency-free plain JavaScript.
 
+The **writing config sanitizer** (`extension/writing.ts`) and the **writing
+doctrine rule** (`extension/mode.ts`), rendered through the same
+`before_agent_start` handler the routing rule uses:
+
+| id | what it proves |
+| --- | --- |
+| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ check: false }`; `null`, an array, a string and a number each warn once and default; an unknown key warns and is not rebuilt onto the result; a non-boolean `check` warns and defaults; an explicit `false` stays false and silent |
+| `writing-config-hostile` | a prototype-polluting object, a throwing getter, an inherited `check` and a 30,000-deep value neither crash nor pollute: every result is a fresh object that defaults to off, and only the malformed shapes warn |
+| `writing-doctrine-off` / `writing-doctrine-untrusted` | `writing.check: false` renders the doctrine byte-identically to an absent writing config, and an untrusted project renders byte-identically to `false` even with the rule configured. Both carry the discriminator: the same config, on and trusted, must render the rule |
+| `writing-doctrine-numbering` | the writing rule is numbered by tail **position** over all combinations of the three conditional tail rules, and adding it renumbers nothing before it: alone it is 11, behind the routing rule or the worker-extension rule it is 12, and with all three it is 13 while those two keep their own numbers |
+| `writing-doctrine-inject` | the rule is **static**: three configs carrying extra and nested keys beside the boolean render byte-identically to the plain on-rendering, so no config-derived text reaches the prompt |
+
+The **worker preamble** (`extension/worker.ts`):
+
+| id | what it proves |
+| --- | --- |
+| `worker-load` / `worker-preamble` | the module loads; `WORKER_PREAMBLE` is exactly the historical bounded-action text with the writing rule appended as its final sentence, and it is passed into the worker system prompt. Nothing else in `worker.ts` is in scope here |
+
+The mutations that give all of these checks teeth are recorded with the module
+they defend, in § The writing checker.
+
 **The doctrine checks are the ONLY automated coverage of doctrine rendering, and the
 smoke test is not a backstop.** Stated plainly because the opposite is easy to
 assume: `AGENTS.md` names the isolated-load smoke test (`pi --no-extensions -e .`)
-as this repo's third net, and a reader could reasonably take it to corroborate these
-checks end to end. It does not, and could not have at any point during the routing
+as a verification step beside the automated nets, and a reader could reasonably take
+it to corroborate these checks end to end. It does not, and could not have at any point during the routing
 feature's development.
 
 The reason, verified in the source rather than inferred. Orchestrator mode is seeded
@@ -720,7 +737,7 @@ consequence for the smoke test is the same.
 
 | net | what it actually proves |
 | --- | --- |
-| `doctrine-*` (6 checks) | that the doctrine RENDERS correctly from a resolution: feature-off byte-identity, positional numbering, injection safety, the SE3 trust re-gate, the two content exclusions, and the install-invariant size budget — all by calling `registerSlateMode`'s own `before_agent_start` handler with `orchestratorMode` forced on |
+| the `doctrine-*` family | that the doctrine RENDERS correctly from a resolution: feature-off byte-identity, positional numbering, injection safety, the SE3 trust re-gate, the two content exclusions, and the install-invariant size budget — all by calling `registerSlateMode`'s own `before_agent_start` handler with `orchestratorMode` forced on |
 | isolated-load smoke test | that the extension REGISTERS and that `session_start` runs (config load and validation). It never enters orchestrator mode, so it reaches neither the doctrine build nor the router consultation |
 | **neither** | that the doctrine reaches a REAL session's system prompt — that pi calls the handler, with a live resolution, and that the model receives the text. Every check here forces the flag the real path is gated on |
 
@@ -1648,7 +1665,7 @@ caught:
 | a check **deleted** (its report call suppressed) | `roster` FAIL, `none missing → ["memoization"]`, exit 1, and the summary prints `−1 unaccounted — see the roster line` |
 | a check **reporting twice** | `roster` FAIL, `none reported twice → ["memoization"]`, exit 1, summary `+1 unaccounted` |
 | a check **renamed** to an id absent from the expected list | `roster` FAIL naming **both** halves — `none missing → ["memoization"]` and `none unexpected → ["memoisation"]` — exit 1. Note the counts still reconcile here: identity, not arithmetic, is what catches a rename |
-| a whole **module unloadable** (`base-model.ts`) | its load check FAILs, its 9 checks report **NOT RUN by name**, `roster` still PASSes (they *did* report), exit 1 |
+| a whole **module unloadable** (`base-model.ts`) | its load check FAILs, every other `base-*` check reports **NOT RUN by name**, `roster` still PASSes (they *did* report), exit 1 |
 | a check **missing from its NOT RUN list** (`VOIDABLE`) | `roster` FAIL, `every voidable check is on a NOT RUN list → ["<id>"]`, exit 1. This is the audit that keeps the row above honest: without the id in its list, an unloadable module turns an honest NOT RUN into a bare "missing" line naming no cause. It filters `EXPECTED` **by prefix**, so a list serving two id prefixes needs an entry per prefix — `STATE_IDS` had only `spec-`, and the two `state-*` checks were therefore uncovered by it until an entry was added. Proved twice, once per prefix |
 
 And the strict semantics were verified in isolation, on a copy where one check
@@ -1662,8 +1679,9 @@ than a FAIL — it names a section, not a claim — so every reason read in this
 now goes through one helper that yields `""` for a proceed. The mutation testing is
 what surfaced it; a suite that only ever runs against correct code cannot.
 
-It loads those eight TypeScript modules plus the standalone checker, so it does **not** exercise
-`extension/worker.ts`'s worker-session load path — the allowlist-mode extension
+It loads the TypeScript modules listed above plus the standalone checker, and it
+reads `extension/worker.ts` only for the preamble constant, so it does **not**
+exercise that module's worker-session load path — the allowlist-mode extension
 load, the `excludeTools` deny list that structurally keeps slate's dispatch
 tools out of a worker, and the post-load collision re-check. Those need a live
 loader and session, so the manual isolated-load smoke test
@@ -1682,7 +1700,7 @@ with a verdict — applying the switch to a worker session, raising an early
 rejection as a tool error, aborting an apply-time one without an episode, or
 remembering guard 6's once-per-pair notice. Those are separate mechanisms; `WK1`
 above covers one slice of the first. **The doctrine's routing rule used to be listed
-here too and no longer belongs**: the five `doctrine-*` checks cover it — feature-off
+here too and no longer belongs**: the `doctrine-*` checks cover it — feature-off
 byte-identity, positional numbering, injection safety, the two content exclusions and
 the size budget — by rendering it through `registerSlateMode`'s own handler.
 
@@ -1692,41 +1710,122 @@ the size budget — by rendering it through `registerSlateMode`'s own handler.
 | --- | --- |
 | `run-resolver-checks.sh` | the entry point: tool checks, jiti location, temp dir, `--strict`, exit code |
 | `resolver-checks.mjs` | the driver: imports the modules through jiti, builds fixtures, runs the checks, prints the roster and the summary |
-| `writing-check-tests.mjs` | the writing checker's correctness suite: rules, adversarial fixtures, command modes, resource caps, scanner equivalence, source-offset mapping, **report/input safety**, diff safety |
-| `writing-check-scaling.mjs` | the writing checker's **growth** gate — see below |
+| `writing-check-tests.mjs` | the writing checker's correctness suite — see § The writing checker |
+| `writing-check-scaling.mjs` | the writing checker's **growth** gate — see § The writing checker |
+
+Those last two are separate nets with their own entry points; the resolver
+suite's `writing-*` checks cover the wiring around the module rather than the
+module itself.
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
 whitelist is `extension`, `docs`, `README.md`, `LICENSE`).
 
-## Writing-checker correctness-suite roster
+# The writing checker — `extension/writing-check.mjs`
 
-`writing-check-tests.mjs` is fail-soft. Each `test()` call catches its own
-failure, prints the observed stack, and lets all later tests run. A failing test
-still makes the process exit nonzero.
+The writing checker is a dictionary-free STE proxy: it reports surface facts
+about prose and claims no ASD-STE100 conformance. It is plain Node with no
+dependencies, so one file is both a library and a command, and neither pi nor
+TypeScript is reachable from it.
+
+Two callers, with different bounds:
+
+| caller | what it reads | the bound applied before the checker runs |
+| --- | --- | --- |
+| the `turn_end` hook in `extension/mode.ts`, through `measureWritingTurn` in `extension/writing.ts` | the completed assistant message of one turn, for the human-only `writing n/m` status line | `WRITING_TURN_MAX_BYTES` — 16 KiB of assistant text. A larger message is never handed to the checker, and the status line says it was skipped |
+| the command — `--input records.jsonl`, `--file PATH …`, `--diff changes.diff` | whole files, JSONL records, or the added prose lines of a unified diff | the module's own `MAX_INPUT_BYTES` — 1 MiB per record and per run |
+
+The hook is why the module's wall clock matters at all: it runs synchronously
+inside `turn_end`, so time spent in the checker is time the TUI is frozen. The
+16 KiB bound exists for that reason and is the reason the module's slowest legal
+input is a command-line concern rather than a hook concern.
+
+Three nets watch it, and they see different failures:
+
+| net | file | what it can see |
+| --- | --- | --- |
+| correctness suite | `verification/writing-check-tests.mjs` | whether a finding is RIGHT: the rules, source offsets, the caps, report and file-input safety, command modes, and the five hand-written scanners against the regexes they replaced. Under a second, machine-independent |
+| scaling gate | `verification/writing-check-scaling.mjs` | whether anything in the module GROWS faster than linearly, and whether the output caps hold at the input cap. A wall-clock gate, ~15 s |
+| pure-resolver checks | `verification/resolver-checks.mjs`, the `writing-*` families | the WIRING around it: the status line's states and visibility gates, the config sanitizer, the doctrine rule, and the command's spawned modes. Documented above, in § Pure-resolver checks |
+
+A correct but quadratic module passes the first and fails the second; a fast
+module that reports the wrong offset does the reverse. **Run all three after any
+change to `extension/writing-check.mjs`**, and the resolver suite as well after
+any change to `extension/writing.ts` or the status wiring in `extension/mode.ts`.
+
+## Correctness suite — `writing-check-tests.mjs`
+
+```sh
+node verification/writing-check-tests.mjs      # under a second
+```
+
+One `ok N - <name>` line per test, a `not ok` line plus the observed stack for a
+failure, the roster audit last, then the summary. Exit **0** every test passed ·
+**1** a test failed or the roster did not reconcile.
+
+### The roster, and why no count is written here
+
+The suite is **fail-soft**. Each `test()` call catches its own failure, prints
+the stack, and lets every later test run. A failing test still exits nonzero.
+Fail-fast hid results: one early failure used to mask every later verdict.
 
 An independent `EXPECTED` roster audits the reported test names after the last
-test. It fails when a name is missing, duplicated, or unexpected, and when the
-verdict counters do not equal the reported-name count. Thus, deleting a test,
-duplicating an id, or crashing one test cannot make an eroded or partial run
-look clean.
+test. It fails when a name is missing, duplicated or unexpected, and when the
+verdict counters do not equal the reported-name count. Deleting a test,
+duplicating an id, or crashing one test therefore cannot make an eroded or
+partial run look clean — before the roster, deleting a test exited 0.
 
-The roster audit is itself one result line and is not in `EXPECTED`. The summary
-publishes the computed identity:
+`EXPECTED` is an enforcement mechanism, not documentation. Any test added,
+renamed or removed must update it, so treat a roster failure as an unlisted
+rename before treating it as a harness bug.
+
+The roster audit is itself one result line and is deliberately not in `EXPECTED`
+— it cannot list itself, because the audit is computed before it reports. The
+summary publishes the computed identity:
 
 ```
 RESULT_LINES = EXPECTED_TESTS + this roster audit
 ```
 
-If the identity does not hold, the summary prints the residual and points to the
-roster line. The suite output is the definition of record. Do not copy its test
-count into this document.
+If the identity does not hold, the summary prints the residual and points at the
+roster line. **The suite output is the definition of record. Do not copy its
+test count, or any test number, into this document** — both have been
+transcribed here before and both went stale.
 
-# Writing-checker scaling gate — `writing-check-scaling.mjs`
+### What it covers
 
-A third net, for one property of one module: **nothing in
-`extension/writing-check.mjs` may grow faster than linearly.**
+- **Every rule, positively and negatively.** `SENT20`, `SENT25`, `PARA6`,
+  `SEMICOLON`, `CONTRACTION`, `PARENTHETICAL_PAREN`, `PARENTHETICAL_DASH`,
+  `SLASHED`, `PASSIVE`, `INGFORM`, `NOUNCLUSTER` and `MULTICMD` each have a case
+  that fires and a case that must stay silent, and no sentence produces both
+  length levels.
+- **The class boundary.** House-style and advisory findings never enter the
+  fail count, and the fixed `NOT CHECKED` list is non-empty with a reason per
+  item.
+- **The normalizer's exclusions.** Fenced and indented code, git-diff lines,
+  timestamped log lines, URLs, HTML comments and inline code produce no findings
+  and keep the source length, so offsets stay meaningful.
+- **Sentence segmentation.** Abbreviations, decimals, version numbers, paths,
+  ellipses and terminal punctuation inside quotes or parentheses.
+- **Source offsets** (BG2) — see below.
+- **Report and file-input safety** (SC4, SC5, SC9, SC6) — see below.
+- **The caps**, at every enforcement point — see § Caps and bounds.
+- **Command modes and the CLI.** JSONL, direct-file and unified-diff modes,
+  byte-identical output for repeated input, a symlinked invocation, and the
+  errors for refused inputs.
+- **Scanner equivalence.** Each of the five hand-written scanners is pinned
+  against the exact regex it replaced, plus a mixed document where whole-record
+  output must stay identical. For `scanLogLines` exact means JavaScript
+  multiline semantics across LF, CR, U+2028 and U+2029, not LF-only lines (FX1).
+- **The aggregate.** It reuses the analysis `checkRecord` already produced (CQ3)
+  and reports exact distribution values, not merely numbers of the right type.
+- **Turn outcomes** (FX2), including one source scan of `extension/mode.ts`.
 
-## Why it exists
+## Scaling gate — `writing-check-scaling.mjs`
+
+One property of one module: **nothing in `extension/writing-check.mjs` may grow
+faster than linearly.**
+
+### Why it exists
 
 Three independent reviews of the shipped checker found **six** separate
 superlinear paths in that one module (SC1 ×4 in `normalizeMarkdown`, SC2 in the
@@ -1739,10 +1838,11 @@ say with the TUI frozen.
 That is the same silent-failure shape as everything else in this directory, and
 it needs the same treatment: a check that fails when the property is lost rather
 than when the output is wrong. Six offenders in one module also means the *class*
-is the problem — the module holds ~30 more regexes nobody had shown to be linear
-— so this gate covers all of them and refuses to let a new one in unclassified.
+is the problem — the module holds dozens more regexes nobody had shown to be
+linear — so this gate covers all of them and refuses to let a new one in
+unclassified.
 
-## Running it
+### Running it
 
 ```sh
 node verification/writing-check-scaling.mjs           # ~15 s
@@ -1760,13 +1860,13 @@ sub-second, machine-independent correctness net, while this one is a wall-clock
 gate that takes ~15 s, and folding a timing assertion into the correctness suite
 would make the correctness suite read as machine-dependent.
 
-## What it covers
+### What it covers
 
 | id | what it proves |
 | --- | --- |
-| `roster` | every regex literal in the module, **extracted from its source**, is named in the coverage table — either with a hostile generator or with a written reason it cannot scale ("applied to one character", "applied to one already-bounded token"). This is the part that makes the net permanent: a newly added regex FAILS this check by name until someone classifies it, so the table cannot quietly fall behind the code. It also fails on a *stale* entry, so a deleted pattern does not leave dead coverage behind |
+| `roster` | every regex literal in the module, **extracted from its source**, is named in the coverage table — either with a hostile generator or with a written reason it cannot scale ("applied to one character", "applied to one already-bounded token"). This is the part that makes the net permanent: a newly added regex FAILS this check by name until someone classifies it, so the table cannot quietly fall behind the code. It also fails on a *stale* entry, so a deleted pattern does not leave dead coverage behind. The check's own line reports how many literals it found |
 | `regex-scaling` | every scanning regex runs its hostile generator at four doubling sizes and at the module's own `MAX_INPUT_BYTES`, and must clear both rules below |
-| `pass-scaling` | the same two rules for every exported pass (`normalizeMarkdown`, `makeBlocks`, `segmentSentences`, `wordTokens`, the five scanners, `quotedDashSpans`) and for every end-to-end shape the reviews filed — including one mapped paragraph that combines many source segments with findings near its start, so each finding drives `blockOffset` |
+| `pass-scaling` | the same two rules for every exported pass (`normalizeMarkdown`, `makeBlocks`, `segmentSentences`, `wordTokens`, the five scanners, `quotedDashSpans`) and for every end-to-end shape the reviews filed — including one mapped paragraph that combines many source segments with findings near its start, so each finding drives `blockOffset` (PR1) |
 | `canary` | the html-comment pattern **exactly as it shipped before the fix**, on the input that stalled it, must still be judged superlinear by these very thresholds. A timing gate that has stopped discriminating — a faster machine, an edited threshold, an engine optimisation — is otherwise indistinguishable from a clean run |
 | `cap-output` / `cap-stripped` | **SC7** — a 1 MiB input reports at most `MAX_BLOCK_DETAILS` block details and `MAX_STRIPPED` stripped spans, says how many it dropped, keeps `blocks` exact, and stays under 4 MB of JSON. Before the cap that input produced **62,066,044 bytes** of stdout |
 | `cap-run-findings` | **FX3** — a many-record `run()` applies the equal per-record allowance, reports every truncated record, and keeps the reported total inside `MAX_TOTAL_FINDINGS`. A per-record-only mutant reports too many findings and fails this check |
@@ -1775,22 +1875,28 @@ Two rules decide every subject:
 
 - **Budget.** The hostile input at `MAX_INPUT_BYTES` must finish inside
   `BUDGET_MS` (1200 ms). This is the property that actually protects the hook,
-  and it is an absolute rather than a ratio because the margin is enormous: the
-  linear forms measure 16–250 ms where the quadratic ones measured
-  50,000–186,000 ms.
+  and it is an absolute rather than a ratio because the margin is enormous: on
+  the reference machine every honest subject finishes at or under about 400 ms
+  at the input cap — the slowest is the PR1 mapped-findings shape — where the
+  defective forms measured 50,000–186,000 ms. That is roughly 3× headroom over
+  honest work and two to three orders of magnitude over any real defect.
 - **Growth.** A doubling must not quadruple the cost, measured across a factor-8
   span (linear ≈ 8×, quadratic ≈ 64×, threshold 24×). Enforced wherever the
   signal clears a 4 ms noise floor; below it the budget rule still binds and the
   output line says which rule decided, so nothing is left silently unguarded.
+
+A failing subject prints its own measured times, so the figures of record are
+the run's, not these.
 
 ### Why a wall-clock gate here is not flaky
 
 Because it is deliberately loose everywhere it can afford to be. Timings are
 **min-of-3**, not mean — scheduler noise is one-sided, so the minimum is the
 stable estimator. The growth threshold sits at 3× the ideal. The budget carries
-~4× headroom over the slowest honest subject and two to three **orders of
-magnitude** over any real defect. Inputs are fixed generators; nothing is random.
-A machine five times slower than the reference still passes every linear subject.
+the headroom stated above over the slowest honest subject and two to three
+**orders of magnitude** over any real defect. Inputs are fixed generators;
+nothing is random. A machine three times slower than the reference still passes
+every linear subject.
 
 ### Failing fast
 
@@ -1824,33 +1930,68 @@ was caught in one gate run:
 The last two are the ones that matter for the net's own durability: the roster
 catches coverage rot, and the canary catches the gate going blind.
 
+The PR1 row is also the reason the gate costs what it does. Its generator builds
+the full mapped shape at the cap size, which is what the reverse-linear-scan
+mutant needs to break the budget; cheaper shapes did not kill it. If gate
+runtime ever has to come down, that generator is the first place to look — and
+the mutant is what must still fail afterwards.
+
 ### What it does NOT cover
 
 Apart from the explicit output-cap checks, this gate measures growth. It says
-nothing about whether a finding is *right* — that is
-`writing-check-tests.mjs`, which pins each of the five linear scanners against
-the exact regex it replaced. For `scanLogLines`, exact means JavaScript
-multiline semantics across LF, CR, U+2028 and U+2029, not LF-only lines. It also
-does not bound **memory**: a 1 MiB input
-still peaks around 300 MB of RSS. Excerpts have a separate 2000-character cap.
-The scaling gate checks the elision path as part of `checkText`, but the
-correctness suite proves the cap and retained text.
+nothing about whether a finding is *right* — that is `writing-check-tests.mjs`.
+It also does not bound **memory**.
 
-# Writing-checker source offsets (BG2)
+The shape that makes both limits concrete is the one PF2 filed: 1 MiB of many
+short blocks (`A.\n\n` repeated). The gate times `makeBlocks` on it and runs the
+whole of `checkText` on it once, in `cap-output`, without a clock. Measured end
+to end on the reference machine, that whole pass takes about **1.0–1.1 s** and
+peaks around **450 MB** of RSS. It is linear and it is inside the 1200 ms
+budget, but it is no longer "sub-second", so do not describe it that way. The
+finding stays ACCEPTED and the reasoning behind that does not depend on the
+tenth of a second: an input that size is reachable only from the command line,
+because the turn hook stops at `WRITING_TURN_MAX_BYTES` — at 16 KiB the same
+shape takes about **14 ms**.
 
-In `writing-check-tests.mjs`, six checks named `BG2 …`.
+## Caps and bounds
 
-## Why they exist
+| cap | enforcement points | checks |
+| --- | --- | --- |
+| `MAX_INPUT_BYTES` (1 MiB) | each record, combined `run` input, unified-diff text, pre-open file size, post-open file size, and growth past the opened size | `MAX_INPUT_BYTES …` (three checks), `pre-read size refusal …`, `post-open size refusal …`, `bounded reads …`. The fail-open path, when a caller hands the checker an oversized message, is `writing measurement fails open on the checker byte cap` here and `writing-status-cap-skip` in the resolver suite |
+| `MAX_RECORDS` (10000) | `run`, JSONL parsing, direct-file arguments and emitted diff records | `MAX_RECORDS rejects …` |
+| `MAX_FINDINGS` (1000 per record) | finding insertion and omission counters | `MAX_FINDINGS caps …`, `BG6 finding caps …` |
+| `MAX_TOTAL_FINDINGS` (20000 per run) | the equal per-record allowance `run` derives from the record count (FX3) | `FX3 the run budget …`, `FX3 a small run …`, and the scaling gate's `cap-run-findings` |
+| `MAX_STRIPPED` (5000) | reported stripped-span list | `stripped spans are capped …`, `stripped spans below the cap …`, and the gate's `cap-stripped` |
+| `MAX_BLOCK_DETAILS` (5000) | reported block-detail list | `block details are capped …`, `block details below the cap …`, and the gate's `cap-output` |
+| `MAX_EXCERPT_CHARS` (2000, frame included) | head-and-tail excerpt elision | `excerpt cap includes …` |
+| `WRITING_TURN_MAX_BYTES` (16 KiB) | `extension/mode.ts` rejects a turn before loading or calling the checker. This limit is outside `writing-check.mjs` | the resolver check `writing-status-cap-visible`, and only that one. `writing-status-cap-skip` belongs to the first row: it calls `measureWritingTurn` with `MAX_INPUT_BYTES + 1` bytes, so it exercises the checker's own cap. A crossed mutation proved the split — this table used to credit both checks to this row, which would send a maintainer to the wrong mechanism after a failure |
+
+The file tests distinguish all three read stages. The pre-read check replaces
+`openSync` and proves an oversized file is never opened. The post-open check
+fakes a stale small `lstat` result. The growth check fakes an opened size smaller
+than the bytes read.
+
+## Decisions the module records
+
+### Source offsets (BG2)
 
 A paragraph's block text is its lines **trimmed and joined with one space**, so
 past the first line a block position is not a source position: the indent, the
 trailing spaces and the newline are gone. Every rule reported
 `block.start + blockIndex`, so every offset on a multi-line paragraph pointed at
-the wrong character — **1370 of the 5057 findings** over this repository's own
-Markdown, including 29% of `SEMICOLON`. Two smaller sites of the same class sat
-beside it: non-paragraph blocks were positioned with `indexOf(content)`, which
-finds an *earlier* copy when one exists (`> > x` reported its content at 0
-instead of 2), and the second trim after a marker was not counted at all.
+the wrong character. Over this repository's own Markdown that was roughly a
+quarter of all findings — a fraction, not an edge case. The exact number moves
+with the documents, so re-derive it by disabling the map rather than trusting a
+figure written here.
+
+Two smaller sites of the same class sat beside it. Non-paragraph blocks were
+positioned with `indexOf(content)`, which finds an *earlier* copy of the content
+when one exists; the marker strip is what makes that reachable, so the divergence
+needs punctuation-only content. `>>` strips to `>`, which is at source offset 1
+while `indexOf` reports 0; `# #` strips to `#`, which is at 2 while `indexOf`
+reports 0. (An earlier version of this note used `> > x`. That example is wrong:
+it strips to `> x`, which `indexOf` correctly locates at 2.) The second trim
+after a marker was not counted at all.
 
 The text is deliberately unchanged — a sentence split across two source lines
 must still segment as one sentence — so the block carries a **segment map**
@@ -1870,22 +2011,13 @@ assert exact numbers, so it cannot survive again.
 | `BG2 every block is a verbatim run …` | the root invariant: a block with no map IS the normalized source at `block.start`, and every segment of a mapped block is verbatim. Carries a non-vacuity term, since a fixture with no joined paragraph would prove nothing |
 | `BG2 every finding … selects what its rule matched` | property check over a multi-line document: each finding's source slice has its own rule's shape (a `SEMICOLON` really selects `;`). Fails if fewer than five findings were checkable, so the fixture cannot silently stop exercising the rules |
 
-### Teeth
-
-Three mutations against a scratch copy, all caught:
-
 | mutation | caught by |
 | --- | --- |
 | reinstate the join with no offset map (the reviewer's own mutation) | `BG2 semicolon on a continuation line` — offset 22, want 25 |
 | keep the map but make `blockOffset` ignore it | same check, same numbers — the map has to be *consulted*, not merely built |
 | revert the marker-lead correction to `indexOf(content)` | `BG2 every block is a verbatim run` — got `'   deeper; t'`, want `'deeper; text'` |
 
-# Writing-checker report and file-input safety (SC4/SC5/SC9/SC6)
-
-Four checks at the end of `writing-check-tests.mjs`, one per security-review
-finding.
-
-## Report interpolation boundary
+### Report and file-input safety (SC4/SC5/SC9/SC6)
 
 Every value interpolated by `formatText` is enumerated at its finding-line call
 site:
@@ -1914,17 +2046,16 @@ same in intent.
 
 Each excerpt is at most **2000 characters, including its two framing
 characters**. Longer excerpts keep equal-sized head and tail sections with a
-`[middle elided]` marker. This keeps the opening and conclusion of whole-unit
-SENT20, SENT25 and PARA6 findings. The limit is above the longest excerpt found
-in the measured repository and assistant-message corpora (1640 characters).
+`[middle elided]` marker, which keeps the opening and the conclusion of
+whole-unit SENT20, SENT25 and PARA6 findings. The limit was set above the longest
+excerpt in the measured repository and assistant-message corpora (1640
+characters). The number of findings is bounded separately — see § The run budget.
 
-## Nonblocking open
-
-`O_NOFOLLOW` rejects a path that is already a symlink, but it does not close the
-`lstat`→`open` race. If the path becomes a FIFO during that window, blocking
-`O_RDONLY` waits forever before `fstat` can reject it. The open flags now include
-`O_NONBLOCK`: a swapped FIFO opens without waiting, then `fstat` rejects the
-non-regular descriptor. Regular files still read normally.
+**Nonblocking open.** `O_NOFOLLOW` rejects a path that is already a symlink, but
+it does not close the `lstat`→`open` race. If the path becomes a FIFO during that
+window, blocking `O_RDONLY` waits forever before `fstat` can reject it. The open
+flags therefore include `O_NONBLOCK`: a swapped FIFO opens without waiting, then
+`fstat` rejects the non-regular descriptor. Regular files still read normally.
 
 The SC6 check asserts the **mechanism** (`O_NONBLOCK` and `O_NOFOLLOW` are both in
 the exported flags) and reads a legitimate regular file through the same path.
@@ -1932,70 +2063,73 @@ It does not race a scheduler: the review reproduced only 2 hangs in 60 trials,
 so a race test would intermittently pass with the defect present and would be
 worse than no test.
 
-## Checks and teeth
-
 | id | what it proves | mutation |
 | --- | --- | --- |
 | `SC4 hostile ids …` | JSONL id, diff label and newline-bearing filename cannot create control bytes, `ALL_CLEAR`, a fake summary, or a second finding line | storing the raw `record.id` fails this check |
 | `SC5 excerpts …` | ESC, BEL, BS and U+202E are absent from the in-memory/JSON excerpt and text report | restoring whitespace-only collapse fails this check |
 | `SC9 excerpt framing …` | exactly one reserved opener and closer frame each excerpt in JSON and text; hostile source delimiters cannot become frame delimiters | returning clean but unframed text fails this check |
 | `SC6 regular-file opens …` | the actual open flags cannot block on a FIFO and a normal file still reads | removing `O_NONBLOCK` fails this check |
+| `excerpt cap includes …` | the frame counts toward 2000; the head, marker and tail all remain | remove the elision block |
 
-Each mutation ran against a scratch copy and named only its intended check
-(tests 105–108 in the current suite). The scaling roster also caught the four
-report-safety regex literals and refused to pass until each was classified.
+Each mutation ran against a scratch copy and named only its intended check. The
+scaling roster also caught the four report-safety regex literals and refused to
+pass until each was classified.
 
-# Writing-checker output and diff fixes (excerpt/BG4/BG6/BG7/BG8)
-
-Five checks cover the review follow-up.
-
-## Policy boundaries
-
-The excerpt cap is 2000 characters **including** `⟦` and `⟧`. Head-and-tail
-elision keeps both ends and marks the removed middle. There is no total-report
-budget.
+### Diff mode and the CLI (BG4/BG7/BG8/FX4)
 
 Diff mode includes `.md`, `.markdown`, `.mdx`, `.txt`, `.rst`, `.adoc` and
 `.asciidoc` files. It also includes extensionless `README`, `CHANGELOG`,
 `CHANGES`, `CONTRIBUTING` and `RELEASE_NOTES` files, without case sensitivity.
 This closed list excludes source files. Markdown fenced code remains in the
-selected file and the existing Markdown normalizer removes it. The file filter
+selected file and the existing Markdown normalizer removes it, so the file filter
 does not duplicate content parsing.
 
-`MAX_FINDINGS` now applies to each record. Each record reports its own
-`findingsTruncated` and `omittedFindings` values. The aggregate reports the
-total omission count. A noisy early record can no longer make a later record
-look clean.
-
 The unified-diff parser tracks both hunk counts. An invalid header, an unknown
-hunk-line prefix, or an early end throws an error with its line number. It does
-not return the partial hunk. The CLI main-module check compares real paths, so a
-symlink invocation runs the command.
+hunk-line prefix, or an early end throws an error with its line number, and it
+never returns the partial hunk. A hunk that promises two old and three new lines
+but ends after one context and one addition reports `final hunk ended early (1
+old and 1 new lines missing)` (BG7). The CLI main-module check compares real
+paths, so a symlink invocation runs the command (BG8).
 
-## Checks and teeth
+**FX4 — decode once, then classify and report.** Git's default `core.quotePath`
+syntax is a C string. `decodeGitPath` decodes it before the `b/` prefix is
+removed, and the same decoded value then drives `isProseDiffPath`, record `path`,
+record `id` and the sanitized report id. That avoids both failure modes: silently
+dropping a prose file during classification, and finding it under a raw encoded
+label during reporting.
+
+| Git path case | result |
+| --- | --- |
+| `"b/d\\303\\263c.md"` | `dóc.md`, included |
+| `"b/tab\\tname.md"` | a literal tab in `tab<TAB>name.md`, included |
+| `b/space name.md` | unchanged, included |
+| `"b/quote\\"name.md"` | a literal quote in the decoded path, included |
+| `"b/slash\\\\name.md"` | a literal backslash in the decoded path, included |
+| `"b/code\\303\\263.ts"` | `codeó.ts`, correctly excluded as non-prose |
+
+Unsupported escapes, an unterminated quote and invalid UTF-8 throw a malformed
+path error. They cannot degrade to a clean-looking report.
 
 | id | what it proves | mutation |
 | --- | --- | --- |
-| `excerpt cap includes …` | the frame counts toward 2000; the head, marker and tail remain | remove the elision block |
 | `BG4 unified diff mode …` | Markdown is checked, TypeScript is excluded, and fenced code remains excluded | force every diff path to be prose |
-| `BG6 finding caps …` | two noisy records each keep findings and report all omissions | restore the shared `remaining` budget |
 | `BG7 malformed hunk …` | malformed content and headers throw with line numbers | restore the silent `inHunk = false` branch |
+| `BG7 an incomplete final hunk …` | a truncated final hunk is rejected, naming the missing line counts | remove the final incomplete-hunk guard |
 | `BG8 CLI runs …` | a symlinked checker executes and emits JSON | restore the URL/path string comparison |
+| `FX4 Git C-quoted paths …` | the decoded path drives classification AND reporting | classify and report the raw Git label |
 
-Each mutation ran in a throwaway `/tmp` copy. Each named check failed when its
-fix was removed. The two surrogate-boundary regexes and the revised hunk-header
-regex are classified in the scaling roster.
+The two surrogate-boundary regexes and the revised hunk-header regex are
+classified in the scaling roster. The Git-path decoder added no regex literal,
+so the roster needed no new name for it.
 
-# Writing-checker final review fixes (CQ3/CQ4/TQ2/TQ4/TQ5)
+### One analysis pipeline (CQ3/CQ4)
 
-## One analysis pipeline
-
-`checkRecord` now collects sentence lengths and paragraph sentence counts while
-it tokenizes the blocks used for findings. It attaches these arrays to the
-checked result with a private, non-enumerable symbol. `aggregate` consumes them
-instead of normalizing, building blocks, segmenting and tokenizing the source a
-second time. The public JSON and text shapes do not change. BG2 segment maps
-stay on the live blocks until findings, offsets and distributions are complete.
+`checkRecord` collects sentence lengths and paragraph sentence counts while it
+tokenizes the blocks used for findings, and attaches these arrays to the checked
+result with a private, non-enumerable symbol. `aggregate` consumes them instead
+of normalizing, building blocks, segmenting and tokenizing the source a second
+time. The public JSON and text shapes do not change. BG2 segment maps stay on the
+live blocks until findings, offsets and distributions are complete.
 
 The check named `aggregate reuses checked analysis …` uses a text value that
 counts string conversions. `run` converts it for the total byte cap and
@@ -2008,68 +2142,24 @@ so the empty-lines repair in `makeBlocks` was unreachable. Every block receives
 `words` and `sentences` before `blockDetails` is built, so its tokenization and
 segmentation fallbacks were also unreachable.
 
-## Cap inventory
+**CQ4 and reporting.** JSONL parsing now catches only syntax and record-shape
+errors. Record overflow is outside that catch and reports `JSONL exceeds the
+10000-record limit`, not `Invalid JSONL`. `makeAbbreviationSet` enforces the
+lowercase-only table invariant that `periodIsInternal` requires. The text-report
+check pins the summary, one rule line, one fixed `NOT CHECKED` reason, the cap
+notice and every generated field in a finding line; removing the finding-line
+loop fails it.
 
-| cap | enforcement points | checks |
-| --- | --- | --- |
-| `MAX_INPUT_BYTES` (1 MiB) | each record, combined `run` input, unified-diff text, pre-open file size, post-open file size, and growth past the opened size | `MAX_INPUT_BYTES …` (three checks), `pre-read size refusal …`, `post-open size refusal …`, `bounded reads …` |
-| `MAX_RECORDS` (10000) | `run`, JSONL parsing, direct-file arguments and emitted diff records | `MAX_RECORDS rejects …` |
-| `MAX_FINDINGS` (1000 per record) | finding insertion and omission counters | `MAX_FINDINGS caps …`, `BG6 finding caps …` |
-| `MAX_TOTAL_FINDINGS` (20000 per run) | the equal per-record allowance `run` derives from the record count (FX3) | `FX3 the run budget …`, `FX3 a small run …` |
-| `MAX_STRIPPED` (5000) | reported stripped-span list | `stripped spans are capped …` |
-| `MAX_BLOCK_DETAILS` (5000) | reported block-detail list | `block details are capped …` |
-| `MAX_EXCERPT_CHARS` (2000, frame included) | head-and-tail excerpt elision | `excerpt cap includes …` |
-| `WRITING_TURN_MAX_BYTES` (16 KiB) | `mode.ts` rejects a turn before loading or calling the checker | resolver checks `writing-status-cap-skip` and `writing-status-cap-visible`; this limit is outside `writing-check.mjs` |
-
-The file tests distinguish all three read stages. The pre-read check replaces
-`openSync` and proves an oversized file is never opened. The post-open check
-fakes a stale small `lstat` result. The growth check fakes an opened size smaller
-than the bytes read.
-
-## CQ4 and reporting
-
-JSONL parsing now catches only syntax and record-shape errors. Record overflow
-is outside that catch and reports `JSONL exceeds the 10000-record limit`, not
-`Invalid JSONL`. `makeAbbreviationSet` enforces the lowercase-only table
-invariant that `periodIsInternal` requires.
-
-The text-report check pins the summary, one rule line, one fixed `NOT CHECKED`
-reason, the cap notice and every generated field in a finding line. Removing the
-finding-line loop fails it.
-
-## TQ4 audit
-
-The sweep found four weak or misleading checks and one reporting gap:
-
-- Distribution checks asserted only that medians were numbers. Zeroed or
-  unrelated distributions passed. They now assert exact values and the CQ3
-  conversion count.
-- The SC5 and SC9 JSON assertions serialized an in-memory result and parsed it
-  immediately. That round trip could not test the CLI JSON path. Both now spawn
-  the command and inspect its JSON output.
-- The local `writing status skips a capped assistant message` name referred to
-  the 16 KiB mode cap but called `measureWritingTurn` directly with a 2 MiB
-  message. It exercised the checker's 1 MiB fail-open path instead. The test is
-  renamed to state that fact. The resolver suite owns the real mode-cap checks.
-- The old text-format check could find `SLASHED` in the aggregate rule table
-  after the detailed finding-line renderer was deleted. The expanded reporting
-  check now requires the full finding line.
-
-The resolver determinism check was not dead in the current tree. It starts two
-separate commands and compares their output. Adding a random `nonce` to a
-scratch command made the outputs differ, so the check's condition becomes
-false. No repair was necessary.
-
-# Writing-checker URL sentence boundaries (BG5)
+### URL sentence boundaries (BG5)
 
 The URL pattern strips candidates that start with `http://`, `https://` or
 `www.`. A scheme-less domain such as `example.test` remains prose; expanding
-candidate detection is outside BG5. The pattern now treats a trailing `.`, `,`,
-`;`, `:`, `!` or `?` as prose
-punctuation. Those characters remain URL data when another URL character
-follows, so dotted paths and query separators still work. This is the explicit
-ambiguity boundary: a literal punctuation character at the end of a URL must be
-percent-encoded. Parentheses remain outside URL candidates as before.
+candidate detection is outside BG5. The pattern treats a trailing `.`, `,`,
+`;`, `:`, `!` or `?` as prose punctuation. Those characters remain URL data when
+another URL character follows, so dotted paths and query separators still work.
+This is the explicit ambiguity boundary: a literal punctuation character at the
+end of a URL must be percent-encoded. Parentheses remain outside URL candidates
+as before.
 
 | case | decision |
 | --- | --- |
@@ -2087,22 +2177,18 @@ one 26-word sentence: one `SENT25`, no `SENT20`. After BG5, segmentation returns
 two sentences: one `SENT20`, no `SENT25`.
 
 Two direct checks cover the boundary table and the length-rule effect. Restoring
-the greedy `[^\\s<>()]+` tail in a throwaway copy fails `BG5 URL boundaries keep
+the greedy `[^\s<>()]+` tail in a throwaway copy fails `BG5 URL boundaries keep
 sentence punctuation and strip URL data`. The scaling roster names the revised
 pattern and adds a punctuation-heavy hostile generator.
 
-# Writing-checker run budget and turn outcomes (FX3/FX2)
+### The run budget (BG6/FX3)
 
-Both defects came from the fix series itself.
-
-## FX3 — a per-record cap bounds nothing
-
-BG6 replaced the shared finding budget with a per-record cap, because a shared
-budget is consumed in record order and makes later records look clean. That
-removed the only bound on a whole run: the output limit became 1000 findings
-times the record count. An 8000-record JSONL file of 918,890 bytes, inside every
-documented cap, produced 210,730,019 bytes of stdout and 1,244,252 KB of peak
-RSS in 1.94 s.
+Both defects came from the fix series itself. BG6 replaced a shared finding
+budget with a per-record cap, because a shared budget is consumed in record order
+and makes later records look clean. That removed the only bound on a whole run:
+the output limit became 1000 findings times the record count. An 8000-record
+JSONL file of 918,890 bytes, inside every documented cap, produced 210,730,019
+bytes of stdout and 1,244,252 KB of peak RSS in 1.94 s.
 
 Both findings hold together because the run budget is spread as an **equal
 allowance**, not as a first-come budget:
@@ -2117,8 +2203,9 @@ allowance = max(1, min(MAX_FINDINGS, floor(MAX_TOTAL_FINDINGS / recordCount)))
 - FX3: a run reports at most `recordCount * allowance` findings, so the total is
   bounded by `MAX_TOTAL_FINDINGS`.
 - Loss is never quiet. Each record keeps its own `findingsTruncated` and
-  `omittedFindings`, and `formatText` prints an `OUTPUT BUDGET:` line **before**
-  every rule and finding line whenever the budget reduced the allowance.
+  `omittedFindings`, the aggregate reports the total omission count, and
+  `formatText` prints an `OUTPUT BUDGET:` line **before** every rule and finding
+  line whenever the budget reduced the allowance.
 
 The budget is 20000, which is 20 times the per-record cap. Two facts fix that
 value. It must be at least `MAX_RECORDS`, or the one-finding visibility floor
@@ -2141,16 +2228,21 @@ Measured on the reviewer's shape (8000 records, 918,890 bytes, 90 findings each)
 | findings reported | 720,000 | 16,000 |
 | records that report the loss | 0 | 8000 |
 
-The repository's 19 Markdown files are byte-identical before and after, both one
-file per run and all 19 in one run: 5057 findings, allowance 1000, no budget
-line.
+This repository's own Markdown was byte-identical before and after the fix, both
+one file per run and all files in one run: the run allowance stays at the full
+per-record cap and no `OUTPUT BUDGET:` line appears.
 
-The scaling gate now drives `run()` with many noisy records. Its
+| id | what it proves | mutation |
+| --- | --- | --- |
+| `FX3 the run budget …` | 500 records of 60 findings report 40 each, the total stays inside the budget, a quiet record keeps all 5 of its findings, the `OUTPUT BUDGET:` line is the second line, and reversing the record order changes no count | drop the allowance, silence the notice, or restore a first-come shared budget |
+| `FX3 a small run …` | the allowance arithmetic at 1, 20, 21 and over-budget record counts, the one-finding floor, and a two-record run that keeps the whole per-record cap with no budget line | remove the `max(1, …)` floor |
+| `MAX_FINDINGS caps …` / `BG6 finding caps …` | two noisy records each keep findings and report every omission | restore the shared `remaining` budget |
+
+The scaling gate drives `run()` with many noisy records too: its
 `cap-run-findings` subject asserts the equal allowance, the total bound, the
-truncated-record count, and a visible omission count. A scratch mutant that
-replaced the allowance with the per-record limit failed this check.
+truncated-record count and a visible omission count.
 
-## FX2 — no prose is not a broken checker
+### Turn outcomes (FX2)
 
 `measureWritingTurn` returned `void` and left the counters untouched both when a
 turn carried no prose and when the checker threw. `mode.ts` could only tell the
@@ -2161,7 +2253,7 @@ tool-call-only turn, a thinking-plus-tool-call turn and an aborted or failed tur
 all carry no text part. Those are the majority of turns in an orchestrator
 session, so the status line was wrong most of the time.
 
-`measureWritingTurn` now returns an outcome and the hook obeys it:
+`measureWritingTurn` returns an outcome and the hook obeys it:
 
 | outcome | counters | status |
 | --- | --- | --- |
@@ -2174,45 +2266,33 @@ gates never reached this branch, a rejected import still throws into the hook's
 own catch, and a throwing checker now says so through `failed` rather than
 through a counter that did not move.
 
-## Checks and teeth
-
 | id | what it proves | mutation |
 | --- | --- | --- |
-| `FX3 the run budget …` | 500 records of 60 findings report 40 each, the total stays inside the budget, a quiet record keeps all 5 of its findings, the `OUTPUT BUDGET:` line is the second line, and reversing the record order changes no count | drop the allowance, silence the notice, or restore a first-come shared budget |
-| `FX3 a small run …` | the allowance arithmetic at 1, 20, 21 and over-budget record counts, the one-finding floor, and a two-record run that keeps the whole per-record cap with no budget line | remove the `max(1, …)` floor |
 | `FX2 a turn with no text part …` | five real message shapes (tool call, thinking plus tool call, empty content, empty text part, non-assistant) report `no-text` and leave healthy counters at 3/1 | return `failed` for a text-less turn, or measure an empty text part |
 | `FX2 array content …` | array content with a text part measures exactly like string content, and a following tool-only turn does not disturb the counters | as above |
 | `FX2 a throwing checker …` | the checker's own failure is `failed` while a text-less turn beside it is still `no-text` | as above |
 | `FX2 the turn hook …` | `mode.ts`'s `turn_end` handler branches on the outcome and holds no counter-delta inference | reinstate `measuredTurns > measuredBefore` |
 
-The last check is a source scan of `extension/mode.ts`. That module pulls the pi
-SDK, so this suite cannot import it, and the resolver suite drives it with string
-content only. The scan pins the wiring that decides the status until a check with
-realistic array content exists on the resolver side.
+`FX2 the turn hook …` is a source scan of `extension/mode.ts`. That module pulls
+the pi SDK, so this suite cannot import it, and the resolver suite drives it with
+string content only. The scan pins the wiring that decides the status until a
+check with realistic array content exists on the resolver side.
 
-One mutation is equivalent and no check can kill it: capping the first-come
-budget at the fair allowance. Since every record already gets at most
-`floor(total / recordCount)`, the running total can never be exhausted, so that
-mutant computes the same result. The BG6-relevant mutant is the one in the table,
-which restores the per-record cap plus a shared budget.
+### Log-line equivalence (FX1)
 
-# Log-line equivalence, Git paths and final hunks (FX1/FX4/BG7)
-
-## FX1 — exact JavaScript line semantics
-
-`scanLogLines` continues to promise exact equivalence with the regex it replaced.
-That is the correct policy for exported `normalized` and `stripped` data, and it
-is also the correct Windows behavior: CRLF is a line boundary, not prose that a
-log stripper may leave partly visible. JavaScript multiline `^` recognizes four
-terminators: LF, CR, U+2028 and U+2029. The old regex can start after the first
-such terminator in a whitespace run, then `\s*` consumes the rest of that run.
-The scanner now does the same.
+`scanLogLines` promises exact equivalence with the regex it replaced. That is the
+correct policy for exported `normalized` and `stripped` data, and it is also the
+correct Windows behavior: CRLF is a line boundary, not prose that a log stripper
+may leave partly visible. JavaScript multiline `^` recognizes four terminators:
+LF, CR, U+2028 and U+2029. The old regex can start after the first such
+terminator in a whitespace run, then `\s*` consumes the rest of that run. The
+scanner does the same.
 
 The scanner first walks backward over whitespace, then walks forward only to the
 first line terminator. It visits a whitespace run at most twice, and `lastEnd`
-prevents later matches from revisiting it. The scaling gate adds CRLF and Unicode-line
-hostile inputs to both the regex and scanner subjects. The full gate remains
-linear at the 1 MiB cap.
+prevents later matches from revisiting it. The scaling gate adds CRLF and
+Unicode-line hostile inputs to both the regex and scanner subjects, and the full
+gate remains linear at the 1 MiB cap.
 
 A deterministic differential run used the reviewer's shape: 200,000 generated
 cases across all five scanners plus 316,585 exhaustive cases. It added U+2028
@@ -2223,42 +2303,64 @@ The reviewer's CR counterexample changes from span `1003–1030` to `2–1030`, 
 same as the old regex. In the tab/NBSP variant, the span changes from `5–32` to
 `2–32`, so the tab and NBSP are blanked instead of leaking into `normalized`.
 
-## FX4 — decode once, then classify and report
+| id | what it proves | mutation |
+| --- | --- | --- |
+| `scanLogLines matches …` / `FX1 log spans …` | every JavaScript line terminator is honoured and the full span is blanked | restore the LF-only log start search |
 
-Git's default `core.quotePath` syntax is a C string. `decodeGitPath` decodes it
-before the `b/` prefix is removed. The same decoded value then drives
-`isProseDiffPath`, record `path`, record `id` and the sanitized report id. This
-avoids both failure modes: silently dropping a prose file during classification,
-and finding it under a raw encoded label during reporting.
+The module gained no regex literal with this fix, so the scaling roster needed no
+new name; its log generators changed to cover the new line-terminator paths.
 
-| Git path case | result |
-| --- | --- |
-| `"b/d\\303\\263c.md"` | `dóc.md`, included |
-| `"b/tab\\tname.md"` | a literal tab in `tab<TAB>name.md`, included |
-| `b/space name.md` | unchanged, included |
-| `"b/quote\\"name.md"` | a literal quote in the decoded path, included |
-| `"b/slash\\\\name.md"` | a literal backslash in the decoded path, included |
-| `"b/code\\303\\263.ts"` | `codeó.ts`, correctly excluded as non-prose |
+## Teeth, and what auditing these checks found
 
-Unsupported escapes, an unterminated quote and invalid UTF-8 throw a malformed
-path error. They cannot degrade to a clean-looking report.
+Every mutation recorded here was applied to a throwaway copy outside the
+repository, run, and reverted. Each named only its intended check. Never mutate
+the repository itself, and mutate the MODULE copy rather than a checks file:
+`run-resolver-checks.sh` loads `resolver-checks.mjs` from its own directory
+whatever `--repo` says, so a mutated copy of the checks would not be the file
+that runs.
 
-## BG7 — final hunk guard
-
-A hunk that promises two old and three new lines but ends after one context and
-one addition now has a direct check. It must report `1 old and 1 new lines
-missing`; removing the final guard fails that check.
-
-## Teeth
+The status-line and wiring mutations run against the **resolver** suite:
 
 | mutation | killed by |
 | --- | --- |
-| restore the LF-only log start search | `scanLogLines matches …` and `FX1 log spans …` |
-| classify and report the raw Git label | `FX4 Git C-quoted paths …` |
-| remove the final incomplete-hunk guard | `BG7 an incomplete final hunk …` |
+| count house-style findings as fail-level | `writing-status-counting` |
+| remove the trust gate | `writing-status-gate-trust` |
+| rethrow checker errors | `writing-status-crash` (the fail-open section cannot complete) |
+| emit a fail with the 21–25-word warning | `writing-checker-length` |
+| blank the rendered writing status line | `writing-status-positive` |
+| remove the `measureWritingTurn` call | `writing-status-positive` |
+| break the checker import path | `writing-status-positive` |
+| remove the visible size-bound status | `writing-status-cap-visible` |
+| remove the file-URL conversion | `writing-status-import-url` |
+| render `unavailable` as `writing 0/0` | `writing-status-import-fail`, `writing-status-fail-open` |
+| remove unavailable detection and silence the catch | `writing-status-import-fail`, `writing-status-fail-open` |
 
-All three mutations failed in a fail-soft scratch copy, so the FX1 mutation
-proved both its differential fixture and its exported-normalization check. No
-mutation survived and none was equivalent. The module gained no regex literal,
-so the scaling roster needed no new name; its log generators changed to cover
-the new line-terminator paths.
+**One mutation is equivalent and no check can kill it**: capping the first-come
+budget at the fair allowance. Every record already gets at most
+`floor(total / recordCount)`, so the running total can never be exhausted and
+that mutant computes the same result. The BG6-relevant mutant is the one in § The
+run budget, which restores the per-record cap plus a shared budget.
+
+**What the TQ4 audit of these checks found.** Four weak or misleading checks and
+one reporting gap, all since repaired:
+
+- Distribution checks asserted only that medians were numbers. Zeroed or
+  unrelated distributions passed. They now assert exact values and the CQ3
+  conversion count.
+- The SC5 and SC9 JSON assertions serialized an in-memory result and parsed it
+  immediately. That round trip could not test the CLI JSON path. Both now spawn
+  the command and inspect its JSON output.
+- The local `writing status skips a capped assistant message` name referred to
+  the 16 KiB mode cap but called `measureWritingTurn` directly with a 2 MiB
+  message, so it exercised the checker's own 1 MiB fail-open path instead. The
+  test is renamed to state that fact, and the resolver suite owns the real
+  mode-cap check. The same confusion between the two caps reached the cap
+  inventory above and was corrected there too.
+- The old text-format check could find `SLASHED` in the aggregate rule table
+  after the detailed finding-line renderer was deleted. The expanded reporting
+  check now requires the full finding line.
+
+The resolver determinism check was not dead in the current tree. It starts two
+separate commands and compares their output. Adding a random `nonce` to a
+scratch command made the outputs differ, so the check's condition becomes false.
+No repair was necessary.
