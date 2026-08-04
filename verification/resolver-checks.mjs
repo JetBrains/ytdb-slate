@@ -1199,15 +1199,12 @@ try {
 			// A BUDGET GUARD, not a recorded fact — and measured on an INSTALL-INVARIANT
 			// figure, which is the only way it can be a guard at all.
 			//
-			// The doctrine embeds ABSOLUTE doc paths (rules 8-10, and now the routing rule's
-			// own pointer), so its raw character count carries the length of wherever the
-			// package happens to be installed. Measured here: the same router-off doctrine is
-			// 1968 chars under a 13-character docs directory and 2103 under this repo's
-			// 58-character one — 3 embedded paths × 45 characters of difference, and 4, 5,
-			// or 6 paths in the other configurations. A raw-character budget therefore passes on
-			// one machine and fails on another, and the failure would look like bloat rather
-			// than like a longer home directory. It also explains, exactly, the discrepancy
-			// between the sizes this check first recorded and the module owner's.
+			// The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the
+			// length of wherever the package happens to be installed once per embedded path.
+			// A raw-character budget therefore passes on one machine and fails on another,
+			// and the failure would look like bloat rather than a longer install directory.
+			// Do not record a checkout-specific raw count here: `portable()` below is the
+			// install-invariant measurement that this check publishes and enforces.
 			//
 			// So every bound below is on `portable()`: the text with each occurrence of the
 			// docs DIRECTORY removed, leaving the filename. That is invariant by construction
@@ -1239,7 +1236,7 @@ try {
 			const docPaths = DOCS_DIR === "" ? 0 : on.split(DOCS_DIR).length - 1;
 			checkAll(
 				"doctrine-budget",
-				"the routing rule's size is bounded, because doctrine text is paid for on every turn of every session — and the bound is measured on an INSTALL-INVARIANT figure, because the doctrine embeds ABSOLUTE doc paths and its raw character count therefore carries the length of the install directory (measured: the same router-off doctrine is 1968 chars under a 13-character docs path and 2103 under this repo's 58-character one, 3 paths × 45 characters; other configurations embed 4, 5, or 6). Every bound is on the text with each occurrence of the docs DIRECTORY removed, leaving the filename — invariant by construction, assuming no path count, while still charging a maintainer for the part they control. The individual routing bounds retain substantial room, but the all-feature fixture is 5443 of 5600 portable characters: only 157 characters, or 2.8%. Doubling the 754-character writing rule would make that fixture about 6197 characters. The checks bound the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row (a research refresh writing a 2000-character routeFor would bloat every prompt silently, since `cell()` imposes no cap), the rule's share of the whole doctrine, and — on the same convention, because it carries an absolute doc citation of its own — the WRITING rule's own size and its one embedded path",
+				"the routing rule's size is bounded, because doctrine text is paid for on every turn of every session — and the bound is measured on an INSTALL-INVARIANT figure. The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the install-directory length once per path and is not recorded here. Every bound is on the text with each occurrence of the docs DIRECTORY removed, leaving the filename — invariant by construction, assuming no path count, while still charging a maintainer for the part they control. The individual routing bounds retain substantial room, but the all-feature fixture is 5443 of 5600 portable characters: only 157 characters, or 2.8%. Doubling the 754-character writing rule would make that fixture about 6197 characters. The checks bound the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row (a research refresh writing a 2000-character routeFor would bloat every prompt silently, since `cell()` imposes no cap), the rule's share of the whole doctrine, and — on the same convention, because it carries an absolute doc citation of its own — the WRITING rule's own size and its one embedded path",
 				[
 					["the normalisation bites: the doctrine really does embed the docs directory", docPaths >= 3 && DOCS_DIR !== "", { docPaths, DOCS_DIR }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],

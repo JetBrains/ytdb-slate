@@ -44,7 +44,8 @@ over the review diff, using the package root that contains this document.
 Report fail-level matches in changed prose governed by the reviewed
 project's writing convention. Diff mode deliberately selects only prose
 file types; inspect user-facing strings and comments in source files
-directly.
+directly. For this package, [writing-guidance.md](writing-guidance.md)
+defines the convention, its scope and its exclusions.
 
 The checker is diagnostic, not authoritative. It embeds no controlled
 vocabulary and establishes no ASD-STE100 conformance. A clean run does

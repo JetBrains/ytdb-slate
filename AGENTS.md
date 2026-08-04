@@ -67,9 +67,9 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 
 ### Package-content check (package-resolved runtime files)
 
-`node verification/package-content-check.mjs --repo .` runs `npm pack --dry-run --json --ignore-scripts` and checks the publish file set. It derives the checker filename and every doctrine document reference from `extension/paths.ts` and `extension/mode.ts`, then reports each missing runtime file by its exported path name. It does not create a tarball, run package scripts, or use the network; it normally takes under 1 second.
+`node verification/package-content-check.mjs --repo .` runs `npm pack --dry-run --json --ignore-scripts` and checks the publish file set. It derives the checker filename and every exported docs path from `extension/paths.ts`, then reports each missing runtime file by its exported path name. It also parses `extension/mode.ts` and validates its path imports, but those imports do not limit the document roster. It does not create a tarball, run package scripts, or use the network; it normally takes under 1 second.
 
-- **Re-run it after any change to `package.json`'s `files` whitelist, `extension/paths.ts`'s package-resolved files, or the doctrine's `*_DOC` references in `extension/mode.ts`**, and before release.
+- **Re-run it after any change to `package.json`'s `files` whitelist, `extension/paths.ts`'s package-resolved files, or path imports in `extension/mode.ts`**, and before release.
 - The check covers package presence only. The resolver suite still covers doctrine rendering and checker behavior.
 
 ### Writing-checker nets (correctness suite + scaling gate)

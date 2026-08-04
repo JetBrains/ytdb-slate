@@ -118,15 +118,27 @@ try {
 	process.exit(2);
 }
 
-const citedDocs = [];
+const exportedDocs = [];
 try {
+	// paths.ts is the package-runtime path registry. Check every exported docs
+	// path, even when no current module imports it, so a future citation or an
+	// orphaned export cannot silently name a file that the package omits.
+	for (const name of [...exported].sort()) {
+		const path = derive(name);
+		if (path?.root === "docs") exportedDocs.push([name, path.file]);
+		else if (path?.root !== "extension" && path?.root !== "extension-url") {
+			throw new Error(`cannot classify exported runtime path ${name}; document paths must resolve statically under DOCS_DIR`);
+		}
+	}
+	if (exportedDocs.length === 0) throw new Error("no exported doctrine document paths found in extension/paths.ts");
+
+	// Keep validating mode.ts as a consumer. This preserves fail-closed parsing,
+	// named-import, alias, and unresolved-export checks without using its imports
+	// to decide which documents belong in the package.
 	for (const name of importedPathNames) {
 		if (!exported.has(name)) throw new Error(`mode imports a path that paths.ts does not export: ${name}`);
-		const path = derive(name);
-		if (path?.root === "docs") citedDocs.push([name, path.file]);
-		else if (path?.root !== "extension-url") throw new Error(`cannot classify imported runtime path ${name}; doctrine document references must resolve statically under DOCS_DIR`);
+		if (derive(name) === null) throw new Error(`cannot classify runtime path imported by mode.ts: ${name}`);
 	}
-	if (citedDocs.length === 0) throw new Error("no doctrine document references found in extension/mode.ts");
 } catch (error) {
 	console.error(`package-content-check: ${error instanceof Error ? error.message : String(error)}`);
 	process.exit(2);
@@ -134,7 +146,7 @@ try {
 
 const expected = [
 	[`WRITING_CHECKER (${checker.file})`, `extension/${checker.file}`],
-	...citedDocs.sort(([a], [b]) => a.localeCompare(b)).map(([name, file]) => [`${name} (${file})`, `docs/${file}`]),
+	...exportedDocs.map(([name, file]) => [`${name} (${file})`, `docs/${file}`]),
 ];
 const packed = spawnSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
 	cwd: repo,
