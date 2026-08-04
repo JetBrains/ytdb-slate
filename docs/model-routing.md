@@ -447,14 +447,13 @@ model's ladder is unreadable.
 - **In the orchestrator's own system prompt, every turn:** the
   doctrine gains a routing rule — a table with one row per routable
   model, plus the rules for reading it. This is the surface you do
-  not see, and it is the router's standing cost: 1,941 characters /
-  20 lines for six configured models, 2,519 / 23 for all nine — a
-  model row costs 154–186 characters, plus a one-off legend clause
-  for each marker it introduces (listing the first cheap-tier model
-  costs ~50 characters beyond its row, which is why six→nine
-  averages 193 per model against the first six's 171). Configuring
-  the router roughly doubles Slate's always-loaded block (1,929
-  characters with routing off). Those are PORTABLE characters — the
+  not see, and it is the router's standing cost: 1,950 characters /
+  20 added doctrine lines for six configured models, 2,505 / 23 for
+  all nine. In the current snapshot a model row costs 146–183
+  characters, plus a one-off legend clause for each marker it
+  introduces. Configuring the router roughly doubles Slate's
+  always-loaded block (1,929 characters with routing and writing
+  off). Those are PORTABLE characters — the
   doctrine with each occurrence of the installed `docs/` directory
   removed, filenames kept — because the doctrine embeds absolute doc
   paths and its raw size therefore depends on where the package is
