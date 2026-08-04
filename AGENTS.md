@@ -82,7 +82,9 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 
 ## Writing convention
 
-New or changed README text, PR descriptions, delivery commit bodies in either mode, issues, comments, release notes and agent messages to users: use short, active, plain language; keep exact terms. Excluded are research logs and worker-thread task text; deliberately, `docs/`, where precision wins; and `AGENTS.md`, whose agent rules need a dense, exact register. ASD-STE100 inspires only; Slate claims no conformance. Copy no standard material or examples.
+The convention governs new or changed prose in the root `README.md`, PR descriptions, delivery commit bodies in either mode, issues, comments, release notes and agent messages to users: use short, active, plain language; keep exact terms. Research logs and worker-thread task text are excluded. So are `docs/` and `verification/README.md`, which are precision-first mechanism references, and `AGENTS.md`, whose agent rules need a dense, exact register.
+
+The writing checker is diagnostic everywhere and authoritative nowhere: a match directs a reviewer's attention, and the reviewer decides whether the text has a defect. In convention-governed files, changed text should carry no fail-level findings; fail-level findings in unchanged text are pre-existing debt, not a blocker for an unrelated change. In excluded files every checker class is advisory only. This is deliberate: fail-level rules include sentence and paragraph length, and length trades directly against the precision those exclusions protect. ASD-STE100 inspires only; Slate claims no conformance. Copy no standard material or examples.
 
 ## Packaging rules
 

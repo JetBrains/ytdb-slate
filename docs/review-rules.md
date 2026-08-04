@@ -37,14 +37,44 @@ automatically).
 
 ## 3. Choose perspectives by what the change touches
 
-There is no fixed roster — compose perspectives per change. Each
-bullet below is that perspective's charter:
+There is no fixed roster — compose perspectives per change. Every
+perspective has this first step before its specific charter: run
+`node /path/to/slate/extension/writing-check.mjs --diff PATH --format text`
+over the review diff, using the package root that contains this document.
+Report fail-level matches in changed prose governed by the reviewed
+project's writing convention. Diff mode deliberately selects only prose
+file types; inspect user-facing strings and comments in source files
+directly.
+
+The checker is diagnostic, not authoritative. It embeds no controlled
+vocabulary and establishes no ASD-STE100 conformance. A clean run does
+not prove that writing is good, and a match is not automatically a
+defect. Apply the project's convention scope before grading output:
+
+- `fail`: in convention-governed changed text, normally `should-fix`;
+  use `blocker` only when the underlying defect prevents safe or correct
+  delivery. In excluded text, it is advisory only.
+- `warning`: normally at most a `suggestion`; raise it only when
+  independent evidence establishes a more consequential defect.
+- `house-style`: at most a `suggestion` when the applicable convention
+  calls for the change; otherwise report nothing.
+- `advisory`: never a defect by itself. File a finding only when
+  independent review establishes an underlying defect, graded on its
+  own consequences.
+
+Reviewer judgment governs every class. The checker cannot decide
+meaning, factual accuracy, claim truth, document structure, topic unity,
+or instruction completeness; those usually matter more than a
+mechanical match. Each bullet below is the remainder of that
+perspective's charter:
 
 - **Code baseline** (any production/test code change): correctness &
   bugs (logic, null safety, resource leaks, lifecycle); code quality
   (readability, duplication, error handling); test quality (do tests
   verify behavior, cover the change, and would they fail on
-  regression?).
+  regression?). Verify documentation claims about the code under review
+  against the implementation already being read. A contradiction is a
+  code-baseline finding, not work to leave for a prose specialist.
 - **Specialists**, added when the change touches their domain:
   - concurrency — any defect requiring reasoning about thread
     interleavings (locks, shared state, atomicity);
@@ -60,45 +90,26 @@ bullet below is that perspective's charter:
   domain specialists). Each charter in that file MUST declare its own
   stable finding-ID prefix (uniqueness rules in §4). Compose them per
   change exactly like the built-in perspectives above.
-- **Non-code artifacts** (docs, prompts, process rules, extension
-  guidance like this file) get their own perspectives INSTEAD of the
-  code baseline: internal consistency & cross-references; instruction
-  completeness (can a reader execute this without guessing?); context
-  budget (what becomes always-loaded vs on-demand); writing style;
-  and safety of any scripts/hooks/config touched.
-- **Mixed diffs**: scope each reviewer to its in-scope files. Code
-  reviewers never review process/docs files, and vice versa.
-- **Text-review execution**: run the shipped proxy checker at
-  `extension/writing-check.mjs` over changed prose before reaching a
-  verdict. Use `--file PATH` for complete prose
-  artifacts and `--diff PATH` for added lines in a unified diff. Diff
-  mode deliberately selects only prose file types. It does not review
-  added source code as prose. This exclusion includes user-facing
-  strings and comments in source files. Inspect those directly or supply
-  extracted text by another input mode.
-
-  Checker classes direct attention and do not replace §4 severity:
-  - `fail`: inspect the passage. A confirmed mechanical violation is
-    normally `should-fix`. Use `blocker` only when the underlying writing
-    defect itself prevents safe or correct delivery.
-  - `warning`: inspect the passage and normally report at most a
-    `suggestion`. Raise it only when independent evidence establishes a
-    more consequential defect.
-  - `house-style`: report at most a `suggestion` when the applicable
-    artifact convention calls for the change. Otherwise, report nothing.
-  - `advisory`: never report the checker result itself as a defect. File
-    a finding only when independent review establishes an underlying
-    defect, and grade that defect on its own consequences.
-
-  The checker is a dictionary-free proxy, not an authority. It embeds no
-  controlled vocabulary and establishes no ASD-STE100 conformance. A
-  clean run does not prove that writing is good, and a reported match is
-  not automatically a defect. Reviewer judgment governs.
-
-  In particular, the checker cannot decide meaning, factual accuracy, claim truth,
-  document structure, topic unity, or instruction completeness. Review
-  those directly. They are usually more valuable than a mechanical
-  finding.
+- **Non-code baseline** (docs, prompts, process rules, extension
+  guidance like this file): internal consistency & cross-references;
+  factual and instruction completeness (can a reader execute this
+  without guessing?); context budget (what becomes always-loaded vs
+  on-demand); and safety of any scripts/hooks/config touched. This
+  baseline applies instead of the code baseline unless a mixed diff
+  also changes code.
+- **Text specialist**, added when a change ships user-facing or
+  licensing-adjacent prose: licensing and provenance exposure;
+  coherence with the project's writing convention; proportionality and
+  duplication; register, audience fit, structure, and accuracy as
+  prose. User documentation, command help, release notes, prompts, and
+  public-facing messages normally trigger it. Do not dispatch it solely
+  for a short internal code comment, test name, fixture string, or
+  mechanical label unless the text is licensing-adjacent or its prose
+  risk independently warrants review.
+- **Mixed diffs**: scope each reviewer to its charter. Code reviewers own
+  claims that describe their in-scope code even when those claims live
+  in documentation. They do not take on the rest of the non-code or text
+  charter, and non-code reviewers do not take on code correctness.
 - Selection is a judgment call, not a rigid filter — when in doubt,
   include the perspective. Risk/complexity changes how deep iteration
   goes (§6), never which perspectives run.
