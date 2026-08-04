@@ -11,6 +11,20 @@ export const MAX_INPUT_BYTES = 1024 * 1024;
 export const MAX_RECORDS = 10000;
 /** Per-record cap. One noisy record must not consume another record's budget. */
 export const MAX_FINDINGS = 1000;
+/**
+ * FX3. A per-record cap alone bounds nothing: 8000 cap-legal records of 90
+ * findings each produced 210 MB of stdout and 1.2 GB of RSS, because the bound
+ * was 1000 findings times the record count. This bounds a whole run too, and
+ * the two bounds combine as an EQUAL per-record allowance rather than as a
+ * first-come budget, because a first-come budget is what BG6 rejected.
+ *
+ * Two facts set the value. It must be at least MAX_RECORDS, or the one-finding
+ * visibility floor below would exceed it and the budget would be a false claim.
+ * At 20x the per-record cap it also leaves every record of a 19-file run at the
+ * full per-record cap, which is this repository's own documentation set, so the
+ * budget binds on amplification rather than on ordinary use.
+ */
+export const MAX_TOTAL_FINDINGS = 20000;
 /** Includes the two reserved framing characters. */
 export const MAX_EXCERPT_CHARS = 2000;
 // SC7: findings were capped but these two arrays were not, so a 1 MiB input
@@ -696,7 +710,29 @@ function distribution(values) {
   const sum = a.reduce((x, y) => x + y, 0);
   return { count: a.length, mean: a.length ? sum / a.length : 0, median: quantile(a, .5), p90: quantile(a, .9), p95: quantile(a, .95), max: a.at(-1) ?? 0 };
 }
-export function aggregate(checked) {
+/**
+ * The findings each record of a run may report.
+ *
+ * BG6 and FX3 pull in opposite directions and both hold here. Every record of
+ * one run gets the SAME allowance, so a record's position never decides what it
+ * keeps (BG6), and the run total cannot exceed the record count times that
+ * allowance (FX3). The allowance depends only on the record count, so it is the
+ * same in any order and for any content.
+ *
+ * The floor is one finding per record: a run of more records than the total
+ * budget still shows every offending record rather than silencing the tail, and
+ * `MAX_RECORDS` keeps that floor bounded. Unused allowance is deliberately NOT
+ * redistributed to noisier records, because that would make one record's
+ * reported count depend on other records again.
+ */
+export function findingAllowance(recordCount, perRecord = MAX_FINDINGS, total = MAX_TOTAL_FINDINGS) {
+  if (!Number.isSafeInteger(recordCount) || recordCount <= 0) return perRecord;
+  return Math.max(1, Math.min(perRecord, Math.floor(total / recordCount)));
+}
+
+export function aggregate(checked, options = {}) {
+  const perRecordLimit = Number.isSafeInteger(options.perRecordLimit) ? options.perRecordLimit : MAX_FINDINGS;
+  const allowance = Number.isSafeInteger(options.findingAllowance) ? options.findingAllowance : perRecordLimit;
   const totalWords = checked.reduce((n, r) => n + r.words, 0);
   const rules = {};
   for (const [id, cls] of RULES) {
@@ -717,7 +753,10 @@ export function aggregate(checked) {
     failFindings: classCount('fail'), warningFindings: classCount('warning'),
     houseStyleFindings: classCount('house-style'), advisoryFindings: classCount('advisory'),
     findingsTruncated: checked.some(r => r.findingsTruncated),
+    truncatedRecords: checked.filter(r => r.findingsTruncated).length,
     omittedFindings: checked.reduce((n, r) => n + r.omittedFindings, 0),
+    findingAllowance: allowance,
+    runBudgetApplied: allowance < perRecordLimit,
     rules, sentenceLength: distribution(sentenceLengths), wordsPerRecord: distribution(checked.map(r => r.words)),
     sentencesPerParagraph: distribution(paragraphSentences), notChecked: NOT_CHECKED,
   };
@@ -732,20 +771,29 @@ export function run(records, options = {}) {
   const bytes = records.reduce((total, record) => total + Buffer.byteLength(String(record.text ?? ''), 'utf8'), 0);
   if (bytes > MAX_INPUT_BYTES) throw new Error(`Records exceed the ${MAX_INPUT_BYTES}-byte total limit`);
   const limit = Math.max(0, Math.min(MAX_FINDINGS, Number.isSafeInteger(options.maxFindings) ? options.maxFindings : MAX_FINDINGS));
-  // The cap is per record. A shared budget made output depend on record order
-  // and could make every later record look clean after one noisy record.
-  const checked = records.map((record, ordinal) => checkRecord(record, ordinal, { maxFindings: limit }));
-  return { records: checked, aggregate: aggregate(checked) };
+  // BG6 + FX3: an equal allowance for every record. It is a per-record cap, so
+  // no record is starved by its position, and it is derived from the run budget,
+  // so the total output is bounded. Every record that loses findings reports its
+  // own shortfall, and formatText states the budget before any finding line.
+  const allowance = findingAllowance(records.length, limit);
+  const checked = records.map((record, ordinal) => checkRecord(record, ordinal, { maxFindings: allowance }));
+  return { records: checked, aggregate: aggregate(checked, { findingAllowance: allowance, perRecordLimit: limit }) };
 }
 
 export function formatText(result) {
   const a = result.aggregate;
   const lines = [`Writing check: ${a.records} records, ${a.words} prose words, ${a.failFindings} fail, ${a.warningFindings} warning, ${a.houseStyleFindings} house-style, ${a.advisoryFindings} advisory findings`];
+  // FX3: the run budget is stated BEFORE the rule and finding lines, so a
+  // reduced report can never read as a complete one.
+  if (a.runBudgetApplied) {
+    const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    lines.push(`OUTPUT BUDGET: ${count(a.records, 'record')} share the ${MAX_TOTAL_FINDINGS}-finding run budget, so each record reports at most ${count(a.findingAllowance, 'finding')}; ${count(a.omittedFindings, 'finding')} omitted in ${count(a.truncatedRecords, 'record')}.`);
+  }
   for (const [id, x] of Object.entries(a.rules)) lines.push(`${id} [${x.class}]: ${x.findings} findings in ${x.records} records (${x.ratePer1000Words.toFixed(2)}/1000 words)`);
   lines.push(`Sentence words: mean ${a.sentenceLength.mean.toFixed(2)}, median ${a.sentenceLength.median.toFixed(2)}, p90 ${a.sentenceLength.p90.toFixed(2)}, p95 ${a.sentenceLength.p95.toFixed(2)}, max ${a.sentenceLength.max}`);
   lines.push(`Words/record: mean ${a.wordsPerRecord.mean.toFixed(2)}, median ${a.wordsPerRecord.median.toFixed(2)}, p90 ${a.wordsPerRecord.p90.toFixed(2)}, p95 ${a.wordsPerRecord.p95.toFixed(2)}, max ${a.wordsPerRecord.max}`);
   lines.push(`Sentences/paragraph: mean ${a.sentencesPerParagraph.mean.toFixed(2)}, median ${a.sentencesPerParagraph.median.toFixed(2)}, p90 ${a.sentencesPerParagraph.p90.toFixed(2)}, p95 ${a.sentencesPerParagraph.p95.toFixed(2)}, max ${a.sentencesPerParagraph.max}`);
-  if (a.findingsTruncated) lines.push(`FINDINGS CAPPED: ${a.omittedFindings} additional findings omitted after the ${MAX_FINDINGS}-finding limit.`);
+  if (a.findingsTruncated) lines.push(`FINDINGS CAPPED: ${a.omittedFindings} additional findings omitted after the ${a.findingAllowance}-finding limit.`);
   lines.push('NOT CHECKED:');
   for (const x of a.notChecked) lines.push(`- ${x.id}: ${x.reason}`);
   // Report interpolation audit (SC4/SC5/SC9):
@@ -893,7 +941,7 @@ export function recordsFromUnifiedDiff(text, id = 'diff') {
 }
 
 function usage() {
-  return `Usage:\n  node writing-check.mjs --input records.jsonl [--format json|text]\n  node writing-check.mjs --file PATH [--file PATH ...] [--format json|text]\n  node writing-check.mjs --diff changes.diff [--format json|text]\n\n--diff accepts a unified-diff file and checks added lines in prose files. Inputs must be regular files. The combined byte limit is ${MAX_INPUT_BYTES}, the record limit is ${MAX_RECORDS}, and output is capped at ${MAX_FINDINGS} findings per record.`;
+  return `Usage:\n  node writing-check.mjs --input records.jsonl [--format json|text]\n  node writing-check.mjs --file PATH [--file PATH ...] [--format json|text]\n  node writing-check.mjs --diff changes.diff [--format json|text]\n\n--diff accepts a unified-diff file and checks added lines in prose files. Inputs must be regular files. The combined byte limit is ${MAX_INPUT_BYTES}, the record limit is ${MAX_RECORDS}, and output is capped at ${MAX_FINDINGS} findings per record and ${MAX_TOTAL_FINDINGS} findings per run.`;
 }
 
 function cli() {

@@ -11,6 +11,22 @@ export interface WritingCounters {
 	findingTurns: number;
 }
 
+/**
+ * FX2. Three outcomes, because two of them used to be one.
+ *
+ * - `measured`: the checker read prose and the counters moved.
+ * - `no-text`: the turn carried no prose to measure. A tool-call-only turn, a
+ *   thinking-plus-tool-call turn, and an aborted or failed turn all land here,
+ *   and they are the MAJORITY of turns in an orchestrator session. Nothing is
+ *   wrong, so the caller must leave the counters and the status alone.
+ * - `failed`: the checker was asked and did not answer.
+ *
+ * The caller cannot recover this from the counters: `no-text` and `failed` both
+ * leave them unchanged, and reading that as a failure replaced a healthy
+ * `writing 3/3` with `writing unavailable` on the next tool call.
+ */
+export type WritingTurnOutcome = "measured" | "no-text" | "failed";
+
 function assistantText(message: TurnEndEvent["message"]): string | undefined {
 	if (!message || typeof message !== "object" || (message as { role?: unknown }).role !== "assistant") return undefined;
 	const content = (message as { content?: unknown }).content;
@@ -25,16 +41,31 @@ function assistantText(message: TurnEndEvent["message"]): string | undefined {
 	return text || undefined;
 }
 
-/** Human-only turn telemetry. It never returns a hook result and always fails open. */
-export function measureWritingTurn(message: TurnEndEvent["message"], checker: WritingChecker, counters: WritingCounters): void {
+/**
+ * Human-only turn telemetry. It never returns a hook result and always fails
+ * open; the returned outcome is the caller's only report of what happened.
+ */
+export function measureWritingTurn(
+	message: TurnEndEvent["message"],
+	checker: WritingChecker,
+	counters: WritingCounters,
+): WritingTurnOutcome {
+	let text: string | undefined;
 	try {
-		const text = assistantText(message);
-		if (text === undefined) return;
+		text = assistantText(message);
+	} catch {
+		// An unreadable message is not a checker failure either.
+		return "no-text";
+	}
+	if (text === undefined) return "no-text";
+	try {
 		const result = checker.checkText(text);
 		counters.measuredTurns += 1;
 		if (result.findings.some((finding) => finding.class === "fail")) counters.findingTurns += 1;
+		return "measured";
 	} catch {
 		// A checker cap or implementation error must never fail a turn.
+		return "failed";
 	}
 }
 

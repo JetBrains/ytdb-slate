@@ -647,12 +647,14 @@ export function registerSlateMode(
 		try {
 			writingCheckerPromise ??= loadWritingChecker();
 			const checker = await writingCheckerPromise;
-			const measuredBefore = writingCounters.measuredTurns;
-			measureWritingTurn(event.message, checker, writingCounters);
-			// measureWritingTurn is deliberately fail-open and therefore reports no
-			// error. A known assistant message that did not increment the counter is
-			// nevertheless a checker failure, not a clean result.
-			writingStatus = writingCounters.measuredTurns > measuredBefore ? "ready" : "unavailable";
+			const outcome = measureWritingTurn(event.message, checker, writingCounters);
+			// FX2: a turn with no prose is not a broken checker. Inferring failure
+			// from an unchanged counter reported `writing unavailable` after every
+			// tool-call-only turn and threw away the rate measured so far. Only the
+			// checker's own failure moves the status now; `no-text` leaves both the
+			// status and the counters exactly as they were.
+			if (outcome === "measured") writingStatus = "ready";
+			else if (outcome === "failed") writingStatus = "unavailable";
 			updateWidget();
 		} catch {
 			writingStatus = "unavailable";

@@ -1986,6 +1986,7 @@ segmentation fallbacks were also unreachable.
 | `MAX_INPUT_BYTES` (1 MiB) | each record, combined `run` input, unified-diff text, pre-open file size, post-open file size, and growth past the opened size | `MAX_INPUT_BYTES …` (three checks), `pre-read size refusal …`, `post-open size refusal …`, `bounded reads …` |
 | `MAX_RECORDS` (10000) | `run`, JSONL parsing, direct-file arguments and emitted diff records | `MAX_RECORDS rejects …` |
 | `MAX_FINDINGS` (1000 per record) | finding insertion and omission counters | `MAX_FINDINGS caps …`, `BG6 finding caps …` |
+| `MAX_TOTAL_FINDINGS` (20000 per run) | the equal per-record allowance `run` derives from the record count (FX3) | `FX3 the run budget …`, `FX3 a small run …` |
 | `MAX_STRIPPED` (5000) | reported stripped-span list | `stripped spans are capped …` |
 | `MAX_BLOCK_DETAILS` (5000) | reported block-detail list | `block details are capped …` |
 | `MAX_EXCERPT_CHARS` (2000, frame included) | head-and-tail excerpt elision | `excerpt cap includes …` |
@@ -2060,3 +2061,108 @@ Two direct checks cover the boundary table and the length-rule effect. Restoring
 the greedy `[^\\s<>()]+` tail in a throwaway copy fails `BG5 URL boundaries keep
 sentence punctuation and strip URL data`. The scaling roster names the revised
 pattern and adds a punctuation-heavy hostile generator.
+
+# Writing-checker run budget and turn outcomes (FX3/FX2)
+
+Both defects came from the fix series itself.
+
+## FX3 — a per-record cap bounds nothing
+
+BG6 replaced the shared finding budget with a per-record cap, because a shared
+budget is consumed in record order and makes later records look clean. That
+removed the only bound on a whole run: the output limit became 1000 findings
+times the record count. An 8000-record JSONL file of 918,890 bytes, inside every
+documented cap, produced 210,730,019 bytes of stdout and 1,244,252 KB of peak
+RSS in 1.94 s.
+
+Both findings hold together because the run budget is spread as an **equal
+allowance**, not as a first-come budget:
+
+```
+allowance = max(1, min(MAX_FINDINGS, floor(MAX_TOTAL_FINDINGS / recordCount)))
+```
+
+- BG6: the allowance depends only on the record count, so it is the same in any
+  record order and for any record content. No record is starved by its position,
+  and a quiet record still reports everything it found.
+- FX3: a run reports at most `recordCount * allowance` findings, so the total is
+  bounded by `MAX_TOTAL_FINDINGS`.
+- Loss is never quiet. Each record keeps its own `findingsTruncated` and
+  `omittedFindings`, and `formatText` prints an `OUTPUT BUDGET:` line **before**
+  every rule and finding line whenever the budget reduced the allowance.
+
+The budget is 20000, which is 20 times the per-record cap. Two facts fix that
+value. It must be at least `MAX_RECORDS`, or the one-finding visibility floor
+would exceed it and the stated budget would be false. At 20 times the per-record
+cap it also leaves a 19-record run at the full per-record cap, which is this
+repository's own documentation set, so the budget binds on amplification rather
+than on ordinary use.
+
+Unused allowance is deliberately not redistributed to noisier records. Doing so
+would make one record's reported count depend on the other records again, which
+is the property BG6 rejected.
+
+Measured on the reviewer's shape (8000 records, 918,890 bytes, 90 findings each):
+
+| figure | before | after |
+| --- | ---: | ---: |
+| JSON stdout | 210,730,019 B | 8,522,108 B |
+| peak RSS | 1,244,252 KB | 148,912 KB |
+| wall clock | 1.94 s | 0.24 s |
+| findings reported | 720,000 | 16,000 |
+| records that report the loss | 0 | 8000 |
+
+The repository's 19 Markdown files are byte-identical before and after, both one
+file per run and all 19 in one run: 5057 findings, allowance 1000, no budget
+line.
+
+**The scaling gate cannot see this bound.** `writing-check-scaling.mjs` drives
+`checkText` with one record, so it never reaches `run`'s allowance. The bound is
+covered by the two correctness checks above only. Extending the gate with a
+many-record subject belongs to a later action.
+
+## FX2 — no prose is not a broken checker
+
+`measureWritingTurn` returned `void` and left the counters untouched both when a
+turn carried no prose and when the checker threw. `mode.ts` could only tell the
+two apart by watching the counter, so it read every text-less turn as a failure:
+it rendered `writing unavailable` and discarded an accumulated `writing 3/3`.
+The SDK's `AssistantMessage.content` is always an array of parts, and a
+tool-call-only turn, a thinking-plus-tool-call turn and an aborted or failed turn
+all carry no text part. Those are the majority of turns in an orchestrator
+session, so the status line was wrong most of the time.
+
+`measureWritingTurn` now returns an outcome and the hook obeys it:
+
+| outcome | counters | status |
+| --- | --- | --- |
+| `measured` | move | `ready` |
+| `no-text` | untouched | unchanged, so an earlier rate survives |
+| `failed` | untouched | `unavailable` |
+
+CQ2's five states are unchanged. `fresh`, `skipped` and the four visibility
+gates never reached this branch, a rejected import still throws into the hook's
+own catch, and a throwing checker now says so through `failed` rather than
+through a counter that did not move.
+
+## Checks and teeth
+
+| id | what it proves | mutation |
+| --- | --- | --- |
+| `FX3 the run budget …` | 500 records of 60 findings report 40 each, the total stays inside the budget, a quiet record keeps all 5 of its findings, the `OUTPUT BUDGET:` line is the second line, and reversing the record order changes no count | drop the allowance, silence the notice, or restore a first-come shared budget |
+| `FX3 a small run …` | the allowance arithmetic at 1, 20, 21 and over-budget record counts, the one-finding floor, and a two-record run that keeps the whole per-record cap with no budget line | remove the `max(1, …)` floor |
+| `FX2 a turn with no text part …` | five real message shapes (tool call, thinking plus tool call, empty content, empty text part, non-assistant) report `no-text` and leave healthy counters at 3/1 | return `failed` for a text-less turn, or measure an empty text part |
+| `FX2 array content …` | array content with a text part measures exactly like string content, and a following tool-only turn does not disturb the counters | as above |
+| `FX2 a throwing checker …` | the checker's own failure is `failed` while a text-less turn beside it is still `no-text` | as above |
+| `FX2 the turn hook …` | `mode.ts`'s `turn_end` handler branches on the outcome and holds no counter-delta inference | reinstate `measuredTurns > measuredBefore` |
+
+The last check is a source scan of `extension/mode.ts`. That module pulls the pi
+SDK, so this suite cannot import it, and the resolver suite drives it with string
+content only. The scan pins the wiring that decides the status until a check with
+realistic array content exists on the resolver side.
+
+One mutation is equivalent and no check can kill it: capping the first-come
+budget at the fair allowance. Since every record already gets at most
+`floor(total / recordCount)`, the running total can never be exhausted, so that
+mutant computes the same result. The BG6-relevant mutant is the one in the table,
+which restores the per-record cap plus a shared budget.

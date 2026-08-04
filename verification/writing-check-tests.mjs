@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { measureWritingTurn } from '../extension/writing.ts';
 import {
   checkRecord, checkText, normalizeMarkdown, makeBlocks, segmentSentences, wordTokens, run, formatText,
-  recordsFromFiles, recordsFromUnifiedDiff, parseJsonl, readRegularFile,
-  NOT_CHECKED, MAX_FINDINGS, MAX_INPUT_BYTES, MAX_RECORDS,
+  recordsFromFiles, recordsFromUnifiedDiff, parseJsonl, readRegularFile, findingAllowance,
+  NOT_CHECKED, MAX_FINDINGS, MAX_TOTAL_FINDINGS, MAX_INPUT_BYTES, MAX_RECORDS,
   MAX_STRIPPED, MAX_BLOCK_DETAILS, MAX_EXCERPT_CHARS,
   scanHtmlComments, scanAutolinks, scanInlineCode, scanLogLines, scanPathTokens,
   sanitizeReportId, REGULAR_FILE_OPEN_FLAGS, excerpt, isProseDiffPath, makeAbbreviationSet,
@@ -251,6 +251,46 @@ test('BG6 finding caps are per record and every omission is visible', () => {
   assert.equal(result.aggregate.omittedFindings, omitted[0] + omitted[1]);
   assert.match(formatText(result), new RegExp(`FINDINGS CAPPED: ${result.aggregate.omittedFindings} additional findings omitted after the ${MAX_FINDINGS}-finding limit`));
 });
+test('FX3 the run budget bounds total findings without letting order decide the loss', () => {
+  // 500 records of 60 findings each. The per-record cap alone would report
+  // 30000 findings; the run budget allows 40 to every record.
+  // Semicolons only: no letters, so no sentence rule adds a finding beside them.
+  const noisy = count => '; '.repeat(count);
+  const records = Array.from({ length: 500 }, (_, i) => ({ id: `r${i}`, text: i === 0 ? noisy(5) : noisy(60) }));
+  const allowance = findingAllowance(records.length);
+  assert.equal(allowance, 40);
+  const result = run(records);
+  const total = result.records.reduce((n, r) => n + r.findings.length, 0);
+  assert.equal(total <= MAX_TOTAL_FINDINGS, true, `run reported ${total} findings`);
+  assert.equal(result.records[0].findings.length, 5, 'a quiet record keeps everything it found');
+  assert.equal(result.records[0].findingsTruncated, false);
+  assert.equal(result.records.slice(1).every(r => r.findings.length === allowance), true);
+  assert.equal(result.records.slice(1).every(r => r.findingsTruncated && r.omittedFindings === 20), true);
+  assert.equal(result.aggregate.findingAllowance, allowance);
+  assert.equal(result.aggregate.runBudgetApplied, true);
+  assert.equal(result.aggregate.truncatedRecords, 499);
+  assert.equal(result.aggregate.omittedFindings, 499 * 20);
+  // The budget is stated before every rule and finding line.
+  const lines = formatText(result).split('\n');
+  assert.equal(lines[1], `OUTPUT BUDGET: 500 records share the ${MAX_TOTAL_FINDINGS}-finding run budget, so each record reports at most 40 findings; ${499 * 20} findings omitted in 499 records.`);
+  // BG6 stays fixed: the same records in the reverse order report the same
+  // counts, so position never decides which record loses findings.
+  const reversed = run([...records].reverse());
+  const byId = new Map(reversed.records.map(r => [r.id, r.findings.length]));
+  for (const record of result.records) assert.equal(byId.get(record.id), record.findings.length, `${record.id} changed with record order`);
+});
+test('FX3 a small run still gets the whole per-record cap', () => {
+  assert.equal(findingAllowance(1), MAX_FINDINGS);
+  assert.equal(findingAllowance(MAX_TOTAL_FINDINGS / MAX_FINDINGS), MAX_FINDINGS);
+  assert.equal(findingAllowance(MAX_TOTAL_FINDINGS / MAX_FINDINGS + 1), 952);
+  assert.equal(findingAllowance(MAX_TOTAL_FINDINGS + 1), 1, 'the floor keeps every record visible');
+  assert.equal(MAX_TOTAL_FINDINGS >= MAX_RECORDS, true, 'a budget under the record limit would be overridden by that floor');
+  assert.equal(findingAllowance(0), MAX_FINDINGS);
+  const result = run([{ id: 'a', text: 'Open; ' }, { id: 'b', text: 'Close; ' }]);
+  assert.equal(result.aggregate.findingAllowance, MAX_FINDINGS);
+  assert.equal(result.aggregate.runBudgetApplied, false);
+  assert.equal(formatText(result).split('\n').some(line => line.startsWith('OUTPUT BUDGET:')), false);
+});
 test('excerpt cap includes its frame and keeps the head and tail', () => {
   const source = `Opening context ${'middle '.repeat(600)}closing context.`;
   const value = excerpt(source, 0, source.length);
@@ -388,6 +428,63 @@ test('writing measurement fails open on the checker byte cap', () => {
   measureWritingTurn({ role: 'assistant', content: 'x'.repeat(2 * 1024 * 1024) }, { checkText: text => checkText(text) }, counters);
   assert.deepEqual(counters, { measuredTurns: 0, findingTurns: 0 });
 });
+// --------------------------------------------------------------------------
+// FX2 — a turn with no prose is not a broken checker.
+//
+// The SDK's AssistantMessage.content is ALWAYS an array of parts. A tool-call
+// only turn, a thinking-plus-tool-call turn and an aborted or failed turn all
+// carry no text part, and they are the majority of turns in an orchestrator
+// session. The earlier tests used string content only, which is why the status
+// line reported `writing unavailable` on those turns and threw away the rate it
+// had already measured.
+const toolCall = { type: 'toolCall', id: 'call_1', name: 'bash', arguments: { command: 'ls' } };
+const textPart = text => ({ type: 'text', text });
+const assistantParts = (...content) => ({ role: 'assistant', content });
+const cleanChecker = { checkText: () => ({ findings: [] }) };
+const failChecker = { checkText: () => ({ findings: [{ class: 'fail' }] }) };
+
+test('FX2 a turn with no text part reports no-text and leaves the counters alone', () => {
+  const shapes = [
+    ['tool-call only', assistantParts(toolCall)],
+    ['thinking plus tool call', assistantParts({ type: 'thinking', thinking: 'plan the edit' }, toolCall)],
+    ['aborted or failed turn', assistantParts()],
+    ['empty text part', assistantParts(textPart(''))],
+    ['non-assistant message', { role: 'user', content: [textPart('Open the panel; stop.')] }],
+  ];
+  for (const [name, message] of shapes) {
+    const counters = { measuredTurns: 3, findingTurns: 1 };
+    assert.equal(measureWritingTurn(message, failChecker, counters), 'no-text', name);
+    assert.deepEqual(counters, { measuredTurns: 3, findingTurns: 1 }, name);
+  }
+});
+test('FX2 array content with a text part is measured like string content', () => {
+  const counters = { measuredTurns: 0, findingTurns: 0 };
+  assert.equal(measureWritingTurn(assistantParts(textPart('Open the panel; stop.')), failChecker, counters), 'measured');
+  assert.equal(measureWritingTurn(assistantParts(textPart('A clean turn.'), toolCall), cleanChecker, counters), 'measured');
+  assert.equal(measureWritingTurn(assistantParts(toolCall), failChecker, counters), 'no-text');
+  assert.deepEqual(counters, { measuredTurns: 2, findingTurns: 1 });
+});
+test('FX2 a throwing checker reports failed, which no-text never does', () => {
+  const counters = { measuredTurns: 2, findingTurns: 0 };
+  const thrower = { checkText: () => { throw new Error('synthetic checker failure'); } };
+  assert.equal(measureWritingTurn(assistantParts(textPart('Prose to measure.')), thrower, counters), 'failed');
+  assert.equal(measureWritingTurn(assistantParts(toolCall), thrower, counters), 'no-text');
+  assert.deepEqual(counters, { measuredTurns: 2, findingTurns: 0 });
+});
+test('FX2 the turn hook reads the outcome instead of inferring failure from a counter', () => {
+  // mode.ts cannot be imported here (it pulls the pi SDK), and the resolver
+  // suite drives it with string content only. This pins the wiring that decides
+  // the status: an outcome-driven branch, with no counter-delta inference left.
+  const source = fs.readFileSync(fileURLToPath(new URL('../extension/mode.ts', import.meta.url)), 'utf8');
+  const start = source.indexOf('pi.on("turn_end"');
+  assert.equal(start > 0, true, 'the turn_end handler moved');
+  const handler = source.slice(start, source.indexOf('pi.on(', start + 10));
+  assert.match(handler, /=\s*measureWritingTurn\(/);
+  assert.match(handler, /outcome === "measured"/);
+  assert.match(handler, /outcome === "failed"/);
+  assert.doesNotMatch(handler, /measuredTurns\s*>/, 'the status must not be inferred from a counter delta');
+});
+
 test('CLI refuses a symlink to a special file', () => {
   const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-link-'));
   try {
