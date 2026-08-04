@@ -24,7 +24,7 @@
 // piped output): 1 if anything failed, or if a NOT RUN happened under --strict.
 // See verification/README.md.
 // =============================================================================
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -291,7 +291,7 @@ const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "pro
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
-const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject"];
+const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
 const WORKER_IDS = ["worker-preamble"];
 /**
  * Checks that need extension/route.ts — the dispatch guards. They also need
@@ -593,6 +593,16 @@ try {
 		/** The rule's own text: from its number line to the end of the numbered block. */
 		const ruleOf = (d) => {
 			const at = d.search(/\n\d+\. Route every action/);
+			return at < 0 ? "" : d.slice(at);
+		};
+		/**
+		 * The WRITING rule's own text, by the same rule as ruleOf: from its number line to
+		 * the end of the numbered block. It is the LAST tail builder at buildDoctrine's call
+		 * site, so slicing to the end is the whole rule for the fixtures here (which supply
+		 * no doctrine extra and no prompt docs).
+		 */
+		const ruleOfWriting = (d) => {
+			const at = d.search(/\n\d+\. Check all user-facing prose/);
 			return at < 0 ? "" : d.slice(at);
 		};
 		const tailNumbers = (d) => [...d.matchAll(/\n(\d+)\. /g)].map((m) => Number(m[1])).filter((n) => n > 10);
@@ -1146,6 +1156,43 @@ try {
 			];
 			const renderedHostile = await Promise.all(hostileConfigs.map((config) => asTrusted(EMPTY_EXT, offRouter, config)));
 			check("writing-doctrine-inject", renderedHostile.every((text) => text === on), "the writing doctrine is static: config-derived text beyond the boolean check never reaches the rendered rule", renderedHostile.map((text) => text.length));
+
+			// THE DOC CITATION. The writing rule cites docs/writing-guidance.md by the same
+			// mechanism rules 8-10 and the routing rule use: an ABSOLUTE path resolved inside
+			// the installed package. That path is prompt text paid for on EVERY turn of every
+			// session with the feature on, and every character of the installed docs directory
+			// costs one more character of it — so three properties matter and none of them is
+			// visible from a smoke test, because a citation that renders in the wrong state,
+			// twice, or at a missing file all still "work".
+			//
+			// The path is taken from paths.ts rather than pattern-matched out of the rendered
+			// text: a check that re-derived the filename would keep passing after a rename that
+			// left the doctrine citing a document the package no longer ships. The publish-set
+			// half of that guarantee is package-content-check.mjs's, which parses BOTH files;
+			// this half is that the rendering and the on-disk file agree.
+			const cited = paths.WRITING_GUIDANCE_DOC;
+			const citations = (text) => text.split(cited).length - 1;
+			const writingRule = ruleOfWriting(on);
+			const citeFree = [
+				["writing.check false", off],
+				["an absent writing config", absent],
+				["an untrusted project with writing.check true", untrustedOn],
+				["a router-on session with writing off", combos["router without writing"]],
+				["an extensions-on session with writing off", combos["extensions without writing"]],
+			].filter(([, text]) => citations(text) !== 0).map(([label]) => label);
+			checkAll(
+				"writing-doctrine-cite",
+				"the writing rule cites docs/writing-guidance.md by the ABSOLUTE package-resolved path paths.ts exports, ONCE, and only while the rule renders: every feature-off and untrusted rendering carries no occurrence of it, so the per-turn cost of the citation is paid exactly by the sessions that asked for the feature. The path is read from paths.ts, never re-derived from the rendered text, so a rename that leaves the doctrine citing a document the package no longer ships fails here; the file it names must also exist. The citation must not disturb the tail numbering either — it adds prose and a path, so the rule still carries exactly ONE numbered line and the rule remains the ONLY thing the switch adds to the doctrine",
+				[
+					["the citation renders exactly once when the rule is on", citations(on) === 1, { citations: citations(on), cited }],
+					["...and in no rendering where the rule does not appear", citeFree.length === 0, citeFree],
+					["the citation sits INSIDE the writing rule, not elsewhere in the doctrine", writingRule !== "" && citations(writingRule) === 1, { rule: writingRule.length, inRule: citations(writingRule) }],
+					["the cited path is absolute and resolves inside the package docs directory", cited === join(REPO, "docs", "writing-guidance.md"), cited],
+					["...and names a file that exists, so the doctrine cannot cite a missing doc", existsSync(cited), cited],
+					["the rule still carries exactly ONE numbered line, so the tail numbering is untouched", [...writingRule.matchAll(/\n(\d+)\. /g)].length === 1, [...writingRule.matchAll(/\n(\d+)\. /g)].map((m) => m[1])],
+					["the rule is the ONLY thing the switch adds: off + rule is byte-identically on", off + writingRule === on, { off: off.length, rule: writingRule.length, on: on.length }],
+				],
+			);
 		});
 
 		await section("doctrine-budget", async () => {
@@ -1192,7 +1239,7 @@ try {
 			const docPaths = DOCS_DIR === "" ? 0 : on.split(DOCS_DIR).length - 1;
 			checkAll(
 				"doctrine-budget",
-				"the routing rule's size is bounded, because doctrine text is paid for on every turn of every session — and the bound is measured on an INSTALL-INVARIANT figure, because the doctrine embeds ABSOLUTE doc paths and its raw character count therefore carries the length of the install directory (measured: the same router-off doctrine is 1968 chars under a 13-character docs path and 2103 under this repo's 58-character one, 3 paths × 45 characters; other configurations embed 4 or 5). Every bound is on the text with each occurrence of the docs DIRECTORY removed, leaving the filename — invariant by construction, assuming no path count, while still charging a maintainer for the part they control. Bounds carry ~55% headroom, so wording changes and a few new models pass while a doubling fails: the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row (a research refresh writing a 2000-character routeFor would bloat every prompt silently, since `cell()` imposes no cap), and the rule's share of the whole doctrine",
+				"the routing rule's size is bounded, because doctrine text is paid for on every turn of every session — and the bound is measured on an INSTALL-INVARIANT figure, because the doctrine embeds ABSOLUTE doc paths and its raw character count therefore carries the length of the install directory (measured: the same router-off doctrine is 1968 chars under a 13-character docs path and 2103 under this repo's 58-character one, 3 paths × 45 characters; other configurations embed 4 or 5). Every bound is on the text with each occurrence of the docs DIRECTORY removed, leaving the filename — invariant by construction, assuming no path count, while still charging a maintainer for the part they control. Bounds carry ~55% headroom, so wording changes and a few new models pass while a doubling fails: the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row (a research refresh writing a 2000-character routeFor would bloat every prompt silently, since `cell()` imposes no cap), the rule's share of the whole doctrine, and — on the same convention, because it carries an absolute doc citation of its own — the WRITING rule's own size and its one embedded path",
 				[
 					["the normalisation bites: the doctrine really does embed the docs directory", docPaths >= 3 && DOCS_DIR !== "", { docPaths, DOCS_DIR }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
@@ -1207,6 +1254,15 @@ try {
 					["writing plus router stays under the stricter 5600 portable-char bound", portable(writingRouterOn).length <= 5600, { portable: portable(writingRouterOn).length }],
 					["writing plus extensions stays under the stricter 5600 portable-char bound", portable(writingExtensionsOn).length <= 5600, { portable: portable(writingExtensionsOn).length }],
 					["all three features stay under the stricter 5600 portable-char bound", portable(writingAllOn).length <= 5600, { portable: portable(writingAllOn).length }],
+					// The WRITING rule's own bound, on the same portable convention and for the same
+					// reason as the routing rule's: it carries an ABSOLUTE doc citation, so its raw
+					// size moves with the install path while what a maintainer controls does not. The
+					// bound is here rather than left to the whole-doctrine terms below because the
+					// combined bound has room for a rule that doubled, and the citation is exactly the
+					// kind of addition that grows quietly (one more sentence, one more path).
+					["the writing rule itself stays under 1150 portable chars", portable(ruleOfWriting(writingOn)).length <= 1150, { portableChars: portable(ruleOfWriting(writingOn)).length, rawChars: ruleOfWriting(writingOn).length }],
+					["...and under 24 lines", ruleOfWriting(writingOn).split("\n").length <= 24, ruleOfWriting(writingOn).split("\n").length],
+					["...and embeds exactly ONE doc path, so the citation is charged once per turn, not once per mention", DOCS_DIR !== "" && ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 === 1, { paths: DOCS_DIR === "" ? "no docs dir found" : ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 }],
 					["writing-on text is actually larger than writing-off text", writingOn.length > off.length, { off: off.length, writing: writingOn.length }],
 					["writing-on with extensions is larger than writing-on without them", writingAllOn.length > writingRouterOn.length, { router: writingRouterOn.length, all: writingAllOn.length }],
 				],
@@ -5445,7 +5501,7 @@ try {
 		"off-inert", "off-doctrine",
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget",
 		"writing-config-default", "writing-config-invalid", "writing-config-hostile",
-		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject",
+		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite",
 		"writing-checker-length", "writing-checker-para", "writing-checker-semicolon", "writing-checker-contraction",
 		"writing-checker-class", "writing-checker-not-checked", "writing-checker-caps", "writing-checker-modes", "writing-checker-determinism",
 		"writing-status-fresh", "writing-status-clean", "writing-status-positive", "writing-status-import-url", "writing-status-import-fail",

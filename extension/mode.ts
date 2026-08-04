@@ -27,6 +27,7 @@ import {
 	REVIEW_RULES_DOC,
 	TRACK_WORKFLOW_DOC,
 	WRITING_CHECKER_URL,
+	WRITING_GUIDANCE_DOC,
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { THINKING_LEVELS } from "./route.ts";
@@ -373,6 +374,31 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    — read it only for an unusual routing decision; skip if already in context.`;
 }
 
+/**
+ * The writing rule — the THIRD tail rule, so 13 when the worker-extension and
+ * routing rules both render above it. Appended ONLY when `writing.check` is true
+ * AND the project is trusted (the gate lives at the call site in buildDoctrine).
+ * With the feature off it is never called, so the doctrine is byte-identical to
+ * the pre-feature output — the same feature-off guarantee the two rules above it
+ * make.
+ *
+ * WHOLLY STATIC except for `n` and the package-resolved doc path. Nothing derived
+ * from project config, project files, the model registry or any extension reaches
+ * this text: the only thing config decides is WHETHER the rule renders. That is
+ * why the rule needs no sanitizer of its own, and why it must stay that way — the
+ * moment a value from outside this module is interpolated here, this becomes an
+ * injection surface and needs the treatment rule 11 gives its fields (see
+ * sanitizeForDoctrine) or the routing rule gives its cells (see `cell()`).
+ *
+ * The doc citation is an ABSOLUTE path resolved inside the installed package
+ * (paths.ts), like rules 8-10 and the routing rule. It is therefore paid for at
+ * the length of the reader's own install directory: every character of the
+ * installed docs directory costs one more character here, on every turn of every
+ * session that has the feature on. That is the whole reason the citation is one
+ * line of prose plus one path rather than a summary of the document —
+ * writing-guidance.md carries the rules, the caps and the command line, and the
+ * rule tells the orchestrator when reading it is worth the tokens.
+ */
 function buildWritingRule(n: number): string {
 	return `
 ${n}. Check all user-facing prose before delivery. Use short, active sentences and
@@ -385,7 +411,11 @@ ${n}. Check all user-facing prose before delivery. Use short, active sentences a
    Apply it to README text, documentation, code comments, and pull request text.
    Apply it to commit bodies, issues, review comments, release notes, and messages
    to the user. Exclude research logs, worker task text, and the project's own agent
-   instruction file.`;
+   instruction file.
+
+   Rules, limits and the checker command:
+   ${WRITING_GUIDANCE_DOC}
+   — read it only for an unusual prose decision. Skip it if already in context.`;
 }
 
 function buildDoctrine(
