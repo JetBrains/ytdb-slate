@@ -26,7 +26,7 @@ import {
 	PR_PUBLISHING_DOC,
 	REVIEW_RULES_DOC,
 	TRACK_WORKFLOW_DOC,
-	WRITING_CHECKER,
+	WRITING_CHECKER_URL,
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { THINKING_LEVELS } from "./route.ts";
@@ -100,6 +100,27 @@ interface WritingChecker {
 export interface WritingCounters {
 	measuredTurns: number;
 	findingTurns: number;
+}
+
+// Real assistant messages measured 296 characters at the median, 2,348 at p90,
+// and 6,140 at the maximum in the review sample. Keep headroom for normal prose,
+// while preventing an unknown checker slowdown from freezing the TUI.
+const WRITING_TURN_MAX_BYTES = 16 * 1024;
+
+type WritingStatus = "fresh" | "ready" | "skipped" | "unavailable";
+
+function assistantTextBytes(message: unknown): number | undefined {
+	if (!message || typeof message !== "object") return undefined;
+	const content = (message as { content?: unknown }).content;
+	if (typeof content === "string") return Buffer.byteLength(content, "utf8");
+	if (!Array.isArray(content)) return undefined;
+	const text = content
+		.filter((part): part is { type: "text"; text: string } =>
+			!!part && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string",
+		)
+		.map((part) => part.text)
+		.join("\n");
+	return Buffer.byteLength(text, "utf8");
 }
 
 /**
@@ -497,6 +518,7 @@ export function registerSlateMode(
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
 	const writingCounters: WritingCounters = { measuredTurns: 0, findingTurns: 0 };
+	let writingStatus: WritingStatus = "fresh";
 	let writingCheckerPromise: Promise<WritingChecker> | undefined;
 
 	const writingIsVisible = (ctx: ExtensionContext): boolean =>
@@ -517,7 +539,15 @@ export function registerSlateMode(
 		// Keep the line short in the common no-handoff case.
 		const carried = store.carriedCostUsd > 0 ? ` + carried $${store.carriedCostUsd.toFixed(4)}` : "";
 		const costLine = `total $${total.toFixed(4)} (me $${orchestratorCost.toFixed(4)} + workers $${store.workerCostUsd.toFixed(4)}${carried})`;
-		const writingLine = writingIsVisible(uiCtx) ? ` ⋅ writing ${writingCounters.findingTurns}/${writingCounters.measuredTurns}` : "";
+		const writingLine = writingIsVisible(uiCtx)
+			? writingStatus === "ready"
+				? ` ⋅ writing ${writingCounters.findingTurns}/${writingCounters.measuredTurns}`
+				: writingStatus === "skipped"
+					? " ⋅ writing skipped (message too large)"
+					: writingStatus === "unavailable"
+						? " ⋅ writing unavailable"
+						: " ⋅ writing 0/0"
+			: "";
 		uiCtx.ui.setStatus("slate", `slate: orchestrator ⋅ ${costLine}${writingLine}`);
 		const threads = [...store.threads.values()];
 		const lines = [
@@ -613,13 +643,25 @@ export function registerSlateMode(
 	pi.on("turn_end", async (event, ctx) => {
 		uiCtx = ctx;
 		if (!writingIsVisible(ctx)) return;
+		const bytes = assistantTextBytes(event.message);
+		if (bytes !== undefined && bytes > WRITING_TURN_MAX_BYTES) {
+			writingStatus = "skipped";
+			updateWidget();
+			return;
+		}
 		try {
-			writingCheckerPromise ??= import(WRITING_CHECKER);
+			writingCheckerPromise ??= import(WRITING_CHECKER_URL);
 			const checker = await writingCheckerPromise;
+			const measuredBefore = writingCounters.measuredTurns;
 			checker.measureWritingTurn(event.message, checker, writingCounters);
+			// measureWritingTurn is deliberately fail-open and therefore reports no
+			// error. A known assistant message that did not increment the counter is
+			// nevertheless a checker failure, not a clean result.
+			writingStatus = writingCounters.measuredTurns > measuredBefore ? "ready" : "unavailable";
 			updateWidget();
 		} catch {
-			// Loading the optional checker is also fail-open.
+			writingStatus = "unavailable";
+			updateWidget();
 		}
 	});
 
@@ -634,6 +676,7 @@ export function registerSlateMode(
 		writingCounters.measuredTurns = 0;
 		writingCounters.findingTurns = 0;
 		writingCheckerPromise = undefined;
+		writingStatus = "fresh";
 		// store.restore() (index.ts) and pending-handoff adoption (handoff.ts)
 		// ran before this handler in registration order; re-apply the persisted
 		// mode to the fresh runtime.

@@ -43,6 +43,7 @@ const { createJiti } = await import(pathToFileURL(JITI).href);
 const jiti = createJiti(import.meta.url);
 const we = await jiti.import(`${REPO}/extension/worker-extensions.ts`);
 const mode = await jiti.import(`${REPO}/extension/mode.ts`);
+const paths = await jiti.import(`${REPO}/extension/paths.ts`);
 // The router and the profile table are imported defensively: a missing or broken
 // module of either must not take the rest of the suite down with it. It becomes
 // one loud FAIL plus explicit NOT RUN lines for the checks it voids.
@@ -1041,6 +1042,8 @@ try {
 		await section("writing-status", async () => {
 			const w = (count) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
 			const on = await writingTurn(writingStatusFixture());
+			check("writing-status-positive", /writing 1\/1/.test(on.getStatus() ?? ""), "a completed assistant turn produces the live writing status with one measured turn and one failing turn", on.getStatus());
+			check("writing-status-import-url", typeof paths.WRITING_CHECKER_URL === "string" && paths.WRITING_CHECKER_URL.startsWith("file:") && paths.WRITING_CHECKER_URL.endsWith("writing-check.mjs"), "the optional checker import uses a file URL", paths.WRITING_CHECKER_URL);
 			check("writing-status-gate-switch", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ writing: false }))).getStatus() ?? ""), "writing.check off suppresses the status rate", on.getStatus());
 			check("writing-status-gate-trust", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ trusted: false }))).getStatus() ?? ""), "an untrusted project suppresses the status rate", on.getStatus());
 			check("writing-status-gate-mode", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ orchestrator: false }))).getStatus() ?? ""), "orchestrator mode off suppresses the status rate", on.getStatus());
@@ -1056,6 +1059,8 @@ try {
 			const capCounters = { measuredTurns: 0, findingTurns: 0 };
 			checker.measureWritingTurn({ role: "assistant", content: "x".repeat(checker.MAX_INPUT_BYTES + 1) }, checker, capCounters);
 			check("writing-status-cap-skip", capCounters.measuredTurns === 0 && capCounters.findingTurns === 0, "an oversized assistant message is skipped rather than counted or thrown", capCounters);
+			const skipped = await writingTurn(writingStatusFixture(), { role: "assistant", content: "x".repeat(16 * 1024 + 1) });
+			check("writing-status-cap-visible", /writing skipped \(message too large\)/.test(skipped.getStatus() ?? ""), "a message above the turn bound is visible as skipped in the status line", skipped.getStatus());
 
 			const counters = { measuredTurns: 0, findingTurns: 0 };
 			checker.measureWritingTurn({ role: "assistant", content: "Open the panel; stop." }, checker, counters);
@@ -5418,8 +5423,8 @@ try {
 		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject",
 		"writing-checker-length", "writing-checker-para", "writing-checker-semicolon", "writing-checker-contraction",
 		"writing-checker-class", "writing-checker-not-checked", "writing-checker-caps", "writing-checker-modes", "writing-checker-determinism",
-		"writing-status-gate-switch", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui",
-		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-counting", "writing-status-no-store-write",
+		"writing-status-positive", "writing-status-import-url", "writing-status-gate-switch", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui",
+		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-cap-visible", "writing-status-counting", "writing-status-no-store-write",
 		"worker-load", "worker-preamble",
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",

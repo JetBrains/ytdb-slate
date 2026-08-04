@@ -665,8 +665,10 @@ The **human-only writing status line** is covered through `registerSlateMode` wi
 
 | id | what it proves |
 | --- | --- |
+| `writing-status-positive` | a real `turn_end` completes the dynamic import, checker call and status render, producing the expected fail/measured counts |
 | `writing-status-gate-switch` / `writing-status-gate-trust` / `writing-status-gate-mode` / `writing-status-gate-ui` | each visibility condition independently suppresses the rate: switch off, untrusted project, orchestrator mode off and no UI |
-| `writing-status-fail-open` / `writing-status-cap-skip` | a throwing checker leaves the counters unchanged; an oversized assistant message is skipped rather than failing the turn |
+| `writing-status-fail-open` / `writing-status-cap-skip` | a throwing checker leaves the counters unchanged; the checker’s own oversized-input cap is skipped rather than failing the turn |
+| `writing-status-cap-visible` | a message above the 16 KiB turn bound is skipped and the status line says so |
 | `writing-status-counting` | only fail findings count; warnings, house-style findings and advisories do not |
 | `writing-status-no-store-write` | counter updates do not call `SlateStore.save()` or persist the orchestrator-mode seed |
 
@@ -679,6 +681,16 @@ Track 02's four required mutations were run against throwaway copies. Each exite
 | remove the trust gate | `writing-status-gate-trust` |
 | rethrow checker errors | `writing-status-crash` (the fail-open section cannot complete) |
 | emit a fail with the 21–25-word warning | `writing-checker-length` |
+
+The extension-wiring mutations are also required to fail:
+
+| mutation | killed by |
+| --- | --- |
+| blank the rendered writing status line | `writing-status-positive` |
+| remove the `measureWritingTurn` call | `writing-status-positive` |
+| break the checker import path | `writing-status-positive` |
+| remove the visible size-bound status | `writing-status-cap-visible` |
+| remove the file-URL conversion | `writing-status-import-url` |
 
 **The doctrine checks are the ONLY automated coverage of doctrine rendering, and the
 smoke test is not a backstop.** Stated plainly because the opposite is easy to

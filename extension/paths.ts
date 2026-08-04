@@ -8,12 +8,15 @@
  */
 
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = join(EXTENSION_DIR, "..", "docs");
 
 export const WRITING_CHECKER = join(EXTENSION_DIR, "writing-check.mjs");
+// Dynamic import specifiers must be file URLs: raw paths break on Windows and
+// treat `#` or `?` in an install directory as URL syntax.
+export const WRITING_CHECKER_URL = pathToFileURL(WRITING_CHECKER).href;
 export const TRACK_WORKFLOW_DOC = join(DOCS_DIR, "track-workflow.md");
 export const PR_PUBLISHING_DOC = join(DOCS_DIR, "pr-publishing.md");
 export const REVIEW_RULES_DOC = join(DOCS_DIR, "review-rules.md");
