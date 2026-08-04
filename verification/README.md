@@ -659,7 +659,7 @@ The **writing checker command** (`extension/writing-check.mjs`) is covered both 
 | `writing-checker-length` / `writing-checker-para` / `writing-checker-semicolon` / `writing-checker-contraction` | each fail rule has positive and negative cases; 21–25 words produce one warning, more than 25 words produce one fail, and no sentence produces both length levels |
 | `writing-checker-class` / `writing-checker-not-checked` | house-style findings stay out of fail counts; the fixed not-checked list is non-empty and every item has a reason |
 | `writing-checker-caps` | spawned command input caps reject an oversized regular file and a symlink to a special file with non-zero, explanatory errors |
-| `writing-checker-modes` / `writing-checker-determinism` | JSONL, direct-file and unified-diff modes work; diff mode checks only added lines; repeated input produces byte-identical output |
+| `writing-checker-modes` / `writing-checker-determinism` | JSONL, direct-file and unified-diff modes work; diff mode checks added lines in prose files; repeated input produces byte-identical output |
 
 The **human-only writing status line** is covered through `registerSlateMode` with fabricated hooks and contexts:
 
@@ -1686,7 +1686,7 @@ the size budget — by rendering it through `registerSlateMode`'s own handler.
 | --- | --- |
 | `run-resolver-checks.sh` | the entry point: tool checks, jiti location, temp dir, `--strict`, exit code |
 | `resolver-checks.mjs` | the driver: imports the modules through jiti, builds fixtures, runs the checks, prints the roster and the summary |
-| `writing-check-tests.mjs` | the writing checker's correctness suite: rules, adversarial fixtures, command modes, resource caps, scanner equivalence, source-offset mapping, **report/input safety** |
+| `writing-check-tests.mjs` | the writing checker's correctness suite: rules, adversarial fixtures, command modes, resource caps, scanner equivalence, source-offset mapping, **report/input safety**, diff safety |
 | `writing-check-scaling.mjs` | the writing checker's **growth** gate — see below |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
@@ -1797,10 +1797,9 @@ catches coverage rot, and the canary catches the gate going blind.
 Growth only. It says nothing about whether a finding is *right* — that is
 `writing-check-tests.mjs`, which pins each of the five linear scanners against
 the exact regex it replaced. It also does not bound **memory**: a 1 MiB input
-still peaks around 300 MB of RSS, and the excerpt attached to a finding is still
-proportional to the matched span, so a single finding over a 1 MiB block carries
-a 1 MiB excerpt. Both are linear, neither stalls a turn, and neither was in the
-filed scope.
+still peaks around 300 MB of RSS. Excerpts have a separate 2000-character cap.
+The scaling gate checks the elision path as part of `checkText`, but the
+correctness suite proves the cap and retained text.
 
 # Writing-checker source offsets (BG2)
 
@@ -1878,8 +1877,11 @@ grammar. A writing report has no pipe grammar, so that one grammar-specific
 character is not part of this sanitizer; the Unicode safety categories are the
 same in intent.
 
-The excerpt **length** remains deliberately unchanged except for its two framing
-characters. A separate decision owns the pending excerpt-length cap.
+Each excerpt is at most **2000 characters, including its two framing
+characters**. Longer excerpts keep equal-sized head and tail sections with a
+`[middle elided]` marker. This keeps the opening and conclusion of whole-unit
+SENT20, SENT25 and PARA6 findings. The limit is above the longest excerpt found
+in the measured repository and assistant-message corpora (1640 characters).
 
 ## Nonblocking open
 
@@ -1905,5 +1907,46 @@ worse than no test.
 | `SC6 regular-file opens …` | the actual open flags cannot block on a FIFO and a normal file still reads | removing `O_NONBLOCK` fails this check |
 
 Each mutation ran against a scratch copy and named only its intended check
-(tests 92–95). The scaling roster also caught the four new regex literals and
-refused to pass until each was classified.
+(tests 97–100 in the current suite). The scaling roster also caught the four
+report-safety regex literals and refused to pass until each was classified.
+
+# Writing-checker output and diff fixes (excerpt/BG4/BG6/BG7/BG8)
+
+Five checks cover the review follow-up.
+
+## Policy boundaries
+
+The excerpt cap is 2000 characters **including** `⟦` and `⟧`. Head-and-tail
+elision keeps both ends and marks the removed middle. There is no total-report
+budget.
+
+Diff mode includes `.md`, `.markdown`, `.mdx`, `.txt`, `.rst`, `.adoc` and
+`.asciidoc` files. It also includes extensionless `README`, `CHANGELOG`,
+`CHANGES`, `CONTRIBUTING` and `RELEASE_NOTES` files, without case sensitivity.
+This closed list excludes source files. Markdown fenced code remains in the
+selected file and the existing Markdown normalizer removes it. The file filter
+does not duplicate content parsing.
+
+`MAX_FINDINGS` now applies to each record. Each record reports its own
+`findingsTruncated` and `omittedFindings` values. The aggregate reports the
+total omission count. A noisy early record can no longer make a later record
+look clean.
+
+The unified-diff parser tracks both hunk counts. An invalid header, an unknown
+hunk-line prefix, or an early end throws an error with its line number. It does
+not return the partial hunk. The CLI main-module check compares real paths, so a
+symlink invocation runs the command.
+
+## Checks and teeth
+
+| id | what it proves | mutation |
+| --- | --- | --- |
+| `excerpt cap includes …` | the frame counts toward 2000; the head, marker and tail remain | remove the elision block |
+| `BG4 unified diff mode …` | Markdown is checked, TypeScript is excluded, and fenced code remains excluded | force every diff path to be prose |
+| `BG6 finding caps …` | two noisy records each keep findings and report all omissions | restore the shared `remaining` budget |
+| `BG7 malformed hunk …` | malformed content and headers throw with line numbers | restore the silent `inHunk = false` branch |
+| `BG8 CLI runs …` | a symlinked checker executes and emits JSON | restore the URL/path string comparison |
+
+Each mutation ran in a throwaway `/tmp` copy. Each named check failed when its
+fix was removed. The two surrogate-boundary regexes and the revised hunk-header
+regex are classified in the scaling roster.

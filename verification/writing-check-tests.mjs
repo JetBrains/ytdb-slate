@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
 import {
   checkRecord, checkText, measureWritingTurn, normalizeMarkdown, makeBlocks, segmentSentences, wordTokens, run, formatText,
   recordsFromFiles, recordsFromUnifiedDiff, NOT_CHECKED, MAX_FINDINGS, MAX_INPUT_BYTES,
-  MAX_STRIPPED, MAX_BLOCK_DETAILS,
+  MAX_STRIPPED, MAX_BLOCK_DETAILS, MAX_EXCERPT_CHARS,
   scanHtmlComments, scanAutolinks, scanInlineCode, scanLogLines, scanPathTokens,
-  sanitizeReportId, REGULAR_FILE_OPEN_FLAGS,
+  sanitizeReportId, REGULAR_FILE_OPEN_FLAGS, excerpt, isProseDiffPath,
 } from '../extension/writing-check.mjs';
 
 const CHECKER = fileURLToPath(new URL('../extension/writing-check.mjs', import.meta.url));
@@ -153,6 +153,27 @@ test('finding output is capped', () => {
   assert.equal(result.records[0].findings.length, MAX_FINDINGS);
   assert.equal(result.aggregate.findingsTruncated, true); assert.equal(result.aggregate.omittedFindings > 0, true);
 });
+test('BG6 finding caps are per record and every omission is visible', () => {
+  const result = run([
+    { id: 'first', text: 'Open; '.repeat(MAX_FINDINGS + 20) },
+    { id: 'second', text: 'Close; '.repeat(MAX_FINDINGS + 20) },
+  ]);
+  assert.deepEqual(result.records.map(r => r.findings.length), [MAX_FINDINGS, MAX_FINDINGS]);
+  const omitted = result.records.map(r => r.omittedFindings);
+  assert.equal(omitted.every(n => n > 0), true);
+  assert.equal(result.records.every(r => r.findingsTruncated), true);
+  assert.equal(result.aggregate.omittedFindings, omitted[0] + omitted[1]);
+  assert.match(formatText(result), new RegExp(`FINDINGS CAPPED: ${result.aggregate.omittedFindings} additional findings omitted after the ${MAX_FINDINGS}-finding limit`));
+});
+test('excerpt cap includes its frame and keeps the head and tail', () => {
+  const source = `Opening context ${'middle '.repeat(600)}closing context.`;
+  const value = excerpt(source, 0, source.length);
+  assert.equal(value.length, MAX_EXCERPT_CHARS);
+  assert.equal(value.startsWith('⟦Opening context '), true);
+  assert.equal(value.includes(' … [middle elided] … '), true);
+  assert.equal(value.endsWith('closing context.⟧'), true);
+  assert.equal(excerpt('Short text.', 0, 11), '⟦Short text.⟧');
+});
 test('clean text function checks extension-supplied text', () => assert.equal(has(checkText('Open the panel; stop.'), 'SEMICOLON'), true));
 test('direct file mode creates one record per file', () => {
   const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-files-'));
@@ -170,6 +191,24 @@ test('unified diff mode checks only added lines', () => {
 test('unified diff mode joins adjacent added prose lines', () => {
   const records = recordsFromUnifiedDiff('+++ b/a.md\n@@ -0,0 +4,2 @@\n+First added line\n+continues here.\n');
   assert.deepEqual(records.map(r => [r.id, r.text]), [['a.md:4', 'First added line\ncontinues here.']]);
+});
+test('BG4 unified diff mode includes prose files and excludes source files', () => {
+  const diff = [
+    'diff --git a/code.ts b/code.ts', '--- a/code.ts', '+++ b/code.ts', '@@ -0,0 +1 @@', '+const noisy = "Open; and/or close";',
+    'diff --git a/guide.md b/guide.md', '--- a/guide.md', '+++ b/guide.md', '@@ -0,0 +1,5 @@', '+```ts', '+const hidden = "Code; and/or";', '+```', '+', '+Read this; then continue.',
+  ].join('\n') + '\n';
+  const records = recordsFromUnifiedDiff(diff);
+  assert.equal(isProseDiffPath('docs/guide.md'), true);
+  assert.equal(isProseDiffPath('src/code.ts'), false);
+  assert.deepEqual(records.map(r => r.path), ['guide.md']);
+  const result = run(records);
+  assert.equal(result.aggregate.rules.SEMICOLON.findings, 1);
+  assert.equal(result.aggregate.rules.SLASHED.findings, 0, 'Markdown fences stay the normalizer responsibility');
+});
+test('BG7 malformed hunk content reports its line instead of truncating', () => {
+  const malformed = '+++ b/a.md\n@@ -1,2 +1,2 @@\n context\n!localized or damaged line\n';
+  assert.throws(() => recordsFromUnifiedDiff(malformed), /Malformed unified diff hunk line at line 4.*localized/);
+  assert.throws(() => recordsFromUnifiedDiff('+++ b/a.md\n@@ malformed @@\n+Open; stop.\n'), /Malformed unified diff hunk header at line 2/);
 });
 test('CLI unified-diff mode reports only an added finding', () => {
   const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-diff-'));
@@ -213,6 +252,18 @@ test('CLI refuses a symlink to a special file', () => {
     const path = join(dir, 'zero'); fs.symlinkSync('/dev/zero', path);
     const p = spawnSync(process.execPath, [CHECKER, '--file', path], { encoding: 'utf8' });
     assert.notEqual(p.status, 0); assert.match(p.stderr, /regular file/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+test('BG8 CLI runs when its module path is a symlink', () => {
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-main-link-'));
+  try {
+    const link = join(dir, 'checker.mjs');
+    const input = join(dir, 'input.md');
+    fs.symlinkSync(CHECKER, link);
+    fs.writeFileSync(input, 'Open the panel; stop.');
+    const p = spawnSync(process.execPath, [link, '--file', input], { encoding: 'utf8' });
+    assert.equal(p.status, 0, p.stderr);
+    assert.equal(JSON.parse(p.stdout).aggregate.rules.SEMICOLON.findings, 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -396,7 +447,7 @@ test('SC4 hostile ids cannot forge structural report lines through any command m
     assert.equal(jsonId.includes('\n'), false);
 
     const diff = join(dir, 'change.diff');
-    fs.writeFileSync(diff, '--- a/x\n+++ b/evil\u202e-name\n@@ -0,0 +1 @@\n+Open the panel; stop.\n');
+    fs.writeFileSync(diff, '--- a/x.md\n+++ b/evil\u202e-name.md\n@@ -0,0 +1 @@\n+Open the panel; stop.\n');
     const diffRun = spawnSync(process.execPath, [CHECKER, '--diff', diff, '--format', 'text'], { encoding: 'utf8' });
 
     const named = join(dir, 'evil\nALL_CLEAR.md');

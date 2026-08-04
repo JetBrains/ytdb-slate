@@ -5,11 +5,14 @@
  */
 import fs from 'node:fs';
 import { basename } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 export const MAX_INPUT_BYTES = 1024 * 1024;
 export const MAX_RECORDS = 10000;
+/** Per-record cap. One noisy record must not consume another record's budget. */
 export const MAX_FINDINGS = 1000;
+/** Includes the two reserved framing characters. */
+export const MAX_EXCERPT_CHARS = 2000;
 // SC7: findings were capped but these two arrays were not, so a 1 MiB input
 // produced 62 MB of stdout. Both bounds sit far above real documents (the
 // largest file in this repository reports 591 blocks and 1229 stripped spans),
@@ -491,13 +494,25 @@ export function excerpt(text, start, end) {
   // SC5: strip the same Unicode safety categories as doctrine table cells.
   // SC9: reserve and add the delimiters in BOTH JSON and text output. Removing
   // delimiter characters from source prose means the first ⟦ and final ⟧ are
-  // unambiguously framing, never attacker content. The excerpt length remains
-  // unchanged by policy except for this two-character frame; a separate action
-  // owns any length cap.
-  const content = visibleReportText(text.slice(Math.max(0, start - 28), Math.min(text.length, end + 28)))
+  // unambiguously framing, never attacker content.
+  let content = visibleReportText(text.slice(Math.max(0, start - 28), Math.min(text.length, end + 28)))
     .replace(/[⟦⟧]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  // The 2000-character limit INCLUDES the frame. Keep both ends so whole-unit
+  // findings (SENT20, SENT25 and PARA6) retain their opening and conclusion.
+  // Avoid cutting a valid surrogate pair; that can make the result shorter than
+  // the cap by one code unit but never longer.
+  const marker = ' … [middle elided] … ';
+  const contentLimit = MAX_EXCERPT_CHARS - EXCERPT_OPEN.length - EXCERPT_CLOSE.length;
+  if (content.length > contentLimit) {
+    const kept = contentLimit - marker.length;
+    let headEnd = Math.ceil(kept / 2);
+    let tailStart = content.length - Math.floor(kept / 2);
+    if (headEnd > 0 && /[\uD800-\uDBFF]/.test(content[headEnd - 1])) headEnd--;
+    if (tailStart < content.length && /[\uDC00-\uDFFF]/.test(content[tailStart])) tailStart++;
+    content = content.slice(0, headEnd) + marker + content.slice(tailStart);
+  }
   return `${EXCERPT_OPEN}${content}${EXCERPT_CLOSE}`;
 }
 function finiteCandidate(s) {
@@ -720,12 +735,9 @@ export function run(records, options = {}) {
   const bytes = records.reduce((total, record) => total + Buffer.byteLength(String(record.text ?? ''), 'utf8'), 0);
   if (bytes > MAX_INPUT_BYTES) throw new Error(`Records exceed the ${MAX_INPUT_BYTES}-byte total limit`);
   const limit = Math.max(0, Math.min(MAX_FINDINGS, Number.isSafeInteger(options.maxFindings) ? options.maxFindings : MAX_FINDINGS));
-  let remaining = limit;
-  const checked = records.map((record, ordinal) => {
-    const result = checkRecord(record, ordinal, { maxFindings: remaining });
-    remaining -= result.findings.length;
-    return result;
-  });
+  // The cap is per record. A shared budget made output depend on record order
+  // and could make every later record look clean after one noisy record.
+  const checked = records.map((record, ordinal) => checkRecord(record, ordinal, { maxFindings: limit }));
   return { records: checked, aggregate: aggregate(checked, records) };
 }
 
@@ -805,10 +817,28 @@ export function recordsFromFiles(files) {
   });
 }
 
+const PROSE_DIFF_EXTENSIONS = new Set(['.md', '.markdown', '.mdx', '.txt', '.rst', '.adoc', '.asciidoc']);
+const PROSE_DIFF_NAMES = new Set(['readme', 'changelog', 'changes', 'contributing', 'release_notes']);
+
+/**
+ * Diff mode is for prose review, not source review. Include common plain-prose
+ * extensions and a small closed set of conventional extensionless prose names.
+ * Markdown fences remain the normalizer's responsibility; this filter selects
+ * files and does not try to parse their contents.
+ */
+export function isProseDiffPath(path) {
+  const lower = String(path).toLowerCase();
+  const name = lower.slice(lower.lastIndexOf('/') + 1);
+  if (PROSE_DIFF_NAMES.has(name)) return true;
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 && PROSE_DIFF_EXTENSIONS.has(name.slice(dot));
+}
+
 export function recordsFromUnifiedDiff(text, id = 'diff') {
   if (Buffer.byteLength(text, 'utf8') > MAX_INPUT_BYTES) throw new Error(`Diff exceeds the ${MAX_INPUT_BYTES}-byte limit`);
   const records = [];
-  let file = id, newLine = 0, runStart = 0, run = [], inHunk = false;
+  let file = id, includeFile = isProseDiffPath(file), newLine = 0, runStart = 0, run = [];
+  let oldRemaining = 0, newRemaining = 0, inHunk = false;
   const flush = () => {
     if (run.length) {
       if (records.length >= MAX_RECORDS) throw new Error(`Diff exceeds the ${MAX_RECORDS}-record limit`);
@@ -816,31 +846,56 @@ export function recordsFromUnifiedDiff(text, id = 'diff') {
     }
     run = [];
   };
-  for (const raw of text.split(/\r?\n/)) {
+  const lines = text.split(/\r?\n/);
+  if (lines.at(-1) === '') lines.pop();
+  for (let index = 0; index < lines.length; index++) {
+    const raw = lines[index];
+    if (inHunk && oldRemaining === 0 && newRemaining === 0) { flush(); inHunk = false; }
     if (!inHunk && raw.startsWith('+++ ')) {
       flush();
       const label = raw.slice(4).split(/\t/)[0];
       file = label.startsWith('b/') ? label.slice(2) : label;
+      includeFile = isProseDiffPath(file);
       continue;
     }
-    const hunk = raw.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk) { flush(); newLine = Number(hunk[1]); inHunk = true; continue; }
-    if (!inHunk) continue;
-    if (raw.startsWith('+')) {
-      if (!run.length) runStart = newLine;
-      run.push(raw.slice(1)); newLine++; continue;
+    const hunk = raw.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$/);
+    if (hunk) {
+      if (inHunk) throw new Error(`Malformed unified diff at line ${index + 1}: prior hunk ended early`);
+      flush();
+      newLine = Number(hunk[3]);
+      oldRemaining = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      newRemaining = hunk[4] === undefined ? 1 : Number(hunk[4]);
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) {
+      if (raw.startsWith('@@')) throw new Error(`Malformed unified diff hunk header at line ${index + 1}: ${JSON.stringify(raw.slice(0, 80))}`);
+      continue;
+    }
+    if (raw.startsWith('\\ No newline at end of file')) continue;
+    if (raw.startsWith('+') && newRemaining > 0) {
+      if (includeFile) {
+        if (!run.length) runStart = newLine;
+        run.push(raw.slice(1));
+      }
+      newLine++; newRemaining--; continue;
     }
     flush();
-    if (raw.startsWith(' ')) newLine++;
-    else if (raw.startsWith('\\ No newline at end of file')) continue;
-    else if (!raw.startsWith('-')) inHunk = false;
+    if (raw.startsWith(' ') && oldRemaining > 0 && newRemaining > 0) {
+      oldRemaining--; newRemaining--; newLine++; continue;
+    }
+    if (raw.startsWith('-') && oldRemaining > 0) { oldRemaining--; continue; }
+    throw new Error(`Malformed unified diff hunk line at line ${index + 1}: ${JSON.stringify(raw.slice(0, 80))}`);
+  }
+  if (inHunk && (oldRemaining !== 0 || newRemaining !== 0)) {
+    throw new Error(`Malformed unified diff: final hunk ended early (${oldRemaining} old and ${newRemaining} new lines missing)`);
   }
   flush();
   return records;
 }
 
 function usage() {
-  return `Usage:\n  node writing-check.mjs --input records.jsonl [--format json|text]\n  node writing-check.mjs --file PATH [--file PATH ...] [--format json|text]\n  node writing-check.mjs --diff changes.diff [--format json|text]\n\n--diff accepts a unified-diff file and checks only added lines. Inputs must be regular files. The combined byte limit is ${MAX_INPUT_BYTES}, the record limit is ${MAX_RECORDS}, and output is capped at ${MAX_FINDINGS} findings.`;
+  return `Usage:\n  node writing-check.mjs --input records.jsonl [--format json|text]\n  node writing-check.mjs --file PATH [--file PATH ...] [--format json|text]\n  node writing-check.mjs --diff changes.diff [--format json|text]\n\n--diff accepts a unified-diff file and checks added lines in prose files. Inputs must be regular files. The combined byte limit is ${MAX_INPUT_BYTES}, the record limit is ${MAX_RECORDS}, and output is capped at ${MAX_FINDINGS} findings per record.`;
 }
 
 function cli() {
@@ -867,7 +922,16 @@ function cli() {
   process.stdout.write(format === 'json' ? JSON.stringify(result, null, 2) + '\n' : formatText(result) + '\n');
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   try { cli(); }
   catch (error) { console.error(`writing-check: ${error.message}`); process.exitCode = 1; }
 }

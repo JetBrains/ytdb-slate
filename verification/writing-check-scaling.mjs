@@ -116,6 +116,8 @@ const COVERAGE = {
   '[^A-Za-z0-9._/@:+-]': { gen: { 'report-id-unsafe': rep('safe id\n') } },
   '^(?:ALL_CLEAR|Writing|NOT|FINDINGS|STE)$': { gen: { 'report-id-reserved': rep('ALL_CLEAR') } },
   '[⟦⟧]': { gen: { 'excerpt-delimiters': rep('⟦hostile⟧') } },
+  '[\\uD800-\\uDBFF]': { bounded: 'applied to one code unit at an excerpt cut' },
+  '[\\uDC00-\\uDFFF]': { bounded: 'applied to one code unit at an excerpt cut' },
   '<(?:https?:\\/\\/|mailto:)': { gen: { 'autolink-open': rep('<https://') } },
   '[^>\\s]*': { gen: { 'autolink-run': rep('<https://a>') } },
   '`+': { gen: { 'tick-runs': rep('`a'), 'tick-solid': rep('`') } },
@@ -150,7 +152,7 @@ const COVERAGE = {
 
   // --- CLI and small helpers ----------------------------------------------
   '\\r?\\n': { gen: { 'crlf-split': rep('a\r\n') } },
-  '^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@': { gen: { 'hunk-digits': (n) => '@@ -' + '1'.repeat(n - 4) } },
+  '^@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@(?: .*)?$': { gen: { 'hunk-digits': (n) => '@@ -' + '1'.repeat(n - 4) } },
   '\\s+': { gen: { 'ws-collapse': rep(' a') } },
   '\\s': { bounded: 'applied to one character' },
   '\\d': { bounded: 'applied to one character' },
