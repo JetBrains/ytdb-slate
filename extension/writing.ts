@@ -1,5 +1,42 @@
+import type { TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
 import type { WritingConfig } from "./state.ts";
+
+export interface WritingChecker {
+	checkText(text: string): { findings: readonly { class: string }[] };
+}
+
+export interface WritingCounters {
+	measuredTurns: number;
+	findingTurns: number;
+}
+
+function assistantText(message: TurnEndEvent["message"]): string | undefined {
+	if (!message || typeof message !== "object" || (message as { role?: unknown }).role !== "assistant") return undefined;
+	const content = (message as { content?: unknown }).content;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return undefined;
+	const text = content
+		.filter((part): part is { type: "text"; text: string } =>
+			!!part && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string",
+		)
+		.map((part) => part.text)
+		.join("\n");
+	return text || undefined;
+}
+
+/** Human-only turn telemetry. It never returns a hook result and always fails open. */
+export function measureWritingTurn(message: TurnEndEvent["message"], checker: WritingChecker, counters: WritingCounters): void {
+	try {
+		const text = assistantText(message);
+		if (text === undefined) return;
+		const result = checker.checkText(text);
+		counters.measuredTurns += 1;
+		if (result.findings.some((finding) => finding.class === "fail")) counters.findingTurns += 1;
+	} catch {
+		// A checker cap or implementation error must never fail a turn.
+	}
+}
 
 /** The known `writing` keys. Report anything else as a likely typo. */
 const WRITING_KEYS = ["check"];

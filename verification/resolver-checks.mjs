@@ -148,7 +148,7 @@ function file(rel, content = "//x") {
 	return abs;
 }
 
-function writingStatusFixture({ writing = true, trusted = true, orchestrator = true, hasUI = true } = {}) {
+function writingStatusFixture({ writing = true, trusted = true, orchestrator = true, hasUI = true, loadWritingChecker } = {}) {
 	const handlers = {};
 	let status;
 	let saves = 0;
@@ -180,12 +180,25 @@ function writingStatusFixture({ writing = true, trusted = true, orchestrator = t
 			notify: () => {},
 		},
 	};
-	mode.registerSlateMode(pi, store, { startHandoff: async () => {} }, () => ({ writing: { check: writing } }), () => ({ units: [] }));
+	mode.registerSlateMode(
+		pi,
+		store,
+		{ startHandoff: async () => {} },
+		() => ({ writing: { check: writing } }),
+		() => ({ units: [] }),
+		() => ({ on: false, candidates: [] }),
+		loadWritingChecker,
+	);
 	return { handlers, ctx, getStatus: () => status, getSaves: () => saves };
 }
 
-async function writingTurn(fixture, message = { role: "assistant", content: "Open the panel; stop." }) {
+async function writingSession(fixture) {
 	await fixture.handlers.session_start({}, fixture.ctx);
+	return fixture;
+}
+
+async function writingTurn(fixture, message = { role: "assistant", content: "Open the panel; stop." }) {
+	await writingSession(fixture);
 	await fixture.handlers.turn_end({ message }, fixture.ctx);
 	return fixture;
 }
@@ -1041,6 +1054,10 @@ try {
 
 		await section("writing-status", async () => {
 			const w = (count) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
+			const fresh = await writingSession(writingStatusFixture());
+			check("writing-status-fresh", /writing 0\/0/.test(fresh.getStatus() ?? ""), "a fresh session with no completed turn says writing 0/0", fresh.getStatus());
+			const clean = await writingTurn(writingStatusFixture(), { role: "assistant", content: "The report was written." });
+			check("writing-status-clean", /writing 0\/1/.test(clean.getStatus() ?? ""), "a measured clean turn says writing 0/1", clean.getStatus());
 			const on = await writingTurn(writingStatusFixture());
 			check("writing-status-positive", /writing 1\/1/.test(on.getStatus() ?? ""), "a completed assistant turn produces the live writing status with one measured turn and one failing turn", on.getStatus());
 			check("writing-status-import-url", typeof paths.WRITING_CHECKER_URL === "string" && paths.WRITING_CHECKER_URL.startsWith("file:") && paths.WRITING_CHECKER_URL.endsWith("writing-check.mjs"), "the optional checker import uses a file URL", paths.WRITING_CHECKER_URL);
@@ -1049,24 +1066,27 @@ try {
 			check("writing-status-gate-mode", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ orchestrator: false }))).getStatus() ?? ""), "orchestrator mode off suppresses the status rate", on.getStatus());
 			check("writing-status-gate-ui", (await writingTurn(writingStatusFixture({ hasUI: false }))).getStatus() === undefined, "a session without UI suppresses the status rate", on.getStatus());
 
-			const throwing = writingStatusFixture();
-			const originalChecker = checker.checkText;
-			const throwResult = { measuredTurns: 0, findingTurns: 0 };
-			checker.measureWritingTurn({ role: "assistant", content: "Open the panel; stop." }, { checkText: () => { throw new Error("synthetic checker failure"); } }, throwResult);
-			check("writing-status-fail-open", throwResult.measuredTurns === 0 && throwResult.findingTurns === 0 && throwing.getStatus() === undefined, "a throwing checker leaves counters unchanged and cannot fail the turn", throwResult);
-			void originalChecker;
+			const importFailed = await writingTurn(writingStatusFixture({
+				loadWritingChecker: async () => { throw new Error("synthetic import failure"); },
+			}));
+			check("writing-status-import-fail", /writing unavailable/.test(importFailed.getStatus() ?? ""), "a rejected checker import says writing unavailable", importFailed.getStatus());
+
+			const throwing = await writingTurn(writingStatusFixture({
+				loadWritingChecker: async () => ({ checkText: () => { throw new Error("synthetic checker failure"); } }),
+			}));
+			check("writing-status-fail-open", /writing unavailable/.test(throwing.getStatus() ?? ""), "a throwing checker cannot fail the turn and says writing unavailable", throwing.getStatus());
 
 			const capCounters = { measuredTurns: 0, findingTurns: 0 };
-			checker.measureWritingTurn({ role: "assistant", content: "x".repeat(checker.MAX_INPUT_BYTES + 1) }, checker, capCounters);
+			writing.measureWritingTurn({ role: "assistant", content: "x".repeat(checker.MAX_INPUT_BYTES + 1) }, checker, capCounters);
 			check("writing-status-cap-skip", capCounters.measuredTurns === 0 && capCounters.findingTurns === 0, "an oversized assistant message is skipped rather than counted or thrown", capCounters);
 			const skipped = await writingTurn(writingStatusFixture(), { role: "assistant", content: "x".repeat(16 * 1024 + 1) });
 			check("writing-status-cap-visible", /writing skipped \(message too large\)/.test(skipped.getStatus() ?? ""), "a message above the turn bound is visible as skipped in the status line", skipped.getStatus());
 
 			const counters = { measuredTurns: 0, findingTurns: 0 };
-			checker.measureWritingTurn({ role: "assistant", content: "Open the panel; stop." }, checker, counters);
-			checker.measureWritingTurn({ role: "assistant", content: `${w(21)}.` }, checker, counters);
-			checker.measureWritingTurn({ role: "assistant", content: "Select and/or replace it." }, checker, counters);
-			checker.measureWritingTurn({ role: "assistant", content: "The report was written." }, checker, counters);
+			writing.measureWritingTurn({ role: "assistant", content: "Open the panel; stop." }, checker, counters);
+			writing.measureWritingTurn({ role: "assistant", content: `${w(21)}.` }, checker, counters);
+			writing.measureWritingTurn({ role: "assistant", content: "Select and/or replace it." }, checker, counters);
+			writing.measureWritingTurn({ role: "assistant", content: "The report was written." }, checker, counters);
 			check("writing-status-counting", counters.measuredTurns === 4 && counters.findingTurns === 1, "only a fail-level finding counts; warnings, house-style, and advisories do not", counters);
 
 			const noWrite = writingStatusFixture();
@@ -5423,7 +5443,8 @@ try {
 		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject",
 		"writing-checker-length", "writing-checker-para", "writing-checker-semicolon", "writing-checker-contraction",
 		"writing-checker-class", "writing-checker-not-checked", "writing-checker-caps", "writing-checker-modes", "writing-checker-determinism",
-		"writing-status-positive", "writing-status-import-url", "writing-status-gate-switch", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui",
+		"writing-status-fresh", "writing-status-clean", "writing-status-positive", "writing-status-import-url", "writing-status-import-fail",
+		"writing-status-gate-switch", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui",
 		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-cap-visible", "writing-status-counting", "writing-status-no-store-write",
 		"worker-load", "worker-preamble",
 		"cand-builtin-sdk", "cand-missing-path",

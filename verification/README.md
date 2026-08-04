@@ -665,10 +665,10 @@ The **human-only writing status line** is covered through `registerSlateMode` wi
 
 | id | what it proves |
 | --- | --- |
-| `writing-status-positive` | a real `turn_end` completes the dynamic import, checker call and status render, producing the expected fail/measured counts |
+| `writing-status-fresh` / `writing-status-clean` / `writing-status-positive` | real hook cycles distinguish no completed turns (`0/0`), one clean turn (`0/1`), and one failing turn (`1/1`) |
+| `writing-status-import-fail` / `writing-status-fail-open` | a rejected checker import and a checker throw both fail open through `turn_end` and render `writing unavailable` |
 | `writing-status-gate-switch` / `writing-status-gate-trust` / `writing-status-gate-mode` / `writing-status-gate-ui` | each visibility condition independently suppresses the rate: switch off, untrusted project, orchestrator mode off and no UI |
-| `writing-status-fail-open` / `writing-status-cap-skip` | a throwing checker leaves the counters unchanged; the checker’s own oversized-input cap is skipped rather than failing the turn |
-| `writing-status-cap-visible` | a message above the 16 KiB turn bound is skipped and the status line says so |
+| `writing-status-cap-skip` / `writing-status-cap-visible` | the checker’s own oversized-input cap fails open; a message above the 16 KiB hook bound is skipped and the status line says so |
 | `writing-status-counting` | only fail findings count; warnings, house-style findings and advisories do not |
 | `writing-status-no-store-write` | counter updates do not call `SlateStore.save()` or persist the orchestrator-mode seed |
 
@@ -691,6 +691,12 @@ The extension-wiring mutations are also required to fail:
 | break the checker import path | `writing-status-positive` |
 | remove the visible size-bound status | `writing-status-cap-visible` |
 | remove the file-URL conversion | `writing-status-import-url` |
+| render `unavailable` as `writing 0/0` | `writing-status-import-fail`, `writing-status-fail-open` |
+| remove unavailable detection and silence the catch | `writing-status-import-fail`, `writing-status-fail-open` |
+
+`measureWritingTurn` lives in `extension/writing.ts`, beside the writing config
+boundary. This keeps the pi-shaped message handling typechecked while the standalone
+checker and CLI remain dependency-free plain JavaScript.
 
 **The doctrine checks are the ONLY automated coverage of doctrine rendering, and the
 smoke test is not a backstop.** Stated plainly because the opposite is easy to

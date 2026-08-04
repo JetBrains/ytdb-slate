@@ -31,6 +31,7 @@ import {
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { THINKING_LEVELS } from "./route.ts";
 import { orchestratorCostUsd, type SlateConfig, type SlateStore } from "./state.ts";
+import { measureWritingTurn, type WritingChecker, type WritingCounters } from "./writing.ts";
 import type { WorkerExtensionSet, WorkerExtensionUnit } from "./worker-extensions.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
@@ -92,15 +93,6 @@ function sanitizeForDoctrine(value: string, max: number): string {
  * site in buildDoctrine, not because this module pins them to that slot.
  */
 const FIXED_DOCTRINE_RULES = 10;
-
-interface WritingChecker {
-	checkText(text: string): { findings: readonly { class: string }[] };
-	measureWritingTurn(message: unknown, checker: WritingChecker, counters: WritingCounters): void;
-}
-export interface WritingCounters {
-	measuredTurns: number;
-	findingTurns: number;
-}
 
 // Real assistant messages measured 296 characters at the median, 2,348 at p90,
 // and 6,140 at the maximum in the review sample. Keep headroom for normal prose,
@@ -514,6 +506,9 @@ export function registerSlateMode(
 	// session; it is memoized on the other side, so the doctrine and the dispatch
 	// guards describe one and the same frozen candidate list.
 	getRouter: () => ModelRouterResolution = () => ROUTER_OFF,
+	// Injected only by the pure harness so it can exercise both dynamic-import
+	// failure and checker failure through the real turn hook.
+	loadWritingChecker: () => Promise<WritingChecker> = () => import(WRITING_CHECKER_URL),
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
@@ -650,10 +645,10 @@ export function registerSlateMode(
 			return;
 		}
 		try {
-			writingCheckerPromise ??= import(WRITING_CHECKER_URL);
+			writingCheckerPromise ??= loadWritingChecker();
 			const checker = await writingCheckerPromise;
 			const measuredBefore = writingCounters.measuredTurns;
-			checker.measureWritingTurn(event.message, checker, writingCounters);
+			measureWritingTurn(event.message, checker, writingCounters);
 			// measureWritingTurn is deliberately fail-open and therefore reports no
 			// error. A known assistant message that did not increment the counter is
 			// nevertheless a checker failure, not a clean result.
