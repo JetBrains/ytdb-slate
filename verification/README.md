@@ -2029,3 +2029,34 @@ The resolver determinism check was not dead in the current tree. It starts two
 separate commands and compares their output. Adding a random `nonce` to a
 scratch command made the outputs differ, so the check's condition becomes
 false. No repair was necessary.
+
+# Writing-checker URL sentence boundaries (BG5)
+
+The URL pattern strips candidates that start with `http://`, `https://` or
+`www.`. A scheme-less domain such as `example.test` remains prose; expanding
+candidate detection is outside BG5. The pattern now treats a trailing `.`, `,`,
+`;`, `:`, `!` or `?` as prose
+punctuation. Those characters remain URL data when another URL character
+follows, so dotted paths and query separators still work. This is the explicit
+ambiguity boundary: a literal punctuation character at the end of a URL must be
+percent-encoded. Parentheses remain outside URL candidates as before.
+
+| case | decision |
+| --- | --- |
+| `https://example.test/path.` | strip through `path`; keep the period as the sentence terminator |
+| `https://example.test/releases/v1.2/file.html` | keep both internal periods in the URL |
+| `(https://example.test/path).` | keep both parentheses and the period as prose |
+| `https://example.test/path, then` | keep the comma as prose |
+| `www.example.test.` | strip the bare `www.` domain; keep the period as prose |
+| `example.test.` | leave the scheme-less domain as prose; keep its period as the sentence terminator |
+| `https://example.test/path?a=1;b=two` | keep the internal semicolon because URL data follows it |
+
+The length-rule fixture has 21 words, a sentence-final URL and a five-word
+second sentence. Before BG5, URL stripping swallowed the first period and made
+one 26-word sentence: one `SENT25`, no `SENT20`. After BG5, segmentation returns
+two sentences: one `SENT20`, no `SENT25`.
+
+Two direct checks cover the boundary table and the length-rule effect. Restoring
+the greedy `[^\\s<>()]+` tail in a throwaway copy fails `BG5 URL boundaries keep
+sentence punctuation and strip URL data`. The scaling roster names the revised
+pattern and adds a punctuation-heavy hostile generator.

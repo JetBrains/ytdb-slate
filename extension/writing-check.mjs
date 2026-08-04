@@ -322,7 +322,11 @@ export function normalizeMarkdown(text) {
     ['html-comment', scanHtmlComments(text)],
     ['inline-code', scanInlineCode(text)],
     ['autolink', scanAutolinks(text)],
-    ['url', spansOf(/\b(?:https?:\/\/|www\.)[^\s<>()]+/gi)],
+    // A trailing `. , ; : ! ?` is sentence punctuation, not URL data. The same
+    // characters remain part of a URL when another URL character follows them,
+    // so dotted paths and query punctuation still work. A literal terminal
+    // punctuation character must be percent-encoded to remove the ambiguity.
+    ['url', spansOf(/\b(?:https?:\/\/|www\.)[^\s<>()]*[^\s<>().,;:!?]/gi)],
   ];
   for (const [type, spans] of patterns) {
     for (const { start, end } of spans) {

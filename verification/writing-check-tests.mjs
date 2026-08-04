@@ -109,7 +109,69 @@ test('list item is classified separately and checked as prose', () => {
   assert.equal(r.blockDetails[0].type, 'list-item'); assert.equal(has(r, 'SEMICOLON'), true);
 });
 test('numbered procedure remains clean', () => assert.deepEqual(check('1. Open the panel.\n2. Close the valve.').findings, []));
-test('URL query remains stripped', () => assert.deepEqual(check('See https://example.test/path?a=1&b=two; then continue.').findings, []));
+test('URL query remains stripped', () => {
+  const text = 'See https://example.test/path?a=1;b=two and continue.';
+  const normalized = normalizeMarkdown(text);
+  const span = normalized.stripped.find(item => item.type === 'url');
+  assert.equal(text.slice(span.start, span.end), 'https://example.test/path?a=1;b=two');
+  assert.equal(check(text).findings.some(finding => finding.id === 'SEMICOLON'), false);
+});
+test('BG5 URL boundaries keep sentence punctuation and strip URL data', () => {
+  const cases = [
+    {
+      name: 'URL ending a sentence',
+      text: 'See https://example.test/path. Continue now.',
+      url: 'https://example.test/path', punctuation: '.', sentences: 2,
+    },
+    {
+      name: 'period inside a URL path',
+      text: 'See https://example.test/releases/v1.2/file.html for details.',
+      url: 'https://example.test/releases/v1.2/file.html', punctuation: ' ', sentences: 1,
+    },
+    {
+      name: 'URL in parentheses',
+      text: 'See (https://example.test/path). Continue now.',
+      url: 'https://example.test/path', punctuation: ')', sentences: 2,
+    },
+    {
+      name: 'URL followed by a comma',
+      text: 'See https://example.test/path, then continue.',
+      url: 'https://example.test/path', punctuation: ',', sentences: 1,
+    },
+    {
+      name: 'bare www domain ending a sentence',
+      text: 'Visit www.example.test. Continue now.',
+      url: 'www.example.test', punctuation: '.', sentences: 2,
+    },
+    {
+      name: 'scheme-less bare domain ending a sentence',
+      text: 'Visit example.test. Continue now.',
+      url: null, punctuation: null, sentences: 2,
+    },
+  ];
+  for (const fixture of cases) {
+    const normalized = normalizeMarkdown(fixture.text);
+    const span = normalized.stripped.find(item => item.type === 'url');
+    if (fixture.url === null) {
+      assert.equal(span, undefined, `${fixture.name}: outside the URL candidate scope`);
+    } else {
+      assert.ok(span, `${fixture.name}: URL was not stripped`);
+      assert.equal(fixture.text.slice(span.start, span.end), fixture.url, fixture.name);
+      assert.equal(fixture.text[span.end], fixture.punctuation, fixture.name);
+    }
+    const blocks = makeBlocks(normalized.normalized);
+    assert.equal(segmentSentences(blocks[0].text).length, fixture.sentences, fixture.name);
+  }
+});
+test('BG5 terminal URL periods preserve SENT20 instead of merging into SENT25', () => {
+  const first = words(21);
+  const text = `${first} https://example.com. Next simple words appear now.`;
+  const result = checkText(text);
+  assert.equal(segmentSentences(makeBlocks(normalizeMarkdown(text).normalized)[0].text).length, 2);
+  assert.equal(result.findings.filter(f => f.id === 'SENT20').length, 1);
+  assert.equal(result.findings.filter(f => f.id === 'SENT25').length, 0);
+  assert.equal(result.findings.find(f => f.id === 'SENT20').offset.end, text.indexOf('. Next') + 1);
+});
 test('nested lists remain clean', () => assert.deepEqual(check('- Main item\n  - Nested item\n    1. First nested step\n    2. Second nested step').findings, []));
 test('bulleted sentence fragments remain clean', () => assert.deepEqual(check('- Verify input\n- Output path\n- No errors').findings, []));
 test('quoted prose semicolon remains visible', () => assert.equal(has(check('The user wrote, “Open the panel; then inspect the seal.”'), 'SEMICOLON'), true));
