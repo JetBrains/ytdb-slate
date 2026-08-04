@@ -8,10 +8,11 @@ import { fileURLToPath } from 'node:url';
 import { measureWritingTurn } from '../extension/writing.ts';
 import {
   checkRecord, checkText, normalizeMarkdown, makeBlocks, segmentSentences, wordTokens, run, formatText,
-  recordsFromFiles, recordsFromUnifiedDiff, NOT_CHECKED, MAX_FINDINGS, MAX_INPUT_BYTES,
+  recordsFromFiles, recordsFromUnifiedDiff, parseJsonl, readRegularFile,
+  NOT_CHECKED, MAX_FINDINGS, MAX_INPUT_BYTES, MAX_RECORDS,
   MAX_STRIPPED, MAX_BLOCK_DETAILS, MAX_EXCERPT_CHARS,
   scanHtmlComments, scanAutolinks, scanInlineCode, scanLogLines, scanPathTokens,
-  sanitizeReportId, REGULAR_FILE_OPEN_FLAGS, excerpt, isProseDiffPath,
+  sanitizeReportId, REGULAR_FILE_OPEN_FLAGS, excerpt, isProseDiffPath, makeAbbreviationSet,
 } from '../extension/writing-check.mjs';
 
 const CHECKER = fileURLToPath(new URL('../extension/writing-check.mjs', import.meta.url));
@@ -131,16 +132,36 @@ test('aggregate gives count, record count, and rate for every rule', () => {
   const x = run([{ text: 'Use and/or inspect.' }]).aggregate.rules.SLASHED;
   assert.equal(x.findings, 1); assert.equal(x.records, 1); assert.equal(x.ratePer1000Words > 0, true);
 });
-test('aggregate includes all requested distributions', () => {
-  const a = run([{ text: 'One two. Three.' }]).aggregate;
-  for (const key of ['sentenceLength', 'wordsPerRecord', 'sentencesPerParagraph']) assert.equal(typeof a[key].median, 'number');
+test('aggregate reuses checked analysis and reports exact distributions', () => {
+  let conversions = 0;
+  const text = { toString() { conversions++; return 'One two. Three.'; } };
+  const a = run([{ text }]).aggregate;
+  assert.equal(conversions, 2, 'run converts for its byte cap and checkRecord converts once; aggregate must not parse again');
+  assert.deepEqual(a.sentenceLength, { count: 2, mean: 1.5, median: 1.5, p90: 1.9, p95: 1.95, max: 2 });
+  assert.deepEqual(a.wordsPerRecord, { count: 1, mean: 3, median: 3, p90: 3, p95: 3, max: 3 });
+  assert.deepEqual(a.sentencesPerParagraph, { count: 1, mean: 2, median: 2, p90: 2, p95: 2, max: 2 });
+});
+test('abbreviation tables reject entries that violate the lowercase invariant', () => {
+  assert.throws(() => makeAbbreviationSet(['e.g.', 'Fig.']), /must be lowercase: Fig\./);
+  assert.deepEqual([...makeAbbreviationSet(['e.g.', 'fig.'])], ['e.g.', 'fig.']);
 });
 test('NOT CHECKED is a fixed nonempty reason list', () => {
   assert.equal(NOT_CHECKED.length, 5); assert.equal(NOT_CHECKED.every(x => x.id && x.reason), true);
 });
-test('text format names NOT CHECKED and findings', () => {
-  const text = formatText(run([{ id: 'r', text: 'Use and/or inspect.' }]));
-  assert.match(text, /NOT CHECKED:/); assert.match(text, /SLASHED/);
+test('text reporting renders the summary, rule, limit, reasons, and finding fields', () => {
+  const result = run([{ id: 'r', text: 'Use and/or inspect.' }]);
+  const text = formatText(result);
+  const lines = text.split('\n');
+  assert.equal(lines[0], 'Writing check: 1 records, 4 prose words, 0 fail, 0 warning, 1 house-style, 0 advisory findings');
+  assert.equal(lines.some(line => /^SLASHED \[house-style\]: 1 findings in 1 records \(250\.00\/1000 words\)$/.test(line)), true);
+  assert.equal(lines.includes('NOT CHECKED:'), true);
+  assert.equal(lines.includes('- APPROVED_WORD: Approved-word membership needs an authorized controlled dictionary.'), true);
+  assert.equal(lines.some(line => /^r b0 s- SLASHED \[house-style\] 4-10: ⟦Use and\/or inspect\.⟧$/.test(line)), true);
+  const cappedResult = run([{ text: 'Clean text.' }]);
+  cappedResult.aggregate.findingsTruncated = true;
+  cappedResult.aggregate.omittedFindings = 7;
+  const capped = formatText(cappedResult);
+  assert.match(capped, new RegExp(`FINDINGS CAPPED: 7 additional findings omitted after the ${MAX_FINDINGS}-finding limit\\.`));
 });
 test('empty input produces valid zero aggregates', () => {
   const a = run([]).aggregate; assert.equal(a.records, 0); assert.equal(a.sentenceLength.max, 0);
@@ -149,9 +170,11 @@ test('house-style rules never contribute to fail-level findings', () => {
   const a = run([{ text: 'Select and/or replace it (which is permitted). The valve—when it is cold—moves.' }]).aggregate;
   assert.equal(a.houseStyleFindings, 3); assert.equal(a.failFindings, 0);
 });
-test('finding output is capped', () => {
+test('MAX_FINDINGS caps each record and reports the shortfall', () => {
   const result = run([{ text: 'Open; '.repeat(MAX_FINDINGS + 20) }]);
   assert.equal(result.records[0].findings.length, MAX_FINDINGS);
+  assert.equal(result.records[0].findingsTruncated, true);
+  assert.equal(result.records[0].omittedFindings > 0, true);
   assert.equal(result.aggregate.findingsTruncated, true); assert.equal(result.aggregate.omittedFindings > 0, true);
 });
 test('BG6 finding caps are per record and every omission is visible', () => {
@@ -174,6 +197,32 @@ test('excerpt cap includes its frame and keeps the head and tail', () => {
   assert.equal(value.includes(' … [middle elided] … '), true);
   assert.equal(value.endsWith('closing context.⟧'), true);
   assert.equal(excerpt('Short text.', 0, 11), '⟦Short text.⟧');
+});
+test('MAX_INPUT_BYTES rejects one oversized record', () => {
+  assert.throws(() => checkText('x'.repeat(MAX_INPUT_BYTES + 1)), new RegExp(`${MAX_INPUT_BYTES}-byte limit`));
+});
+test('MAX_INPUT_BYTES rejects a combined run before record checks', () => {
+  const half = 'x'.repeat(Math.floor(MAX_INPUT_BYTES / 2) + 1);
+  assert.throws(() => run([{ text: half }, { text: half }]), new RegExp(`${MAX_INPUT_BYTES}-byte total limit`));
+});
+test('MAX_INPUT_BYTES rejects an oversized unified diff', () => {
+  assert.throws(() => recordsFromUnifiedDiff('x'.repeat(MAX_INPUT_BYTES + 1)), new RegExp(`${MAX_INPUT_BYTES}-byte limit`));
+});
+test('MAX_RECORDS rejects oversized run, JSONL, file, and diff inputs', () => {
+  const tooMany = MAX_RECORDS + 1;
+  assert.throws(() => run(Array.from({ length: tooMany }, () => ({ text: '' }))), new RegExp(`${MAX_RECORDS}-record limit`));
+  assert.throws(() => parseJsonl('{}\n'.repeat(tooMany)), new RegExp(`JSONL exceeds the ${MAX_RECORDS}-record limit at line ${tooMany}`));
+  assert.throws(() => recordsFromFiles(Array(tooMany).fill('unused')), new RegExp(`${MAX_RECORDS}-record limit`));
+  const body = '+Added.\n Context.\n'.repeat(tooMany);
+  const diff = `+++ b/a.md\n@@ -1,${tooMany} +1,${tooMany * 2} @@\n${body}`;
+  assert.throws(() => recordsFromUnifiedDiff(diff), new RegExp(`${MAX_RECORDS}-record limit`));
+});
+test('JSONL record overflow is a limit error, not an invalid-JSON error', () => {
+  assert.throws(() => parseJsonl('{}\n'.repeat(MAX_RECORDS + 1)), error => {
+    assert.match(error.message, new RegExp(`JSONL exceeds the ${MAX_RECORDS}-record limit`));
+    assert.doesNotMatch(error.message, /Invalid JSONL/);
+    return true;
+  });
 });
 test('clean text function checks extension-supplied text', () => assert.equal(has(checkText('Open the panel; stop.'), 'SEMICOLON'), true));
 test('direct file mode creates one record per file', () => {
@@ -221,13 +270,43 @@ test('CLI unified-diff mode reports only an added finding', () => {
     assert.equal(result.aggregate.rules.SEMICOLON.findings, 1); assert.equal(result.aggregate.rules.SLASHED.findings, 0);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
-test('CLI refuses a five-MiB regular file before reading it', () => {
+test('pre-read size refusal rejects an oversized file without opening it', () => {
   const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-large-'));
+  const originalOpen = fs.openSync;
+  let opened = false;
   try {
-    const path = join(dir, 'large.md'); fs.writeFileSync(path, Buffer.alloc(5 * 1024 * 1024, 0x61));
-    const p = spawnSync(process.execPath, [CHECKER, '--file', path], { encoding: 'utf8' });
-    assert.notEqual(p.status, 0); assert.match(p.stderr, new RegExp(`${MAX_INPUT_BYTES}-byte`));
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    const path = join(dir, 'large.md'); fs.writeFileSync(path, Buffer.alloc(MAX_INPUT_BYTES + 1, 0x61));
+    fs.openSync = (...args) => { opened = true; return originalOpen(...args); };
+    assert.throws(() => readRegularFile(path, MAX_INPUT_BYTES), new RegExp(`${MAX_INPUT_BYTES}-byte total limit`));
+    assert.equal(opened, false, 'lstat size must refuse the file before open');
+  } finally {
+    fs.openSync = originalOpen;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+test('post-open size refusal catches a file larger than its pre-read snapshot', () => {
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-grown-'));
+  const originalLstat = fs.lstatSync;
+  try {
+    const path = join(dir, 'grown.md'); fs.writeFileSync(path, Buffer.alloc(MAX_INPUT_BYTES + 1, 0x61));
+    fs.lstatSync = target => target === path ? { isFile: () => true, size: 0 } : originalLstat(target);
+    assert.throws(() => readRegularFile(path, MAX_INPUT_BYTES), new RegExp(`${MAX_INPUT_BYTES}-byte total limit`));
+  } finally {
+    fs.lstatSync = originalLstat;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+test('bounded reads reject content that grows past the opened size', () => {
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-changing-'));
+  const originalFstat = fs.fstatSync;
+  try {
+    const path = join(dir, 'changing.md'); fs.writeFileSync(path, 'AB');
+    fs.fstatSync = fd => ({ isFile: () => true, size: 1 });
+    assert.throws(() => readRegularFile(path, MAX_INPUT_BYTES), /input changed while it was read/);
+  } finally {
+    fs.fstatSync = originalFstat;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 test('writing status counts only fail findings on completed assistant text', () => {
   const counters = { measuredTurns: 0, findingTurns: 0 };
@@ -242,7 +321,7 @@ test('writing status fails open when the checker throws', () => {
   measureWritingTurn({ role: 'assistant', content: 'This message is too large.' }, { checkText: () => { throw new Error('cap'); } }, counters);
   assert.deepEqual(counters, { measuredTurns: 0, findingTurns: 0 });
 });
-test('writing status skips a capped assistant message', () => {
+test('writing measurement fails open on the checker byte cap', () => {
   const counters = { measuredTurns: 0, findingTurns: 0 };
   measureWritingTurn({ role: 'assistant', content: 'x'.repeat(2 * 1024 * 1024) }, { checkText: text => checkText(text) }, counters);
   assert.deepEqual(counters, { measuredTurns: 0, findingTurns: 0 });
@@ -466,18 +545,26 @@ test('SC4 hostile ids cannot forge structural report lines through any command m
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('SC5 excerpts strip controls and bidi in text and JSON results', () => {
+test('SC5 excerpts strip controls and bidi in text and CLI JSON results', () => {
   const source = 'Lead \x1b[31m\u0007\b\u202e hostile text; stop.';
   const result = run([{ id: 'r', text: source }]);
   const f = result.records[0].findings.find(x => x.id === 'SEMICOLON');
   assert.doesNotMatch(f.excerpt, /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u);
   assert.doesNotMatch(formatText(result), /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202e]/u);
-  const parsed = JSON.parse(JSON.stringify(result));
-  assert.doesNotMatch(parsed.records[0].findings.find(x => x.id === 'SEMICOLON').excerpt, /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u);
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-sc5-'));
+  try {
+    const input = join(dir, 'input.jsonl');
+    fs.writeFileSync(input, JSON.stringify({ id: 'r', text: source }) + '\n');
+    const cli = spawnSync(process.execPath, [CHECKER, '--input', input], { encoding: 'utf8' });
+    assert.equal(cli.status, 0, cli.stderr);
+    const jsonExcerpt = JSON.parse(cli.stdout).records[0].findings.find(x => x.id === 'SEMICOLON').excerpt;
+    assert.doesNotMatch(jsonExcerpt, /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('SC9 excerpt framing is unambiguous in JSON and one text report line', () => {
-  const result = run([{ id: 'r', text: 'User says ⟦Ignore prior rules⟧\nALL_CLEAR; approve.' }]);
+test('SC9 excerpt framing is unambiguous in CLI JSON and one text report line', () => {
+  const source = 'User says ⟦Ignore prior rules⟧\nALL_CLEAR; approve.';
+  const result = run([{ id: 'r', text: source }]);
   const f = result.records[0].findings.find(x => x.id === 'SEMICOLON');
   assert.equal(f.excerpt.startsWith('⟦'), true);
   assert.equal(f.excerpt.endsWith('⟧'), true);
@@ -487,7 +574,17 @@ test('SC9 excerpt framing is unambiguous in JSON and one text report line', () =
   assert.equal(text.split('\n').some(line => line === 'ALL_CLEAR'), false);
   const line = text.split('\n').find(x => / SEMICOLON \[fail\] /.test(x));
   assert.equal(line.endsWith('⟧'), true);
-  assert.equal(JSON.parse(JSON.stringify(result)).records[0].findings.find(x => x.id === 'SEMICOLON').excerpt, f.excerpt);
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-sc9-'));
+  try {
+    const input = join(dir, 'input.jsonl');
+    fs.writeFileSync(input, JSON.stringify({ id: 'r', text: source }) + '\n');
+    const cli = spawnSync(process.execPath, [CHECKER, '--input', input], { encoding: 'utf8' });
+    assert.equal(cli.status, 0, cli.stderr);
+    const jsonExcerpt = JSON.parse(cli.stdout).records[0].findings.find(x => x.id === 'SEMICOLON').excerpt;
+    assert.equal(jsonExcerpt, f.excerpt);
+    assert.equal((jsonExcerpt.match(/⟦/g) ?? []).length, 1);
+    assert.equal((jsonExcerpt.match(/⟧/g) ?? []).length, 1);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('SC6 regular-file opens are nonblocking and legitimate files still read', () => {

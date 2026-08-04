@@ -1913,7 +1913,7 @@ worse than no test.
 | `SC6 regular-file opens …` | the actual open flags cannot block on a FIFO and a normal file still reads | removing `O_NONBLOCK` fails this check |
 
 Each mutation ran against a scratch copy and named only its intended check
-(tests 97–100 in the current suite). The scaling roster also caught the four
+(tests 105–108 in the current suite). The scaling roster also caught the four
 report-safety regex literals and refused to pass until each was classified.
 
 # Writing-checker output and diff fixes (excerpt/BG4/BG6/BG7/BG8)
@@ -1956,3 +1956,76 @@ symlink invocation runs the command.
 Each mutation ran in a throwaway `/tmp` copy. Each named check failed when its
 fix was removed. The two surrogate-boundary regexes and the revised hunk-header
 regex are classified in the scaling roster.
+
+# Writing-checker final review fixes (CQ3/CQ4/TQ2/TQ4/TQ5)
+
+## One analysis pipeline
+
+`checkRecord` now collects sentence lengths and paragraph sentence counts while
+it tokenizes the blocks used for findings. It attaches these arrays to the
+checked result with a private, non-enumerable symbol. `aggregate` consumes them
+instead of normalizing, building blocks, segmenting and tokenizing the source a
+second time. The public JSON and text shapes do not change. BG2 segment maps
+stay on the live blocks until findings, offsets and distributions are complete.
+
+The check named `aggregate reuses checked analysis …` uses a text value that
+counts string conversions. `run` converts it for the total byte cap and
+`checkRecord` converts it once. A third conversion proves that aggregation read
+the source again. Restoring that read fails the check. The same check asserts
+all distribution values, not only their types.
+
+Two dead fallback sites were removed. `split` always returns at least one item,
+so the empty-lines repair in `makeBlocks` was unreachable. Every block receives
+`words` and `sentences` before `blockDetails` is built, so its tokenization and
+segmentation fallbacks were also unreachable.
+
+## Cap inventory
+
+| cap | enforcement points | checks |
+| --- | --- | --- |
+| `MAX_INPUT_BYTES` (1 MiB) | each record, combined `run` input, unified-diff text, pre-open file size, post-open file size, and growth past the opened size | `MAX_INPUT_BYTES …` (three checks), `pre-read size refusal …`, `post-open size refusal …`, `bounded reads …` |
+| `MAX_RECORDS` (10000) | `run`, JSONL parsing, direct-file arguments and emitted diff records | `MAX_RECORDS rejects …` |
+| `MAX_FINDINGS` (1000 per record) | finding insertion and omission counters | `MAX_FINDINGS caps …`, `BG6 finding caps …` |
+| `MAX_STRIPPED` (5000) | reported stripped-span list | `stripped spans are capped …` |
+| `MAX_BLOCK_DETAILS` (5000) | reported block-detail list | `block details are capped …` |
+| `MAX_EXCERPT_CHARS` (2000, frame included) | head-and-tail excerpt elision | `excerpt cap includes …` |
+| `WRITING_TURN_MAX_BYTES` (16 KiB) | `mode.ts` rejects a turn before loading or calling the checker | resolver checks `writing-status-cap-skip` and `writing-status-cap-visible`; this limit is outside `writing-check.mjs` |
+
+The file tests distinguish all three read stages. The pre-read check replaces
+`openSync` and proves an oversized file is never opened. The post-open check
+fakes a stale small `lstat` result. The growth check fakes an opened size smaller
+than the bytes read.
+
+## CQ4 and reporting
+
+JSONL parsing now catches only syntax and record-shape errors. Record overflow
+is outside that catch and reports `JSONL exceeds the 10000-record limit`, not
+`Invalid JSONL`. `makeAbbreviationSet` enforces the lowercase-only table
+invariant that `periodIsInternal` requires.
+
+The text-report check pins the summary, one rule line, one fixed `NOT CHECKED`
+reason, the cap notice and every generated field in a finding line. Removing the
+finding-line loop fails it.
+
+## TQ4 audit
+
+The sweep found four weak or misleading checks and one reporting gap:
+
+- Distribution checks asserted only that medians were numbers. Zeroed or
+  unrelated distributions passed. They now assert exact values and the CQ3
+  conversion count.
+- The SC5 and SC9 JSON assertions serialized an in-memory result and parsed it
+  immediately. That round trip could not test the CLI JSON path. Both now spawn
+  the command and inspect its JSON output.
+- The local `writing status skips a capped assistant message` name referred to
+  the 16 KiB mode cap but called `measureWritingTurn` directly with a 2 MiB
+  message. It exercised the checker's 1 MiB fail-open path instead. The test is
+  renamed to state that fact. The resolver suite owns the real mode-cap checks.
+- The old text-format check could find `SLASHED` in the aggregate rule table
+  after the detailed finding-line renderer was deleted. The expanded reporting
+  check now requires the full finding line.
+
+The resolver determinism check was not dead in the current tree. It starts two
+separate commands and compares their output. Adding a random `nonce` to a
+scratch command made the outputs differ, so the check's condition becomes
+false. No repair was necessary.

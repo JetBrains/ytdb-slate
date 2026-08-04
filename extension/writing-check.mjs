@@ -71,7 +71,16 @@ export const RULES = [
   ['NOUNCLUSTER', 'advisory'], ['MULTICMD', 'advisory'],
 ];
 
-const ABBREVIATIONS = new Set(['e.g.', 'i.e.', 'etc.', 'vs.', 'dr.', 'mr.', 'mrs.', 'ms.', 'prof.', 'sr.', 'jr.', 'no.', 'fig.', 'approx.', 'dept.', 'inc.', 'ltd.', 'st.']);
+export function makeAbbreviationSet(values) {
+  for (const value of values) {
+    if (value !== value.toLowerCase()) throw new Error(`Abbreviations must be lowercase: ${value}`);
+  }
+  return new Set(values);
+}
+// periodIsInternal lowercases its search window. Enforce the matching table's
+// lowercase-only invariant at construction instead of leaving mixed-case values
+// silently unreachable.
+const ABBREVIATIONS = makeAbbreviationSet(['e.g.', 'i.e.', 'etc.', 'vs.', 'dr.', 'mr.', 'mrs.', 'ms.', 'prof.', 'sr.', 'jr.', 'no.', 'fig.', 'approx.', 'dept.', 'inc.', 'ltd.', 'st.']);
 const BE = new Set(['am', 'is', 'are', 'was', 'were', 'be', 'been', 'being']);
 const FUNCTION = new Set(`a an the this that these those i me my mine myself we us our ours ourselves you your yours yourself yourselves he him his himself she her hers herself it its itself they them their theirs themselves who whom whose which what am is are was were be been being have has had having do does did doing can could may might must shall should will would and or nor but yet so for if then than because while when where after before as at by from in into of on onto over under through to up down with without about between among during against around near not no very also only each every some any all both either neither one two there here`.split(/\s+/));
 const IRREGULAR_PARTICIPLES = new Set(`arisen awoken been begun bent bitten blown broken brought built bought caught chosen come cost cut dealt done drawn driven drunk eaten fallen fed felt fought found flown forgotten forgiven frozen given gone grown heard held hidden hit kept known laid led left lent lost made meant met paid put read ridden rung risen run said seen sent set shaken shown shut sung sat slept spoken spent stood stolen struck stuck swept swum taken taught torn told thought thrown understood worn won written`.split(/\s+/));
@@ -382,7 +391,6 @@ export function makeBlocks(normalized) {
     const body = part.replace(/[\r\n]+$/, '');
     lines.push({ body, start: pos }); pos += part.length;
   }
-  if (!normalized.endsWith('\n') && lines.length === 0) lines.push({ body: normalized, start: 0 });
   let para = null;
   const flush = () => { if (para) { if (para.segments.length < 2) delete para.segments; blocks.push(para); para = null; } };
   for (const line of lines) {
@@ -559,13 +567,16 @@ export function quotedDashSpans(text) {
   return spans.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
+const ANALYSIS = Symbol('writing-check-analysis');
+
 export function checkRecord(record, ordinal = 0, options = {}) {
   const source = String(record.text ?? '');
   if (Buffer.byteLength(source, 'utf8') > MAX_INPUT_BYTES) throw new Error(`Text exceeds the ${MAX_INPUT_BYTES}-byte limit`);
   const id = sanitizeReportId(record.id ?? `${record.session ?? 'record'}:${record.line ?? ordinal + 1}`);
   const { normalized, stripped, strippedTruncated, omittedStripped } = normalizeMarkdown(source);
   const blocks = makeBlocks(normalized);
-  const findings = []; let sentenceCount = 0, totalWords = 0, omittedFindings = 0;
+  const findings = [], sentenceLengths = [], paragraphSentences = [];
+  let sentenceCount = 0, totalWords = 0, omittedFindings = 0;
   const maxFindings = Math.max(0, Math.min(MAX_FINDINGS, Number.isSafeInteger(options.maxFindings) ? options.maxFindings : MAX_FINDINGS));
   /**
    * `start` and `end` are BLOCK-TEXT positions. Rules work in block coordinates
@@ -590,6 +601,7 @@ export function checkRecord(record, ordinal = 0, options = {}) {
     block.words = wordTokens(block.text, 0).length;
     if (!prose(block.type)) continue;
     sentenceCount += block.sentences.length; totalWords += block.words;
+    if (block.type === 'paragraph') paragraphSentences.push(block.sentences.length);
     if (block.type === 'paragraph' && block.sentences.length > 6) addSourceSpan('PARA6', 'fail', block, block.start, block.end);
 
     const scans = [
@@ -614,6 +626,7 @@ export function checkRecord(record, ordinal = 0, options = {}) {
 
     block.sentences.forEach((sentence, si) => {
       const tokens = wordTokens(sentence.text, sentence.start);
+      sentenceLengths.push(tokens.length);
       const excluded = excludedHeuristicRanges(sentence.text, sentence.start).sort((a, b) => a.start - b.start || a.end - b.end);
       const heuristicTokens = withoutExcluded(tokens, excluded);
       // Emit one length result: 21–25 words warns; more than 25 fails.
@@ -653,14 +666,20 @@ export function checkRecord(record, ordinal = 0, options = {}) {
   // SC7: `blocks` still counts every block; only the per-block detail array is
   // bounded, because one 1 MiB record can hold 262,144 of them.
   const detailed = blocks.length > MAX_BLOCK_DETAILS ? blocks.slice(0, MAX_BLOCK_DETAILS) : blocks;
-  return {
+  const result = {
     id, blocks: blocks.length, sentences: sentenceCount, words: totalWords,
-    blockDetails: detailed.map(({ index, type, start, end, words, sentences }) => ({ index, type, start, end, words: words ?? wordTokens(blocks[index].text).length, sentences: sentences?.length ?? segmentSentences(blocks[index].text).length })),
+    blockDetails: detailed.map(({ index, type, start, end, words, sentences }) => ({ index, type, start, end, words, sentences: sentences.length })),
     blockDetailsTruncated: blocks.length > MAX_BLOCK_DETAILS,
     omittedBlockDetails: Math.max(0, blocks.length - MAX_BLOCK_DETAILS),
     stripped, strippedTruncated, omittedStripped,
     findings, findingsTruncated: omittedFindings > 0, omittedFindings,
   };
+  // Keep full analysis private and non-enumerable: aggregate reuses the exact
+  // tokenized blocks that produced findings, while JSON and text output stay
+  // byte-identical. The blocks retain their BG2 segment maps until every offset
+  // and distribution value has been derived.
+  Object.defineProperty(result, ANALYSIS, { value: { sentenceLengths, paragraphSentences } });
+  return result;
 }
 
 function quantile(sorted, p) {
@@ -673,7 +692,7 @@ function distribution(values) {
   const sum = a.reduce((x, y) => x + y, 0);
   return { count: a.length, mean: a.length ? sum / a.length : 0, median: quantile(a, .5), p90: quantile(a, .9), p95: quantile(a, .95), max: a.at(-1) ?? 0 };
 }
-export function aggregate(checked, originalRecords = []) {
+export function aggregate(checked) {
   const totalWords = checked.reduce((n, r) => n + r.words, 0);
   const rules = {};
   for (const [id, cls] of RULES) {
@@ -682,14 +701,12 @@ export function aggregate(checked, originalRecords = []) {
     rules[id] = { class: cls, findings: count, records: counts.filter(Boolean).length, ratePer1000Words: totalWords ? count * 1000 / totalWords : 0 };
   }
   const sentenceLengths = [], paragraphSentences = [];
-  originalRecords.forEach(r => {
-    const { normalized } = normalizeMarkdown(String(r.text ?? ''));
-    for (const b of makeBlocks(normalized)) if (prose(b.type)) {
-      const ss = segmentSentences(b.text);
-      ss.forEach(s => sentenceLengths.push(wordTokens(s.text).length));
-      if (b.type === 'paragraph') paragraphSentences.push(ss.length);
-    }
-  });
+  for (const record of checked) {
+    const analysis = record[ANALYSIS];
+    if (!analysis) throw new Error('aggregate requires checkRecord results');
+    for (const length of analysis.sentenceLengths) sentenceLengths.push(length);
+    for (const count of analysis.paragraphSentences) paragraphSentences.push(count);
+  }
   const classCount = cls => checked.reduce((n, r) => n + r.findings.filter(f => f.class === cls).length, 0);
   return {
     records: checked.length, words: totalWords,
@@ -714,7 +731,7 @@ export function run(records, options = {}) {
   // The cap is per record. A shared budget made output depend on record order
   // and could make every later record look clean after one noisy record.
   const checked = records.map((record, ordinal) => checkRecord(record, ordinal, { maxFindings: limit }));
-  return { records: checked, aggregate: aggregate(checked, records) };
+  return { records: checked, aggregate: aggregate(checked) };
 }
 
 export function formatText(result) {
@@ -738,7 +755,7 @@ export function formatText(result) {
   return lines.join('\n');
 }
 
-function readRegularFile(path, budget) {
+export function readRegularFile(path, budget) {
   let lst;
   try { lst = fs.lstatSync(path); }
   catch (error) { throw new Error(`Cannot inspect ${path}: ${error.message}`); }
@@ -771,14 +788,15 @@ export function parseJsonl(text) {
   const records = [];
   for (const [index, line] of text.split(/\r?\n/).entries()) {
     if (!line.trim()) continue;
+    let value;
     try {
-      const value = JSON.parse(line);
+      value = JSON.parse(line);
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('record must be an object');
-      records.push(value);
-      if (records.length > MAX_RECORDS) throw new Error(`record count exceeds the ${MAX_RECORDS}-record limit`);
     } catch (error) {
       throw new Error(`Invalid JSONL at line ${index + 1}: ${error.message}`);
     }
+    records.push(value);
+    if (records.length > MAX_RECORDS) throw new Error(`JSONL exceeds the ${MAX_RECORDS}-record limit at line ${index + 1}`);
   }
   return records;
 }
