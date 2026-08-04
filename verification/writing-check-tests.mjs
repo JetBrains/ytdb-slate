@@ -12,7 +12,7 @@ import {
   NOT_CHECKED, MAX_FINDINGS, MAX_TOTAL_FINDINGS, MAX_INPUT_BYTES, MAX_RECORDS,
   MAX_STRIPPED, MAX_BLOCK_DETAILS, MAX_EXCERPT_CHARS,
   scanHtmlComments, scanAutolinks, scanInlineCode, scanLogLines, scanPathTokens,
-  sanitizeReportId, REGULAR_FILE_OPEN_FLAGS, excerpt, isProseDiffPath, makeAbbreviationSet,
+  sanitizeReportId, REGULAR_FILE_OPEN_FLAGS, excerpt, isProseDiffPath, decodeGitPath, makeAbbreviationSet,
 } from '../extension/writing-check.mjs';
 
 const CHECKER = fileURLToPath(new URL('../extension/writing-check.mjs', import.meta.url));
@@ -362,6 +362,30 @@ test('BG7 malformed hunk content reports its line instead of truncating', () => 
   assert.throws(() => recordsFromUnifiedDiff(malformed), /Malformed unified diff hunk line at line 4.*localized/);
   assert.throws(() => recordsFromUnifiedDiff('+++ b/a.md\n@@ malformed @@\n+Open; stop.\n'), /Malformed unified diff hunk header at line 2/);
 });
+test('BG7 an incomplete final hunk is rejected instead of returned partially', () => {
+  const truncated = '+++ b/a.md\n@@ -4,2 +4,3 @@\n Context.\n+Only one of two promised additions;\n';
+  assert.throws(() => recordsFromUnifiedDiff(truncated), /final hunk ended early \(1 old and 1 new lines missing\)/);
+});
+test('FX4 Git C-quoted paths are decoded for classification and reporting', () => {
+  const sections = [
+    ['"b/d\\303\\263c.md"', 'dóc.md'],
+    ['"b/tab\\tname.md"', 'tab\tname.md'],
+    ['b/space name.md', 'space name.md'],
+    ['"b/quote\\"name.md"', 'quote"name.md'],
+    ['"b/slash\\\\name.md"', 'slash\\name.md'],
+    ['"b/code\\303\\263.ts"', null],
+  ];
+  const diff = sections.map(([label]) => `+++ ${label}\n@@ -0,0 +1 @@\n+Open; stop.\n`).join('');
+  const records = recordsFromUnifiedDiff(diff);
+  const expected = sections.map(([, path]) => path).filter(Boolean);
+  assert.deepEqual(records.map(record => record.path), expected);
+  assert.deepEqual(records.map(record => record.id), expected.map(path => `${path}:1`));
+  const checked = run(records);
+  assert.equal(checked.aggregate.rules.SEMICOLON.findings, expected.length);
+  assert.deepEqual(checked.records.map(record => record.id), expected.map(path => sanitizeReportId(`${path}:1`)));
+  assert.equal(decodeGitPath('"b/d\\303\\263c.md"'), 'b/dóc.md');
+  assert.equal(decodeGitPath('b/space name.md'), 'b/space name.md');
+});
 test('CLI unified-diff mode reports only an added finding', () => {
   const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-diff-'));
   try {
@@ -533,6 +557,8 @@ const EQUIVALENCE = [
     ['', '`', '``', '`a`', '``a`', '`a``b`', '```x```', '``a\nb``', '`a`b`c`', '````', '`a``', '``a``b``', '`\n`', '``x`y``']],
   ['scanLogLines', scanLogLines, /^\s*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)?\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b.*$/gm,
     ['', '2026-01-01T00:00:00Z INFO a', '\n\n  2026-01-01T00:00:00Z INFO a', 'x\n\t \n \n2026-01-01T00:00:00Z ERROR e',
+      'x\r' + ' '.repeat(1000) + '\n2020-01-02T03:04:05 INFO hi', 'x\r\n\t\u00a0\r\n2026-01-01T00:00:00Z INFO crlf',
+      'x\u2028\t\u00a0\u2029 2026-01-01T00:00:00Z WARN unicode',
       '2026-01-01T00:00:00Z INFO a\n\n\n2026-01-02T00:00:00Z INFO b', '  2026-01-01T00:00:00 WARN w', '2026-01-01T00:00:00Z NOPE x']],
   ['scanPathTokens', scanPathTokens, /\/?[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+/g,
     ['', 'a', 'a/b', '/a/b', '//a/b', 'a//b', 'a//b/c', 'a/b//c/d', 'see /x/y/ end', 'a.b/c-d_e/f', 'a/ /b', '/a', 'a/b/c/d']],
@@ -550,6 +576,24 @@ test('scanners keep whole-record output identical for a mixed document', () => {
   const r = checkText(doc);
   assert.equal(r.stripped.map(s => s.type).join(','), 'html-comment,inline-code,autolink,log-line,indented-code');
   assert.equal(r.findings.some(f => f.id === 'SEMICOLON'), false);
+});
+test('FX1 log spans honor every JavaScript line terminator and blank the full span', () => {
+  const terminators = ['\n', '\r', '\u2028', '\u2029'];
+  for (const terminator of terminators) {
+    const prefix = `prose${terminator}`;
+    const gap = '\t\u00a0 ';
+    const text = `${prefix}${gap}\n2020-01-02T03:04:05 INFO hidden; log`;
+    const reference = spansVia(/^\s*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)?\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b.*$/gm, text);
+    assert.deepEqual(scanLogLines(text), reference, JSON.stringify(terminator));
+    assert.equal(reference[0].start, prefix.length, JSON.stringify(terminator));
+    const normalized = normalizeMarkdown(text);
+    const span = normalized.stripped.find(item => item.type === 'log-line');
+    assert.deepEqual({ start: span.start, end: span.end }, reference[0]);
+    for (let i = span.start; i < span.end; i++) {
+      assert.equal('\n\r\u2028\u2029'.includes(text[i]) ? normalized.normalized[i] : ' ', normalized.normalized[i]);
+    }
+    assert.equal(checkText(text).findings.some(finding => finding.id === 'SEMICOLON'), false);
+  }
 });
 
 test('stripped spans are capped and report the shortfall (SC7)', () => {

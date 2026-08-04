@@ -110,7 +110,7 @@ const COVERAGE = {
   '^(?: {4,}(?![-+*]|\\d+[.)]\\s)\\S).*$': { gen: { indented: rep('    x\n'), 'indented-spaces': rep(' ') } },
   '^(?:diff --git |@@ |--- |\\+\\+\\+ ).*$': { gen: { 'git-diff': rep('--- a\n') } },
   '^[^\\S\\n]*\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d\\d:?\\d\\d)?\\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\\b.*$':
-    { gen: { 'log-blank': rep(' \n'), 'log-timestamps': rep('2026-01-01T00:00:00 \n'), 'log-real': rep('2026-01-01T00:00:00 INFO x\n') } },
+    { gen: { 'log-blank': rep(' \n'), 'log-crlf': rep('\t\u00a0\r\n'), 'log-unicode-lines': rep('\t\u00a0\u2028\u2029'), 'log-timestamps': rep('2026-01-01T00:00:00 \n'), 'log-real': rep('2026-01-01T00:00:00 INFO x\n') } },
   '\\b(?:https?:\\/\\/|www\\.)[^\\s<>()]*[^\\s<>().,;:!?]': { gen: { url: rep('www.'), 'url-long': rep('www.aaaaaaaa '), 'url-punctuation': rep('www.example.test... ') } },
   '[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}\\p{Cs}]+': { gen: { 'report-controls': rep('\u001b\u0007\u202e a') } },
   '[^A-Za-z0-9._/@:+-]': { gen: { 'report-id-unsafe': rep('safe id\n') } },
@@ -179,7 +179,7 @@ const PASSES = {
   'pass:scanHtmlComments': [(n) => M.scanHtmlComments(n), { 'html-open': rep('<!--'), 'html-closed': rep('<!--a-->') }],
   'pass:scanAutolinks': [(n) => M.scanAutolinks(n), { 'auto-open': rep('<https://'), 'auto-closed': rep('<https://a> ') }],
   'pass:scanInlineCode': [(n) => M.scanInlineCode(n), { 'code-solid': rep('`'), 'code-pairs': rep('`a'), 'code-ragged': rep('`````' + '`x'.repeat(40)) }],
-  'pass:scanLogLines': [(n) => M.scanLogLines(n), { 'log-blank2': rep(' \n'), 'log-real2': rep('2026-01-01T00:00:00 INFO x\n') }],
+  'pass:scanLogLines': [(n) => M.scanLogLines(n), { 'log-blank2': rep(' \n'), 'log-crlf2': rep('x\r\t\u00a0\n2026-01-01T00:00:00 INFO x\r\n'), 'log-unicode2': rep('x\u2028\t\u00a0\u20292026-01-01T00:00:00 INFO x\u2029'), 'log-real2': rep('2026-01-01T00:00:00 INFO x\n') }],
   'pass:scanPathTokens': [(n) => M.scanPathTokens(n), { 'path-flat': rep('a'), 'path-chain': rep('a/b/c ') }],
   'pass:quotedDashSpans': [(n) => M.quotedDashSpans(n), { 'qd-open': rep('"a'), 'qd-pairs': rep('"a—a" ') }],
   // The end-to-end shapes the three reviews filed, each the input that stalled.

@@ -1802,7 +1802,9 @@ catches coverage rot, and the canary catches the gate going blind.
 
 Growth only. It says nothing about whether a finding is *right* — that is
 `writing-check-tests.mjs`, which pins each of the five linear scanners against
-the exact regex it replaced. It also does not bound **memory**: a 1 MiB input
+the exact regex it replaced. For `scanLogLines`, exact means JavaScript
+multiline semantics across LF, CR, U+2028 and U+2029, not LF-only lines. It also
+does not bound **memory**: a 1 MiB input
 still peaks around 300 MB of RSS. Excerpts have a separate 2000-character cap.
 The scaling gate checks the elision path as part of `checkText`, but the
 correctness suite proves the cap and retained text.
@@ -2166,3 +2168,70 @@ budget at the fair allowance. Since every record already gets at most
 `floor(total / recordCount)`, the running total can never be exhausted, so that
 mutant computes the same result. The BG6-relevant mutant is the one in the table,
 which restores the per-record cap plus a shared budget.
+
+# Log-line equivalence, Git paths and final hunks (FX1/FX4/BG7)
+
+## FX1 — exact JavaScript line semantics
+
+`scanLogLines` continues to promise exact equivalence with the regex it replaced.
+That is the correct policy for exported `normalized` and `stripped` data, and it
+is also the correct Windows behavior: CRLF is a line boundary, not prose that a
+log stripper may leave partly visible. JavaScript multiline `^` recognizes four
+terminators: LF, CR, U+2028 and U+2029. The old regex can start after the first
+such terminator in a whitespace run, then `\s*` consumes the rest of that run.
+The scanner now does the same.
+
+The scanner first walks backward over whitespace, then walks forward only to the
+first line terminator. It visits a whitespace run at most twice, and `lastEnd`
+prevents later matches from revisiting it. The scaling gate adds CRLF and Unicode-line
+hostile inputs to both the regex and scanner subjects. The full gate remains
+linear at the 1 MiB cap.
+
+A deterministic differential run used the reviewer's shape: 200,000 generated
+cases across all five scanners plus 316,585 exhaustive cases. It added U+2028
+and U+2029 to the log alphabet and used a fixed seed. Result: **516,585 cases,
+0 mismatches**.
+
+The reviewer's CR counterexample changes from span `1003–1030` to `2–1030`, the
+same as the old regex. In the tab/NBSP variant, the span changes from `5–32` to
+`2–32`, so the tab and NBSP are blanked instead of leaking into `normalized`.
+
+## FX4 — decode once, then classify and report
+
+Git's default `core.quotePath` syntax is a C string. `decodeGitPath` decodes it
+before the `b/` prefix is removed. The same decoded value then drives
+`isProseDiffPath`, record `path`, record `id` and the sanitized report id. This
+avoids both failure modes: silently dropping a prose file during classification,
+and finding it under a raw encoded label during reporting.
+
+| Git path case | result |
+| --- | --- |
+| `"b/d\\303\\263c.md"` | `dóc.md`, included |
+| `"b/tab\\tname.md"` | a literal tab in `tab<TAB>name.md`, included |
+| `b/space name.md` | unchanged, included |
+| `"b/quote\\"name.md"` | a literal quote in the decoded path, included |
+| `"b/slash\\\\name.md"` | a literal backslash in the decoded path, included |
+| `"b/code\\303\\263.ts"` | `codeó.ts`, correctly excluded as non-prose |
+
+Unsupported escapes, an unterminated quote and invalid UTF-8 throw a malformed
+path error. They cannot degrade to a clean-looking report.
+
+## BG7 — final hunk guard
+
+A hunk that promises two old and three new lines but ends after one context and
+one addition now has a direct check. It must report `1 old and 1 new lines
+missing`; removing the final guard fails that check.
+
+## Teeth
+
+| mutation | killed by |
+| --- | --- |
+| restore the LF-only log start search | `scanLogLines matches …` and `FX1 log spans …` |
+| classify and report the raw Git label | `FX4 Git C-quoted paths …` |
+| remove the final incomplete-hunk guard | `BG7 an incomplete final hunk …` |
+
+All three mutations failed in a fail-soft scratch copy, so the FX1 mutation
+proved both its differential fixture and its exported-normalization check. No
+mutation survived and none was equivalent. The module gained no regex literal,
+so the scaling roster needed no new name; its log generators changed to cover
+the new line-terminator paths.

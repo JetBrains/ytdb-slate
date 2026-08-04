@@ -240,6 +240,10 @@ const WHITESPACE = /\s/;
  * so the reported span is unchanged. The walk stops at the previous match's
  * end, because the original could not start before it either.
  */
+function isJsLineTerminator(char) {
+  return char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029';
+}
+
 export function scanLogLines(text) {
   const out = [];
   let lastEnd = 0;
@@ -249,11 +253,18 @@ export function scanLogLines(text) {
     let p = m.index;
     while (p > lastEnd && WHITESPACE.test(text[p - 1])) p--;
     let start = p;
-    if (p !== 0 && text[p - 1] !== '\n') {
-      // Not a line start, so the earliest `^` the original could use is the
-      // first one after p.
-      const nl = text.indexOf('\n', p);
-      start = nl >= 0 && nl < m.index ? nl + 1 : m.index;
+    if (p !== 0) {
+      // JavaScript's multiline `^` recognizes FOUR line terminators: LF, CR,
+      // U+2028 and U+2029. The old /^\s*.../gm match starts after the FIRST
+      // such terminator in this whitespace run, then \s* consumes the rest.
+      // Looking only for LF changed exported spans on CRLF/Unicode input and
+      // left tabs/NBSP unblanked. This forward walk and the backward walk above
+      // visit a whitespace run at most twice; lastEnd prevents a later match
+      // from visiting that run again.
+      start = m.index;
+      for (let i = p; i < m.index; i++) {
+        if (isJsLineTerminator(text[i])) { start = i + 1; break; }
+      }
     }
     const end = m.index + m[0].length;
     out.push({ start, end });
@@ -865,6 +876,44 @@ export function recordsFromFiles(files) {
 
 const PROSE_DIFF_EXTENSIONS = new Set(['.md', '.markdown', '.mdx', '.txt', '.rst', '.adoc', '.asciidoc']);
 const PROSE_DIFF_NAMES = new Set(['readme', 'changelog', 'changes', 'contributing', 'release_notes']);
+const UTF8_FATAL = new TextDecoder('utf-8', { fatal: true });
+
+/**
+ * Decode Git's core.quotePath C string before the path is classified OR
+ * reported. Git writes non-ASCII bytes as octal escapes and also escapes tabs,
+ * quotes, backslashes and control characters. Classifying the raw label silently
+ * dropped a quoted `dóc.md`; decoding only for classification would retain the
+ * finding under a false, encoded path.
+ */
+export function decodeGitPath(label) {
+  if (!label.startsWith('"')) return label;
+  if (!label.endsWith('"')) throw new Error(`Malformed quoted Git path: ${JSON.stringify(label)}`);
+  const bytes = [];
+  const escapes = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 };
+  for (let i = 1; i < label.length - 1; i++) {
+    const char = label[i];
+    if (char !== '\\') {
+      const codePoint = label.codePointAt(i);
+      for (const byte of Buffer.from(String.fromCodePoint(codePoint), 'utf8')) bytes.push(byte);
+      if (codePoint > 0xffff) i++;
+      continue;
+    }
+    if (++i >= label.length - 1) throw new Error(`Malformed quoted Git path: ${JSON.stringify(label)}`);
+    const escaped = label[i];
+    if (Object.hasOwn(escapes, escaped)) { bytes.push(escapes[escaped]); continue; }
+    if (escaped >= '0' && escaped <= '7') {
+      let octal = escaped;
+      while (octal.length < 3 && i + 1 < label.length - 1 && label[i + 1] >= '0' && label[i + 1] <= '7') octal += label[++i];
+      const byte = Number.parseInt(octal, 8);
+      if (byte > 255) throw new Error(`Git path octal escape is not a byte: \\${octal}`);
+      bytes.push(byte);
+      continue;
+    }
+    throw new Error(`Unsupported Git path escape \\${escaped}`);
+  }
+  try { return UTF8_FATAL.decode(Uint8Array.from(bytes)); }
+  catch { throw new Error(`Quoted Git path is not valid UTF-8: ${JSON.stringify(label)}`); }
+}
 
 /**
  * Diff mode is for prose review, not source review. Include common plain-prose
@@ -900,7 +949,8 @@ export function recordsFromUnifiedDiff(text, id = 'diff') {
     if (!inHunk && raw.startsWith('+++ ')) {
       flush();
       const label = raw.slice(4).split(/\t/)[0];
-      file = label.startsWith('b/') ? label.slice(2) : label;
+      const decoded = decodeGitPath(label);
+      file = decoded.startsWith('b/') ? decoded.slice(2) : decoded;
       includeFile = isProseDiffPath(file);
       continue;
     }
