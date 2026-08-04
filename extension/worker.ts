@@ -168,7 +168,10 @@ export async function openWorkerSession(opts: {
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
-		appendSystemPrompt: [workerPreamble(opts.writingCheck === true), ...promptDocs],
+		// Defense in depth: config is loaded only for a trusted project (index.ts),
+		// but a future direct caller must not inject writing guidance from an
+		// untrusted project's switch.
+		appendSystemPrompt: [workerPreamble(trusted && opts.writingCheck === true), ...promptDocs],
 	});
 	await loader.reload();
 

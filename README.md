@@ -59,7 +59,7 @@ What the code enforces is deliberately narrower than what the routing data advis
 
 ## Optional writing guidance
 
-Set `writing.check` to `true` to add writing guidance and human-only telemetry. In orchestrator mode, Slate adds a doctrine rule that states the convention. It also adds a status value such as `writing 1/4`, which means one of four measured prose turns had a fail-level finding. Each worker session gets the same guidance in its preamble.
+Set `writing.check` to `true` to add writing guidance and human-only telemetry. In orchestrator mode, Slate adds a doctrine rule that states the convention. It also adds a status value such as `writing 1/4`. This value means that one of four measured prose turns had a fail-level finding. Each worker gets a shorter preamble reminder about sentence length, semicolons, and contractions.
 
 The option has prompt cost. Each orchestrator system prompt contains the doctrine rule. You pay for this text on every turn. Each worker session also gets a gated preamble addition. Both additions are absent when the option is off. The worker preamble then stays byte-identical to its pre-feature form.
 

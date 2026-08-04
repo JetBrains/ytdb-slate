@@ -869,6 +869,7 @@ export function parseJsonl(text) {
     try {
       value = JSON.parse(line);
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('record must be an object');
+      if (typeof value.text !== 'string') throw new Error('record.text must be a string');
     } catch (error) {
       throw new Error(`Invalid JSONL at line ${index + 1}: ${error.message}`);
     }

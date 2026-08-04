@@ -330,18 +330,23 @@ test('MAX_INPUT_BYTES rejects an oversized unified diff', () => {
 test('MAX_RECORDS rejects oversized run, JSONL, file, and diff inputs', () => {
   const tooMany = MAX_RECORDS + 1;
   assert.throws(() => run(Array.from({ length: tooMany }, () => ({ text: '' }))), new RegExp(`${MAX_RECORDS}-record limit`));
-  assert.throws(() => parseJsonl('{}\n'.repeat(tooMany)), new RegExp(`JSONL exceeds the ${MAX_RECORDS}-record limit at line ${tooMany}`));
+  assert.throws(() => parseJsonl('{"text":""}\n'.repeat(tooMany)), new RegExp(`JSONL exceeds the ${MAX_RECORDS}-record limit at line ${tooMany}`));
   assert.throws(() => recordsFromFiles(Array(tooMany).fill('unused')), new RegExp(`${MAX_RECORDS}-record limit`));
   const body = '+Added.\n Context.\n'.repeat(tooMany);
   const diff = `+++ b/a.md\n@@ -1,${tooMany} +1,${tooMany * 2} @@\n${body}`;
   assert.throws(() => recordsFromUnifiedDiff(diff), new RegExp(`${MAX_RECORDS}-record limit`));
 });
 test('JSONL record overflow is a limit error, not an invalid-JSON error', () => {
-  assert.throws(() => parseJsonl('{}\n'.repeat(MAX_RECORDS + 1)), error => {
+  assert.throws(() => parseJsonl('{"text":""}\n'.repeat(MAX_RECORDS + 1)), error => {
     assert.match(error.message, new RegExp(`JSONL exceeds the ${MAX_RECORDS}-record limit`));
     assert.doesNotMatch(error.message, /Invalid JSONL/);
     return true;
   });
+});
+test('JSONL rejects a missing or non-string text field', () => {
+  assert.throws(() => parseJsonl('{}'), /Invalid JSONL at line 1: record\.text must be a string/);
+  assert.throws(() => parseJsonl('{"text":null}'), /Invalid JSONL at line 1: record\.text must be a string/);
+  assert.deepEqual(parseJsonl('{"text":""}'), [{ text: '' }]);
 });
 test('clean text function checks extension-supplied text', () => assert.equal(has(checkText('Open the panel; stop.'), 'SEMICOLON'), true));
 test('direct file mode creates one record per file', () => {
@@ -937,6 +942,7 @@ const EXPECTED = [
   'MAX_INPUT_BYTES rejects an oversized unified diff',
   'MAX_RECORDS rejects oversized run, JSONL, file, and diff inputs',
   'JSONL record overflow is a limit error, not an invalid-JSON error',
+  'JSONL rejects a missing or non-string text field',
   'clean text function checks extension-supplied text',
   'direct file mode creates one record per file',
   'unified diff mode checks only added lines',

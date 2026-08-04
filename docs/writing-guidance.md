@@ -30,12 +30,17 @@ It reports those limits in its own output, under `NOT CHECKED` — see
 
 **It establishes no conformance with any writing standard.** ASD-STE100
 inspired the choice of what to measure. Slate claims no conformance
-with it, ships no part of it, and reconstructs no part of it. Nothing
-in this repository is derived from the standard's text, its word
-lists or its examples. Every threshold, pattern and suppression list
-below is Slate's own, chosen for this repository's prose, and can be
-read in full in the module. A clean run is evidence about surface
-form only. It is not a certificate.
+with it. No text, example or dictionary entry from the standard is
+reproduced here or in the checker. TechScribe's
+[public analysis](https://www.simplified-english.co.uk/analysis.html#write-short-sentences)
+is the source for the 20- and 25-word figures. Boeing's
+[public checker page](https://www.boeing.com/company/simplified-english-checker)
+also publishes that pair and is the source for the six-sentence figure.
+The source repository keeps the citation trail in its non-published
+`research/writing-threshold-provenance.md`. Slate defines the severity
+classes, patterns and suppression lists, and applies one band uniformly
+to all prose rather than selecting a limit by text type. A clean run
+is evidence about surface form only. It is not a certificate.
 
 **It is not an authority over a reviewer.** A match is a place to
 look, not a verdict. `review-rules.md` governs how a text reviewer
@@ -58,10 +63,12 @@ one warns once and leaves the feature off, as does a non-boolean
 `check`; unknown keys under `writing` warn and are ignored. The
 validator is `sanitizeWritingConfig` in `extension/writing.ts`.
 
-Slate reads project config only for a TRUSTED project, and the two
-prompt-visible parts of this feature re-check trust where they are
-injected. An untrusted project therefore behaves as if the switch
-were off, whatever its `slate.json` says.
+Slate reads project config only for a TRUSTED project. Both
+prompt-visible sites also re-check trust when they inject the doctrine
+rule or worker preamble. The worker check is defense in depth for a
+future direct call to `openWorkerSession`; the current config path is
+already gated in `extension/index.ts`. An untrusted project therefore
+behaves as if the switch were off, whatever its `slate.json` says.
 
 The switch turns on three things and nothing else:
 
@@ -82,52 +89,17 @@ Node command and it works whether or not the switch is on.
 
 ## What it costs when it is on
 
-Prompt cost is the part worth stating precisely, because it is paid
-on every turn of every session rather than once.
+The doctrine rule is part of every orchestrator system prompt, so its
+cost is paid on every turn. The worker addition is paid once per
+worker dispatch. `context-budget.md` defines the portable-character
+measure, records the whole-doctrine sizes and owns the size budget.
 
-Figures are **portable characters**, the install-invariant convention
-`context-budget.md` defines and Slate's own size check enforces: the
-rendered text with each occurrence of the installed `docs/` directory
-removed, filename kept. The doctrine cites its docs by absolute path,
-so the as-rendered size is the portable size plus one docs-directory
-length per embedded path. `context-budget.md` is the reference for
-the whole always-loaded block and is the authority when two figures
-disagree; the ones here were measured at the commit that added the
-citation.
-
-The two whole-doctrine rows share one basis: a trusted project, the
-router off, `workflow.draftPRs` off and no worker extensions. Each of
-those adds its own rule or its own embedded path, so a session with
-any of them on reads a larger number.
-
-| item | size |
-| --- | --- |
-| doctrine writing rule, before this document existed | 607 portable characters / 12 lines |
-| doctrine writing rule, with the citation | 754 portable characters / 16 lines |
-| whole doctrine, writing off | 1,929 portable characters / 38 lines |
-| whole doctrine, writing on | 2,683 portable characters / 53 lines |
-| worker preamble, writing off | 226 characters |
-| worker preamble, writing on | 384 characters |
-
-The citation costs 147 portable characters, of which 19 are the
-filename and the rest is the sentence that tells the orchestrator
-when reading the file is worth the tokens. It also adds one embedded
-absolute path, so it costs one more docs-directory length in the
-as-rendered block.
-
-The worker preamble figure is per DISPATCH, not per turn, and it is
-paid in the worker's prompt rather than the orchestrator's.
-
-Compute cost is the turn hook. When the switch is on, an interactive
-session runs the checker on each completed assistant message. The
-hook is synchronous with the TUI, so it refuses an assistant message
-over 16 KiB of text and reports `writing skipped (message too large)`
-instead. That bound lives in `extension/mode.ts` and is unrelated to
-the command's own 1 MiB input cap, which is three orders of magnitude
-higher and reachable only through the command line. The hook returns
-no result, so it is human-only telemetry: it cannot change what the
-model receives, and a checker failure reports `writing unavailable`
-rather than failing the turn.
+An interactive session also runs the checker synchronously after each
+completed assistant message. The hook refuses text over 16 KiB and
+reports `writing skipped (message too large)`. This TUI bound is
+separate from the command's 1 MiB input cap. The hook is human-only
+telemetry: it does not change the model input, and a checker failure
+reports `writing unavailable` rather than failing the turn.
 
 ## What counts as prose
 
@@ -217,7 +189,7 @@ over 25 words, `SENT20` when it is over 20, and nothing otherwise.
 | `PASSIVE` | a `be` form, optionally followed by an `-ly` adverb, then a likely participle: a word ending in `ed`, or one of a fixed irregular-participle list. A fixed list of state-like participles (`connected`, `installed`, `configured` and others) is suppressed, which lowers noise and can hide a real passive |
 | `INGFORM` | a word ending in `ing` that is not preceded by a `be` form. A first token of a multi-token sentence is skipped, deliberately, because it is usually a gerund subject or a heading-like phrase |
 | `NOUNCLUSTER` | a run of four or more words with no function word between them |
-| `MULTICMD` | two actions joined by `and`, `and then` or `, then` in a sentence that starts with a non-function word, which is the shape of an imperative carrying more than one instruction |
+| `MULTICMD` | a token shape: a sentence starts with a non-function word and later has `and`, `and then` or `, then` followed by another non-function word. It approximates multiple commands but can match ordinary coordination such as “Files and folders exist.” |
 
 Only the `fail` class moves the turn status counter. A `warning`,
 `house-style` or `advisory` match is reported and counted, but the
@@ -244,17 +216,19 @@ Exactly one input mode per run. `--format` is `json` by default and
 `--input` and `--diff` take one path each; `--file` repeats.
 
 Every input must be a REGULAR FILE. The command refuses a symlink, a
-directory, a FIFO or a device, and it re-checks the opened descriptor
-rather than trusting the earlier stat, so a file swapped during the
-read is refused rather than read.
+directory, a FIFO or a device. It checks the opened descriptor and
+rejects a special file substituted between the initial check and the
+open. It also detects growth while reading. It does not detect every
+race or a same-size in-place modification.
 
 ### `--input`: JSONL records
 
-One JSON object per line, each with a `text` field. `id` names the
-record in the report; with no `id` the record is named from its
-`session` and `line` fields, else from its position. Blank lines are
-skipped. This is the mode for text that is not a file on disk — an
-extracted message, a comment body, a release note draft.
+One JSON object per line, each with a string `text` field. A missing
+or non-string field is rejected. `id` names the record in the report;
+with no `id` the record is named from its `session` and `line` fields,
+else from its position. Blank lines are skipped. This is the mode for
+text that is not a file on disk — an extracted message, a comment
+body, a release note draft.
 
 ### `--file`: whole files
 
@@ -328,8 +302,8 @@ These are settled decisions. Read them as scope, not as a backlog.
 - **No controlled vocabulary, and no plan for one.** Word approval
   needs an authorized dictionary. Slate ships none and embeds none.
 - **No conformance claim.** ASD-STE100 inspires the choice of what to
-  measure. Slate claims no conformance, and no part of the standard is
-  reproduced here or in the code.
+  measure. Slate claims no conformance. No text, example or dictionary
+  entry from the standard is reproduced here or in the code.
 - **No vocabulary or terminology enforcement.** The convention keeps
   exact technical terms, so the checker must not push a writer off
   them. Nothing in it rewrites, replaces or grades a word choice.
