@@ -99,6 +99,14 @@ function check(id, ok, detail, observed) {
 // Sized in UTF-8 BYTES, because MAX_INPUT_BYTES is: a generator holding an em
 // dash or a curly quote would otherwise build an input the checker refuses.
 const rep = (unit) => (n) => unit.repeat(Math.max(1, Math.floor(n / Buffer.byteLength(unit))));
+// PR1: one mapped paragraph with many source segments and findings near its
+// start. A linear scan through the segment map for every finding turns this
+// legal shape superlinear. Keep the result at exactly the requested byte size.
+const mappedFindings = (n) => {
+  const findingLines = 'Open;\n'.repeat(Math.floor(n / 512));
+  const remaining = n - Buffer.byteLength(findingLines);
+  return findingLines + 'a\n'.repeat(Math.floor(remaining / 2)) + 'a'.repeat(remaining % 2);
+};
 
 /**
  * source -> { gen } for a pattern that scans text, or { bounded } naming why it
@@ -192,6 +200,7 @@ const PASSES = {
     'repro-quoted-dash': rep('"q—q" a—x—a "'),
     'repro-bare-dash': rep('a—x—a '),
     'repro-prose': rep('The unit is connected and the operator then starts it. '),
+    'repro-mapped-findings': mappedFindings,
   }],
 };
 
@@ -359,6 +368,18 @@ check('cap-stripped', (() => {
   const r = M.checkText(rep('`a')(CAP));
   return r.stripped.length === M.MAX_STRIPPED && r.strippedTruncated === true && r.omittedStripped > 0;
 })(), `a ${CAP}-byte input reports at most ${M.MAX_STRIPPED} stripped spans and says how many it dropped (SC7)`);
+
+check('cap-run-findings', (() => {
+  // FX3: enough records to make the whole-run budget bind while staying cheap.
+  // A per-record-only regression reports 30000 findings from this 60000-byte
+  // input; the equal allowance reports no more than MAX_TOTAL_FINDINGS.
+  const records = Array.from({ length: 500 }, (_, i) => ({ id: `r${i}`, text: '; '.repeat(60) }));
+  const r = M.run(records);
+  const findings = r.records.reduce((total, record) => total + record.findings.length, 0);
+  return findings <= M.MAX_TOTAL_FINDINGS && r.aggregate.runBudgetApplied === true &&
+    r.aggregate.findingAllowance === M.findingAllowance(records.length) &&
+    r.aggregate.truncatedRecords === records.length && r.aggregate.omittedFindings > 0;
+})(), 'a many-record run applies the equal allowance, bounds total findings, and reports every truncated record (FX3)');
 
 console.log(`== summary: ${pass} pass, ${fail} fail (${reported.length} checks) ==`);
 process.exitCode = fail > 0 ? 1 : 0;

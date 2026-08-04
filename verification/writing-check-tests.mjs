@@ -18,9 +18,20 @@ import {
 const CHECKER = fileURLToPath(new URL('../extension/writing-check.mjs', import.meta.url));
 
 let passed = 0;
+let failed = 0;
+const reported = [];
 function test(name, fn) {
-  try { fn(); passed++; console.log(`ok ${passed} - ${name}`); }
-  catch (e) { console.error(`not ok ${passed + 1} - ${name}`); throw e; }
+  const number = reported.length + 1;
+  reported.push(name);
+  try {
+    fn();
+    passed++;
+    console.log(`ok ${number} - ${name}`);
+  } catch (error) {
+    failed++;
+    console.log(`not ok ${number} - ${name}`);
+    console.log(`  ---\n  error: ${JSON.stringify(error?.stack ?? String(error))}\n  ...`);
+  }
 }
 const check = text => checkRecord({ id: 'fixture', text });
 const ids = result => result.findings.map(f => f.id);
@@ -804,5 +815,156 @@ test('SC6 regular-file opens are nonblocking and legitimate files still read', (
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-console.log(`1..${passed}`);
-console.log(`# ${passed} tests passed`);
+// This list is independent of the calls above. A deleted or renamed call must
+// leave its name here and fail the audit. A duplicated call must report twice
+// and fail it. Keep the names, not a transcribed count: the suite computes and
+// publishes the arithmetic below.
+const EXPECTED = [
+  'SENT20 warns at 21 words',
+  'SENT20 stays silent at 20 words',
+  'SENT25 fails at 26 words without a duplicate SENT20',
+  'SENT25 stays silent at 25 words',
+  'declared text types have no effect and are absent from output',
+  'PARA6 fires at seven paragraph sentences',
+  'PARA6 stays silent at six sentences',
+  'SEMICOLON fires in prose',
+  'SEMICOLON stays silent without one',
+  'CONTRACTION fires for a verb contraction',
+  "possessive 's is not a contraction",
+  'PARENTHETICAL_PAREN fires for a finite parenthesized clause',
+  'PARENTHETICAL_PAREN stays silent for a label',
+  'PARENTHETICAL_DASH fires for an em-dash aside',
+  'PARENTHETICAL_DASH stays silent without an aside',
+  'SLASHED fires for and/or',
+  'SLASHED stays silent for a filesystem path',
+  'PASSIVE fires for be plus irregular participle',
+  'PASSIVE suppresses a common equipment-state adjective',
+  'INGFORM fires for a non-initial non-progressive ing token',
+  'INGFORM stays silent after a be-form',
+  'NOUNCLUSTER fires for four content tokens',
+  'NOUNCLUSTER stays silent when function words break runs',
+  'MULTICMD fires for comma-then command shape',
+  'MULTICMD stays silent for one command',
+  'fenced code produces no findings',
+  'indented code produces no findings',
+  'git diff lines produce no findings',
+  'timestamped log lines produce no findings',
+  'path-like tokens do not create noun-cluster advisories',
+  'em dashes inside quoted strings are literal',
+  'inline-code em dash produces no parenthetical finding',
+  'URL content is stripped and recorded',
+  'HTML comment content is stripped',
+  'e.g. does not split a sentence',
+  'i.e. does not split a sentence',
+  'v1.2.3 does not split a sentence',
+  '/usr/bin/x does not split a sentence',
+  'decimal does not split a sentence',
+  'ellipsis is treated as one sentence boundary',
+  'sentence-final punctuation inside a quote terminates',
+  'sentence-final punctuation inside parentheses terminates',
+  'hyphenated compound counts as one word',
+  'numeric-only token does not count as a word',
+  'markdown table row is excluded from SENT20 prose checks',
+  'heading is excluded from prose sentence limits',
+  'list item is classified separately and checked as prose',
+  'numbered procedure remains clean',
+  'URL query remains stripped',
+  'BG5 URL boundaries keep sentence punctuation and strip URL data',
+  'BG5 terminal URL periods preserve SENT20 instead of merging into SENT25',
+  'nested lists remain clean',
+  'bulleted sentence fragments remain clean',
+  'quoted prose semicolon remains visible',
+  'curly quote en-dash aside remains visible',
+  '200-word prose sentence keeps the highest length finding',
+  'blockquote is classified separately',
+  'stripped offsets preserve the original source length',
+  'finding offsets select original text',
+  'aggregate reports advisories separately from fail-level findings',
+  'aggregate gives count, record count, and rate for every rule',
+  'aggregate reuses checked analysis and reports exact distributions',
+  'abbreviation tables reject entries that violate the lowercase invariant',
+  'NOT CHECKED is a fixed nonempty reason list',
+  'text reporting renders the summary, rule, limit, reasons, and finding fields',
+  'empty input produces valid zero aggregates',
+  'house-style rules never contribute to fail-level findings',
+  'MAX_FINDINGS caps each record and reports the shortfall',
+  'BG6 finding caps are per record and every omission is visible',
+  'FX3 the run budget bounds total findings without letting order decide the loss',
+  'FX3 a small run still gets the whole per-record cap',
+  'excerpt cap includes its frame and keeps the head and tail',
+  'MAX_INPUT_BYTES rejects one oversized record',
+  'MAX_INPUT_BYTES rejects a combined run before record checks',
+  'MAX_INPUT_BYTES rejects an oversized unified diff',
+  'MAX_RECORDS rejects oversized run, JSONL, file, and diff inputs',
+  'JSONL record overflow is a limit error, not an invalid-JSON error',
+  'clean text function checks extension-supplied text',
+  'direct file mode creates one record per file',
+  'unified diff mode checks only added lines',
+  'unified diff mode joins adjacent added prose lines',
+  'BG4 unified diff mode includes prose files and excludes source files',
+  'BG7 malformed hunk content reports its line instead of truncating',
+  'BG7 an incomplete final hunk is rejected instead of returned partially',
+  'FX4 Git C-quoted paths are decoded for classification and reporting',
+  'CLI unified-diff mode reports only an added finding',
+  'pre-read size refusal rejects an oversized file without opening it',
+  'post-open size refusal catches a file larger than its pre-read snapshot',
+  'bounded reads reject content that grows past the opened size',
+  'writing status counts only fail findings on completed assistant text',
+  'writing status fails open when the checker throws',
+  'writing measurement fails open on the checker byte cap',
+  'FX2 a turn with no text part reports no-text and leaves the counters alone',
+  'FX2 array content with a text part is measured like string content',
+  'FX2 a throwing checker reports failed, which no-text never does',
+  'FX2 the turn hook reads the outcome instead of inferring failure from a counter',
+  'CLI refuses a symlink to a special file',
+  'BG8 CLI runs when its module path is a symlink',
+  'scanHtmlComments matches the regex it replaced on every fixture',
+  'scanAutolinks matches the regex it replaced on every fixture',
+  'scanInlineCode matches the regex it replaced on every fixture',
+  'scanLogLines matches the regex it replaced on every fixture',
+  'scanPathTokens matches the regex it replaced on every fixture',
+  'scanners keep whole-record output identical for a mixed document',
+  'FX1 log spans honor every JavaScript line terminator and blank the full span',
+  'stripped spans are capped and report the shortfall (SC7)',
+  'stripped spans below the cap are untouched and report no shortfall',
+  'block details are capped while the block count stays exact (SC7)',
+  'block details below the cap are untouched',
+  'BG2 semicolon on a continuation line reports its true source offset',
+  'BG2 a finding on the third line is displaced by both joins',
+  'BG2 a span crossing a line break covers the source newline',
+  'BG2 a list item indented after its marker starts at its text',
+  'BG2 every block is a verbatim run of the normalized source',
+  'BG2 every finding on a multi-line document selects what its rule matched',
+  'SC4 hostile ids cannot forge structural report lines through any command mode',
+  'SC5 excerpts strip controls and bidi in text and CLI JSON results',
+  'SC9 excerpt framing is unambiguous in CLI JSON and one text report line',
+  'SC6 regular-file opens are nonblocking and legitimate files still read',
+];
+
+const seen = new Set(reported);
+const missing = EXPECTED.filter(name => !seen.has(name));
+const duplicated = reported.filter((name, index) => reported.indexOf(name) !== index);
+const expectedDuplicated = EXPECTED.filter((name, index) => EXPECTED.indexOf(name) !== index);
+const unexpected = [...seen].filter(name => !EXPECTED.includes(name));
+const counted = passed + failed;
+const rosterOk = missing.length === 0 && duplicated.length === 0 && expectedDuplicated.length === 0 &&
+  unexpected.length === 0 && counted === reported.length;
+const rosterNumber = reported.length + 1;
+if (rosterOk) {
+  passed++;
+  console.log(`ok ${rosterNumber} - roster - all expected tests reported exactly once and the counters agree`);
+} else {
+  failed++;
+  console.log(`not ok ${rosterNumber} - roster - every expected test must report exactly once and the counters must agree`);
+  console.log(`  ---\n  observed: ${JSON.stringify({ missing, duplicated, expectedDuplicated, unexpected, counted, reported: reported.length })}\n  ...`);
+}
+
+const resultLines = passed + failed;
+const unaccounted = resultLines - (EXPECTED.length + 1);
+console.log(`1..${resultLines}`);
+console.log(
+  `# summary: ${passed} pass, ${failed} fail ` +
+  `(${resultLines} result lines = ${EXPECTED.length} expected tests + this roster audit` +
+  `${unaccounted === 0 ? '' : `, ${unaccounted > 0 ? '+' : '−'}${Math.abs(unaccounted)} unaccounted - see the roster line`})`,
+);
+process.exitCode = failed > 0 ? 1 : 0;

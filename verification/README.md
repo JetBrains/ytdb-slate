@@ -1698,6 +1698,29 @@ the size budget — by rendering it through `registerSlateMode`'s own handler.
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
 whitelist is `extension`, `docs`, `README.md`, `LICENSE`).
 
+## Writing-checker correctness-suite roster
+
+`writing-check-tests.mjs` is fail-soft. Each `test()` call catches its own
+failure, prints the observed stack, and lets all later tests run. A failing test
+still makes the process exit nonzero.
+
+An independent `EXPECTED` roster audits the reported test names after the last
+test. It fails when a name is missing, duplicated, or unexpected, and when the
+verdict counters do not equal the reported-name count. Thus, deleting a test,
+duplicating an id, or crashing one test cannot make an eroded or partial run
+look clean.
+
+The roster audit is itself one result line and is not in `EXPECTED`. The summary
+publishes the computed identity:
+
+```
+RESULT_LINES = EXPECTED_TESTS + this roster audit
+```
+
+If the identity does not hold, the summary prints the residual and points to the
+roster line. The suite output is the definition of record. Do not copy its test
+count into this document.
+
 # Writing-checker scaling gate — `writing-check-scaling.mjs`
 
 A third net, for one property of one module: **nothing in
@@ -1722,7 +1745,7 @@ is the problem — the module holds ~30 more regexes nobody had shown to be line
 ## Running it
 
 ```sh
-node verification/writing-check-scaling.mjs           # ~11 s
+node verification/writing-check-scaling.mjs           # ~15 s
 node verification/writing-check-scaling.mjs --quick   # smaller sizes, looser budget
 ```
 
@@ -1734,7 +1757,7 @@ arguments needed and nothing is written anywhere; it imports the module directly
 after adding or editing a regex, which is the change that reintroduces the class.
 It is a separate file from `writing-check-tests.mjs` on purpose: that suite is a
 sub-second, machine-independent correctness net, while this one is a wall-clock
-gate that takes ~11 s, and folding a timing assertion into the correctness suite
+gate that takes ~15 s, and folding a timing assertion into the correctness suite
 would make the correctness suite read as machine-dependent.
 
 ## What it covers
@@ -1743,9 +1766,10 @@ would make the correctness suite read as machine-dependent.
 | --- | --- |
 | `roster` | every regex literal in the module, **extracted from its source**, is named in the coverage table — either with a hostile generator or with a written reason it cannot scale ("applied to one character", "applied to one already-bounded token"). This is the part that makes the net permanent: a newly added regex FAILS this check by name until someone classifies it, so the table cannot quietly fall behind the code. It also fails on a *stale* entry, so a deleted pattern does not leave dead coverage behind |
 | `regex-scaling` | every scanning regex runs its hostile generator at four doubling sizes and at the module's own `MAX_INPUT_BYTES`, and must clear both rules below |
-| `pass-scaling` | the same two rules for every exported pass (`normalizeMarkdown`, `makeBlocks`, `segmentSentences`, `wordTokens`, the five scanners, `quotedDashSpans`) and for **each of the eight end-to-end shapes the three reviews filed** — the inputs that actually stalled, kept as fixtures so a regression is measured on the real thing rather than on a proxy |
+| `pass-scaling` | the same two rules for every exported pass (`normalizeMarkdown`, `makeBlocks`, `segmentSentences`, `wordTokens`, the five scanners, `quotedDashSpans`) and for every end-to-end shape the reviews filed — including one mapped paragraph that combines many source segments with findings near its start, so each finding drives `blockOffset` |
 | `canary` | the html-comment pattern **exactly as it shipped before the fix**, on the input that stalled it, must still be judged superlinear by these very thresholds. A timing gate that has stopped discriminating — a faster machine, an edited threshold, an engine optimisation — is otherwise indistinguishable from a clean run |
 | `cap-output` / `cap-stripped` | **SC7** — a 1 MiB input reports at most `MAX_BLOCK_DETAILS` block details and `MAX_STRIPPED` stripped spans, says how many it dropped, keeps `blocks` exact, and stays under 4 MB of JSON. Before the cap that input produced **62,066,044 bytes** of stdout |
+| `cap-run-findings` | **FX3** — a many-record `run()` applies the equal per-record allowance, reports every truncated record, and keeps the reported total inside `MAX_TOTAL_FINDINGS`. A per-record-only mutant reports too many findings and fails this check |
 
 Two rules decide every subject:
 
@@ -1775,13 +1799,13 @@ from an 8 KiB probe upwards and abandoned the moment it breaks a ceiling scaled
 to the size in hand. Without that the gate inherits the very cost it exists to
 reject — reinstating the old inline-code pattern made this file run for over
 **400 seconds** before saying anything, which in practice reads as a hung suite
-rather than as a failure. With it, every mutation below reports in ~11 s. A
+rather than as a failure. With it, every mutation below reports in about 15 s. A
 failure line names the generator and the size it was abandoned at.
 
 ### Teeth
 
-Nine mutations against a scratch copy, each reverting one fix or defeating one
-rule. All nine were caught, all in 11–12 s:
+The mutations below each revert one fix or defeat one rule. Each scratch copy
+was caught in one gate run:
 
 | mutation | caught by |
 | --- | --- |
@@ -1791,6 +1815,8 @@ rule. All nine were caught, all in 11–12 s:
 | revert the `log-line` regex (SC1) | `roster` naming the pattern, **and** `pass-scaling` abandoning `repro-logblank` at 64 KiB |
 | revert the path-exclusion regex (SC2) | `roster` naming the pattern, **and** `pass-scaling` abandoning `repro-path` at 8 KiB |
 | reinstate the per-candidate quoted-dash rescan (BG1/PF1) | `pass-scaling` **only** — the regex literals are unchanged, so this one is invisible to the roster and proves the timing rules catch an *algorithmic* regression, not just a pattern swap |
+| replace `blockOffset`'s binary search with a reverse linear scan (PR1) | `pass-scaling` on `repro-mapped-findings`; the legal cap-size input exceeds the unchanged 1200 ms budget |
+| remove the whole-run finding allowance (FX3) | `cap-run-findings` |
 | remove the `MAX_STRIPPED` / `MAX_BLOCK_DETAILS` caps (SC7) | `cap-stripped` and `cap-output` |
 | add a new, unclassified regex to the module | `roster`, naming the new literal |
 | widen `GROWTH_LIMIT` until it stops discriminating | `canary` |
@@ -1800,7 +1826,8 @@ catches coverage rot, and the canary catches the gate going blind.
 
 ### What it does NOT cover
 
-Growth only. It says nothing about whether a finding is *right* — that is
+Apart from the explicit output-cap checks, this gate measures growth. It says
+nothing about whether a finding is *right* — that is
 `writing-check-tests.mjs`, which pins each of the five linear scanners against
 the exact regex it replaced. For `scanLogLines`, exact means JavaScript
 multiline semantics across LF, CR, U+2028 and U+2029, not LF-only lines. It also
@@ -2118,10 +2145,10 @@ The repository's 19 Markdown files are byte-identical before and after, both one
 file per run and all 19 in one run: 5057 findings, allowance 1000, no budget
 line.
 
-**The scaling gate cannot see this bound.** `writing-check-scaling.mjs` drives
-`checkText` with one record, so it never reaches `run`'s allowance. The bound is
-covered by the two correctness checks above only. Extending the gate with a
-many-record subject belongs to a later action.
+The scaling gate now drives `run()` with many noisy records. Its
+`cap-run-findings` subject asserts the equal allowance, the total bound, the
+truncated-record count, and a visible omission count. A scratch mutant that
+replaced the allowance with the per-record limit failed this check.
 
 ## FX2 — no prose is not a broken checker
 
