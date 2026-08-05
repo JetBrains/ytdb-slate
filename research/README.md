@@ -39,7 +39,7 @@ models:
 When this README says a number is traceable it means the profile table;
 when it says the digest's advice supersedes a report's advice it means
 the routing table. Those two names are the only ones used for the two
-things, here and in the issue files.
+things, here and in the GitHub issue tracker.
 
 Vendor spellings are not part of pi's ladder: the lowest OpenAI knob
 value is pi's `off`, the abbreviation `med` never appears, and "ultra"
@@ -276,7 +276,7 @@ separator class rather than adding a second command.
 ## Not published
 
 This directory is deliberately **outside** the `files` whitelist in
-`package.json`, alongside `issues/` and `verification/`. Consumers
+`package.json`, alongside `verification/`. Consumers
 install a profile table with an `asOf` date; they do not install ~1700
 lines of benchmark tables, adversarial-audit dispositions and
 significance arithmetic. Do not add `research` to that whitelist — the
