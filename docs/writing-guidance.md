@@ -1,15 +1,14 @@
 # Writing guidance and the prose checker
 
-Slate ships one writing convention and one command that measures
-prose against a mechanical proxy for it. Both are opt-in: with
-`writing.check` absent or false nothing about them is loaded,
-rendered or paid for.
+Slate ships an optional writing convention and a command that measures
+prose against a mechanical proxy. With `writing.check` absent or false,
+Slate loads no writing guidance. The command remains available.
 
 This document is reference documentation, not workflow doctrine. It
 is the definition of record for the rule set, the severity classes,
-the command line and the caps. The always-loaded doctrine rule states
-the convention in a few lines and cites this file for everything
-else, so that a session pays for the detail only when it reads it.
+the command line and the caps. The enabled doctrine rule states the
+convention in a few lines and cites this file for everything else.
+A session pays for the detail only when it reads this file.
 
 ## What the checker is, and what it is not
 
@@ -52,25 +51,37 @@ accuracy, structure or completeness at all.
 
 ## Enabling it
 
-One boolean in the project's `.pi/slate.json`:
+Configure writing features in the project's `.pi/slate.json`:
 
 ```json
-{ "writing": { "check": true } }
+{
+  "writing": {
+    "check": true,
+    "remind": false,
+    "remindPercent": 10
+  }
+}
 ```
 
-The default is false. An absent `writing` key is silent. A malformed
-one warns once and leaves the feature off, as does a non-boolean
-`check`; unknown keys under `writing` warn and are ignored. The
-validator is `sanitizeWritingConfig` in `extension/writing.ts`.
+All three values are optional. `check` and `remind` default to false.
+`remindPercent` defaults to 10. `remind` is inert unless `check` is
+true.
 
-Slate reads project config only for a TRUSTED project. Both
-prompt-visible sites also re-check trust when they inject the doctrine
-rule or worker preamble. The worker check is defense in depth for a
-future direct call to `openWorkerSession`; the current config path is
-already gated in `extension/index.ts`. An untrusted project therefore
-behaves as if the switch were off, whatever its `slate.json` says.
+A malformed `writing` value warns once and uses all defaults. A
+non-boolean `check` or `remind` value warns and uses its default.
+Unknown keys under `writing` also warn and are ignored.
 
-The switch turns on three things and nothing else:
+`remindPercent` must be a finite number in `(0, 100]`. An invalid
+value warns and defaults to 10. The validator is
+`sanitizeWritingConfig` in `extension/writing.ts`.
+
+Slate reads project config only for a TRUSTED project. The doctrine,
+worker preamble, and reminder gates also check trust at their injection
+points. These checks provide defense in depth because
+`extension/index.ts` already gates the current config path. An
+untrusted project behaves as if the switches were off.
+
+The `check` switch turns on three things:
 
 1. **The doctrine rule.** One numbered rule is appended to the
    orchestrator's system prompt while orchestrator mode is on. It
@@ -80,26 +91,136 @@ The switch turns on three things and nothing else:
    preamble. With the switch off the preamble is byte-identical to
    its pre-feature text.
 3. **The turn status line.** In an interactive session, the Slate
-   status line gains a `writing <n>/<m>` counter: `m` turns of the
-   orchestrator's own prose were measured and `n` of them carried at
-   least one `fail` class match.
+   status line gains a `writing <n>/<m>` counter. `m` counts measured
+   prose turns. `n` counts turns with at least one `fail` finding.
 
-Running the command by hand needs no config at all. It is a plain
-Node command and it works whether or not the switch is on.
+The separate `remind` switch adds a hidden, context-paced message.
+Context-paced means Slate waits for configured context growth between
+reminders. It works only while `check` remains on. The next section
+defines this channel and its gates.
+
+Running the command by hand needs no config. It is a plain Node
+command and works whether either switch is on.
+
+## Writing requirements and reminders
+
+The doctrine includes these six requirements in this order:
+
+- Avoid idioms.
+- Replace bare-reference openers with the subject they reference.
+- Explain each project-specific term at first use.
+- Define each abbreviation at first use.
+- Express one idea in each sentence.
+- Use one term for each concept.
+
+These project-authored summaries came from the investigation for
+[issue #96](https://github.com/JetBrains/ytdb-slate/issues/96). ASD-STE100
+informed that work. Slate copied no standard text or controlled
+vocabulary, and it claims no conformance.
+
+A reminder repeats five lines. It omits this doctrine-only line:
+
+`Express one idea in each sentence.`
+
+The sentence-length rules provide a nearby mechanical signal. They do
+not test idea count. The reminder then includes this exact scope guard:
+
+`Exclude research logs, worker task text, and the project's own agent instruction file.`
+
+This guard prevents the five requirements from applying to those
+excluded artifacts.
+
+These requirements are not mechanical checker findings. The shipped
+checker has no rule for idioms or bare-reference openers. It also has
+no rule for project-term explanations or abbreviation definitions.
+It cannot enforce one term per concept.
+
+After an eligible tool result, Slate queues a hidden custom message
+with active `steer`. The message has `display: false` and arrives
+before the next assistant response.
+
+The normal UI has no reminder indicator. It does not appear in the
+normal TUI or tool panel. A tool-free round receives no reminder.
+
+To diagnose delivery, inspect the session JSONL through pi. A delivered
+reminder has entry type `custom_message`, `customType` set to
+`slate-writing-reminder`, and `display` set to false. It also enters
+later model context. This diagnostic does not depend on a stable
+session-file path.
+
+Every reminder gate must be open:
+
+- orchestrator mode is on
+- the project is trusted
+- `writing.check` and `writing.remind` are true
+- Slate is not paused
+- the context threshold is reached, or a handoff forces the next reminder
+- no reminder has been sent in the current assistant response round
+
+Slate permits at most one reminder for each assistant response round.
+Parallel tool results therefore cannot produce repeated reminders in
+one round.
+
+The interval is `remindPercent` of Slate's current effective context
+budget. Slate rounds down to whole tokens, then applies an 8,192-token
+floor. It applies no interval cap.
+
+The default interval is 10 percent. The configured range is greater
+than zero through 100, inclusive. The effective budget reflects the
+live model, configured budget, context window, and Slate's handoff
+headroom.
+
+The 8,192-token floor makes sufficiently small percentages equivalent.
+At 100 percent, normal cadence reaches its threshold at the effective
+pause boundary. These endpoints remain valid. A forced post-handoff
+reminder bypasses the cadence threshold.
+
+After a reminder, Slate marks the current context usage. Another
+reminder needs one full interval of growth. When context usage shrinks,
+Slate lowers the mark to the new usage before measuring growth again.
+
+A trusted handoff reloads the doctrine in the fresh session. It also
+forces a reminder after the first eligible tool result. This forced
+reminder does not need context usage or a reached threshold.
+
+A representative 256,000-token budget gives a 25,600-token default
+interval. This example only illustrates cadence. Slate has no
+controlled comparison or claim that reminders improve prose.
+
+## Keeping the requirement text synchronized
+
+`WRITING_REQUIREMENTS` and `WRITING_SCOPE_EXCLUSION` in
+`extension/writing-reminder.ts` export the authoritative wording.
+The complete six-line roster has three manual copies: this guide,
+AGENTS.md's roster, and resolver exact fixtures. The integration canary
+manually copies only the five reminder-eligible lines.
+
+The scope exclusion has three exact copies: this guide, resolver exact
+fixtures, and the integration canary. AGENTS.md carries equivalent
+scope prose, not an exact copy. All applicable copies must update in
+one commit.
+
+`extension/mode.ts` renders the authoritative exports directly. The
+shell harness reads expected text from canary evidence. Neither file
+holds a manual wording copy.
 
 ## What it costs when it is on
 
 The doctrine rule is part of every orchestrator system prompt, so its
 cost is paid on every turn. The worker addition is paid once per
-worker dispatch. `context-budget.md` defines the portable-character
-measure, records the whole-doctrine sizes and owns the size budget.
+worker dispatch. Each sent reminder also enters later model context.
+`context-budget.md` defines the portable-character measure. It records
+the whole-doctrine sizes and owns the size budget.
 
 An interactive session also runs the checker synchronously after each
 completed assistant message. The hook refuses text over 16 KiB and
 reports `writing skipped (message too large)`. This TUI bound is
-separate from the command's 1 MiB input cap. The hook is human-only
-telemetry: it does not change the model input, and a checker failure
-reports `writing unavailable` rather than failing the turn.
+separate from the command's 1 MiB input cap.
+
+The checker hook is human-only telemetry. It does not change model
+input. A checker failure reports `writing unavailable` instead of
+failing the turn. The optional reminder uses the separate model-visible
+channel described above.
 
 ## What counts as prose
 
@@ -312,8 +433,9 @@ These are settled decisions. Read them as scope, not as a backlog.
 - **No verdict.** No rule class is a defect by itself, and no clean
   run is a pass. `review-rules.md` owns the mapping from a match to a
   severity, and a reviewer owns the judgement.
-- **Not a gate.** The turn hook is telemetry. It returns nothing to
-  the model, changes no prompt, and cannot fail a turn.
+- **Not a gate.** The checker hook is telemetry. It changes no model
+  input and cannot fail a turn. The optional reminder is guidance,
+  not a checker verdict.
 - **Not universal.** The convention covers prose written for people:
   documents, README text, pull request and commit text, issues,
   review comments, release notes and messages to the user. Research

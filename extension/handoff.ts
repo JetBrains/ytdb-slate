@@ -92,6 +92,7 @@ interface PendingHandoff {
 
 export interface SlateHandoffHooks {
 	startHandoff(ctx: ExtensionCommandContext, focus?: string): Promise<void>;
+	effectiveContextBudget(contextWindow: number, ctx: ExtensionContext): number | undefined;
 }
 
 function pendingFile(cwd: string): string {
@@ -224,6 +225,24 @@ function resolveBudgetTokens(budget: ContextBudgetObject | undefined, modelSpec:
 	return DEFAULT_CONTEXT_BUDGET_TOKENS;
 }
 
+/** Apply Slate's context-window clamp to one configured budget. */
+export function effectiveContextBudgetTokens(configured: number, contextWindow: number, reserveTokens: number): number {
+	return Math.min(
+		configured,
+		Math.max(contextWindow - reserveTokens - BRIEF_HEADROOM_TOKENS, Math.ceil(contextWindow / 2)),
+	);
+}
+
+/** Resolve one model's configured budget and apply the shared window clamp. */
+export function effectiveContextBudgetForModel(
+	budget: ContextBudgetObject | undefined,
+	modelSpec: string,
+	contextWindow: number,
+	reserveTokens: number,
+): number {
+	return effectiveContextBudgetTokens(resolveBudgetTokens(budget, modelSpec), contextWindow, reserveTokens);
+}
+
 /** Last assistant message text on the current branch (the handoff brief). */
 function lastAssistantText(ctx: ExtensionCommandContext): string {
 	let text = "";
@@ -315,6 +334,17 @@ export function registerSlateHandoff(
 		return cachedReserveTokens;
 	};
 
+	const effectiveContextBudget = (contextWindow: number, ctx: ExtensionContext): number | undefined => {
+		if (!ctx.model) return undefined;
+		const budget = getConfig().contextBudget;
+		return effectiveContextBudgetForModel(
+			typeof budget === "number" ? { tokens: budget } : budget,
+			`${ctx.model.provider}/${ctx.model.id}`,
+			contextWindow,
+			reserveTokens(ctx),
+		);
+	};
+
 	/** Handoff instructions shared by both pause sites (turn check + compaction intercept). */
 	const pauseInstructions = (headline: string) =>
 		[
@@ -357,15 +387,12 @@ export function registerSlateHandoff(
 				typeof budget === "number" ? { tokens: budget } : budget,
 				`${ctx.model.provider}/${ctx.model.id}`,
 			);
-			// Clamp to the window: the pause must fire BEFORE pi's compaction point
-			// (contextWindow − reserveTokens) with room to write the brief — but
-			// never below half the window, so a small-window model still gets a
-			// usable orchestrator instead of a near-zero effective budget.
-			// (usage.contextWindow > 0 is guaranteed: getContextUsage returns
-			// undefined when no window is known.)
-			const effective = Math.min(
-				configured,
-				Math.max(usage.contextWindow - reserveTokens(ctx) - BRIEF_HEADROOM_TOKENS, Math.ceil(usage.contextWindow / 2)),
+			// Use the same effective budget exposed to context-cadenced features.
+			const effective = effectiveContextBudgetForModel(
+				typeof budget === "number" ? { tokens: budget } : budget,
+				`${ctx.model.provider}/${ctx.model.id}`,
+				usage.contextWindow,
+				reserveTokens(ctx),
 			);
 			if (usage.tokens < effective) return;
 			const used = usage.tokens.toLocaleString("en-US");
@@ -472,6 +499,8 @@ export function registerSlateHandoff(
 			const matches = !!pending.parentSession && pending.parentSession === ctx.sessionManager.getHeader()?.parentSession;
 			if (!matches) return;
 			store.adoptSnapshot(pending.snapshot, ctx);
+			store.writingReminder.forceNext = true;
+			store.writingReminder.adoptedThisSessionStart = true;
 			store.paused = false;
 			store.save();
 			rmSync(file, { force: true });
@@ -686,5 +715,5 @@ export function registerSlateHandoff(
 		}
 	};
 
-	return { startHandoff };
+	return { startHandoff, effectiveContextBudget };
 }

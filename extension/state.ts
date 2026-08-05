@@ -18,6 +18,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 // below on why that matters).
 import type { ThinkingLevel } from "./model-profiles.ts";
 import { sanitizeForNotify } from "./notify.ts";
+import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 
 /**
  * ADDITIVE TOLERANCE (the persistence model has no migration hook): the
@@ -481,9 +482,11 @@ export interface RouterConfig {
 	allowUnmeasuredEffort?: boolean;
 }
 
-/** Optional writing checks. Off unless `check` is explicitly true. */
+/** Optional writing checks and context-cadenced reminders. */
 export interface WritingConfig {
 	check?: boolean;
+	remind?: boolean;
+	remindPercent?: number;
 }
 
 export interface SlateConfig {
@@ -519,6 +522,8 @@ export class SlateStore {
 	workerCostUsd = 0;
 	/** Orchestrator spend inherited from ancestor sessions across handoffs. */
 	carriedCostUsd = 0;
+	/** Session-instance reminder state. It is never part of a snapshot. */
+	readonly writingReminder: WritingReminderRuntime = createWritingReminderRuntime();
 	/** Invoked after every save/restore; used by mode.ts to refresh the widget. */
 	onDidChange?: () => void;
 

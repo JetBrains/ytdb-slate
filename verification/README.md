@@ -31,9 +31,9 @@ unguarded:
 This ladder was the repo's first automated net, and it is no longer the only
 one (`AGENTS.md` § Build & verification lists them all). Tier-1 CI (`AGENTS.md`
 § Tier-1 CI) runs the typecheck, guards the packaging, checks that the extension
-loads, and checks that the resolver resolves, and the package-content check and
-the writing checker's two nets run by hand. None of those nets touches a model
-switch, so this ladder is the only regression net for the mechanism. It exists
+loads, and checks that the resolver resolves. The package-content check, the
+writing checker's two nets, and the writing-reminder integration check run by hand. None of those nets touches a
+model switch, so this ladder is the only regression net for the mechanism. It exists
 because several earlier ad-hoc verification passes silently proved nothing: a
 probe that waited for pi's write from inside the wrapped switch made the
 macrotask-yield rung unable to fail, and rungs with no recorded after-state
@@ -538,7 +538,9 @@ A net much smaller than the ladder, for these subjects:
   the **writing status line** it feeds through `extension/writing.ts` and
   `extension/mode.ts` (`writing-status-*`), plus the **writing config sanitizer**
   (`writing-config-*`) and the **writing doctrine rule** (`writing-doctrine-*`).
-  The module itself has two nets of its own — see § The writing checker;
+  The `writing-reminder-*` family covers the reminder policy module, requirement
+  roster, cadence, gates, real mode handlers, runtime-only state, and handoff
+  ordering. The checker module has two nets of its own. See § The writing checker.
 - the **worker preamble** across `extension/worker.ts` and `extension/threads.ts`
   (`worker-preamble`) — the historical feature-off bytes, the current feature-on
   bytes, the literal-true gate, and the sanitized config plumbing into the worker
@@ -546,9 +548,9 @@ A net much smaller than the ladder, for these subjects:
   note below).
 
 The TypeScript modules loaded are `worker-extensions.ts`, `mode.ts`, `paths.ts`,
-`model-router.ts`, `route.ts`, `state.ts`, `writing.ts`, `worker.ts`,
-`threads.ts` (source inspection only), `base-model.ts`, `model-profiles.ts` and — through the aliased loader —
-`episodes.ts`. The shipped command `extension/writing-check.mjs` is also imported
+`model-router.ts`, `route.ts`, `state.ts`, `writing.ts`, `writing-reminder.ts`,
+`worker.ts`, `threads.ts` (source inspection only), `base-model.ts`,
+`model-profiles.ts` and — through the aliased loader — `episodes.ts`. The shipped command `extension/writing-check.mjs` is also imported
 and spawned by its own checks. Every one of them is a re-run trigger — and
 because `state.ts`'s spec helpers are also used by `failover.ts`, a change to
 **them** additionally needs the ladder above.
@@ -691,7 +693,7 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a recorded fact — and measured on an **install-invariant** figure, which is the only way it can be a guard at all. The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the install-directory length once per path. No checkout-specific raw count is recorded here. A raw-count comparison can change when only the package location changes. Every bound is therefore on the text with each occurrence of the docs **directory** removed, keeping the filename. This is invariant by construction while still charging a maintainer for the filename. The check itself publishes the observed raw and portable values on failure. The routing rule, its fixed prose, the longest row, and its share of the doctrine are bounded separately. Two terms guard the normalisation itself. The writing rule has its own portable-size, line, and one-path bounds. The all-feature fixture is **5,443 of 5,600** portable characters, leaving only **157 characters (2.8%)**. Doubling the 754-character writing rule would make it about **6,197** characters, so the combined bound does not have room for such growth. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately bounds the routing rule, writing rule, worker rule, model rows and representative combinations. Its stable maximum uses all nine profiles, draft PRs, writing, two capped worker units and four capped tools. That fixture measures **6,870 of 7,200** portable characters. The **330-character reserve is 4.6% of the 7,200 bound**. The capped worker rule measures **1,347 of 1,600** characters. A **7,634-character** positive control adds one capped tool and three maximum-growth model rows. It exceeds the bound by 434 and proves the guard can fail. These are verification budgets, not runtime limits. Arbitrary extension rosters can exceed them. |
 
 The **writing checker command** (`extension/writing-check.mjs`) is covered both by
 direct import and by spawned command tests. This is the checker's smallest net:
@@ -727,12 +729,29 @@ doctrine rule** (`extension/mode.ts`), rendered through the same
 
 | id | what it proves |
 | --- | --- |
-| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ check: false }`; `null`, an array, a string and a number each warn once and default; an unknown key warns and is not rebuilt onto the result; a non-boolean `check` warns and defaults; an explicit `false` stays false and silent |
+| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ check: false, remind: false, remindPercent: 10 }`; old check-only configs keep their behavior; malformed shapes warn and default; an unknown key warns and is not rebuilt; a non-boolean `check` warns and defaults; explicit `false` stays silent |
+| `writing-config-reminder-valid` / `writing-config-reminder-inert` / `writing-config-reminder-percent` | reminder fields accept booleans and a finite percentage in `(0, 100]`; `check: false` makes reminders inert without changing a valid percentage; bad percentages warn once and fall back to 10 |
 | `writing-config-hostile` | a prototype-polluting object, a throwing getter, an inherited `check` and a 30,000-deep value neither crash nor pollute: every result is a fresh object that defaults to off, and only the malformed shapes warn |
 | `writing-doctrine-off` / `writing-doctrine-untrusted` | `writing.check: false` renders the doctrine byte-identically to an absent writing config, and an untrusted project renders byte-identically to `false` even with the rule configured. Both carry the discriminator: the same config, on and trusted, must render the rule |
 | `writing-doctrine-numbering` | the writing rule is numbered by tail **position** over all combinations of the three conditional tail rules, and adding it renumbers nothing before it: alone it is 11, behind the routing rule or the worker-extension rule it is 12, and with all three it is 13 while those two keep their own numbers |
 | `writing-doctrine-inject` | the rule is **static**: three configs carrying extra and nested keys beside the boolean render byte-identically to the plain on-rendering, so no config-derived text reaches the prompt |
 | `writing-doctrine-cite` | the rule's **doc citation** (`docs/writing-guidance.md`, absolute and package-resolved like rules 8–10) renders **exactly once**, **only** while the rule renders — feature-off, absent-config, untrusted, router-on-writing-off and extensions-on-writing-off carry no occurrence of it — and inside the rule rather than anywhere else in the block. The path is read from `paths.ts`, never re-derived from the rendered text, so a rename that leaves the doctrine citing a document the package no longer ships fails here; the named file must also exist on disk, which is the half `package-content-check.mjs` cannot see (it checks the publish set, not the rendering). Two terms guard the shape: the rule still carries exactly **one** numbered line, so a citation line cannot become a forged tail rule, and `off + rule` is byte-identically `on`. Its per-turn **cost** is bounded by `doctrine-budget`, which since the citation landed also bounds the writing rule's own portable size, its line count and its **one** embedded path |
+
+The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`,
+`extension/mode.ts`, and the handoff ordering contract):
+
+| id | what it proves |
+| --- | --- |
+| `writing-reminder-load` / `writing-reminder-roster` / `writing-reminder-render` | the pure module loads; the frozen six-line requirement roster keeps exact order and markers; doctrine renders all six bulleted lines while reminders render the exact five eligible lines |
+| `writing-reminder-interval` / `writing-reminder-cadence` / `writing-reminder-budget` | the percentage derives cadence from the effective clamped budget with an 8,192-token floor; equality sends; lower usage repairs a stale mark; unusable usage does not send; force works without usage; override, scalar, Anthropic default, global default and clamp branches reach the real hook |
+| `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, writing check, reminder switch, pause state and the one-send round slot close independently; force does not bypass policy gates; no UI gate exists |
+| `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-rearm` / `writing-reminder-mode-force` | claim queues a pending mark without consuming force; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; only assistant `message_end` re-arms the next round |
+| `writing-reminder-send-retry` / `writing-reminder-cleared-retry` | a synchronous `sendMessage` throw releases the claim for retry; an assistant response that arrives before delivery also clears the pending claim without consuming cadence or force |
+| `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters snapshots; the real handoff adoption handler sets force before mode reset; reset preserves that force while clearing mark, round and pending state |
+
+The family uses the real `registerSlateMode` handlers with fabricated contexts.
+It remains a pure harness with no pi session. The live hook and persistence path
+has its own integration check below.
 
 The **worker preamble** (`extension/worker.ts`):
 
@@ -821,77 +840,44 @@ real session rather than against a fixture, and it agrees with these checks.
 > the aggregate RI32 billing-pattern note that depends on them do not fire. Four
 > suppressed, hence 7. Do not record 7 as the expected count.
 
-**Recorded sizes, and why a re-measurement will not match yours.** The doctrine
-embeds ABSOLUTE doc paths, so a raw character count is a function of the install
-location: each character of docs-directory length costs one character per embedded
-path, and 3–6 paths are embedded depending on configuration. A maintainer
-re-measuring on a different machine gets different raw numbers and **nothing is
-wrong**. `portable` — the text with each occurrence of the docs DIRECTORY removed,
-keeping the filename — is what `doctrine-budget` bounds and is the only column worth
-comparing. Measured against `74a728c`, rendered as a TRUSTED project (the routing
-rule no longer renders otherwise — see `doctrine-untrusted`):
+**Recorded sizes use one portable basis.** The doctrine embeds ABSOLUTE doc
+paths. Raw size therefore changes with the install directory. `portable` removes
+each occurrence of the docs directory and keeps the filename. This is the figure
+that `doctrine-budget` enforces. To recover a raw count, add `paths × docs directory
+length`.
 
-| configuration | paths | portable | lines |
-| --- | --- | --- | --- |
-| router OFF, draftPRs off | 3 | **1,929** | 38 |
-| router OFF, draftPRs on | 4 | **1,948** | 38 |
-| router ON, 6 models, draftPRs on | 5 | **3,895** | 58 |
-| router ON, all 9 shipped, draftPRs off | 4 | **4,431** | 61 |
-| router ON, all 9 shipped, draftPRs on | 5 | **4,450** | 61 |
-| UNTRUSTED, router ON, all 9 configured | 4 | **1,948** | 38 |
+The full multi-basis table lives in `docs/context-budget.md`. The resolver check
+owns these stable verification fixtures:
 
-The routing rule alone: **1,946** portable / 20 lines at 6 models, **2,501** / 23 at
-all nine (as the rule's own text; the check's slice reports one more of each — see the
-convention note below). To convert: `rendered = portable + (paths × length of your docs
-directory)`. Verified identical at a 13-character and a 128-character docs
-directory, while the raw counts moved by 115 per embedded path.
+| fixture | paths | portable | lines | bound |
+| --- | ---: | ---: | ---: | ---: |
+| writing rule | 1 | **1,070** | 23 | 1,150 |
+| capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
+| maximal doctrine, 9 profiles plus draft PRs, writing, and capped worker fixture | 6 | **6,870** | 93 | 7,200 |
+| positive control, one extra capped tool plus three maximum-growth model rows | 6 | **7,634** | — | must exceed 7,200 |
 
-**One definition of "portable", and it is this one.** `docs/context-budget.md`
-publishes the same figures for users and now defines the term identically, citing
-this check as the definition of record — an earlier revision subtracted whole
-absolute paths *including* filenames, which differed by 55 characters on matching
-rows and made the two tables incomparable. Keeping the filename is deliberate: it is
-repo-owned content a maintainer controls, so a doc rename should move the budget,
-where subtracting whole paths would make it free. **This check is authoritative**,
-because it is the definition that fails a run.
+The maximal doctrine keeps 330 portable characters of reserve. That is 4.6
+percent of the 7,200-character bound. The largest model-row growth is 184
+characters. The extra capped tool line is 212 characters. The positive control
+exceeds the bound by 434 characters.
 
-**How the two tables relate, and one difference that is NOT explained.** They agree
-exactly on the router-OFF rows (1,929 / 1,948) and on every LINE count. The router-ON
-rows differ, and an earlier version of this paragraph explained that away by saying
-the doc's ON rows predate `74a728c`. **That was wrong** — `9d32ff5` wrote them and is
-a descendant of `74a728c`, and they reproduce at HEAD. The explanation is withdrawn
-rather than replaced with a better-sounding one.
+These bounds protect representative fixtures from silent prompt growth. The
+synthetic worker fixture uses capped ASCII fields and no installed extension
+prose. The bounds are not runtime limits. A larger extension roster can exceed
+every representative figure. `docs/context-budget.md` records the same stable fixture and a distinct
+real dogfood basis. Matching fixture rows must agree exactly, while different
+bases must be named.
 
-What is actually established:
+The exact equalities are maintenance tripwires. A deliberate wording,
+requirement-roster, renderer-cap or fixture change requires remeasurement through
+the production `before_agent_start` doctrine path. Update resolver expectations
+and every published figure in the same commit. Preserve the positive-control
+construction unless the fixture design itself changes.
 
-- the difference lives **entirely in the 6→9-model increment**. Adding the three
-  cheap-tier models costs **555** portable characters here and **578** in the doc —
-  a residual of **23**. The 6-model rows differ by only 5, the size of the ctx column
-  and a price-row choice;
-- this side's 555 is fully accounted: 524 characters of model rows plus the 31-character
-  `; none = pi's own level applies` legend clause those three models switch on;
-- **the 23 characters are UNEXPLAINED.** Everything inspectable was ruled out: the
-  `measured` cells for those three read `none` from profile data both sides; their
-  `routeFor`/`avoidFor` text is frozen repo data; only `claude-sonnet-5` has a second
-  price row and it sits in the first six, so `effectivePriceRow` cannot move the
-  increment; the thread-default spec is 19 characters either way. The ctx column is
-  the one input this suite cannot reproduce — two of those three profiles record
-  `contextWindow: null`, so the doc's figures come from pi's live registry, which is
-  not available here — but it can move a row by at most about one character, so it
-  does not cover 23. **Stated as unexplained rather than hedged.**
-
-Which to trust: **this table for the budget**, because these are the figures
-`doctrine-budget` bounds and the definition that fails a run; **the doc's table for
-what a user will actually see**, because it measures a real resolution against pi's
-real registry rather than synthetic candidates with a uniform 272,000-token window.
-The gap is small and bounded, and it is a difference in the candidate DATA being
-rendered, not in the rule or the convention.
-
-One convention note, since it caused an apparent line-count mismatch: the check's
-`ruleOf` slice begins at the newline BEFORE the rule's number, so the figures it
-reports internally are one character and one line larger than the rule's own text.
-The rule proper is **1,946** portable characters / 20 lines at six models and
-**2,501** / 23 at all nine — line counts identical to the doc's.
+**One definition of `portable`, and it is this one.** Keeping filenames is
+deliberate because maintainers control them. A document rename must move the
+budget. Removing whole paths would make that growth free. The resolver check is
+the definition of record because its bounds fail the run.
 
 Model router (`extension/model-router.ts`):
 
@@ -1751,6 +1737,132 @@ module itself.
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
 whitelist is `extension`, `docs`, `README.md`, `LICENSE`).
+
+# Writing-reminder integration check — `run-writing-reminder-check.sh`
+
+This harness proves that the hidden reminder crosses real pi hook, steer, provider,
+and persistence boundaries. Run it from the repository root:
+
+```sh
+bash verification/run-writing-reminder-check.sh --repo .
+```
+
+On the reference machine, the pi phase takes about one second and wrapper wall
+clock is around two seconds. These are observed values, not a machine-independent
+speed promise. The hard bound is GNU `timeout`: TERM after 60 seconds, then KILL
+five seconds later.
+
+Exit status: **0** every check passed · **1** a check failed · **2** the harness
+refused to start. A missing tool, non-GNU `timeout`, bad checkout, missing canary,
+missing pi binary or version mismatch gives exit 2. Every refusal starts with
+`verification: refused to start — `.
+
+The harness resolves pi in this order:
+
+1. `PI_BIN`, when set. The harness prints a `NOTE` line for this expert override.
+2. `node_modules/.bin/pi` in the checkout.
+
+It accepts no pi from `PATH`. The selected CLI's `pi --version` must exactly match
+`devDependencies["@earendil-works/pi-coding-agent"]`. Run
+`npm ci --ignore-scripts` after a pin change or a missing local install.
+
+Required commands are `node`, `mktemp`, GNU `timeout`, `mkdir`, `rm`, `date`,
+`env`, `cat`, `tr` and `sed`. The preflight checks every command before its first
+scratch write. It also checks that `timeout --version` identifies GNU coreutils,
+because the hard bound needs `--kill-after`.
+
+## What the live sequence proves
+
+The harness resolves both repository and scratch roots to physical paths. It
+installs cleanup immediately after `mktemp`, then rejects a scratch root inside
+the checkout. The scratch root holds a trusted project, agent directory, home and
+temp directory.
+
+The child starts through `env -i`. Only explicit throwaway values cross that
+boundary: `HOME`, `PATH`, `TMPDIR`, `PI_CODING_AGENT_DIR`, `PI_OFFLINE`, dead
+proxy variables and the canary evidence paths. `PI_OFFLINE=1` keeps pi startup
+offline. The fake provider performs no network operation. This is **not** a
+network sandbox because reviewed extension code can still open raw sockets.
+
+The project config enables orchestrator mode, writing checks and reminders. It
+sets `contextBudget: 200000` and `remindPercent: 10`. The fake model advertises a
+1,000,000-token window and the first response reports 25,000 input tokens. The
+correct effective interval is 20,000 and fires. A broken path using the model
+window would derive 100,000 and stay silent. This makes budget selection and the
+clamp load-bearing.
+
+The canary registers an in-process fake provider and one real tool. The first
+provider response emits two parallel calls to that tool. Both executions append a
+marker. Each persisted tool result must contain exactly one text block, no extra
+block or key, and the text `CANARY_TOOL_RESULT_ONLY`. Slate's real `tool_result`
+hook sends one hidden custom steer despite the parallel results.
+
+The second provider call must receive the exact five requirements and shared
+scope exclusion once. It writes a unique success response only after observing
+the exact text and pre-normalized custom metadata.
+
+Pi normalizes custom messages into user messages before the provider call. The
+canary therefore checks two points. Its `message_start` hook sees
+`role: "custom"` and `customType: "slate-writing-reminder"` before normalization.
+Its provider sees the exact reminder text after normalization. The session JSONL
+then persists a `custom_message` entry with the same custom type and
+`display: false`.
+
+The checks assert all of these facts:
+
+- pi exits zero within the timeout.
+- RPC output and session JSONL parse completely.
+- No `extension_error` event appears.
+- `/slate` is attributed to the checkout under test.
+- The fake provider observes the trusted scratch project.
+- Both parallel tool calls execute and both tool results persist.
+- Each tool result equals the complete one-block content shape.
+- The provider runs exactly twice and emits its success marker.
+- The next model call receives exactly one exact reminder.
+- Session JSONL persists exactly one exact reminder with `display: false`.
+- No tool result carries extra content, keys or reminder text.
+- The expected check roster reports exactly once.
+
+A clean run removes its physical scratch directory. A failure keeps the
+directory, prints its path, and inlines pi stderr and stdout. The directory also
+contains the raw RPC stream, session JSONL, provider evidence, tool marker and
+parsed analysis.
+
+## Boundary and re-run rules
+
+This is an integration net, but it is not part of tier-1 CI. It is also separate
+from the extension-load check and the ladder. The load check proves registration
+without executing a tool. The ladder covers model-default restoration and worker
+settings isolation. This harness covers one reminder steer through a real pi
+session. No current workflow invokes it automatically.
+
+The harness structurally proves `display: false`. It does not prove that the TUI
+visually hides the message. Confirm visual invisibility manually in an interactive
+TUI session when that presentation contract changes. A PTY check would add a
+fragile render-loop dependency, so this boundary stays explicit.
+
+Re-run the harness after changes to:
+
+- `extension/writing-reminder.ts`, including requirement text, rendering, cadence,
+  or gates.
+- Reminder config sanitization in `extension/writing.ts`.
+- The `message_end` or `tool_result` reminder hooks in `extension/mode.ts`.
+- The handoff `forceNext` assignment or session-start ordering in
+  `extension/handoff.ts` and `extension/mode.ts`.
+- Custom message options, custom type, or steer delivery.
+- `verification/writing-reminder-canary.mjs` or the harness itself.
+- The pinned pi version or any asserted RPC and JSONL shape.
+
+A change to `extension/handoff.ts` still requires the full ladder. Run the
+resolver suite too after changes to the reminder policy, writing config, mode
+wiring, doctrine rendering, or handoff ordering contract.
+
+## Files
+
+| file | role |
+| --- | --- |
+| `run-writing-reminder-check.sh` | driver, environment isolation, real pi session, evidence parser, assertions, roster, and artifact policy |
+| `writing-reminder-canary.mjs` | real canary tool, offline provider, pre-normalization hook observation, and provider evidence |
 
 # Packaging guards — `run-packaging-checks.sh`
 

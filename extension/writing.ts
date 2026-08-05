@@ -71,21 +71,17 @@ export function measureWritingTurn(
 }
 
 /** The known `writing` keys. Report anything else as a likely typo. */
-const WRITING_KEYS = ["check"];
+const WRITING_KEYS = ["check", "remind", "remindPercent"];
 
-/**
- * Validate the raw `writing` config value. An absent value silently returns the
- * default. A wrong shape warns once and returns the default. Unknown keys and a
- * wrong-typed `check` value warn, while valid input is copied into a new object.
- */
+/** Validate the raw `writing` config value and apply independent defaults. */
 export function sanitizeWritingConfig(raw: unknown, warn: (msg: string) => void): Required<WritingConfig> {
-	const defaults: Required<WritingConfig> = { check: false };
+	const defaults: Required<WritingConfig> = { check: false, remind: false, remindPercent: 10 };
 	if (raw === undefined) return defaults;
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
 		warn('slate: ignoring writing — expected an object like { "check": true }');
 		return defaults;
 	}
-	const value = raw as { check?: unknown };
+	const value = raw as { check?: unknown; remind?: unknown; remindPercent?: unknown };
 
 	const unknownKeys = Object.keys(value).filter((key) => !WRITING_KEYS.includes(key));
 	if (unknownKeys.length > 0) {
@@ -96,22 +92,36 @@ export function sanitizeWritingConfig(raw: unknown, warn: (msg: string) => void)
 		);
 	}
 
-	let rawCheck: unknown;
-	if (Object.prototype.hasOwnProperty.call(value, "check")) {
+	const read = (key: keyof typeof value): unknown => {
+		if (!Object.prototype.hasOwnProperty.call(value, key)) return undefined;
 		try {
-			rawCheck = value.check;
+			return value[key];
 		} catch {
-			warn("slate: ignoring writing.check — could not read the value (defaulting to false)");
+			const fallback = key === "remindPercent" ? 10 : false;
+			warn(`slate: ignoring writing.${key} — could not read the value (defaulting to ${fallback})`);
+			return undefined;
 		}
-	}
-	let check = false;
-	if (rawCheck !== undefined) {
-		if (typeof rawCheck !== "boolean") {
-			warn("slate: ignoring writing.check — expected true or false (defaulting to false)");
+	};
+	const booleanValue = (key: "check" | "remind", fallback: boolean): boolean => {
+		const candidate = read(key);
+		if (candidate === undefined) return fallback;
+		if (typeof candidate === "boolean") return candidate;
+		warn(`slate: ignoring writing.${key} — expected true or false (defaulting to ${fallback})`);
+		return fallback;
+	};
+
+	const check = booleanValue("check", defaults.check);
+	const requestedRemind = booleanValue("remind", defaults.remind);
+	const rawPercent = read("remindPercent");
+	let remindPercent = defaults.remindPercent;
+	if (rawPercent !== undefined) {
+		if (typeof rawPercent === "number" && Number.isFinite(rawPercent) && rawPercent > 0 && rawPercent <= 100) {
+			remindPercent = rawPercent;
 		} else {
-			check = rawCheck;
+			warn("slate: ignoring writing.remindPercent — expected a finite number in (0, 100] (defaulting to 10)");
 		}
 	}
 
-	return { check };
+	// A reminder without the checker is disabled at the config boundary.
+	return { check, remind: check && requestedRemind, remindPercent };
 }
