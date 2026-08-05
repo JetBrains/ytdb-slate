@@ -149,6 +149,10 @@ export interface RouterCandidate {
 	outUsdPerMTok: number | undefined; // current effective output price
 	contextWindow: number | undefined; // REGISTRY value — never the profile's (D55)
 	ladder: readonly ThinkingLevel[]; // ladderFor(profile), validated, captured so checkEffort needs no injection
+	/** Profile recommendation after checkEffort validation. Absent when null or invalid. */
+	recommendedEffort: ThinkingLevel | undefined;
+	/** Invalid source value retained only so a warning-preserving seed site can explain the fallback. */
+	recommendedEffortRejected?: { effort: string; reason: string };
 	hasFailover: boolean; // present as a key in the configured modelFailover map
 	nonPreferred: string | null; // the profile's absolute "never a default pick" reason, or null
 	tierUnsourced: boolean; // the profile's tier is NOT a sourced ordinal (cost class only) — do not render it as a ranking
@@ -226,6 +230,7 @@ interface OptionalProfileFields {
 	tierUnsourced?: unknown;
 	ladderAssumed?: unknown;
 	apiRejectedLevels?: unknown;
+	recommendedEffort?: unknown;
 }
 function optional(profile: ModelProfile): OptionalProfileFields {
 	return profile as unknown as OptionalProfileFields;
@@ -257,6 +262,16 @@ function finite(value: unknown): number | undefined {
 /** Defensive membership test over a profile's effort-level list (a malformed table may hold a non-array). */
 function listHas(list: unknown, level: string): boolean {
 	return Array.isArray(list) && list.includes(level);
+}
+
+/** Explain why checkEffort rejected a profile recommendation. */
+function recommendationReason(check: EffortCheck): string {
+	if (check.apiRejected) return "the provider rejects that level outright";
+	if (check.verdict === "off-ladder") {
+		return `it is not on the model's effort ladder (${check.ladder.length > 0 ? check.ladder.join(", ") : "none recorded"})`;
+	}
+	if (check.verdict === "evidence-gap") return "it has no traced capability measurement";
+	return `effort validation returned ${check.verdict}`;
 }
 
 /** A list the compiler knows has a first element, so reading `[0]` needs no assertion. */
@@ -639,8 +654,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 		}
 
 		const hasFailover = Object.prototype.hasOwnProperty.call(failover, raw) && isModelSpec(failover[raw]);
-		claimedProfiles.set(profileId, raw);
-		candidates.push({
+		const candidate: RouterCandidate = {
 			spec: raw,
 			provider,
 			id,
@@ -650,11 +664,38 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 			outUsdPerMTok,
 			contextWindow: registryWindow,
 			ladder: Object.freeze(ladder),
+			recommendedEffort: undefined,
 			hasFailover,
 			nonPreferred: typeof profile.nonPreferred === "string" && profile.nonPreferred !== "" ? profile.nonPreferred : null,
 			tierUnsourced: optional(profile).tierUnsourced === true,
 			ladderAssumed: optional(profile).ladderAssumed === true,
-		});
+		};
+
+		// The candidate carries only a recommendation that the SAME predicate used by
+		// dispatch reports as measured, on-ladder and provider-accepted. Keep the
+		// rejected source value only for a seed site whose caller preserves warnings.
+		const recommended = optional(profile).recommendedEffort;
+		if (recommended !== null && recommended !== undefined) {
+			if (typeof recommended !== "string") {
+				candidate.recommendedEffortRejected = {
+					effort: quoted(recommended),
+					reason: "it is not a string effort level",
+				};
+			} else {
+				const validationResolution = {
+					on: true,
+					candidates: [candidate],
+					cheapest: raw,
+					cheapestNonPreferred: false,
+					warnings: [],
+				} as ModelRouterResolution;
+				const validation = checkEffort(validationResolution, raw, recommended);
+				if (validation.verdict === "ok") candidate.recommendedEffort = recommended as ThinkingLevel;
+				else candidate.recommendedEffortRejected = { effort: recommended, reason: recommendationReason(validation) };
+			}
+		}
+		claimedProfiles.set(profileId, raw);
+		candidates.push(candidate);
 	}
 
 	// Nothing survived ⇒ the router turns OFF with ONE summary warning. Half a

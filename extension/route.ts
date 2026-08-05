@@ -31,7 +31,8 @@
  *
  *   EFFORT — the level the planner resolves is ALWAYS one that belongs to the model
  *   it routes to: either the caller named it, in which case it is judged against THAT
- *   model's own ladder, or it is derived from that model (its lowest MEASURED level).
+ *   model's own ladder, or it is derived from that model (its validated recommendation,
+ *   then its lowest MEASURED level).
  *   A level derived for one model is never carried onto another, and a level
  *   STORED for this one is only replayed while today's table still reads it as `ok` —
  *   a cached derivation must not outlive the evidence it was derived from. `effort`
@@ -694,6 +695,43 @@ export function lowestMeasuredEffort(resolution: ModelRouterResolution, spec: st
 	return undefined;
 }
 
+/** A model's validated recommendation, then its existing lowest-measured fallback. */
+export function seededEffort(
+	resolution: ModelRouterResolution,
+	spec: string | undefined,
+	warn?: (message: string) => void,
+): ThinkingLevel | undefined {
+	if (!resolution?.on || !spec || !Array.isArray(resolution.candidates)) return lowestMeasuredEffort(resolution, spec);
+	const candidate = candidateFor(resolution, spec);
+	if (candidate) {
+		const recommended = candidate.recommendedEffort as unknown;
+		if (typeof recommended === "string") {
+			const validation = checkEffort(resolution, spec, recommended);
+			if (THINKING_LEVELS.includes(recommended as ThinkingLevel) && validation.verdict === "ok") {
+				return recommended as ThinkingLevel;
+			}
+			const reason = validation.apiRejected
+				? "the provider rejects that level outright"
+				: validation.verdict === "off-ladder"
+					? `it is not on the model's effort ladder (${validation.ladder.length > 0 ? validation.ladder.join(", ") : "none recorded"})`
+					: validation.verdict === "evidence-gap"
+						? "it has no traced capability measurement"
+						: "it is not a valid recommendation";
+			warn?.(
+				`slate: recommended effort "${sanitizeForNotify(recommended, 40)}" for ${sanitizeForNotify(spec, 80)} was ignored — ` +
+					`${reason}. Using the lowest measured effort instead.`,
+			);
+		} else if (candidate.recommendedEffortRejected) {
+			warn?.(
+				`slate: recommended effort ${sanitizeForNotify(candidate.recommendedEffortRejected.effort, 40)} for ` +
+					`${sanitizeForNotify(spec, 80)} was ignored — ${sanitizeForNotify(candidate.recommendedEffortRejected.reason, 160)}. ` +
+					"Using the lowest measured effort instead.",
+			);
+		}
+	}
+	return lowestMeasuredEffort(resolution, spec);
+}
+
 /** Whether `tokens` still fit a `window`-token model, per pi's own predicate. No predicate ⇒ no basis to refuse. */
 function holdsWindow(input: RoutePlanInput, tokens: number, window: number | undefined): boolean {
 	if (window === undefined || !input.wouldCompact) return true;
@@ -883,7 +921,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 				baseReseeded = true;
 				baseReseededFrom = baseModel; // undefined when the thread had no base to replace
 				baseModel = seeded;
-				baseEffort = lowestMeasuredEffort(resolution, seeded);
+				baseEffort = seededEffort(resolution, seeded, warn);
 				const list = candidateSpecs(resolution).join(", ");
 				const level = baseEffort ? ` @${baseEffort}` : "";
 				warn(
@@ -915,7 +953,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		// by guard 1. An explicit model on THIS dispatch routes this action only — it
 		// is deliberately not the base.
 		baseModel = defaultBase(resolution);
-		baseEffort = lowestMeasuredEffort(resolution, baseModel);
+		baseEffort = seededEffort(resolution, baseModel, warn);
 	}
 
 	// ---- the RESOLVED pair for THIS action
@@ -1005,7 +1043,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	//  · a level INHERITED from the thread's base applies only while the base model is
 	//    the routed model. The moment they differ — an explicit `model`, or a window
 	//    substitution — the inherited level is DROPPED and re-derived for the routed
-	//    model (its lowest MEASURED level, or nothing when it has none). Carrying it over
+	//    model (its validated recommendation, then lowest MEASURED fallback). Carrying it over
 	//    was BG14: an action explicitly routed to another model inherited a budget
 	//    derived for the base, and was warned about — or, with allowUnmeasuredEffort
 	//    false, REJECTED — for a level nobody had asked for.
@@ -1042,15 +1080,15 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		// edit to either line would not notice.
 		const storedFor = judgedModel;
 		const stored = checkEffortFor(input, resolution, storedFor, baseEffort);
-		effort = stored.verdict === "ok" ? baseEffort : lowestMeasuredEffort(resolution, storedFor);
+		effort = stored.verdict === "ok" ? baseEffort : seededEffort(resolution, storedFor);
 	} else if (resolution.on && model !== undefined) {
 		// Either the model differs from the one the stored level was derived for, or there
-		// is no stored level: derive this model's own lowest measured level. Deriving in
+		// is no stored level: derive this model's validated recommendation, then its lowest measured level. Deriving in
 		// the second case too is what keeps the router's dispatches off the user's GLOBAL
 		// thinking-level default — the same reason a new thread's base effort is seeded
 		// rather than inherited (D48). undefined when the model has no measured level at
 		// all, which the caller answers with the session's own opening level.
-		effort = lowestMeasuredEffort(resolution, model);
+		effort = seededEffort(resolution, model, warn);
 	}
 
 	let effortUnmeasured = false;
@@ -1107,7 +1145,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		// GUARD 3 — evidence gap: ADVISORY by default (an unmeasured level is
 		// dispatchable, it is just not a traced capability), and refused only when the
 		// project set router.allowUnmeasuredEffort to false. Never chosen by default: a
-		// derived effort is always a measured level (lowestMeasuredEffort).
+		// derived effort is always a measured level (validated recommendation or lowestMeasuredEffort fallback).
 		if (check.verdict === "evidence-gap") {
 			if (input.allowUnmeasuredEffort === false) {
 				reject(

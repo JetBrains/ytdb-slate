@@ -374,6 +374,12 @@ const ROUTE_IDS = [
 	"route-long-context",
 	"route-failover",
 	"route-lowest-effort",
+	"route-recommended-fresh",
+	"route-recommended-null",
+	"route-recommended-stored",
+	"route-recommended-substitute",
+	"route-recommended-failover",
+	"route-recommended-invalid",
 	"route-off-ladder-source",
 	"route-hostile",
 ];
@@ -1755,6 +1761,7 @@ try {
 		routeFor: "anything",
 		avoidFor: "nothing",
 		hazards: [],
+		recommendedEffort: o.recommendedEffort ?? null,
 		capabilityMeasuredAt: o.capabilityMeasuredAt ?? ["medium"],
 		evidenceGapAt: o.evidenceGapAt ?? [],
 		unknownRoutingCriticalFields: o.unknown ?? [],
@@ -2806,7 +2813,7 @@ try {
 	} else {
 		/**
 		 * A live resolution from fabricated rows: { spec, window, tier, price, ladder,
-		 * measured, gaps, apiRejected, threshold, multipliers }. THROWS when the fixture
+		 * recommendedEffort, measured, gaps, apiRejected, threshold, multipliers }. THROWS when the fixture
 		 * did not produce a live resolution with one candidate per row — the section
 		 * guard turns that into a loud FAIL instead of letting every guard check below
 		 * pass vacuously against a router-off resolution.
@@ -2818,6 +2825,7 @@ try {
 					price: [{ from: null, until: null, inUsdPerMTok: r.price ?? 1, outUsdPerMTok: (r.price ?? 1) * 2 }],
 					contextWindow: r.window ?? null,
 					ladder: r.ladder ?? ["off", "low", "medium", "high"],
+					recommendedEffort: r.recommendedEffort ?? null,
 					capabilityMeasuredAt: r.measured ?? ["medium"],
 					evidenceGapAt: r.gaps ?? [],
 					...(r.apiRejected === undefined ? {} : { apiRejected: r.apiRejected }),
@@ -3741,26 +3749,80 @@ try {
 		});
 
 		await section("route-lowest-effort", async () => {
-			// The seed for a NEW thread's base effort: the LOWEST level that is on the
-			// ladder, measured, and not provider-rejected. It must never hand back an
-			// unmeasured level — a base effort is the one slate chooses, so choosing an
-			// evidence gap by default is exactly what the profile data forbids.
+			// A seed takes the validated recommendation first. The old lowest measured,
+			// non-provider-rejected choice remains the fallback and never chooses a gap.
 			const res = routeResolution([
-				{ spec: "p/seed", tier: 1, price: 1, ladder: ["off", "low", "medium", "high"], measured: ["medium", "high"], gaps: ["off", "low"] },
+				{ spec: "p/seed", tier: 1, price: 1, ladder: ["off", "low", "medium", "high"], recommendedEffort: "high", measured: ["medium", "high"], gaps: ["off", "low"] },
 				{ spec: "p/rejected", tier: 2, price: 2, ladder: ["off", "low", "medium"], measured: ["off", "medium"], gaps: ["low"], apiRejected: ["off"] },
 				{ spec: "p/none", tier: 3, price: 3, ladder: ["low", "medium"], measured: [], gaps: ["low", "medium"] },
 				{ spec: "p/wide", tier: 4, price: 4, ladder: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], measured: ["low", "max"], gaps: ["off", "minimal", "medium", "high", "xhigh"] },
 			]);
 			const lowest = (spec) => route.lowestMeasuredEffort(res, spec);
-			checkAll("route-lowest-effort", "the base-effort seed is the LOWEST measured, non-provider-rejected level on that model's ladder — never an evidence gap, never a rejected level, ascending order from pi's vocabulary rather than the table's authoring order — and undefined (pi's own default) when the model has no measured level, is unlisted, or the router is off", [
-				["skips the unmeasured lower levels", lowest("p/seed") === "medium", lowest("p/seed")],
-				["skips a measured but provider-rejected level", lowest("p/rejected") === "medium", lowest("p/rejected")],
-				["no measured level ⇒ undefined", lowest("p/none") === undefined, lowest("p/none")],
-				["ascending: the lower of two measured levels wins", lowest("p/wide") === "low", lowest("p/wide")],
-				["an unlisted model ⇒ undefined", lowest("p/unlisted") === undefined, lowest("p/unlisted")],
-				["no spec ⇒ undefined", lowest(undefined) === undefined, lowest(undefined)],
-				["router OFF ⇒ undefined (the predicate is inert there)", route.lowestMeasuredEffort(router.ROUTER_OFF, "p/seed") === undefined, route.lowestMeasuredEffort(router.ROUTER_OFF, "p/seed")],
-				["a junk resolution ⇒ undefined, no throw", route.lowestMeasuredEffort(undefined, "p/seed") === undefined && route.lowestMeasuredEffort({ on: true }, "p/seed") === undefined, [route.lowestMeasuredEffort(undefined, "p/seed"), route.lowestMeasuredEffort({ on: true }, "p/seed")]],
+			const seeded = (spec) => route.seededEffort(res, spec);
+			checkAll("route-lowest-effort", "an effort seed prefers the validated recommendation, then falls back to the lowest measured, non-provider-rejected ladder level in pi vocabulary order; the fallback never chooses a gap or rejected level and stays undefined without evidence", [
+				["validated recommendation outranks the lower measured fallback", seeded("p/seed") === "high" && lowest("p/seed") === "medium", [seeded("p/seed"), lowest("p/seed")]],
+				["skips a measured but provider-rejected fallback level", seeded("p/rejected") === "medium", seeded("p/rejected")],
+				["no measured level ⇒ undefined", seeded("p/none") === undefined, seeded("p/none")],
+				["ascending fallback: the lower of two measured levels wins", seeded("p/wide") === "low", seeded("p/wide")],
+				["an unlisted model ⇒ undefined", seeded("p/unlisted") === undefined, seeded("p/unlisted")],
+				["no spec ⇒ undefined", seeded(undefined) === undefined, seeded(undefined)],
+				["router OFF ⇒ undefined", route.seededEffort(router.ROUTER_OFF, "p/seed") === undefined, route.seededEffort(router.ROUTER_OFF, "p/seed")],
+				["a junk resolution ⇒ undefined, no throw", route.seededEffort(undefined, "p/seed") === undefined && route.seededEffort({ on: true }, "p/seed") === undefined, [route.seededEffort(undefined, "p/seed"), route.seededEffort({ on: true }, "p/seed")]],
+			]);
+		});
+
+		await section("route-recommended-fresh", async () => {
+			const res = routeResolution([{ spec: "p/base", recommendedEffort: "high", measured: ["low", "high"], ladder: ["low", "high"] }]);
+			const fresh = plan({ resolution: res });
+			checkAll("route-recommended-fresh", "a fresh thread seeds its base and action effort from the validated recommendation before the lower measured fallback", [
+				["recommendation wins", fresh.kind === "proceed" && fresh.baseEffort === "high" && fresh.effort === "high", [fresh.baseEffort, fresh.effort]],
+			]);
+		});
+
+		await section("route-recommended-null", async () => {
+			const res = routeResolution([{ spec: "p/base", recommendedEffort: null, measured: ["low", "high"], ladder: ["low", "high"] }]);
+			const fresh = plan({ resolution: res });
+			checkAll("route-recommended-null", "a null recommendation preserves the existing lowest-measured seed", [
+				["lowest measured fallback remains", fresh.kind === "proceed" && fresh.baseEffort === "low" && fresh.effort === "low", [fresh.baseEffort, fresh.effort]],
+			]);
+		});
+
+		await section("route-recommended-stored", async () => {
+			const res = routeResolution([{ spec: "p/base", recommendedEffort: "high", measured: ["low", "high"], ladder: ["low", "high"] }]);
+			const stored = plan({ resolution: res, thread: { id: "t1", baseModel: "p/base", baseEffort: "low" } });
+			checkAll("route-recommended-stored", "a stored effort that still validates outranks the model recommendation", [
+				["stored user state wins", stored.kind === "proceed" && stored.effort === "low", stored.effort],
+			]);
+		});
+
+		await section("route-recommended-substitute", async () => {
+			const res = routeResolution([
+				{ spec: "p/small", tier: 1, price: 1, window: 100_000, recommendedEffort: "medium", measured: ["low", "medium"], ladder: ["low", "medium"] },
+				{ spec: "p/wide", tier: 2, price: 2, window: 1_000_000, recommendedEffort: "high", measured: ["low", "high"], ladder: ["low", "high"] },
+			]);
+			const substituted = plan({ resolution: res, contextTokens: 90_000, wouldCompact: compactAt(20_000) });
+			checkAll("route-recommended-substitute", "context substitution seeds from the substitute model's own recommendation", [
+				["substitute recommendation wins locally", substituted.kind === "proceed" && substituted.model === "p/wide" && substituted.substitutedFrom === "p/small" && substituted.effort === "high", [substituted.model, substituted.substitutedFrom, substituted.effort]],
+			]);
+		});
+
+		await section("route-recommended-failover", async () => {
+			const res = routeResolution([{ spec: "p/target", recommendedEffort: "high", measured: ["low", "high"], ladder: ["low", "high"] }]);
+			const failover = plan({ resolution: res, failoverSwitch: true, requestedModel: "p/target", failoverFrom: "p/failed" });
+			checkAll("route-recommended-failover", "failover remains a model-only switch and derives no effort from a recommendation", [
+				["no effort derived", failover.kind === "proceed" && failover.model === "p/target" && failover.effort === undefined, verdict(failover)],
+			]);
+		});
+
+		await section("route-recommended-invalid", async () => {
+			const res = routeResolution([{ spec: "p/base", recommendedEffort: "low", measured: ["high"], gaps: ["low"], ladder: ["low", "medium", "high"] }]);
+			const fresh = plan({ resolution: res });
+			const refreshed = plan({ resolution: res, thread: { id: "t1", baseModel: "p/base", baseEffort: "medium" } });
+			checkAll("route-recommended-invalid", "an invalid recommendation falls back to the lowest measured level, warns at warning-preserving seeds, and stays silent during stored-effort refresh", [
+				["candidate carries no invalid recommendation", res.candidates[0]?.recommendedEffort === undefined, res.candidates[0]?.recommendedEffort],
+				["fresh seed falls back", fresh.kind === "proceed" && fresh.baseEffort === "high" && fresh.effort === "high", [fresh.baseEffort, fresh.effort]],
+				["warning names model, level and measurement reason", fresh.warnings.length === 1 && /p\/base/.test(fresh.warnings[0]) && /low/.test(fresh.warnings[0]) && /no traced capability measurement/.test(fresh.warnings[0]), fresh.warnings],
+				["stored refresh uses the same fallback silently", refreshed.kind === "proceed" && refreshed.effort === "high" && refreshed.warnings.length === 0, [refreshed.effort, refreshed.warnings]],
 			]);
 		});
 
@@ -6028,7 +6090,9 @@ try {
 		"route-read-failure-inert", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
-		"route-failover", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
+		"route-failover", "route-lowest-effort", "route-recommended-fresh", "route-recommended-null",
+		"route-recommended-stored", "route-recommended-substitute", "route-recommended-failover", "route-recommended-invalid",
+		"route-off-ladder-source", "route-hostile",
 		"wiring", "spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
