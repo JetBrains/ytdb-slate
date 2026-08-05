@@ -13,11 +13,12 @@ import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // TYPE-ONLY: the effort vocabulary is defined once, in the profile table
 // (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
-// union. The import is erased at load time, so it adds no runtime dependency to
-// this module — state.ts stays the leaf of the graph (see the model-spec note
-// below on why that matters).
+// union. The import is erased at load time. State restoration therefore keeps
+// no runtime dependency on model-profiles.ts (see the model-spec note below).
 import type { ThinkingLevel } from "./model-profiles.ts";
+import type { ObservationRecord } from "./observations.ts";
 import { sanitizeForNotify } from "./notify.ts";
+import { isSafeThreadId, isSlateArtifactReference } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 
 /**
@@ -133,6 +134,8 @@ export interface EpisodeRecord {
 	effort?: ThinkingLevel;
 	/** Set only when that effort level has NO capability measurement in the profile data. */
 	effortUnmeasured?: true;
+	/** Exact final-message capture facts. Absent on episodes written before this field existed. */
+	observations?: ObservationRecord;
 	createdAt: number;
 }
 
@@ -340,6 +343,34 @@ function str(value: unknown): string | undefined {
 function num(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
+function counter(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+/** Validate the complete observation record, including its exact canonical reference. */
+function observationRecord(value: unknown, episodeId: string): ObservationRecord | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const o = value as Record<string, unknown>;
+	const exactKeys = (expected: string[]) => {
+		const keys = Object.keys(o);
+		return keys.length === expected.length && keys.every((key) => expected.includes(key));
+	};
+	const grammar = o.grammar === "present" || o.grammar === "absent" || o.grammar === "malformed" ? o.grammar : undefined;
+	if (o.stored === true) {
+		const path = isSlateArtifactReference(o.path, "observations", episodeId) ? o.path : undefined;
+		const bytes = typeof o.bytes === "number" && Number.isSafeInteger(o.bytes) && o.bytes >= 0 ? o.bytes : undefined;
+		if (!exactKeys(["stored", "path", "bytes", "truncated", "grammar"]) || path === undefined || bytes === undefined || typeof o.truncated !== "boolean" || grammar === undefined) return undefined;
+		return { stored: true, path, bytes, truncated: o.truncated, grammar };
+	}
+	if (o.stored === false) {
+		if (!exactKeys(["stored", "reason", "grammar"]) || grammar === undefined) return undefined;
+		if ((o.reason === "no-final-message" || o.reason === "no-final-text") && grammar === "absent") {
+			return { stored: false, reason: o.reason, grammar };
+		}
+		if (o.reason === "write-failed") return { stored: false, reason: o.reason, grammar };
+	}
+	return undefined;
+}
 
 /**
  * EXHAUSTIVENESS WITNESSES for the two sanitizers below (CQ22).
@@ -385,6 +416,7 @@ export const ADOPTED_EPISODE_FIELDS = {
 	model: true,
 	effort: true,
 	effortUnmeasured: true,
+	observations: true,
 	createdAt: true,
 } satisfies Record<keyof Required<EpisodeRecord>, true>;
 
@@ -435,6 +467,10 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	const t = raw as Record<string, unknown>;
 	const id = str(t.id);
 	if (id === undefined || id === "") return undefined; // unaddressable: nothing can refer to it
+	if (!isSafeThreadId(id)) {
+		repairs.push(`thread ${sanitizeForNotify(id, 80)}: invalid id cannot form a canonical episode filename — remove or rename this record`);
+		return undefined;
+	}
 	const refused = new Set<string>();
 	const note = (field: string, value: unknown) => {
 		refused.add(field);
@@ -462,7 +498,7 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		// stays defined in exactly one place.
 		...(keep("baseEffort", t.baseEffort, str(t.baseEffort)) !== undefined ? { baseEffort: str(t.baseEffort) as ThinkingLevel } : {}),
 		episodeIds,
-		episodeSeq: keep("episodeSeq", t.episodeSeq, num(t.episodeSeq)) ?? episodeIds.length,
+		episodeSeq: keep("episodeSeq", t.episodeSeq, counter(t.episodeSeq)) ?? episodeIds.length,
 		createdAt: keep("createdAt", t.createdAt, num(t.createdAt)) ?? now,
 		updatedAt: keep("updatedAt", t.updatedAt, num(t.updatedAt)) ?? now,
 	};
@@ -491,6 +527,7 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 		}
 		return parsed;
 	};
+	const observations = keep("observations", e.observations, observationRecord(e.observations, id));
 	const built: EpisodeRecord = {
 		id,
 		threadId,
@@ -504,6 +541,7 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 		...(keep("effortUnmeasured", e.effortUnmeasured, e.effortUnmeasured === true ? (true as const) : undefined) !== undefined
 			? { effortUnmeasured: true as const }
 			: {}),
+		...(observations !== undefined ? { observations } : {}),
 		createdAt: keep("createdAt", e.createdAt, num(e.createdAt)) ?? Date.now(),
 	};
 	noteUnadoptedFields("episode", id, e, built, refused, repairs); // CQ22

@@ -151,6 +151,7 @@ test("dispatch passes route warnings from worker opening to the episode result",
       thread,
       { task: "x", type: "researcher" },
       "x",
+      "t1.e1",
       { cwd: root } as ExtensionContext,
       undefined,
     ) as { warnings: string[] };

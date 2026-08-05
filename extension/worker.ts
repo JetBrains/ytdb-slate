@@ -42,12 +42,19 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
-import { describeSpecDefect, splitModelSpec } from "./state.ts";
+import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 
 export const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+
+/** Thread types that receive the reviewer charter and require findings structure. */
+export const JUDGEMENT_THREAD_TYPES = ["reviewer", "adversarial"] as const satisfies readonly ThreadType[];
+
+export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_THREAD_TYPES)[number] {
+	return (JUDGEMENT_THREAD_TYPES as readonly unknown[]).includes(type);
+}
 
 // Keep this historical feature-off preamble byte-identical. Optional guidance is
 // added by workerPreamble only when its corresponding switch is on.
@@ -108,10 +115,6 @@ export function workerPreamble(writingCheck: boolean, reviewerCharter: boolean):
 
 export function threadsDir(cwd: string): string {
 	return resolve(cwd, CONFIG_DIR_NAME, "slate", "threads");
-}
-
-export function episodesDir(cwd: string): string {
-	return resolve(cwd, CONFIG_DIR_NAME, "slate", "episodes");
 }
 
 /**

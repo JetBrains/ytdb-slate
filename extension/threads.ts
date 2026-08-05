@@ -104,9 +104,11 @@ import {
 // injected instance (and never calls expectOwnSwitch — a WORKER session's model
 // switch is not an orchestrator switch, so it must not be announced as one).
 import type { BaseModelTracker } from "./base-model.ts";
-import { compressEpisode } from "./episodes.ts";
+import { compressEpisode, EpisodePersistenceError } from "./episodes.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 import type { ThinkingLevel } from "./model-profiles.ts";
+import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture } from "./observations.ts";
+import { nextSlateEpisodeId, removeSlateArtifact } from "./slate-files.ts";
 import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
@@ -135,7 +137,7 @@ import {
 	type ThreadRecord,
 	type ThreadType,
 } from "./state.ts";
-import { openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
+import { isJudgementThreadType, openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 
 export interface DispatchOptions {
@@ -190,6 +192,15 @@ interface WorkerAssistantMsg {
 	errorMessage?: string;
 	usage?: { input?: number; output?: number; totalTokens?: number; cost?: { total?: number } };
 	content?: Array<{ type: string; text?: string }>;
+}
+
+/** Preserve the final assistant message's text parts in their emitted order. */
+function assistantMessageText(message: WorkerAssistantMsg): string {
+	if (!Array.isArray(message.content)) return "";
+	return message.content
+		.filter((part) => part.type === "text")
+		.map((part) => part.text ?? "")
+		.join("\n");
 }
 
 /**
@@ -360,6 +371,11 @@ export class ThreadManager {
 		// first (it explains itself better than a routing complaint would), the
 		// routing guards next, and only then is a new thread created.
 		const existing = opts.threadId ? this.requireThread(opts.threadId) : undefined;
+		if (existing && nextSlateEpisodeId(existing.id, existing.episodeSeq) === undefined) {
+			throw new Error(
+				`Slate cannot dispatch thread ${sanitizeForNotify(existing.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
+			);
+		}
 		// Tool schemas are descriptive rather than an enforcement boundary. Keep
 		// this argument guard beside the model/effort guards below, as well as in
 		// tools.ts, so direct callers cannot persist an unusable type.
@@ -833,7 +849,7 @@ export class ThreadManager {
 			promptDocs: this.config.workerPromptDocs,
 			extensionPaths: this.resolveExtensions().paths,
 			writingCheck: this.config.writing?.check === true,
-			reviewerCharter: type === "reviewer" || type === "adversarial",
+			reviewerCharter: isJudgementThreadType(type),
 		});
 		this.live.set(args.thread.id, session);
 		// A freshly opened session starts on its configured model — drop any stale
@@ -864,10 +880,18 @@ export class ThreadManager {
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
+		// Recheck after this thread's FIFO predecessor. Two calls may both pass the
+		// public check before the first advances the counter.
+		const nextEpisodeId = nextSlateEpisodeId(thread.id, thread.episodeSeq);
+		if (nextEpisodeId === undefined) {
+			throw new Error(
+				`Slate cannot dispatch thread ${sanitizeForNotify(thread.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
+			);
+		}
 		const prompt = this.buildPrompt(opts); // may throw on unknown episode ids (before any state change)
 		await this.semaphore.acquire();
 		try {
-			return await this.runDispatchInner(thread, opts, prompt, ctx, signal, onProgress);
+			return await this.runDispatchInner(thread, opts, prompt, nextEpisodeId, ctx, signal, onProgress);
 		} finally {
 			this.semaphore.release();
 		}
@@ -877,6 +901,7 @@ export class ThreadManager {
 		thread: ThreadRecord,
 		opts: DispatchOptions,
 		prompt: string,
+		episodeId: string,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
@@ -1214,34 +1239,140 @@ export class ThreadManager {
 		const effortIsAsPlanned = plan?.effortUnmeasured === true && actualEffort !== undefined && actualEffort === plan.effort;
 		const actualEffortUnmeasured = effortIsAsPlanned && actualModel !== undefined && actualModel === plan?.effortJudgedFor;
 
-		const episodeId = `${thread.id}.e${++thread.episodeSeq}`;
-		const compressed = await compressEpisode({
-			ctx,
-			episodeId,
-			threadId: thread.id,
-			threadName: thread.name,
-			task: opts.task,
-			status,
-			diagnostics,
-			messages: actionMessages as unknown[],
-			// Header only, all four (episodes.ts never picks the compressor from them —
-			// that is the whole point of the compressor pin). `workerEffortUnmeasured` is the
-			// LEVEL-checked flag and `workerEffortJudgedFor` is the spec it is a claim about,
-			// so the header verifies the model half itself (see the derivation above).
-			workerModel: ranModel,
-			workerEffort: actualEffort,
-			workerEffortUnmeasured: effortIsAsPlanned,
-			workerEffortJudgedFor: plan?.effortJudgedFor,
-			configuredModel: this.config.episodeModel,
-			// The compressor's LAST-RESORT rung: the ORCHESTRATOR's base model from the
-			// tracker (failover fallbacks excluded, spec-validated). Route planning no
-			// longer consumes this tracker. Without it the compressor pin's bottom rung
-			// could never fire, and a project with no episodeModel and no usable Sonnet
-			// would drop straight to the uncompressed fallback.
-			orchestratorBaseModel: this.trackedBaseModel(),
-			modelFailover: this.config.modelFailover,
-			signal: signal?.aborted ? undefined : signal,
-		});
+		// The per-thread queue planned this id before any worker was opened. Advance
+		// the counter only when this attempted action reaches episode production.
+		thread.episodeSeq++;
+		// Capture before compression so the durable exact output exists even when
+		// compression fails. The returned union is the single source for the path,
+		// byte count, truncation fact and structural grammar result.
+		//
+		// BG6: this feature must NEVER fail a dispatch and never fail an episode, so
+		// EVERY step of it sits inside one guard — reading the final message,
+		// extracting its text, the capture, both warnings and the progress emit.
+		// The guard used to cover only the two fs calls inside captureObservation, so
+		// a throw from any other step escaped, left the thread stuck "running" and
+		// lost the episode the action had already paid for. The fallback below is the
+		// answer to a throw: it is the same not-stored fact a failed write records,
+		// because both mean there is no file to point at.
+		let observation: ObservationCapture = {
+			stored: false,
+			reason: "write-failed",
+			grammar: "absent",
+			warning: `slate: could not record observations for episode ${sanitizeForNotify(episodeId, 80)}. The episode will continue without them.`,
+		};
+		try {
+			const finalMessage = lastAssistantMessage(actionMessages);
+			observation = captureObservation(ctx.cwd, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined);
+			const warningsBeforeObservation = warnings.length;
+			if (!observation.stored && observation.reason === "write-failed") routeWarn(observation.warning);
+			const judgementType = isJudgementThreadType(thread.type);
+			// SE1: the id can come from a restored snapshot, so every observation
+			// warning uses the shared notification sanitizer.
+			const safeEpisodeId = sanitizeForNotify(episodeId, 80);
+			if (judgementType && !observation.stored && observation.reason === "no-final-message") {
+				routeWarn(
+					`slate: episode ${safeEpisodeId} produced no final response, so no compact findings row is available.`,
+				);
+			} else if (judgementType && !observation.stored && observation.reason === "no-final-text") {
+				routeWarn(
+					`slate: episode ${safeEpisodeId}'s final response contained no text blocks, so no compact findings row is available.`,
+				);
+			} else if (shouldWarnFindingsGrammar(status, judgementType, observation.grammar)) {
+				const responseScope = observation.stored ? "stored final response" : "final response";
+				if (observation.grammar === "absent") {
+					routeWarn(
+						`slate: episode ${safeEpisodeId}'s ${responseScope} has no pipe-delimited findings row. Use exactly five fields for each finding.`,
+					);
+				} else {
+					routeWarn(
+						`slate: episode ${safeEpisodeId}'s ${responseScope} has a malformed findings row. Use exactly five pipe-delimited fields for each finding.`,
+					);
+				}
+			}
+			if (warnings.length > warningsBeforeObservation) emit(false);
+		} catch (error) {
+			// Reporting is BEST EFFORT on purpose: the throw may have come from the
+			// progress channel itself, and the dispatch must survive a broken one.
+			// Whatever `observation` holds by now is kept — a capture that succeeded
+			// before a later step threw keeps its real facts.
+			try {
+				routeWarn(
+					`slate: could not record observations for episode ${sanitizeForNotify(episodeId, 80)} — ` +
+						sanitizeForNotify(error instanceof Error ? error.message : String(error)),
+				);
+			} catch {
+				/* nothing about an observation may end a dispatch */
+			}
+		}
+		const durableObservations = durableObservation(observation);
+
+		let compressed: Awaited<ReturnType<typeof compressEpisode>>;
+		try {
+			compressed = await compressEpisode({
+				ctx,
+				episodeId,
+				threadId: thread.id,
+				threadName: thread.name,
+				task: opts.task,
+				status,
+				diagnostics,
+				messages: actionMessages as unknown[],
+				observations: observation,
+				// Header only, all four (episodes.ts never picks the compressor from them —
+				// that is the whole point of the compressor pin). `workerEffortUnmeasured` is the
+				// LEVEL-checked flag and `workerEffortJudgedFor` is the spec it is a claim about,
+				// so the header verifies the model half itself (see the derivation above).
+				workerModel: ranModel,
+				workerEffort: actualEffort,
+				workerEffortUnmeasured: effortIsAsPlanned,
+				workerEffortJudgedFor: plan?.effortJudgedFor,
+				configuredModel: this.config.episodeModel,
+				// The compressor's LAST-RESORT rung: the ORCHESTRATOR's base model from the
+				// tracker (failover fallbacks excluded, spec-validated). Route planning no
+				// longer consumes this tracker. Without it the compressor pin's bottom rung
+				// could never fire, and a project with no episodeModel and no usable Sonnet
+				// would drop straight to the uncompressed fallback.
+				orchestratorBaseModel: this.trackedBaseModel(),
+				modelFailover: this.config.modelFailover,
+				signal: signal?.aborted ? undefined : signal,
+			});
+		} catch (error) {
+			// Compression includes the episode-file write. If that final write fails,
+			// roll back this attempt's earlier observation and persist every cost and
+			// recoverable session fact produced before the failure.
+			if (observation.stored) {
+				try {
+					removeSlateArtifact({
+						cwd: ctx.cwd,
+						kind: "observations",
+						id: episodeId,
+						reference: observation.path,
+						identity: observation.identity,
+					});
+				} catch {
+					/* rollback is best effort; no metadata is persisted for the orphan */
+				}
+			}
+			if (!thread.sessionFile && session?.sessionFile && existsSync(session.sessionFile)) {
+				thread.sessionFile = session.sessionFile;
+			}
+			this.store.workerCostUsd += usage.cost + (error instanceof EpisodePersistenceError ? error.costUsd : 0);
+			thread.status = "idle";
+			thread.updatedAt = Date.now();
+			try {
+				this.store.save();
+			} catch {
+				/* report the original terminal failure through the stable tool boundary */
+			}
+			const safeEpisodeId = sanitizeForNotify(episodeId, 80);
+			lines.push(`✗ slate could not store episode ${safeEpisodeId}.`);
+			try {
+				emit(true, "failed");
+			} catch {
+				/* a broken progress channel must not replace the tool error */
+			}
+			throw new Error(`slate could not store episode ${safeEpisodeId}.`);
+		}
 
 		const episode: EpisodeRecord = {
 			id: episodeId,
@@ -1252,6 +1383,7 @@ export class ThreadManager {
 			...(actualModel ? { model: actualModel } : {}),
 			...(actualEffort ? { effort: actualEffort } : {}),
 			...(actualEffortUnmeasured ? { effortUnmeasured: true as const } : {}),
+			observations: durableObservations,
 			createdAt: Date.now(),
 		};
 		// CQ18: the worker session file exists only once pi has flushed it (it holds an

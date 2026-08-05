@@ -2755,7 +2755,7 @@ try {
 				["only literal true enables the current 384-byte writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${historicalPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 384 && worker.workerPreamble("true", false) === historicalPreamble, { on: worker.workerPreamble(true, false), malformed: worker.workerPreamble("true", false) }],
 				["worker prompt re-checks writing trust and passes the charter as workerPreamble's second argument", /appendSystemPrompt\s*:\s*\[\s*workerPreamble\(trusted\s*&&\s*opts\.writingCheck\s*===\s*true\s*,\s*opts\.reviewerCharter\s*===\s*true\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,180}/)?.[0] ?? "not found"],
 				["ThreadManager passes its sanitized writing switch", /writingCheck\s*:\s*this\.config\.writing\?\.check\s*===\s*true/.test(threadsSource), threadsSource.match(/writingCheck\s*:[^,\n]*/)?.[0] ?? "not found"],
-				["ThreadManager derives the charter switch from effective thread type", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*type\s*===\s*"reviewer"\s*\|\|\s*type\s*===\s*"adversarial"/.test(threadsSource), { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found" }],
+				["ThreadManager derives the charter switch from effective thread type through the shared judgement-type predicate", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*isJudgementThreadType\(type\)/.test(threadsSource) && worker.JUDGEMENT_THREAD_TYPES?.join(",") === "reviewer,adversarial", { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found", judgementTypes: worker.JUDGEMENT_THREAD_TYPES }],
 				["the dispatch routes an unrecognised-type report through its user-visible warning channel", /report\s*:\s*routeWarn/.test(threadsSource), threadsSource.match(/report\s*:[^,\n]*/)?.[0] ?? "not found"],
 			]);
 
@@ -4923,7 +4923,8 @@ try {
 				const repairs = [];
 				return { out: state.sanitizeEpisodeRecord(raw, repairs), repairs };
 			};
-			const wellFormed = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", createdAt: 5 };
+			const storedObservations = { stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: 17, truncated: false, grammar: "present" };
+			const wellFormed = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", observations: storedObservations, createdAt: 5 };
 			const roundTrip = sane(wellFormed);
 			const failed = sane({ ...wellFormed, status: "failed" });
 			// An episode with no id, no thread to belong to, or no file is unusable.
@@ -4936,7 +4937,7 @@ try {
 			].map(([label, raw]) => [label, sane(raw)]);
 			const kept = unusable.filter(([, r]) => r.out !== undefined).map(([label]) => label);
 			const noisy = unusable.filter(([, r]) => r.repairs.length > 0).map(([label]) => label);
-			const base = { id: "e", threadId: "t", file: "f" };
+			const base = { id: "t1.e1", threadId: "t", file: "f" };
 			const statusOther = sane({ ...base, status: "FAILED" });
 			const taskBad = sane({ ...base, task: 9 });
 			const markerString = sane({ ...base, effortUnmeasured: "true" });
@@ -4948,6 +4949,39 @@ try {
 			const specs = sane({ ...base, model: "  p/x  ", effort: "HIGH" });
 			const specsBad = sane({ ...base, model: 7, effort: {} });
 			const stampBad = sane({ ...base, createdAt: "5" });
+			const noFinalObservations = sane({ ...base, observations: { stored: false, reason: "no-final-message", grammar: "absent" } });
+			const noFinalTextObservations = sane({ ...base, observations: { stored: false, reason: "no-final-text", grammar: "absent" } });
+			const writeFailedObservations = sane({ ...base, observations: { stored: false, reason: "write-failed", grammar: "malformed" } });
+			const defectiveObservations = [
+				null,
+				"not an object",
+				{},
+				{ stored: "true", path: ".pi/slate/observations/t1.e1.md", bytes: 1, truncated: false, grammar: "present" },
+				{ stored: true, path: 7, bytes: 1, truncated: false, grammar: "present" },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: "1", truncated: false, grammar: "present" },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: 1, truncated: "false", grammar: "present" },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: 1, truncated: false, grammar: "valid" },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: 1, truncated: false },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: 1, truncated: false, grammar: "present", warning: "transient" },
+				{ stored: false, reason: "no-final-message", grammar: "present" },
+				{ stored: false, reason: "no-final-text", grammar: "present" },
+				{ stored: false, reason: "unknown", grammar: "absent" },
+				{ stored: false, reason: "write-failed", grammar: "absent", warning: "transient" },
+				// The canonical reference and the byte count are both exact claims.
+				{ stored: true, path: "", bytes: 1, truncated: false, grammar: "present" },
+				{ stored: true, path: "/tmp/o", bytes: 1, truncated: false, grammar: "present" },
+				{ stored: true, path: ".pi/slate/observations/t2.e1.md", bytes: 1, truncated: false, grammar: "present" },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: Number.NaN, truncated: false, grammar: "present" },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: Number.POSITIVE_INFINITY, truncated: false, grammar: "present" },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: Number.NEGATIVE_INFINITY, truncated: false, grammar: "present" },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: -1, truncated: false, grammar: "present" },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: 3.7, truncated: false, grammar: "present" },
+				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: 2 ** 53, truncated: false, grammar: "present" },
+			].map((observations) => sane({ ...base, observations }));
+			const referenceOverhead = Buffer.byteLength(".pi/slate/observations/.md");
+			const boundaryId = `${"p".repeat(240 - referenceOverhead - 3)}.e1`;
+			const longestPath = `.pi/slate/observations/${boundaryId}.md`;
+			const boundaryObservations = sane({ ...base, id: boundaryId, observations: { stored: true, path: longestPath, bytes: 0, truncated: false, grammar: "absent" } });
 			// ABSENT, the third case again: id + thread + file and nothing else must fill every
 			// default in silence, and must NOT invent the two optional keys.
 			const minimal = sane(base);
@@ -4957,7 +4991,8 @@ try {
 				typeof minimal.out?.createdAt === "number" &&
 				!("model" in (minimal.out ?? {})) &&
 				!("effort" in (minimal.out ?? {})) &&
-				!("effortUnmeasured" in (minimal.out ?? {}));
+				!("effortUnmeasured" in (minimal.out ?? {})) &&
+				!("observations" in (minimal.out ?? {}));
 			// CQ22 from the outside, the episode half — same claim, same reason as the thread
 			// section: the round-trip term can only speak for the fields its fixture carries,
 			// and `wellFormed` deliberately omits the optional unmeasured marker (a realistic
@@ -4965,7 +5000,7 @@ try {
 			// carries EVERY adopted field, which is the claim state.ts exports the map for.
 			// Written out rather than spread: byte-identity is KEY-ORDER sensitive (that is
 			// what makes the term strong), and the marker belongs before `createdAt`.
-			const everyField = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", effortUnmeasured: true, createdAt: 5 };
+			const everyField = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", effortUnmeasured: true, observations: storedObservations, createdAt: 5 };
 			const everyRoundTrip = sane(everyField);
 			const adoptedKeys = Object.keys(state.ADOPTED_EPISODE_FIELDS ?? {});
 			const builtKeys = Object.keys(everyRoundTrip.out ?? {});
@@ -4982,14 +5017,17 @@ try {
 				["a wrong-typed task becomes empty", taskBad.out?.task === "", taskBad.out?.task],
 				["the unmeasured marker needs the boolean, not a truthy string", markerString.out?.effortUnmeasured === undefined && markerTrue.out?.effortUnmeasured === true, [markerString.out, markerTrue.out]],
 				["...and `false` is refused too, not read as `measured`", markerFalse.out?.effortUnmeasured === undefined && /effortUnmeasured \(boolean\)/.test(markerFalse.repairs.join()), [markerFalse.out, markerFalse.repairs]],
+				["all four valid observation variants survive whole and unchanged", JSON.stringify(roundTrip.out?.observations) === JSON.stringify(storedObservations) && noFinalObservations.out?.observations?.stored === false && noFinalObservations.out.observations.reason === "no-final-message" && noFinalTextObservations.out?.observations?.stored === false && noFinalTextObservations.out.observations.reason === "no-final-text" && writeFailedObservations.out?.observations?.stored === false && writeFailedObservations.out.observations.reason === "write-failed", [roundTrip.out?.observations, noFinalObservations.out?.observations, noFinalTextObservations.out?.observations, writeFailedObservations.out?.observations]],
+				["every defective observation shape drops the whole field and is refused once by name", defectiveObservations.every((r) => r.out?.observations === undefined && r.repairs.length === 1 && /ignoring observations \(/.test(r.repairs[0] ?? "")), defectiveObservations],
+				["...while the longest permitted path and a zero byte count are still adopted, silently", boundaryObservations.out?.observations?.path === longestPath && boundaryObservations.out?.observations?.bytes === 0 && boundaryObservations.repairs.length === 0, [boundaryObservations.out?.observations, boundaryObservations.repairs]],
 				["a bare id/thread/file fills every default and invents no optional key", filled, minimal.out],
 				["...in silence, because an absent field is not a repair", minimal.repairs.length === 0, minimal.repairs],
 				["a malformed-but-STRING spec or level survives untouched", specs.out?.model === "  p/x  " && specs.out?.effort === "HIGH", specs.out],
 				["...while non-strings are dropped", specsBad.out?.model === undefined && specsBad.out?.effort === undefined, specsBad.out],
 				["a wrong-typed timestamp becomes a real number", typeof stampBad.out?.createdAt === "number", stampBad.out?.createdAt],
-				["a refused field is noted by NAME and TYPE, prefixed with the episode id (CQ22)", taskBad.repairs.join("|") === "episode e: ignoring task (number)" && specsBad.repairs.join("|") === "episode e: ignoring model (number)|episode e: ignoring effort (object)", [taskBad.repairs, specsBad.repairs]],
+				["a refused field is noted by NAME and TYPE, prefixed with the episode id (CQ22)", taskBad.repairs.join("|") === "episode t1.e1: ignoring task (number)" && specsBad.repairs.join("|") === "episode t1.e1: ignoring model (number)|episode t1.e1: ignoring effort (object)", [taskBad.repairs, specsBad.repairs]],
 				["...on every axis that can be refused, not just the ones with a string default", /status \(string\)/.test(statusOther.repairs.join()) && /effortUnmeasured \(string\)/.test(markerString.repairs.join()) && /createdAt \(string\)/.test(stampBad.repairs.join()), [statusOther.repairs, markerString.repairs, stampBad.repairs]],
-				["...while an accepted value and a well-formed record report nothing at all", [roundTrip, failed, specs, markerTrue].every((r) => r.repairs.length === 0), [roundTrip.repairs, failed.repairs, specs.repairs, markerTrue.repairs]],
+				["...while accepted values and an old record with no observations report nothing at all", [roundTrip, failed, specs, markerTrue, noFinalObservations, noFinalTextObservations, writeFailedObservations, minimal].every((r) => r.repairs.length === 0), [roundTrip.repairs, failed.repairs, specs.repairs, markerTrue.repairs, noFinalObservations.repairs, writeFailedObservations.repairs, minimal.repairs]],
 				["every field the ADOPTION CHECKLIST names comes back, and no other (CQ22)", adoptedKeys.length > 0 && unadopted.length === 0 && surplus.length === 0, { unadopted, surplus, adoptedKeys }],
 				["...and that all-fields record round-trips byte-identically too", JSON.stringify(everyRoundTrip.out) === JSON.stringify(everyField) && everyRoundTrip.repairs.length === 0, [everyRoundTrip.out, everyRoundTrip.repairs]],
 				["...a field the snapshot has and the build lost is reported as a SLATE BUG, by name", lost.length === adoptedKeys.length - 1 && lost.every((m) => /^episode e: field \w+ is in the snapshot but adoption does not handle it \(slate bug\)/.test(m)), lost],
@@ -5578,11 +5616,13 @@ try {
 			[
 				"export const calls = [];",
 				"export let failFirst = false;",
+				"export let responseCost = 0;",
 				"export function setFailFirst(v) { failFirst = v; }",
+				"export function setResponseCost(v) { responseCost = v; }",
 				"export async function complete(model, ctx, options) {",
 				"  calls.push({ model: `${model.provider}/${model.id}`, options });",
-				"  if (failFirst && calls.length === 1) return { stopReason: 'error', errorMessage: 'stub failure', content: [], usage: { cost: { total: 0 } } };",
-				"  return { stopReason: 'stop', content: [{ type: 'text', text: '## Intent\\nstub body' }], usage: { cost: { total: 0 } } };",
+				"  if (failFirst && calls.length === 1) return { stopReason: 'error', errorMessage: 'stub failure', content: [], usage: { cost: { total: responseCost } } };",
+				"  return { stopReason: 'stop', content: [{ type: 'text', text: '## Intent\\nstub body' }], usage: { cost: { total: responseCost } } };",
 				"}",
 			].join("\n"),
 		);
@@ -5659,12 +5699,16 @@ try {
 			try {
 				const result = await episodes.compressEpisode({
 					ctx,
-					episodeId: `e${++episodeSeq}`,
+					// SE1: the shared safe writer accepts only slate's own episode-id shape
+					// (`t<digits>.e<digits>`), so this fixture uses a real one. A bare `e1`
+					// is an id slate cannot produce and the write now refuses it.
+					episodeId: `t1.e${++episodeSeq}`,
 					threadId: "t1",
 					threadName: "probe",
 					task: "do the thing",
 					status: "ok",
 					messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }],
+					observations: { stored: false, reason: "no-final-message", grammar: "absent" },
 					...opts,
 				});
 				return { ...result, calls: [...compatStub.calls] };
@@ -5710,12 +5754,19 @@ try {
 				workerModel: { provider: "openai", id: "gpt-5.6-luna" },
 				orchestratorBaseModel: routed,
 			});
+			const finalTextFree = await compress(ectx(), {
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "earlier output must not survive" }] },
+					{ role: "assistant", content: [{ type: "toolCall", name: "done" }] },
+				],
+			});
 			const never = [bare, configuredBad, availableThrows, registryBroken].filter((r) => r.compressor === routed || r.calls.length > 0);
 			checkAll("episode-pin", "the model an ACTION ran on is never selected as the compressor at any rung, under any failure — no configured model, an unknown configured model, no available Sonnet, a throwing registry — each ending in the uncompressed fallback rather than reaching for the action's own model; while the orchestrator's tracked base IS selected even when it coincides with it, because a rung is chosen on its own merits", [
 				["no rung ever reached the routed model", never.length === 0, never.map((r) => r.compressor)],
 				["...and no LLM call was made at all", [bare, configuredBad, availableThrows, registryBroken].every((r) => r.calls.length === 0), [bare.calls.length, configuredBad.calls.length, availableThrows.calls.length, registryBroken.calls.length]],
 				["each fell back to the uncompressed episode", [bare, configuredBad, availableThrows, registryBroken].every((r) => r.compressor === "(uncompressed fallback)"), [bare.compressor, configuredBad.compressor, availableThrows.compressor, registryBroken.compressor]],
 				["the fallback body carries the worker's own last output", /raw final worker output follows/.test(bare.text) && /done/.test(bare.text), bare.text.slice(0, 200)],
+				["a final text-free assistant message reports no output instead of falling back to earlier assistant text", finalTextFree.text.includes("(no output)") && !finalTextFree.text.includes("earlier output must not survive"), finalTextFree.text.slice(-300)],
 				["a coinciding tracker base is still selected (rung 3)", coincidence.compressor === routed && coincidence.calls.length === 1, [coincidence.compressor, coincidence.calls.length]],
 				["the header's compressor field never claims a model that did not write it", headerOf(bare).includes("compressor: (uncompressed fallback)"), headerOf(bare)],
 			]);
@@ -5747,13 +5798,24 @@ try {
 				{ modelFailover: { "anthropic/claude-sonnet-5": "openai/gpt-5.6-luna" } },
 			);
 			compatStub.setFailFirst(false);
-			checkAll("episode-auth", "a model pi's registry reports as usable is usable for compression even with NO api key — a provider authenticating by header, and one authenticating from the environment (bedrock/vertex shape: ok with neither key nor headers) — while an unconfigured provider is still rejected; the same rule governs the failover retry, and the auth the rung was accepted for is exactly what the call receives", [
+			compatStub.setResponseCost(2.5);
+			const failingEpisodeId = `t1.e${episodeSeq + 1}`;
+			mkdirSync(join(WORK, ".pi", "slate", "episodes", `${failingEpisodeId}.md`), { recursive: true });
+			let persistenceError;
+			try {
+				await compress(ectx({ models: { "anthropic/claude-sonnet-5": sonnet }, available: [sonnet] }));
+			} catch (error) {
+				persistenceError = error;
+			}
+			compatStub.setResponseCost(0);
+			checkAll("episode-auth", "a model pi's registry reports as usable is usable for compression even with NO api key — a provider authenticating by header, and one authenticating from the environment (bedrock/vertex shape: ok with neither key nor headers) — while an unconfigured provider is still rejected; the same rule governs the failover retry, and final persistence failure exposes incurred compressor cost", [
 				["header-only auth is selected and called", headerOnly.compressor === "anthropic/claude-sonnet-5" && headerOnly.calls.length === 1, [headerOnly.compressor, headerOnly.calls.length]],
 				["...the call carries the header and no apiKey option at all", headerOnly.calls[0]?.options?.headers?.authorization === "Bearer x" && !("apiKey" in (headerOnly.calls[0]?.options ?? {})), Object.keys(headerOnly.calls[0]?.options ?? {})],
 				["ok with neither key nor headers is selected too", noCredsAtAll.compressor === "anthropic/claude-sonnet-5", noCredsAtAll.compressor],
 				["an unconfigured provider is rejected at every rung", unconfigured.compressor === "(uncompressed fallback)" && unconfigured.calls.length === 0, [unconfigured.compressor, unconfigured.calls.length]],
 				["the failover retry applies the same rule", retried.calls.length === 2 && retried.calls[1]?.model === "openai/gpt-5.6-luna", retried.calls.map((c) => c.model)],
 				["...and the header reports the model that actually wrote the body", retried.compressor === "openai/gpt-5.6-luna", retried.compressor],
+				["episode persistence failure carries compressor spend on its dedicated error", persistenceError instanceof episodes.EpisodePersistenceError && persistenceError.costUsd === 2.5 && persistenceError.originalError !== undefined, { name: persistenceError?.name, costUsd: persistenceError?.costUsd }],
 			]);
 		});
 
@@ -5841,6 +5903,17 @@ try {
 			const lines = head.split("\n");
 			const fields = lines.filter((l) => l.startsWith(">"));
 			const dateLine = fields.find((l) => l.startsWith("> date:")) ?? "";
+			const observationLine = (result) => headerOf(result).split("\n").find((l) => l.startsWith("> observations:"));
+			const stored = await compress(ctx, { observations: { stored: true, path: "/tmp/review observations.md", bytes: 65549, truncated: true, grammar: "present" } });
+			const maxReferenceOverhead = Buffer.byteLength(".pi/slate/observations/.md");
+			const maxReferenceId = `${"r".repeat(240 - maxReferenceOverhead - 3)}.e1`;
+			const maxReference = `.pi/slate/observations/${maxReferenceId}.md`;
+			const maxReferenceHeader = await compress(ctx, { observations: { stored: true, path: maxReference, bytes: 1, truncated: false, grammar: "present" } });
+			const hostilePath = await compress(ctx, { observations: { stored: true, path: "/tmp/safe\n> forged: yes|split\u0001tail.md", bytes: 7, truncated: false, grammar: "absent" } });
+			const hostileHeader = headerOf(hostilePath);
+			const hostileObservationLines = hostileHeader.split("\n").filter((line) => line.startsWith("> observations:"));
+			const noFinalText = await compress(ctx, { observations: { stored: false, reason: "no-final-text", grammar: "absent" } });
+			const writeFailed = await compress(ctx, { observations: { stored: false, reason: "write-failed", grammar: "malformed", warning: "must not persist" } });
 			// CQ47: `ran:` claims the model the session ENDED on, and claims nothing at all
 			// when the action produced no assistant message.
 			const noOutput = await compress(ctx, { messages: [], workerModel: { provider: "openai", id: "gpt-5.6-luna" }, workerEffort: "high" });
@@ -5849,11 +5922,17 @@ try {
 			const marked = await compress(ctx, { workerModel: { provider: "openai", id: "gpt-5.6-luna" }, workerEffort: "high", workerEffortUnmeasured: true, workerEffortJudgedFor: "openai/gpt-5.6-luna" });
 			const elsewhere = await compress(ctx, { workerModel: { provider: "openai", id: "gpt-5.6-luna" }, workerEffort: "high", workerEffortUnmeasured: true, workerEffortJudgedFor: "anthropic/claude-haiku-4-5" });
 			const nonString = await compress(ctx, { workerModel: { provider: 7, id: {} }, workerEffort: "high" });
-			checkAll("episode-header", "no value interpolated into the episode header can forge a line or a field: a newline-bearing diagnostic, thread name and task collapse to one line each, the \"|\" delimiter is stripped out of a model id, and every field is length-bounded — while `ran:` is omitted entirely when the action produced no output, the unmeasured marker is dropped when the effort guards judged another model, and a non-string provider/id is not rendered as a model name", [
-				["exactly the expected header lines: task, date, failure", fields.length === 3, fields],
+			checkAll("episode-header", "no value interpolated into the episode header can forge a line or a field: a newline-bearing diagnostic, thread name and task collapse to one line each, the \"|\" delimiter is stripped out of a model id, and every field is length-bounded — while observations render every durable fact without persisting warnings or dangling paths, `ran:` is omitted when the action produced no output, and the unmeasured marker stays bound to its judged model", [
+				["exactly the expected header lines: task, observations, date, failure", fields.length === 4, fields],
 				["no forged ran: or compressor: line", fields.filter((l) => /^> (ran|compressor):/.test(l)).length === 0, fields],
 				["exactly one failure line", fields.filter((l) => /^> failure:/.test(l)).length === 1, fields],
 				["the date line keeps exactly its two delimiters", (dateLine.match(/\|/g) ?? []).length === 2, dateLine],
+				["stored observations carry path, byte count, truncation and grammar", observationLine(stored) === "> observations: stored | path: /tmp/review observations.md | bytes: 65549 | truncated: yes | grammar: present", observationLine(stored)],
+				["the exact 240-byte canonical reference appears complete on one observations header line", Buffer.byteLength(maxReference) === 240 && observationLine(maxReferenceHeader) === `> observations: stored | path: ${maxReference} | bytes: 1 | truncated: no | grammar: present`, observationLine(maxReferenceHeader)],
+				["hostile observation path text stays on one sanitized header line without adding a field", hostileObservationLines.length === 1 && !hostileHeader.split("\n").some((line) => line.startsWith("> forged:")) && (hostileObservationLines[0]?.match(/\|/g) ?? []).length === 4 && !/[\u0000-\u001f\u007f]/.test(hostileObservationLines[0] ?? ""), hostileObservationLines],
+				["no-final-message observations state absence and carry no path", observationLine(noOutput) === "> observations: not stored | reason: no-final-message | grammar: absent" && !observationLine(noOutput)?.includes("path:"), observationLine(noOutput)],
+				["no-final-text observations state absence and carry no path", observationLine(noFinalText) === "> observations: not stored | reason: no-final-text | grammar: absent" && !observationLine(noFinalText)?.includes("path:"), observationLine(noFinalText)],
+				["write-failed observations state absence, carry no path, and omit the transient warning", observationLine(writeFailed) === "> observations: not stored | reason: write-failed | grammar: malformed" && !observationLine(writeFailed)?.includes("must not persist"), observationLine(writeFailed)],
 				["a pipe inside a valid spec is stripped, not passed through", ranOf(forged) === "openai/gptxcompressor:forged @ high", ranOf(forged)],
 				["a newline collapses to a space rather than being swallowed", /thread t1 \(nice > ran:/.test(lines[0]), lines[0]],
 				["every header line is bounded", lines.every((l) => l.length <= 420), lines.map((l) => l.length)],
