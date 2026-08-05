@@ -185,41 +185,49 @@ perspective's charter:
 - Done = no blockers remain, addressed findings VERIFIED, and any
   remaining should-fix/suggestions explicitly reported to the user.
 
-## 7. Semi-formal reasoning (how reviewers argue)
+## 7. Reviewer evidence standards (how reviewers argue)
 
-Reviewers use semi-formal reasoning — structured argument between
-free-form chain-of-thought and formal proof (Ugare & Chandra, "Agentic
-Code Reasoning", arXiv:2603.01896). Embed these obligations in every
-review dispatch:
+These standards define the evidence that reviewers provide for findings
+and verdicts. For background, see Ugare & Chandra, "Agentic Code
+Reasoning" (arXiv:2603.01896, 2026),
+https://arxiv.org/abs/2603.01896. These standards adapt that work rather
+than implement its method.
 
-- State the decision criteria (definitions) and numbered premises
-  before reaching any verdict.
+<!-- reviewer-charter:begin -->
 - Trace, don't guess: cite evidence from code actually read (file:line
   or diff hunk) for every claim about behavior. Read third-party /
   library code instead of assuming its semantics.
-- Enumerate cases exhaustively along the changed execution paths
-  (branches, error paths, boundary values); mark each case as checked
-  or explicitly out of scope. For prose, enumerate the affected
-  audiences, reader tasks, claims, definitions, cross-references,
-  examples, exceptions, and boundary conditions instead of execution
-  paths.
+- Enumerate the cases along the changed execution paths that are in
+  scope (branches, error paths, boundary values). Mark each case as
+  checked or explicitly out of scope, and state the coverage gaps. For
+  prose, enumerate the affected audiences, reader tasks, claims,
+  definitions, cross-references, examples, exceptions, and boundary
+  conditions instead of execution paths.
 - Back every defect claim (blocker or should-fix) with a concrete
   counterexample: the input, state, or interleaving that triggers the
   defect, traced through the code.
 - Back every correctness claim ("no issue here") with a justification
-  for why no counterexample exists — not merely the absence of one
-  found. For prose, proof of absence means a bounded, reproducible check
-  of the relevant set. Examples include checker output, targeted
+  bounded to the scope you state, and say what the
+  justification does not cover. For prose, use a bounded, reproducible
+  check of the relevant set. Examples include checker output, targeted
   searches, re-resolved references, and comparison with authoritative
   sources. State explicitly what those checks cannot establish.
 - Before finalizing, run an alternative-hypothesis check: "if the
   opposite verdict were true, what evidence would exist?" — then look
   for that evidence.
-- While exploring, log hypotheses explicitly (hypothesis → evidence
-  sought → confirmed / refuted / refined) instead of wandering.
-- Derive the final verdict explicitly from the stated definitions and
-  claims, not from overall impression.
+- When useful, log hypotheses explicitly (hypothesis → evidence sought
+  → confirmed / refuted / refined) instead of wandering.
+- Derive the final verdict from the evidence and claims above, not from
+  overall impression.
+- State the evidence that closes a finding, not only the evidence that
+  opens one. A verdict that a finding is resolved carries its own
+  evidence.
 - Treat a fix series as a changed artifact that needs review. Verify the
   addressed finding, then review the fix diff and the cumulative result
   for new paths, claims, and regressions. Clearing the original finding
   does not clear defects introduced by its fix.
+- Structured reasoning can be confidently wrong when a case is missed.
+  State coverage gaps rather than implying completeness. These
+  arguments carry no formal guarantee and do not replace running the
+  project's checks.
+<!-- reviewer-charter:end -->
