@@ -1,6 +1,6 @@
 # ytdb-slate
 
-[![CI status](https://github.com/JetBrains/ytdb-slate/actions/workflows/tier-1.yml/badge.svg?branch=main)](https://github.com/JetBrains/ytdb-slate/actions/workflows/tier-1.yml)
+[![CI status](https://github.com/JetBrains/ytdb-slate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JetBrains/ytdb-slate/actions/workflows/ci.yml)
 
 Slate is a thread-weaving orchestration extension for the [pi coding agent](https://pi.dev).
 

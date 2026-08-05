@@ -280,7 +280,7 @@ This block works in `REPO_DIR`, the checkout step 0 ran in; it does not use the 
 - `bash verification/run-writing-reminder-check.sh --repo .` checks the real reminder hook, steer and persistence path. It requires GNU `timeout`.
 - The isolated-load smoke test below provides an additional manual read of direct loader output.
 
-The tier-1 CI set remains the four commands in `AGENTS.md`. The other commands above are release-time hand-run nets.
+The CI set remains the four commands in `AGENTS.md`. The other commands above are release-time hand-run nets.
 
 ```bash
 set -euo pipefail

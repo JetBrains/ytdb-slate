@@ -29,7 +29,7 @@ This repo runs slate on itself:
   `exactOptionalPropertyTypes` and `noPropertyAccessFromIndexSignature` stay off. This repo measured both flags, then deferred the first and rejected the second, and `tsconfig.json` records the reasons together with the two commands that re-derive the current diagnostics. It records no counts on purpose: the include list moves them, and a recorded count went stale twice, most recently when `test/**/*.ts` joined the include list. Nobody must repeat that decision without re-measuring. Every flag in the set passes on the current tree. Add a new flag together with its fix. A flag that fails makes the check unreliable, and people then ignore it.
 
   A passing `npm run typecheck` does NOT make the TypeScript brands (`SessionBaseline`, `OpenModel` in `extension/route.ts`) tamper-proof: TypeScript permits an assertion to a branded subtype, so `someString as OpenModel` — the exact shape that reintroduced a shipped defect while the full suite stayed green — still typechecks cleanly. The resolver checks' source-scan gates for cast shapes are therefore still load-bearing and must not be removed on the grounds that the repo has a typecheck; the two nets cover different failures, and only the source scan covers this one.
-- **Automated verification exists.** Tier-1 CI runs five checks on every pull request, on every merge-queue candidate and on a push to `main`. A manual dispatch runs the same five, except that patch coverage is skipped loudly, because that event carries no change boundary. Each check is the same command that you run locally (§ Tier-1 CI). The fifth check is `npm test`: it runs the `node:test` suite under `test/` and then the patch-coverage gate, and that suite unit-tests the modules the tests import (§ Unit tests and the coverage gate). It is also the one check that no longer takes about a second: it dominates the tier's wall clock. Additional nets run by hand and are named below. Writing also has a focused correctness suite: `verification/writing-check-tests.mjs` tests the shipped, dependency-free JavaScript checker in `extension/writing-check.mjs` and the turn-outcome helper `measureWritingTurn` in `extension/writing.ts`. It does not unit-test the modules that `test/` leaves alone. Four tasks stay manual:
+- **Automated verification exists.** CI runs five checks on every pull request, on every merge-queue candidate and on a push to `main`. A manual dispatch runs the same five. It skips patch coverage loudly because that event carries no change boundary. Each check is the same command that you run locally (§ CI). The fifth check is `npm test`. It runs the `node:test` suite under `test/` and then the patch-coverage gate. That suite unit-tests the modules the tests import (§ Unit tests and the coverage gate). It is also the one check that no longer takes about a second. It dominates CI's wall clock. Additional nets run by hand and are named below. Writing also has a focused correctness suite. `verification/writing-check-tests.mjs` tests the shipped, dependency-free JavaScript checker in `extension/writing-check.mjs`. It also tests the turn-outcome helper `measureWritingTurn` in `extension/writing.ts`. It does not unit-test the modules that `test/` leaves alone. Four tasks stay manual:
   1. **Read the full diff before you commit.** No tool does this for you.
   2. **Run the isolated-load smoke test when you must use an edit that you just made.** The command is `pi --no-extensions -e .` from the repo root, because an installed session runs the pinned published package and not your working tree. The load check proves that the extension loads and registers its tools, but it does not prove that the tools work. Exercise tool execution, worker sessions, failover and handoff by hand here. **Never run it while the ladder runs** — § Verification ladder states what that costs.
   3. **Open an INTERACTIVE session to reach the doctrine and the router.** A headless `pi --no-extensions -e . -p "exit"` run exercises extension registration and `session_start` only, and it never builds the doctrine. slate seeds orchestrator mode only when `ctx.mode === "tui"` (`extension/mode.ts`), and `before_agent_start` returns at once while the mode is off. A headless run therefore reaches neither `buildDoctrine` nor the `getRouter()` consultation inside it, and that consultation is the only one in the doctrine. Every smoke test during the work on the routing feature missed both. A release-time accident exposed this gap.
@@ -37,18 +37,18 @@ This repo runs slate on itself:
      An automatic interactive session needs a pty. This machine has no `script(1)`, and a small Python `pty.fork` harness works instead. Use **`\r`** as the submit key, and not `\n`.
 
      The session JSONL holds no doctrine text. Its entries are `session`, `message`, `custom`, `model_change` and `thinking_level_change`, and the system prompt is not one of them. To verify the CONTENT of the doctrine, ask the model to repeat it, and do not grep the transcript. This gap is a smoke-test gap, and it is not a coverage gap. The `doctrine-*` checks cover the rendering, and the router checks cover the resolution. Only a live session proves that the wiring runs.
-  4. **Run by hand every net that tier-1 CI leaves out.** The hand-run set is:
-     - the verification ladder (tier 2, § Verification ladder below).
+  4. **Run by hand every net that CI leaves out.** The hand-run set is:
+     - the verification ladder (§ Verification ladder below).
      - the package-content check (§ Package-content check).
      - the writing checker's correctness suite.
      - the writing checker's scaling gate (§ Writing-checker nets).
      - the writing-reminder integration check (§ Writing-reminder integration check).
 
-     Each section states its own re-run trigger. Tier-1 CI excludes the ladder on purpose. The other hand-run nets are not wired into the workflow. The unit tests and the patch-coverage gate are NOT in this set any more: tier-1 CI runs them (§ Unit tests and the coverage gate).
+     Each section states its own re-run trigger. CI excludes the ladder on purpose. The other hand-run nets are not wired into the workflow. The unit tests and the patch-coverage gate are NOT in this set any more: CI runs them (§ Unit tests and the coverage gate).
 
-### Tier-1 CI (`.github/workflows/tier-1.yml`)
+### CI (`.github/workflows/ci.yml`)
 
-Tier-1 CI is fast, and it needs no secret. Every check uses fabricated inputs and a plain checkout. The checks reach the network for the dependency install only, and they use no credential. They also touch no real pi state: the only harness that starts a pi session points `PI_CODING_AGENT_DIR` at an empty throwaway directory. The packaging guards reach no registry, and they pass when npm runs offline.
+CI is fast, and it needs no secret. Every check uses fabricated inputs and a plain checkout. The checks reach the network for the dependency install only, and they use no credential. They also touch no real pi state: the only harness that starts a pi session points `PI_CODING_AGENT_DIR` at an empty throwaway directory. The packaging guards reach no registry, and they pass when npm runs offline.
 
 The checks write in three places only:
 
@@ -56,7 +56,7 @@ The checks write in three places only:
 - The packaging guards write nothing.
 - pi creates a `.pi/settings.json.lock` directory inside the checkout, and deletes it again, around each read of the project settings.
 
-Tier-1 CI is not hermetic beyond that, and it makes no such claim: the install fills the npm cache under `HOME`, like every other install.
+CI is not hermetic beyond that, and it makes no such claim: the install fills the npm cache under `HOME`, like every other install.
 
 The workflow uses a read-only token (`permissions: contents: read`). Four events start it: `pull_request`, `merge_group`, a `push` to `main`, and `workflow_dispatch`. It never uses `pull_request_target`. The job stops after 15 minutes (`timeout-minutes: 15`), and the workflow pins each third-party action to a commit SHA. The job matrix pins **Node 22.23.1 and Node 24.18.0**: those are the exact versions on which native TypeScript execution, LCOV, `stripTypeScriptTypes`, physical-line DA emission, directive matching and the full suite were measured. A floating major would take experimental APIs beyond the evidence silently; an exact pin instead costs a manual re-measurement and workflow edit for every accepted Node patch. pi needs node 22.19.0 or later, and the two pins still exercise both current LTS lines.
 
@@ -70,7 +70,7 @@ The five checks follow. Each command reproduces its check on a laptop after `npm
 | pure-resolver checks | `bash verification/run-resolver-checks.sh --repo . --strict` |
 | unit tests + patch coverage | `npm test` |
 
-**Keep `--ignore-scripts` on the install.** The pinned pi SDK is a devDependency, and its dependency tree declares install scripts: `@google/genai` (preinstall) and `protobufjs` (postinstall). `@earendil-works/pi-coding-agent` holds a copy of each package in its shrinkwrapped tree, so `package-lock.json` carries four entries with `hasInstallScript`. A plain `npm ci` runs all four scripts on every install. Tier 1 needs none of them, so the flag keeps third-party code out of the job. npm creates `node_modules/.bin` without those scripts, so the `pi` and `tsc` launchers appear in both installs.
+**Keep `--ignore-scripts` on the install.** The pinned pi SDK is a devDependency, and its dependency tree declares install scripts: `@google/genai` (preinstall) and `protobufjs` (postinstall). `@earendil-works/pi-coding-agent` holds a copy of each package in its shrinkwrapped tree, so `package-lock.json` carries four entries with `hasInstallScript`. A plain `npm ci` runs all four scripts on every install. CI needs none of them, so the flag keeps third-party code out of the job. npm creates `node_modules/.bin` without those scripts, so the `pi` and `tsc` launchers appear in both installs.
 
 **How the harnesses find pi.** Three of the five checks need a pi binary, and all three start with the same two steps:
 
@@ -79,9 +79,9 @@ The five checks follow. Each command reproduces its check on a laptop after `npm
 
 The three harnesses then differ on purpose. The **resolver checks** and **peer linker** accept a pi from `PATH` as a last choice, and they apply no version guard. The resolver checks borrow only the jiti transpiler inside pi; an old jiti can only fail to transpile the sources, and then the run stops with no summary. The peer linker instead imports the SDK copies bundled with that pi, so choosing the checkout-local exact pin before `PATH` is load-bearing: CI has both paths available through npm, and must not silently take another global installation. A `PI_BIN` override remains explicit and prints a note.
 
-The **load check** accepts no pi from `PATH`, and it also requires the same version from `pi --version` as the `@earendil-works/pi-coding-agent` pin. pi's rpc output shapes are the evidence for its checks, and a new shape can look like "no events" and pass in silence. The ladder (tier 2) keeps its own rule: it needs `pi` on `PATH`.
+The **load check** accepts no pi from `PATH`, and it also requires the same version from `pi --version` as the `@earendil-works/pi-coding-agent` pin. pi's rpc output shapes are the evidence for its checks, and a new shape can look like "no events" and pass in silence. The verification ladder keeps its own rule: it needs `pi` on `PATH`.
 
-The three tier-1 harnesses (the packaging guards, the load check and the resolver checks) share one exit-code contract:
+The three CI harnesses (the packaging guards, the load check and the resolver checks) share one exit-code contract:
 
 | exit code | meaning |
 | --- | --- |
@@ -106,7 +106,7 @@ An exit code of 1 reports a real finding. The `CHECK … FAIL — <detail>` line
 
 A NOT RUN from the ladder is neither a pass nor a fail. `verification/README.md` holds the table of the action for each one.
 
-The original four checks take about **five seconds** on a warm machine. The unit tests dominate the enlarged tier. One machine gave these times:
+The original four checks take about **five seconds** on a warm machine. The unit tests dominate the enlarged CI set. One machine gave these times:
 
 | check | time |
 | --- | --- |
@@ -124,7 +124,7 @@ Run all five checks before you commit.
 - **Run the load check again after a change to extension loading, to tool or command registration, or to `session_start`.** Run it again also after a change to the `.pi/slate.json` of this checkout. Those failure modes have no other signal (see § How extension-load failures surface). A check of its own reads the config file directly from disk, because slate drops an unparseable file in silence. The load check answers two conditions with exit 2 instead of a FAIL report:
   - **A checkout without `extension/index.ts`** stops the run. pi drops a nonexistent entry from `pi.extensions` in silence, and every check then passes on an empty session. A checkout without `verification/ci-canary.ts` stops the run for the same reason.
   - **A mismatch between the pin and the installed pi** stops the run. The message carries the remedy `run 'npm ci --ignore-scripts'`, which is the install that CI runs. The rpc output shapes hold for one pi version only.
-- **Tier 2, the verification ladder, stays outside CI on purpose** (issue #24). It takes about 3 minutes, and most of that time is wall-clock wait in timing-sensitive rungs. It needs GNU coreutils, and it refuses to run as root. On a slow machine, or on a machine without the optional tools, it reports NOT RUN instead of PASS. A required check with that behaviour gives unreliable results, so the ladder stays a check for a person to read. Run it as § Verification ladder describes.
+- **The verification ladder stays outside CI on purpose** (issue #24). It takes about 3 minutes, and most of that time is wall-clock wait in timing-sensitive rungs. It needs GNU coreutils, and it refuses to run as root. On a slow machine, or on a machine without the optional tools, it reports NOT RUN instead of PASS. A required check with that behaviour gives unreliable results, so the ladder stays a check for a person to read. Run it as § Verification ladder describes.
 
 ### How extension-load failures surface (pi 0.83.0)
 
@@ -163,7 +163,7 @@ pi **stays silent** for each failure below: it exits 0, and it prints neither ma
 
 ### Verification ladder (global model defaults across slate's model switches)
 
-`verification/run-ladder.sh` is the deepest regression net in this repo. It is not the only net: § Tier-1 CI names the five checks that run on every pull request, and the sections below add the package-content check, the writing checker's two nets and the writing-reminder integration check. It is the only net that touches the global model-default machinery. It covers:
+`verification/run-ladder.sh` is the deepest regression net in this repo. It is not the only net. § CI names the five checks that run on every pull request. The sections below add the package-content check, the writing checker's two nets and the writing-reminder integration check. The ladder is the only net that touches the global model-default machinery. It covers:
 
 - `extension/model-default.ts` and both switch sites (`extension/failover.ts` failover, `extension/handoff.ts` handoff adoption): the per-key restore rule, the untrustworthy-read stand-downs, the retry budget and the reporting channels;
 - `extension/worker.ts`'s worker-session settings isolation, in rung `WK1`: a **worker-side per-dispatch model AND effort switch** — what every routed action performs — writes zero bytes to the global settings file and does not survive into a reopened session as a sticky default. It is the only automated net for that guarantee, and the only rung that opens a worker session at all.
@@ -189,7 +189,7 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 - `extension/model-profiles.ts` — STRUCTURAL invariants of the shipped table only (id/alias resolvability, ladder vs measured/gap coverage, price-schedule shape, tier range, freezing). Never a research number: those are a review concern, and a refresh must not have to touch this suite;
 - the **writing wiring** spans several modules. `extension/writing.ts` owns the config sanitizer and `measureWritingTurn` outcomes (`writing-config-*`). `extension/mode.ts` owns the writing status gates and doctrine rule (`writing-status-*`, `writing-doctrine-*`). The reminder policy and mode handlers are `writing-reminder-*`. The shipped command is imported and spawned by `writing-checker-*`. The worker preamble gate spans `extension/worker.ts` and `extension/threads.ts` (`worker-preamble`). Reminder checks cover the frozen roster, rendering, cadence, gates, state transitions, retry paths, runtime-only state, effective-budget clamp and real handoff ordering. Two bounds meet here. `writing-status-cap-visible` covers the 16 KiB turn bound. `writing-status-cap-skip` covers the checker's 1 MiB input cap. The checker module has two nets of its own.
 
-- Run it with `bash verification/run-resolver-checks.sh --repo .`. The harness needs `node` and `mktemp` on `PATH`, and it resolves pi itself, so **`PATH` does not need pi** (§ Tier-1 CI). It prints one line for each check, an `observed:` line under a failure, a `roster` check that every expected check reported, and then a summary. Pass `--strict` in automation, because it makes any NOT RUN fatal. Tier-1 CI passes it.
+- Run it with `bash verification/run-resolver-checks.sh --repo .`. The harness needs `node` and `mktemp` on `PATH`, and it resolves pi itself, so **`PATH` does not need pi** (§ CI). It prints one line for each check, an `observed:` line under a failure, a `roster` check that every expected check reported, and then a summary. Pass `--strict` in automation, because it makes any NOT RUN fatal. CI passes it.
   - Exit 0 means that every check passed.
   - Exit 1 means that a check failed or went missing.
   - Exit 2 means that the harness refused to start.
@@ -241,7 +241,7 @@ Exit 0 means every assertion passed. Exit 1 means a check failed. Exit 2 means
 the harness refused to start. A failed run keeps its scratch directory and
 inlines pi stderr and stdout. A clean run removes the directory.
 
-This net is outside tier-1 CI, the load check and the ladder. It proves the real
+This net is outside CI, the load check and the ladder. It proves the real
 hook, steer, provider and persistence path. It proves `display: false`
 structurally, not visual TUI invisibility. Check that presentation manually.
 
@@ -264,7 +264,7 @@ changes.
 
 - **Re-run it after any change to `package.json`'s `files` whitelist, `extension/paths.ts`'s package-resolved files, or path imports in `extension/mode.ts`**, and before release.
 - The check covers package presence only. The resolver suite still covers doctrine rendering and checker behavior.
-- **It overlaps the tier-1 packaging guards, and the overlap is not yet consolidated.** Both read the file list from `npm pack --dry-run`, and both demand that the doctrine docs ship. They derive that demand from different places: this check reads the exported constants of `extension/paths.ts` and names a missing file by its export, while `pack-doctrine-docs` in `verification/packaging-checks.mjs` scans every `extension/*.ts` for `join(<docs dir>, "<name>.md")`. This check is also the only one that requires the shipped **checker** (`extension/writing-check.mjs`) itself; the guards only permit its file kind. Merging the two is a reasonable future change, and until then run both.
+- **It overlaps the CI packaging guards.** The overlap is not yet consolidated. Both read the file list from `npm pack --dry-run`. Both demand that the doctrine docs ship. They derive that demand from different places. This check reads the exported constants of `extension/paths.ts` and names a missing file by its export. `pack-doctrine-docs` in `verification/packaging-checks.mjs` scans every `extension/*.ts` for `join(<docs dir>, "<name>.md")`. This check is also the only one that requires the shipped **checker** (`extension/writing-check.mjs`) itself. The guards only permit its file kind. Merging the two is a reasonable future change. Until then, run both.
 
 ### Writing-checker nets (correctness suite + scaling gate)
 
@@ -278,7 +278,9 @@ changes.
 
 `npm test` runs `verification/run-tests.sh`: it runs `verification/link-peers.sh`, then the `node:test` suite under `test/`, then the patch-coverage gate in `verification/coverage-gate.mjs`. It needs `node`, `git` and a pi; the linker resolves `PI_BIN`, then the exact-pinned `node_modules/.bin/pi`, then `PATH`, and deliberately refuses to start without one.
 
-**Tier-1 CI runs this net on both exact-pinned Node legs.** The checkout uses `fetch-depth: 0`, because the gate measures a COMMITTED `<base>..HEAD` diff. The base is event-specific and explicit: `pull_request.base.sha` against GitHub's synthetic PR merge commit measures that PR candidate; `merge_group.base_sha` against the queue's synthetic head measures the queued candidate; `github.event.before` against a push head measures that push to `main`. A missing, all-zero, absent or HEAD-equal base exits 2. `workflow_dispatch` has no event change boundary, so it runs the tests with `--no-gate` and emits a GitHub warning plus a job-summary section instead of inventing a diff or passing silently.
+**CI runs this net on both exact-pinned Node legs.** The checkout uses `fetch-depth: 0`, because the gate measures a COMMITTED `<base>..HEAD` diff. The base is event-specific and explicit. `pull_request.base.sha` against GitHub's synthetic PR merge commit measures that PR candidate. `merge_group.base_sha` against the queue's synthetic head measures the queued candidate. `github.event.before` against a push head measures that push to `main`.
+
+A missing, all-zero, absent or HEAD-equal base exits 2. `workflow_dispatch` has no event change boundary. It runs the tests with `--no-gate` and emits a GitHub warning plus a job-summary section. It does not invent a diff or pass silently.
 
 **CI keeps a WARN green but makes it prominent.** The small-denominator policy exists because a percentage verdict is not meaningful below 20 changed branches; turning WARN into FAIL would enforce the percentage the policy rejects. The test step therefore keeps exit 0, emits a GitHub warning annotation, and copies the OVERALL/WARN/VERDICT lines into the job summary with the instruction to record a manual disposition on the pull request. A green check is not that disposition.
 - **The harness adds no test-only dependency and no publish payload.** It uses Node built-ins, shell, `git`, the SDK bundled with pi, and the exact-pinned `typescript` devDependency, which now has TWO consumers: `npm run typecheck` and the gate's executable-line classifier. `test/`, `verification/` and `tsconfig.json` stay outside the `files` whitelist (§ Packaging rules), so no part of this reaches a consumer install.
@@ -317,10 +319,10 @@ The writing checker is diagnostic everywhere and authoritative nowhere. A match 
 
 - Keep the pi-bundled SDK packages (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `typebox`) in `peerDependencies` with the version `"*"`. Never bundle them, and never add them to `dependencies`.
 - **The devDependency carve-out.** `devDependencies` also pins the same four packages to exact versions, so the typecheck, the load check and the unit tests use one known SDK. That practice is correct, and a bundle is a different matter: npm installs `devDependencies` for no consumer, and it installs `dependencies` only. `devDependencies` pins the tooling in the same place and for the same reason: `@types/node` serves the typecheck, and `typescript` serves both the typecheck and the coverage gate's executable-line classifier. `tsconfig.json`, `test/` and `verification/` all sit outside the `files` whitelist, so no part of the checks or the tests reaches a consumer install. Re-check that boundary with `npm pack --dry-run --json` after a packaging change.
-- **Commit `package-lock.json`.** This repo ignored the file while the four SDK packages existed as `"*"` peers only, because a lockfile then pinned an arbitrary resolution from npm. The exact pins in `devDependencies` removed that reason, and the lockfile now records the versions that this repo chose. `npm ci --ignore-scripts`, the install that tier-1 CI runs, also needs the file.
+- **Commit `package-lock.json`.** This repo ignored the file while the four SDK packages existed as `"*"` peers only, because a lockfile then pinned an arbitrary resolution from npm. The exact pins in `devDependencies` removed that reason, and the lockfile now records the versions that this repo chose. `npm ci --ignore-scripts`, the install that CI runs, also needs the file.
 - **Never add an install-time lifecycle script.** npm runs `prepare`, `postinstall`, `install` and `preinstall` on **every consumer install**. Add none of them to `scripts`.
 - The `files` whitelist in `package.json` **must include `docs/`**. The doctrine points at those files at package-resolved paths at run time. A publish without them ships a doctrine with a dangling citation in every rule, and an orchestrator that reads the workflow rules finds nothing. This is a rule and not a note, because adversarial review raised it as a finding (`AD6` in that round). Action-level routing needed no packaging change, because `docs/` ships as a whole and covered `docs/model-routing.md` on its first day. That fact makes the rule MORE important: one more doc now resolves at a package-resolved path at run time.
-- The guard asserts the `files` whitelist by **exact equality**. A deliberate change to the whitelist must update the guard in the same commit (see § Tier-1 CI).
+- The guard asserts the `files` whitelist by **exact equality**. A deliberate change to the whitelist must update the guard in the same commit (see § CI).
 - Keep `"keywords": ["pi-package"]` — it is what lists the package in the pi.dev gallery.
 
 `verification/run-packaging-checks.sh` enforces every rule above. It asserts the manifest, and it also asserts the *real* file list from `npm pack --dry-run`, because the manifest alone proves too little. npm expands a whitelisted directory **recursively**, and a `files` whitelist makes `.npmignore` and `.gitignore` inert. A stray file under `extension/` or `docs/` therefore ships behind a correct manifest.
@@ -336,6 +338,6 @@ keeps the release pin, the package version, the exact merge, the package
 contents and the registry artifact in agreement. This repository dogfoods
 the exact package version that it publishes, because `.pi/settings.json`
 pins `npm:ytdb-slate@<version>`. Bump the four SDK devDependency pins with
-any targeted pi release and refresh `package-lock.json`. Run all four tier-1
+any targeted pi release and refresh `package-lock.json`. Run all four CI
 checks before publication. Update the dogfood pin only after the package is
 available.

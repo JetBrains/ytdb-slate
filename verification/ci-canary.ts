@@ -1,5 +1,5 @@
 /**
- * Tier-1 CI canary — the positive control for verification/run-load-check.sh.
+ * CI canary — the positive control for verification/run-load-check.sh.
  *
  * OBSERVATION CHANNEL ONLY. On session_start it prints one line to stderr:
  *
