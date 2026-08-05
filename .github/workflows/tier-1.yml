@@ -1,0 +1,130 @@
+# Tier 1 — the fast, secret-free checks.
+#
+# Everything here runs against fabricated inputs and a plain checkout, in about
+# five seconds of work plus the dependency install. What the tier does NOT need
+# is what makes it safe to run on every pull request:
+#
+#   * No credentials, of any kind. No secrets are referenced and none are
+#     needed; the load check's two pi runs use an empty throwaway agent
+#     directory with PI_OFFLINE=1, so no provider is ever contacted.
+#   * No network in the checks themselves. Only the checkout, the Node download
+#     and `npm ci` reach out, and those registry reads are unauthenticated.
+#   * No lasting change to the checkout. `npm ci` fills the gitignored
+#     node_modules and nothing else moves — `git status` is clean after a full
+#     local run — and the two harnesses that need scratch space mktemp it under
+#     TMPDIR and remove it again.
+#
+# It is not hermetic with respect to the rest of the filesystem, and does not
+# claim to be: `npm ci` populates the npm cache under HOME like any install, and
+# the scratch directories above live under TMPDIR, not in the workspace.
+#
+# That is why the token is read-only (see `permissions` below) and why the
+# trigger is the ordinary `pull_request`, never `pull_request_target`.
+#
+# Tier 2 — the verification ladder (`verification/run-ladder.sh`) — is
+# deliberately NOT here. It takes ~3 minutes of mostly wall-clock waiting on
+# timing-sensitive rungs, needs GNU coreutils, and rewrites a throwaway pi agent
+# directory; several rungs report NOT RUN rather than PASS when the machine is
+# slow, which would make it a flaky gate on every push. It stays a manual,
+# human-read net, run per `AGENTS.md` § Verification ladder whenever
+# `extension/model-default.ts` or either switch site changes.
+#
+# All four checks below are exactly the commands a contributor runs locally, so
+# a CI failure reproduces verbatim on a laptop:
+#
+#   npm ci --ignore-scripts
+#   npm run typecheck
+#   bash verification/run-packaging-checks.sh --repo .
+#   bash verification/run-packaging-checks.sh --repo . --self-test
+#   bash verification/run-load-check.sh --repo .
+#   bash verification/run-resolver-checks.sh --repo . --strict
+#
+# Third-party actions are pinned by commit SHA, not by tag: a tag is mutable and
+# would let an upstream compromise reach this workflow silently. The trailing
+# comment names the release each SHA came from; keeping them current is manual
+# maintenance we have accepted.
+
+name: Tier 1
+
+on:
+  pull_request:
+  # A merge queue evaluates a candidate merge commit on its own temporary
+  # gh-readonly-queue/<base> branch and dispatches merge_group, not pull_request
+  # or push. A workflow without this trigger never runs there, so a required
+  # check never reports and every queued pull request waits forever.
+  merge_group:
+    types: [checks_requested]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Nothing in this workflow reads or writes repository state through the API:
+# checkout, node setup and unauthenticated npm registry reads are all fine with
+# a read-only token, and there are no secrets to hand out.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Superseded pull-request runs are noise, so cancel them. Every other event
+  # must finish: a run on the default branch is that branch's status, and a
+  # merge_group run is the gate the queue is waiting for — cancelling it would
+  # drop the pull request out of the queue. The group key cannot collide between
+  # the two, because github.ref is refs/pull/<n>/merge for the pull request and
+  # refs/heads/gh-readonly-queue/<base>/... for its queued merge.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    # A tripwire for a hung step, not a budget. Measured warm, the four checks
+    # total ~5 s (typecheck 2.0, load check 2.3, packaging 0.3 + 0.3, resolver
+    # 0.1) and the install ~3 s; even a cold npm cache and a slow runner keep a
+    # full job inside a couple of minutes. Anything past 15 minutes is a pi
+    # child waiting on something that will never arrive, and the default is to
+    # let it hold a runner for six hours.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # pi requires node >= 22.19.0; consumers run both current LTS lines.
+        node: ['22', '24']
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # --ignore-scripts: the pinned pi SDK's own dependency tree contains packages
+      # with install scripts (@google/genai preinstall, protobufjs postinstall, plus
+      # their nested duplicates) — CI needs none of them run, so do not remove this
+      # flag. Verified: the bin links, the typecheck and all four checks below work
+      # identically without them (finding SE1).
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Packaging checks
+        run: bash verification/run-packaging-checks.sh --repo .
+
+      # A guard nobody has seen fail is not a guard: this asserts the packaging
+      # checks can still detect the breakage they exist to catch.
+      - name: Packaging checks — self-test
+        run: bash verification/run-packaging-checks.sh --repo . --self-test
+
+      - name: Extension load check
+        run: bash verification/run-load-check.sh --repo .
+
+      # --strict makes a NOT RUN fatal. A NOT RUN here means a module the suite
+      # loads did not load, which voids every check that depends on it; on a
+      # runner that is a defect, not a local limitation, and the run reports
+      # zero of them today.
+      - name: Pure-resolver checks
+        run: bash verification/run-resolver-checks.sh --repo . --strict

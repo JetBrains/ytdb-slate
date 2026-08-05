@@ -1,5 +1,7 @@
 # ytdb-slate
 
+[![CI status](https://github.com/JetBrains/ytdb-slate/actions/workflows/tier-1.yml/badge.svg?branch=main)](https://github.com/JetBrains/ytdb-slate/actions/workflows/tier-1.yml)
+
 Slate is a thread-weaving orchestration extension for the [pi coding agent](https://pi.dev).
 
 The orchestrator (your main pi session) dispatches **bounded actions** to persistent **worker threads**. Each completed action is compressed by an LLM into an **episode** — a durable, structured record (intent, actions, findings, artifacts, open issues, handoff notes) that the orchestrator composes into further dispatches instead of re-reading raw transcripts. On top of that, Slate injects a mandatory workflow doctrine: research before design, design review, adversarial review, and track review — with optional umbrella **draft-PR publishing** for tracks. An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative. A second opt-in, **action-level model routing**, gives each dispatched action a model and an effort level chosen to be up to the task and no more, so cost is bounded per action instead of per session.

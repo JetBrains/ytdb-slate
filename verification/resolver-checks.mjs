@@ -92,12 +92,22 @@ function fmt(value) {
 	}
 }
 
+// The id column is 32 characters in every tier-1 CHECK harness (packaging
+// guards, load check, these checks), so a verdict sits in the same place
+// whichever one you are reading. The width is the longest id in any of them
+// plus two: 30 here (route-stored-effort-vocabulary), 24 in the packaging
+// guards (self-keywords-pi-package, --self-test only), 2 in the load check.
+// padEnd never truncates, so an id longer than the column would push its own
+// verdict right rather than lose text — but widening the three harnesses
+// together is what keeps that from happening.
+const ID_COLUMN = 32;
+
 // TS2: a FAIL prints the observed value, not just the claim. `observed` may be
 // any value or omitted.
 function check(id, cond, detail, observed) {
 	reported.push(id);
 	const ok = cond === true;
-	console.log(`CHECK ${id.padEnd(16)} ${(ok ? "PASS" : "FAIL").padEnd(7)} — ${detail}`);
+	console.log(`CHECK ${id.padEnd(ID_COLUMN)} ${(ok ? "PASS" : "FAIL").padEnd(7)} — ${detail}`);
 	if (!ok && observed !== undefined) console.log(`      observed: ${fmt(observed)}`);
 	ok ? pass++ : fail++;
 }
@@ -117,7 +127,7 @@ function checkAll(id, detail, parts) {
 // TS3: an explicit NOT RUN state, like run-ladder.sh's skip() — never a PASS.
 function skip(id, reason) {
 	reported.push(id);
-	console.log(`CHECK ${id.padEnd(16)} ${"NOT RUN".padEnd(7)} — ${reason}`);
+	console.log(`CHECK ${id.padEnd(ID_COLUMN)} ${"NOT RUN".padEnd(7)} — ${reason}`);
 	notrun++;
 }
 
