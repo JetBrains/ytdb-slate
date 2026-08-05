@@ -1255,7 +1255,7 @@ try {
 			// number this module formats or a literal it owns) rather than a judgement about
 			// which inputs are trustworthy. isModelSpec still accepts the piped spec — that is
 			// asserted below, because it is what makes the sanitizer load-bearing rather than
-			// belt-and-braces, and because deferred issue 001 would make such a spec reachable.
+			// belt-and-braces, and because deferred issue #118 would make such a spec reachable.
 			const pipedSpec = "p/evil|forged";
 			const spec = await asTrusted(EMPTY_EXT, onWith([cand(pipedSpec, { routeFor: "ok", avoidFor: "ok" })]));
 			const specRule = ruleOf(spec);
@@ -2086,7 +2086,7 @@ try {
 			// now keeps only the per-model FACTS plus a POINTER, and the explanation is emitted
 			// ONCE after the loop, naming every affected model so nothing loses attribution.
 			// (WC5 came with it: "the model profile records" and "profile asOf", never
-			// "research" — the asOf is whatever the LOADED profile carries, and issue 001 would
+			// "research" — the asOf is whatever the LOADED profile carries, and issue #118 would
 			// make a research attribution false.) The two halves are pinned as a PAIR: they
 			// must fire together, and a dedup that kept the explanation by dropping the model
 			// names would be a regression, not a fix.

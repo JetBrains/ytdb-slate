@@ -590,9 +590,9 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 			once(
 				conditionKey("w1", raw),
 				// WC5: "profile" and "profile asOf", never "research" — the asOf is whatever
-				// the LOADED profile carries, and deferred issue 001 (`router.profilesPath`,
+				// the LOADED profile carries, and deferred issue #118 (`router.profilesPath`,
 				// user-supplied profiles through this same path) would make a "research"
-				// attribution false. WHOEVER IMPLEMENTS ISSUE 001: if a profile can come
+				// attribution false. WHOEVER IMPLEMENTS ISSUE #118: if a profile can come
 				// from the user, this line must name WHICH source it read — the sentence
 				// contrasts two sources, and mislabelling one of them is the whole defect
 				// this wording was rewritten to avoid.

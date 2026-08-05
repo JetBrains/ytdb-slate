@@ -298,12 +298,12 @@ function measuredCell(router: ModelRouterResolution, candidate: RouterCandidate)
  * table's grammar is made of. `isModelSpec("p/evil|forged")` is true, and such a
  * spec rendered an eighth cell: a forged column. It was latent only because a
  * piped spec cannot acquire a profile and so never becomes a candidate, which is
- * exactly the premise deferred issue 001 (user-supplied profiles) removes. Do
+ * exactly the premise deferred issue #118 (user-supplied profiles) removes. Do
  * not "fix" this by wrapping the rule in sanitizeForDoctrine — and do not exempt
  * a value from `cell()` because it looks pre-validated.
  *
  * WHAT `cell()` STILL DOES NOT DO — the complete list, so whoever implements
- * deferred issue 001 (user-supplied profiles) inherits it whole (SE2). It removes
+ * deferred issue #118 (user-supplied profiles) inherits it whole (SE2). It removes
  * what is invisible or structural, and nothing else:
  *   1. NO MARKDOWN STRIP. Backticks, "*", "#", ">" render verbatim, where rule
  *      11's sanitizeForDoctrine drops them from third-party text.
@@ -318,7 +318,7 @@ function measuredCell(router: ModelRouterResolution, candidate: RouterCandidate)
  *      avoid cell, which delegates DIRECTIVE AUTHORITY to a data cell. Harmless
  *      while that data is ours and reviewed; an instruction-injection channel the
  *      moment it is not.
- * Issue 001 is the trigger for all three: when a profile can come from the user,
+ * Issue #118 is the trigger for all three: when a profile can come from the user,
  * this boundary needs the markdown strip and the length cap rule 11 already has,
  * and the REFUSE clause must name slate's own table as its source or be dropped.
  * (The invisible-character gap that used to sit in this list is closed — `cell()`
