@@ -96,7 +96,7 @@ function fmt(value) {
 	}
 }
 
-// The id column is 32 characters in every tier-1 CHECK harness (packaging
+// The id column is 32 characters in every CI CHECK harness (packaging
 // guards, load check, these checks), so a verdict sits in the same place
 // whichever one you are reading. The width is the longest id in any of them
 // plus two: 30 here (route-stored-effort-vocabulary), 24 in the packaging

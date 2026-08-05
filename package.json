@@ -23,7 +23,11 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bash verification/run-tests.sh",
+    "test:coverage": "bash verification/run-tests.sh",
+    "coverage:gate": "node verification/coverage-gate.mjs",
+    "link:peers": "bash verification/link-peers.sh"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

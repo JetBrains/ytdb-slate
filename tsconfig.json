@@ -22,10 +22,14 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
-    // Both hold today with zero errors, and both are what jiti's per-file
-    // transpile actually requires.
+    // The first two hold today with zero errors, and both are what jiti's
+    // per-file transpile actually requires. erasableSyntaxOnly is the third
+    // member of the same family and carries a second job: it keeps every source
+    // under extension/ executable by Node's stable native type stripping, which
+    // is how the node:test suite imports these modules with no build step.
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
 
     // --- Runtime surface ----------------------------------------------------
     // pi requires Node >= 22.19; this repo runs on Node 24.
@@ -65,38 +69,37 @@
     // say nothing about slate's code.
     "skipLibCheck": true
 
-    // --- Evaluated and DEFERRED (measured 2026-08-01, first-ever typecheck) --
-    // Recorded so these are not silently re-litigated. NONE of them found a
-    // genuine type defect: every site below was hand-checked and is safe today.
-    // Counts are from that measurement, against this same flag set.
-    // (noUncheckedIndexedAccess was the fourth entry here; it was adopted above.)
+    // --- Evaluated and DEFERRED ---------------------------------------------
+    // Recorded so these are not silently re-litigated. NEITHER found a genuine
+    // type defect when last evaluated: every site was hand-checked and is safe.
+    // No counts or per-file breakdowns are recorded here on purpose — the
+    // include list moves them, and this comment carried stale numbers twice.
+    // Re-derive the current diagnostics:
+    //   npx --no-install tsc --noEmit -p tsconfig.json --exactOptionalPropertyTypes
+    //   npx --no-install tsc --noEmit -p tsconfig.json --noPropertyAccessFromIndexSignature
+    // (noUncheckedIndexedAccess and erasableSyntaxOnly were adopted above.)
     //
-    // "exactOptionalPropertyTypes": 23 errors — 17 in slate-owned declarations
-    //   (each fixed by `prop?: T` -> `prop?: T | undefined`) and 6 at the SDK
-    //   boundary, where pi's own options types declare `prop?: T` and slate
-    //   passes an explicit undefined. Verified harmless at runtime: pi reads
-    //   those with value-based fallbacks (`let model = options.model`,
+    // "exactOptionalPropertyTypes": The diagnostics distinguish an omitted
+    //   property from an explicit undefined, across slate-owned declarations
+    //   and calls into both slate and SDK option types. Those paths read with
+    //   value-based fallbacks (`let model = options.model`,
     //   `if (options?.parentSession)`), and persisted records go through
-    //   JSON.stringify, which drops undefined-valued keys. Moderate cost, low
+    //   JSON.stringify, which drops undefined-valued keys. Moderate churn, low
     //   value — deferred, not rejected.
     //
-    // "noPropertyAccessFromIndexSignature": REJECTED. 50 errors, 44 of them
+    // "noPropertyAccessFromIndexSignature": REJECTED. The diagnostics are
     //   `t.id` / `t.episodeIds`-style reads of parsed JSON typed as
-    //   Record<string, unknown> in extension/state.ts, plus 6 process.env reads.
-    //   Pure style churn, zero safety gain.
-    //
-    // "erasableSyntaxOnly": not adopted. 7 errors, all constructor parameter
-    //   properties (extension/state.ts, extension/threads.ts). jiti transpiles
-    //   them fine; only relevant if this repo ever needs Node's native
-    //   --experimental-strip-types.
+    //   Record<string, unknown>, plus process.env reads in the tests and the
+    //   probe. Pure style churn, zero safety gain.
   },
 
-  // extension/** is the shipped code. verification/probe.ts is TypeScript that
-  // imports the SDK and drives the real model-default module, so it is checked
-  // too, and so is verification/ci-canary.ts — the load check's positive control
-  // is a real pi extension, and a type error in it would fake a load failure.
-  // verification/*.mjs (the resolver-check and packaging-guard drivers) is plain,
-  // unannotated JavaScript: checking it would need allowJs+checkJs and would
-  // measure a different codebase, so it is excluded.
-  "include": ["extension/**/*.ts", "verification/probe.ts", "verification/ci-canary.ts"]
+  // extension/** is the shipped code. test/**/*.ts imports those shipped
+  // modules, so the suite is checked too. verification/probe.ts is TypeScript
+  // that imports the SDK and drives the real model-default module, and so is
+  // verification/ci-canary.ts — the load check's positive control is a real pi
+  // extension, and a type error in it would fake a load failure.
+  // verification/*.mjs (the resolver-check, packaging-guard and coverage-gate
+  // drivers) is plain, unannotated JavaScript: checking it would need
+  // allowJs+checkJs and would measure a different codebase, so it is excluded.
+  "include": ["extension/**/*.ts", "test/**/*.ts", "verification/probe.ts", "verification/ci-canary.ts"]
 }

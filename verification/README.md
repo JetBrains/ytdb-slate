@@ -29,8 +29,8 @@ unguarded:
   hard requirement, not a convention (see § Safety model).
 
 This ladder was the repo's first automated net, and it is no longer the only
-one (`AGENTS.md` § Build & verification lists them all). Tier-1 CI (`AGENTS.md`
-§ Tier-1 CI) runs the typecheck, guards the packaging, checks that the extension
+one (`AGENTS.md` § Build & verification lists them all). CI (`AGENTS.md`
+§ CI) runs the typecheck, guards the packaging, checks that the extension
 loads, and checks that the resolver resolves. The package-content check, the
 writing checker's two nets, and the writing-reminder integration check run by hand. None of those nets touches a
 model switch, so this ladder is the only regression net for the mechanism. It exists
@@ -435,7 +435,14 @@ redirected into an artifact file) is still visible.
    symlink's target while only the launch was refused.
 5. **The real settings file is fingerprinted.** sha256, size and mtime, recorded
    before the run and re-checked after; a change is a failed run (`SAFE FAIL`,
-   non-zero exit) saying a pi invocation escaped the redirect. The real agent
+   non-zero exit) saying a pi invocation escaped the redirect. Because mtime is
+   part of the fingerprint, ANY pi process on the machine trips it, not only one
+   the harness launched: an isolated-load smoke test, an interactive session or a
+   dogfooding session running concurrently produces a `SAFE FAIL` whose recorded
+   hash and size are IDENTICAL and whose mtime alone moved. That shape means a
+   concurrent writer rather than an escaped invocation. It is still a failed run,
+   because the sentinel can no longer speak for the rungs above it: stop the other
+   pi processes and rerun the ladder alone. The real agent
    directory is located **the way pi locates it** — via `node os.homedir()`, which
    still works when `HOME` is unset — or from `SLATE_LADDER_REAL_AGENT_DIR`; if
    neither can be determined the script aborts rather than watch nothing.
@@ -606,7 +613,7 @@ check count moves with every check added, and a transcribed copy of it here has
 gone stale more than once. **The suite output is the definition of record** —
 read the `roster` line and the summary identity, never a figure in this file.
 
-The id column is 32 characters wide. Every tier-1 harness uses that width, so a
+The id column is 32 characters wide. Every CI harness uses that width, so a
 verdict sits in the same place in each one. The width is the longest id in any
 harness plus two characters. `padEnd` truncates no id: an id longer than the
 column would move its own verdict to the right, and it would lose no text.
@@ -647,7 +654,7 @@ Exit status: **0** every check passed · **1** a check failed, a check went
 missing, or `--strict` was given and a check reported NOT RUN · **2** refused to
 start. A missing tool, a bad `--repo`, no pi CLI, or a jiti that the script
 cannot locate each give exit 2. `node` and `mktemp` must be on `PATH`. **The
-script resolves pi itself, so `PATH` does not need pi.** `AGENTS.md` § Tier-1 CI
+script resolves pi itself, so `PATH` does not need pi.** `AGENTS.md` § CI
 gives the shared order, and this script is the one that accepts a pi from `PATH`
 as a last choice and prints a `NOTE` line for it. The script uses no network, and
 it writes into one throwaway temp directory, which it removes on exit.
@@ -1830,7 +1837,7 @@ parsed analysis.
 
 ## Boundary and re-run rules
 
-This is an integration net, but it is not part of tier-1 CI. It is also separate
+This is an integration net, but it is not part of CI. It is also separate
 from the extension-load check and the ladder. The load check proves registration
 without executing a tool. The ladder covers model-default restoration and worker
 settings isolation. This harness covers one reminder steer through a real pi
@@ -2045,7 +2052,7 @@ the driver, which reads that line. `L5` and `T1` turn an absent line or an
 empty line into a failure, and not into a quiet pass.
 
 The harness takes the pi CLI from the order that it shares with the resolver
-checks (`AGENTS.md` § Tier-1 CI), with two deliberate differences. It accepts
+checks (`AGENTS.md` § CI), with two deliberate differences. It accepts
 **no** pi from `PATH`: after `PI_BIN` and `node_modules/.bin/pi` in the checkout,
 it refuses to start. It also requires the same version from `pi --version` as the
 `@earendil-works/pi-coding-agent` pin in `devDependencies`. Both rules have one
@@ -2099,8 +2106,8 @@ enough).
 Requirements: `node` and `mktemp`. The harness uses `timeout` when it is present,
 and it does not require it, so a hung pi cannot hang CI. An unknown id in
 `--only` is a hard error (exit 2). Every refusal starts with
-`verification: refused to start — `, which is the vocabulary of all three tier-1
-wrappers and not a local convention. `AGENTS.md` § Tier-1 CI also states the
+`verification: refused to start — `, which is the vocabulary of all three CI
+wrappers and not a local convention. `AGENTS.md` § CI also states the
 meaning of an exit code of 2.
 
 The artifacts are the raw rpc stdout and stderr streams of the pi runs. They live
@@ -2195,7 +2202,7 @@ One gap remains, and this document states it plainly. `T2` and `T4` together
 cover the syntax of the file, its top-level shape, and the *shapes* of three
 keys. **An unknown key, and a wrong-typed value under a key without a sanitizer,
 pass both checks in silence**. `{"totallyUnknownKey": 5, "maxConcurrent": "lots"}`
-gives a pass for `T4` and a pass for `T2`. No check in tier 1 validates the
+gives a pass for `T4` and a pass for `T2`. No check in CI validates the
 content of the config, and the reader of `README.md` § Configuration still
 carries that duty.
 

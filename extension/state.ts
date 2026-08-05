@@ -527,7 +527,11 @@ export class SlateStore {
 	/** Invoked after every save/restore; used by mode.ts to refresh the widget. */
 	onDidChange?: () => void;
 
-	constructor(private pi: ExtensionAPI) {}
+	private pi: ExtensionAPI;
+
+	constructor(pi: ExtensionAPI) {
+		this.pi = pi;
+	}
 
 	nextThreadId(): string {
 		let max = 0;

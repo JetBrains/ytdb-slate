@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# slate — extension-load check (tier-1 CI)
+# slate — extension-load check (CI)
 # =============================================================================
 # Proves that pi's runtime loader can LOAD the extension in the checkout under
 # test, that its session_start hook runs, and that the dispatch tools and the

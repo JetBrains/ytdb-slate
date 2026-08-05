@@ -56,7 +56,7 @@ for (const a of REST) {
 
 let pass = 0;
 let fail = 0;
-// The shared output convention of the tier-1 CHECK harnesses (resolver-checks.mjs,
+// The shared output convention of the CI CHECK harnesses (resolver-checks.mjs,
 // run-load-check.sh): one line per check, verdict in a fixed column. 32 is the
 // shared id width — the longest id in any of the three plus two (30 in the
 // resolver checks, 24 here counting the --self-test prefix, 2 in the load check).
