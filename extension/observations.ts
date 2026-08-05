@@ -41,14 +41,14 @@ export type ObservationRecord =
 		grammar: FindingsGrammarResult;
 	};
 
-/** Capture adds transient write ownership or a warning to the durable facts. */
+/** Capture adds transient zero-findings, write ownership and warning facts. */
 export type ObservationCapture =
-	| (Extract<ObservationRecord, { stored: true }> & { identity: SlateArtifactIdentity })
+	| (Extract<ObservationRecord, { stored: true }> & { identity: SlateArtifactIdentity; zeroFindings: boolean })
 	| Extract<ObservationRecord, { reason: "no-final-message" | "no-final-text" }>
-	| (Extract<ObservationRecord, { reason: "write-failed" }> & { warning: string });
+	| (Extract<ObservationRecord, { reason: "write-failed" }> & { zeroFindings: boolean; warning: string });
 
-/** Remove transient write ownership and warnings without changing durable facts. */
-export function durableObservation(capture: ObservationCapture): ObservationRecord {
+/** Remove transient zero-findings, write ownership and warnings without changing durable facts. */
+export function durableObservation(capture: ObservationCapture | ObservationRecord): ObservationRecord {
 	if (capture.stored) {
 		return {
 			stored: true,
@@ -74,8 +74,17 @@ export function shouldWarnFindingsGrammar(
 	status: "ok" | "failed",
 	judgementType: boolean,
 	grammar: FindingsGrammarResult,
+	zeroFindings = false,
 ): boolean {
-	return status === "ok" && judgementType && grammar !== "present";
+	const acceptedZeroFindings = zeroFindings && grammar === "absent";
+	return status === "ok" && judgementType && grammar !== "present" && !acceptedZeroFindings;
+}
+
+/** The bounded response ends with Slate's exact zero-findings line. */
+export function hasZeroFindings(text: string): boolean {
+	const lines = text.split(/\r?\n/);
+	while (lines.at(-1) === "") lines.pop();
+	return lines.at(-1) === "No findings.";
 }
 
 function boundedObservation(text: string): { content: Buffer; truncated: boolean } {
@@ -119,7 +128,9 @@ export function captureObservation(cwd: string, episodeId: string, text: string 
 	const bounded = boundedObservation(text);
 	// Grammar describes the exact bounded text written below. Decoding is safe
 	// because boundedObservation preserves UTF-8 boundaries and adds a UTF-8 marker.
-	const grammar = findingsGrammar(bounded.content.toString("utf8"));
+	const boundedText = bounded.content.toString("utf8");
+	const grammar = findingsGrammar(boundedText);
+	const zeroFindings = hasZeroFindings(boundedText);
 	try {
 		const written = writeSlateArtifact({ cwd, kind: "observations", id: episodeId, content: bounded.content });
 		return {
@@ -129,12 +140,14 @@ export function captureObservation(cwd: string, episodeId: string, text: string 
 			truncated: bounded.truncated,
 			grammar,
 			identity: written.identity,
+			zeroFindings,
 		};
 	} catch {
 		return {
 			stored: false,
 			reason: "write-failed",
 			grammar,
+			zeroFindings,
 			// SE1: the id reaches a user-visible warning, so it goes through the same
 			// notification sanitizer every other display string in this repo uses.
 			warning: `slate: could not store observations for episode ${sanitizeForNotify(episodeId, 80)}. The episode will continue without them.`,

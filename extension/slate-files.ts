@@ -61,11 +61,6 @@ const OPEN_FLAGS = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | N
 /** A deterministic refusal by slate's rules rather than an unclassified platform error. */
 export class SlateWriteRefused extends Error {}
 
-/** Lexical directory helper retained for callers and tests. */
-export function slateArtifactDir(cwd: string, kind: SlateArtifactKind): string {
-	return join(cwd, CONFIG_DIR_NAME, "slate", kind);
-}
-
 function refuse(message: string): never {
 	throw new SlateWriteRefused(message);
 }

@@ -14,6 +14,7 @@ const codingAgentModule = await import("@earendil-works/pi-coding-agent") as unk
   };
 };
 const { codingAgentStub } = codingAgentModule;
+const originalCreateAgentSession = codingAgentStub.createAgentSession;
 const { ThreadManager } = await import("../extension/threads.ts");
 const {
   REVIEWER_CHARTER,
@@ -104,6 +105,11 @@ test("real worker assembly delivers the charter only to review thread types", as
     assert.equal(opened.length, cases.length);
     assert.deepEqual(reports, []);
   } finally {
+    codingAgentStub.createAgentSession = originalCreateAgentSession;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("worker assembly restores the shared SDK session stub", () => {
+  assert.strictEqual(codingAgentStub.createAgentSession, originalCreateAgentSession);
 });

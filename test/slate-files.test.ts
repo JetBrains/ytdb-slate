@@ -10,7 +10,6 @@ import { captureObservation } from "../extension/observations.ts";
 import {
   isSlateArtifactId,
   isSlateArtifactReference,
-  slateArtifactDir,
   SLATE_ARTIFACT_REFERENCE_MAX_BYTES,
   SlateWriteRefused,
   removeSlateArtifact,
@@ -47,8 +46,12 @@ function victim(outside: string): string {
   return file;
 }
 
+function artifactDir(project: string, kind: "episodes" | "observations"): string {
+  return join(project, ".pi", "slate", kind);
+}
+
 function observationsDir(project: string): string {
-  return slateArtifactDir(project, "observations");
+  return artifactDir(project, "observations");
 }
 
 const REJECTED_IDS = [
@@ -588,8 +591,8 @@ test("a symlink above the project root stays legitimate", () => {
 test("both artifact kinds share one writer and one refusal rule", () => {
   withLab(({ project, outside }) => {
     const target = victim(outside);
-    mkdirSync(slateArtifactDir(project, "episodes"), { recursive: true });
-    symlinkSync(target, join(slateArtifactDir(project, "episodes"), "t1.e1.md"));
+    mkdirSync(artifactDir(project, "episodes"), { recursive: true });
+    symlinkSync(target, join(artifactDir(project, "episodes"), "t1.e1.md"));
 
     assert.throws(
       () => writeSlateArtifact({ cwd: project, kind: "episodes", id: "t1.e1", content: "# Episode\n" }),
@@ -599,7 +602,7 @@ test("both artifact kinds share one writer and one refusal rule", () => {
 
     const written = writeSlateArtifact({ cwd: project, kind: "episodes", id: "t2.e1", content: "# Episode\n" });
     assert.equal(written.reference, ".pi/slate/episodes/t2.e1.md");
-    assert.equal(written.absolutePath, join(slateArtifactDir(project, "episodes"), "t2.e1.md"));
+    assert.equal(written.absolutePath, join(artifactDir(project, "episodes"), "t2.e1.md"));
     assert.equal(readFileSync(written.absolutePath, "utf8"), "# Episode\n");
   });
 });

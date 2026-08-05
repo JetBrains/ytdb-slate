@@ -51,7 +51,7 @@ import { isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 // dependency on it.
 import type { ThinkingLevel } from "./model-profiles.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import type { ObservationCapture } from "./observations.ts";
+import type { ObservationRecord } from "./observations.ts";
 // SE2: the episode file carries the SAME unsafe write pattern the observation
 // capture was found with — a predictable filename under the same tree, written
 // with recursive mkdir and writeFileSync — so both kinds now go through one safe
@@ -392,8 +392,8 @@ export interface CompressEpisodeOptions {
 	status: "ok" | "failed";
 	diagnostics?: string; // failure diagnostics (D6)
 	messages: unknown[]; // AgentMessages produced during this action
-	/** Exact final-message capture facts. The transient write warning is not rendered. */
-	observations: ObservationCapture;
+	/** Durable final-message facts. Transient capture fields are not rendered. */
+	observations: ObservationRecord;
 	/**
 	 * The model the action ACTUALLY ran on — the live worker session's own model,
 	 * so a failover switch is reflected. Recorded in the episode HEADER and NEVER

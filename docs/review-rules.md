@@ -159,7 +159,9 @@ perspective's charter:
   their final response with a self-contained compact findings block —
   one `ID` | `severity` | `location` | `one-line summary` |
   `counterexample gist` line per finding — sized to survive episode
-  compression. Route fixes by passing the reviewer's episode reference
+  compression. A review with findings ends with those five-field rows.
+  A review with zero findings ends with the exact standalone line
+  `No findings.`. Route fixes by passing the reviewer's episode reference
   (`context`) plus the compact finding index (the orchestrator's
   synthesized list of all open findings, one `ID` | `severity` |
   `location` | `one-line summary` line each); fixers re-read the
@@ -177,13 +179,13 @@ perspective's charter:
   The maximum file size is 65,551 bytes.
 - For a stored observation, the grammar result describes its bounded stored
   text. After a write failure, it describes the bounded text Slate attempted
-  to store:
-  - `present` means at least one applicable line has exactly five pipe-delimited
+  to store. Every line in that bounded text containing `|` is a candidate:
+  - `present` means at least one candidate has exactly five pipe-delimited
     fields.
-  - `absent` means no applicable line contains a pipe.
-  - `malformed` means applicable lines contain pipes, but none has exactly five
-    fields.
-  These results prove nothing about finding content.
+  - `absent` means there is no candidate.
+  - `malformed` means candidates exist, but none has exactly five fields.
+  These results prove nothing about finding content. `absent` is legitimate when
+  the canonical file ends with the exact standalone line `No findings.`.
 - If the file is absent, use the episode's compact findings block. Use that
   block also when truncation removed needed findings. If finding IDs or
   evidence remain insufficient, run a new review instead of guessing.

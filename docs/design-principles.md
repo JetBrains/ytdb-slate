@@ -98,8 +98,8 @@ or two problems for the others:
 
 - **Thread** — a persistent worker that executes ONE bounded action at a
   time, then pauses and hands control back. A thread has an immutable
-  purpose type. The type does not make it a fixed persona. It records the
-  work stream's role and can select Slate-owned guidance. Reviewer and
+  thread type. The thread type does not make it a fixed persona. It records the
+  work stream's purpose and can select Slate-owned guidance. Reviewer and
   adversarial threads receive the reviewer evidence charter. A thread
   accumulates context across its actions, acting as a reusable store for one
   work stream.
@@ -335,7 +335,7 @@ the load-on-demand discipline the extension itself prescribes:
   the extension, or making a non-obvious routing/compaction decision.
 
 The same discipline applies to worker guidance. Slate adds its compact
-reviewer evidence charter only to reviewer and adversarial worker types.
+reviewer evidence charter only to reviewer and adversarial thread types.
 `prompt-docs.ts` injects consuming-project role guidance (orchestrator via
 `before_agent_start`, workers via `appendSystemPrompt`). Defaults are
 compiled into `prompt-docs.ts`; a consuming project supplies its own

@@ -70,7 +70,7 @@ export function effectiveThreadType(thread: ThreadRecord, report: (message: stri
 	const type = resolveThreadType(storedType);
 	if (storedType !== undefined && !isThreadType(storedType) && !reportedUnknownThreadTypes.has(thread)) {
 		reportedUnknownThreadTypes.add(thread);
-		report(`slate: thread ${thread.id} has unrecognised type ${sanitizeForNotify(storedType, 80)}; treating it as general`);
+		report(`slate: thread ${thread.id} has unrecognised type ${sanitizeForNotify(storedType, 80)}. Slate is treating it as general.`);
 	}
 	return type;
 }
@@ -85,7 +85,7 @@ export interface ThreadRecord {
 	name: string;
 	sessionFile: string; // absolute path to worker .jsonl ("" until first dispatch completes session creation)
 	status: "idle" | "running";
-	/** Immutable thread role. Absent means an older thread; resolve it with effectiveThreadType. */
+	/** Immutable thread type. Absent means an older thread; resolve it with effectiveThreadType. */
 	type?: ThreadType;
 	/**
 	 * PRE-ROUTER pin: "provider/id" passed as `model` when the thread was created
@@ -704,9 +704,12 @@ export class SlateStore {
 		// inside a warning message.
 		const threadList = Array.isArray(latest.threads) ? latest.threads : [];
 		for (const raw of threadList) {
+			const repairsBefore = dropped.length;
 			const t = sanitizeThreadRecord(raw, dropped);
 			if (t === undefined) {
-				dropped.push(`thread record without a usable id: ${typeof raw === "object" ? "ignored" : typeof raw}`);
+				if (dropped.length === repairsBefore) {
+					dropped.push(`thread record without a usable id: ${typeof raw === "object" ? "ignored" : typeof raw}`);
+				}
 				continue;
 			}
 			if (t.sessionFile && !existsSync(t.sessionFile)) {

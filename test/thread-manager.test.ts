@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { BaseModelTracker } from "../extension/base-model.ts";
 import { ROUTER_OFF, type ModelRouterResolution } from "../extension/model-router.ts";
-import { SlateStore, type SlateConfig } from "../extension/state.ts";
+import { SlateStore, type SlateConfig, type ThreadRecord } from "../extension/state.ts";
 import { ThreadManager } from "../extension/threads.ts";
 import {
   EMPTY_WORKER_EXTENSION_SET,
@@ -123,6 +126,87 @@ test("ThreadManager's semaphore honours configured and default limits and return
   defaulted.release();
   defaulted.release();
   defaulted.release();
+});
+
+test("public dispatch enforces maxConcurrent across different threads", { timeout: 1000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-semaphore-dispatch-test."));
+  try {
+    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const manager = new ThreadManager(store, { maxConcurrent: 1 });
+    const live = (manager as unknown as { live: Map<string, unknown> }).live;
+    let opens = 0;
+    let active = 0;
+    let maxActive = 0;
+    const order: string[] = [];
+    let firstEnteredResolve: () => void;
+    const firstEntered = new Promise<void>((resolve) => { firstEnteredResolve = resolve; });
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let secondEnteredResolve!: () => void;
+    const secondEntered = new Promise<void>((resolve) => { secondEnteredResolve = resolve; });
+
+    (manager as unknown as {
+      openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: unknown; baseline: unknown }>;
+    }).openWorkerFor = async ({ thread }) => {
+      opens++;
+      const messages: unknown[] = [];
+      const subscribers = new Set<(event: unknown) => void>();
+      const session = {
+        messages,
+        model: undefined,
+        thinkingLevel: undefined,
+        sessionFile: undefined,
+        getContextUsage: () => undefined,
+        subscribe: (listener: (event: unknown) => void) => {
+          subscribers.add(listener);
+          return () => subscribers.delete(listener);
+        },
+        prompt: async () => {
+          active++;
+          maxActive = Math.max(maxActive, active);
+          order.push(`start-${thread.id}`);
+          if (thread.id === "t1") {
+            firstEnteredResolve();
+            await firstGate;
+          } else {
+            secondEnteredResolve();
+          }
+          order.push(`end-${thread.id}`);
+          active--;
+          const message = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] };
+          messages.push(message);
+          for (const listener of subscribers) listener({ type: "message_end", message });
+        },
+      };
+      live.set(thread.id, session);
+      return { session, baseline: {} };
+    };
+
+    const ctx = { cwd: root } as ExtensionContext;
+    const first = manager.dispatch({ name: "first", task: "first", type: "researcher" }, ctx, undefined);
+    await firstEntered;
+    const second = manager.dispatch({ name: "second", task: "second", type: "general" }, ctx, undefined);
+    const beforeRelease = await Promise.race([
+      secondEntered.then(() => "entered" as const),
+      new Promise<"turn">((resolve) => setImmediate(() => resolve("turn"))),
+    ]);
+    if (beforeRelease === "entered") {
+      releaseFirst();
+      await Promise.allSettled([first, second]);
+    }
+    assert.equal(beforeRelease, "turn", "the second action must not enter before the first releases");
+    assert.equal(opens, 1, "the second worker must wait outside the critical section");
+    assert.equal(maxActive, 1);
+
+    releaseFirst();
+    await secondEntered;
+    await Promise.all([first, second]);
+    assert.equal(opens, 2);
+    assert.equal(maxActive, 1);
+    assert.deepEqual(order, ["start-t1", "end-t1", "start-t2", "end-t2"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("SlateStore saves through the ExtensionAPI supplied to its constructor", () => {

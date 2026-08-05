@@ -135,6 +135,34 @@ test("an existing type is immutable, while a matching value is silently ignored"
   assert.equal(snapshots.length, 0);
 });
 
+test("public dispatch rejects a conflicting type before worker work or state changes", { timeout: 1000 }, async () => {
+  const { store, snapshots } = storeHarness();
+  const existing = record({ type: "reviewer" });
+  store.threads.set(existing.id, existing);
+  store.workerCostUsd = 4.5;
+  const before = structuredClone(existing);
+  const manager = new ThreadManager(store, {});
+  let opens = 0;
+  internals(manager).openWorkerFor = async () => {
+    opens++;
+    throw new Error("worker must not open");
+  };
+
+  await assert.rejects(
+    manager.dispatch(
+      { threadId: existing.id, task: "conflict", type: "implementer" },
+      {} as ExtensionContext,
+      undefined,
+    ),
+    /immutable type "reviewer"\. It cannot be changed to "implementer"/,
+  );
+  assert.equal(opens, 0);
+  assert.deepEqual(existing, before);
+  assert.equal(store.workerCostUsd, 4.5);
+  assert.equal(store.episodes.size, 0);
+  assert.equal(snapshots.length, 0);
+});
+
 test("dispatch passes route warnings from worker opening to the episode result", { timeout: 1000 }, async () => {
   const root = mkdtempSync(join(tmpdir(), "slate-route-warning-test."));
   try {
@@ -278,7 +306,7 @@ test("an unrecognised restored string survives and reads as general with one rep
   const reports: string[] = [];
   assert.equal(effectiveThreadType(adopted, (message) => reports.push(message)), "general");
   assert.equal(effectiveThreadType(adopted, (message) => reports.push(message)), "general");
-  assert.deepEqual(reports, ["slate: thread t1 has unrecognised type future-role; treating it as general"]);
+  assert.deepEqual(reports, ["slate: thread t1 has unrecognised type future-role. Slate is treating it as general."]);
 
   const absent = record();
   assert.equal(effectiveThreadType(absent, (message) => reports.push(message)), "general");

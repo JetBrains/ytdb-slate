@@ -548,11 +548,13 @@ A net much smaller than the ladder, for these subjects:
   The `writing-reminder-*` family covers the reminder policy module, requirement
   roster, cadence, gates, real mode handlers, runtime-only state, and handoff
   ordering. The checker module has two nets of its own. See § The writing checker.
-- the **worker preamble** across `extension/worker.ts` and `extension/threads.ts`
-  (`worker-preamble`) — the historical feature-off bytes, the current feature-on
-  bytes, the literal-true gate, and the sanitized config plumbing into the worker
-  system prompt. Nothing else in these modules is in scope here (see the load-path
-  note below).
+- the **worker preamble and reviewer charter** across `extension/worker.ts`,
+  `extension/threads.ts` and the marked block in `docs/review-rules.md`
+  (`worker-preamble`, `reviewer-charter-sync`). The checks cover historical
+  feature-off bytes, writing and charter gates, and worker prompt plumbing. They
+  also cover normalized byte identity between the shipped charter and its source
+  block. Nothing else in these modules is in scope here (see the load-path note
+  below).
 
 The TypeScript modules loaded are `worker-extensions.ts`, `mode.ts`, `paths.ts`,
 `model-router.ts`, `route.ts`, `state.ts`, `writing.ts`, `writing-reminder.ts`,
@@ -560,7 +562,9 @@ The TypeScript modules loaded are `worker-extensions.ts`, `mode.ts`, `paths.ts`,
 `model-profiles.ts` and — through the aliased loader — `episodes.ts`. The shipped command `extension/writing-check.mjs` is also imported
 and spawned by its own checks. Every one of them is a re-run trigger — and
 because `state.ts`'s spec helpers are also used by `failover.ts`, a change to
-**them** additionally needs the ladder above.
+**them** additionally needs the ladder above. A change to the
+`reviewer-charter:begin` / `reviewer-charter:end` block in
+`docs/review-rules.md` also triggers this suite.
 
 The ladder above covers slate's model-switch machinery — the model-default
 restore and, in `WK1`, worker-session settings isolation — and says nothing about
@@ -764,7 +768,8 @@ The **worker preamble** (`extension/worker.ts`):
 
 | id | what it proves |
 | --- | --- |
-| `worker-load` / `worker-preamble` | the module loads; feature-off is the exact historical 226-byte bounded-action preamble, feature-on is the exact current 384-byte text, only literal `true` adds guidance, and `ThreadManager` passes the sanitized switch into the worker system prompt. Nothing else in `worker.ts` or `threads.ts` is in scope here |
+| `worker-load` / `worker-preamble` | the module loads; feature-off keeps the exact historical bounded-action preamble; writing and reviewer guidance compose independently; only their explicit gates add them; and `ThreadManager` passes the sanitized writing switch and review-thread decision into the worker system prompt |
+| `reviewer-charter-sync` | the non-empty marked charter block in `docs/review-rules.md` matches the shipped `REVIEWER_CHARTER` after whitespace normalization |
 
 The worker check was mutation-verified three ways: weaken the literal-true gate to a
 truthiness gate, replace `ThreadManager`'s config value with `false`, and change one
@@ -1054,7 +1059,7 @@ faked:
 | `episode-auth` | usability is pi's own verdict, not "has an API key": a provider authenticating by **header** and one authenticating from the **environment** (the bedrock/vertex shape — `ok` with neither key nor headers) are both accepted, an unconfigured provider is still rejected at every rung, the failover retry applies the same rule, and the auth the rung was accepted for is exactly what reaches the call (headers present, no `apiKey` option at all) |
 | `episode-version` | the newest-Sonnet rung compares version components **numerically**: a two-digit minor beats a one-digit one (`4-10` over `4-9`), a higher major beats both, a dated snapshot orders stably against its alias, and a non-Sonnet is not a candidate |
 | `episode-report` | a well-formed but unusable `episodeModel` is **reported**, not silently skipped — separately for one the registry does not know and one whose provider is unconfigured — each naming the model, the reason and the fallback, display-safe and bounded, **once per process** rather than once per episode; a usable configured model is silent and is the one that runs |
-| `episode-header` | nothing interpolated into the header can forge a line or a field: newline-bearing diagnostics, thread name and task each collapse to one line, the `|` delimiter is stripped out of a model id, every field is length-bounded, `ran:` is omitted entirely when the action produced no output, the unmeasured marker is dropped when the effort guards judged another model, and a non-string provider/id is not rendered as a model name |
+| `episode-header` | nothing interpolated into the header can forge a line or field; every field is bounded; stored observations render path, bytes, truncation and grammar; not-stored variants render their reason without a path or transient warning; `ran:` is omitted without output; and effort/model claims remain bound to validated values |
 
 #### Real versus stubbed, stated plainly
 
@@ -1107,7 +1112,7 @@ Model-spec vocabulary and snapshot sanitizers (`extension/state.ts`):
 | `state-load` | the module loads; a failure converts the `spec-*` **and `state-*`** checks into explicit NOT RUN lines (both prefixes are paired with `STATE_IDS` in `VOIDABLE` — with only `spec-` there the roster's coverage audit walked past the two sanitizer checks entirely, since it filters `EXPECTED` by prefix and never notices a list member that matches none) |
 | `spec-invisible` | every zero-width or direction-changing character is **rejected** by the shared predicate — controls, bidi, soft hyphen, BOM, **variation selectors** (BMP *and* astral), **tag characters** and **Hangul fillers**, the three classes the first BG2 fix missed — each named by code point in the reason; a non-breaking space reports as whitespace; a *visible* non-ASCII spec (homoglyph, emoji) is accepted and merely annotated; a valid spec still splits on the first slash |
 | `spec-config-key` | an unusable `episodeModel` is dropped **with** a warning naming the key, the reason and the fallback (RG20), while absent and valid values stay silent and the returned value is unchanged from the old silent behaviour; an unstringifiable value warns instead of throwing |
-| `state-thread-record` | **BG26** — `sanitizeThreadRecord`, re-run over the user's whole thread history at every session restore, and the highest-blast-radius pure function in this track: a MISSED repair throws out of the `thread` tool, a FALSE one silently destroys a thread the user still needs. Pins all three input cases per field, not just the wrong-typed one: a well-formed record round-trips **byte-identically** (key order included) and reports nothing; a bare id fills every default in silence, because absent is not a repair; each wrong type falls back to its documented default **with** a note naming the field and the type it saw (`thread t1: ignoring name (number)`). An unaddressable record is dropped **silently** — the caller owns that note. A live `status` normalises to `idle`; `episodeSeq` derives from the id count; a mixed `episodeIds` array keeps its strings. Model, pin and level are **type-checked only** by design, so a malformed-but-string spec (`"  p/x  "`, `"not a spec"`) survives untouched and reaches pi's own byte-for-byte error and `route.ts`'s vocabulary rule (CQ13/RG1, BG21) instead of being repaired here — repairing at this boundary is how a caller's error becomes a silent substitution. CQ22 is walked from the outside too: every key in the exported `ADOPTED_THREAD_FIELDS` comes back and no other, and `noteUnadoptedFields` is driven directly — a field the snapshot has and the build lost is reported as a **slate bug** by name, a deliberately refused one is not reported twice, and a key from another slate version is not reported at all |
+| `state-thread-record` | **BG26** — `sanitizeThreadRecord` re-validates the whole restored thread record. A well-formed record round-trips byte-identically; absent fields receive documented defaults silently; wrong types are refused by name and type; unsafe ids are dropped; live status normalizes to idle; counters and mixed episode-id arrays are repaired; thread type is preserved only as a string for later legacy resolution; model, pin and effort strings remain byte-identical for their owning validators; and the CQ22 adoption checklist proves every owned field returns without reporting a deliberate refusal twice |
 | `state-episode-record` | the episode half of BG26, same restore path and same obligations. A well-formed record round-trips byte-identically, and so does an **all-fields** one (`wellFormed` omits the optional unmeasured marker, so the checklist walk needs its own fixture); a record with no id, no thread or no file is dropped, silently. `failed` is the only value that survives as a failure — `"FAILED"` reads as `ok` and is noted. The unmeasured marker needs the boolean: a truthy string is refused, and so is `false`, which is not a legal value of a `true`-only field. Model and effort are type-checked only, exactly as above. Since CQ22 this sanitizer has the thread sanitizer's **refuse-by-name** discipline — it used to take a repairs sink and never write to it, so an episode's dropped fields vanished while a thread's were reported — and every refusable axis is checked, while an accepted value, a bare record and a well-formed one report nothing at all |
 
 Orchestrator base-model tracker (`extension/base-model.ts`) — driven with

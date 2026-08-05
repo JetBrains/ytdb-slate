@@ -107,7 +107,7 @@ import type { BaseModelTracker } from "./base-model.ts";
 import { compressEpisode, EpisodePersistenceError } from "./episodes.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 import type { ThinkingLevel } from "./model-profiles.ts";
-import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture } from "./observations.ts";
+import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture, type ObservationRecord } from "./observations.ts";
 import { nextSlateEpisodeId, removeSlateArtifact } from "./slate-files.ts";
 import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
@@ -418,7 +418,7 @@ export class ThreadManager {
 	private setExistingThreadType(thread: ThreadRecord, requested: ThreadType | undefined): void {
 		if (requested === undefined || thread.type === requested) return;
 		if (isThreadType(thread.type)) {
-			throw new Error(`Thread ${thread.id} has immutable type "${thread.type}"; it cannot be changed to "${requested}".`);
+			throw new Error(`Thread ${thread.id} has immutable type "${thread.type}". It cannot be changed to "${requested}".`);
 		}
 		if (this.live.has(thread.id)) {
 			throw new Error(
@@ -1254,17 +1254,17 @@ export class ThreadManager {
 		// lost the episode the action had already paid for. The fallback below is the
 		// answer to a throw: it is the same not-stored fact a failed write records,
 		// because both mean there is no file to point at.
-		let observation: ObservationCapture = {
+		let observation: ObservationCapture | ObservationRecord = {
 			stored: false,
 			reason: "write-failed",
 			grammar: "absent",
-			warning: `slate: could not record observations for episode ${sanitizeForNotify(episodeId, 80)}. The episode will continue without them.`,
+			zeroFindings: false,
 		};
 		try {
 			const finalMessage = lastAssistantMessage(actionMessages);
 			observation = captureObservation(ctx.cwd, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined);
 			const warningsBeforeObservation = warnings.length;
-			if (!observation.stored && observation.reason === "write-failed") routeWarn(observation.warning);
+			if (!observation.stored && observation.reason === "write-failed" && "warning" in observation) routeWarn(observation.warning);
 			const judgementType = isJudgementThreadType(thread.type);
 			// SE1: the id can come from a restored snapshot, so every observation
 			// warning uses the shared notification sanitizer.
@@ -1277,11 +1277,16 @@ export class ThreadManager {
 				routeWarn(
 					`slate: episode ${safeEpisodeId}'s final response contained no text blocks, so no compact findings row is available.`,
 				);
-			} else if (shouldWarnFindingsGrammar(status, judgementType, observation.grammar)) {
+			} else if (shouldWarnFindingsGrammar(
+				status,
+				judgementType,
+				observation.grammar,
+				"zeroFindings" in observation && observation.zeroFindings,
+			)) {
 				const responseScope = observation.stored ? "stored final response" : "final response";
 				if (observation.grammar === "absent") {
 					routeWarn(
-						`slate: episode ${safeEpisodeId}'s ${responseScope} has no pipe-delimited findings row. Use exactly five fields for each finding.`,
+						`slate: episode ${safeEpisodeId}'s ${responseScope} has no pipe-delimited findings row. Use exactly five fields for each finding, or end with the exact line No findings.`,
 					);
 				} else {
 					routeWarn(
@@ -1317,7 +1322,7 @@ export class ThreadManager {
 				status,
 				diagnostics,
 				messages: actionMessages as unknown[],
-				observations: observation,
+				observations: durableObservations,
 				// Header only, all four (episodes.ts never picks the compressor from them —
 				// that is the whole point of the compressor pin). `workerEffortUnmeasured` is the
 				// LEVEL-checked flag and `workerEffortJudgedFor` is the spec it is a claim about,
@@ -1340,7 +1345,7 @@ export class ThreadManager {
 			// Compression includes the episode-file write. If that final write fails,
 			// roll back this attempt's earlier observation and persist every cost and
 			// recoverable session fact produced before the failure.
-			if (observation.stored) {
+			if (observation.stored && "identity" in observation) {
 				try {
 					removeSlateArtifact({
 						cwd: ctx.cwd,

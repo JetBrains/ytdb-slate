@@ -42,7 +42,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			name: Type.Optional(Type.String({ description: "Short name for a NEW thread (e.g. \"recon\")" })),
 			type: Type.Optional(
 				Type.Union(THREAD_TYPES.map((value) => Type.Literal(value)), {
-					description: "Required for a new thread; immutable thereafter: researcher, reviewer, adversarial, implementer, or general",
+					description: "The type is required for a new thread and is immutable after creation: researcher, reviewer, adversarial, implementer, or general.",
 				}),
 			),
 			task: Type.String({ description: "The single bounded action to execute" }),

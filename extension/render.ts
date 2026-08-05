@@ -8,7 +8,7 @@
 
 import { getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-import { threadTypeMarker, type ThreadType } from "./state.ts";
+import { displayThreadType, threadTypeMarker, type ThreadType } from "./state.ts";
 import type { UsageStats } from "./threads.ts";
 
 // Minimal structural theme type (avoids depending on exact Theme export).
@@ -103,7 +103,7 @@ export function renderThreadResult(
 ) {
 	const details = (result.details ?? {}) as ThreadDetails;
 	const name = details.threadName ?? details.threadId ?? "thread";
-	const typeMarker = details.type === undefined ? "" : threadTypeMarker(details.type);
+	const typeMarker = threadTypeMarker(displayThreadType(details.type));
 	const shownType = typeMarker ? theme.fg("muted", typeMarker) : "";
 
 	// Streaming: show live progress lines.

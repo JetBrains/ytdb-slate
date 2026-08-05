@@ -277,6 +277,31 @@ test("dispatch result lines keep the marker through streaming, collapsed, and ex
   }
 });
 
+test("result rendering normalizes unknown, absent, and malformed stored types", () => {
+  initTheme(undefined, false);
+  for (const type of [undefined, "future-role", "reviewer\nFORGED"]) {
+    const details = { threadName: "safe", type, episodeId: "t1.e1", status: "ok" as const };
+    const progress = renderThreadResult(
+      { details: { ...details, done: false } },
+      { expanded: false, isPartial: true },
+      theme,
+    );
+    const collapsed = renderThreadResult(
+      { content: [{ type: "text", text: "" }], details: { ...details, done: true } },
+      { expanded: false },
+      theme,
+    );
+    const expanded = renderThreadResult(
+      { content: [{ type: "text", text: "episode" }], details: { ...details, done: true } },
+      { expanded: true },
+      theme,
+    );
+    assert.equal(firstLine(progress), "⏳ safe running");
+    assert.equal(firstLine(collapsed), "✓ safe t1.e1");
+    assert.equal(firstLine(expanded), "✓ safe t1.e1");
+  }
+});
+
 test("failed result lines use failure styling when expanded and collapsed", () => {
   initTheme(undefined, false);
   const taggedTheme: TestTheme = {
@@ -314,5 +339,5 @@ test("display resolution never consumes the dispatch warning", async () => {
   const reports: string[] = [];
   assert.equal(effectiveThreadType(unknown, (message) => reports.push(message)), "general");
   assert.equal(effectiveThreadType(unknown, (message) => reports.push(message)), "general");
-  assert.deepEqual(reports, ["slate: thread t9 has unrecognised type future-role; treating it as general"]);
+  assert.deepEqual(reports, ["slate: thread t9 has unrecognised type future-role. Slate is treating it as general."]);
 });

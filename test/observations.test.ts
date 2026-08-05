@@ -7,7 +7,9 @@ import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   captureObservation,
+  durableObservation,
   findingsGrammar,
+  hasZeroFindings,
   OBSERVATIONS_MAX_BYTES,
   shouldWarnFindingsGrammar,
 } from "../extension/observations.ts";
@@ -67,6 +69,26 @@ test("findings grammar requires exactly five fields", () => {
   assert.equal(findingsGrammar("No findings."), "absent");
 });
 
+test("zero findings requires the exact final standalone line and stays transient", () => {
+  assert.equal(hasZeroFindings("No findings."), true);
+  assert.equal(hasZeroFindings("Review complete.\nNo findings.\n"), true);
+  for (const nearMiss of ["no findings.", "No findings", " No findings.", "No findings. later", "No findings.\nmore"]) {
+    assert.equal(hasZeroFindings(nearMiss), false, nearMiss);
+  }
+  withRoot((root) => {
+    const stored = captureObservation(root, "t1.e1", "No findings.");
+    assert.equal(stored.stored, true);
+    if (!stored.stored) return;
+    assert.equal(stored.grammar, "absent");
+    assert.equal(stored.zeroFindings, true);
+    assert.equal("zeroFindings" in durableObservation(stored), false);
+
+    const truncated = captureObservation(root, "t1.e2", `${"x".repeat(OBSERVATIONS_MAX_BYTES)}No findings.`);
+    assert.equal(truncated.stored, true);
+    if (truncated.stored) assert.equal(truncated.zeroFindings, false);
+  });
+});
+
 test("durable grammar describes only the bounded stored text", () => {
   withRoot((root) => {
     const beyondCap = `${"x".repeat(OBSERVATIONS_MAX_BYTES)}\nBG1 | blocker | x.ts:1 | summary | counterexample`;
@@ -89,6 +111,10 @@ test("the reviewer charter and findings warning share the exact judgement set", 
   assert.equal(shouldWarnFindingsGrammar("ok", isJudgementThreadType("researcher"), "absent"), false);
   assert.equal(shouldWarnFindingsGrammar("failed", isJudgementThreadType("reviewer"), "absent"), false);
   assert.equal(shouldWarnFindingsGrammar("ok", isJudgementThreadType("reviewer"), "present"), false);
+  assert.equal(shouldWarnFindingsGrammar("ok", isJudgementThreadType("reviewer"), "absent", true), false);
+  assert.equal(shouldWarnFindingsGrammar("ok", isJudgementThreadType("adversarial"), "absent", true), false);
+  assert.equal(shouldWarnFindingsGrammar("ok", isJudgementThreadType("reviewer"), "malformed", true), true);
+  assert.equal(shouldWarnFindingsGrammar("ok", isJudgementThreadType("researcher"), "absent", false), false);
 });
 
 test("an absent message and a message without text write no file, while whitespace is preserved", () => {
@@ -117,7 +143,9 @@ test("a failed observations write returns a warning instead of throwing", () => 
     if (result.stored) return;
     assert.equal(result.reason, "write-failed");
     assert.equal(result.grammar, "absent");
-    assert.match(result.warning, /^slate: could not store observations for episode t1\.e1\./);
+    assert.equal(result.zeroFindings, true);
+    assert.match(result.warning ?? "", /^slate: could not store observations for episode t1\.e1\./);
+    assert.equal("zeroFindings" in durableObservation(result), false);
   });
 });
 
@@ -167,6 +195,22 @@ test("snapshot adoption rejects an unsafe thread id with a visible repair", () =
   const repairs: string[] = [];
   assert.equal(sanitizeThreadRecord({ id: "review:main", episodeSeq: 0 }, repairs), undefined);
   assert.deepEqual(repairs, ["thread review:main: invalid id cannot form a canonical episode filename — remove or rename this record"]);
+});
+
+test("snapshot adoption reports one specific notice for an unsafe thread id", () => {
+  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  const notices: string[] = [];
+  store.adoptSnapshot(
+    { threads: [{ id: "review:main", episodeSeq: 0 }], episodes: [] } as unknown as Parameters<SlateStore["adoptSnapshot"]>[0],
+    {
+      hasUI: true,
+      ui: { notify: (message: string) => notices.push(message) },
+    } as unknown as ExtensionContext,
+  );
+  assert.equal(store.threads.size, 0);
+  assert.equal(notices.length, 1);
+  assert.match(notices[0] ?? "", /thread review:main: invalid id cannot form a canonical episode filename/);
+  assert.doesNotMatch(notices[0] ?? "", /record without a usable id/);
 });
 
 test("restored episode counters accept only non-negative safe integers", () => {
@@ -300,19 +344,37 @@ test("public dispatch gates each grammar warning by outcome and judgement type",
       {
         label: "successful researcher absent",
         type: "researcher" as const,
-        message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "No findings." }] },
+        message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Review complete." }] },
         expected: undefined,
       },
       {
         label: "failed reviewer absent",
         type: "reviewer" as const,
-        message: { role: "assistant", stopReason: "error", errorMessage: "failed", content: [{ type: "text", text: "No findings." }] },
+        message: { role: "assistant", stopReason: "error", errorMessage: "failed", content: [{ type: "text", text: "Review complete." }] },
         expected: undefined,
       },
       {
-        label: "successful reviewer absent",
+        label: "successful reviewer with zero findings",
         type: "reviewer" as const,
         message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "No findings." }] },
+        expected: undefined,
+      },
+      {
+        label: "successful adversarial with zero findings",
+        type: "adversarial" as const,
+        message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "No findings." }] },
+        expected: undefined,
+      },
+      {
+        label: "reviewer malformed response ending with zero findings",
+        type: "reviewer" as const,
+        message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "bad | row\nNo findings." }] },
+        expected: "stored final response has a malformed findings row",
+      },
+      {
+        label: "reviewer zero-findings near miss",
+        type: "reviewer" as const,
+        message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "No findings. later" }] },
         expected: "stored final response has no pipe-delimited findings row",
       },
       {
@@ -349,6 +411,9 @@ test("public dispatch gates each grammar warning by outcome and judgement type",
       } else {
         assert.equal(grammarWarnings.length, 1, item.label);
         assert.match(grammarWarnings[0] ?? "", new RegExp(item.expected), item.label);
+        if (item.expected.includes("no pipe-delimited")) {
+          assert.match(grammarWarnings[0] ?? "", /exactly five fields for each finding, or end with the exact line No findings\./, item.label);
+        }
         assert.ok(progress.some((update) => !update.done && update.lines.some((line) => line.includes(item.expected ?? ""))), item.label);
       }
       const terminal = progress.filter((update) => update.done);
@@ -370,6 +435,7 @@ test("dispatch routes observation and judgement warnings through results and pro
     const progress: DispatchProgress[] = [];
     const result = await dispatchOnce({
       root,
+      message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Review complete." }] },
       onProgress: (update) => progress.push({ ...update, lines: [...update.lines] }),
     });
 
@@ -388,30 +454,47 @@ test("dispatch routes observation and judgement warnings through results and pro
     assert.match(result.warnings[0] ?? "", /could not store observations/);
     assert.match(result.warnings[1] ?? "", /final response has no pipe-delimited findings row/);
     assert.doesNotMatch(result.warnings[1] ?? "", /stored final response/);
-    const interimWarning = progress.findIndex((update) => !update.done && update.lines.some((line) => line.includes("final response has no pipe-delimited findings row")));
+    const interimWarning = progress.findIndex((update) =>
+      !update.done &&
+      update.lines.some((line) => line.includes("could not store observations")) &&
+      update.lines.some((line) => line.includes("final response has no pipe-delimited findings row")),
+    );
     const terminal = progress.findIndex((update) => update.done);
-    assert.ok(interimWarning >= 0, "grammar warning must appear in a non-terminal progress update");
-    assert.ok(terminal > interimWarning, "grammar warning must precede the terminal update");
-    assert.ok(progress[interimWarning]?.lines.some((line) => line.includes("could not store observations")));
+    assert.ok(interimWarning >= 0, "both observation warnings must reach a non-terminal progress update");
+    assert.ok(terminal > interimWarning, "observation warnings must precede the terminal update");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("episode persistence failure records worker and compressor costs, recovery state, and a sanitized error", () => {
-  const probe = spawnSync(
-    process.execPath,
-    [
-      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
-      "--import",
-      join(process.cwd(), "verification", "test-hooks.mjs"),
-      join(process.cwd(), "test", "episode-persistence-probe.ts"),
-    ],
-    { encoding: "utf8" },
-  );
-  assert.equal(probe.status, 0, `probe stderr:\n${probe.stderr}\nprobe stdout:\n${probe.stdout}`);
-  assert.equal(probe.stdout, "episode-persistence-probe: PASS\n");
-  assert.equal(probe.stderr, "");
+test("episode persistence failure recovers after successful and failed observation rollback", { timeout: 5000 }, () => {
+  const scratch = temporaryRoot();
+  try {
+    for (const mode of ["success", "failure"] as const) {
+      const probeRoot = join(scratch, mode);
+      const probe = spawnSync(
+        process.execPath,
+        [
+          "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+          "--import",
+          join(process.cwd(), "verification", "test-hooks.mjs"),
+          join(process.cwd(), "test", "episode-persistence-probe.ts"),
+        ],
+        {
+          encoding: "utf8",
+          timeout: 2000,
+          killSignal: "SIGKILL",
+          env: { ...process.env, SLATE_PROBE_ROOT: probeRoot, SLATE_ROLLBACK_MODE: mode },
+        },
+      );
+      assert.equal(probe.error, undefined, `${mode} probe timed out or failed to start: ${probe.error?.message ?? "unknown error"}`);
+      assert.equal(probe.status, 0, `${mode} probe stderr:\n${probe.stderr}\nprobe stdout:\n${probe.stdout}`);
+      assert.equal(probe.stdout, `episode-persistence-probe: ${mode} PASS\n`);
+      assert.equal(probe.stderr, "");
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test("two queued actions plan consecutive episode ids inside per-thread execution", { timeout: 1000 }, async () => {
@@ -677,9 +760,10 @@ const THROWING_STEPS: Array<{
     step: "emitting the observation progress line",
     // The capture SUCCEEDED before this step threw, so its real facts are kept:
     // the guard absorbs the throw without inventing a failure.
-    expected: { stored: true, truncated: false, grammar: "absent", bytes: 12 },
+    expected: { stored: true, truncated: false, grammar: "absent", bytes: 16 },
     build: (root) => ({
       root,
+      message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Review complete." }] },
       onProgress: (update: DispatchProgress) => {
         // Target the capture's OWN interim emit, so the throw lands on that step
         // rather than on the dispatch's final progress event.
