@@ -77,10 +77,6 @@ test("seeded effort reports invalid recommendations and falls back safely", () =
   const absent = resolution();
   assert.equal(seededEffort({ ...absent, candidates: [], cheapest: undefined }, spec), undefined);
   assert.equal(seededEffort(resolution({ recommendedEffort: undefined }), "missing/model"), undefined);
-  assert.equal(
-    seededEffort(resolution({ recommendedEffort: undefined, recommendedEffortRejected: { effort: 1 as unknown as string, reason: null as unknown as string } }), spec),
-    "low",
-  );
 });
 
 test("seeded effort falls back without throwing on malformed rejection metadata", () => {
@@ -109,19 +105,33 @@ test("router records each recommendation rejection cause and accepts a measured 
   }
 });
 
-test("recommendation rejection reason explains every effort verdict", () => {
-  const base = (overrides: Partial<EffortCheck>): EffortCheck => ({ verdict: "evidence-gap", spec, effort: "low", ladder: ["low"], measured: false, listedGap: false, apiRejected: false, ...overrides });
-  assert.match(recommendationRejectionReason(base({ effort: "bogus" })), /not one of pi's/);
-  assert.match(recommendationRejectionReason(base({ apiRejected: true })), /provider rejects/);
-  assert.match(recommendationRejectionReason(base({ verdict: "off-ladder", ladder: [] })), /none recorded/);
-  assert.match(recommendationRejectionReason(base({ verdict: "evidence-gap" })), /no traced capability/);
-  assert.match(recommendationRejectionReason(base({ verdict: "not-listed" })), /returned not-listed/);
+test("plan route explains every reachable recommendation rejection reason", () => {
+  const cases: Array<[Partial<RouterCandidate>, RegExp]> = [
+    [{ recommendedEffort: "bogus" as never }, /not one of pi's thinking levels/],
+    [{ recommendedEffort: "medium", profile: profile(null, ["low", "medium"], { apiRejectedLevels: ["medium"] }) }, /provider rejects that level outright/],
+    [{ recommendedEffort: "high" }, /not on the model's effort ladder/],
+    [{ recommendedEffort: "medium", profile: profile(null, ["low"]), ladder: ["low", "medium"] }, /no traced capability measurement/],
+  ];
+  for (const [candidate, reason] of cases) {
+    const result = planRoute({ resolution: resolution(candidate) });
+    assert.equal(result.kind, "proceed");
+    assert.equal(result.warnings?.length, 1);
+    assert.match(result.warnings?.[0] ?? "", reason);
+  }
+
+  // A listed candidate cannot produce checkEffort's not-listed verdict. Keep the
+  // defensive fallback branch covered directly because the planner cannot reach it.
+  const notListed: EffortCheck = { verdict: "not-listed", spec, effort: "low", ladder: [], measured: false, listedGap: false, apiRejected: false };
+  assert.match(recommendationRejectionReason(notListed), /returned not-listed/);
 });
 
-test("plan route deduplicates identical recommendation warnings", () => {
-  const result = planRoute({ resolution: resolved("high"), thread: { id: "t1" } });
+test("plan route deduplicates repeated recommendation warnings", () => {
+  const result = planRoute({ resolution: resolved("low", []) });
   assert.equal(result.kind, "proceed");
+  assert.equal(result.baseEffort, undefined);
+  assert.equal(result.effort, undefined);
   assert.equal(result.warnings?.filter((warning) => warning.includes("recommended effort")).length, 1);
+  assert.match(result.warnings?.[0] ?? "", /No measured fallback exists, so pi's own level applies/);
 });
 
 test("routing doctrine marks recommendations and explains only used legends", async () => {
