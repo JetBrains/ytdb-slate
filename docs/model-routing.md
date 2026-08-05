@@ -174,13 +174,13 @@ opened on. M7 and E6 are known cases in which it does not.
   table no longer reads it as `ok`, it is silently re-derived for
   that model: nobody asked for that level, so a stale cache is
   Slate's to correct rather than news to report. *Code:* the stored
-  base-effort branch of `planRoute`, with `lowestMeasuredEffort`
-  (`route.ts`).
+  base-effort branch of `planRoute`, with `seededEffort` (`route.ts`).
 - **E4 — the action's model is not the base model.** An explicit
   `model`, or M4, drops the inherited base level and derives the new
-  model's own lowest measured level instead. A level derived for one
-  model is never carried onto another. *Code:* the effort resolution
-  in `planRoute`, keyed on `judgedModel` (`route.ts`).
+  model's own validated recommendation, or its lowest measured fallback.
+  A level derived for one model is never carried onto another. *Code:*
+  the effort resolution in `planRoute`, keyed on `judgedModel`
+  (`route.ts`).
 - **E5 — M2 re-clamps the level.** The failover route requests no
   level, and pi re-clamps the session's current level for the
   fallback model. *Code:* `session.setModel(mapped)` in the failover
@@ -333,22 +333,24 @@ router ON, in order:
    the ladder, or onto the provider's rejection list) is silently
    re-derived; nobody asked for it, so a stale cache is Slate's
    problem to correct rather than news to report;
-2. otherwise the **lowest measured level of the model it routes to**
-   — the lowest level on that model's ladder that carries a traced
-   capability measurement. A level derived for one model is never
-   carried onto another, so an explicit `model`, or a window
-   substitution, re-derives it;
-3. and if that model has no measured level at all, nothing is set:
+2. otherwise the model's **validated recommended level**, when the
+   corpus states one. The recommendation must still be measured,
+   ladder-valid and accepted by the provider. A failed recommendation
+   is treated as absent and warned about where planner warnings survive;
+3. otherwise the **lowest measured level of the model it routes to**.
+   A level derived for one model is never carried onto another, so an
+   explicit `model`, or a window substitution, re-derives it;
+4. and if that model has no measured level at all, nothing is set:
    the level the worker session opened on applies, which is pi's own
    settings default — never a level another action left behind.
 
 With the router OFF Slate resolves no level at all, so that same
 opening level applies to every action that omits `effort`.
 
-So a higher level is only ever reached by naming it: pass `effort`
-explicitly on the dispatch. A derived level is measured by
-construction and therefore cannot trip the effort guards; only an
-explicit one can.
+A recommendation may be higher than the model's first measured level.
+Name `effort` explicitly when harder work needs another level. A derived
+level is measured by construction and therefore cannot trip the effort
+guards; only an explicit one can.
 
 An explicit level is judged against the model the action routes to,
 which `effortJudgedFor` names. [Known cases where the model or level
@@ -447,8 +449,8 @@ model's ladder is unreadable.
 - **In the orchestrator's own system prompt, every turn:** the
   doctrine gains a routing rule — a table with one row per routable
   model, plus the rules for reading it. This is the surface you do
-  not see, and it is the router's standing cost: 1,950 characters /
-  20 added doctrine lines for six configured models, 2,505 / 23 for
+  not see, and it is the router's standing cost: 2,010 characters /
+  20 added doctrine lines for six configured models, 2,565 / 23 for
   all nine. In the current snapshot a model row costs 146–183
   characters, plus a one-off legend clause for each marker it
   introduces. Configuring the router roughly doubles Slate's
@@ -571,19 +573,21 @@ exactly — a spec that differs is dropped as unprofiled:
 
 | canonical spec | measured levels | notes |
 | --- | --- | --- |
-| `openai/gpt-5.6-luna` | medium, max | |
+| `openai/gpt-5.6-luna` | medium*, max | |
 | `openai/gpt-5.6-terra` | xhigh, max | non-preferred: configured-only, never auto-selected |
-| `openai/gpt-5.6-sol` | medium, high, xhigh, max | |
-| `anthropic/claude-sonnet-5` | high, xhigh, max | non-preferred |
-| `anthropic/claude-opus-5` | low, medium, high, xhigh, max | |
+| `openai/gpt-5.6-sol` | medium*, high, xhigh, max | |
+| `anthropic/claude-sonnet-5` | high*, xhigh, max | non-preferred |
+| `anthropic/claude-opus-5` | low, medium, high*, xhigh, max | |
 | `anthropic/claude-fable-5` | high, xhigh, max | non-preferred; no zero-data-retention option (see [What the router does NOT enforce](#what-the-router-does-not-enforce)) |
 | `openai/gpt-5.4-nano` | none | cheap tier, out of scope (below) |
 | `openai/gpt-5.4-mini` | none | cheap tier, out of scope |
 | `anthropic/claude-haiku-4-5` | none | cheap tier, out of scope |
 
-"Measured levels" are the levels an omitted `effort` can resolve to
-and the levels an explicit one passes the evidence-gap guard at; the
-first of each list is what a thread based on that model starts at.
+`*` marks the validated recommended default. A null recommendation
+adds no marker, so the first measured level is the default. `none`
+means the model measures no level, so Slate derives no default and
+pi's own level applies. An explicit level passes the evidence-gap
+guard at every measured level shown.
 
 **Use the canonical spelling.** The table also carries alias
 spellings — the research corpus's dated snapshot ids, and

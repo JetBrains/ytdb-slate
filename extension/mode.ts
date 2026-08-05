@@ -249,24 +249,30 @@ function tierCell(candidate: RouterCandidate): string {
  * (CQ23). The doctrine must never advertise a level the dispatch guards would
  * refuse, and that predicate has already moved once (BG9 made
  * `capabilityMeasuredAt` its ONLY source of an "ok"): a second copy of its terms
- * here would drift silently, since a wrong column still renders. route.ts's
- * lowestMeasuredEffort walks the same vocabulary in the same order, so the FIRST
- * entry rendered is by construction the level an omitted `effort` resolves to.
- * Cost is 7 lookups per candidate, once per agent turn.
+ * here would drift silently, since a wrong column still renders. The recommendation
+ * marker below is checked through that predicate too, so it cannot advertise a level
+ * the planner rejects. Cost is up to 8 lookups per candidate, once per agent turn.
  */
 function measuredLevels(router: ModelRouterResolution, candidate: RouterCandidate): readonly string[] {
 	return THINKING_LEVELS.filter((level) => checkEffort(router, candidate.spec, level).verdict === "ok");
 }
 
 /**
- * That list as a cell: "none" when nothing is measured, "~" when the ladder
- * itself is an assumed one. `candidate.ladderAssumed` is the candidate's OWN
+ * That list as a cell: `*` suffixes the validated recommendation, null adds no
+ * marker, "none" is the whole measured state when nothing is measured, and "~"
+ * marks an assumed ladder. `candidate.ladderAssumed` is the candidate's OWN
  * contract field (model-router.ts), not a cast through its profile (CQ24) — the
  * two agree only by construction, and this module consumes the contract.
  */
 function measuredCell(router: ModelRouterResolution, candidate: RouterCandidate): string {
 	const levels = measuredLevels(router, candidate);
-	return `${levels.length > 0 ? levels.join(",") : "none"}${candidate.ladderAssumed === true ? "~" : ""}`;
+	const recommended =
+		typeof candidate.recommendedEffort === "string" &&
+		checkEffort(router, candidate.spec, candidate.recommendedEffort).verdict === "ok"
+			? candidate.recommendedEffort
+			: undefined;
+	const shown = levels.length > 0 ? levels.map((level) => `${level}${level === recommended ? "*" : ""}`).join(",") : "none";
+	return `${shown}${candidate.ladderAssumed === true ? "~" : ""}`;
 }
 
 /**
@@ -353,6 +359,7 @@ function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: 
 		candidates.some((c) => c.nonPreferred) ? "! = never a default pick" : "",
 		candidates.some((c) => c.tierUnsourced === true) ? "t? = cost class, not a rank" : "",
 		candidates.some((c) => c.ladderAssumed === true) ? "~ = assumed ladder" : "",
+		candidates.some((c) => measuredCell(router, c).includes("*")) ? "* = recommended default" : "",
 		// The one case the "omit `effort`" sentence below cannot answer from the
 		// table: with no measured level there is nothing to derive, so pi's own
 		// level stands (route.ts's lowestMeasuredEffort returns undefined).
@@ -376,9 +383,9 @@ ${n}. Route every action to the cheapest model and effort that clears it. Routab
    this session (spec|$in/$out per Mtok|ctx|tier|measured|route for|avoid):
 ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    \`model\` and \`effort\` route THAT action only. Omit \`model\` for the thread's
-   base${newThreadBase}; omit \`effort\` for its base
-   level, else the FIRST measured level of the model it routes to — never a higher
-   one, so name the level harder work needs. Off-ladder and provider-rejected
+   base${newThreadBase}. Omit \`effort\` for its base level, else the recommended
+   level where the corpus states one, otherwise the first measured level. Name the
+   level explicitly when harder work needs one. Off-ladder and provider-rejected
    levels are tool errors; an unmeasured one ${gap}.
    Prices are base rates: some models bill a long-context multiplier above a
    token threshold, and a mid-thread model switch drops the prompt cache.

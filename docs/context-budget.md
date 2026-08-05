@@ -189,14 +189,14 @@ must be named instead of presented as the same measurement:
 | off | — | off | on | 4 | 2,999 | 60 |
 | off | — | on | off | 4 | 1,948 | 38 |
 | off | — | on | on | 5 | 3,018 | 60 |
-| on | `.pi/slate.json` six | off | off | 4 | 3,879 | 58 |
-| on | `.pi/slate.json` six | off | on | 5 | 4,949 | 80 |
-| on | `.pi/slate.json` six | on | off | 5 | 3,898 | 58 |
-| on | `.pi/slate.json` six | on | on | 6 | 4,968 | 80 |
-| on | all 9 shipped | off | off | 4 | 4,434 | 61 |
-| on | all 9 shipped | off | on | 5 | 5,504 | 83 |
-| on | all 9 shipped | on | off | 5 | 4,453 | 61 |
-| on | all 9 shipped | on | on | 6 | 5,523 | 83 |
+| on | `.pi/slate.json` six | off | off | 4 | 3,939 | 58 |
+| on | `.pi/slate.json` six | off | on | 5 | 5,009 | 80 |
+| on | `.pi/slate.json` six | on | off | 5 | 3,958 | 58 |
+| on | `.pi/slate.json` six | on | on | 6 | 5,028 | 80 |
+| on | all 9 shipped | off | off | 4 | 4,494 | 61 |
+| on | all 9 shipped | off | on | 5 | 5,564 | 83 |
+| on | all 9 shipped | on | off | 5 | 4,513 | 61 |
+| on | all 9 shipped | on | on | 6 | 5,583 | 83 |
 
 An untrusted project reads the first row whatever its `slate.json`
 says: no project config is loaded, so no optional rule renders. Line
@@ -212,10 +212,10 @@ path:
 
 - The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
   so what renders is the models you CONFIGURE — not the nine Slate
-  ships profiles for. In this snapshot it is 1,950 portable
+  ships profiles for. In this snapshot it is 2,010 portable
   characters and adds 20 doctrine lines for six configured models;
-  for all nine it is 2,505 characters and adds 23 lines. The six
-  model rows are 146–181 characters; all nine are 146–183. The
+  for all nine it is 2,565 characters and adds 23 lines. The six
+  model rows are 146–182 characters; all nine are 146–183. The
   legend adds a one-off clause per marker it has to explain, so
   growth is not only the sum of new rows.
 - The worker-extension rule grows per whitelisted extension and per
@@ -228,8 +228,8 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| current `.pi/slate.json` dogfood config | 6 | real 2 units / 4 tools | 6 | 5,884 | 90 | ≈1,471 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 6,870 | 93 | ≈1,718 |
+| current `.pi/slate.json` dogfood config | 6 | real 2 units / 4 tools | 6 | 5,944 | 90 | ≈1,486 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 6,930 | 93 | ≈1,733 |
 
 The dogfood row uses `workflow.draftPRs: true`, `writing.check: true`, and the
 six models in `.pi/slate.json`. Its extension basis is
@@ -249,10 +249,10 @@ prose. The worker rule measures 1,347 characters against its 1,600-character
 verification budget.
 
 `doctrine-budget` caps that representative maximal doctrine at 7,200 portable
-characters. The measured 6,870 leaves 330 characters, or 4.6 percent of the
+characters. The measured 6,930 leaves 270 characters, or 3.8 percent of the
 7,200-character bound. A positive control adds one capped tool
-and three copies of the largest measured model row. It measures 7,634 portable
-characters and exceeds the bound by 434. These figures are verification budgets,
+and three copies of the largest measured model row. It measures 7,694 portable
+characters and exceeds the bound by 494. These figures are verification budgets,
 never runtime limits. Arbitrary user extension rosters can exceed them.
 
 The exact values are maintenance tripwires. A deliberate doctrine wording,
@@ -263,8 +263,8 @@ fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. At four
 characters per token as a rough estimate, the shipped-rule table ranges from
-about 482 tokens to about 1,381 tokens. The current dogfood basis is about 1,471
-tokens. The representative maximum is about 1,718 tokens, or 0.67 percent of the
+about 482 tokens to about 1,396 tokens. The current dogfood basis is about 1,486
+tokens. The representative maximum is about 1,733 tokens, or 0.68 percent of the
 default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how

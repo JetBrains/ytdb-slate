@@ -338,7 +338,7 @@ const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "pro
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
-const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
+const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-planner-default", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
 const WORKER_IDS = ["worker-preamble"];
 /**
  * Checks that need extension/route.ts — the dispatch guards. They also need
@@ -968,24 +968,29 @@ try {
 		 */
 		const asTrusted = (extSet, getRouter, config = {}) => doctrine(extSet, getRouter, true, config);
 		const WITH_EXT = { units: [{ path: "/x", source: "npm:demo", isDirectory: true, tools: [{ name: "d", description: "d" }] }], paths: [], toolNames: [] };
-		/** A RouterCandidate as model-router freezes them — only the fields mode.ts reads. */
-		const cand = (spec, o = {}) => ({
-			spec,
-			inUsdPerMTok: o.in ?? 1,
-			outUsdPerMTok: o.out ?? 2,
-			contextWindow: o.window ?? 200_000,
-			tier: o.tier ?? 1,
-			tierUnsourced: o.tierUnsourced,
-			nonPreferred: o.nonPreferred ?? null,
-			ladder: o.ladder ?? ["low", "medium", "high"],
-			hasFailover: true,
-			profile: o.profile ?? {
+		/** A RouterCandidate as model-router freezes them — only the fields mode.ts and route.ts read. */
+		const cand = (spec, o = {}) => {
+			const profile = o.profile ?? {
 				capabilityMeasuredAt: o.measured ?? ["medium"],
 				apiRejectedLevels: o.rejected ?? [],
+				recommendedEffort: o.recommendedEffort ?? null,
 				routeFor: o.routeFor ?? "anything",
 				avoidFor: o.avoidFor ?? "nothing",
-			},
-		});
+			};
+			return {
+				spec,
+				inUsdPerMTok: o.in ?? 1,
+				outUsdPerMTok: o.out ?? 2,
+				contextWindow: o.window ?? 200_000,
+				tier: o.tier ?? 1,
+				tierUnsourced: o.tierUnsourced,
+				nonPreferred: o.nonPreferred ?? null,
+				ladder: o.ladder ?? ["low", "medium", "high"],
+				recommendedEffort: o.recommendedEffort ?? profile.recommendedEffort ?? undefined,
+				hasFailover: true,
+				profile,
+			};
+		};
 		const onWith = (candidates, extra = {}) => () => ({ on: true, candidates, cheapest: candidates[0]?.spec, cheapestNonPreferred: false, warnings: [], ...extra });
 		// The REAL shipped table, rendered the way a live session would: one candidate per
 		// profile, each carrying the FROZEN profile object itself. Fabricated fixtures
@@ -1415,6 +1420,64 @@ try {
 			);
 		});
 
+		await section("doctrine-planner-default", async () => {
+			if (!route) {
+				check("doctrine-planner-default", false, "the doctrine-advertised default agrees with every planner seed path", "extension/route.ts did not load");
+			} else {
+				const rendered = ruleOf(await asTrusted(EMPTY_EXT, onReal));
+				const advertised = new Map(
+					rowsOf(rendered).map((row) => {
+						const cells = row.trim().split("|");
+						const levels = (cells[4] ?? "").replace(/~$/, "").split(",");
+						const marked = levels.find((level) => level.endsWith("*"));
+						const fallback = levels[0] === "none" || levels[0] === "" ? undefined : levels[0];
+						return [cells[0], marked === undefined ? fallback : marked.slice(0, -1)];
+					}),
+				);
+				const observed = [];
+				for (const [index, candidate] of realCandidates.entries()) {
+					const expected = advertised.get(candidate.spec);
+					const one = { on: true, candidates: [candidate], cheapest: candidate.spec, cheapestNonPreferred: false, warnings: [] };
+					const fresh = route.planRoute({ resolution: one });
+					const reseed = route.planRoute({ resolution: one, thread: { id: `reseed-${index}`, baseModel: "p/gone" } });
+					const invalidStored = route.THINKING_LEVELS.find((level) => router.checkEffort(one, candidate.spec, level).verdict !== "ok");
+					const refresh = route.planRoute({
+						resolution: one,
+						thread: { id: `refresh-${index}`, baseModel: candidate.spec, baseEffort: invalidStored },
+					});
+					const action = route.planRoute({ resolution: one, thread: { id: `action-${index}`, baseModel: candidate.spec } });
+					const narrow = cand(`fixture/narrow-${index}`, {
+						window: 1,
+						ladder: ["medium"],
+						measured: ["medium"],
+						recommendedEffort: "medium",
+					});
+					const substitute = { ...candidate, contextWindow: 1_000 };
+					const substitution = route.planRoute({
+						resolution: { on: true, candidates: [narrow, substitute], cheapest: narrow.spec, cheapestNonPreferred: false, warnings: [] },
+						contextTokens: 2,
+						wouldCompact: (tokens, window) => tokens >= window,
+					});
+					observed.push({
+						spec: candidate.spec,
+						expected,
+						fresh: fresh.kind === "proceed" ? fresh.baseEffort : "reject",
+						reseed: reseed.kind === "proceed" ? reseed.baseEffort : "reject",
+						refresh: refresh.kind === "proceed" ? refresh.effort : "reject",
+						action: action.kind === "proceed" ? action.effort : "reject",
+						substitution: substitution.kind === "proceed" ? substitution.effort : "reject",
+					});
+				}
+				const mismatches = observed.filter((row) =>
+					[row.fresh, row.reseed, row.refresh, row.action, row.substitution].some((actual) => actual !== row.expected),
+				);
+				checkAll("doctrine-planner-default", "the doctrine-advertised default agrees with every planner seed path for every shipped profile", [
+					["all paths agree", mismatches.length === 0, mismatches],
+					["every shipped profile was compared", observed.length === realCandidates.length && observed.length > 0, observed.length],
+				]);
+			}
+		});
+
 		await section("writing-checker", async () => {
 			const w = (count) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
 			const lengthWarning = checker.checkText(`${w(21)}.`);
@@ -1718,7 +1781,7 @@ try {
 					["writing plus extensions stays under 6000 portable chars", portable(writingExtensionsOn).length <= 6000, { portable: portable(writingExtensionsOn).length }],
 					["all three tail features stay under 6000 portable chars", portable(writingAllOn).length <= 6000, { portable: portable(writingAllOn).length }],
 					// Update exact measurements with production wording in the same commit.
-					["the maximum all-feature fixture is the measured 6870 portable chars and stays within 7200", maximalPortable === 6870 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the maximum all-feature fixture is the measured 6930 portable chars and stays within 7200", maximalPortable === 6930 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and stays within 1600", workerRule.length === 1347 && workerRule.length <= 1600, { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
 					["the positive control exceeds 7200 by at least one model growth unit", overBudgetPortable > 7200 && overBudgetPortable - 7200 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7200, growthBeyondBound: overBudgetPortable - 7200, maxModelIncrement, maxToolIncrement }],
@@ -6057,7 +6120,7 @@ try {
 	// check or a renamed id shows up here instead of vanishing into a clean exit.
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
-		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget",
+		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-planner-default", "doctrine-budget",
 		"writing-config-default", "writing-config-reminder-valid", "writing-config-reminder-inert", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
 		"writing-reminder-load", "writing-reminder-roster", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-interval", "writing-reminder-cadence", "writing-reminder-gates", "writing-reminder-state-machine",
 		"writing-reminder-mode-send", "writing-reminder-rearm", "writing-reminder-mode-gates", "writing-reminder-mode-force", "writing-reminder-send-retry", "writing-reminder-cleared-retry", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",

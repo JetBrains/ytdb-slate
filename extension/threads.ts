@@ -17,18 +17,19 @@
  *
  *  - RESOLUTION: the planner's model is the explicit argument, else the thread's
  *    base model. Its effort is the explicit argument, else the thread's base effort
- *    WHEN THE BASE MODEL IS THE ROUTE TARGET, else a level derived for that target —
- *    a level never travels between planner targets (route.ts's THE ONE RULE, effort
- *    half). The GUARDS ALWAYS VALIDATE THE RESOLVED PAIR,
+ *    WHEN THE BASE MODEL IS THE ROUTE TARGET. Otherwise, it uses that target's
+ *    validated recommendation, then its first measured level. A level never travels
+ *    between planner targets (route.ts's THE ONE RULE, effort half). The guards validate the resolved pair,
  *    never only the explicit arguments — an omitted argument must not escape
  *    validation.
  *
  *  - A THREAD'S BASE is not an action's route. With the router ON the base model
  *    is the resolver's cheapest preferred candidate, which is always a LISTED
  *    model, so a later dispatch that omits `model` can never be rejected by the
- *    list guard (model-router D48); the base effort seeds to the LOWEST MEASURED
- *    level for that model, never to the user's global thinking-level default. A
- *    model passed to the creating dispatch routes THAT action only. A base that is
+ *    list guard (model-router D48). The base effort uses the model's validated
+ *    recommendation, then its first measured level. It never uses the user's global
+ *    thinking-level default. A model passed to the creating dispatch routes THAT
+ *    action only. A base that is
  *    NOT a listed candidate — absent (a thread older than the config) or dropped by
  *    a list change — is SEEDED by the planner on its next dispatch and written back
  *    here (persistReseededBase), so the invariant holds for threads the config
