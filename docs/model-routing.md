@@ -410,9 +410,16 @@ model's ladder is unreadable.
 
 ## What you'll see
 
+- **Thread type marker:** `type=<type>` names one of `researcher`,
+  `reviewer`, `adversarial`, or `implementer`. It appears in the Slate
+  widget, the dispatch call line, live and completed result lines, and
+  the `threads` listing. The fifth type is `general`. Slate suppresses
+  the marker whenever the type displays as `general`. A missing marker
+  cannot distinguish a stored `general` value from an absent or
+  unrecognised value.
 - **On the call line (TUI):** what the action asked for, e.g.
-  `thread t1 [openai/gpt-5.6-sol @medium]`, or just `[@medium]` when
-  only the level was named.
+  `thread t1 type=reviewer [openai/gpt-5.6-sol @medium]`, or just
+  `[@medium]` when only the level was named.
 - **On the collapsed result line (TUI):** what it actually ran on,
   labelled so it cannot be read as the request:
   `[ran openai/gpt-5.6-sol @medium]`, with a trailing `unmeasured`
@@ -433,8 +440,9 @@ model's ladder is unreadable.
   its decision to make), the same lines in the live progress output,
   and `details.ranModel` / `details.ranEffort` /
   `details.ranEffortUnmeasured` / `details.warnings` for a renderer.
-- **In the `threads` listing:** `base=<model>@<level>?` — the nominal
-  plan target when a dispatch omits `model`. The trailing `?` marks
+- **In the `threads` listing:** `type=<type>` precedes the model markers
+  for a non-general thread. `base=<model>@<level>?` is the nominal plan
+  target when a dispatch omits `model`. The trailing `?` marks
   the level, not the model, as provisional: it is a stored default,
   re-validated against the model's current capability data on every
   dispatch and silently re-derived if it no longer holds. `last=` is

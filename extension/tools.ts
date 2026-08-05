@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { renderThreadCall, renderThreadResult } from "./render.ts";
-import { parseThreadType, THREAD_TYPES, type SlateStore } from "./state.ts";
+import { displayThreadType, isThreadType, parseThreadType, threadTypeMarker, THREAD_TYPES, type SlateStore } from "./state.ts";
 import type { DispatchProgress, ThreadManager } from "./threads.ts";
 
 export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManager: () => ThreadManager): void {
@@ -74,6 +74,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			// pi does not enforce extension tool schemas. Validate the conditional
 			// requirement and closed vocabulary before dispatch can mutate state.
 			const type = parseThreadType(params.type, params.thread === undefined);
+			const displayedType = (threadId: string) => displayThreadType(store.threads.get(threadId)?.type ?? type);
 			const onProgress = (p: DispatchProgress) => {
 				onUpdate?.({
 					content: [
@@ -82,7 +83,14 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 							text: `[${p.threadName}] ${p.done ? (p.status ?? "done") : "running"}\n${p.lines.slice(-8).join("\n")}`,
 						},
 					],
-					details: { threadId: p.threadId, threadName: p.threadName, lines: p.lines, usage: p.usage, done: p.done },
+					details: {
+						threadId: p.threadId,
+						threadName: p.threadName,
+						type: displayedType(p.threadId),
+						lines: p.lines,
+						usage: p.usage,
+						done: p.done,
+					},
 				});
 			};
 
@@ -120,6 +128,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				details: {
 					threadId: result.thread.id,
 					threadName: result.thread.name,
+					type: displayThreadType(result.thread.type),
 					episodeId: result.episode.id,
 					status: result.episode.status,
 					episodeFile: result.episode.file,
@@ -138,7 +147,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		},
 
 		renderCall(args, theme) {
-			return renderThreadCall(args as never, theme as never);
+			const storedType = args.thread === undefined ? undefined : store.threads.get(args.thread)?.type;
+			const type = displayThreadType(isThreadType(storedType) ? storedType : args.type);
+			return renderThreadCall({ ...args, type } as never, theme as never);
 		},
 		renderResult(result, options, theme) {
 			return renderThreadResult(result as never, options as never, theme as never);
@@ -150,6 +161,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		label: "Threads",
 		description:
 			"List worker threads, their status, episodes, activity, and models. " +
+			"type=<type> marks a non-general thread. " +
 			"base=<model>@<effort>? is the nominal plan target when `model` is omitted. " +
 			"The ? marks effort as provisional because Slate re-checks and may re-derive it. " +
 			"last=<model>@<effort> records the last action. live=<model> (failover) shows a held fallback " +
@@ -163,6 +175,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			}
 			const lines = threads.map((t) => {
 				const episodes = t.episodeIds.length > 0 ? t.episodeIds.join(", ") : "(none)";
+				const typeMarker = threadTypeMarker(displayThreadType(t.type));
 				const marks: string[] = [];
 				// The thread's NOMINAL model — the planner target for a dispatch that omits
 				// `model` (?? t.model: an older thread carries only the pre-router pin).
@@ -199,7 +212,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const live = getManager().liveFailoverModel(t.id);
 				if (live) marks.push(`live=${live} (failover)`);
 				const models = marks.length > 0 ? ` ${marks.join(" ")}` : "";
-				return `${t.id} "${t.name}" [${t.status}]${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
+				return `${t.id} "${t.name}" [${t.status}]${typeMarker}${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
 			});
 			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length } };
 		},

@@ -48,6 +48,15 @@ export function parseThreadType(value: unknown, required: boolean): ThreadType |
 	return value;
 }
 
+function resolveThreadType(value: unknown): ThreadType {
+	return isThreadType(value) ? value : "general";
+}
+
+/** Resolve a display value without consuming the once-only warning for an adopted record. */
+export function displayThreadType(value: unknown): ThreadType {
+	return resolveThreadType(value);
+}
+
 const reportedUnknownThreadTypes = new WeakSet<ThreadRecord>();
 
 /**
@@ -56,13 +65,18 @@ const reportedUnknownThreadTypes = new WeakSet<ThreadRecord>();
  * produces one visible report for that adopted record rather than one per use.
  */
 export function effectiveThreadType(thread: ThreadRecord, report: (message: string) => void): ThreadType {
-	if (thread.type === undefined) return "general";
-	if (isThreadType(thread.type)) return thread.type;
-	if (!reportedUnknownThreadTypes.has(thread)) {
+	const storedType = thread.type;
+	const type = resolveThreadType(storedType);
+	if (storedType !== undefined && !isThreadType(storedType) && !reportedUnknownThreadTypes.has(thread)) {
 		reportedUnknownThreadTypes.add(thread);
-		report(`slate: thread ${thread.id} has unrecognised type ${sanitizeForNotify(thread.type, 80)}; treating it as general`);
+		report(`slate: thread ${thread.id} has unrecognised type ${sanitizeForNotify(storedType, 80)}; treating it as general`);
 	}
-	return "general";
+	return type;
+}
+
+/** Compact display marker shared by every thread surface; includes its own separator. */
+export function threadTypeMarker(type: ThreadType): string {
+	return type === "general" ? "" : ` type=${type}`;
 }
 
 export interface ThreadRecord {
