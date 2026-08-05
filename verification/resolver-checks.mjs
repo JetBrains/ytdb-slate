@@ -24,7 +24,8 @@
 // piped output): 1 if anything failed, or if a NOT RUN happened under --strict.
 // See verification/README.md.
 // =============================================================================
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -42,6 +43,7 @@ const { createJiti } = await import(pathToFileURL(JITI).href);
 const jiti = createJiti(import.meta.url);
 const we = await jiti.import(`${REPO}/extension/worker-extensions.ts`);
 const mode = await jiti.import(`${REPO}/extension/mode.ts`);
+const paths = await jiti.import(`${REPO}/extension/paths.ts`);
 // The router and the profile table are imported defensively: a missing or broken
 // module of either must not take the rest of the suite down with it. It becomes
 // one loud FAIL plus explicit NOT RUN lines for the checks it voids.
@@ -55,6 +57,8 @@ async function tryImport(rel) {
 const routerLoad = await tryImport("extension/model-router.ts");
 const profilesLoad = await tryImport("extension/model-profiles.ts");
 const stateLoad = await tryImport("extension/state.ts");
+const writingLoad = await tryImport("extension/writing.ts");
+const workerLoad = await tryImport("extension/worker.ts");
 // The base-model tracker is a PURE reducer over model-selection events (its own
 // module header says so), so it belongs here rather than in the ladder: it
 // touches no pi, no filesystem and no clock other than the injected one.
@@ -66,8 +70,12 @@ const routeLoad = await tryImport("extension/route.ts");
 const router = routerLoad.module;
 const table = profilesLoad.module;
 const state = stateLoad.module;
+const writing = writingLoad.module;
+const worker = workerLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
+const checker = await import(pathToFileURL(`${REPO}/extension/writing-check.mjs`).href);
+const CHECKER_PATH = `${REPO}/extension/writing-check.mjs`;
 
 // ----------------------------------------------------------------- reporting --
 let pass = 0;
@@ -150,6 +158,61 @@ function file(rel, content = "//x") {
 	return abs;
 }
 
+function writingStatusFixture({ writing = true, trusted = true, orchestrator = true, hasUI = true, loadWritingChecker } = {}) {
+	const handlers = {};
+	let status;
+	let saves = 0;
+	const pi = {
+		on: (event, handler) => { handlers[event] = handler; },
+		registerCommand: () => {},
+		getActiveTools: () => [],
+		setActiveTools: () => {},
+		getAllTools: () => [],
+	};
+	const store = {
+		orchestratorMode: orchestrator,
+		paused: false,
+		threads: new Map(),
+		workerCostUsd: 0,
+		carriedCostUsd: 0,
+		save: () => { saves++; },
+		set onDidChange(_value) {},
+	};
+	const ctx = {
+		cwd: REPO,
+		mode: "tui",
+		hasUI,
+		isProjectTrusted: () => trusted,
+		sessionManager: { getEntries: () => [] },
+		ui: {
+			setStatus: (_key, value) => { status = value; },
+			setWidget: () => {},
+			notify: () => {},
+		},
+	};
+	mode.registerSlateMode(
+		pi,
+		store,
+		{ startHandoff: async () => {} },
+		() => ({ writing: { check: writing } }),
+		() => ({ units: [] }),
+		() => ({ on: false, candidates: [] }),
+		loadWritingChecker,
+	);
+	return { handlers, ctx, getStatus: () => status, getSaves: () => saves };
+}
+
+async function writingSession(fixture) {
+	await fixture.handlers.session_start({}, fixture.ctx);
+	return fixture;
+}
+
+async function writingTurn(fixture, message = { role: "assistant", content: "Open the panel; stop." }) {
+	await writingSession(fixture);
+	await fixture.handlers.turn_end({ message }, fixture.ctx);
+	return fixture;
+}
+
 // Build a fake package: a package.json declaring `entries`, plus each of `files`
 // as an on-disk entry file. Returns { dir, paths: { <rel>: <abs> } }.
 function mkpkg(name, entries, files) {
@@ -164,7 +227,7 @@ function mkpkg(name, entries, files) {
 // Drive the doctrine builder the way index.ts does — through registerSlateMode's
 // before_agent_start handler — with a fixed (empty) config and an untrusted
 // project, so only the worker-extension rule varies between calls.
-async function doctrine(extSet, getRouter, trusted = false) {
+async function doctrine(extSet, getRouter, trusted = false, config = {}) {
 	const handlers = {};
 	const pi = {
 		on: (e, h) => (handlers[e] = h),
@@ -185,7 +248,7 @@ async function doctrine(extSet, getRouter, trusted = false) {
 	// The 6th parameter is OPTIONAL and defaults to the shared off resolution, which is
 	// why every pre-router caller of this helper kept passing. It is passed only when a
 	// check supplies one, so the DEFAULT path stays exercised too (b092f92).
-	const args = [pi, store, { startHandoff: async () => {} }, () => ({}), () => extSet];
+	const args = [pi, store, { startHandoff: async () => {} }, () => config, () => extSet];
 	if (getRouter !== undefined) args.push(getRouter);
 	mode.registerSlateMode(...args);
 	// TRUST defaults to FALSE, which is what every pre-74a728c caller of this helper
@@ -238,7 +301,8 @@ const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "pro
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
-const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget"];
+const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
+const WORKER_IDS = ["worker-preamble"];
 /**
  * Checks that need extension/route.ts — the dispatch guards. They also need
  * extension/model-router.ts, because the planner consumes its resolutions AND
@@ -312,6 +376,7 @@ const VOIDABLE = [
 	["route-", ROUTE_IDS, "route-load"],
 	["router-", ROUTER_IDS, "router-load"],
 	["profiles-", PROFILE_IDS, "profiles-load"],
+	["worker-", WORKER_IDS, "worker-load"],
 	// STATE_IDS holds TWO id prefixes, so it needs two entries. With only "spec-" here
 	// the audit below never reached `state-thread-record`/`state-episode-record`: the
 	// `uncovered` filter walks EXPECTED by PREFIX, so an id in the list that matches no
@@ -497,7 +562,7 @@ try {
 		 * pins that trusted and untrusted render byte-identically for the configurations
 		 * used here, and `doctrine-untrusted` pins the gate itself.
 		 */
-		const asTrusted = (extSet, getRouter) => doctrine(extSet, getRouter, true);
+		const asTrusted = (extSet, getRouter, config = {}) => doctrine(extSet, getRouter, true, config);
 		const WITH_EXT = { units: [{ path: "/x", source: "npm:demo", isDirectory: true, tools: [{ name: "d", description: "d" }] }], paths: [], toolNames: [] };
 		/** A RouterCandidate as model-router freezes them — only the fields mode.ts reads. */
 		const cand = (spec, o = {}) => ({
@@ -538,6 +603,16 @@ try {
 		/** The rule's own text: from its number line to the end of the numbered block. */
 		const ruleOf = (d) => {
 			const at = d.search(/\n\d+\. Route every action/);
+			return at < 0 ? "" : d.slice(at);
+		};
+		/**
+		 * The WRITING rule's own text, by the same rule as ruleOf: from its number line to
+		 * the end of the numbered block. It is the LAST tail builder at buildDoctrine's call
+		 * site, so slicing to the end is the whole rule for the fixtures here (which supply
+		 * no doctrine extra and no prompt docs).
+		 */
+		const ruleOfWriting = (d) => {
+			const at = d.search(/\n\d+\. Check all user-facing prose/);
 			return at < 0 ? "" : d.slice(at);
 		};
 		const tailNumbers = (d) => [...d.matchAll(/\n(\d+)\. /g)].map((m) => Number(m[1])).filter((n) => n > 10);
@@ -936,19 +1011,210 @@ try {
 			);
 		});
 
+		await section("writing-checker", async () => {
+			const w = (count) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
+			const lengthWarning = checker.checkText(`${w(21)}.`);
+			const lengthFail = checker.checkText(`${w(26)}.`);
+			const lengthNegative = checker.checkText(`${w(20)}.`);
+			checkAll("writing-checker-length", "21–25 words warn, more than 25 words fail, shorter sentences stay silent, and one sentence never emits both levels", [
+				["21 words warns", lengthWarning.findings.some((f) => f.id === "SENT20" && f.class === "warning"), lengthWarning.findings],
+				["26 words fails", lengthFail.findings.some((f) => f.id === "SENT25" && f.class === "fail"), lengthFail.findings],
+				["20 words is silent", !lengthNegative.findings.some((f) => f.id === "SENT20" || f.id === "SENT25"), lengthNegative.findings],
+				["warning and fail are mutually exclusive", !lengthWarning.findings.some((f) => f.id === "SENT25") && !lengthFail.findings.some((f) => f.id === "SENT20"), [lengthWarning.findings, lengthFail.findings]],
+			]);
+			const paraPositive = checker.checkText("One. Two. Three. Four. Five. Six. Seven.");
+			const paraNegative = checker.checkText("One. Two. Three. Four. Five. Six.");
+			checkAll("writing-checker-para", "PARA6 fires above six paragraph sentences and stays silent at six", [
+				["seven fires", paraPositive.findings.some((f) => f.id === "PARA6" && f.class === "fail"), paraPositive.findings],
+				["six stays silent", !paraNegative.findings.some((f) => f.id === "PARA6"), paraNegative.findings],
+			]);
+			const semicolonPositive = checker.checkText("Open the panel; stop.");
+			const semicolonNegative = checker.checkText("Open the panel. Stop.");
+			checkAll("writing-checker-semicolon", "SEMICOLON fires in prose and stays silent without a semicolon", [
+				["positive fires", semicolonPositive.findings.some((f) => f.id === "SEMICOLON" && f.class === "fail"), semicolonPositive.findings],
+				["negative stays silent", !semicolonNegative.findings.some((f) => f.id === "SEMICOLON"), semicolonNegative.findings],
+			]);
+			const contractionPositive = checker.checkText("It isn't ready.");
+			const contractionNegative = checker.checkText("The pump's cover is red.");
+			checkAll("writing-checker-contraction", "CONTRACTION fires for a contraction and stays silent for possessive s", [
+				["positive fires", contractionPositive.findings.some((f) => f.id === "CONTRACTION" && f.class === "fail"), contractionPositive.findings],
+				["negative stays silent", !contractionNegative.findings.some((f) => f.id === "CONTRACTION"), contractionNegative.findings],
+			]);
+
+			const house = checker.checkText("Select and/or replace it.");
+			const aggregate = checker.run([{ text: "Select and/or replace it." }]).aggregate;
+			check("writing-checker-class", house.findings.some((f) => f.class === "house-style") && aggregate.houseStyleFindings > 0 && aggregate.failFindings === 0, "house-style findings remain separate from fail-level counts", [house.findings, aggregate]);
+			check("writing-checker-not-checked", Array.isArray(checker.NOT_CHECKED) && checker.NOT_CHECKED.length > 0 && checker.NOT_CHECKED.every((x) => typeof x.id === "string" && x.id && typeof x.reason === "string" && x.reason), "the fixed not-checked list is non-empty and gives a reason for every item", checker.NOT_CHECKED);
+
+			const oversized = file("writing/oversized.md", Buffer.alloc(checker.MAX_INPUT_BYTES + 1, 0x61));
+			const special = join(WORK, "writing", "special");
+			symlinkSync("/dev/zero", special);
+			const largeRun = spawnSync(process.execPath, [CHECKER_PATH, "--file", oversized], { encoding: "utf8" });
+			const specialRun = spawnSync(process.execPath, [CHECKER_PATH, "--file", special], { encoding: "utf8" });
+			check("writing-checker-caps", largeRun.status !== 0 && /byte|limit/i.test(largeRun.stderr) && specialRun.status !== 0 && /regular file|symlink|special/i.test(specialRun.stderr), "the command refuses oversized and symlink/special-file inputs with bounded errors", { large: [largeRun.status, largeRun.stderr], special: [specialRun.status, specialRun.stderr] });
+
+			const jsonl = file("writing/input.jsonl", JSON.stringify({ id: "r1", text: "Open the panel; stop." }) + "\n");
+			const direct = file("writing/direct.md", "Open the panel; stop.");
+			const diff = file("writing/change.diff", "--- a/a.md\n+++ b/a.md\n@@ -1 +1 @@\n-Old text;\n+New text.\n");
+			const jsonRun = spawnSync(process.execPath, [CHECKER_PATH, "--input", jsonl], { encoding: "utf8" });
+			const fileRun = spawnSync(process.execPath, [CHECKER_PATH, "--file", direct], { encoding: "utf8" });
+			const diffRun = spawnSync(process.execPath, [CHECKER_PATH, "--diff", diff], { encoding: "utf8" });
+			const jsonResult = JSON.parse(jsonRun.stdout);
+			const fileResult = JSON.parse(fileRun.stdout);
+			const diffResult = JSON.parse(diffRun.stdout);
+			checkAll("writing-checker-modes", "JSONL, direct-file, and unified-diff command modes work, and diff mode ignores deleted lines", [
+				["JSONL works", jsonRun.status === 0 && jsonResult.aggregate.rules.SEMICOLON.findings === 1, jsonRun.stderr],
+				["file works", fileRun.status === 0 && fileResult.aggregate.rules.SEMICOLON.findings === 1, fileRun.stderr],
+				["diff reports only added lines", diffRun.status === 0 && diffResult.aggregate.rules.SEMICOLON.findings === 0, diffResult],
+			]);
+			const repeatA = spawnSync(process.execPath, [CHECKER_PATH, "--file", direct, "--format", "json"], { encoding: "utf8" });
+			const repeatB = spawnSync(process.execPath, [CHECKER_PATH, "--file", direct, "--format", "json"], { encoding: "utf8" });
+			check("writing-checker-determinism", repeatA.status === 0 && repeatA.stdout === repeatB.stdout, "the same command input produces byte-identical output", [repeatA.stdout, repeatB.stdout]);
+		});
+
+		await section("writing-status", async () => {
+			const w = (count) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
+			const fresh = await writingSession(writingStatusFixture());
+			check("writing-status-fresh", /writing 0\/0/.test(fresh.getStatus() ?? ""), "a fresh session with no completed turn says writing 0/0", fresh.getStatus());
+			const clean = await writingTurn(writingStatusFixture(), { role: "assistant", content: "The report was written." });
+			check("writing-status-clean", /writing 0\/1/.test(clean.getStatus() ?? ""), "a measured clean turn says writing 0/1", clean.getStatus());
+			const on = await writingTurn(writingStatusFixture());
+			check("writing-status-positive", /writing 1\/1/.test(on.getStatus() ?? ""), "a completed assistant turn produces the live writing status with one measured turn and one failing turn", on.getStatus());
+			check("writing-status-import-url", typeof paths.WRITING_CHECKER_URL === "string" && paths.WRITING_CHECKER_URL.startsWith("file:") && paths.WRITING_CHECKER_URL.endsWith("writing-check.mjs"), "the optional checker import uses a file URL", paths.WRITING_CHECKER_URL);
+			check("writing-status-gate-switch", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ writing: false }))).getStatus() ?? ""), "writing.check off suppresses the status rate", on.getStatus());
+			check("writing-status-gate-trust", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ trusted: false }))).getStatus() ?? ""), "an untrusted project suppresses the status rate", on.getStatus());
+			check("writing-status-gate-mode", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ orchestrator: false }))).getStatus() ?? ""), "orchestrator mode off suppresses the status rate", on.getStatus());
+			check("writing-status-gate-ui", (await writingTurn(writingStatusFixture({ hasUI: false }))).getStatus() === undefined, "a session without UI suppresses the status rate", on.getStatus());
+
+			const importFailed = await writingTurn(writingStatusFixture({
+				loadWritingChecker: async () => { throw new Error("synthetic import failure"); },
+			}));
+			check("writing-status-import-fail", /writing unavailable/.test(importFailed.getStatus() ?? ""), "a rejected checker import says writing unavailable", importFailed.getStatus());
+
+			const throwing = await writingTurn(writingStatusFixture({
+				loadWritingChecker: async () => ({ checkText: () => { throw new Error("synthetic checker failure"); } }),
+			}));
+			check("writing-status-fail-open", /writing unavailable/.test(throwing.getStatus() ?? ""), "a throwing checker cannot fail the turn and says writing unavailable", throwing.getStatus());
+
+			const capCounters = { measuredTurns: 0, findingTurns: 0 };
+			writing.measureWritingTurn({ role: "assistant", content: "x".repeat(checker.MAX_INPUT_BYTES + 1) }, checker, capCounters);
+			check("writing-status-cap-skip", capCounters.measuredTurns === 0 && capCounters.findingTurns === 0, "an oversized assistant message is skipped rather than counted or thrown", capCounters);
+			const skipped = await writingTurn(writingStatusFixture(), { role: "assistant", content: "x".repeat(16 * 1024 + 1) });
+			check("writing-status-cap-visible", /writing skipped \(message too large\)/.test(skipped.getStatus() ?? ""), "a message above the turn bound is visible as skipped in the status line", skipped.getStatus());
+
+			const counters = { measuredTurns: 0, findingTurns: 0 };
+			writing.measureWritingTurn({ role: "assistant", content: "Open the panel; stop." }, checker, counters);
+			writing.measureWritingTurn({ role: "assistant", content: `${w(21)}.` }, checker, counters);
+			writing.measureWritingTurn({ role: "assistant", content: "Select and/or replace it." }, checker, counters);
+			writing.measureWritingTurn({ role: "assistant", content: "The report was written." }, checker, counters);
+			check("writing-status-counting", counters.measuredTurns === 4 && counters.findingTurns === 1, "only a fail-level finding counts; warnings, house-style, and advisories do not", counters);
+
+			const noWrite = writingStatusFixture();
+			await writingTurn(noWrite);
+			check("writing-status-no-store-write", noWrite.getSaves() === 0, "in-memory writing counters never cause a Slate store write", noWrite.getSaves());
+		});
+
+		await section("writing-doctrine", async () => {
+			const offConfig = { writing: { check: false } };
+			const onConfig = { writing: { check: true } };
+			const noConfig = {};
+			const off = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), offConfig);
+			const absent = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), noConfig);
+			const on = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), onConfig);
+			checkAll("writing-doctrine-off", "writing.check false renders doctrine byte-identically to an absent writing config", [
+				["off equals absent", off === absent, { off: off.length, absent: absent.length }],
+				["on renders the writing rule", /Check all user-facing prose before delivery/.test(on), on.slice(-700)],
+			]);
+
+			const untrustedOn = await doctrine(EMPTY_EXT, () => ({ on: false, candidates: [] }), false, onConfig);
+			const untrustedOff = await doctrine(EMPTY_EXT, () => ({ on: false, candidates: [] }), false, offConfig);
+			const trustedOn = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), onConfig);
+			checkAll("writing-doctrine-untrusted", "an untrusted project gets no writing rule and remains byte-identical to writing.check false", [
+				["untrusted on equals off", untrustedOn === untrustedOff, { on: untrustedOn.length, off: untrustedOff.length }],
+				["trusted on renders the rule", /Check all user-facing prose before delivery/.test(trustedOn), trustedOn.slice(-700)],
+			]);
+
+			const routing = onReal;
+			const offRouter = () => ({ on: false, candidates: [] });
+			const combos = {
+				writing: await asTrusted(EMPTY_EXT, offRouter, onConfig),
+				"writing + router": await asTrusted(EMPTY_EXT, routing, onConfig),
+				"writing + extensions": await asTrusted(WITH_EXT, offRouter, onConfig),
+				"all three": await asTrusted(WITH_EXT, routing, onConfig),
+				"router without writing": await asTrusted(EMPTY_EXT, routing, offConfig),
+				"extensions without writing": await asTrusted(WITH_EXT, offRouter, offConfig),
+				"all without writing": await asTrusted(WITH_EXT, routing, offConfig),
+			};
+			const numbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, tailNumbers(text)]));
+			const writingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Check all user-facing prose")]));
+			const routingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Route every action")]));
+			const extensionNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Delegate any action that needs")]));
+			checkAll("writing-doctrine-numbering", "the writing rule is appended and numbered by tail position, without renumbering any rule before it", [
+				["writing alone is 11", writingNumbers.writing === 11 && numbers.writing.join() === "11", numbers],
+				["writing follows router", writingNumbers["writing + router"] === 12 && routingNumbers["writing + router"] === 11, [writingNumbers, routingNumbers]],
+				["writing follows extensions", writingNumbers["writing + extensions"] === 12 && extensionNumbers["writing + extensions"] === 11, [writingNumbers, extensionNumbers]],
+				["writing is last with all three", writingNumbers["all three"] === 13 && routingNumbers["all three"] === 12 && extensionNumbers["all three"] === 11, [writingNumbers, routingNumbers, extensionNumbers]],
+				["router number stays unchanged when writing is added", routingNumbers["writing + router"] === numberOf(combos["router without writing"], "Route every action"), [routingNumbers, numberOf(combos["router without writing"], "Route every action")]],
+				["extension number stays unchanged when writing is added", extensionNumbers["writing + extensions"] === numberOf(combos["extensions without writing"], "Delegate any action that needs"), [extensionNumbers, numberOf(combos["extensions without writing"], "Delegate any action that needs")]],
+				["both preceding numbers stay unchanged when writing is added", routingNumbers["all three"] === numberOf(combos["all without writing"], "Route every action") && extensionNumbers["all three"] === numberOf(combos["all without writing"], "Delegate any action that needs"), [routingNumbers, extensionNumbers]],
+			]);
+
+			const hostileConfigs = [
+				{ writing: { check: true, extra: "ignored" } },
+				{ writing: { check: true, checkAgain: "ignored" } },
+				{ writing: { check: true, nested: { text: "ignored" } } },
+			];
+			const renderedHostile = await Promise.all(hostileConfigs.map((config) => asTrusted(EMPTY_EXT, offRouter, config)));
+			check("writing-doctrine-inject", renderedHostile.every((text) => text === on), "the writing doctrine is static: config-derived text beyond the boolean check never reaches the rendered rule", renderedHostile.map((text) => text.length));
+
+			// THE DOC CITATION. The writing rule cites docs/writing-guidance.md by the same
+			// mechanism rules 8-10 and the routing rule use: an ABSOLUTE path resolved inside
+			// the installed package. That path is prompt text paid for on EVERY turn of every
+			// session with the feature on, and every character of the installed docs directory
+			// costs one more character of it — so three properties matter and none of them is
+			// visible from a smoke test, because a citation that renders in the wrong state,
+			// twice, or at a missing file all still "work".
+			//
+			// The path is taken from paths.ts rather than pattern-matched out of the rendered
+			// text: a check that re-derived the filename would keep passing after a rename that
+			// left the doctrine citing a document the package no longer ships. The publish-set
+			// half of that guarantee is package-content-check.mjs's, which parses BOTH files;
+			// this half is that the rendering and the on-disk file agree.
+			const cited = paths.WRITING_GUIDANCE_DOC;
+			const citations = (text) => text.split(cited).length - 1;
+			const writingRule = ruleOfWriting(on);
+			const citeFree = [
+				["writing.check false", off],
+				["an absent writing config", absent],
+				["an untrusted project with writing.check true", untrustedOn],
+				["a router-on session with writing off", combos["router without writing"]],
+				["an extensions-on session with writing off", combos["extensions without writing"]],
+			].filter(([, text]) => citations(text) !== 0).map(([label]) => label);
+			checkAll(
+				"writing-doctrine-cite",
+				"the writing rule cites docs/writing-guidance.md by the ABSOLUTE package-resolved path paths.ts exports, ONCE, and only while the rule renders: every feature-off and untrusted rendering carries no occurrence of it, so the per-turn cost of the citation is paid exactly by the sessions that asked for the feature. The path is read from paths.ts, never re-derived from the rendered text, so a rename that leaves the doctrine citing a document the package no longer ships fails here; the file it names must also exist. The citation must not disturb the tail numbering either — it adds prose and a path, so the rule still carries exactly ONE numbered line and the rule remains the ONLY thing the switch adds to the doctrine",
+				[
+					["the citation renders exactly once when the rule is on", citations(on) === 1, { citations: citations(on), cited }],
+					["...and in no rendering where the rule does not appear", citeFree.length === 0, citeFree],
+					["the citation sits INSIDE the writing rule, not elsewhere in the doctrine", writingRule !== "" && citations(writingRule) === 1, { rule: writingRule.length, inRule: citations(writingRule) }],
+					["the cited path is absolute and resolves inside the package docs directory", cited === join(REPO, "docs", "writing-guidance.md"), cited],
+					["...and names a file that exists, so the doctrine cannot cite a missing doc", existsSync(cited), cited],
+					["the rule still carries exactly ONE numbered line, so the tail numbering is untouched", [...writingRule.matchAll(/\n(\d+)\. /g)].length === 1, [...writingRule.matchAll(/\n(\d+)\. /g)].map((m) => m[1])],
+					["the rule is the ONLY thing the switch adds: off + rule is byte-identically on", off + writingRule === on, { off: off.length, rule: writingRule.length, on: on.length }],
+				],
+			);
+		});
+
 		await section("doctrine-budget", async () => {
 			// A BUDGET GUARD, not a recorded fact — and measured on an INSTALL-INVARIANT
 			// figure, which is the only way it can be a guard at all.
 			//
-			// The doctrine embeds ABSOLUTE doc paths (rules 8-10, and now the routing rule's
-			// own pointer), so its raw character count carries the length of wherever the
-			// package happens to be installed. Measured here: the same router-off doctrine is
-			// 1968 chars under a 13-character docs directory and 2103 under this repo's
-			// 58-character one — 3 embedded paths × 45 characters of difference, and 4 or 5
-			// paths in the other configurations. A raw-character budget therefore passes on
-			// one machine and fails on another, and the failure would look like bloat rather
-			// than like a longer home directory. It also explains, exactly, the discrepancy
-			// between the sizes this check first recorded and the module owner's.
+			// The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the
+			// length of wherever the package happens to be installed once per embedded path.
+			// A raw-character budget therefore passes on one machine and fails on another,
+			// and the failure would look like bloat rather than a longer install directory.
+			// Do not record a checkout-specific raw count here: `portable()` below is the
+			// install-invariant measurement that this check publishes and enforces.
 			//
 			// So every bound below is on `portable()`: the text with each occurrence of the
 			// docs DIRECTORY removed, leaving the filename. That is invariant by construction
@@ -962,6 +1228,10 @@ try {
 			// degrades to the identity and the first two terms below say so loudly.
 			const off = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }));
 			const on = await asTrusted(EMPTY_EXT, onReal);
+			const writingOn = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { writing: { check: true } });
+			const writingRouterOn = await asTrusted(EMPTY_EXT, onReal, { writing: { check: true } });
+			const writingExtensionsOn = await asTrusted(WITH_EXT, () => ({ on: false, candidates: [] }), { writing: { check: true } });
+			const writingAllOn = await asTrusted(WITH_EXT, onReal, { writing: { check: true } });
 			const DOCS_DIR = /^\s*(\S*\/docs)\/[a-z0-9-]+\.md\s*$/m.exec(on)?.[1] ?? "";
 			const portable = (text) => (DOCS_DIR === "" ? text : text.split(DOCS_DIR).join(""));
 			const rule = ruleOf(on);
@@ -976,7 +1246,7 @@ try {
 			const docPaths = DOCS_DIR === "" ? 0 : on.split(DOCS_DIR).length - 1;
 			checkAll(
 				"doctrine-budget",
-				"the routing rule's size is bounded, because doctrine text is paid for on every turn of every session — and the bound is measured on an INSTALL-INVARIANT figure, because the doctrine embeds ABSOLUTE doc paths and its raw character count therefore carries the length of the install directory (measured: the same router-off doctrine is 1968 chars under a 13-character docs path and 2103 under this repo's 58-character one, 3 paths × 45 characters; other configurations embed 4 or 5). Every bound is on the text with each occurrence of the docs DIRECTORY removed, leaving the filename — invariant by construction, assuming no path count, while still charging a maintainer for the part they control. Bounds carry ~55% headroom, so wording changes and a few new models pass while a doubling fails: the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row (a research refresh writing a 2000-character routeFor would bloat every prompt silently, since `cell()` imposes no cap), and the rule's share of the whole doctrine",
+				"the routing rule's size is bounded, because doctrine text is paid for on every turn of every session — and the bound is measured on an INSTALL-INVARIANT figure. The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the install-directory length once per path and is not recorded here. Every bound is on the text with each occurrence of the docs DIRECTORY removed, leaving the filename — invariant by construction, assuming no path count, while still charging a maintainer for the part they control. The individual routing bounds retain substantial room, but the all-feature fixture is 5443 of 5600 portable characters: only 157 characters, or 2.8%. Doubling the 754-character writing rule would make that fixture about 6197 characters. The checks bound the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row (a research refresh writing a 2000-character routeFor would bloat every prompt silently, since `cell()` imposes no cap), the rule's share of the whole doctrine, and — on the same convention, because it carries an absolute doc citation of its own — the WRITING rule's own size and its one embedded path",
 				[
 					["the normalisation bites: the doctrine really does embed the docs directory", docPaths >= 3 && DOCS_DIR !== "", { docPaths, DOCS_DIR }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
@@ -987,6 +1257,21 @@ try {
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
 					["...and the whole router-on doctrine stays under 6500 portable chars", portable(on).length <= 6500, { portable: portable(on).length, raw: on.length }],
+					["writing-only doctrine stays under the stricter 5600 portable-char bound", portable(writingOn).length <= 5600, { portable: portable(writingOn).length }],
+					["writing plus router stays under the stricter 5600 portable-char bound", portable(writingRouterOn).length <= 5600, { portable: portable(writingRouterOn).length }],
+					["writing plus extensions stays under the stricter 5600 portable-char bound", portable(writingExtensionsOn).length <= 5600, { portable: portable(writingExtensionsOn).length }],
+					["all three features stay under the stricter 5600 portable-char bound", portable(writingAllOn).length <= 5600, { portable: portable(writingAllOn).length }],
+					// The WRITING rule's own bound, on the same portable convention and for the same
+					// reason as the routing rule's: it carries an ABSOLUTE doc citation, so its raw
+					// size moves with the install path while what a maintainer controls does not. The
+					// separate bound catches growth directly. The all-feature whole-doctrine bound has
+					// only 157 portable characters of room, so it cannot absorb a doubled rule. A
+					// citation is exactly the kind of addition that grows quietly.
+					["the writing rule itself stays under 1150 portable chars", portable(ruleOfWriting(writingOn)).length <= 1150, { portableChars: portable(ruleOfWriting(writingOn)).length, rawChars: ruleOfWriting(writingOn).length }],
+					["...and under 24 lines", ruleOfWriting(writingOn).split("\n").length <= 24, ruleOfWriting(writingOn).split("\n").length],
+					["...and embeds exactly ONE doc path, so the citation is charged once per turn, not once per mention", DOCS_DIR !== "" && ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 === 1, { paths: DOCS_DIR === "" ? "no docs dir found" : ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 }],
+					["writing-on text is actually larger than writing-off text", writingOn.length > off.length, { off: off.length, writing: writingOn.length }],
+					["writing-on with extensions is larger than writing-on without them", writingAllOn.length > writingRouterOn.length, { router: writingRouterOn.length, all: writingAllOn.length }],
 				],
 			);
 		});
@@ -1919,6 +2204,86 @@ try {
 				["a zero-width-bearing entry is dropped, naming U+200B", invisibleCfg.models.join(",") === "p/good" && warnedF.length === 1 && /invisible or control characters \([^)]*U\+200B/.test(warnedF[0]), [invisibleCfg.models, warnedF]],
 			]);
 		});
+
+		await section("writing-config", async () => {
+			const warnedA = [];
+			const dflt = writing.sanitizeWritingConfig(undefined, (m) => warnedA.push(m));
+			checkAll("writing-config-default", "an absent writing config silently yields { check: false }", [
+				["check is false", dflt.check === false, dflt],
+				["no warning", warnedA.length === 0, warnedA],
+			]);
+
+			const invalid = [null, [], "yes", 7].map((raw) => {
+				const warned = [];
+				const result = writing.sanitizeWritingConfig(raw, (m) => warned.push(m));
+				return { result, warned };
+			});
+			const unknownWarn = [];
+			const unknown = writing.sanitizeWritingConfig({ check: true, typo: true }, (m) => unknownWarn.push(m));
+			const typeWarn = [];
+			const wrongType = writing.sanitizeWritingConfig({ check: "yes" }, (m) => typeWarn.push(m));
+			const falseWarn = [];
+			const explicitFalse = writing.sanitizeWritingConfig({ check: false }, (m) => falseWarn.push(m));
+			checkAll("writing-config-invalid", "invalid writing shapes warn once and default, unknown keys warn and disappear, and boolean check values preserve their explicit setting", [
+				["every invalid shape warns once and defaults", invalid.every(({ result, warned }) => result.check === false && warned.length === 1), invalid],
+				["unknown key warns", unknown.check === true && unknownWarn.length === 1 && /unknown writing key/.test(unknownWarn[0]), [unknown, unknownWarn]],
+				["unknown key is not rebuilt", !Object.prototype.hasOwnProperty.call(unknown, "typo"), unknown],
+				["wrong type warns and defaults", wrongType.check === false && typeWarn.length === 1, [wrongType, typeWarn]],
+				["explicit false stays false and silent", explicitFalse.check === false && falseWarn.length === 0, [explicitFalse, falseWarn]],
+			]);
+
+			const proto = Object.create(null);
+			Object.defineProperty(proto, "__proto__", { value: { polluted: true }, enumerable: true });
+			const getter = {};
+			Object.defineProperty(getter, "check", { enumerable: true, get() { throw new Error("getter exploded"); } });
+			let deep = { nested: null };
+			let cursor = deep;
+			for (let i = 0; i < 30000; i++) { cursor.nested = { nested: null }; cursor = cursor.nested; }
+			const inherited = Object.create({ check: true });
+			const hostile = [proto, getter, inherited, { check: deep }];
+			const hostileResults = hostile.map((raw) => {
+				const warned = [];
+				let result;
+				try { result = writing.sanitizeWritingConfig(raw, (m) => warned.push(m)); } catch { result = null; }
+				return { raw, result, warned };
+			});
+			const safeCheck = (result) => {
+				try { return result?.check === false; } catch { return false; }
+			};
+			checkAll("writing-config-hostile", "hostile prototype, inherited check, getter, and deeply nested values do not crash or pollute the sanitizer, and sanitization returns a fresh object", [
+				["all hostile inputs survive", hostileResults.every(({ result }) => result !== null), hostileResults.map(({ result }) => result === null)],
+				["all hostile inputs default", hostileResults.every(({ result }) => safeCheck(result)), hostileResults.map(({ result }) => safeCheck(result))],
+				["malformed hostile inputs warn while inherited input stays silent", hostileResults[0].warned.length >= 1 && hostileResults[1].warned.length >= 1 && hostileResults[2].warned.length === 0 && hostileResults[3].warned.length >= 1, hostileResults.map(({ warned }) => warned.length)],
+				["result is fresh", hostileResults.every(({ raw, result }) => result !== raw), hostileResults.map(({ raw, result }) => raw === result)],
+				["no prototype pollution", ({}).polluted === undefined && ({}).typo === undefined, Object.prototype],
+			]);
+		});
+
+		check("worker-load", worker !== undefined, "extension/worker.ts loads for direct preamble verification", workerLoad.error?.stack ?? workerLoad.error);
+		if (worker === undefined) {
+			skip("worker-preamble", "extension/worker.ts could not be loaded");
+		} else {
+			const historicalPreamble = [
+				"You are a worker thread executing ONE bounded action for an orchestrator.",
+				"Do the action fully, then stop.",
+				"Your final message must state: what you did, what you found, files you touched,",
+				"and anything the orchestrator must know.",
+			].join(" ");
+			const currentGuidance = "Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply these rules to all your prose.";
+			const workerSource = readFileSync(join(REPO, "extension", "worker.ts"), "utf8")
+				.replace(/\/\*[\s\S]*?\*\//g, " ")
+				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+			const threadsSource = readFileSync(join(REPO, "extension", "threads.ts"), "utf8")
+				.replace(/\/\*[\s\S]*?\*\//g, " ")
+				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+			checkAll("worker-preamble", "worker writing guidance is off by default, preserves both historical states byte-for-byte, and follows the sanitized config into the system prompt", [
+				["feature-off preamble is the 226-byte historical text", worker.WORKER_PREAMBLE === historicalPreamble && Buffer.byteLength(worker.workerPreamble(false)) === 226, worker.workerPreamble(false)],
+				["absent and false are byte-identical to the historical preamble", worker.workerPreamble(undefined) === historicalPreamble && worker.workerPreamble(false) === historicalPreamble, { absent: worker.workerPreamble(undefined), false: worker.workerPreamble(false) }],
+				["only literal true enables the current 384-byte guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true) === `${historicalPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true)) === 384 && worker.workerPreamble("true") === historicalPreamble, { on: worker.workerPreamble(true), malformed: worker.workerPreamble("true") }],
+				["worker prompt re-checks trust and applies a literal-true gate", /appendSystemPrompt\s*:\s*\[\s*workerPreamble\(trusted\s*&&\s*opts\.writingCheck\s*===\s*true\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,120}/)?.[0] ?? "not found"],
+				["ThreadManager passes its sanitized writing switch", /writingCheck\s*:\s*this\.config\.writing\?\.check\s*===\s*true/.test(threadsSource), threadsSource.match(/writingCheck\s*:[^,\n]*/)?.[0] ?? "not found"],
+			]);
+		}
 
 		// TQ2: the injected-profiles default. Every other router check passes its
 		// own table, so nothing above would notice the shipped wiring being cut.
@@ -3833,6 +4198,7 @@ try {
 			["contextBudget", "sanitizeContextBudget"],
 			["workerExtensions", "sanitizeWorkerExtensions"],
 			["router", "sanitizeRouterConfig"],
+			["writing", "sanitizeWritingConfig"],
 			["episodeModel", "sanitizeEpisodeModel"],
 		];
 		const notAssigned = required.filter(([key, fn]) => !new RegExp(`config\\.${key}\\s*=\\s*${fn}\\(`).test(src)).map(([key]) => key);
@@ -5141,6 +5507,14 @@ try {
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget",
+		"writing-config-default", "writing-config-invalid", "writing-config-hostile",
+		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite",
+		"writing-checker-length", "writing-checker-para", "writing-checker-semicolon", "writing-checker-contraction",
+		"writing-checker-class", "writing-checker-not-checked", "writing-checker-caps", "writing-checker-modes", "writing-checker-determinism",
+		"writing-status-fresh", "writing-status-clean", "writing-status-positive", "writing-status-import-url", "writing-status-import-fail",
+		"writing-status-gate-switch", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui",
+		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-cap-visible", "writing-status-counting", "writing-status-no-store-write",
+		"worker-load", "worker-preamble",
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",
 		"bar-self-exclude", "bar-collision",

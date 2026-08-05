@@ -98,6 +98,13 @@ const ALLOWED = [
 	{ label: "LICENSE", test: (p) => p === "LICENSE" },
 	{ label: "docs/**/*.md", test: (p) => /^docs\/(?:[^/]+\/)*[^/]+\.md$/.test(p) },
 	{ label: "extension/**/*.ts", test: (p) => /^extension\/(?:[^/]+\/)*[^/]+\.ts$/.test(p) },
+	// .mjs is a RUNTIME kind here, not a harness one: the shipped writing checker
+	// (extension/writing-check.mjs) is dependency-free plain JavaScript because it
+	// runs both as a command and inside a synchronous turn hook, with no
+	// transpiler in either path. It must ship, so this kind must be permitted.
+	// verification/package-content-check.mjs is what asserts that it really does
+	// ship; this guard only says the kind is allowed to.
+	{ label: "extension/**/*.mjs", test: (p) => /^extension\/(?:[^/]+\/)*[^/]+\.mjs$/.test(p) },
 ];
 
 // Junk/secret shapes that must never ship. A pattern containing "/" is matched

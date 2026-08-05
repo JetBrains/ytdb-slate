@@ -481,6 +481,11 @@ export interface RouterConfig {
 	allowUnmeasuredEffort?: boolean;
 }
 
+/** Optional writing checks. Off unless `check` is explicitly true. */
+export interface WritingConfig {
+	check?: boolean;
+}
+
 export interface SlateConfig {
 	episodeModel?: string; // "provider/id" for the episode compressor (D5)
 	workerTools?: string[];
@@ -497,6 +502,7 @@ export interface SlateConfig {
 	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
 	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
 	router?: RouterConfig; // action-level model router: the closed model list + the evidence-gap policy (default: off) — see model-router.ts
+	writing?: WritingConfig; // writing guidance for orchestrator output (default: off) — see writing.ts
 }
 
 export class SlateStore {

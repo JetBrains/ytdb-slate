@@ -59,6 +59,16 @@ Slate can pick the model and the effort level per dispatched action rather than 
 
 What the code enforces is deliberately narrower than what the routing data advises. The dispatch guards refuse an unlisted model, a level off the target model's ladder and a level the provider rejects outright; they warn about — and mark — an unmeasured level, refusing it only when `router.allowUnmeasuredEffort` is `false`; and the context-window guard substitutes a wider listed model instead of ever blocking an action. The obligations that come from the profile data itself — keeping review and gate actions on measured levels, and honoring a REFUSE such as `anthropic/claude-fable-5`'s for zero-data-retention work — are stated in the doctrine for the orchestrator to honor; they are **not** code-enforced guards. Full semantics: the `router.*` rows in [Configuration](#configuration) and the shipped [`docs/model-routing.md`](docs/model-routing.md) — if they disagree, that document wins.
 
+## Optional writing guidance
+
+Set `writing.check` to `true` to add writing guidance and human-only telemetry. In orchestrator mode, Slate adds a doctrine rule that states the convention. It also adds a status value such as `writing 1/4`. This value means that one of four measured prose turns had a fail-level finding. Each worker gets a shorter preamble reminder about sentence length, semicolons, and contractions.
+
+The option has prompt cost. Each orchestrator system prompt contains the doctrine rule. You pay for this text on every turn. Each worker session also gets a gated preamble addition. Both additions are absent when the option is off. The worker preamble then stays byte-identical to its pre-feature form.
+
+> **No conformance claim:** This is a dictionary-free proxy. It embeds no controlled vocabulary and claims no ASD-STE100 conformance.
+
+The shipped CLI checks plain files, JSONL records, and unified diffs. See [`docs/writing-guidance.md`](docs/writing-guidance.md) for its rules, limits, output, and command examples.
+
 ## Install
 
 Install into a project (pinned, project-scoped — recorded in `.pi/settings.json`):
@@ -84,6 +94,7 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `orchestratorPromptDocs` | string[] | `[]` | Project markdown files (paths relative to the project root) whose **contents** are appended to the orchestrator system prompt. |
 | `workerPromptDocs` | string[] | `[]` | Project markdown files whose **contents** are appended to every worker-thread system prompt. |
 | `workflow.draftPRs` | boolean | `false` | Enable umbrella draft-PR publishing for tracks. |
+| `writing.check` | boolean | `false` | Add the writing doctrine rule, per-turn status, and worker guidance. An absent option is silently off. A malformed `writing` value, or a non-boolean `check` value, warns and defaults to off. Unknown `writing` keys warn and are ignored. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `doctrineExtraPath` | string | — | Project markdown whose **content** is appended to the orchestrator doctrine (project-specific workflow additions). |
 | `reviewPerspectivesPath` | string | — | Project review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
 | `modelFailover` | object (string → string) | — (empty, failover off) | Map of `provider/id` → equal-quality alternative model; on a model API failure the affected site retries once on the mapped model (worker/orchestrator sites only after pi's own retries are exhausted; episode compression has no pi retry loop). Read once at session start — see [`docs/model-failover.md`](docs/model-failover.md). |
@@ -101,6 +112,7 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
   "orchestratorPromptDocs": ["docs/agents/orchestrator-guidelines.md"],
   "workerPromptDocs": ["docs/agents/thread-guidelines.md"],
   "workflow": { "draftPRs": true },
+  "writing": { "check": true },
   "doctrineExtraPath": "docs/agents/workflow-additions.md",
   "reviewPerspectivesPath": "docs/agents/review-perspectives.md",
   "modelFailover": { "anthropic/claude-sonnet-5": "openai/gpt-5.2" },
@@ -145,6 +157,7 @@ In orchestrator mode, Slate appends a short **doctrine** (a block of numbered ru
 - `docs/design-principles.md` — Slate's own design rationale
 - `docs/model-failover.md` — the opt-in `modelFailover` map (**reference documentation** — unlike the entries above it is not workflow doctrine and is not cited by the doctrine)
 - `docs/context-budget.md` — the orchestrator `contextBudget`: defaults, per-model overrides, the window clamp, and the pricing rationale (also **reference documentation**, not cited by the doctrine)
+- `docs/writing-guidance.md` — the optional writing convention, `writing.check` behavior, status line, and checker CLI
 - `docs/model-routing.md` — action-level model routing: the two `router` keys, how a model becomes routable, how an omitted effort level resolves, the dispatch guards, and the warnings a first routed session emits. Unlike the two entries above it **is** cited by the doctrine, by absolute path, but only while the routing rule renders — it is the extra embedded path that appears with the rule, the fourth normally and the fifth when `workflow.draftPRs` is also on, which the size arithmetic in `docs/context-budget.md` accounts for. The routable model list itself is never read from this file: the rule renders it live from the session's own resolution, because that set depends on your registry and credentials.
 
 Project-specific additions layer on top — they extend, not replace, the shipped doctrine — via two distinct mechanisms:

@@ -129,69 +129,93 @@ you pay its input tokens every turn.
 
 **Its size depends on where the package is installed.** That is not
 obvious, and it catches anyone who measures: the doctrine cites the
-shipped docs by ABSOLUTE path, so three to five full filesystem
-paths are embedded in the block — three at minimum
+shipped docs by ABSOLUTE path, so three to six full filesystem paths
+are embedded in the block — three at minimum
 (`track-workflow.md`, `review-rules.md`, `design-principles.md`),
 plus `pr-publishing.md` when `workflow.draftPRs` is on, plus
-`model-routing.md` when the routing rule renders. Every additional
-character in the installed `docs/` directory therefore costs 3–5
+`model-routing.md` when the routing rule renders, plus
+`writing-guidance.md` when `writing.check` is on. Every additional
+character in the installed `docs/` directory therefore costs 3–6
 characters of doctrine.
 
-So the figures below are **portable characters**, defined exactly as
-Slate's own automated size check defines them: the block with each
-occurrence of the installed `docs/` DIRECTORY removed, keeping the
-filename. That makes them install-invariant by construction —
-verified by measuring at a 12-character docs path and at this repo's
-58-character one, which give identical portable counts — and it
-makes the arithmetic one multiplication:
+The figures below are **portable characters**, defined exactly as
+Slate's own automated `doctrine-budget` check defines them: the
+block with each occurrence of the installed `docs/` DIRECTORY
+removed, keeping the filename. That makes them install-invariant by
+construction and makes the arithmetic one multiplication:
 
 > rendered characters = portable + (embedded paths × length of your
 > installed `docs/` directory)
 
-Every row below states its full basis, because router state, model
-count and `draftPRs` each move the number:
+`doctrine-budget` in `verification/resolver-checks.mjs` is the
+definition of record for this convention and its enforced bounds.
+This table is a measured snapshot, not a second authority. It uses
+the same real shipped-profile fixture as that check; the six-model
+rows use the six configured models in this repository's documented
+example. Every row states its full basis, because router state,
+model count, `draftPRs`, and `writing.check` each move the number:
 
-| router | models | `draftPRs` | paths | portable | lines | rendered at a 58-char docs dir |
+| router | models | `draftPRs` | `writing.check` | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | 3 | 1,929 | 38 | 2,103 |
-| off | — | on | 4 | 1,948 | 38 | 2,180 |
-| on | 6 configured | off | 4 | 3,870 | 58 | 4,102 |
-| on | 6 configured | on | 5 | 3,889 | 58 | 4,179 |
-| on | all 9 shipped | off | 4 | 4,448 | 61 | 4,680 |
-| on | all 9 shipped | on | 5 | 4,467 | 61 | 4,757 |
+| off | — | off | off | 3 | 1,929 | 38 |
+| off | — | off | on | 4 | 2,683 | 53 |
+| off | — | on | off | 4 | 1,948 | 38 |
+| off | — | on | on | 5 | 2,702 | 53 |
+| on | 6 configured | off | off | 4 | 3,879 | 58 |
+| on | 6 configured | off | on | 5 | 4,633 | 73 |
+| on | 6 configured | on | off | 5 | 3,898 | 58 |
+| on | 6 configured | on | on | 6 | 4,652 | 73 |
+| on | all 9 shipped | off | off | 4 | 4,434 | 61 |
+| on | all 9 shipped | off | on | 5 | 5,188 | 76 |
+| on | all 9 shipped | on | off | 5 | 4,453 | 61 |
+| on | all 9 shipped | on | on | 6 | 5,207 | 76 |
 
 An untrusted project reads the first row whatever its `slate.json`
-says: no project config is loaded, so neither optional rule renders.
-Line counts do not vary with the install path. Enabling `draftPRs`
-costs 19 portable characters plus one more embedded path.
+says: no project config is loaded, so no optional rule renders. Line
+counts do not vary with the install path. Enabling `draftPRs` costs
+19 portable characters plus one embedded path. Enabling
+`writing.check` costs 754 portable characters, adds 15 lines to the
+whole doctrine, and adds one embedded path; considered alone, the
+writing rule is 754 portable characters / 16 lines because its
+leading newline becomes the separator when appended.
 
 Two parts of the block grow with configuration rather than with the
 path:
 
 - The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
   so what renders is the models you CONFIGURE — not the nine Slate
-  ships profiles for. It is 1,941 portable characters / 20 lines for
-  six configured models and 2,519 / 23 for all nine. A model ROW
-  costs 154–186 characters; the legend adds a one-off clause per
-  marker it has to explain, so listing the first cheap-tier model
-  costs ~50 characters more than its row (two new clauses). That is
-  why stepping from six to nine averages 193 per model where the
-  first six average 171.
+  ships profiles for. In this snapshot it is 1,950 portable
+  characters and adds 20 doctrine lines for six configured models;
+  for all nine it is 2,505 characters and adds 23 lines. The six
+  model rows are 146–181 characters; all nine are 146–183. The
+  legend adds a one-off clause per marker it has to explain, so
+  growth is not only the sum of new rows.
 - The worker-extension rule grows per whitelisted extension and per
   tool that extension contributes, so it has no fixed size; one
   extension contributing two tools measured 373 portable characters
   / 7 lines.
 
-Against a 256,000-token budget none of this is material — as a rough
-estimate, at 4 characters per token (no tokenizer was run, and the
-table is denser than prose, so treat it as a floor) the whole block
-is ≈480–525 tokens with both optional rules off and ≈970–1,025 with
-six models routed, each range spanning portable to as-rendered-here.
-That is under half a percent of the default budget, though it is
-re-sent on every request rather than paid once. It is listed here
-because it is context Slate itself puts in front of the model on
-every turn, and because it is the number to check before assuming
-the budget's headroom is all conversation.
+Against a 256,000-token budget none of this is material. At four
+characters per token as a rough estimate (no tokenizer was run, and
+the routing table is denser than prose), the portable block ranges
+from about 482 tokens at the baseline to about 1,302 with all nine
+models, `draftPRs`, and writing enabled. That is close to half a
+percent of the default budget at the largest measured configuration,
+though it is re-sent on every request rather than paid once. It is
+listed here because it is context Slate itself puts in front of the
+model on every turn, and because it is the number to check before
+assuming the budget's headroom is all conversation.
+
+### Worker writing preamble
+
+The doctrine table does not include the worker preamble. It belongs
+to each worker session's system prompt, not to the orchestrator's
+per-turn doctrine. The feature-off preamble is 226 bytes. With
+`writing.check` on it is 384 bytes, a 158-byte increase (the
+157-byte guidance plus its separating space). These are UTF-8 byte
+counts; the current text is ASCII, so its character counts happen to
+be identical. This separate figure states the worker-session cost
+without presenting it as orchestrator doctrine.
 
 ## Worker threads: the routing window guard
 

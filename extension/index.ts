@@ -38,7 +38,8 @@
  *     "preserveGlobalModelDefault": true,
  *     "doctrineExtraPath": "docs/project-doctrine.md",
  *     "reviewPerspectivesPath": "docs/review-perspectives.md",
- *     "router": { "models": ["provider/id", ...], "allowUnmeasuredEffort": true } }
+ *     "router": { "models": ["provider/id", ...], "allowUnmeasuredEffort": true },
+ *     "writing": { "check": false } }
  * router.models is the closed list of models an action may be routed to (empty
  * or absent = router off, the default); allowUnmeasuredEffort (default true)
  * governs effort levels with no capability evidence — see model-router.ts.
@@ -67,6 +68,7 @@ import {
 	sanitizeWorkerExtensions,
 	type WorkerExtensionSet,
 } from "./worker-extensions.ts";
+import { sanitizeWritingConfig } from "./writing.ts";
 
 function loadConfig(cwd: string): SlateConfig {
 	const file = join(cwd, CONFIG_DIR_NAME, "slate.json");
@@ -145,6 +147,7 @@ export default function (pi: ExtensionAPI) {
 		// router likewise: a malformed model list must surface at session start, not
 		// when a dispatch is refused for naming a model the list silently dropped.
 		config.router = sanitizeRouterConfig(config.router, warn);
+		config.writing = sanitizeWritingConfig(config.writing, warn);
 		// episodeModel too (RG20): an unusable value falls back to the built-in
 		// compressor, and until this ran it did so without saying anything at all.
 		config.episodeModel = sanitizeEpisodeModel(config.episodeModel, warn);

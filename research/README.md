@@ -8,16 +8,11 @@ from these files by hand, so this directory is where a claim in that
 table is checked. When a reviewer asks "where does this number come
 from?", the answer is in these four files.
 
-Scope note, because it changes what the claims below can mean: at this
-commit the router is a **data layer plus a pure resolver**. Its
-configuration is validated at session start, so a bad model list warns
-there; but nothing calls the resolver. The dispatch-time behaviour it is
-built for — enforcing the configured model list on a dispatch, acting on
-an evidence-gap verdict, and the routing section the orchestrator's
-doctrine will carry — is **Track 02**, not yet written. User-facing
-documentation of the feature is **Track 03**. Where a passage below has
-to describe behaviour that does not exist yet, it says which track
-delivers it.
+Historical scope note: this corpus was written during the action-level
+model-router change. In that change, **Track 02** added dispatch-time
+behavior and the orchestrator's routing doctrine. **Track 03** added the
+router's user documentation. Both tracks have shipped. Those labels do
+not refer to track numbers in later changes.
 
 ## Vocabulary
 
@@ -263,7 +258,9 @@ every hit is one of four kinds. Only the first three are rewritten:
   place the command cannot show you is the command itself**: its pattern
   holds the date's digits yet does not match its own text, so it will
   never appear in its own output. Update it by hand when the date moves.
-- **Anything user-facing that quotes the date.** Track 03 owns those.
+- **Anything user-facing that quotes the date.** Update it in the same
+  model-router refresh. This was assigned to that change's documentation
+  track, not to a later track with the same number.
 - **Fixture dates in the check suite — leave these alone.** The harness
   uses the same string as an arbitrary "today" inside fabricated price
   schedules. They are not provenance, and rewriting them can move a

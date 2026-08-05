@@ -26,10 +26,13 @@ import {
 	PR_PUBLISHING_DOC,
 	REVIEW_RULES_DOC,
 	TRACK_WORKFLOW_DOC,
+	WRITING_CHECKER_URL,
+	WRITING_GUIDANCE_DOC,
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { THINKING_LEVELS } from "./route.ts";
 import { orchestratorCostUsd, type SlateConfig, type SlateStore } from "./state.ts";
+import { measureWritingTurn, type WritingChecker, type WritingCounters } from "./writing.ts";
 import type { WorkerExtensionSet, WorkerExtensionUnit } from "./worker-extensions.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
@@ -91,6 +94,27 @@ function sanitizeForDoctrine(value: string, max: number): string {
  * site in buildDoctrine, not because this module pins them to that slot.
  */
 const FIXED_DOCTRINE_RULES = 10;
+
+// Real assistant messages measured 296 characters at the median, 2,348 at p90,
+// and 6,140 at the maximum in the review sample. Keep headroom for normal prose,
+// while preventing an unknown checker slowdown from freezing the TUI.
+const WRITING_TURN_MAX_BYTES = 16 * 1024;
+
+type WritingStatus = "fresh" | "ready" | "skipped" | "unavailable";
+
+function assistantTextBytes(message: unknown): number | undefined {
+	if (!message || typeof message !== "object") return undefined;
+	const content = (message as { content?: unknown }).content;
+	if (typeof content === "string") return Buffer.byteLength(content, "utf8");
+	if (!Array.isArray(content)) return undefined;
+	const text = content
+		.filter((part): part is { type: "text"; text: string } =>
+			!!part && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string",
+		)
+		.map((part) => part.text)
+		.join("\n");
+	return Buffer.byteLength(text, "utf8");
+}
 
 /**
  * Number the conditional tail rules by position. Each builder is handed the
@@ -350,6 +374,50 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    — read it only for an unusual routing decision; skip if already in context.`;
 }
 
+/**
+ * The writing rule — the THIRD tail rule, so 13 when the worker-extension and
+ * routing rules both render above it. Appended ONLY when `writing.check` is true
+ * AND the project is trusted (the gate lives at the call site in buildDoctrine).
+ * With the feature off it is never called, so the doctrine is byte-identical to
+ * the pre-feature output — the same feature-off guarantee the two rules above it
+ * make.
+ *
+ * WHOLLY STATIC except for `n` and the package-resolved doc path. Nothing derived
+ * from project config, project files, the model registry or any extension reaches
+ * this text: the only thing config decides is WHETHER the rule renders. That is
+ * why the rule needs no sanitizer of its own, and why it must stay that way — the
+ * moment a value from outside this module is interpolated here, this becomes an
+ * injection surface and needs the treatment rule 11 gives its fields (see
+ * sanitizeForDoctrine) or the routing rule gives its cells (see `cell()`).
+ *
+ * The doc citation is an ABSOLUTE path resolved inside the installed package
+ * (paths.ts), like rules 8-10 and the routing rule. It is therefore paid for at
+ * the length of the reader's own install directory: every character of the
+ * installed docs directory costs one more character here, on every turn of every
+ * session that has the feature on. That is the whole reason the citation is one
+ * line of prose plus one path rather than a summary of the document —
+ * writing-guidance.md carries the rules, the caps and the command line, and the
+ * rule tells the orchestrator when reading it is worth the tokens.
+ */
+function buildWritingRule(n: number): string {
+	return `
+${n}. Check all user-facing prose before delivery. Use short, active sentences and
+   plain language. A sentence over 25 words fails the check. Rewrite it.
+   A sentence over 20 words warns. Shorten it when meaning stays clear.
+
+   Do not use semicolons or contractions. Keep exact technical terms. The check
+   does not test vocabulary.
+
+   Apply it to README text, documentation, code comments, and pull request text.
+   Apply it to commit bodies, issues, review comments, release notes, and messages
+   to the user. Exclude research logs, worker task text, and the project's own agent
+   instruction file.
+
+   Rules, limits and the checker command:
+   ${WRITING_GUIDANCE_DOC}
+   — read it only for an unusual prose decision. Skip it if already in context.`;
+}
+
 function buildDoctrine(
 	cwd: string,
 	config: SlateConfig,
@@ -419,6 +487,9 @@ threads execute. Rules:
 		// become the orchestrator's instructions, and because a future caller of
 		// buildDoctrine must not be able to lose that property by accident.
 		(n) => (trusted ? buildRoutingRule(router, config.router?.allowUnmeasuredEffort !== false, n) : ""),
+		// Append-only conditional tail. Re-check trust where project config becomes
+		// prompt text, even though index.ts loads that config only when trusted.
+		(n) => (trusted && config.writing?.check === true ? buildWritingRule(n) : ""),
 	])}`;
 }
 
@@ -465,9 +536,19 @@ export function registerSlateMode(
 	// session; it is memoized on the other side, so the doctrine and the dispatch
 	// guards describe one and the same frozen candidate list.
 	getRouter: () => ModelRouterResolution = () => ROUTER_OFF,
+	// Injected only by the pure harness so it can exercise both dynamic-import
+	// failure and checker failure through the real turn hook.
+	loadWritingChecker: () => Promise<WritingChecker> = () => import(WRITING_CHECKER_URL),
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
+	const writingCounters: WritingCounters = { measuredTurns: 0, findingTurns: 0 };
+	let writingStatus: WritingStatus = "fresh";
+	let writingCheckerPromise: Promise<WritingChecker> | undefined;
+
+	const writingIsVisible = (ctx: ExtensionContext): boolean =>
+		ctx.hasUI && store.orchestratorMode && getConfig().writing?.check === true && ctx.isProjectTrusted();
+
 
 	const updateWidget = () => {
 		if (!uiCtx?.hasUI) return;
@@ -483,7 +564,16 @@ export function registerSlateMode(
 		// Keep the line short in the common no-handoff case.
 		const carried = store.carriedCostUsd > 0 ? ` + carried $${store.carriedCostUsd.toFixed(4)}` : "";
 		const costLine = `total $${total.toFixed(4)} (me $${orchestratorCost.toFixed(4)} + workers $${store.workerCostUsd.toFixed(4)}${carried})`;
-		uiCtx.ui.setStatus("slate", `slate: orchestrator ⋅ ${costLine}`);
+		const writingLine = writingIsVisible(uiCtx)
+			? writingStatus === "ready"
+				? ` ⋅ writing ${writingCounters.findingTurns}/${writingCounters.measuredTurns}`
+				: writingStatus === "skipped"
+					? " ⋅ writing skipped (message too large)"
+					: writingStatus === "unavailable"
+						? " ⋅ writing unavailable"
+						: " ⋅ writing 0/0"
+			: "";
+		uiCtx.ui.setStatus("slate", `slate: orchestrator ⋅ ${costLine}${writingLine}`);
 		const threads = [...store.threads.values()];
 		const lines = [
 			`slate ⋅ orchestrator mode ⋅ ${threads.length} thread${threads.length === 1 ? "" : "s"}`,
@@ -572,6 +662,36 @@ export function registerSlateMode(
 		return { systemPrompt: event.systemPrompt + parts.join("") };
 	});
 
+	// The writing checker reads only the completed assistant message from
+	// turn_end. It returns no hook result, so it is human-only telemetry and
+	// cannot alter what the model receives.
+	pi.on("turn_end", async (event, ctx) => {
+		uiCtx = ctx;
+		if (!writingIsVisible(ctx)) return;
+		const bytes = assistantTextBytes(event.message);
+		if (bytes !== undefined && bytes > WRITING_TURN_MAX_BYTES) {
+			writingStatus = "skipped";
+			updateWidget();
+			return;
+		}
+		try {
+			writingCheckerPromise ??= loadWritingChecker();
+			const checker = await writingCheckerPromise;
+			const outcome = measureWritingTurn(event.message, checker, writingCounters);
+			// FX2: a turn with no prose is not a broken checker. Inferring failure
+			// from an unchanged counter reported `writing unavailable` after every
+			// tool-call-only turn and threw away the rate measured so far. Only the
+			// checker's own failure moves the status now; `no-text` leaves both the
+			// status and the counters exactly as they were.
+			if (outcome === "measured") writingStatus = "ready";
+			else if (outcome === "failed") writingStatus = "unavailable";
+			updateWidget();
+		} catch {
+			writingStatus = "unavailable";
+			updateWidget();
+		}
+	});
+
 	// Refresh the orchestrator's own cost after each of its settled runs.
 	pi.on("agent_settled", async (_event, ctx) => {
 		uiCtx = ctx;
@@ -580,6 +700,10 @@ export function registerSlateMode(
 
 	pi.on("session_start", async (_event, ctx) => {
 		uiCtx = ctx;
+		writingCounters.measuredTurns = 0;
+		writingCounters.findingTurns = 0;
+		writingCheckerPromise = undefined;
+		writingStatus = "fresh";
 		// store.restore() (index.ts) and pending-handoff adoption (handoff.ts)
 		// ran before this handler in registration order; re-apply the persisted
 		// mode to the fresh runtime.
