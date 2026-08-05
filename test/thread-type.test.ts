@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { effectiveThreadType, sanitizeThreadRecord, SlateStore, THREAD_TYPES, type ThreadRecord, type ThreadType } from "../extension/state.ts";
@@ -7,6 +10,8 @@ import { registerSlateTools } from "../extension/tools.ts";
 
 interface ManagerInternals {
   live: Map<string, unknown>;
+  runDispatchInner: (...args: unknown[]) => Promise<unknown>;
+  openWorkerFor: (...args: unknown[]) => Promise<unknown>;
   createThread(opts: DispatchOptions, plan: unknown): ThreadRecord;
   setExistingThreadType(thread: ThreadRecord, requested: ThreadType | undefined): void;
   runDispatch: (...args: unknown[]) => Promise<unknown>;
@@ -128,6 +133,47 @@ test("an existing type is immutable, while a matching value is silently ignored"
   );
   assert.equal(existing.type, "reviewer");
   assert.equal(snapshots.length, 0);
+});
+
+test("dispatch passes route warnings from worker opening to the episode result", { timeout: 1000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-route-warning-test."));
+  try {
+    const { store } = storeHarness();
+    const manager = new ThreadManager(store, {});
+    const view = internals(manager);
+    view.openWorkerFor = async (args: unknown) => {
+      const report = (args as { report: (message: string) => void }).report;
+      report("worker opening warning");
+      throw new Error("worker opening failed");
+    };
+    const thread = record({ id: "t1", type: "researcher" });
+    const result = await view.runDispatchInner(
+      thread,
+      { task: "x", type: "researcher" },
+      "x",
+      { cwd: root } as ExtensionContext,
+      undefined,
+    ) as { warnings: string[] };
+    assert.deepEqual(result.warnings, ["worker opening warning"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("dispatch creates and persists a typed thread before running it", async () => {
+  const { store } = storeHarness();
+  const manager = new ThreadManager(store, {});
+  const view = internals(manager);
+  view.runDispatch = async (thread: unknown) => thread;
+
+  const result = await manager.dispatch(
+    { name: "fresh", task: "x", type: "researcher" },
+    {} as ExtensionContext,
+    undefined,
+  ) as unknown as ThreadRecord;
+  assert.equal(result.name, "fresh");
+  assert.equal(result.type, "researcher");
+  assert.strictEqual(store.threads.get(result.id), result);
 });
 
 test("dispatch applies a one-time type to an existing thread after argument planning", async () => {

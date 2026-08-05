@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { initTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { renderThreadWidgetLine } from "../extension/mode.ts";
+import { registerSlateMode, renderThreadWidgetLine } from "../extension/mode.ts";
 import { renderThreadResult } from "../extension/render.ts";
 import { effectiveThreadType, SlateStore, type ThreadRecord, type ThreadType } from "../extension/state.ts";
+import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 import { registerSlateTools } from "../extension/tools.ts";
 import type { ThreadManager } from "../extension/threads.ts";
 
@@ -111,6 +112,54 @@ test("widget thread lines render every type and both fallback shapes", () => {
   }
 });
 
+test("widget thread lines distinguish a running thread with one episode", () => {
+  const running = record({ status: "running", episodeIds: ["t1.e1"] });
+  assert.equal(renderThreadWidgetLine(running), "  ⏳ t1 worker [running] 1 episode");
+});
+
+test("mode refresh publishes all stored thread widget lines", async () => {
+  const appended: unknown[] = [];
+  const widgets: string[][] = [];
+  const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
+  const pi = {
+    registerCommand() {},
+    on(name: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) {
+      handlers.set(name, handler);
+    },
+    getActiveTools: () => [],
+    getAllTools: () => [],
+    setActiveTools() {},
+    appendEntry(_type: string, data: unknown) { appended.push(data); },
+  } as unknown as ExtensionAPI;
+  const store = new SlateStore(pi);
+  store.orchestratorMode = true;
+  store.threads.set("t1", record({ id: "t1", status: "running", episodeIds: ["t1.e1"] }));
+  registerSlateMode(
+    pi,
+    store,
+    { startHandoff: async () => {}, effectiveContextBudget: (window: number) => window },
+    () => ({}),
+    () => EMPTY_WORKER_EXTENSION_SET,
+  );
+  const sessionStart = handlers.get("session_start");
+  assert.ok(sessionStart);
+  await sessionStart({}, {
+    hasUI: true,
+    mode: "rpc",
+    ui: {
+      setWidget: (_id: string, lines: string[] | undefined) => { if (lines) widgets.push(lines); },
+      setStatus() {},
+    },
+    sessionManager: { getBranch: () => [], getEntries: () => [] },
+  } as unknown as ExtensionContext);
+  assert.deepEqual(widgets.at(-1), [
+    "slate ⋅ orchestrator mode ⋅ 1 thread",
+    "  total $0.0000 (me $0.0000 + workers $0.0000)",
+    "  ⏳ t1 worker [running] 1 episode",
+  ]);
+  assert.equal(appended.length, 0);
+});
+
 test("threads tool rows render every type and both fallback shapes", async () => {
   const records = caseRecords();
   const { registered } = toolsFixture(records);
@@ -130,6 +179,15 @@ test("threads tool rows render every type and both fallback shapes", async () =>
       `${thread.id} "${entry.name}" [idle]${entry.marker} — episodes: (none) — updated 1970-01-01T00:00:00.001Z`,
     );
   }
+});
+
+test("a new dispatch call renders its requested type", () => {
+  const { registered } = toolsFixture([]);
+  const threadTool = registered.get("thread");
+  assert.ok(threadTool?.renderCall);
+
+  const renderedCall = threadTool.renderCall({ name: "fresh", type: "reviewer", task: "Inspect" }, theme);
+  assert.equal(firstLine(renderedCall), "thread new:\"fresh\" type=reviewer");
 });
 
 test("dispatch call lines render every type, both fallback shapes, and a legacy correction", () => {
@@ -216,6 +274,25 @@ test("dispatch result lines keep the marker through streaming, collapsed, and ex
       theme,
     );
     assert.equal(firstLine(expanded), `✓ ${type}${marker} t1.e1`);
+  }
+});
+
+test("failed result lines use failure styling when expanded and collapsed", () => {
+  initTheme(undefined, false);
+  const taggedTheme: TestTheme = {
+    fg: (color, text) => `<${color}>${text}</${color}>`,
+    bold: (text) => `<bold>${text}</bold>`,
+  };
+  const result = {
+    content: [{ type: "text", text: "failure details" }],
+    details: { threadName: "review", episodeId: "t1.e1", status: "failed", done: true },
+  };
+
+  const expanded = firstLine(renderThreadResult(result, { expanded: true }, taggedTheme));
+  const collapsed = firstLine(renderThreadResult(result, { expanded: false }, taggedTheme));
+  for (const line of [expanded, collapsed]) {
+    assert.match(line, /<error>✗<\/error>/);
+    assert.match(line, /<error>t1\.e1 FAILED<\/error>/);
   }
 });
 
