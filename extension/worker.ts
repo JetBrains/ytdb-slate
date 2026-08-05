@@ -50,7 +50,7 @@ export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["sess
 export const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
 // Keep this historical feature-off preamble byte-identical. Optional guidance is
-// added by workerPreamble only when the already-sanitized writing switch is on.
+// added by workerPreamble only when its corresponding switch is on.
 export const WORKER_PREAMBLE = [
 	"You are a worker thread executing ONE bounded action for an orchestrator.",
 	"Do the action fully, then stop.",
@@ -61,8 +61,49 @@ export const WORKER_PREAMBLE = [
 export const WORKER_WRITING_GUIDANCE =
 	"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply these rules to all your prose.";
 
-export function workerPreamble(writingCheck: boolean): string {
-	return writingCheck === true ? `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}` : WORKER_PREAMBLE;
+export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code actually read (file:line
+  or diff hunk) for every claim about behavior. Read third-party /
+  library code instead of assuming its semantics.
+- Enumerate the cases along the changed execution paths that are in
+  scope (branches, error paths, boundary values). Mark each case as
+  checked or explicitly out of scope, and state the coverage gaps. For
+  prose, enumerate the affected audiences, reader tasks, claims,
+  definitions, cross-references, examples, exceptions, and boundary
+  conditions instead of execution paths.
+- Back every defect claim (blocker or should-fix) with a concrete
+  counterexample: the input, state, or interleaving that triggers the
+  defect, traced through the code.
+- Back every correctness claim ("no issue here") with a justification
+  bounded to the scope you state, and say what the
+  justification does not cover. For prose, use a bounded, reproducible
+  check of the relevant set. Examples include checker output, targeted
+  searches, re-resolved references, and comparison with authoritative
+  sources. State explicitly what those checks cannot establish.
+- Before finalizing, run an alternative-hypothesis check: "if the
+  opposite verdict were true, what evidence would exist?" — then look
+  for that evidence.
+- When useful, log hypotheses explicitly (hypothesis → evidence sought
+  → confirmed / refuted / refined) instead of wandering.
+- Derive the final verdict from the evidence and claims above, not from
+  overall impression.
+- State the evidence that closes a finding, not only the evidence that
+  opens one. A verdict that a finding is resolved carries its own
+  evidence.
+- Treat a fix series as a changed artifact that needs review. Verify the
+  addressed finding, then review the fix diff and the cumulative result
+  for new paths, claims, and regressions. Clearing the original finding
+  does not clear defects introduced by its fix.
+- Structured reasoning can be confidently wrong when a case is missed.
+  State coverage gaps rather than implying completeness. These
+  arguments carry no formal guarantee and do not replace running the
+  project's checks.
+`;
+
+export function workerPreamble(writingCheck: boolean, reviewerCharter: boolean): string {
+	const additions: string[] = [];
+	if (writingCheck === true) additions.push(WORKER_WRITING_GUIDANCE);
+	if (reviewerCharter === true) additions.push(REVIEWER_CHARTER);
+	return [WORKER_PREAMBLE, ...additions].join(" ");
 }
 
 export function threadsDir(cwd: string): string {
@@ -95,6 +136,7 @@ export async function openWorkerSession(opts: {
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
 	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
 	writingCheck?: boolean; // sanitized writing.check; only literal true enables worker guidance
+	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
 	const dir = threadsDir(ctx.cwd);
@@ -170,8 +212,10 @@ export async function openWorkerSession(opts: {
 		noThemes: true,
 		// Defense in depth: config is loaded only for a trusted project (index.ts),
 		// but a future direct caller must not inject writing guidance from an
-		// untrusted project's switch.
-		appendSystemPrompt: [workerPreamble(trusted && opts.writingCheck === true), ...promptDocs],
+		// untrusted project's switch. The reviewer charter is not trust-gated:
+		// writing guidance points at a project-configured checker, while the charter
+		// is slate's own constant and contains no project input.
+		appendSystemPrompt: [workerPreamble(trusted && opts.writingCheck === true, opts.reviewerCharter === true), ...promptDocs],
 	});
 	await loader.reload();
 

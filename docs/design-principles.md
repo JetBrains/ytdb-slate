@@ -97,10 +97,12 @@ or two problems for the others:
 ## 3. Slate's answer: threads, episodes, thread weaving
 
 - **Thread** — a persistent worker that executes ONE bounded action at a
-  time, then pauses and hands control back. Threads are general workers
-  serving the system's current intent, not purpose-specific personas. A
-  thread accumulates context across its actions, acting as a reusable store
-  for one work stream.
+  time, then pauses and hands control back. A thread has an immutable
+  purpose type. The type does not make it a fixed persona. It records the
+  work stream's role and can select Slate-owned guidance. Reviewer and
+  adversarial threads receive the reviewer evidence charter. A thread
+  accumulates context across its actions, acting as a reusable store for one
+  work stream.
 - **Episode** — the compressed, structured record of the steps a thread
   took to complete one action: important results retained, tactical trace
   dropped. Episodes — not message passing — are the synchronization
@@ -332,8 +334,9 @@ the load-on-demand discipline the extension itself prescribes:
   reasoning about the architecture itself — explaining slate, modifying
   the extension, or making a non-obvious routing/compaction decision.
 
-The same discipline applies to consuming-project role guidance:
-`prompt-docs.ts` injects per-role guideline docs (orchestrator via
+The same discipline applies to worker guidance. Slate adds its compact
+reviewer evidence charter only to reviewer and adversarial worker types.
+`prompt-docs.ts` injects consuming-project role guidance (orchestrator via
 `before_agent_start`, workers via `appendSystemPrompt`). Defaults are
 compiled into `prompt-docs.ts`; a consuming project supplies its own
 documents through the optional `slate.json` keys `orchestratorPromptDocs`

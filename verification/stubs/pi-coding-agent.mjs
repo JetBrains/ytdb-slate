@@ -14,17 +14,28 @@ export const codingAgentStub = {
   serializeConversation: (messages) => JSON.stringify(messages),
   createAgentSession: async () => { throw new Error("createAgentSession stub called"); },
   openSession: () => { throw new Error("SessionManager.open stub called"); },
-  createSettings: () => ({}),
-  settingsFromStorage: () => ({}),
+  createSession: () => ({}),
+  createSettings: () => ({
+    getGlobalSettings: () => ({}),
+    getProjectSettings: () => ({}),
+  }),
+  settingsFromStorage: () => ({
+    getDefaultThinkingLevel: () => "medium",
+  }),
 };
 export const getAgentDir = (...args) => codingAgentStub.getAgentDir(...args);
 export const shouldCompact = (...args) => codingAgentStub.shouldCompact(...args);
 export const convertToLlm = (...args) => codingAgentStub.convertToLlm(...args);
 export const serializeConversation = (...args) => codingAgentStub.serializeConversation(...args);
 export const createAgentSession = (...args) => codingAgentStub.createAgentSession(...args);
-export class DefaultResourceLoader {}
+export class DefaultResourceLoader {
+  constructor(options) { this.options = options; }
+  async reload() {}
+  getExtensions() { return { extensions: [], errors: [] }; }
+}
 export class SessionManager {
   static open(...args) { return codingAgentStub.openSession(...args); }
+  static create(...args) { return codingAgentStub.createSession(...args); }
 }
 export class SettingsManager {
   static create(...args) { return codingAgentStub.createSettings(...args); }

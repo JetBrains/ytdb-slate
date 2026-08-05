@@ -274,12 +274,20 @@ much headroom Slate consumes before conversation content.
 
 The doctrine table does not include the worker preamble. It belongs
 to each worker session's system prompt, not to the orchestrator's
-per-turn doctrine. The feature-off preamble is 226 bytes. With
-`writing.check` on it is 384 bytes, a 158-byte increase (the
-157-byte guidance plus its separating space). These are UTF-8 byte
-counts; the current text is ASCII, so its character counts happen to
-be identical. This separate figure states the worker-session cost
-without presenting it as orchestrator doctrine.
+per-turn doctrine.
+
+| Worker preamble form | UTF-8 bytes | Increase from base |
+| --- | ---: | ---: |
+| Base | 226 | — |
+| Base + writing guidance | 384 | 158 |
+| Base + reviewer charter | 2,386 | 2,160 |
+| Base + writing guidance + reviewer charter | 2,544 | 2,318 |
+
+The writing guidance is 157 bytes. The reviewer charter constant is
+2,159 bytes. Each addendum also needs one separating space. The current
+text uses UTF-8 punctuation, so byte and character counts can differ.
+This separate figure states the worker-session cost without presenting
+it as orchestrator doctrine.
 
 ## Worker threads: the routing window guard
 

@@ -124,6 +124,7 @@ import {
 	type SessionOpenDecision,
 } from "./route.ts";
 import {
+	effectiveThreadType,
 	isModelSpec,
 	isThreadType,
 	parseThreadType,
@@ -821,7 +822,9 @@ export class ThreadManager {
 		ctx: ExtensionContext;
 		open: SessionOpenDecision;
 		tools: string[] | undefined;
+		report: (message: string) => void;
 	}): Promise<{ session: WorkerSession; baseline: SessionBaseline }> {
+		const type = effectiveThreadType(args.thread, args.report);
 		const session = await openWorkerSession({
 			ctx: args.ctx,
 			sessionFile: args.thread.sessionFile || undefined,
@@ -830,6 +833,7 @@ export class ThreadManager {
 			promptDocs: this.config.workerPromptDocs,
 			extensionPaths: this.resolveExtensions().paths,
 			writingCheck: this.config.writing?.check === true,
+			reviewerCharter: type === "reviewer" || type === "adversarial",
 		});
 		this.live.set(args.thread.id, session);
 		// A freshly opened session starts on its configured model — drop any stale
@@ -978,6 +982,7 @@ export class ThreadManager {
 					ctx,
 					open,
 					tools: opts.tools ?? this.config.workerTools,
+					report: routeWarn,
 				}));
 				// CQ18: the session FILE is deliberately not persisted yet. pi flushes a
 				// session file only once it holds an assistant message, so this path can name

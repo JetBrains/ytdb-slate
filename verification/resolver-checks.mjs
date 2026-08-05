@@ -339,7 +339,7 @@ const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "pro
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
 const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
-const WORKER_IDS = ["worker-preamble"];
+const WORKER_IDS = ["worker-preamble", "reviewer-charter-sync"];
 /**
  * Checks that need extension/route.ts — the dispatch guards. They also need
  * extension/model-router.ts, because the planner consumes its resolutions AND
@@ -2734,6 +2734,7 @@ try {
 		check("worker-load", worker !== undefined, "extension/worker.ts loads for direct preamble verification", workerLoad.error?.stack ?? workerLoad.error);
 		if (worker === undefined) {
 			skip("worker-preamble", "extension/worker.ts could not be loaded");
+			skip("reviewer-charter-sync", "extension/worker.ts could not be loaded");
 		} else {
 			const historicalPreamble = [
 				"You are a worker thread executing ONE bounded action for an orchestrator.",
@@ -2748,12 +2749,30 @@ try {
 			const threadsSource = readFileSync(join(REPO, "extension", "threads.ts"), "utf8")
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
-			checkAll("worker-preamble", "worker writing guidance is off by default, preserves both historical states byte-for-byte, and follows the sanitized config into the system prompt", [
-				["feature-off preamble is the 226-byte historical text", worker.WORKER_PREAMBLE === historicalPreamble && Buffer.byteLength(worker.workerPreamble(false)) === 226, worker.workerPreamble(false)],
-				["absent and false are byte-identical to the historical preamble", worker.workerPreamble(undefined) === historicalPreamble && worker.workerPreamble(false) === historicalPreamble, { absent: worker.workerPreamble(undefined), false: worker.workerPreamble(false) }],
-				["only literal true enables the current 384-byte guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true) === `${historicalPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true)) === 384 && worker.workerPreamble("true") === historicalPreamble, { on: worker.workerPreamble(true), malformed: worker.workerPreamble("true") }],
-				["worker prompt re-checks trust and applies a literal-true gate", /appendSystemPrompt\s*:\s*\[\s*workerPreamble\(trusted\s*&&\s*opts\.writingCheck\s*===\s*true\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,120}/)?.[0] ?? "not found"],
+			checkAll("worker-preamble", "optional worker guidance preserves the historical base, keeps writing trust-gated, and receives the review-role decision at the pinned prompt boundary", [
+				["feature-off preamble is the 226-byte historical text", worker.WORKER_PREAMBLE === historicalPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 226, worker.workerPreamble(false, false)],
+				["absent and false are byte-identical to the historical preamble", worker.workerPreamble(undefined, undefined) === historicalPreamble && worker.workerPreamble(false, false) === historicalPreamble, { absent: worker.workerPreamble(undefined, undefined), false: worker.workerPreamble(false, false) }],
+				["only literal true enables the current 384-byte writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${historicalPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 384 && worker.workerPreamble("true", false) === historicalPreamble, { on: worker.workerPreamble(true, false), malformed: worker.workerPreamble("true", false) }],
+				["worker prompt re-checks writing trust and passes the charter as workerPreamble's second argument", /appendSystemPrompt\s*:\s*\[\s*workerPreamble\(trusted\s*&&\s*opts\.writingCheck\s*===\s*true\s*,\s*opts\.reviewerCharter\s*===\s*true\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,180}/)?.[0] ?? "not found"],
 				["ThreadManager passes its sanitized writing switch", /writingCheck\s*:\s*this\.config\.writing\?\.check\s*===\s*true/.test(threadsSource), threadsSource.match(/writingCheck\s*:[^,\n]*/)?.[0] ?? "not found"],
+				["ThreadManager derives the charter switch from effective thread type", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*type\s*===\s*"reviewer"\s*\|\|\s*type\s*===\s*"adversarial"/.test(threadsSource), { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found" }],
+				["the dispatch routes an unrecognised-type report through its user-visible warning channel", /report\s*:\s*routeWarn/.test(threadsSource), threadsSource.match(/report\s*:[^,\n]*/)?.[0] ?? "not found"],
+			]);
+
+			const reviewRules = readFileSync(join(REPO, "docs", "review-rules.md"), "utf8");
+			const beginMarker = "<!-- reviewer-charter:begin -->";
+			const endMarker = "<!-- reviewer-charter:end -->";
+			const begin = reviewRules.indexOf(beginMarker);
+			const end = reviewRules.indexOf(endMarker);
+			const markedBlock = begin >= 0 && end > begin
+				? reviewRules.slice(begin + beginMarker.length, end)
+				: "";
+			const normalizeCharter = (text) => text.trim().replace(/\s+/g, " ");
+			checkAll("reviewer-charter-sync", "the shipped reviewer charter matches the non-empty marked review-rules block after whitespace normalization", [
+				["begin marker is present", begin >= 0, { begin }],
+				["end marker is present after the begin marker", end > begin, { begin, end }],
+				["marked block is not empty", normalizeCharter(markedBlock).length > 0, markedBlock],
+				["normalized charter constant matches the marked block", normalizeCharter(worker.REVIEWER_CHARTER) === normalizeCharter(markedBlock), { constant: normalizeCharter(worker.REVIEWER_CHARTER), markedBlock: normalizeCharter(markedBlock) }],
 			]);
 		}
 
@@ -5991,7 +6010,7 @@ try {
 		"writing-status-fresh", "writing-status-clean", "writing-status-positive", "writing-status-import-url", "writing-status-import-fail",
 		"writing-status-gate-switch", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui",
 		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-cap-visible", "writing-status-counting", "writing-status-no-store-write",
-		"worker-load", "worker-preamble",
+		"worker-load", "worker-preamble", "reviewer-charter-sync",
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",
 		"bar-self-exclude", "bar-collision",

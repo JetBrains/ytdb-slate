@@ -3,16 +3,15 @@
 How the orchestrator reviews work produced by worker threads. Review
 threads are created dynamically like any other thread; there is no fixed
 roster. These rules govern how reviews are composed, not who performs
-them. Worker threads do not automatically load this document. When
-dispatching a reviewer, either embed in the task text the perspective's
-charter (§3), the reasoning obligations (§7), and the output contract
-(§4: the perspective's ID prefix, the severity vocabulary
+them. A thread with the `reviewer` or `adversarial` type automatically
+receives the reasoning obligations in §7. The task must still embed the
+perspective's charter (§3) and the output contract (§4: the
+perspective's ID prefix, the severity vocabulary
 blocker/should-fix/suggestion, and a closing compact findings block —
 one `ID` | `severity` | `location` | `one-line summary` |
-`counterexample gist` line per finding, see §5), or direct the
-reviewer to read the relevant sections of this file itself (worker
-threads can read files; they just do not receive this one
-automatically).
+`counterexample gist` line per finding, see §5), or direct the reviewer
+to read those sections of this file. For a review thread with any other
+type, also embed the §7 obligations or direct the reviewer to read them.
 
 ## 1. When to review
 
@@ -29,6 +28,9 @@ automatically).
 - A review perspective is always a NEW thread. Never reuse the
   implementing thread and never review substantial work yourself: fresh
   eyes are the point.
+- Pass the `reviewer` or `adversarial` thread type on every review
+  dispatch. Use `adversarial` for a perspective that actively seeks
+  counterexamples and `reviewer` for every other review perspective.
 - Do not pass implementer episodes or implementer reasoning to
   reviewers. Give a reviewer the artifact/diff, the intent of the
   change, its in-scope files, and its charter plus reasoning/output
@@ -166,8 +168,9 @@ perspective's charter:
 ## 6. Iteration and termination
 
 - After fixes, re-verify each addressed finding — in a gate thread,
-  not by trusting the fixer's claim. A gate thread is a fresh thread
-  whose sole job is verdicts; it receives the compact finding index
+  not by trusting the fixer's claim. Dispatch every gate thread with the
+  `reviewer` type. A gate thread is a fresh thread whose sole job is
+  verdicts. It receives the compact finding index
   (§5) and the fix diff, but not the fixer's or implementer's
   episodes. Verdict per finding:
   - **VERIFIED** — the fix resolves the finding;
