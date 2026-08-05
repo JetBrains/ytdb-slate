@@ -108,6 +108,32 @@ Rationale: the clamp guarantees the pause fires before pi's
 auto-compaction and leaves room to write the handoff brief; the
 half-window floor keeps small-window models usable.
 
+## Writing-reminder cadence
+
+The effective budget also sets the optional hidden writing-reminder cadence.
+When `writing.check` and `writing.remind` are both true, Slate computes:
+
+```
+interval = max(8192, floor(effectiveBudget × remindPercent / 100))
+```
+
+`remindPercent` defaults to 10 and accepts a finite value in `(0, 100]`. The
+context-window clamp therefore shortens the cadence on a model whose configured
+budget does not fit. Slate checks the cadence after tool results. One reminder
+slot can fire after each assistant response.
+
+A successful handoff adoption sets `forceNext`. The next eligible tool result
+then bypasses token cadence and missing usage. It does not bypass trust,
+orchestrator mode, `writing.check`, `writing.remind`, or pause gates. Slate
+commits the cadence mark only when pi starts delivery of the custom message.
+
+The current hidden message is 320 ASCII characters, including its `[slate]`
+header, five reminder requirements, blank separator, and scope exclusion. That
+is about 80 tokens at four characters per token. This count is for the exact
+rendered production string, without JSONL framing or provider-role overhead. The
+message enters conversation context only when a reminder fires. Later requests
+resend it with the rest of the conversation.
+
 ## Compaction policy
 
 In orchestrator mode, for budget-driven configs only: a
@@ -150,34 +176,36 @@ construction and makes the arithmetic one multiplication:
 `doctrine-budget` in `verification/resolver-checks.mjs` is the
 definition of record for this convention and its enforced bounds.
 This table is a measured snapshot, not a second authority. It uses
-the same real shipped-profile fixture as that check; the six-model
-rows use the six configured models in this repository's documented
-example. Every row states its full basis, because router state,
-model count, `draftPRs`, and `writing.check` each move the number:
+the same shipped-profile fixture as that check. The six-model rows
+use the six models in this repository's `.pi/slate.json`. Every row
+states its full basis, because router state, model count, `draftPRs`,
+and `writing.check` each move the number. Rows with the same fixture
+and basis must agree with `verification/README.md`. A different basis
+must be named instead of presented as the same measurement:
 
 | router | models | `draftPRs` | `writing.check` | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
 | off | — | off | off | 3 | 1,929 | 38 |
-| off | — | off | on | 4 | 2,683 | 53 |
+| off | — | off | on | 4 | 2,999 | 60 |
 | off | — | on | off | 4 | 1,948 | 38 |
-| off | — | on | on | 5 | 2,702 | 53 |
-| on | 6 configured | off | off | 4 | 3,879 | 58 |
-| on | 6 configured | off | on | 5 | 4,633 | 73 |
-| on | 6 configured | on | off | 5 | 3,898 | 58 |
-| on | 6 configured | on | on | 6 | 4,652 | 73 |
+| off | — | on | on | 5 | 3,018 | 60 |
+| on | `.pi/slate.json` six | off | off | 4 | 3,879 | 58 |
+| on | `.pi/slate.json` six | off | on | 5 | 4,949 | 80 |
+| on | `.pi/slate.json` six | on | off | 5 | 3,898 | 58 |
+| on | `.pi/slate.json` six | on | on | 6 | 4,968 | 80 |
 | on | all 9 shipped | off | off | 4 | 4,434 | 61 |
-| on | all 9 shipped | off | on | 5 | 5,188 | 76 |
+| on | all 9 shipped | off | on | 5 | 5,504 | 83 |
 | on | all 9 shipped | on | off | 5 | 4,453 | 61 |
-| on | all 9 shipped | on | on | 6 | 5,207 | 76 |
+| on | all 9 shipped | on | on | 6 | 5,523 | 83 |
 
 An untrusted project reads the first row whatever its `slate.json`
 says: no project config is loaded, so no optional rule renders. Line
 counts do not vary with the install path. Enabling `draftPRs` costs
 19 portable characters plus one embedded path. Enabling
-`writing.check` costs 754 portable characters, adds 15 lines to the
-whole doctrine, and adds one embedded path; considered alone, the
-writing rule is 754 portable characters / 16 lines because its
-leading newline becomes the separator when appended.
+`writing.check` costs 1,070 portable characters, adds 22 lines to the
+whole doctrine, and adds one embedded path. Considered alone, the
+writing rule is 1,070 portable characters / 23 lines. Its leading
+newline becomes the separator when appended.
 
 Two parts of the block grow with configuration rather than with the
 path:
@@ -191,20 +219,56 @@ path:
   legend adds a one-off clause per marker it has to explain, so
   growth is not only the sum of new rows.
 - The worker-extension rule grows per whitelisted extension and per
-  tool that extension contributes, so it has no fixed size; one
+  tool that extension contributes, so it has no fixed size. One
   extension contributing two tools measured 373 portable characters
   / 7 lines.
 
-Against a 256,000-token budget none of this is material. At four
-characters per token as a rough estimate (no tokenizer was run, and
-the routing table is denser than prose), the portable block ranges
-from about 482 tokens at the baseline to about 1,302 with all nine
-models, `draftPRs`, and writing enabled. That is close to half a
-percent of the default budget at the largest measured configuration,
-though it is re-sent on every request rather than paid once. It is
-listed here because it is context Slate itself puts in front of the
-model on every turn, and because it is the number to check before
-assuming the budget's headroom is all conversation.
+The table above isolates the shipped rules. Two representative bases include
+worker extensions and support verification decisions:
+
+| basis | models | worker extensions | paths | portable | lines | rough tokens |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| current `.pi/slate.json` dogfood config | 6 | real 2 units / 4 tools | 6 | 5,884 | 90 | ≈1,471 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 6,870 | 93 | ≈1,718 |
+
+The dogfood row uses `workflow.draftPRs: true`, `writing.check: true`, and the
+six models in `.pi/slate.json`. Its extension basis is
+`pi-smart-fetch@0.3.12` plus `pi-web-search@1.3.1`. Those packages resolve to two
+units and four tools. Their worker-extension rule is 916 portable characters /
+11 lines. Raw size remains symbolic: `portable + 6 × length(installed docs
+directory)`. No maintainer checkout path belongs in this shipped document.
+
+The stable maximal row uses all nine shipped profiles, draft PRs, and writing.
+Its direct post-resolution worker fixture has two units and four tools. Unit
+labels are 128 characters. Tool names are 64 characters. Descriptions are 140
+characters.
+
+Those are the renderer caps. The fixture uses safe ASCII letters. It is
+independent of installed extension labels, descriptions, versions and other
+prose. The worker rule measures 1,347 characters against its 1,600-character
+verification budget.
+
+`doctrine-budget` caps that representative maximal doctrine at 7,200 portable
+characters. The measured 6,870 leaves 330 characters, or 4.6 percent of the
+7,200-character bound. A positive control adds one capped tool
+and three copies of the largest measured model row. It measures 7,634 portable
+characters and exceeds the bound by 434. These figures are verification budgets,
+never runtime limits. Arbitrary user extension rosters can exceed them.
+
+The exact values are maintenance tripwires. A deliberate doctrine wording,
+requirement roster, renderer cap, or fixture change requires a fresh render
+through `doctrine-budget`. Update its exact expectations and every published
+figure in the same commit. Keep the positive control steps unchanged unless the
+fixture design itself changes.
+
+Against a 256,000-token context budget, these blocks remain small. At four
+characters per token as a rough estimate, the shipped-rule table ranges from
+about 482 tokens to about 1,381 tokens. The current dogfood basis is about 1,471
+tokens. The representative maximum is about 1,718 tokens, or 0.67 percent of the
+default budget.
+
+No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
+much headroom Slate consumes before conversation content.
 
 ### Worker writing preamble
 
@@ -317,9 +381,8 @@ number.
   compaction can land in the same cycle and the handoff brief is
   written from compacted context — episodes and thread state survive
   on disk, so handoff still functions.
-- The doctrine sizes above cover the shipped rules only. A project
-  that also injects `doctrineExtraPath` or `orchestratorPromptDocs`,
-  or whitelists worker extensions, pays for those on top in the same
-  always-loaded position, and Slate measures none of it against the
-  budget separately — it simply arrives as context the budget then
-  has less room for.
+- The doctrine sizes above cover the stated fixtures only. A project that
+  injects `doctrineExtraPath` or `orchestratorPromptDocs` pays for those on top.
+  A larger worker-extension roster also adds context beyond the representative
+  fixtures. Slate imposes no runtime doctrine-size limit. This content simply
+  leaves less room under the context budget.

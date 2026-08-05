@@ -32,6 +32,20 @@ import {
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { THINKING_LEVELS } from "./route.ts";
 import { orchestratorCostUsd, type SlateConfig, type SlateStore } from "./state.ts";
+import {
+	claimWritingReminder,
+	commitWritingReminder,
+	decideWritingReminder,
+	rearmWritingReminder,
+	renderWritingDoctrineRequirements,
+	renderWritingReminderMessage,
+	renderWritingScopeExclusion,
+	resetWritingReminderSession,
+	WRITING_REMINDER_CUSTOM_TYPE,
+	writingReminderDeliveryDetails,
+	writingReminderGateOpen,
+	writingReminderInterval,
+} from "./writing-reminder.ts";
 import { measureWritingTurn, type WritingChecker, type WritingCounters } from "./writing.ts";
 import type { WorkerExtensionSet, WorkerExtensionUnit } from "./worker-extensions.ts";
 
@@ -406,12 +420,14 @@ ${n}. Check all user-facing prose before delivery. Use short, active sentences a
    A sentence over 20 words warns. Shorten it when meaning stays clear.
 
    Do not use semicolons or contractions. Keep exact technical terms. The check
-   does not test vocabulary.
+   does not test vocabulary. Follow these writing requirements:
 
-   Apply it to README text, documentation, code comments, and pull request text.
-   Apply it to commit bodies, issues, review comments, release notes, and messages
-   to the user. Exclude research logs, worker task text, and the project's own agent
-   instruction file.
+${renderWritingDoctrineRequirements("   ")}
+
+   Apply these requirements to README text, documentation, code comments, and
+   pull request text. Apply them to commit bodies, issues, review comments,
+   release notes, and messages to the user.
+${renderWritingScopeExclusion("   ")}
 
    Rules, limits and the checker command:
    ${WRITING_GUIDANCE_DOC}
@@ -662,6 +678,71 @@ export function registerSlateMode(
 		return { systemPrompt: event.systemPrompt + parts.join("") };
 	});
 
+	// Each assistant response opens one reminder slot for its following tools.
+	// A prior queue claim that never started delivery is retryable in this slot.
+	pi.on("message_end", (event) => {
+		if (event.message.role === "assistant") {
+			Object.assign(store.writingReminder, rearmWritingReminder(store.writingReminder));
+		}
+	});
+
+	// message_start proves that pi began delivering our custom steer.
+	pi.on("message_start", (event) => {
+		if (event.message.role === "custom" && event.message.customType === WRITING_REMINDER_CUSTOM_TYPE) {
+			Object.assign(
+				store.writingReminder,
+				commitWritingReminder(store.writingReminder, event.message.details, event.message.content),
+			);
+		}
+	});
+
+	// Claim the round before sendMessage can synchronously trigger other hooks.
+	pi.on("tool_result", (_event, ctx) => {
+		const config = getConfig().writing;
+		const runtime = store.writingReminder;
+		if (
+			!writingReminderGateOpen(
+				{
+					orchestratorMode: store.orchestratorMode,
+					trusted: ctx.isProjectTrusted(),
+					check: config?.check === true,
+					remind: config?.remind === true,
+					paused: store.paused,
+				},
+				runtime.sentThisRound,
+			)
+		) {
+			return;
+		}
+		const usage = ctx.getContextUsage();
+		const effectiveBudget = usage ? hooks.effectiveContextBudget(usage.contextWindow, ctx) : undefined;
+		const interval =
+			effectiveBudget === undefined ? undefined : writingReminderInterval(effectiveBudget, config?.remindPercent ?? 10);
+		const decision = decideWritingReminder(runtime.markTokens, usage?.tokens, interval, runtime.forceNext);
+		const reminderContent = renderWritingReminderMessage();
+		Object.assign(runtime, claimWritingReminder(runtime, decision, reminderContent));
+		if (!decision.send) return;
+		const deliveryId = runtime.pending?.deliveryId;
+		if (deliveryId === undefined) {
+			Object.assign(runtime, rearmWritingReminder(runtime));
+			return;
+		}
+		try {
+			pi.sendMessage(
+				{
+					customType: WRITING_REMINDER_CUSTOM_TYPE,
+					content: reminderContent,
+					display: false,
+					details: writingReminderDeliveryDetails(deliveryId),
+				},
+				{ deliverAs: "steer" },
+			);
+		} catch {
+			// A synchronous queue failure leaves force and cadence retryable.
+			if (runtime.pending) Object.assign(runtime, rearmWritingReminder(runtime));
+		}
+	});
+
 	// The writing checker reads only the completed assistant message from
 	// turn_end. It returns no hook result, so it is human-only telemetry and
 	// cannot alter what the model receives.
@@ -704,9 +785,11 @@ export function registerSlateMode(
 		writingCounters.findingTurns = 0;
 		writingCheckerPromise = undefined;
 		writingStatus = "fresh";
-		// store.restore() (index.ts) and pending-handoff adoption (handoff.ts)
-		// ran before this handler in registration order; re-apply the persisted
-		// mode to the fresh runtime.
+		Object.assign(store.writingReminder, resetWritingReminderSession(store.writingReminder));
+		// Preserve force only when the earlier handoff handler marked this cycle.
+		// The reset consumes that marker, so a later generic session_start clears
+		// stale force. Registration order remains index restore, handoff, then mode.
+		// Re-apply the persisted mode to the fresh runtime.
 		//
 		// Config-driven default: seed orchestrator mode ON for a genuinely FRESH
 		// interactive session. Running AFTER restore and handoff adoption means

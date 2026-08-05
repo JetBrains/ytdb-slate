@@ -69,6 +69,8 @@ The option has prompt cost. Each orchestrator system prompt contains the doctrin
 
 The shipped CLI checks plain files, JSONL records, and unified diffs. See [`docs/writing-guidance.md`](docs/writing-guidance.md) for its rules, limits, output, and command examples.
 
+Set `writing.remind` to `true` to add context-paced reminders after eligible tool results. Context-paced means Slate waits for configured context growth between reminders. The reminders are hidden from the normal TUI. They repeat five writing requirements and the scope exclusion before the next assistant response. This option remains off unless `writing.check` is also `true`.
+
 ## Install
 
 Install into a project (pinned, project-scoped — recorded in `.pi/settings.json`):
@@ -95,6 +97,8 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `workerPromptDocs` | string[] | `[]` | Project markdown files whose **contents** are appended to every worker-thread system prompt. |
 | `workflow.draftPRs` | boolean | `false` | Enable umbrella draft-PR publishing for tracks. |
 | `writing.check` | boolean | `false` | Add the writing doctrine rule, per-turn status, and worker guidance. An absent option is silently off. A malformed `writing` value, or a non-boolean `check` value, warns and defaults to off. Unknown `writing` keys warn and are ignored. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
+| `writing.remind` | boolean | `false` | Send a hidden reminder after an eligible tool result. All gates must pass: orchestrator mode, project trust, `writing.check`, this option, no pause, cadence or handoff force, and one-per-round control. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
+| `writing.remindPercent` | number | `10` | Set cadence as a percentage of Slate's current effective context budget. The value must be finite and in `(0, 100]`. The interval has an 8,192-token floor and no cap. A handoff force bypasses this threshold. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `doctrineExtraPath` | string | — | Project markdown whose **content** is appended to the orchestrator doctrine (project-specific workflow additions). |
 | `reviewPerspectivesPath` | string | — | Project review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
 | `modelFailover` | object (string → string) | — (empty, failover off) | Map of `provider/id` → equal-quality alternative model; on a model API failure the affected site retries once on the mapped model (worker/orchestrator sites only after pi's own retries are exhausted; episode compression has no pi retry loop). Read once at session start — see [`docs/model-failover.md`](docs/model-failover.md). |
@@ -112,13 +116,19 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
   "orchestratorPromptDocs": ["docs/agents/orchestrator-guidelines.md"],
   "workerPromptDocs": ["docs/agents/thread-guidelines.md"],
   "workflow": { "draftPRs": true },
-  "writing": { "check": true },
+  "writing": {
+    "check": true,
+    "remind": false,
+    "remindPercent": 10
+  },
   "doctrineExtraPath": "docs/agents/workflow-additions.md",
   "reviewPerspectivesPath": "docs/agents/review-perspectives.md",
   "modelFailover": { "anthropic/claude-sonnet-5": "openai/gpt-5.2" },
   "router": { "models": ["openai/gpt-5.6-luna", "anthropic/claude-opus-5"] }
 }
 ```
+
+Older Slate releases warn about these reminder keys and ignore them. Use a Slate release whose documentation includes these keys.
 
 > **Silent skip:** the project-file keys fail silently — no error is shown. For the content-injected keys (`orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`) a missing, unreadable, or empty file is skipped and nothing is injected. For `reviewPerspectivesPath` the pointer is omitted only when the file is missing — the file is not read at injection time, so an unreadable or empty file is still cited. Verify your paths after copying the example.
 

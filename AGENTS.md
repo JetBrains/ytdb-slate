@@ -29,7 +29,7 @@ This repo runs slate on itself:
   `exactOptionalPropertyTypes` and `noPropertyAccessFromIndexSignature` stay off. This repo measured both flags and then rejected them, and `tsconfig.json` records the error counts and the reasons. Nobody must repeat that decision without the data. Every flag in the set passes on the current tree. Add a new flag together with its fix. A flag that fails makes the check unreliable, and people then ignore it.
 
   A passing `npm run typecheck` does NOT make the TypeScript brands (`SessionBaseline`, `OpenModel` in `extension/route.ts`) tamper-proof: TypeScript permits an assertion to a branded subtype, so `someString as OpenModel` — the exact shape that reintroduced a shipped defect while the full suite stayed green — still typechecks cleanly. The resolver checks' source-scan gates for cast shapes are therefore still load-bearing and must not be removed on the grounds that the repo has a typecheck; the two nets cover different failures, and only the source scan covers this one.
-- **Automated verification exists.** Tier-1 CI runs four checks on every pull request, on every merge-queue candidate, on a push to `main`, and on a manual dispatch. Each check is the same command that you run locally, and the four checks together take about five seconds (§ Tier-1 CI). Three more nets run by hand and are named in the list below. Writing also has a focused correctness suite: `verification/writing-check-tests.mjs` tests the shipped, dependency-free JavaScript checker in `extension/writing-check.mjs` and the turn-outcome helper `measureWritingTurn` in `extension/writing.ts`. It does not unit-test the other TypeScript modules, and the repo has no general unit-test suite. Four tasks stay manual:
+- **Automated verification exists.** Tier-1 CI runs four checks on every pull request, on every merge-queue candidate, on a push to `main`, and on a manual dispatch. Each check is the same command that you run locally, and the four checks together take about five seconds (§ Tier-1 CI). Additional nets run by hand and are named below. Writing also has a focused correctness suite: `verification/writing-check-tests.mjs` tests the shipped, dependency-free JavaScript checker in `extension/writing-check.mjs` and the turn-outcome helper `measureWritingTurn` in `extension/writing.ts`. It does not unit-test the other TypeScript modules, and the repo has no general unit-test suite. Four tasks stay manual:
   1. **Read the full diff before you commit.** No tool does this for you.
   2. **Run the isolated-load smoke test when you must use an edit that you just made.** The command is `pi --no-extensions -e .` from the repo root, because an installed session runs the pinned published package and not your working tree. The load check proves that the extension loads and registers its tools, but it does not prove that the tools work. Exercise tool execution, worker sessions, failover and handoff by hand here.
   3. **Open an INTERACTIVE session to reach the doctrine and the router.** A headless `pi --no-extensions -e . -p "exit"` run exercises extension registration and `session_start` only, and it never builds the doctrine. slate seeds orchestrator mode only when `ctx.mode === "tui"` (`extension/mode.ts`), and `before_agent_start` returns at once while the mode is off. A headless run therefore reaches neither `buildDoctrine` nor the `getRouter()` consultation inside it, and that consultation is the only one in the doctrine. Every smoke test during the work on the routing feature missed both. A release-time accident exposed this gap.
@@ -37,7 +37,14 @@ This repo runs slate on itself:
      An automatic interactive session needs a pty. This machine has no `script(1)`, and a small Python `pty.fork` harness works instead. Use **`\r`** as the submit key, and not `\n`.
 
      The session JSONL holds no doctrine text. Its entries are `session`, `message`, `custom`, `model_change` and `thinking_level_change`, and the system prompt is not one of them. To verify the CONTENT of the doctrine, ask the model to repeat it, and do not grep the transcript. This gap is a smoke-test gap, and it is not a coverage gap. The `doctrine-*` checks cover the rendering, and the router checks cover the resolution. Only a live session proves that the wiring runs.
-  4. **Run by hand every net that tier-1 CI leaves out.** They are the verification ladder (tier 2, § Verification ladder below), the package-content check (§ Package-content check), the writing checker's correctness suite and the writing checker's scaling gate (§ Writing-checker nets). Each of those sections states its own re-run trigger. Tier-1 CI leaves the ladder out on purpose, for the reasons under § Tier-1 CI; the other three are simply not wired into the workflow yet.
+  4. **Run by hand every net that tier-1 CI leaves out.** The hand-run set is:
+     - the verification ladder (tier 2, § Verification ladder below).
+     - the package-content check (§ Package-content check).
+     - the writing checker's correctness suite.
+     - the writing checker's scaling gate (§ Writing-checker nets).
+     - the writing-reminder integration check (§ Writing-reminder integration check).
+
+     Each section states its own re-run trigger. Tier-1 CI excludes the ladder on purpose. The other hand-run nets are not wired into the workflow.
 
 ### Tier-1 CI (`.github/workflows/tier-1.yml`)
 
@@ -144,7 +151,11 @@ pi **stays silent** for each failure below: it exits 0, and it prints neither ma
 
   **Run the typecheck after ANY TypeScript change.** That trigger is wide on purpose, and the deep nets below use a narrow trigger instead. The run takes about 2 seconds, and it checks every file that it covers in one pass. Spend no time on a decision about the type relevance of your edit.
 
-  These nets cover the mechanisms that fail in silence: the verification ladder, the pure-resolver checks, the packaging guards, the extension-load check, the package-content check, the writing checker's correctness suite and the writing checker's scaling gate. The first four are described above or below; the last three have their own sections below. No number is written here on purpose — this inventory has been wrong twice, once when it said two and once when it said five — so read the list, and add to the list when you add a net. The typecheck is NOT one of them. It sees shapes, it never sees behaviour, and every mechanism in those sections fails with correct types. Run the net that covers your change, and run more than one when your change touches something that they share: an edit to `extension/writing-check.mjs` implicates all three of the nets that watch it (the correctness suite, the scaling gate, and the resolver suite's `writing-*` families).
+  The silent-failure nets are the ladder, pure-resolver checks, packaging guards, extension-load check and package-content check. They also include both writing-checker nets and the writing-reminder integration check. The sections below define their scope.
+
+  This inventory intentionally has no total. Earlier totals went stale twice. Add each new net to this inventory when you add it.
+
+  The typecheck is NOT one of these nets. It sees shapes, while each listed mechanism can fail with correct types. Run every net that covers a shared change. For example, `extension/writing-check.mjs` implicates its correctness suite, scaling gate and the resolver suite's `writing-*` families.
 
   `failover.ts`, `episodes.ts`, `worker.ts` and the router use the model-spec helpers in `extension/state.ts`. `failover.ts` and `handoff.ts` drive `extension/base-model.ts`, and those two modules are the switch sites of the ladder. A change to either module therefore implicates BOTH nets.
 
@@ -172,15 +183,76 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 - `extension/base-model.ts` — the orchestrator base-model tracker (`base-*`): the pure reducer deciding which model switches move the base model new worker threads inherit (seeding, slate's own declared switches, user/cycle/restore sources, handoff adoption, stale declarations and their one-event grace, switches in flight, and a setter that throws). Driven with fabricated `model_select` events through the declare/observe/settle protocol — the module has no clock, so nothing sleeps and no timer can fire after teardown;
 - `extension/episodes.ts` (`episode-*`) — episode compression, loaded through a SECOND loader instance with the pi packages aliased to local stubs, since it imports `@earendil-works/pi-ai` (a peer dependency this repo does not install). The module and everything it imports from this repo are real; only the SDK boundary is faked;
 - `extension/model-profiles.ts` — STRUCTURAL invariants of the shipped table only (id/alias resolvability, ladder vs measured/gap coverage, price-schedule shape, tier range, freezing). Never a research number: those are a review concern, and a refresh must not have to touch this suite;
-- the **writing wiring**: `extension/writing.ts`'s config sanitizer and `measureWritingTurn` outcomes (`writing-config-*`), `extension/mode.ts`'s writing status line and its four visibility gates (`writing-status-*`), the writing doctrine rule (`writing-doctrine-*`), the shipped command `extension/writing-check.mjs` by import and by spawn (`writing-checker-*`), and the worker preamble's config gate across `extension/worker.ts` and `extension/threads.ts` (`worker-preamble`). Two bounds meet here and are easy to confuse: `writing-status-cap-visible` covers `mode.ts`'s 16 KiB `WRITING_TURN_MAX_BYTES` turn bound, while `writing-status-cap-skip` covers the checker's own 1 MiB input cap. The checker MODULE has two nets of its own — see below.
+- the **writing wiring** spans several modules. `extension/writing.ts` owns the config sanitizer and `measureWritingTurn` outcomes (`writing-config-*`). `extension/mode.ts` owns the writing status gates and doctrine rule (`writing-status-*`, `writing-doctrine-*`). The reminder policy and mode handlers are `writing-reminder-*`. The shipped command is imported and spawned by `writing-checker-*`. The worker preamble gate spans `extension/worker.ts` and `extension/threads.ts` (`worker-preamble`). Reminder checks cover the frozen roster, rendering, cadence, gates, state transitions, retry paths, runtime-only state, effective-budget clamp and real handoff ordering. Two bounds meet here. `writing-status-cap-visible` covers the 16 KiB turn bound. `writing-status-cap-skip` covers the checker's 1 MiB input cap. The checker module has two nets of its own.
 
 - Run it with `bash verification/run-resolver-checks.sh --repo .`. The harness needs `node` and `mktemp` on `PATH`, and it resolves pi itself, so **`PATH` does not need pi** (§ Tier-1 CI). It prints one line for each check, an `observed:` line under a failure, a `roster` check that every expected check reported, and then a summary. Pass `--strict` in automation, because it makes any NOT RUN fatal. Tier-1 CI passes it.
   - Exit 0 means that every check passed.
   - Exit 1 means that a check failed or went missing.
   - Exit 2 means that the harness refused to start.
-- **Re-run it after any change to `extension/worker-extensions.ts`, `extension/model-router.ts`, `extension/route.ts`, `extension/model-profiles.ts`, `extension/base-model.ts`, `extension/episodes.ts`, `extension/writing.ts`, `extension/writing-check.mjs`, the worker preamble or its config plumbing in `extension/worker.ts` and `extension/threads.ts`, `extension/state.ts`'s spec helpers or snapshot sanitizers, or `extension/mode.ts`'s doctrine RENDERING and writing status wiring** — those are the modules or source paths it checks. Doctrine rendering is stated plainly because it is easy to file under prose: the routing rule bypasses the doctrine sanitizer, so touching it is an edit to an injection surface and to a per-turn cost, and only this suite watches either. A guard change in `route.ts` is the highest-stakes case: re-run it, and if the guard's INPUTS moved (what `threads.ts` injects) re-read the assembler too, since the harness fabricates those inputs. The `state.ts` helpers are shared with `failover.ts`, so a change to them also needs the ladder above. A router change is the same class of hazard as the model-default mechanism: a wrong candidate list or a suppressed warning still "works", so a smoke test proves nothing about it. Details, the check table and the mutation-testing method that gives these checks teeth: `verification/README.md`.
+- **Re-run it after any change to a covered module or source path.** Covered production modules are:
+  - `extension/worker-extensions.ts`, `model-router.ts`, `route.ts`, `model-profiles.ts`, `base-model.ts` and `episodes.ts`.
+  - `extension/writing.ts`, `writing-reminder.ts` and `writing-check.mjs`.
+  - The worker preamble or config plumbing in `extension/worker.ts` and `extension/threads.ts`.
+  - `extension/state.ts` spec helpers or snapshot sanitizers.
+  - `extension/handoff.ts` reminder force ordering.
+  - `extension/mode.ts` doctrine rendering, writing status or reminder wiring.
+
+  Doctrine rendering is an injection surface and per-turn cost that only this suite watches. A `route.ts` guard change is the highest-stakes case. Re-read `threads.ts` when a guard input changes because the harness fabricates those inputs. Changes to shared `state.ts` helpers also need the ladder. Router errors can remain invisible while dispatch still works, so a smoke test proves nothing. `verification/README.md` records the checks and mutation method.
 - It imports `extension/worker.ts` for the preamble builder and reads the prompt/config plumbing in that module and `extension/threads.ts`; nothing else in either module is covered. The worker-session load path — the allowlist-mode extension load, the `excludeTools` deny list that keeps slate's dispatch tools out of a worker, and the post-load collision re-check — is out of its scope. Exercise those with the isolated-load smoke test (`pi --no-extensions -e .`) above after changing `extension/worker.ts`, and the ladder's `WK1` rung for that module's settings isolation. It likewise stops at the PURE boundary: it proves what the planner DECIDES, not what `threads.ts` does with a verdict (applying the switch, raising a tool error, aborting without an episode, remembering the long-context notice). Those are separate mechanisms; the ladder's `WK1` rung covers one slice of the first.
-- **Doctrine size figures are install-path dependent — compare a PORTABLE one.** The doctrine cites its docs by absolute path (three always, one more with `workflow.draftPRs`, one more with the router on, and one more with writing guidance on), so every character of installed-`docs/`-directory length costs **3–6 characters of rendered doctrine**. A raw count measured in a deeper checkout or under `node_modules` is therefore larger and nothing is wrong. Nothing needs re-deriving to see past that: `doctrine-budget` bounds an install-INVARIANT figure — the rendered text with each occurrence of the docs directory removed, filename kept — and carries two terms that fail if that normalisation ever degrades to the identity; `docs/context-budget.md` (with `docs/model-routing.md` deferring to it) and `verification/README.md` publish portable figures on that same convention, and `docs/context-budget.md` names the check as the definition of record. Their published rows are not all identical — they were measured against different commits and fixtures — so when a figure matters, re-measure it rather than reconciling two tables.
+- **Doctrine size figures are install-path dependent, so compare portable counts.** The doctrine embeds three to six absolute docs paths. Each docs-directory character therefore costs three to six rendered characters. `doctrine-budget` removes each docs-directory occurrence while keeping filenames. Two terms prove that normalization still changes the measurement. `docs/context-budget.md` defines the same convention, and `docs/model-routing.md` defers to it. Rows using the same fixture and basis MUST agree across `docs/context-budget.md` and `verification/README.md`. A different basis must be named explicitly. Deliberate wording, roster, cap or fixture changes require fresh renders. Update resolver exact expectations and every published figure in the same commit.
+
+### Writing-reminder integration check
+
+`bash verification/run-writing-reminder-check.sh --repo .` starts one real pi
+session against a deterministic in-process fake provider. Two parallel canary
+tool calls must produce one hidden reminder steer. The next provider call must
+receive it. Session JSONL must persist one custom message with `display: false`.
+Both tool results must equal the exact one-block content shape.
+
+The harness requires `node`, `mktemp`, GNU `timeout`, `mkdir`, `rm`, `date`,
+`env`, `cat`, `tr` and `sed`. GNU `timeout` supplies the required
+`--kill-after` option. The selected pi CLI must match the exact devDependency
+pin.
+
+The harness resolves every scratch path physically and rejects a scratch root
+inside the checkout. It creates a trusted project, agent directory, home and
+temp directory under that root. The child starts through `env -i`. Only explicit
+throwaway values, a minimal `PATH`, dead proxy settings and canary paths cross
+the boundary.
+
+`PI_OFFLINE=1` keeps pi startup offline. The fake provider performs no network
+operation. This is not a network sandbox because reviewed extension code can
+still open raw sockets.
+
+The canary uses a 1,000,000-token model window and reports 25,000 input tokens.
+The project config sets a 200,000-token budget and `remindPercent: 10`. The
+correct 20,000-token interval fires, while an incorrect 100,000-token interval
+does not. This makes the effective-budget path load-bearing.
+
+The pi phase is about one second on the reference machine. The wrapper's observed
+wall clock is around two seconds. These figures describe one machine, not a speed
+promise. GNU `timeout` sends TERM after 60 seconds and KILL five seconds later.
+
+Exit 0 means every assertion passed. Exit 1 means a check failed. Exit 2 means
+the harness refused to start. A failed run keeps its scratch directory and
+inlines pi stderr and stdout. A clean run removes the directory.
+
+This net is outside tier-1 CI, the load check and the ladder. It proves the real
+hook, steer, provider and persistence path. It proves `display: false`
+structurally, not visual TUI invisibility. Check that presentation manually.
+
+Re-run it after these changes:
+
+- Requirement text, rendering, cadence or gates in `extension/writing-reminder.ts`.
+- Reminder config in `extension/writing.ts`.
+- Reminder hooks or reset ordering in `extension/mode.ts`.
+- The handoff `forceNext` assignment in `extension/handoff.ts`.
+- Custom-message type, options or steer delivery.
+- The canary, harness, pi pin, RPC shape or JSONL shape.
+
+A change to `extension/handoff.ts` still requires the full ladder. Run the
+pure-resolver checks for reminder policy, config, mode, doctrine or ordering
+changes.
 
 ### Package-content check (package-resolved runtime files)
 
@@ -200,9 +272,20 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 
 ## Writing convention
 
-The convention governs new or changed prose in the root `README.md`, PR descriptions, delivery commit bodies in either mode, issues, comments, release notes and agent messages to users: use short, active, plain language; keep exact terms. Research logs and worker-thread task text are excluded. So are `docs/` and `verification/README.md`, which are precision-first mechanism references, and `AGENTS.md`, whose agent rules need a dense, exact register.
+The convention governs new or changed prose in the root `README.md`, PR descriptions and delivery commit bodies. It also governs issues, comments, release notes and agent messages to users. Use short, active, plain language. Keep exact technical terms. Do not use semicolons or contractions.
 
-The writing checker is diagnostic everywhere and authoritative nowhere: a match directs a reviewer's attention, and the reviewer decides whether the text has a defect. In convention-governed files, changed text should carry no fail-level findings; fail-level findings in unchanged text are pre-existing debt, not a blocker for an unrelated change. In excluded files every checker class is advisory only. This is deliberate: fail-level rules include sentence and paragraph length, and length trades directly against the precision those exclusions protect. ASD-STE100 inspires only; Slate claims no conformance. Copy no standard material or examples.
+These six requirements are project-authored:
+
+1. Avoid idioms.
+2. Replace bare-reference openers with the subject they reference.
+3. Explain each project-specific term at first use.
+4. Define each abbreviation at first use.
+5. Express one idea in each sentence.
+6. Use one term for each concept.
+
+Research logs and worker-thread task text are excluded. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. `docs/` and `verification/README.md` remain precision-first mechanism references and are excluded too.
+
+The writing checker is diagnostic everywhere and authoritative nowhere. A match directs reviewer attention, and the reviewer decides whether the text has a defect. Changed convention-governed text should carry no fail-level findings. Findings in unchanged text are pre-existing debt, not an unrelated blocker. Every checker class is advisory in excluded files because length limits can conflict with required precision. ASD-STE100 inspires only, Slate claims no conformance, and contributors must copy no standard material or examples.
 
 ## Packaging rules
 

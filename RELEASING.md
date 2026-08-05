@@ -23,7 +23,7 @@ Have all of this before step 0. Steps 5, 7 and 8 act in public, and a missing to
 - **Tools on `PATH`:** bash 4 or newer (the blocks use `mapfile`, arrays and `[[ ]]`), git, GNU coreutils, `gh`, `node`, `npm`, `pi`, `tar`, `cmp`, `awk`, `sed`, `grep`, `diff`.
 - **GitHub:** `gh auth status` reports you as logged in, against the host that serves this repository, with write access to it. Step 7 pushes a tag and creates a release; step 8 pushes a branch and opens a pull request.
 - **npm:** the user who runs step 5 has an account that may publish `ytdb-slate` and can answer its two-factor prompt. The agent never needs npm credentials; it only reads the registry.
-- **The step 1 verification set:** run it as a normal user, not as root. The ladder needs GNU coreutils; the resolver checks need `pi` and `node`.
+- **The step 1 verification set:** run it as a normal user, not as root. The ladder needs GNU coreutils. The resolver checks need `pi` and `node`. The writing-reminder integration harness needs its checked command set, including GNU `timeout` with `--kill-after`.
 
 ## Release state
 
@@ -267,12 +267,20 @@ Bump only `version` in `package.json`. Leave `.pi/settings.json` pinned to `npm:
 
 This block works in `REPO_DIR`, the checkout step 0 ran in; it does not use the directory you are standing in, and no release worktree exists yet. If step 0 recorded a checkout that is not the PR branch, the version assertion below stops the block. `REPO_DIR` is immutable, so the repair is to start the state again: steps 0 and 1 change nothing outside this machine, so delete the release directory printed by step 0, then run step 0 from the PR branch checkout.
 
-**Run the full verification set, not only the typecheck.** `AGENTS.md` names a typecheck, two automated behavioural nets — the ladder and the resolver checks; the typecheck is deliberately not one of them, because it sees shapes and never behaviour — and manual load tests, each with its own trigger. A release ships every file, so the release runs all of the automated ones unconditionally rather than deciding which of them the diff implicated:
+**Run the full verification set, not only the typecheck.** `AGENTS.md` names several behavioral nets with distinct scopes. The typecheck is separate because it sees shapes, not behavior. A release ships every file, so step 1 runs every checked-in net and the manual smoke test:
 
-- `npm run typecheck` — the type gate. Seconds.
-- `bash verification/run-resolver-checks.sh --repo . --strict` — the pure pipelines: worker extensions, the doctrine rules, the model router, the dispatch guards, the state sanitizers, the profile table. About a second.
-- `bash verification/run-ladder.sh --repo . --strict` — the model-switch machinery and the worker settings isolation. About three minutes. Do not run it as root; it needs GNU coreutils.
-- The isolated-load smoke test, below. Judge it by the absence of a `Failed to load extension` line, never by the exit code: pi exits 0 when extension loading fails.
+- `npm run typecheck` checks TypeScript shapes.
+- Both packaging-guard commands check the manifest and real pack list, including their self-tests.
+- `bash verification/run-load-check.sh --repo .` checks working-tree loading, hooks, tools and config syntax.
+- `bash verification/run-resolver-checks.sh --repo . --strict` checks pure pipelines and doctrine rendering.
+- `bash verification/run-ladder.sh --repo . --strict` checks model switches and worker settings isolation. It takes about three minutes. Do not run it as root.
+- `node verification/package-content-check.mjs --repo .` checks package-resolved runtime files.
+- `node verification/writing-check-tests.mjs` checks writing-checker correctness.
+- `node verification/writing-check-scaling.mjs` checks linear growth and output caps.
+- `bash verification/run-writing-reminder-check.sh --repo .` checks the real reminder hook, steer and persistence path. It requires GNU `timeout`.
+- The isolated-load smoke test below provides an additional manual read of direct loader output.
+
+The tier-1 CI set remains the four commands in `AGENTS.md`. The other commands above are release-time hand-run nets.
 
 ```bash
 set -euo pipefail
@@ -296,8 +304,15 @@ if (slate.length !== 1 || slate[0] !== expected) throw new Error(`dogfood pin is
 NODE
 
 npm run typecheck
+bash verification/run-packaging-checks.sh --repo .
+bash verification/run-packaging-checks.sh --repo . --self-test
+bash verification/run-load-check.sh --repo .
 bash verification/run-resolver-checks.sh --repo . --strict
 bash verification/run-ladder.sh --repo . --strict
+node verification/package-content-check.mjs --repo .
+node verification/writing-check-tests.mjs
+node verification/writing-check-scaling.mjs
+bash verification/run-writing-reminder-check.sh --repo .
 
 LOAD_LOG="$RELEASE_DIR/evidence/isolated-load.log"
 LOAD_STATUS=0
@@ -314,7 +329,7 @@ if grep -Eq 'Failed to load extension|Cannot find module|SyntaxError' "$LOAD_LOG
 fi
 ```
 
-Both halves of that check matter and neither is sufficient. A nonzero exit is a failure outright, and the old block discarded it with `|| true`. Exit 0 proves nothing, because pi exits 0 when extension loading fails — hence the marker scan. The scan is a floor, not a ceiling: it names the failures seen so far, so read the log rather than trusting the three patterns to be exhaustive.
+A nonzero smoke-test exit is a failure outright. On pinned pi 0.83.0, reported direct-load failures normally exit 1 and print `Failed to load extension`. Other extension failures can remain exit 0 and use different channels. A missing file inside a package's `pi.extensions` list can stay completely silent. The marker scan is therefore a floor, not a ceiling. Read the log instead of treating three patterns as exhaustive.
 
 That headless run proves registration and `session_start` only. It never enters orchestrator mode, so it builds no doctrine, consults no router and runs no tool or failover path. **If the release changes failover, doctrine rendering, the router, or any dispatch path, also open an interactive `pi --no-extensions -e .` session before flipping the PR to ready, and exercise `thread`, `threads` and `episode` by hand along with whatever changed.** `AGENTS.md` requires failover explicitly for this reason; the automated nets cover the resolution and the rendering, and only a live session proves the wiring runs.
 

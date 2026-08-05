@@ -58,6 +58,8 @@ const routerLoad = await tryImport("extension/model-router.ts");
 const profilesLoad = await tryImport("extension/model-profiles.ts");
 const stateLoad = await tryImport("extension/state.ts");
 const writingLoad = await tryImport("extension/writing.ts");
+const reminderLoad = await tryImport("extension/writing-reminder.ts");
+const handoffLoad = await tryImport("extension/handoff.ts");
 const workerLoad = await tryImport("extension/worker.ts");
 // The base-model tracker is a PURE reducer over model-selection events (its own
 // module header says so), so it belongs here rather than in the ladder: it
@@ -71,6 +73,8 @@ const router = routerLoad.module;
 const table = profilesLoad.module;
 const state = stateLoad.module;
 const writing = writingLoad.module;
+const reminder = reminderLoad.module;
+const handoff = handoffLoad.module;
 const worker = workerLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
@@ -158,32 +162,44 @@ function file(rel, content = "//x") {
 	return abs;
 }
 
-function writingStatusFixture({ writing = true, trusted = true, orchestrator = true, hasUI = true, loadWritingChecker } = {}) {
+function writingStatusFixture({ writing = true, writingConfig, trusted = true, orchestrator = true, paused = false, hasUI = true, usageTokens = 0, contextWindow = 200_000, effectiveBudget = 100_000, sendMessageThrows = false, loadWritingChecker } = {}) {
 	const handlers = {};
 	let status;
 	let saves = 0;
+	let contextUsageReads = 0;
+	const sent = [];
+	const budgetCalls = [];
+	const store = {
+		orchestratorMode: orchestrator,
+		paused,
+		threads: new Map(),
+		workerCostUsd: 0,
+		carriedCostUsd: 0,
+		writingReminder: { markTokens: 0, sentThisRound: false, forceNext: false, deliverySequence: 0, adoptedThisSessionStart: false },
+		save: () => { saves++; },
+		set onDidChange(_value) {},
+	};
 	const pi = {
-		on: (event, handler) => { handlers[event] = handler; },
+		on: (event, handler) => { (handlers[event] ??= []).push(handler); },
 		registerCommand: () => {},
 		getActiveTools: () => [],
 		setActiveTools: () => {},
 		getAllTools: () => [],
-	};
-	const store = {
-		orchestratorMode: orchestrator,
-		paused: false,
-		threads: new Map(),
-		workerCostUsd: 0,
-		carriedCostUsd: 0,
-		save: () => { saves++; },
-		set onDidChange(_value) {},
+		sendMessage: (...args) => {
+			if (sendMessageThrows) throw new Error("queue rejected");
+			sent.push(args);
+		},
 	};
 	const ctx = {
 		cwd: REPO,
 		mode: "tui",
 		hasUI,
 		isProjectTrusted: () => trusted,
-		sessionManager: { getEntries: () => [] },
+		getContextUsage: () => {
+			contextUsageReads++;
+			return usageTokens === undefined ? undefined : { tokens: usageTokens, contextWindow, percent: 1 };
+		},
+		sessionManager: { getEntries: () => [], getBranch: () => [] },
 		ui: {
 			setStatus: (_key, value) => { status = value; },
 			setWidget: () => {},
@@ -193,23 +209,44 @@ function writingStatusFixture({ writing = true, trusted = true, orchestrator = t
 	mode.registerSlateMode(
 		pi,
 		store,
-		{ startHandoff: async () => {} },
-		() => ({ writing: { check: writing } }),
+		{
+			startHandoff: async () => {},
+			effectiveContextBudget: (window, eventCtx) => {
+				budgetCalls.push([window, eventCtx]);
+				return effectiveBudget;
+			},
+		},
+		() => ({ writing: writingConfig ?? { check: writing } }),
 		() => ({ units: [] }),
 		() => ({ on: false, candidates: [] }),
 		loadWritingChecker,
 	);
-	return { handlers, ctx, getStatus: () => status, getSaves: () => saves };
+	const emit = async (event, payload = {}, eventCtx = ctx) => {
+		let result;
+		for (const handler of handlers[event] ?? []) result = await handler(payload, eventCtx);
+		return result;
+	};
+	return {
+		handlers,
+		emit,
+		ctx,
+		store,
+		sent,
+		budgetCalls,
+		getContextUsageReads: () => contextUsageReads,
+		getStatus: () => status,
+		getSaves: () => saves,
+	};
 }
 
 async function writingSession(fixture) {
-	await fixture.handlers.session_start({}, fixture.ctx);
+	await fixture.emit("session_start");
 	return fixture;
 }
 
 async function writingTurn(fixture, message = { role: "assistant", content: "Open the panel; stop." }) {
 	await writingSession(fixture);
-	await fixture.handlers.turn_end({ message }, fixture.ctx);
+	await fixture.emit("turn_end", { message });
 	return fixture;
 }
 
@@ -538,6 +575,367 @@ try {
 		resolver();
 		resolver();
 		check("memoization", walked === 1, "createWorkerExtensionResolver walks the registry exactly once across repeated calls", { walked });
+	});
+
+	// =========================================================================
+	// Writing reminder policy (extension/writing-reminder.ts + real mode hooks)
+	// =========================================================================
+	await section("writing-reminder", async () => {
+		check("writing-reminder-load", reminder !== undefined, "extension/writing-reminder.ts loads for pure policy verification", reminderLoad.error?.stack ?? reminderLoad.error);
+		if (!reminder) return;
+		const six = [
+			"Avoid idioms.",
+			"Replace bare-reference openers with the subject they reference.",
+			"Explain each project-specific term at first use.",
+			"Define each abbreviation at first use.",
+			"Express one idea in each sentence.",
+			"Use one term for each concept.",
+		];
+		const five = six.filter((_, i) => i !== 4);
+		checkAll("writing-reminder-roster", "the frozen requirement roster has the exact six ordered lines and only the sentence-idea rule is doctrine-only", [
+			["exact text and order", reminder.WRITING_REQUIREMENTS.map((r) => r.text).join("\n") === six.join("\n"), reminder.WRITING_REQUIREMENTS],
+			["exact reminder markers", reminder.WRITING_REQUIREMENTS.map((r) => r.reminder).join() === "true,true,true,true,false,true", reminder.WRITING_REQUIREMENTS],
+			["roster is frozen", Object.isFrozen(reminder.WRITING_REQUIREMENTS), Object.isFrozen(reminder.WRITING_REQUIREMENTS)],
+		]);
+		const exactScope = "Exclude research logs, worker task text, and the project's own agent instruction file.";
+		checkAll("writing-reminder-render", "doctrine renders six indented bullets, while the reminder renders five verbatim bullets plus the same exact exclusion guard", [
+			["doctrine exact and indented", reminder.renderWritingDoctrineRequirements("   ") === six.map((line) => `   - ${line}`).join("\n"), reminder.renderWritingDoctrineRequirements("   ")],
+			["scope source exact", reminder.WRITING_SCOPE_EXCLUSION === exactScope, reminder.WRITING_SCOPE_EXCLUSION],
+			["doctrine scope exact and indented", reminder.renderWritingScopeExclusion("   ") === `   ${exactScope}`, reminder.renderWritingScopeExclusion("   ")],
+			["reminder exact", reminder.renderWritingReminder() === `${five.map((line) => `- ${line}`).join("\n")}\n\n${exactScope}`, reminder.renderWritingReminder()],
+			["doctrine-only line excluded", !reminder.renderWritingReminder().includes(six[4]), reminder.renderWritingReminder()],
+		]);
+
+		const intervals = [
+			[100_000, 0.1, 8_192],
+			[100_000, 10, 10_000],
+			[100_000, 100, 100_000],
+			[10_000_000, 100, 10_000_000],
+			[Number.MAX_SAFE_INTEGER, 0.1, Math.floor(Number.MAX_SAFE_INTEGER * 0.001)],
+		];
+		check("writing-reminder-interval", intervals.every(([budget, percent, expected]) => reminder.writingReminderInterval(budget, percent) === expected), "the interval uses the sanitized percentage of the effective budget, floors at 8,192, and has no upper cap", intervals.map(([budget, percent, expected]) => [budget, percent, expected, reminder.writingReminderInterval(budget, percent)]));
+
+		const decide = reminder.decideWritingReminder;
+		const cadence = {
+			below: decide(0, 8_191, 8_192, false),
+			equal: decide(0, 8_192, 8_192, false),
+			above: decide(8_192, 20_000, 8_192, false),
+			lower: decide(20_000, 5_000, 8_192, false),
+			null: decide(5_000, null, 8_192, false),
+			nan: decide(5_000, Number.NaN, 8_192, false),
+			infinity: decide(5_000, Number.POSITIVE_INFINITY, 8_192, false),
+			forced: decide(5_000, null, undefined, true),
+		};
+		checkAll("writing-reminder-cadence", "cadence starts at zero, sends at equality or above, updates marks, lowers a stale mark, rejects unusable usage, and force sends without usage", [
+			["below does not send", cadence.below.send === false && cadence.below.nextMarkTokens === 0, cadence.below],
+			["equality sends and records usage", cadence.equal.send === true && cadence.equal.nextMarkTokens === 8_192, cadence.equal],
+			["above sends and records usage", cadence.above.send === true && cadence.above.nextMarkTokens === 20_000, cadence.above],
+			["smaller usage lowers without sending", cadence.lower.send === false && cadence.lower.nextMarkTokens === 5_000, cadence.lower],
+			["null and non-finite do not send", [cadence.null, cadence.nan, cadence.infinity].every((d) => !d.send && d.nextMarkTokens === 5_000), cadence],
+			["force sends with null and preserves mark", cadence.forced.send === true && cadence.forced.nextMarkTokens === 5_000, cadence.forced],
+		]);
+
+		const open = { orchestratorMode: true, trusted: true, check: true, remind: true, paused: false };
+		const branches = [
+			["orchestratorMode", { ...open, orchestratorMode: false }, false],
+			["trusted", { ...open, trusted: false }, false],
+			["check", { ...open, check: false }, false],
+			["remind", { ...open, remind: false }, false],
+			["paused", { ...open, paused: true }, false],
+		];
+		check("writing-reminder-gates", reminder.writingReminderGateOpen(open, false) && !reminder.writingReminderGateOpen(open, true) && branches.every(([, gate]) => !reminder.writingReminderGateOpen(gate, false)), "every policy gate closes independently, sent-this-round closes the slot, and no UI gate exists", branches);
+
+		const reminderContent = reminder.renderWritingReminderMessage();
+		const claimBase = { ...reminder.createWritingReminderRuntime(), markTokens: 5_000, forceNext: true };
+		const claimed = reminder.claimWritingReminder(claimBase, decide(5_000, 12_000, 8_192, true), reminderContent);
+		const wrongIdCommit = reminder.commitWritingReminder(claimed, { deliveryId: 99 }, reminderContent);
+		const wrongContentCommit = reminder.commitWritingReminder(claimed, { deliveryId: 1 }, `${reminderContent} wrong`);
+		const committed = reminder.commitWritingReminder(claimed, { deliveryId: 1 }, reminderContent);
+		const retried = reminder.rearmWritingReminder(claimed);
+		const secondClaim = reminder.claimWritingReminder(retried, decide(5_000, 13_000, 8_192, true), reminderContent);
+		const adoptedReset = reminder.resetWritingReminderSession({ ...claimed, markTokens: 99_000, adoptedThisSessionStart: true });
+		const genericReset = reminder.resetWritingReminderSession({ ...claimed, markTokens: 99_000, adoptedThisSessionStart: false });
+		checkAll("writing-reminder-state-machine", "claims allocate monotone ids, matching delivery commits, wrong delivery stays pending, rearm retries, and only this cycle's adoption preserves force", [
+			["first claim stores exact content", claimed.sentThisRound && claimed.forceNext && claimed.markTokens === 5_000 && claimed.deliverySequence === 1 && claimed.pending?.deliveryId === 1 && claimed.pending?.nextMarkTokens === 12_000 && claimed.pending?.consumeForce && claimed.pending?.expectedContent === reminderContent, claimed],
+			["wrong id cannot commit", wrongIdCommit === claimed && wrongIdCommit.pending?.deliveryId === 1 && wrongIdCommit.forceNext, wrongIdCommit],
+			["wrong content cannot commit", wrongContentCommit === claimed && wrongContentCommit.pending?.deliveryId === 1 && wrongContentCommit.forceNext, wrongContentCommit],
+			["matching id and content commit", committed.sentThisRound && !committed.forceNext && committed.markTokens === 12_000 && committed.pending === undefined, committed],
+			["undelivered rearm retries", !retried.sentThisRound && retried.forceNext && retried.markTokens === 5_000 && retried.pending === undefined, retried],
+			["retry increments id", secondClaim.deliverySequence === 2 && secondClaim.pending?.deliveryId === 2, secondClaim],
+			["adopted reset preserves force once", !adoptedReset.sentThisRound && adoptedReset.forceNext && adoptedReset.markTokens === 0 && adoptedReset.deliverySequence === 1 && !adoptedReset.adoptedThisSessionStart && adoptedReset.pending === undefined, adoptedReset],
+			["generic reset clears stale force", !genericReset.forceNext && genericReset.deliverySequence === 1 && !genericReset.adoptedThisSessionStart, genericReset],
+		]);
+
+		const scope = reminder.WRITING_SCOPE_EXCLUSION;
+		const exactContent = `[slate] Writing reminder:\n${five.map((line) => `- ${line}`).join("\n")}\n\n${scope}`;
+		check("writing-reminder-full-render", reminderContent === exactContent, "one pure renderer owns the exact full hidden message", reminderContent);
+		const eligible = writingStatusFixture({ writingConfig: { check: true, remind: true, remindPercent: 10 }, usageTokens: 10_000 });
+		await writingSession(eligible);
+		const firstResult = await eligible.emit("tool_result", { toolName: "read" });
+		await eligible.emit("tool_result", { toolName: "grep" });
+		const beforeDelivery = { ...eligible.store.writingReminder, pending: { ...eligible.store.writingReminder.pending } };
+		await eligible.emit("message_start", { message: { role: "custom", customType: "not-ours", content: exactContent, display: false, details: { deliveryId: 1 } } });
+		await eligible.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, display: false } });
+		await eligible.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, display: false, details: { deliveryId: 99 } } });
+		await eligible.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: `${exactContent} wrong`, display: false, details: { deliveryId: 1 } } });
+		const afterCollisions = { ...eligible.store.writingReminder, pending: { ...eligible.store.writingReminder.pending } };
+		await eligible.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, display: false, details: { deliveryId: 1 } } });
+		checkAll("writing-reminder-mode-send", "the real hooks queue one hidden steer and commit only when role, custom type, pending delivery id, and exact content all match", [
+			["one send despite repeated tool results", eligible.sent.length === 1, eligible.sent],
+			["exact message with correlation details", JSON.stringify(eligible.sent[0]?.[0]) === JSON.stringify({ customType: "slate-writing-reminder", content: exactContent, display: false, details: { deliveryId: 1 } }), eligible.sent[0]?.[0]],
+			["exact options", JSON.stringify(eligible.sent[0]?.[1]) === JSON.stringify({ deliverAs: "steer" }), eligible.sent[0]?.[1]],
+			["no hook patch", firstResult === undefined, firstResult],
+			["queue claim leaves cadence uncommitted", beforeDelivery.markTokens === 0 && beforeDelivery.sentThisRound && beforeDelivery.pending?.deliveryId === 1 && beforeDelivery.pending?.nextMarkTokens === 10_000, beforeDelivery],
+			["wrong type, missing id, wrong id, and wrong content cannot commit", JSON.stringify(afterCollisions) === JSON.stringify(beforeDelivery), afterCollisions],
+			["matching message commits", eligible.store.writingReminder.markTokens === 10_000 && eligible.store.writingReminder.sentThisRound && eligible.store.writingReminder.pending === undefined, eligible.store.writingReminder],
+			["usage read once and window passed through", eligible.getContextUsageReads() === 1 && eligible.budgetCalls.length === 1 && eligible.budgetCalls[0]?.[0] === 200_000, { reads: eligible.getContextUsageReads(), calls: eligible.budgetCalls.length, window: eligible.budgetCalls[0]?.[0] }],
+		]);
+
+		await eligible.emit("message_end", { message: { role: "user", content: "no" } });
+		await eligible.emit("tool_result");
+		const afterUser = eligible.sent.length;
+		await eligible.emit("message_end", { message: { role: "assistant", content: "yes" } });
+		eligible.store.writingReminder.forceNext = true;
+		await eligible.emit("tool_result");
+		const forcedValidQueued = { ...eligible.store.writingReminder, pending: { ...eligible.store.writingReminder.pending } };
+		await eligible.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, display: false, details: { deliveryId: 2 } } });
+		check("writing-reminder-rearm", afterUser === 1 && eligible.sent.length === 2 && forcedValidQueued.forceNext && forcedValidQueued.markTokens === 10_000 && forcedValidQueued.pending?.nextMarkTokens === 10_000 && !eligible.store.writingReminder.forceNext && eligible.store.writingReminder.markTokens === 10_000, "only assistant message_end re-arms, and forced valid usage commits its expected mark only at delivery", { afterUser, sends: eligible.sent.length, queued: forcedValidQueued, committed: eligible.store.writingReminder });
+
+		const closedFixtures = [
+			writingStatusFixture({ orchestrator: false, writingConfig: { check: true, remind: true } }),
+			writingStatusFixture({ trusted: false, writingConfig: { check: true, remind: true } }),
+			writingStatusFixture({ writingConfig: { check: false, remind: true } }),
+			writingStatusFixture({ writingConfig: { check: true, remind: false } }),
+			writingStatusFixture({ paused: true, writingConfig: { check: true, remind: true } }),
+		];
+		for (const fixture of closedFixtures) {
+			await writingSession(fixture);
+			fixture.store.writingReminder.forceNext = true;
+			await fixture.emit("tool_result");
+		}
+		check("writing-reminder-mode-gates", closedFixtures.every((fixture) => fixture.sent.length === 0 && fixture.store.writingReminder.forceNext), "the real handler sends nothing through every closed policy gate, even when forceNext is set", closedFixtures.map((fixture) => [fixture.sent.length, fixture.store.writingReminder]));
+
+		const forced = writingStatusFixture({ writingConfig: { check: true, remind: true }, usageTokens: null, effectiveBudget: undefined });
+		await writingSession(forced);
+		forced.store.writingReminder.forceNext = true;
+		await forced.emit("tool_result");
+		const forcedNullQueued = { ...forced.store.writingReminder, pending: { ...forced.store.writingReminder.pending } };
+		await forced.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, display: false, details: { deliveryId: 1 } } });
+		check("writing-reminder-mode-force", forced.sent.length === 1 && forcedNullQueued.forceNext && forcedNullQueued.markTokens === 0 && forcedNullQueued.pending?.nextMarkTokens === 0 && !forced.store.writingReminder.forceNext && forced.store.writingReminder.markTokens === 0, "forceNext queues with null usage, then delivery consumes force while deterministically preserving the mark", { sent: forced.sent.length, queued: forcedNullQueued, committed: forced.store.writingReminder });
+
+		const rejected = writingStatusFixture({ writingConfig: { check: true, remind: true }, usageTokens: null, sendMessageThrows: true });
+		await writingSession(rejected);
+		rejected.store.writingReminder.forceNext = true;
+		await rejected.emit("tool_result");
+		check("writing-reminder-send-retry", rejected.sent.length === 0 && rejected.store.writingReminder.forceNext && !rejected.store.writingReminder.sentThisRound && rejected.store.writingReminder.pending === undefined, "a synchronous queue failure releases the round claim and preserves force for retry", rejected.store.writingReminder);
+
+		const dropped = writingStatusFixture({ writingConfig: { check: true, remind: true }, usageTokens: null });
+		await writingSession(dropped);
+		dropped.store.writingReminder.forceNext = true;
+		await dropped.emit("tool_result");
+		await dropped.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: `${exactContent} wrong`, display: false, details: { deliveryId: 1 } } });
+		await dropped.emit("message_end", { message: { role: "assistant", content: "retry" } });
+		await dropped.emit("tool_result");
+		check("writing-reminder-cleared-retry", dropped.sent.length === 2 && dropped.store.writingReminder.forceNext && dropped.store.writingReminder.sentThisRound && dropped.store.writingReminder.deliverySequence === 2 && dropped.store.writingReminder.pending?.deliveryId === 2 && dropped.store.writingReminder.pending?.consumeForce, "the next assistant message retries a claim after a wrong-content collision or cleared queue, using a new delivery id", { sent: dropped.sent.length, runtime: dropped.store.writingReminder });
+
+		const stateSource = readFileSync(join(REPO, "extension", "state.ts"), "utf8");
+		const snapshotType = /export interface SlateSnapshot \{([\s\S]*?)\n\}/.exec(stateSource)?.[1] ?? "";
+		const snapshotMethod = /\n\tsnapshot\(\): SlateSnapshot \{([\s\S]*?)\n\t\}/.exec(stateSource)?.[1] ?? "";
+		const adoptMethod = /\n\tadoptSnapshot\([^)]*\): void \{([\s\S]*?)\n\t\}\n\}/.exec(stateSource)?.[1] ?? "";
+		const realStore = state ? new state.SlateStore({ appendEntry() {} }) : undefined;
+		const makePopulatedRuntime = () =>
+			reminder.claimWritingReminder(
+				{ ...reminder.createWritingReminderRuntime(), forceNext: true },
+				decide(0, 9_000, 8_192, true),
+				reminderContent,
+			);
+		const populatedRuntime = makePopulatedRuntime();
+		if (realStore) Object.assign(realStore.writingReminder, populatedRuntime);
+		const baselineSnapshot = realStore?.snapshot();
+		const visitedRuntime = [];
+		const visitedPending = [];
+		let mutationError;
+		let automaticallyMutatedRuntime;
+		const mutateScalar = (value, path) => {
+			if (typeof value === "boolean") return !value;
+			if (typeof value === "number" && Number.isFinite(value)) return value + 70_001;
+			if (typeof value === "string") return `${value}\n[mutated ${path}]`;
+			throw new Error(`unsupported reminder runtime field ${path}: ${value === null ? "null" : typeof value}`);
+		};
+		try {
+			automaticallyMutatedRuntime = {};
+			for (const [key, value] of Object.entries(populatedRuntime)) {
+				visitedRuntime.push(key);
+				if (key !== "pending") {
+					automaticallyMutatedRuntime[key] = mutateScalar(value, key);
+					continue;
+				}
+				if (typeof value !== "object" || value === null || Array.isArray(value)) {
+					throw new Error("pending reminder runtime is not a plain object");
+				}
+				const mutatedPending = {};
+				for (const [pendingKey, pendingValue] of Object.entries(value)) {
+					visitedPending.push(pendingKey);
+					mutatedPending[pendingKey] = mutateScalar(pendingValue, `pending.${pendingKey}`);
+				}
+				automaticallyMutatedRuntime.pending = mutatedPending;
+			}
+			if (realStore) Object.assign(realStore.writingReminder, automaticallyMutatedRuntime);
+		} catch (error) {
+			mutationError = error instanceof Error ? error.message : String(error);
+		}
+		const mutatedRuntimeSnapshot = realStore?.snapshot();
+		const exactSnapshotKeys = baselineSnapshot ? Object.keys(baselineSnapshot).sort().join(",") : "";
+		const runtimeKeys = Object.keys(populatedRuntime).sort();
+		const pendingKeys = Object.keys(populatedRuntime.pending ?? {}).sort();
+		const isolatedRuntimeVisited = [];
+		const isolatedPendingVisited = [];
+		const isolatedRuntimeResults = [];
+		const isolatedPendingResults = [];
+		let isolatedMutationError;
+		try {
+			for (const key of runtimeKeys) {
+				const isolatedStore = new state.SlateStore({ appendEntry() {} });
+				const isolatedRuntime = makePopulatedRuntime();
+				Object.assign(isolatedStore.writingReminder, isolatedRuntime);
+				const before = isolatedStore.snapshot();
+				const oneMutation = {
+					...isolatedRuntime,
+					[key]: key === "pending" ? undefined : mutateScalar(isolatedRuntime[key], key),
+				};
+				Object.assign(isolatedStore.writingReminder, oneMutation);
+				const after = isolatedStore.snapshot();
+				isolatedRuntimeVisited.push(key);
+				isolatedRuntimeResults.push({ key, equal: JSON.stringify(after) === JSON.stringify(before), before, after });
+			}
+			for (const key of pendingKeys) {
+				const isolatedStore = new state.SlateStore({ appendEntry() {} });
+				const isolatedRuntime = makePopulatedRuntime();
+				Object.assign(isolatedStore.writingReminder, isolatedRuntime);
+				const before = isolatedStore.snapshot();
+				const pending = isolatedRuntime.pending ?? {};
+				const oneMutation = {
+					...isolatedRuntime,
+					pending: { ...pending, [key]: mutateScalar(pending[key], `pending.${key}`) },
+				};
+				Object.assign(isolatedStore.writingReminder, oneMutation);
+				const after = isolatedStore.snapshot();
+				isolatedPendingVisited.push(key);
+				isolatedPendingResults.push({ key, equal: JSON.stringify(after) === JSON.stringify(before), before, after });
+			}
+		} catch (error) {
+			isolatedMutationError = error instanceof Error ? error.message : String(error);
+		}
+		checkAll("writing-reminder-runtime-only", "batch and isolated automatic mutations prove every actual runtime field is independent from a real SlateStore snapshot", [
+			["every runtime type is supported", mutationError === undefined, mutationError],
+			["runtime traversal roster is complete", visitedRuntime.sort().join() === runtimeKeys.join(), { visitedRuntime, runtimeKeys }],
+			["pending traversal roster is complete", pendingKeys.length > 0 && visitedPending.sort().join() === pendingKeys.join(), { visitedPending, pendingKeys }],
+			["isolated mutation types are supported", isolatedMutationError === undefined, isolatedMutationError],
+			["isolated runtime roster is complete", isolatedRuntimeVisited.sort().join() === runtimeKeys.join(), { isolatedRuntimeVisited, runtimeKeys }],
+			["isolated pending roster is complete", pendingKeys.length > 0 && isolatedPendingVisited.sort().join() === pendingKeys.join(), { isolatedPendingVisited, pendingKeys }],
+			["every isolated runtime mutation leaves the snapshot equal", isolatedRuntimeResults.length === runtimeKeys.length && isolatedRuntimeResults.every((result) => result.equal), isolatedRuntimeResults.filter((result) => !result.equal)],
+			["every isolated pending mutation leaves the snapshot equal", isolatedPendingResults.length === pendingKeys.length && isolatedPendingResults.every((result) => result.equal), isolatedPendingResults.filter((result) => !result.equal)],
+			["every runtime value was batch-mutated", automaticallyMutatedRuntime !== undefined && JSON.stringify(automaticallyMutatedRuntime) !== JSON.stringify(populatedRuntime), automaticallyMutatedRuntime],
+			["batch mutation changes no persisted value", baselineSnapshot !== undefined && JSON.stringify(mutatedRuntimeSnapshot) === JSON.stringify(baselineSnapshot), { baselineSnapshot, mutatedRuntimeSnapshot }],
+			["real snapshot exact top-level shape", exactSnapshotKeys === "carriedCostUsd,episodes,orchestratorMode,paused,threads,workerCostUsd", exactSnapshotKeys],
+			["source shape also omits runtime object", snapshotType !== "" && snapshotMethod !== "" && adoptMethod !== "" && !/writingReminder/.test(snapshotType + snapshotMethod + adoptMethod), { snapshotType: snapshotType.length, snapshotMethod: snapshotMethod.length, adoptMethod: adoptMethod.length }],
+		]);
+
+		if (!handoff) {
+			check("writing-reminder-budget", false, "extension/handoff.ts loads for effective-budget verification", handoffLoad.error?.stack ?? handoffLoad.error);
+			check("writing-reminder-handoff-order", false, "extension/handoff.ts loads for real adoption-order verification", handoffLoad.error?.stack ?? handoffLoad.error);
+		} else {
+			const branchBudgets = {
+				override: handoff.effectiveContextBudgetForModel({ tokens: 110_000, overrides: [{ match: "p/special", tokens: 500_000 }] }, "p/special", 200_000, 16_384),
+				scalar: handoff.effectiveContextBudgetForModel({ tokens: 120_000 }, "p/other", 500_000, 16_384),
+				anthropic: handoff.effectiveContextBudgetForModel(undefined, "anthropic/model", 1_000_000, 16_384),
+				global: handoff.effectiveContextBudgetForModel(undefined, "openai/model", 1_000_000, 16_384),
+			};
+			const budgetHandlers = {};
+			const budgetPi = { on: (event, handler) => { (budgetHandlers[event] ??= []).push(handler); }, sendMessage() {} };
+			const budgetStore = { orchestratorMode: false, paused: false, threads: new Map(), episodes: new Map() };
+			const budgetHooks = handoff.registerSlateHandoff(
+				budgetPi,
+				budgetStore,
+				() => ({ contextBudget: { tokens: 110_000, overrides: [{ match: "p/special", tokens: 120_000 }] } }),
+				() => ({}),
+			);
+			const budgetCtx = { cwd: WORK, isProjectTrusted: () => true, model: { provider: "p", id: "special" } };
+			const hookBudget = budgetHooks.effectiveContextBudget(500_000, budgetCtx);
+			checkAll("writing-reminder-budget", "the production budget path accepts an already-read window and covers override, scalar, provider default, global default, and clamp branches", [
+				["override then clamp", branchBudgets.override === 150_848, branchBudgets],
+				["scalar", branchBudgets.scalar === 120_000, branchBudgets],
+				["anthropic default", branchBudgets.anthropic === 400_000, branchBudgets],
+				["global default", branchBudgets.global === 256_000, branchBudgets],
+				["real hook uses config instead of bare window", hookBudget === 120_000, hookBudget],
+			]);
+
+			const handoffCwd = join(WORK, "real handoff order");
+			mkdirSync(join(handoffCwd, ".pi", "slate"), { recursive: true });
+			const events = [];
+			let forceValue = false;
+			const runtime = {
+				markTokens: 91_000,
+				sentThisRound: true,
+				deliverySequence: 7,
+				adoptedThisSessionStart: false,
+				pending: { deliveryId: 7, nextMarkTokens: 92_000, consumeForce: true },
+			};
+			Object.defineProperty(runtime, "forceNext", {
+				enumerable: true,
+				get: () => forceValue,
+				set: (value) => { forceValue = value; if (value) events.push("force"); },
+			});
+			const adoptedStore = {
+				orchestratorMode: false,
+				paused: false,
+				threads: new Map(),
+				episodes: new Map(),
+				workerCostUsd: 0,
+				carriedCostUsd: 0,
+				writingReminder: runtime,
+				adoptSnapshot(snapshot) {
+					events.push("adopt");
+					this.writingReminder.forceNext = false;
+					this.writingReminder.adoptedThisSessionStart = false;
+					this.orchestratorMode = snapshot.orchestratorMode;
+				},
+				save() {},
+				set onDidChange(_value) {},
+			};
+			const handoffHandlers = {};
+			const handoffPi = {
+				on: (event, handler) => { (handoffHandlers[event] ??= []).push(handler); },
+				sendMessage() {}, registerCommand() {}, getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [],
+			};
+			const realHooks = handoff.registerSlateHandoff(handoffPi, adoptedStore, () => ({ writing: { check: true, remind: true } }), () => ({}));
+			mode.registerSlateMode(handoffPi, adoptedStore, realHooks, () => ({ writing: { check: true, remind: true } }), () => ({ units: [] }));
+			writeFileSync(join(handoffCwd, ".pi", "slate", "pending-handoff.json"), JSON.stringify({
+				parentSession: "parent-session",
+				createdAt: Date.now(),
+				brief: "",
+				snapshot: { threads: [], episodes: [], orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 },
+			}));
+			const handoffCtx = {
+				cwd: handoffCwd, mode: "tui", hasUI: false, model: undefined,
+				isProjectTrusted: () => true,
+				sessionManager: { getHeader: () => ({ parentSession: "parent-session" }), getEntries: () => [], getBranch: () => [] },
+				ui: { setStatus() {}, setWidget() {}, notify() {} },
+			};
+			for (const handler of handoffHandlers.session_start ?? []) await handler({}, handoffCtx);
+			const afterAdoptionCycle = { ...adoptedStore.writingReminder };
+			for (const handler of handoffHandlers.session_start ?? []) await handler({}, handoffCtx);
+			const afterGenericCycle = { ...adoptedStore.writingReminder };
+			const stale = writingStatusFixture({ writingConfig: { check: true, remind: true } });
+			Object.assign(stale.store.writingReminder, { forceNext: true, adoptedThisSessionStart: false, deliverySequence: 12 });
+			await writingSession(stale);
+			checkAll("writing-reminder-handoff-order", "real registration order preserves force only during the adoption cycle, then consecutive and generic starts clear stale force", [
+				["handoff forces after adoption", events[0] === "adopt" && events[1] === "force", events],
+				["first mode start preserves once", afterAdoptionCycle.forceNext && afterAdoptionCycle.markTokens === 0 && !afterAdoptionCycle.sentThisRound && afterAdoptionCycle.pending === undefined && !afterAdoptionCycle.adoptedThisSessionStart && afterAdoptionCycle.deliverySequence === 7, afterAdoptionCycle],
+				["second start clears force", !afterGenericCycle.forceNext && !afterGenericCycle.adoptedThisSessionStart && afterGenericCycle.deliverySequence === 7, afterGenericCycle],
+				["generic start clears stale force", !stale.store.writingReminder.forceNext && stale.store.writingReminder.deliverySequence === 12, stale.store.writingReminder],
+			]);
+		}
 	});
 
 	// =========================================================================
@@ -1147,6 +1545,19 @@ try {
 			};
 			const numbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, tailNumbers(text)]));
 			const writingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Check all user-facing prose")]));
+			const structuredWritingRule = ruleOfWriting(combos.writing);
+			const doctrineRequirements = reminder.WRITING_REQUIREMENTS.map((entry) => entry.text);
+			const requirementBlock = doctrineRequirements.map((line) => `   - ${line}`).join("\n");
+			const exactWritingStructure = [
+				"   does not test vocabulary. Follow these writing requirements:",
+				"",
+				requirementBlock,
+				"",
+				"   Apply these requirements to README text, documentation, code comments, and",
+				"   pull request text. Apply them to commit bodies, issues, review comments,",
+				"   release notes, and messages to the user.",
+				`   ${reminder.WRITING_SCOPE_EXCLUSION}`,
+			].join("\n");
 			const routingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Route every action")]));
 			const extensionNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Delegate any action that needs")]));
 			checkAll("writing-doctrine-numbering", "the writing rule is appended and numbered by tail position, without renumbering any rule before it", [
@@ -1157,6 +1568,8 @@ try {
 				["router number stays unchanged when writing is added", routingNumbers["writing + router"] === numberOf(combos["router without writing"], "Route every action"), [routingNumbers, numberOf(combos["router without writing"], "Route every action")]],
 				["extension number stays unchanged when writing is added", extensionNumbers["writing + extensions"] === numberOf(combos["extensions without writing"], "Delegate any action that needs"), [extensionNumbers, numberOf(combos["extensions without writing"], "Delegate any action that needs")]],
 				["both preceding numbers stay unchanged when writing is added", routingNumbers["all three"] === numberOf(combos["all without writing"], "Route every action") && extensionNumbers["all three"] === numberOf(combos["all without writing"], "Delegate any action that needs"), [routingNumbers, extensionNumbers]],
+				["requirements stay indented under a clear lead-in and explicit scope", structuredWritingRule.includes(exactWritingStructure), structuredWritingRule],
+				["no roster bullet escapes to column zero", !doctrineRequirements.some((line) => structuredWritingRule.includes(`\n- ${line}`)), structuredWritingRule],
 			]);
 
 			const hostileConfigs = [
@@ -1222,34 +1635,71 @@ try {
 			// normalised the same way — and it keeps the part a maintainer actually controls
 			// (the filename) inside the budget. The alternative, subtracting whole paths,
 			// would stop a doc rename from ever registering.
-			// The directory is read out of the RENDERED text rather than imported from
-			// paths.ts: one less module this section depends on, and it cannot drift from what
-			// the doctrine actually embeds. If no such line is there to find, `portable()`
-			// degrades to the identity and the first two terms below say so loudly.
+			// paths.ts is authoritative for the package-resolved docs directory. Do not
+			// parse a rendered path with a whitespace-sensitive expression. Install and
+			// checkout directories may contain spaces.
 			const off = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }));
 			const on = await asTrusted(EMPTY_EXT, onReal);
 			const writingOn = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { writing: { check: true } });
 			const writingRouterOn = await asTrusted(EMPTY_EXT, onReal, { writing: { check: true } });
 			const writingExtensionsOn = await asTrusted(WITH_EXT, () => ({ on: false, candidates: [] }), { writing: { check: true } });
 			const writingAllOn = await asTrusted(WITH_EXT, onReal, { writing: { check: true } });
-			const DOCS_DIR = /^\s*(\S*\/docs)\/[a-z0-9-]+\.md\s*$/m.exec(on)?.[1] ?? "";
-			const portable = (text) => (DOCS_DIR === "" ? text : text.split(DOCS_DIR).join(""));
+			const capString = (ch, n) => ch.repeat(n);
+			const MAX_EXT = {
+				units: ["a", "b"].map((ch, unitIndex) => ({
+					path: `/synthetic/max-unit-${ch}`,
+					source: capString(ch, 128),
+					isDirectory: true,
+					tools: [0, 1].map((toolIndex) => ({
+						name: capString(String.fromCharCode(99 + unitIndex * 2 + toolIndex), 64),
+						description: capString(String.fromCharCode(103 + unitIndex * 2 + toolIndex), 140),
+					})),
+				})),
+				paths: [],
+				toolNames: [],
+			};
+			const maximalConfig = { workflow: { draftPRs: true }, writing: { check: true } };
+			const maximal = await asTrusted(MAX_EXT, onReal, maximalConfig);
+			const DOCS_DIR = dirname(paths.TRACK_WORKFLOW_DOC);
+			const portableFrom = (text, docsDir) => text.split(docsDir).join("");
+			const portable = (text) => portableFrom(text, DOCS_DIR);
+			const spacedDocsDir = "/tmp/package path/with spaces/docs";
+			const spacedPortable = portableFrom(`read ${spacedDocsDir}/track-workflow.md`, spacedDocsDir);
 			const rule = ruleOf(on);
 			const rows = rowsOf(rule);
 			const rowChars = rows.reduce((sum, r) => sum + r.length + 1, 0);
 			const ruleChars = portable(rule).length;
 			const prose = ruleChars - rowChars; // rows embed no doc path, so they need no normalising
 			const longest = rows.reduce((max, r) => Math.max(max, r.length), 0);
+			const workerStart = maximal.search(/\n\d+\. Delegate any action that needs/);
+			const workerEnd = maximal.search(/\n\d+\. Route every action/);
+			const workerRule = workerStart >= 0 && workerEnd > workerStart ? maximal.slice(workerStart, workerEnd) : "";
+			const maximalPortable = portable(maximal).length;
+			const writingPortable = portable(ruleOfWriting(writingOn)).length;
+			const modelIncrements = [];
+			for (const candidate of realCandidates) {
+				const grown = await asTrusted(MAX_EXT, onWith([...realCandidates, candidate]), maximalConfig);
+				modelIncrements.push({ spec: candidate.spec, growth: portable(grown).length - maximalPortable });
+			}
+			const maxModelIncrement = modelIncrements.reduce((best, item) => item.growth > best.growth ? item : best, { spec: "", growth: 0 });
+			const extraTool = { name: "k".repeat(64), description: "l".repeat(140) };
+			const MAX_EXT_PLUS_TOOL = { ...MAX_EXT, units: MAX_EXT.units.map((unit, index) => index === 1 ? { ...unit, tools: [...unit.tools, extraTool] } : unit) };
+			const toolGrown = await asTrusted(MAX_EXT_PLUS_TOOL, onReal, maximalConfig);
+			const maxToolIncrement = portable(toolGrown).length - maximalPortable;
+			const maxCandidate = realCandidates.find((candidate) => candidate.spec === maxModelIncrement.spec);
+			const overBudget = await asTrusted(MAX_EXT_PLUS_TOOL, onWith([...realCandidates, maxCandidate, maxCandidate, maxCandidate]), maximalConfig);
+			const overBudgetPortable = portable(overBudget).length;
 			// The normalisation must actually BITE — if the doctrine ever stops embedding a
 			// path, or the directory stops being extractable, `portable()` silently becomes
 			// the identity and the bounds go back to being install-dependent.
 			const docPaths = DOCS_DIR === "" ? 0 : on.split(DOCS_DIR).length - 1;
 			checkAll(
 				"doctrine-budget",
-				"the routing rule's size is bounded, because doctrine text is paid for on every turn of every session — and the bound is measured on an INSTALL-INVARIANT figure. The doctrine embeds ABSOLUTE doc paths, so its raw character count carries the install-directory length once per path and is not recorded here. Every bound is on the text with each occurrence of the docs DIRECTORY removed, leaving the filename — invariant by construction, assuming no path count, while still charging a maintainer for the part they control. The individual routing bounds retain substantial room, but the all-feature fixture is 5443 of 5600 portable characters: only 157 characters, or 2.8%. Doubling the 754-character writing rule would make that fixture about 6197 characters. The checks bound the whole rule, its FIXED prose (the part that does not scale with the table), the longest single row (a research refresh writing a 2000-character routeFor would bloat every prompt silently, since `cell()` imposes no cap), the rule's share of the whole doctrine, and — on the same convention, because it carries an absolute doc citation of its own — the WRITING rule's own size and its one embedded path",
+				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and three copies of the largest model row, so budget growth cannot pass vacuously",
 				[
-					["the normalisation bites: the doctrine really does embed the docs directory", docPaths >= 3 && DOCS_DIR !== "", { docPaths, DOCS_DIR }],
+					["the normalisation bites: the doctrine really does embed the authoritative docs directory", docPaths >= 3 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC), { docPaths, DOCS_DIR }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
+					["space-bearing docs directories normalize without parsing rendered text", spacedPortable === "read /track-workflow.md", spacedPortable],
 					["the whole rule stays under 4000 portable chars", ruleChars <= 4000, { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
 					["...and under 34 lines", rule.split("\n").length <= 34, rule.split("\n").length],
 					["its FIXED prose — the part that does not scale with the table — stays under 1500 portable chars", prose <= 1500, prose],
@@ -1257,17 +1707,20 @@ try {
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
 					["...and the whole router-on doctrine stays under 6500 portable chars", portable(on).length <= 6500, { portable: portable(on).length, raw: on.length }],
-					["writing-only doctrine stays under the stricter 5600 portable-char bound", portable(writingOn).length <= 5600, { portable: portable(writingOn).length }],
-					["writing plus router stays under the stricter 5600 portable-char bound", portable(writingRouterOn).length <= 5600, { portable: portable(writingRouterOn).length }],
-					["writing plus extensions stays under the stricter 5600 portable-char bound", portable(writingExtensionsOn).length <= 5600, { portable: portable(writingExtensionsOn).length }],
-					["all three features stay under the stricter 5600 portable-char bound", portable(writingAllOn).length <= 5600, { portable: portable(writingAllOn).length }],
-					// The WRITING rule's own bound, on the same portable convention and for the same
-					// reason as the routing rule's: it carries an ABSOLUTE doc citation, so its raw
-					// size moves with the install path while what a maintainer controls does not. The
-					// separate bound catches growth directly. The all-feature whole-doctrine bound has
-					// only 157 portable characters of room, so it cannot absorb a doubled rule. A
-					// citation is exactly the kind of addition that grows quietly.
-					["the writing rule itself stays under 1150 portable chars", portable(ruleOfWriting(writingOn)).length <= 1150, { portableChars: portable(ruleOfWriting(writingOn)).length, rawChars: ruleOfWriting(writingOn).length }],
+					["writing-only doctrine stays under 5600 portable chars", portable(writingOn).length <= 5600, { portable: portable(writingOn).length }],
+					["writing plus router stays under 6000 portable chars", portable(writingRouterOn).length <= 6000, { portable: portable(writingRouterOn).length }],
+					["writing plus extensions stays under 6000 portable chars", portable(writingExtensionsOn).length <= 6000, { portable: portable(writingExtensionsOn).length }],
+					["all three tail features stay under 6000 portable chars", portable(writingAllOn).length <= 6000, { portable: portable(writingAllOn).length }],
+					// Update exact measurements with production wording in the same commit.
+					["the maximum all-feature fixture is the measured 6870 portable chars and stays within 7200", maximalPortable === 6870 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the capped worker rule is the measured 1347 chars and stays within 1600", workerRule.length === 1347 && workerRule.length <= 1600, { chars: workerRule.length, lines: workerRule.split("\n").length }],
+					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
+					["the positive control exceeds 7200 by at least one model growth unit", overBudgetPortable > 7200 && overBudgetPortable - 7200 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7200, growthBeyondBound: overBudgetPortable - 7200, maxModelIncrement, maxToolIncrement }],
+					// Exact measurements are maintenance tripwires, not timeless facts. Update them
+					// with the wording change in the same commit. Remeasure through this doctrine-budget
+					// check, which renders the production before_agent_start hook and normalizes paths.
+					// The writing rule has its own bound because its absolute citation changes raw size.
+					["the writing rule is the measured 1070 portable chars and stays under 1150", writingPortable === 1070 && writingPortable <= 1150, { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length }],
 					["...and under 24 lines", ruleOfWriting(writingOn).split("\n").length <= 24, ruleOfWriting(writingOn).split("\n").length],
 					["...and embeds exactly ONE doc path, so the citation is charged once per turn, not once per mention", DOCS_DIR !== "" && ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 === 1, { paths: DOCS_DIR === "" ? "no docs dir found" : ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 }],
 					["writing-on text is actually larger than writing-off text", writingOn.length > off.length, { off: off.length, writing: writingOn.length }],
@@ -2208,10 +2661,26 @@ try {
 		await section("writing-config", async () => {
 			const warnedA = [];
 			const dflt = writing.sanitizeWritingConfig(undefined, (m) => warnedA.push(m));
-			checkAll("writing-config-default", "an absent writing config silently yields { check: false }", [
-				["check is false", dflt.check === false, dflt],
+			const oldOn = writing.sanitizeWritingConfig({ check: true }, () => {});
+			checkAll("writing-config-default", "old check-only configs keep their behavior while reminder fields default off and 10 percent", [
+				["absent exact defaults", JSON.stringify(dflt) === JSON.stringify({ check: false, remind: false, remindPercent: 10 }), dflt],
+				["old enabled shape preserved", JSON.stringify(oldOn) === JSON.stringify({ check: true, remind: false, remindPercent: 10 }), oldOn],
 				["no warning", warnedA.length === 0, warnedA],
 			]);
+
+			const validWarn = [];
+			const valid = writing.sanitizeWritingConfig({ check: true, remind: true, remindPercent: 0.1 }, (m) => validWarn.push(m));
+			check("writing-config-reminder-valid", valid.check && valid.remind && valid.remindPercent === 0.1 && validWarn.length === 0, "valid reminder and finite boundary percentage values survive unchanged", [valid, validWarn]);
+			const inert = writing.sanitizeWritingConfig({ check: false, remind: true, remindPercent: 100 }, () => {});
+			check("writing-config-reminder-inert", !inert.check && !inert.remind && inert.remindPercent === 100, "remind true becomes deterministically inert when check is false without rewriting a valid percentage", inert);
+
+			const invalidPercentValues = ["10", Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, -0.1, 100.1];
+			const invalidPercents = invalidPercentValues.map((raw) => {
+				const warned = [];
+				const result = writing.sanitizeWritingConfig({ check: true, remind: true, remindPercent: raw }, (m) => warned.push(m));
+				return { raw: String(raw), result, warned };
+			});
+			check("writing-config-reminder-percent", invalidPercents.every(({ result, warned }) => result.remind && result.remindPercent === 10 && warned.length === 1 && /finite number in \(0, 100\]/.test(warned[0])), "non-number, non-finite, non-positive, and over-100 percentages warn and fall back to 10", invalidPercents);
 
 			const invalid = [null, [], "yes", 7].map((raw) => {
 				const warned = [];
@@ -2222,13 +2691,16 @@ try {
 			const unknown = writing.sanitizeWritingConfig({ check: true, typo: true }, (m) => unknownWarn.push(m));
 			const typeWarn = [];
 			const wrongType = writing.sanitizeWritingConfig({ check: "yes" }, (m) => typeWarn.push(m));
+			const remindTypeWarn = [];
+			const wrongRemindType = writing.sanitizeWritingConfig({ check: true, remind: "yes" }, (m) => remindTypeWarn.push(m));
 			const falseWarn = [];
 			const explicitFalse = writing.sanitizeWritingConfig({ check: false }, (m) => falseWarn.push(m));
-			checkAll("writing-config-invalid", "invalid writing shapes warn once and default, unknown keys warn and disappear, and boolean check values preserve their explicit setting", [
-				["every invalid shape warns once and defaults", invalid.every(({ result, warned }) => result.check === false && warned.length === 1), invalid],
+			checkAll("writing-config-invalid", "invalid writing shapes warn once and default, unknown keys still warn and disappear, and boolean check values preserve their explicit setting", [
+				["every invalid shape warns once and returns exact defaults", invalid.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify({ check: false, remind: false, remindPercent: 10 }) && warned.length === 1), invalid],
 				["unknown key warns", unknown.check === true && unknownWarn.length === 1 && /unknown writing key/.test(unknownWarn[0]), [unknown, unknownWarn]],
 				["unknown key is not rebuilt", !Object.prototype.hasOwnProperty.call(unknown, "typo"), unknown],
-				["wrong type warns and defaults", wrongType.check === false && typeWarn.length === 1, [wrongType, typeWarn]],
+				["wrong check type warns and defaults", wrongType.check === false && typeWarn.length === 1, [wrongType, typeWarn]],
+				["wrong remind type warns and defaults", wrongRemindType.check === true && wrongRemindType.remind === false && remindTypeWarn.length === 1 && /writing\.remind/.test(remindTypeWarn[0]), [wrongRemindType, remindTypeWarn]],
 				["explicit false stays false and silent", explicitFalse.check === false && falseWarn.length === 0, [explicitFalse, falseWarn]],
 			]);
 
@@ -5507,7 +5979,9 @@ try {
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget",
-		"writing-config-default", "writing-config-invalid", "writing-config-hostile",
+		"writing-config-default", "writing-config-reminder-valid", "writing-config-reminder-inert", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
+		"writing-reminder-load", "writing-reminder-roster", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-interval", "writing-reminder-cadence", "writing-reminder-gates", "writing-reminder-state-machine",
+		"writing-reminder-mode-send", "writing-reminder-rearm", "writing-reminder-mode-gates", "writing-reminder-mode-force", "writing-reminder-send-retry", "writing-reminder-cleared-retry", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",
 		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite",
 		"writing-checker-length", "writing-checker-para", "writing-checker-semicolon", "writing-checker-contraction",
 		"writing-checker-class", "writing-checker-not-checked", "writing-checker-caps", "writing-checker-modes", "writing-checker-determinism",
