@@ -1,7 +1,7 @@
 # Tier 1 — the fast, secret-free checks.
 #
-# Everything here runs against fabricated inputs and a plain checkout, in about
-# five seconds of work plus the dependency install. What the tier does NOT need
+# Everything here runs against fabricated inputs and a plain checkout, in under
+# one minute of work plus the dependency install. What the tier does NOT need
 # is what makes it safe to run on every pull request:
 #
 #   * No credentials, of any kind. No secrets are referenced and none are
@@ -29,8 +29,9 @@
 # human-read net, run per `AGENTS.md` § Verification ladder whenever
 # `extension/model-default.ts` or either switch site changes.
 #
-# All four checks below are exactly the commands a contributor runs locally, so
-# a CI failure reproduces verbatim on a laptop:
+# All five checks below are the commands a contributor runs locally, so a CI
+# failure reproduces on a laptop. The coverage command receives an explicit base
+# SHA in CI; `npm test` derives the merge-base with main locally:
 #
 #   npm ci --ignore-scripts
 #   npm run typecheck
@@ -38,6 +39,7 @@
 #   bash verification/run-packaging-checks.sh --repo . --self-test
 #   bash verification/run-load-check.sh --repo .
 #   bash verification/run-resolver-checks.sh --repo . --strict
+#   npm test -- --base <event base SHA>
 #
 # Third-party actions are pinned by commit SHA, not by tag: a tag is mutable and
 # would let an upstream compromise reach this workflow silently. The trailing
@@ -78,9 +80,9 @@ jobs:
   checks:
     name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
-    # A tripwire for a hung step, not a budget. Measured warm, the four checks
-    # total ~5 s (typecheck 2.0, load check 2.3, packaging 0.3 + 0.3, resolver
-    # 0.1) and the install ~3 s; even a cold npm cache and a slow runner keep a
+    # A tripwire for a hung step, not a budget. The original four checks total
+    # ~5 s warm; the node:test suite adds ~19 s on Node 24 and ~35 s on Node 22
+    # in the measured local runs. Even a cold npm cache and a slow runner keep a
     # full job inside a couple of minutes. Anything past 15 minutes is a pi
     # child waiting on something that will never arrive, and the default is to
     # let it hold a runner for six hours.
@@ -88,11 +90,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # pi requires node >= 22.19.0; consumers run both current LTS lines.
-        node: ['22', '24']
+        # Native TS execution, LCOV, stripTypeScriptTypes, per-line DA emission,
+        # directive regexes and the full suite were measured on these exact two
+        # versions. Pin them because the classifier uses experimental Node APIs;
+        # accepting a patch update requires repeating that measurement.
+        node: ['22.23.1', '24.18.0']
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The coverage gate reads <base>..HEAD. A depth-1 checkout cannot
+          # contain the event's base commit and must never yield a green gate.
+          fetch-depth: 0
 
       - name: Set up Node ${{ matrix.node }}
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -128,3 +137,95 @@ jobs:
       # zero of them today.
       - name: Pure-resolver checks
         run: bash verification/run-resolver-checks.sh --repo . --strict
+
+      - name: Resolve patch-coverage base
+        id: coverage-base
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              # HEAD is GitHub's synthetic PR merge commit. Its event base SHA
+              # makes base..HEAD exactly the PR candidate against its base tip.
+              base="$PR_BASE_SHA"
+              ;;
+            merge_group)
+              # HEAD is the merge-queue candidate. base_sha is the target branch
+              # before that candidate, so the diff is the queued candidate only.
+              base="$MERGE_GROUP_BASE_SHA"
+              ;;
+            push)
+              # `before` is the previous main tip, so this measures this push and
+              # not an arbitrary merge-base adjacent to it.
+              base="$PUSH_BEFORE_SHA"
+              ;;
+            workflow_dispatch)
+              # A manual dispatch has no change boundary. Run the suite, but skip
+              # the gate loudly rather than inventing a base or passing silently.
+              echo "mode=skip" >> "$GITHUB_OUTPUT"
+              echo "::warning title=Patch coverage skipped::workflow_dispatch has no event change boundary; tests run without the gate"
+              {
+                echo "## Patch coverage: SKIPPED"
+                echo "Manual workflow_dispatch has no event change boundary. The tests run, but the gate does not."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+              ;;
+            *)
+              echo "unsupported event for patch coverage: $GITHUB_EVENT_NAME" >&2
+              exit 2
+              ;;
+          esac
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            echo "event $GITHUB_EVENT_NAME supplied no usable patch-coverage base" >&2
+            exit 2
+          fi
+          git cat-file -e "$base^{commit}" || {
+            echo "patch-coverage base is not present after the full checkout: $base" >&2
+            exit 2
+          }
+          if [ "$base" = "$(git rev-parse HEAD)" ]; then
+            echo "patch-coverage base equals HEAD; refusing an empty event boundary" >&2
+            exit 2
+          fi
+          echo "mode=gate" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "patch coverage event=$GITHUB_EVENT_NAME base=$base head=$(git rev-parse HEAD)"
+
+      - name: Unit tests and patch coverage
+        env:
+          COVERAGE_MODE: ${{ steps.coverage-base.outputs.mode }}
+          COVERAGE_BASE: ${{ steps.coverage-base.outputs.base }}
+        run: |
+          set -o pipefail
+          test_log="$RUNNER_TEMP/slate-tests-${{ matrix.node }}.log"
+          if [ "$COVERAGE_MODE" = gate ]; then
+            npm test -- --base "$COVERAGE_BASE" | tee "$test_log"
+          elif [ "$COVERAGE_MODE" = skip ]; then
+            npm test -- --no-gate | tee "$test_log"
+          else
+            echo "coverage-base step returned unknown mode: $COVERAGE_MODE" >&2
+            exit 2
+          fi
+
+          if grep -q '^RUN VERDICT: WARN —' "$test_log"; then
+            detail="$(grep -E '^(OVERALL:|VERDICT: WARN —|RUN VERDICT: WARN —)' "$test_log" | paste -sd ';' -)"
+            echo "::warning title=Patch coverage needs manual disposition::$detail"
+            {
+              echo "## Patch coverage: WARN"
+              echo
+              echo '```text'
+              grep -E '^(OVERALL:|WARN:|VERDICT: WARN —|RUN VERDICT: WARN —)' "$test_log"
+              echo '```'
+              echo "A WARN is not acceptance. Record a manual disposition on the pull request."
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$COVERAGE_MODE" = gate ]; then
+            {
+              echo "## Patch coverage: PASS"
+              echo
+              echo '```text'
+              grep -E '^(OVERALL:|VERDICT: PASS —|RUN VERDICT: PASS —)' "$test_log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

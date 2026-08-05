@@ -435,7 +435,14 @@ redirected into an artifact file) is still visible.
    symlink's target while only the launch was refused.
 5. **The real settings file is fingerprinted.** sha256, size and mtime, recorded
    before the run and re-checked after; a change is a failed run (`SAFE FAIL`,
-   non-zero exit) saying a pi invocation escaped the redirect. The real agent
+   non-zero exit) saying a pi invocation escaped the redirect. Because mtime is
+   part of the fingerprint, ANY pi process on the machine trips it, not only one
+   the harness launched: an isolated-load smoke test, an interactive session or a
+   dogfooding session running concurrently produces a `SAFE FAIL` whose recorded
+   hash and size are IDENTICAL and whose mtime alone moved. That shape means a
+   concurrent writer rather than an escaped invocation. It is still a failed run,
+   because the sentinel can no longer speak for the rungs above it: stop the other
+   pi processes and rerun the ladder alone. The real agent
    directory is located **the way pi locates it** — via `node os.homedir()`, which
    still works when `HOME` is unset — or from `SLATE_LADDER_REAL_AGENT_DIR`; if
    neither can be determined the script aborts rather than watch nothing.

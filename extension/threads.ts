@@ -202,7 +202,10 @@ const FAILOVER_NUDGE =
 class Semaphore {
 	private waiters: Array<() => void> = [];
 	private active = 0;
-	constructor(private limit: number) {}
+	private limit: number;
+	constructor(limit: number) {
+		this.limit = limit;
+	}
 	async acquire(): Promise<void> {
 		if (this.active < this.limit) {
 			this.active++;
@@ -253,27 +256,42 @@ export class ThreadManager {
 	private liveBaselines = new Map<string, SessionBaseline>();
 	/** pi's compaction settings, read once (a lock-protected disk read) — see compactionSettings(). */
 	private cachedCompaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
+	/** Session-owned persisted thread and episode state. */
+	private store: SlateStore;
+	/** This manager's immutable session configuration. */
+	private config: SlateConfig;
+	/** Frozen worker-extension resolver, bound by value to this session (AD41/CN20). */
+	private resolveExtensions: () => WorkerExtensionSet;
+	/** Memoized router resolver, bound by value to this session. */
+	private resolveRouter: () => ModelRouterResolution;
+	/** Orchestrator base model used only by the episode compressor's last-resort rung. */
+	private baseModelTracker?: BaseModelTracker;
 
 	constructor(
-		private store: SlateStore,
-		private config: SlateConfig,
+		store: SlateStore,
+		config: SlateConfig,
 		// This session's frozen worker-extension resolver (AD41), bound BY VALUE at
 		// construction (CN20) so a manager orphaned by a session swap keeps its own
 		// session's set instead of resolving against a later one's. Read lazily per
 		// new worker. Defaults to the empty-set function so existing construction
 		// sites and test harnesses keep working with the feature off.
-		private resolveExtensions: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET,
+		resolveExtensions: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET,
 		// This session's MEMOIZED model-router resolution (model-router.ts's
 		// createModelRouterResolver), bound by value for the same reason as the
 		// resolver above: a manager orphaned by a session swap must keep answering
 		// with its own session's frozen candidate list. Defaults to the shared OFF
 		// resolution, which supplies no candidates or router-owned base.
-		private resolveRouter: () => ModelRouterResolution = () => ROUTER_OFF,
+		resolveRouter: () => ModelRouterResolution = () => ROUTER_OFF,
 		// The orchestrator's base model, EXCLUDING failover fallbacks (base-model.ts).
 		// Consulted only for the episode compressor's last-resort model rung; route
 		// planning never seeds a worker-thread base from this tracker.
-		private baseModelTracker?: BaseModelTracker,
+		baseModelTracker?: BaseModelTracker,
 	) {
+		this.store = store;
+		this.config = config;
+		this.resolveExtensions = resolveExtensions;
+		this.resolveRouter = resolveRouter;
+		this.baseModelTracker = baseModelTracker;
 		this.semaphore = new Semaphore(config.maxConcurrent ?? 4); // default rationale: docs/design-principles.md §5 repo-local note
 	}
 
