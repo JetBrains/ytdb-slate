@@ -219,7 +219,7 @@ export interface ModelProfile {
 	avoidFor: string;
 	/** routing-relevant hazards, each a short clause */
 	hazards: string[];
-	/** The preferred seed for a dispatch that names no effort. Transcribed from Artifact B's prefer-for cell. Hazard prose breaks a tie only when that cell is silent. Null means the corpus recommends nothing and normal fallback applies. This field is NOT evidence. `capabilityMeasuredAt` and `evidenceGapAt` remain the only evidence record. */
+	/** The preferred seed for a dispatch that names no effort. Transcribed from Artifact B's prefer-for cell. Hazard prose breaks a tie only when that cell is silent. Null means no recommended level is recorded. The corpus may be silent or name only a condition, so null does not assert a negative recommendation. Normal fallback applies. This field is NOT evidence. `capabilityMeasuredAt` and `evidenceGapAt` remain the only evidence record. */
 	recommendedEffort: ThinkingLevel | null;
 	/** effort levels with a traced capability measurement, per digest-v5 §M's predicate */
 	capabilityMeasuredAt: ThinkingLevel[];

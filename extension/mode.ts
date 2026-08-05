@@ -251,7 +251,8 @@ function tierCell(candidate: RouterCandidate): string {
  * `capabilityMeasuredAt` its ONLY source of an "ok"): a second copy of its terms
  * here would drift silently, since a wrong column still renders. The recommendation
  * marker below is checked through that predicate too, so it cannot advertise a level
- * the planner rejects. Cost is up to 8 lookups per candidate, once per agent turn.
+ * the planner rejects. Rows and conditional legends cost up to 23 lookups per
+ * candidate on one agent turn.
  */
 function measuredLevels(router: ModelRouterResolution, candidate: RouterCandidate): readonly string[] {
 	return THINKING_LEVELS.filter((level) => checkEffort(router, candidate.spec, level).verdict === "ok");
@@ -383,8 +384,8 @@ ${n}. Route every action to the cheapest model and effort that clears it. Routab
    this session (spec|$in/$out per Mtok|ctx|tier|measured|route for|avoid):
 ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    \`model\` and \`effort\` route THAT action only. Omit \`model\` for the thread's
-   base${newThreadBase}. Omit \`effort\` for its base level, else the recommended
-   level where the corpus states one, otherwise the first measured level. Name the
+   base${newThreadBase}. Omit \`effort\` for its base level, else the validated
+   recommendation, otherwise the first measured level. Name the
    level explicitly when harder work needs one. Off-ladder and provider-rejected
    levels are tool errors; an unmeasured one ${gap}.
    Prices are base rates: some models bill a long-context multiplier above a

@@ -116,6 +116,7 @@
 import type { ThinkingLevel } from "./model-profiles.ts";
 import {
 	checkEffort,
+	recommendationRejectionReason,
 	ROUTER_OFF,
 	type EffortCheck,
 	type ModelRouterResolution,
@@ -677,7 +678,7 @@ function checkEffortFor(input: RoutePlanInput, resolution: ModelRouterResolution
 
 /**
  * The LOWEST level on a listed model's ladder that carries a traced capability
- * measurement — the seed for a new thread's base effort.
+ * measurement — the fallback when a model has no valid recommendation.
  *
  * `verdict === "ok"` is exactly "on the ladder, measured, and not rejected by the
  * provider", so an unmeasured level can never be chosen by default and an
@@ -701,35 +702,38 @@ export function seededEffort(
 	spec: string | undefined,
 	warn?: (message: string) => void,
 ): ThinkingLevel | undefined {
-	if (!resolution?.on || !spec || !Array.isArray(resolution.candidates)) return lowestMeasuredEffort(resolution, spec);
+	const fallback = lowestMeasuredEffort(resolution, spec);
+	if (!resolution?.on || !spec || !Array.isArray(resolution.candidates)) return fallback;
 	const candidate = candidateFor(resolution, spec);
-	if (candidate) {
-		const recommended = candidate.recommendedEffort as unknown;
-		if (typeof recommended === "string") {
-			const validation = checkEffort(resolution, spec, recommended);
-			if (THINKING_LEVELS.includes(recommended as ThinkingLevel) && validation.verdict === "ok") {
-				return recommended as ThinkingLevel;
-			}
-			const reason = validation.apiRejected
-				? "the provider rejects that level outright"
-				: validation.verdict === "off-ladder"
-					? `it is not on the model's effort ladder (${validation.ladder.length > 0 ? validation.ladder.join(", ") : "none recorded"})`
-					: validation.verdict === "evidence-gap"
-						? "it has no traced capability measurement"
-						: "it is not a valid recommendation";
+	if (!candidate) return fallback;
+	const fallbackText =
+		fallback === undefined
+			? "No measured fallback exists, so pi's own level applies."
+			: `Using measured fallback "${fallback}" instead.`;
+	const recommended = candidate.recommendedEffort as unknown;
+	if (typeof recommended === "string") {
+		const validation = checkEffort(resolution, spec, recommended);
+		if (THINKING_LEVELS.includes(recommended as ThinkingLevel) && validation.verdict === "ok") {
+			return recommended as ThinkingLevel;
+		}
+		warn?.(
+			`slate: recommended effort "${sanitizeForNotify(recommended, 40)}" for ${sanitizeForNotify(spec, 80)} was ignored — ` +
+				`${recommendationRejectionReason(validation)}. ${fallbackText}`,
+		);
+		return fallback;
+	}
+	const rejected = candidate.recommendedEffortRejected as unknown;
+	if (rejected && typeof rejected === "object") {
+		const effort = (rejected as { effort?: unknown }).effort;
+		const reason = (rejected as { reason?: unknown }).reason;
+		if (typeof effort === "string" && typeof reason === "string") {
 			warn?.(
-				`slate: recommended effort "${sanitizeForNotify(recommended, 40)}" for ${sanitizeForNotify(spec, 80)} was ignored — ` +
-					`${reason}. Using the lowest measured effort instead.`,
-			);
-		} else if (candidate.recommendedEffortRejected) {
-			warn?.(
-				`slate: recommended effort ${sanitizeForNotify(candidate.recommendedEffortRejected.effort, 40)} for ` +
-					`${sanitizeForNotify(spec, 80)} was ignored — ${sanitizeForNotify(candidate.recommendedEffortRejected.reason, 160)}. ` +
-					"Using the lowest measured effort instead.",
+				`slate: recommended effort ${sanitizeForNotify(effort, 40)} for ${sanitizeForNotify(spec, 80)} was ignored — ` +
+					`${sanitizeForNotify(reason, 160)}. ${fallbackText}`,
 			);
 		}
 	}
-	return lowestMeasuredEffort(resolution, spec);
+	return fallback;
 }
 
 /** Whether `tokens` still fit a `window`-token model, per pi's own predicate. No predicate ⇒ no basis to refuse. */
@@ -803,6 +807,12 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	const warnings: string[] = [];
 	const warn = (message: string) => {
 		warnings.push(message);
+	};
+	const recommendationWarnings = new Set<string>();
+	const warnRecommendation = (message: string) => {
+		if (recommendationWarnings.has(message)) return;
+		recommendationWarnings.add(message);
+		warn(message);
 	};
 
 	if (input.failoverSwitch === true) return planFailoverSwitch(input, resolution, explicit);
@@ -921,7 +931,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 				baseReseeded = true;
 				baseReseededFrom = baseModel; // undefined when the thread had no base to replace
 				baseModel = seeded;
-				baseEffort = seededEffort(resolution, seeded, warn);
+				baseEffort = seededEffort(resolution, seeded, warnRecommendation);
 				const list = candidateSpecs(resolution).join(", ");
 				const level = baseEffort ? ` @${baseEffort}` : "";
 				warn(
@@ -953,7 +963,9 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		// by guard 1. An explicit model on THIS dispatch routes this action only — it
 		// is deliberately not the base.
 		baseModel = defaultBase(resolution);
-		baseEffort = seededEffort(resolution, baseModel, warn);
+		// Current callers discard warnings from this fresh-thread planning branch.
+		// Keep the sink because a future warning-preserving caller should receive it.
+		baseEffort = seededEffort(resolution, baseModel, warnRecommendation);
 	}
 
 	// ---- the RESOLVED pair for THIS action
@@ -1088,7 +1100,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		// thinking-level default — the same reason a new thread's base effort is seeded
 		// rather than inherited (D48). undefined when the model has no measured level at
 		// all, which the caller answers with the session's own opening level.
-		effort = seededEffort(resolution, model, warn);
+		effort = seededEffort(resolution, model, warnRecommendation);
 	}
 
 	let effortUnmeasured = false;

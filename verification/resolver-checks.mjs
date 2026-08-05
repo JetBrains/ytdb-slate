@@ -326,6 +326,7 @@ const ROUTER_IDS = [
 	"router-effort",
 	"router-effort-gap",
 	"router-effort-hard",
+	"router-recommendation-validation",
 	"router-ladder-validation",
 	"router-effort-off",
 	"router-hostile",
@@ -380,6 +381,7 @@ const ROUTE_IDS = [
 	"route-recommended-substitute",
 	"route-recommended-failover",
 	"route-recommended-invalid",
+	"route-recommended-revalidate",
 	"route-off-ladder-source",
 	"route-hostile",
 ];
@@ -1736,6 +1738,7 @@ try {
 			const spacedPortable = portableFrom(`read ${spacedDocsDir}/track-workflow.md`, spacedDocsDir);
 			const rule = ruleOf(on);
 			const rows = rowsOf(rule);
+			const sixRows = rowsOf(ruleOf(await asTrusted(EMPTY_EXT, onWith(realCandidates.slice(0, 6)))));
 			const rowChars = rows.reduce((sum, r) => sum + r.length + 1, 0);
 			const ruleChars = portable(rule).length;
 			const prose = ruleChars - rowChars; // rows embed no doc path, so they need no normalising
@@ -1773,6 +1776,7 @@ try {
 					["...and under 34 lines", rule.split("\n").length <= 34, rule.split("\n").length],
 					["its FIXED prose — the part that does not scale with the table — stays under 1500 portable chars", prose <= 1500, prose],
 					["no single model row exceeds 300 chars", longest <= 300, { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
+					["published row ranges are measured exactly", Math.min(...sixRows.map((row) => row.length)) === 147 && Math.max(...sixRows.map((row) => row.length)) === 182 && Math.min(...rows.map((row) => row.length)) === 147 && Math.max(...rows.map((row) => row.length)) === 183, { six: sixRows.map((row) => row.length), all: rows.map((row) => row.length) }],
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
 					["...and the whole router-on doctrine stays under 6500 portable chars", portable(on).length <= 6500, { portable: portable(on).length, raw: on.length }],
@@ -1781,7 +1785,7 @@ try {
 					["writing plus extensions stays under 6000 portable chars", portable(writingExtensionsOn).length <= 6000, { portable: portable(writingExtensionsOn).length }],
 					["all three tail features stay under 6000 portable chars", portable(writingAllOn).length <= 6000, { portable: portable(writingAllOn).length }],
 					// Update exact measurements with production wording in the same commit.
-					["the maximum all-feature fixture is the measured 6930 portable chars and stays within 7200", maximalPortable === 6930 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the maximum all-feature fixture is the measured 6909 portable chars and stays within 7200", maximalPortable === 6909 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and stays within 1600", workerRule.length === 1347 && workerRule.length <= 1600, { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
 					["the positive control exceeds 7200 by at least one model growth unit", overBudgetPortable > 7200 && overBudgetPortable - 7200 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7200, growthBeyondBound: overBudgetPortable - 7200, maxModelIncrement, maxToolIncrement }],
@@ -2544,6 +2548,28 @@ try {
 				["defaults are false when the fields are absent", res.candidates[0]?.tierUnsourced === false && res.candidates[0]?.ladderAssumed === false, [res.candidates[0]?.tierUnsourced, res.candidates[0]?.ladderAssumed]],
 			]);
 
+			const recommendationProfiles = [
+				profile("p/nonstring", { recommendedEffort: 7, capabilityMeasuredAt: ["medium"] }),
+				profile("p/empty", { recommendedEffort: "", capabilityMeasuredAt: ["medium"] }),
+				profile("p/offladder", { recommendedEffort: "max", ladder: ["low", "medium"], capabilityMeasuredAt: ["max", "medium"] }),
+				profile("p/provider", { recommendedEffort: "off", ladder: ["off", "medium"], capabilityMeasuredAt: ["off", "medium"], apiRejected: ["off"] }),
+			];
+			const recommendationModels = Object.fromEntries(recommendationProfiles.map((p) => [p.id, { contextWindow: 1, auth: true }]));
+			const recommendationRes = resolve({
+				registry: registry(recommendationModels),
+				models: recommendationProfiles.map((p) => p.id),
+				profiles: profiles(recommendationProfiles),
+			}).res;
+			const recommendationCandidate = (spec) => recommendationRes.candidates.find((candidate) => candidate.spec === spec);
+			const rejectedRecommendation = (spec) => recommendationCandidate(spec)?.recommendedEffortRejected;
+			checkAll("router-recommendation-validation", "candidate construction rejects malformed, empty, off-ladder and provider-rejected recommendations before they reach the planner", [
+				["no rejected value is carried as a recommendation", recommendationRes.candidates.every((candidate) => candidate.recommendedEffort === undefined), recommendationRes.candidates.map((candidate) => [candidate.spec, candidate.recommendedEffort])],
+				["non-string value rejected with its type reason", rejectedRecommendation("p/nonstring")?.effort === "7" && /not a string/.test(rejectedRecommendation("p/nonstring")?.reason ?? ""), rejectedRecommendation("p/nonstring")],
+				["empty string rejected by canonical vocabulary membership", rejectedRecommendation("p/empty")?.effort === '\"\"' && /not one of pi's thinking levels/.test(rejectedRecommendation("p/empty")?.reason ?? ""), rejectedRecommendation("p/empty")],
+				["off-ladder level rejected with ladder reason", rejectedRecommendation("p/offladder")?.effort === "max" && /not on the model's effort ladder/.test(rejectedRecommendation("p/offladder")?.reason ?? ""), rejectedRecommendation("p/offladder")],
+				["provider-rejected level rejected with provider reason", rejectedRecommendation("p/provider")?.effort === "off" && /provider rejects/.test(rejectedRecommendation("p/provider")?.reason ?? ""), rejectedRecommendation("p/provider")],
+			]);
+
 			// CQ6: whatever the table hands back is filtered to pi's own effort
 			// vocabulary. An unvalidated ladder would let a foreign level read as
 			// dispatchable, and a non-array (what a prototype-key lookup returns)
@@ -3002,8 +3028,8 @@ try {
 			const padded = plan({ resolution: res, requestedModel: "p/a", requestedEffort: " high " });
 			// An EXISTING thread with no stored base effort. "Absent" no longer means the
 			// action runs at pi's own level: with the router ON the planner DERIVES the
-			// model's own lowest measured level (THE ONE RULE, effort half), so the terms
-			// below assert that derivation and the model it was judged for.
+			// model's validated recommendation, then its lowest measured fallback (THE ONE
+			// RULE, effort half), so the terms below assert that derivation and its model.
 			const noBaseEffort = { id: "t0", baseModel: "p/a" };
 			const blank = plan({ resolution: res, thread: noBaseEffort, requestedModel: "p/a", requestedEffort: "   " });
 			const omitted = plan({ resolution: res, thread: noBaseEffort, requestedModel: "p/a" });
@@ -3020,7 +3046,7 @@ try {
 				["a padded valid level is accepted", verdict(padded) === "proceed:p/a@high", verdict(padded)],
 				["...and is judged for the model the planner routes to", padded.effortJudgedFor === "p/a", padded.effortJudgedFor],
 				["whitespace-only effort is not INVALID — it names no level, so one is derived", verdict(blank) === "proceed:p/a@off" && blank.effortJudgedFor === "p/a", [verdict(blank), blank.effortJudgedFor]],
-				["an omitted effort likewise derives the model's lowest measured level", verdict(omitted) === "proceed:p/a@off" && omitted.effortJudgedFor === "p/a", [verdict(omitted), omitted.effortJudgedFor]],
+				["an omitted effort likewise derives the model's validated recommendation or measured fallback", verdict(omitted) === "proceed:p/a@off" && omitted.effortJudgedFor === "p/a", [verdict(omitted), omitted.effortJudgedFor]],
 				["guard 0 precedes guard 1", both.kind === "reject" && /thinking levels/.test(why(both)), why(both)],
 			]);
 		});
@@ -3256,7 +3282,7 @@ try {
 			const refreshed = [gap, gapStrict, offLadder, apiRejected];
 			checkAll("route-stored-effort-refresh", "a STORED base effort is re-checked against today's profile table and, when it no longer reads ok, RE-DERIVED for that model instead of replayed — for all four ways a refresh can invalidate it (evidence gap, gap under allowUnmeasuredEffort:false, a shrunken ladder, a provider's hard rejection) — and silently, because the orchestrator never asked for that level; a level that is still measured is kept, a model with no measured level yields none, and an EXPLICIT level still gets the full guard treatment it always did", [
 				["none of the four refresh shapes rejects the dispatch", refreshed.every((v) => v.kind === "proceed"), refreshed.map((v) => verdict(v))],
-				["evidence gap \u2192 re-derived to the model's lowest measured level", verdict(gap) === "proceed:p/base@high", verdict(gap)],
+				["evidence gap \u2192 re-derived to the model's recommendation or measured fallback", verdict(gap) === "proceed:p/base@high", verdict(gap)],
 				["gap under allowUnmeasuredEffort:false \u2192 re-derived, not refused", verdict(gapStrict) === "proceed:p/base@high", verdict(gapStrict)],
 				["a shrunken ladder \u2192 re-derived onto the ladder that exists now", verdict(offLadder) === "proceed:p/base@medium", verdict(offLadder)],
 				["a provider's hard rejection \u2192 re-derived off the rejected level", verdict(apiRejected) === "proceed:p/base@high", verdict(apiRejected)],
@@ -3402,15 +3428,15 @@ try {
 			// disjoint fixture can no longer tell inheriting from deriving. When the stored
 			// level is VALID on the routed model, nothing corrects it — the plan simply
 			// carries a level chosen for a different model, which is the whole of BG14. Here
-			// the stored level is `medium`, legal on both, while the target's own lowest
-			// measured level is `low`: deriving says `low`, inheriting says `medium`.
+			// the stored level is `medium`, legal on both, while the target has no
+			// recommendation and its measured fallback is `low`: deriving says `low`.
 			const shared = routeResolution([
 				{ spec: "p/from", tier: 1, price: 1, ladder: ["low", "medium"], measured: ["low", "medium"] },
 				{ spec: "p/to", tier: 2, price: 2, ladder: ["low", "medium"], measured: ["low", "medium"] },
 			]);
 			const overlapping = plan({ resolution: shared, thread: { id: "t3", baseModel: "p/from", baseEffort: "medium" }, requestedModel: "p/to" });
-			checkAll("route-effort-derived-for-model", "a level stored on the thread is INHERITED only while the planner routes to the base model it was derived for: an explicit per-action model gets that MODEL's own lowest measured level instead (so an inheriting implementation, which would refuse a level absent from the new model's ladder, cannot pass), and so does a model the window guard substituted in — while an EXPLICIT level is still judged hard against the routed model, and `effortJudgedFor` always names the model used for that judgement", [
-				["an explicit model derives its OWN lowest measured level", verdict(elsewhere) === "proceed:p/other@high", verdict(elsewhere)],
+			checkAll("route-effort-derived-for-model", "a level stored on the thread is INHERITED only while the planner routes to its base model: an explicit model gets that model's validated recommendation or measured fallback, and so does a window substitute — while an EXPLICIT level is still judged hard against the routed model, and `effortJudgedFor` names the model used for that judgement", [
+				["an explicit model derives its OWN recommendation or measured fallback", verdict(elsewhere) === "proceed:p/other@high", verdict(elsewhere)],
 				["...naming the model the level was judged for", elsewhere.effortJudgedFor === "p/other", elsewhere.effortJudgedFor],
 				["...with no warning: a derived level is measured by construction", elsewhere.warnings.length === 0 && elsewhere.effortUnmeasured === false, [elsewhere.warnings, elsewhere.effortUnmeasured]],
 				["...and no rejection even under allowUnmeasuredEffort:false (BG14)", verdict(strict) === "proceed:p/other@high", verdict(strict)],
@@ -3535,7 +3561,7 @@ try {
 			// An omitted model with no thread base at all: the effort still has to be judged
 			// against the model the worker session will actually OPEN on (the host's).
 			const hostFallback = plan({ resolution: res, thread: { id: "t8" }, requestedEffort: "max", hostModel: "p/listed" });
-			checkAll("route-resolved-pair", "an OMITTED model and an OMITTED effort still go through the guards, because they fall through to the thread's base values: an unlisted base model is RE-SEEDED to a listed candidate (signalled for persistence, effort re-derived, one warning) rather than rejected, an off-ladder base effort IS rejected, a valid base pair proceeds and is echoed back, a pre-router `model` pin still reads as the base, a new thread is seeded with the cheapest candidate at its lowest MEASURED level, and an omitted model falls back to the host model for the effort check", [
+			checkAll("route-resolved-pair", "an OMITTED model and an OMITTED effort still go through the guards, because they fall through to the thread's base values: an unlisted base model is RE-SEEDED to a listed candidate (signalled for persistence, effort re-derived, one warning) rather than rejected, an off-ladder base effort IS rejected, a valid base pair proceeds and is echoed back, a pre-router `model` pin still reads as the base, a new thread is seeded with the cheapest candidate at its validated recommendation or measured fallback, and an omitted model falls back to the host model for the effort check", [
 				["an unlisted BASE model is re-seeded to a listed candidate, not rejected", verdict(baseUnlisted) === "proceed:p/listed@low", verdict(baseUnlisted)],
 				["...signalled for persistence, naming what it replaced", baseUnlisted.baseReseeded === true && baseUnlisted.baseReseededFrom === "p/legacy" && baseUnlisted.baseModel === "p/listed", [baseUnlisted.baseReseeded, baseUnlisted.baseReseededFrom, baseUnlisted.baseModel]],
 				["...with the base effort re-derived on the NEW base", baseUnlisted.baseEffort === "low", baseUnlisted.baseEffort],
@@ -3881,11 +3907,32 @@ try {
 			const res = routeResolution([{ spec: "p/base", recommendedEffort: "low", measured: ["high"], gaps: ["low"], ladder: ["low", "medium", "high"] }]);
 			const fresh = plan({ resolution: res });
 			const refreshed = plan({ resolution: res, thread: { id: "t1", baseModel: "p/base", baseEffort: "medium" } });
-			checkAll("route-recommended-invalid", "an invalid recommendation falls back to the lowest measured level, warns at warning-preserving seeds, and stays silent during stored-effort refresh", [
+			const none = routeResolution([{ spec: "p/none", recommendedEffort: "low", measured: [], gaps: ["low", "high"], ladder: ["low", "high"] }]);
+			const noFallback = plan({ resolution: none });
+			checkAll("route-recommended-invalid", "an invalid recommendation uses the measured fallback, warns once when warnings survive, stays silent during stored refresh, and names the absence of a fallback", [
 				["candidate carries no invalid recommendation", res.candidates[0]?.recommendedEffort === undefined, res.candidates[0]?.recommendedEffort],
 				["fresh seed falls back", fresh.kind === "proceed" && fresh.baseEffort === "high" && fresh.effort === "high", [fresh.baseEffort, fresh.effort]],
 				["warning names model, level and measurement reason", fresh.warnings.length === 1 && /p\/base/.test(fresh.warnings[0]) && /low/.test(fresh.warnings[0]) && /no traced capability measurement/.test(fresh.warnings[0]), fresh.warnings],
 				["stored refresh uses the same fallback silently", refreshed.kind === "proceed" && refreshed.effort === "high" && refreshed.warnings.length === 0, [refreshed.effort, refreshed.warnings]],
+				["no measured fallback leaves effort unset", noFallback.kind === "proceed" && noFallback.effort === undefined && noFallback.baseEffort === undefined, [noFallback.effort, noFallback.baseEffort]],
+				["duplicate seed visits emit one honest warning", noFallback.warnings.length === 1 && /No measured fallback exists/.test(noFallback.warnings[0]) && /pi's own level applies/.test(noFallback.warnings[0]), noFallback.warnings],
+			]);
+		});
+
+		await section("route-recommended-revalidate", async () => {
+			const base = routeResolution([{ spec: "p/base", recommendedEffort: null, measured: ["off", "medium"], ladder: ["off", "medium"], apiRejected: ["off"] }]);
+			const candidate = { ...base.candidates[0], recommendedEffort: "off", recommendedEffortRejected: undefined };
+			const forged = { ...base, candidates: [candidate] };
+			const guarded = plan({ resolution: forged });
+			const malformed = {
+				...base,
+				candidates: [{ ...base.candidates[0], recommendedEffort: undefined, recommendedEffortRejected: { effort: {}, reason: [] } }],
+			};
+			const malformedVerdict = planOrThrow({ resolution: malformed });
+			checkAll("route-recommended-revalidate", "seed-time validation rejects a forged provider-rejected recommendation and malformed rejection metadata cannot throw", [
+				["forged recommendation falls back instead of reaching the guards", guarded.kind === "proceed" && guarded.effort === "medium" && guarded.baseEffort === "medium", verdict(guarded)],
+				["warning identifies the provider rejection", guarded.warnings.length === 1 && /provider rejects that level outright/.test(guarded.warnings[0]), guarded.warnings],
+				["malformed rejection metadata falls back without a warning or throw", malformedVerdict.kind === "proceed" && malformedVerdict.effort === "medium" && malformedVerdict.warnings.length === 0, [verdict(malformedVerdict), malformedVerdict.warnings]],
 			]);
 		});
 
@@ -6142,7 +6189,7 @@ try {
 		"router-price-date", "router-price-rows",
 		"router-w1-canary", "router-w1-guards", "router-w3-unknown", "router-failover-coverage",
 		"router-warnings-echo", "router-dedup", "router-memo", "router-labels",
-		"router-effort", "router-effort-gap", "router-effort-hard", "router-ladder-validation", "router-effort-off",
+		"router-effort", "router-effort-gap", "router-effort-hard", "router-recommendation-validation", "router-ladder-validation", "router-effort-off",
 		"router-hostile", "router-robust",
 		"router-config-default", "router-config-invalid", "router-shipped-default",
 		"route-load", "route-vocabulary", "route-effort-type", "route-list-on", "route-list-off",
@@ -6155,7 +6202,7 @@ try {
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
 		"route-failover", "route-lowest-effort", "route-recommended-fresh", "route-recommended-null",
 		"route-recommended-stored", "route-recommended-substitute", "route-recommended-failover", "route-recommended-invalid",
-		"route-off-ladder-source", "route-hostile",
+		"route-recommended-revalidate", "route-off-ladder-source", "route-hostile",
 		"wiring", "spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",

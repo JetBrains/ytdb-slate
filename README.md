@@ -55,7 +55,7 @@ Slate can ride through model API outages. The opt-in `modelFailover` map in `.pi
 
 ## Action-level model routing
 
-Slate can pick a model and effort level for each dispatched action. `router.models` in `.pi/slate.json` is a trusted-project list of `provider/id` specs. Each action uses its `model` and `effort` arguments when present. Otherwise, router-on actions use the thread base model. They use the corpus recommendation for the routed model when one exists. Without one, they use its first measured level.
+Slate can pick a model and effort level for each dispatched action. `router.models` in `.pi/slate.json` is a trusted-project list of `provider/id` specs. Each action uses its `model` and `effort` arguments when present. Otherwise, router-on actions use the thread base model. They use the validated corpus recommendation for the routed model. Without one, they use its first measured level.
 
 The list is empty by default. An empty list disables candidate enforcement, base seeding, effort derivation, window checks, billing notices, and substitution. Per-action arguments stay active on both router states. Slate checks explicit effort against pi's vocabulary. It also checks the routed model's ladder when profile data exists.
 

@@ -265,7 +265,8 @@ function listHas(list: unknown, level: string): boolean {
 }
 
 /** Explain why checkEffort rejected a profile recommendation. */
-function recommendationReason(check: EffortCheck): string {
+export function recommendationRejectionReason(check: EffortCheck): string {
+	if (!THINKING_LEVELS.includes(check.effort)) return `it is not one of pi's thinking levels (${THINKING_LEVELS.join(", ")})`;
 	if (check.apiRejected) return "the provider rejects that level outright";
 	if (check.verdict === "off-ladder") {
 		return `it is not on the model's effort ladder (${check.ladder.length > 0 ? check.ladder.join(", ") : "none recorded"})`;
@@ -690,8 +691,14 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 					warnings: [],
 				} as ModelRouterResolution;
 				const validation = checkEffort(validationResolution, raw, recommended);
-				if (validation.verdict === "ok") candidate.recommendedEffort = recommended as ThinkingLevel;
-				else candidate.recommendedEffortRejected = { effort: recommended, reason: recommendationReason(validation) };
+				const canonical = THINKING_LEVELS.includes(recommended);
+				if (canonical && validation.verdict === "ok") candidate.recommendedEffort = recommended as ThinkingLevel;
+				else {
+					candidate.recommendedEffortRejected = {
+						effort: canonical ? recommended : quoted(recommended),
+						reason: recommendationRejectionReason(validation),
+					};
+				}
 			}
 		}
 		claimedProfiles.set(profileId, raw);
