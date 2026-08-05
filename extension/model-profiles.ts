@@ -219,6 +219,8 @@ export interface ModelProfile {
 	avoidFor: string;
 	/** routing-relevant hazards, each a short clause */
 	hazards: string[];
+	/** The preferred seed for a dispatch that names no effort. Transcribed from Artifact B's prefer-for cell. Hazard prose breaks a tie only when that cell is silent. Null means the corpus recommends nothing and normal fallback applies. This field is NOT evidence. `capabilityMeasuredAt` and `evidenceGapAt` remain the only evidence record. */
+	recommendedEffort: ThinkingLevel | null;
 	/** effort levels with a traced capability measurement, per digest-v5 §M's predicate */
 	capabilityMeasuredAt: ThinkingLevel[];
 	/** ADVISORY evidence gaps, NOT a prohibition: dispatch warns, it does not refuse */
@@ -283,6 +285,7 @@ const PROFILES: ModelProfile[] = [
 			"REWARD HACKING, UNDETERMINED [RI36]: luna shows the highest displayed reward_hacks value of the routed models (-0.9% vs -0.7% / -0.2% / -0.0%) [G1d], but the trial denominator is unpublished, so significance cannot be settled — no pairwise difference reaches p<0.05 for n≤445 while luna-vs-fable-5 does for n≥890 [arb]. Do not rank models on this field; do not treat it as null either",
 			"BILLING: above 272,000 input tokens, input-side cost ×2 and output ×1.5 [O2]. A cost event, not a capacity limit",
 		],
+		recommendedEffort: "medium", // Artifact B prefer-for: "bulk mech edits,tests @medium" [G1a]
 		capabilityMeasuredAt: ["medium", "max"], // SWE-rebench 43.6% [G1a, O4.3]; Vals Index 69.878% + SWE-bench 93.000% + Vals TB 79.026% + tbench 75.7% + AA Index 51.2359 [G2#7, G3, G1d, G1e]
 		evidenceGapAt: ["off", "low", "high", "xhigh"], // off: the only datum is a COST figure, 0.71 cents/prompt [O6], excluded by §M. low/high/xhigh: no capability result in any source [G1e, O4.2]
 		unknownRoutingCriticalFields: [
@@ -347,6 +350,7 @@ const PROFILES: ModelProfile[] = [
 			"ADAPTIVE THINKING: manual thinking control returns HTTP 400, and so do non-default sampling params [A2 — a digest `constraints` entry, not one of its hazard rows]. The `off` level is therefore in `apiRejectedLevels`, a hard rejection rather than an evidence gap",
 			"own system card flags the training run as unhealthy in its second half; worst over-refusal of the three Claudes (0.59% ±0.05 API) [A5]",
 		],
+		recommendedEffort: "high", // Artifact B prefer-for: "only if sol unavailable @high" [G1a]
 		capabilityMeasuredAt: ["high", "xhigh", "max"], // SWE-rebench 56.8% + tbench 74.6% [G1a, A4b, G1d]; vendor TB2.1 80.4% [G1d]; Vals Index 68.608% + SWE-bench 79.600% + AA Index 53.3500 [G2#7, GM3, G1e]
 		evidenceGapAt: ["off", "minimal", "low", "medium"], // off also returns HTTP 400 for manual control [A2]; low's only datum is a TURN RATIO (~6× more turns at max than low) [A4a], excluded by §M
 		unknownRoutingCriticalFields: [
@@ -394,6 +398,7 @@ const PROFILES: ModelProfile[] = [
 			"BILLING: above 272,000 input tokens, input-side cost ×2 and output ×1.5 [O2]",
 			"TIER: the digest places terra at `t?`, outside the ordinal tier ordering [RI39]; the tier field says 2 only because the type has no unranked member — `nonPreferred` is what keeps it unselected",
 		],
+		recommendedEffort: null, // Artifact B prefer-for says only "configured-only" and its hazard prose names no effort
 		capabilityMeasuredAt: ["xhigh", "max"], // Vals Index 65.135% + Vals LCB 85.930% + Vals TB 73.408% + AA Index 51.6046 [G2#7, G1b, G1d, G1e]; tbench 78.4% + AA Index 54.9529 [G1d, G1e]
 		evidenceGapAt: ["off", "low", "medium", "high"], // medium: LMArena carries gpt-5.6-terra-medium with NO ranked row — registry presence is not a measurement [G2#10]; high: AA publishes terra at max/xhigh only, Vals used xhigh [G1e, O4.2]
 		unknownRoutingCriticalFields: [
@@ -445,6 +450,7 @@ const PROFILES: ModelProfile[] = [
 			"INDEPENDENCE: AA was a paid pre-release evaluation partner for this launch and METR's report was NDA'd and reviewed by OpenAI comms/legal — independent harness, non-independent relationship [O7 — a digest `caveats` entry, not one of its hazard rows]",
 			"EVIDENCE CAVEAT: both SWE-bench variants are vendor-discredited by the party that gains from discrediting them [O5, O7 — a digest `caveats` entry, not one of its hazard rows]",
 		],
+		recommendedEffort: "medium", // Artifact B prefer-for names medium for agentic coding and deep retrieval [G1a, O3]
 		capabilityMeasuredAt: ["medium", "high", "xhigh", "max"], // SWE-rebench 62.3% + AA Index 53.5888 [G1a, O4.3, G1e]; AA Index 55.8665, a composite index admitted by the widened predicate [G1e, RI35]; AA TB2.1 89.513% + AA Index 57.6538 + LMArena 1485 [G1d, G1e, G2#10]; Vals SWE-bench 96.20% + Vals Index 73.118% + AA Index 58.8898 [O4.2, G2#7, G1e]
 		evidenceGapAt: ["off", "low"], // off: the corpus's only effort-off datum is luna's COST figure [O6]; low: AA publishes Index rows at max/xhigh/high/medium only [G1e, O4.2]
 		unknownRoutingCriticalFields: [
@@ -492,6 +498,7 @@ const PROFILES: ModelProfile[] = [
 			"CHEAP LEVELS ARE MEASURED HERE, unusually: low (AA-Briefcase Elo 1223) and medium (AA Index 56.2806 at $0.6184/task) both carry capability results [A4a, G1e] — at medium it beats sonnet-5 at max on both quality and cost [arb, RI22]",
 			"thinking cannot be disabled at xhigh/max [A2 — a digest ladder note, not one of its hazard rows]",
 		],
+		recommendedEffort: "high", // Artifact B prefer-for: "architecture,hard debug,1M-token episodes @high" [G1a, A3]
 		capabilityMeasuredAt: ["low", "medium", "high", "xhigh", "max"], // Elo 1223 [A4a, RI19]; AA Index 56.2806 + Elo 1470.21 [G1e]; SWE-rebench 63.4% + Vals TB 84.644% + ARC-AGI-3 30.16% + AA Index 58.8642 + LMArena 1493±8 [G1a, A4b, GM5, A4d, G1e, G2#10, RI34]; AA Index 60.0682 + AA TB2.1 88.015% [G1e, G1d]; AA Index 60.6919 + LMArena 1495±12 + ARC-AGI-1/-2 97.5/90.4 [G1e, G2#10, A4d]
 		evidenceGapAt: ["off", "minimal"], // no capability result at either level in any source [G1e]
 		unknownRoutingCriticalFields: [
@@ -539,6 +546,7 @@ const PROFILES: ModelProfile[] = [
 			"refusals return HTTP 200 with stop_reason refusal, not an error [A5] — a caller checking only HTTP status will treat a refusal as success",
 			"its own vendor tier verdict: justify per task, never as a default [A7 — a digest `caveats` entry, not one of its hazard rows]; three of its four claimed edges over opus-5 are non-significant [arb via §H, NOT [A7], which only lists the four claimed edges]",
 		],
+		recommendedEffort: null, // Artifact B prefer-for gives only the condition "only after opus-5 measurably fails"; its hazard prose names no effort
 		capabilityMeasuredAt: ["high", "xhigh", "max"], // SWE-rebench 64.5% + tbench Terminus-2 80.4% [G1a, A4b, G1d]; tbench Claude Code 83.8% [G1d]; Vals Index 75.145% + Vals LCB 89.778% + AA Index 59.8606 [G2#7, G1b, G1e]
 		evidenceGapAt: ["minimal", "low", "medium"], // no capability result at any of the three in any source [G1e]
 		unknownRoutingCriticalFields: [
@@ -597,6 +605,7 @@ const PROFILES: ModelProfile[] = [
 			"NO EFFORT-LABELLED capability result: §E.8 states only that it has results at no more than one level, and no §E figure carries an effort label, so the §M predicate admits none [derived from §E.8 + §M] — treat its effort behaviour as an evidence gap, advisory only",
 			"beats claude-haiku-4-5 on 4 of 5 Vals benchmarks, not all five — Haiku wins Terminal-Bench 2.1, 43.820% vs 41.573% [G3, arb]",
 		],
+		recommendedEffort: null, // no Artifact B row; §E names no effort level
 		capabilityMeasuredAt: [], // DERIVED, not stated: no §E figure carries an effort label, so the §M predicate admits no level [derived from §E.8 + §M]
 		evidenceGapAt: ["off", "low", "medium", "high", "xhigh", "max"], // the whole ASSUMED ladder; advisory, never a refusal
 		unknownRoutingCriticalFields: [
@@ -647,6 +656,7 @@ const PROFILES: ModelProfile[] = [
 			"pi effort LADDER UNVERIFIED in this pass [§E.7] — the ladder this module reports for it is the ASSUMED OpenAI family shape, not a traced fact (`ladderAssumed`)",
 			"NO EFFORT-LABELLED capability result: §E.8 states only that it has results at no more than one level, and no §E figure carries an effort label, so the §M predicate admits none [derived from §E.8 + §M] — an evidence gap, advisory only",
 		],
+		recommendedEffort: null, // no Artifact B row; §E names no effort level
 		capabilityMeasuredAt: [], // DERIVED, not stated: no §E figure carries an effort label [derived from §E.8 + §M]
 		evidenceGapAt: ["off", "low", "medium", "high", "xhigh", "max"], // the whole ASSUMED ladder; advisory
 		unknownRoutingCriticalFields: [
@@ -708,6 +718,7 @@ const PROFILES: ModelProfile[] = [
 			"pi effort LADDER UNVERIFIED in this pass [§E.7] — the ladder this module reports for it is the ASSUMED Anthropic family shape, not a traced fact (`ladderAssumed`)",
 			"NO EFFORT-LABELLED capability result: §E.8 states only that it has results at no more than one level, and no §E figure carries an effort label, so the §M predicate admits none [derived from §E.8 + §M] — an evidence gap, advisory only",
 		],
+		recommendedEffort: null, // no Artifact B row; §E names no effort level
 		capabilityMeasuredAt: [], // DERIVED, not stated: no §E figure carries an effort label [derived from §E.8 + §M]
 		evidenceGapAt: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], // the whole ASSUMED ladder; advisory
 		unknownRoutingCriticalFields: [

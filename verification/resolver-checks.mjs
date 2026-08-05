@@ -334,7 +334,7 @@ const ROUTER_IDS = [
 	"router-config-invalid",
 	"router-shipped-default",
 ];
-const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta"];
+const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-recommended-effort", "profiles-price", "profiles-meta"];
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
@@ -5863,7 +5863,7 @@ try {
 				["all canonical specs", ids.every((id) => state.isModelSpec(id)), ids.filter((id) => !state.isModelSpec(id))],
 				["all lower-case", ids.every((id) => id === id.toLowerCase()), ids.filter((id) => id !== id.toLowerCase())],
 				["unique", new Set(ids).size === ids.length, ids.filter((id, i) => ids.indexOf(id) !== i)],
-				["every profile is an object with the read fields", all.every((p) => p && typeof p === "object" && "tier" in p && "price" in p && "capabilityMeasuredAt" in p && "evidenceGapAt" in p), all.filter((p) => !p || typeof p !== "object")],
+				["every profile is an object with the read fields", all.every((p) => p && typeof p === "object" && "tier" in p && "price" in p && "recommendedEffort" in p && "capabilityMeasuredAt" in p && "evidenceGapAt" in p), all.filter((p) => !p || typeof p !== "object" || !("recommendedEffort" in p))],
 			]);
 		});
 
@@ -5909,6 +5909,23 @@ try {
 			checkAll("profiles-ladder", "for every profile the ladder is a non-empty, duplicate-free subset of pi's effort vocabulary, and capabilityMeasuredAt/evidenceGapAt are disjoint and exactly cover it — the canary for a mistyped ladder key", [
 				["no violation", bad.length === 0, bad],
 				["every profile checked", all.length > 0, all.length],
+			]);
+		});
+
+		await section("profiles-recommended-effort", async () => {
+			const bad = [];
+			for (const p of all) {
+				const effort = p.recommendedEffort;
+				if (effort === null) continue;
+				const ladder = table.ladderFor(p);
+				if (!LEVELS.includes(effort)) bad.push(`${p.id}: foreign recommended effort (${effort})`);
+				if (!p.capabilityMeasuredAt.includes(effort)) bad.push(`${p.id}: recommended effort is not measured (${effort})`);
+				if (!ladder.includes(effort)) bad.push(`${p.id}: recommended effort is off the ladder (${effort})`);
+				if ((p.apiRejectedLevels ?? []).includes(effort)) bad.push(`${p.id}: provider rejects recommended effort (${effort})`);
+			}
+			checkAll("profiles-recommended-effort", "every non-null recommended effort is measured, ladder-valid, and accepted by the provider; null passes", [
+				["no violation", bad.length === 0, bad],
+				["every profile carries the field", all.every((p) => "recommendedEffort" in p), all.filter((p) => !("recommendedEffort" in p)).map((p) => p.id)],
 			]);
 		});
 
@@ -6016,7 +6033,7 @@ try {
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
 		"episode-load", "episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header",
-		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta",
+		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-recommended-effort", "profiles-price", "profiles-meta",
 	];
 	const seen = new Set(reported);
 	const missing = EXPECTED.filter((id) => !seen.has(id));
