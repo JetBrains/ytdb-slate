@@ -30,11 +30,48 @@ import { createWritingReminderRuntime, type WritingReminderRuntime } from "./wri
  * per-action routing", which the dispatch path answers by falling back to the
  * pre-router `model` field and then to the host default, not by inventing a base.
  */
+export const THREAD_TYPES = ["researcher", "reviewer", "adversarial", "implementer", "general"] as const;
+export type ThreadType = (typeof THREAD_TYPES)[number];
+
+export function isThreadType(value: unknown): value is ThreadType {
+	return typeof value === "string" && (THREAD_TYPES as readonly string[]).includes(value);
+}
+
+/** Validate the conditionally required tool argument at its runtime boundary. */
+export function parseThreadType(value: unknown, required: boolean): ThreadType | undefined {
+	const allowed = THREAD_TYPES.join(", ");
+	if (value === undefined) {
+		if (required) throw new Error(`A type is required when creating a thread. Allowed values: ${allowed}.`);
+		return undefined;
+	}
+	if (!isThreadType(value)) throw new Error(`Invalid thread type. Allowed values: ${allowed}.`);
+	return value;
+}
+
+const reportedUnknownThreadTypes = new WeakSet<ThreadRecord>();
+
+/**
+ * Resolve the persisted value at the point where thread behaviour needs it.
+ * Old records remain absent. An unknown string also behaves as `general`, but
+ * produces one visible report for that adopted record rather than one per use.
+ */
+export function effectiveThreadType(thread: ThreadRecord, report: (message: string) => void): ThreadType {
+	if (thread.type === undefined) return "general";
+	if (isThreadType(thread.type)) return thread.type;
+	if (!reportedUnknownThreadTypes.has(thread)) {
+		reportedUnknownThreadTypes.add(thread);
+		report(`slate: thread ${thread.id} has unrecognised type ${sanitizeForNotify(thread.type, 80)}; treating it as general`);
+	}
+	return "general";
+}
+
 export interface ThreadRecord {
 	id: string; // "t1", "t2", ...
 	name: string;
 	sessionFile: string; // absolute path to worker .jsonl ("" until first dispatch completes session creation)
 	status: "idle" | "running";
+	/** Immutable thread role. Absent means an older thread; resolve it with effectiveThreadType. */
+	type?: ThreadType;
 	/**
 	 * PRE-ROUTER pin: "provider/id" passed as `model` when the thread was created
 	 * WITH THE ROUTER OFF. It names what a NEW worker session opens on and never
@@ -315,6 +352,7 @@ export const ADOPTED_THREAD_FIELDS = {
 	name: true,
 	sessionFile: true,
 	status: true,
+	type: true,
 	model: true,
 	baseModel: true,
 	baseEffort: true,
@@ -400,6 +438,9 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		name: keep("name", t.name, str(t.name)) ?? id,
 		sessionFile: keep("sessionFile", t.sessionFile, str(t.sessionFile)) ?? "",
 		status: "idle",
+		// Vocabulary is resolved only at the point of use. Adoption follows the
+		// model/base-effort precedent and rejects only a non-string value.
+		...(keep("type", t.type, str(t.type)) !== undefined ? { type: str(t.type) as ThreadType } : {}),
 		...(keep("model", t.model, str(t.model)) !== undefined ? { model: str(t.model) } : {}),
 		...(keep("baseModel", t.baseModel, str(t.baseModel)) !== undefined ? { baseModel: str(t.baseModel) } : {}),
 		// The LEVEL's vocabulary is re-checked by the reader (route.ts's storedLevel, BG21);

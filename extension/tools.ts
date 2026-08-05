@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { renderThreadCall, renderThreadResult } from "./render.ts";
-import type { SlateStore } from "./state.ts";
+import { parseThreadType, THREAD_TYPES, type SlateStore } from "./state.ts";
 import type { DispatchProgress, ThreadManager } from "./threads.ts";
 
 export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManager: () => ThreadManager): void {
@@ -17,6 +17,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"Dispatch ONE bounded action to a persistent worker thread; receive an episode",
 			"(a compressed, structured record of its work).",
 			"Omit `thread` and give a short `name` to create one; pass its id to continue with all prior-action context.",
+			"A new thread requires `type`: researcher, reviewer, adversarial, implementer, or general.",
+			"A thread type is immutable. A legacy untyped thread may be typed once before it has a live worker session.",
 			"Use `context` to inject episodes by id from any thread.",
 			"Each thread is serial; use DIFFERENT threads in one message for parallel work.",
 			"`model` (\"provider/id\") and `effort` (pi thinking level) route THIS ACTION ONLY on new or continued threads.",
@@ -38,6 +40,11 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		parameters: Type.Object({
 			thread: Type.Optional(Type.String({ description: "Existing thread id to continue (e.g. \"t1\")" })),
 			name: Type.Optional(Type.String({ description: "Short name for a NEW thread (e.g. \"recon\")" })),
+			type: Type.Optional(
+				Type.Union(THREAD_TYPES.map((value) => Type.Literal(value)), {
+					description: "Required for a new thread; immutable thereafter: researcher, reviewer, adversarial, implementer, or general",
+				}),
+			),
 			task: Type.String({ description: "The single bounded action to execute" }),
 			context: Type.Optional(
 				Type.Array(Type.String(), { description: "Episode ids to inject as context (e.g. [\"t1.e2\"])" }),
@@ -64,6 +71,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		}),
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			// pi does not enforce extension tool schemas. Validate the conditional
+			// requirement and closed vocabulary before dispatch can mutate state.
+			const type = parseThreadType(params.type, params.thread === undefined);
 			const onProgress = (p: DispatchProgress) => {
 				onUpdate?.({
 					content: [
@@ -80,6 +90,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				{
 					threadId: params.thread,
 					name: params.name,
+					type,
 					task: params.task,
 					contextEpisodeIds: params.context,
 					model: params.model,

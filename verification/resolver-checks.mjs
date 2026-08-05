@@ -4796,6 +4796,7 @@ try {
 				name: "impl",
 				sessionFile: "/tmp/x.jsonl",
 				status: "idle",
+				type: "reviewer",
 				model: "p/pin",
 				baseModel: "p/base",
 				baseEffort: "medium",
@@ -4831,7 +4832,8 @@ try {
 			// "unknown model" error and route.ts's `storedLevel` still owns the vocabulary.
 			// Repairing here would convert a caller's error into a silent substitution — the
 			// exact class of defect this track spent two rounds removing.
-			const padded = sane({ id: "t1", model: "  p/x  ", baseModel: "not a spec", baseEffort: "HIGH" });
+			const padded = sane({ id: "t1", type: "future-type", model: "  p/x  ", baseModel: "not a spec", baseEffort: "HIGH" });
+			const typeBad = sane({ id: "t1", type: 7 });
 			const effortBad = sane({ id: "t1", baseEffort: 7 });
 			const stampBadUpdated = sane({ id: "t1", updatedAt: {} });
 			// ABSENT is a third case, distinct from wrong-typed and from present-and-valid: a
@@ -4878,8 +4880,9 @@ try {
 				["a wrong-typed timestamp becomes a real number, noted", typeof stampBad.out?.createdAt === "number" && /createdAt \(string\)/.test(stampBad.repairs.join()), [stampBad.out?.createdAt, stampBad.repairs]],
 				["a non-array episodeIds becomes empty, noted", JSON.stringify(idsBad.out?.episodeIds) === "[]" && /episodeIds \(string\)/.test(idsBad.repairs.join()), [idsBad.out?.episodeIds, idsBad.repairs]],
 				["...while a mixed array keeps its strings, silently", JSON.stringify(idsMixed.out?.episodeIds) === '["a","b"]' && idsMixed.repairs.length === 0, [idsMixed.out?.episodeIds, idsMixed.repairs]],
-				["a malformed-but-STRING spec or level survives untouched", padded.out?.model === "  p/x  " && padded.out?.baseModel === "not a spec" && padded.out?.baseEffort === "HIGH", padded.out],
+				["a malformed-but-STRING type, spec or level survives untouched", padded.out?.type === "future-type" && padded.out?.model === "  p/x  " && padded.out?.baseModel === "not a spec" && padded.out?.baseEffort === "HIGH", padded.out],
 				["...and is not reported as a repair, because nothing was repaired", padded.repairs.length === 0, padded.repairs],
+				["a non-string type IS dropped and noted", typeBad.out?.type === undefined && /type \(number\)/.test(typeBad.repairs.join()), [typeBad.out?.type, typeBad.repairs]],
 				["a non-string level IS dropped and noted", effortBad.out?.baseEffort === undefined && /baseEffort \(number\)/.test(effortBad.repairs.join()), [effortBad.out?.baseEffort, effortBad.repairs]],
 				["...and so is a non-number updatedAt, on the same rule as createdAt", typeof stampBadUpdated.out?.updatedAt === "number" && /updatedAt \(object\)/.test(stampBadUpdated.repairs.join()), [stampBadUpdated.out?.updatedAt, stampBadUpdated.repairs]],
 				["a bare id fills every default — ABSENT is not the same case as wrong-typed", filled, minimal.out],

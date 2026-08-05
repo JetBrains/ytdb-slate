@@ -123,13 +123,24 @@ import {
 	type SessionBaseline,
 	type SessionOpenDecision,
 } from "./route.ts";
-import { isModelSpec, splitModelSpec, type EpisodeRecord, type SlateConfig, type SlateStore, type ThreadRecord } from "./state.ts";
+import {
+	isModelSpec,
+	isThreadType,
+	parseThreadType,
+	splitModelSpec,
+	type EpisodeRecord,
+	type SlateConfig,
+	type SlateStore,
+	type ThreadRecord,
+	type ThreadType,
+} from "./state.ts";
 import { openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 
 export interface DispatchOptions {
 	threadId?: string;
 	name?: string;
+	type?: ThreadType;
 	task: string;
 	contextEpisodeIds?: string[];
 	model?: string; // "provider/id" for THIS action (see the header): the thread's base model when omitted
@@ -348,6 +359,10 @@ export class ThreadManager {
 		// first (it explains itself better than a routing complaint would), the
 		// routing guards next, and only then is a new thread created.
 		const existing = opts.threadId ? this.requireThread(opts.threadId) : undefined;
+		// Tool schemas are descriptive rather than an enforcement boundary. Keep
+		// this argument guard beside the model/effort guards below, as well as in
+		// tools.ts, so direct callers cannot persist an unusable type.
+		const requestedType = parseThreadType(opts.type, existing === undefined);
 		const liveSession = existing ? this.live.get(existing.id) : undefined;
 		const early = planRoute(this.routeInputs(ctx, existing, opts, liveSession));
 		// Reject-only here: a rejection is a TOOL ERROR the orchestrator can correct,
@@ -356,7 +371,8 @@ export class ThreadManager {
 		// size, and reporting them twice (or consuming guard 6's once-per-pair notice
 		// before anyone could see it) would both be wrong.
 		if (early.kind === "reject") throw new Error(early.reason);
-		const thread = existing ?? this.createThread(opts, early);
+		if (existing) this.setExistingThreadType(existing, requestedType);
+		const thread = existing ?? this.createThread({ ...opts, type: requestedType }, early);
 
 		// Per-thread FIFO: chain onto the previous dispatch for this thread.
 		const prev = this.queues.get(thread.id) ?? Promise.resolve();
@@ -377,6 +393,28 @@ export class ThreadManager {
 	}
 
 	/**
+	 * Apply a continuation's optional type after early route validation. A
+	 * matching value is the same silent no-op as a repeated `name`. A legacy
+	 * absent or unrecognised value may be corrected once, but not while its worker is live because
+	 * that session opened without the type's future charter and tool envelope.
+	 */
+	private setExistingThreadType(thread: ThreadRecord, requested: ThreadType | undefined): void {
+		if (requested === undefined || thread.type === requested) return;
+		if (isThreadType(thread.type)) {
+			throw new Error(`Thread ${thread.id} has immutable type "${thread.type}"; it cannot be changed to "${requested}".`);
+		}
+		if (this.live.has(thread.id)) {
+			throw new Error(
+				`Thread ${thread.id} has a live worker session, so its type cannot be set safely. ` +
+					"Dispose or restart the Slate session, then set the type before continuing the thread.",
+			);
+		}
+		thread.type = requested;
+		thread.updatedAt = Date.now();
+		this.store.save();
+	}
+
+	/**
 	 * Create and persist a new thread record. The FIRST state mutation of a
 	 * dispatch, and deliberately after the early route validation: a rejected
 	 * pick must not leave an empty thread behind.
@@ -389,11 +427,13 @@ export class ThreadManager {
 	 */
 	private createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord {
 		const id = this.store.nextThreadId();
+		const type = parseThreadType(opts.type, true);
 		const record: ThreadRecord = {
 			id,
 			name: opts.name?.trim() || id,
 			sessionFile: "",
 			status: "idle",
+			type,
 			...(this.routerResolution().on ? {} : { model: opts.model }),
 			...(plan.baseModel ? { baseModel: plan.baseModel } : {}),
 			...(plan.baseEffort ? { baseEffort: plan.baseEffort } : {}),
