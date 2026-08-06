@@ -57,7 +57,7 @@ import type { ObservationRecord } from "./observations.ts";
 // with recursive mkdir and writeFileSync — so both kinds now go through one safe
 // writer rather than shipping a new guard beside a known identical hole.
 import { writeSlateArtifact } from "./slate-files.ts";
-import { splitModelSpec } from "./state.ts";
+import { splitModelSpec, type EpisodeUsage } from "./state.ts";
 
 type CompressorModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
 
@@ -434,15 +434,17 @@ export interface CompressedEpisode {
 	text: string; // full episode markdown (header + body) as returned to the orchestrator
 	file: string;
 	compressor: string; // model used, or "(uncompressed fallback)"
-	costUsd: number; // USD cost of the compression LLM call (0 on fallback)
+	/** Sum of reported compression-call costs. Absent means no attempt reported cost. */
+	costUsd?: number;
+	compressorUsage?: EpisodeUsage;
 }
 
 /** Final episode persistence failed after this much compressor spend was incurred. */
 export class EpisodePersistenceError extends Error {
-	readonly costUsd: number;
+	readonly costUsd: number | undefined;
 	readonly originalError: unknown;
 
-	constructor(costUsd: number, originalError: unknown) {
+	constructor(costUsd: number | undefined, originalError: unknown) {
 		super("slate episode persistence failed");
 		this.name = "EpisodePersistenceError";
 		this.costUsd = costUsd;
@@ -451,9 +453,32 @@ export class EpisodePersistenceError extends Error {
 }
 
 type CompressionAttempt =
-	| { kind: "ok"; body: string; costUsd: number }
-	| { kind: "failed"; costUsd: number; retriable: boolean }
-	| { kind: "aborted"; costUsd: number };
+	| { kind: "ok"; body: string; costUsd?: number; usage?: EpisodeUsage }
+	| { kind: "failed"; costUsd?: number; retriable: boolean; usage?: EpisodeUsage }
+	| { kind: "aborted"; costUsd?: number; usage?: EpisodeUsage };
+
+function reportedUsage(usage: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } | undefined): EpisodeUsage | undefined {
+	if (usage === undefined) return undefined;
+	const reported: EpisodeUsage = {
+		...(usage.input !== undefined ? { input: usage.input } : {}),
+		...(usage.output !== undefined ? { output: usage.output } : {}),
+		...(usage.cacheRead !== undefined ? { cacheRead: usage.cacheRead } : {}),
+		...(usage.cacheWrite !== undefined ? { cacheWrite: usage.cacheWrite } : {}),
+	};
+	return Object.keys(reported).length > 0 ? reported : undefined;
+}
+
+function addReportedUsage(total: EpisodeUsage, usage: EpisodeUsage | undefined): void {
+	if (usage === undefined) return;
+	for (const field of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+		const value = usage[field];
+		if (value !== undefined) total[field] = (total[field] ?? 0) + value;
+	}
+}
+
+function addReportedCost(total: number | undefined, cost: number | undefined): number | undefined {
+	return cost === undefined ? total : (total ?? 0) + cost;
+}
 
 /**
  * ONE compression attempt on ONE model. Failure classification (AF7/AF11):
@@ -474,14 +499,17 @@ async function attemptCompression(
 	promptText: string,
 	signal: AbortSignal | undefined,
 ): Promise<CompressionAttempt> {
-	let costUsd = 0;
+	let costUsd: number | undefined;
+	let usage: EpisodeUsage | undefined;
+	const measured = <T extends object>(value: T): T & { usage?: EpisodeUsage } =>
+		usage === undefined ? value : { ...value, usage };
 	try {
 		// THE SAME rule and the SAME resolution the rung filter used (BG42): one
 		// function, so "usable enough to select" and "usable enough to call" cannot
 		// diverge. `apiKey` may legitimately be absent — pi-ai's provider modules accept
 		// an auth header instead, or authenticate from the environment (bedrock, vertex).
 		const auth = await resolveUsableAuth(ctx, model);
-		if (!auth) return { kind: "failed", costUsd, retriable: true };
+		if (!auth) return measured({ kind: "failed" as const, costUsd, retriable: true });
 		const response = await complete(
 			model,
 			{
@@ -501,21 +529,22 @@ async function attemptCompression(
 				signal,
 			},
 		);
-		costUsd = response.usage?.cost?.total ?? 0;
-		if (response.stopReason === "aborted") return { kind: "aborted", costUsd };
+		costUsd = response.usage?.cost?.total;
+		usage = reportedUsage(response.usage);
+		if (response.stopReason === "aborted") return measured({ kind: "aborted" as const, costUsd });
 		if (response.stopReason === "error") {
-			return { kind: "failed", costUsd, retriable: isFailoverCandidate(response, model.contextWindow) };
+			return measured({ kind: "failed" as const, costUsd, retriable: isFailoverCandidate(response, model.contextWindow) });
 		}
 		const text = response.content
 			.filter((c: { type: string }): c is { type: "text"; text: string } => c.type === "text")
 			.map((c: { text: string }) => c.text)
 			.join("\n")
 			.trim();
-		if (!text) return { kind: "failed", costUsd, retriable: false };
-		return { kind: "ok", body: text, costUsd };
+		if (!text) return measured({ kind: "failed" as const, costUsd, retriable: false });
+		return measured({ kind: "ok" as const, body: text, costUsd });
 	} catch {
-		if (signal?.aborted) return { kind: "aborted", costUsd };
-		return { kind: "failed", costUsd, retriable: true };
+		if (signal?.aborted) return measured({ kind: "aborted" as const, costUsd });
+		return measured({ kind: "failed" as const, costUsd, retriable: true });
 	}
 }
 
@@ -537,7 +566,8 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 
 	let body: string | undefined;
 	let compressor = "(uncompressed fallback)";
-	let costUsd = 0;
+	let costUsd: number | undefined;
+	const compressorUsage: EpisodeUsage = {};
 
 	try {
 		const selected = await resolveCompressorModel(ctx, opts.configuredModel, opts.orchestratorBaseModel);
@@ -553,8 +583,9 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 			const promptText = compressorPrompt(opts.task, transcript);
 
 			const first = await attemptCompression(ctx, model, promptText, opts.signal);
-			// Cost ACCUMULATES across attempts — a failed first attempt may still bill.
-			costUsd += first.costUsd;
+			// Cost and usage accumulate across attempts because a failed first call may still bill.
+			costUsd = addReportedCost(costUsd, first.costUsd);
+			addReportedUsage(compressorUsage, first.usage);
 			if (first.kind === "ok") {
 				body = first.body;
 				compressor = `${model.provider}/${model.id}`;
@@ -569,7 +600,8 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 				const mappedAuth = mapped ? await resolveUsableAuth(ctx, mapped) : undefined;
 				if (mapped && mappedAuth && (mapped.provider !== model.provider || mapped.id !== model.id)) {
 					const second = await attemptCompression(ctx, mapped, promptText, opts.signal);
-					costUsd += second.costUsd;
+					costUsd = addReportedCost(costUsd, second.costUsd);
+					addReportedUsage(compressorUsage, second.usage);
 					if (second.kind === "ok") {
 						body = second.body;
 						// The header's compressor line shows whichever model actually
@@ -643,7 +675,13 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	// failure policy: a refusal or an fs error throws out of this function.
 	try {
 		const written = writeSlateArtifact({ cwd: ctx.cwd, kind: "episodes", id: opts.episodeId, content: text });
-		return { text, file: written.absolutePath, compressor, costUsd };
+		return {
+			text,
+			file: written.absolutePath,
+			compressor,
+			...(costUsd !== undefined ? { costUsd } : {}),
+			...(Object.keys(compressorUsage).length > 0 ? { compressorUsage } : {}),
+		};
 	} catch (error) {
 		throw new EpisodePersistenceError(costUsd, error);
 	}

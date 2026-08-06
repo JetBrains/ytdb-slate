@@ -29,7 +29,9 @@
  * ".pi" by default), honored ONLY when the project is trusted — untrusted
  * projects run on built-in defaults with no project file injection:
  *   { "episodeModel": "provider/id", "workerTools": [...],
- *     "workerExtensions": ["regex", ...], "maxConcurrent": 4,
+ *     "workerExtensions": ["regex", ...], "cacheKeyEnabled": true,
+ *     "cacheKeyShards": 2,
+ *     "maxConcurrent": 4,
  *     "contextBudget": 256000, "orchestratorModeDefault": true,
  *     "orchestratorPromptDocs": ["docs/orchestrator-guidelines.md"],
  *     "workerPromptDocs": ["docs/thread-guidelines.md"],
@@ -68,7 +70,13 @@ import {
 	type ModelRouterResolution,
 	type RouterWarningClass,
 } from "./model-router.ts";
-import { sanitizeEpisodeModel, SlateStore, type SlateConfig } from "./state.ts";
+import {
+	sanitizeCacheKeyEnabled,
+	sanitizeCacheKeyShards,
+	sanitizeEpisodeModel,
+	SlateStore,
+	type SlateConfig,
+} from "./state.ts";
 import { ThreadManager } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
 import {
@@ -153,6 +161,8 @@ export default function (pi: ExtensionAPI) {
 		config.modelFailover = sanitizeModelFailover(config.modelFailover, warn);
 		config.contextBudget = sanitizeContextBudget(config.contextBudget, warn);
 		config.workerExtensions = sanitizeWorkerExtensions(config.workerExtensions, warn);
+		config.cacheKeyEnabled = sanitizeCacheKeyEnabled(config.cacheKeyEnabled, warn);
+		config.cacheKeyShards = sanitizeCacheKeyShards(config.cacheKeyShards, warn);
 		// router likewise: a malformed model list must surface at session start, not
 		// when a dispatch is refused for naming a model the list silently dropped.
 		// The router's own warn sink. It reads the CLASS the router tags each warning

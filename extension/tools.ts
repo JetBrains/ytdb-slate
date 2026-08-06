@@ -13,6 +13,8 @@ import {
 	threadTypeMarker,
 	THREAD_TYPE_GLOSSES,
 	THREAD_TYPES,
+	type EpisodeRecord,
+	type EpisodeUsage,
 	type SlateStore,
 } from "./state.ts";
 import type { DispatchProgress, ThreadManager } from "./threads.ts";
@@ -24,6 +26,32 @@ const judgementThreadTypes = JUDGEMENT_THREAD_TYPES.join(" and ");
 const THREAD_TYPE_PARAMETER_DESCRIPTION =
 	`Required for a new thread and immutable after creation. Pick by main job: ${threadTypeGlosses}. ` +
 	`Slate adds its reviewer evidence charter to ${judgementThreadTypes} threads.`;
+
+const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+
+/** Render recorded costs and usage without turning an unreported quantity into zero. */
+function dispatchCostLine(episode: EpisodeRecord): string {
+	const usageSources: EpisodeUsage[] = [episode, episode.compressorUsage ?? {}, episode.compactionUsage ?? {}];
+	const quantities = USAGE_FIELDS.map((field) => {
+		let quantity = 0;
+		let complete = true;
+		for (const source of usageSources) {
+			const value = source[field];
+			if (value === undefined) complete = false;
+			else quantity += value;
+		}
+		const label = field === "cacheRead" ? "cache read" : field === "cacheWrite" ? "cache write" : field;
+		return `${label} ${complete ? "" : "≥"}${quantity.toLocaleString("en-US")}`;
+	});
+	const sourceCosts = [episode.workerCostUsd, episode.compressorCostUsd, episode.compactionCostUsd];
+	const reportedCost = sourceCosts.reduce<number>((sum, cost) => sum + (cost ?? 0), 0);
+	const partialCost = sourceCosts.some((cost) => cost === undefined);
+	const costScope = partialCost ? " across reported calls and models. Some cost was not reported" : " across all calls and models";
+	const model = episode.model ?? "unknown model";
+	const effort = episode.effort ? `@${episode.effort}` : "@unknown effort";
+	const warm = episode.cacheRead !== undefined && episode.cacheRead > 0 ? " | warm" : "";
+	return `Cost: ${partialCost ? "≥" : ""}$${reportedCost.toFixed(4)}${costScope} | tokens: ${quantities.join(", ")} | ended ${model} ${effort}${warm}`;
+}
 
 export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManager: () => ThreadManager): void {
 	pi.registerTool({
@@ -139,8 +167,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			// a window substitution or a long-context billing cliff changes what the next
 			// dispatch should ask for, so they ride in the tool result above the episode.
 			const notices = result.warnings.length > 0 ? `${result.warnings.map((w) => `⚠ ${w}`).join("\n")}\n\n` : "";
+			const cost = dispatchCostLine(result.episode);
 			return {
-				content: [{ type: "text", text: `${headline}\n\n${notices}${result.episodeText}` }],
+				content: [{ type: "text", text: `${headline}\n${cost}\n\n${notices}${result.episodeText}` }],
 				details: {
 					threadId: result.thread.id,
 					threadName: result.thread.name,

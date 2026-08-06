@@ -91,6 +91,7 @@
  * it can load route.ts.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import {
 	DEFAULT_COMPACTION_SETTINGS,
@@ -126,12 +127,14 @@ import {
 	type SessionOpenDecision,
 } from "./route.ts";
 import {
+	DEFAULT_CACHE_KEY_SHARDS,
 	effectiveThreadType,
 	isModelSpec,
 	isThreadType,
 	parseThreadType,
 	splitModelSpec,
 	type EpisodeRecord,
+	type EpisodeUsage,
 	type SlateConfig,
 	type SlateStore,
 	type ThreadRecord,
@@ -139,6 +142,14 @@ import {
 } from "./state.ts";
 import { isJudgementThreadType, openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
+
+export function workerPromptCacheKey(cwd: string, shard: number): string {
+	// Sixteen hex characters provide a short stable project namespace without
+	// sending a path or username. The worst key is 32 characters:
+	// "slate-worker-" (13) + digest (16) + "-" (1) + shard 63 (2).
+	const project = createHash("sha256").update(cwd).digest("hex").slice(0, 16);
+	return `slate-worker-${project}-${shard}`;
+}
 
 export interface DispatchOptions {
 	threadId?: string;
@@ -190,7 +201,14 @@ interface WorkerAssistantMsg {
 	role?: string;
 	stopReason?: string;
 	errorMessage?: string;
-	usage?: { input?: number; output?: number; totalTokens?: number; cost?: { total?: number } };
+	usage?: {
+		input?: number;
+		output?: number;
+		cacheRead?: number;
+		cacheWrite?: number;
+		totalTokens?: number;
+		cost?: { total?: number };
+	};
 	content?: Array<{ type: string; text?: string }>;
 }
 
@@ -451,12 +469,18 @@ export class ThreadManager {
 	private createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord {
 		const id = this.store.nextThreadId();
 		const type = parseThreadType(opts.type, true);
+		const ordinal = Number(id.slice(1));
+		const cacheKeyShard =
+			this.config.cacheKeyEnabled === false
+				? undefined
+				: (ordinal - 1) % (this.config.cacheKeyShards ?? DEFAULT_CACHE_KEY_SHARDS);
 		const record: ThreadRecord = {
 			id,
 			name: opts.name?.trim() || id,
 			sessionFile: "",
 			status: "idle",
 			type,
+			...(cacheKeyShard === undefined ? {} : { cacheKeyShard }),
 			...(this.routerResolution().on ? {} : { model: opts.model }),
 			...(plan.baseModel ? { baseModel: plan.baseModel } : {}),
 			...(plan.baseEffort ? { baseEffort: plan.baseEffort } : {}),
@@ -856,6 +880,10 @@ export class ThreadManager {
 			extensionPaths: this.resolveExtensions().paths,
 			writingCheck: this.config.writing?.check === true,
 			reviewerCharter: isJudgementThreadType(type),
+			promptCacheKey:
+				this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
+					? undefined
+					: workerPromptCacheKey(args.ctx.cwd, args.thread.cacheKeyShard),
 		});
 		this.live.set(args.thread.id, session);
 		// A freshly opened session starts on its configured model — drop any stale
@@ -913,6 +941,24 @@ export class ThreadManager {
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
+		let workerCostUsd: number | undefined;
+		const episodeUsage: Partial<Pick<EpisodeRecord, "input" | "output" | "cacheRead" | "cacheWrite">> = {};
+		const addEpisodeUsage = (field: keyof typeof episodeUsage, value: number | undefined) => {
+			if (value === undefined) return;
+			episodeUsage[field] = (episodeUsage[field] ?? 0) + value;
+		};
+		const compactionUsage: EpisodeUsage = {};
+		let compactionCostUsd: number | undefined;
+		const seenCompactionEvents = new WeakSet<object>();
+		const addCompactionUsage = (reported: (EpisodeUsage & { cost?: { total?: number } }) | undefined) => {
+			if (reported === undefined) return;
+			for (const field of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+				const value = reported[field];
+				if (value !== undefined) compactionUsage[field] = (compactionUsage[field] ?? 0) + value;
+			}
+			const cost = reported.cost?.total;
+			if (cost !== undefined) compactionCostUsd = (compactionCostUsd ?? 0) + cost;
+		};
 		const lines: string[] = [];
 		const emit = (done: boolean, status?: "ok" | "failed") =>
 			onProgress?.({ threadId: thread.id, threadName: thread.name, lines, usage, done, status });
@@ -1060,6 +1106,13 @@ export class ThreadManager {
 				if (event.type === "tool_execution_start") {
 					lines.push(`→ ${(event as unknown as { toolName: string }).toolName}`);
 					emit(false);
+				} else if (event.type === "compaction_end") {
+					if (seenCompactionEvents.has(event)) return;
+					seenCompactionEvents.add(event);
+					const result = (event as unknown as {
+						result?: { usage?: EpisodeUsage & { cost?: { total?: number } } };
+					}).result;
+					addCompactionUsage(result?.usage);
 				} else if (event.type === "message_end") {
 					// Usage accumulation + progress lines ONLY — outcome is derived
 					// after prompt() settles (see deriveOutcome above, AF3).
@@ -1068,7 +1121,15 @@ export class ThreadManager {
 					usage.turns++;
 					usage.input += msg.usage?.input ?? 0;
 					usage.output += msg.usage?.output ?? 0;
-					usage.cost += msg.usage?.cost?.total ?? 0;
+					addEpisodeUsage("input", msg.usage?.input);
+					addEpisodeUsage("output", msg.usage?.output);
+					addEpisodeUsage("cacheRead", msg.usage?.cacheRead);
+					addEpisodeUsage("cacheWrite", msg.usage?.cacheWrite);
+					const reportedCost = msg.usage?.cost?.total;
+					if (reportedCost !== undefined) {
+						workerCostUsd = (workerCostUsd ?? 0) + reportedCost;
+						usage.cost += reportedCost;
+					}
 					usage.contextTokens = msg.usage?.totalTokens ?? usage.contextTokens;
 					const text = (msg.content ?? [])
 						.filter((c) => c.type === "text")
@@ -1367,7 +1428,7 @@ export class ThreadManager {
 			if (!thread.sessionFile && session?.sessionFile && existsSync(session.sessionFile)) {
 				thread.sessionFile = session.sessionFile;
 			}
-			this.store.workerCostUsd += usage.cost + (error instanceof EpisodePersistenceError ? error.costUsd : 0);
+			this.store.workerCostUsd += usage.cost + (error instanceof EpisodePersistenceError ? (error.costUsd ?? 0) : 0);
 			thread.status = "idle";
 			thread.updatedAt = Date.now();
 			try {
@@ -1395,6 +1456,12 @@ export class ThreadManager {
 			...(actualEffort ? { effort: actualEffort } : {}),
 			...(actualEffortUnmeasured ? { effortUnmeasured: true as const } : {}),
 			observations: durableObservations,
+			...episodeUsage,
+			...(workerCostUsd !== undefined ? { workerCostUsd } : {}),
+			...(compressed.compressorUsage ? { compressorUsage: compressed.compressorUsage } : {}),
+			...(compressed.costUsd !== undefined ? { compressorCostUsd: compressed.costUsd } : {}),
+			...(Object.keys(compactionUsage).length > 0 ? { compactionUsage } : {}),
+			...(compactionCostUsd !== undefined ? { compactionCostUsd } : {}),
 			createdAt: Date.now(),
 		};
 		// CQ18: the worker session file exists only once pi has flushed it (it holds an
@@ -1409,9 +1476,9 @@ export class ThreadManager {
 		thread.episodeIds.push(episodeId);
 		thread.status = "idle";
 		thread.updatedAt = Date.now();
-		// Accumulate session-wide worker spend (worker turns + episode compressor)
+		// Accumulate session-wide worker spend, including compression and compaction,
 		// BEFORE save so it persists with the snapshot.
-		this.store.workerCostUsd += usage.cost + compressed.costUsd;
+		this.store.workerCostUsd += usage.cost + (compressed.costUsd ?? 0) + (compactionCostUsd ?? 0);
 		this.store.save();
 
 		emit(true, status);

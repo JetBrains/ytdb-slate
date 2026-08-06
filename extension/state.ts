@@ -125,10 +125,19 @@ export interface ThreadRecord {
 	 * spec helpers below (BG21).
 	 */
 	baseEffort?: ThinkingLevel;
+	/** Stable OpenAI prompt-cache routing shard. Absent means caching predates this field. */
+	cacheKeyShard?: number;
 	episodeIds: string[];
 	episodeSeq: number; // monotonic per-thread episode counter
 	createdAt: number;
 	updatedAt: number;
+}
+
+export interface EpisodeUsage {
+	input?: number;
+	output?: number;
+	cacheRead?: number;
+	cacheWrite?: number;
 }
 
 export interface EpisodeRecord {
@@ -145,6 +154,24 @@ export interface EpisodeRecord {
 	effortUnmeasured?: true;
 	/** Exact final-message capture facts. Absent on episodes written before this field existed. */
 	observations?: ObservationRecord;
+	/** Worker input tokens. Absent means the provider did not report this quantity. */
+	input?: number;
+	/** Worker output tokens. Absent means the provider did not report this quantity. */
+	output?: number;
+	/** Worker prompt-cache read tokens. Absent means the provider did not report this quantity. */
+	cacheRead?: number;
+	/** Worker prompt-cache write tokens. Absent means the provider did not report this quantity. */
+	cacheWrite?: number;
+	/** Reported worker-call cost in USD. Absent means no worker call reported cost. */
+	workerCostUsd?: number;
+	/** Usage billed by episode compression. Each absent quantity was not reported. */
+	compressorUsage?: EpisodeUsage;
+	/** Reported compression-call cost in USD. Absent means no compression call reported cost. */
+	compressorCostUsd?: number;
+	/** Usage billed by platform context compaction during this dispatch. */
+	compactionUsage?: EpisodeUsage;
+	/** Reported compaction-call cost in USD. Absent means no compaction call reported cost. */
+	compactionCostUsd?: number;
 	createdAt: number;
 }
 
@@ -329,6 +356,27 @@ export function sanitizeEpisodeModel(raw: unknown, warn: (msg: string) => void):
 	return sanitizeModelSpecKey("episodeModel", raw, warn, "compressing with the built-in default model instead");
 }
 
+export const DEFAULT_CACHE_KEY_SHARDS = 2;
+export const MAX_CACHE_KEY_SHARDS = 64;
+
+/** Validate the explicit prompt-cache-key feature switch. */
+export function sanitizeCacheKeyEnabled(raw: unknown, warn: (msg: string) => void): boolean {
+	if (raw === undefined) return true;
+	if (typeof raw === "boolean") return raw;
+	warn(`slate: ignoring cacheKeyEnabled ${sanitizeForNotify(String(raw))} — expected a boolean. Using true.`);
+	return true;
+}
+
+/** Validate the number of stable OpenAI prompt-cache routing shards. */
+export function sanitizeCacheKeyShards(raw: unknown, warn: (msg: string) => void): number {
+	if (raw === undefined) return DEFAULT_CACHE_KEY_SHARDS;
+	if (typeof raw === "number" && Number.isInteger(raw) && raw >= 1 && raw <= MAX_CACHE_KEY_SHARDS) return raw;
+	warn(
+		`slate: ignoring cacheKeyShards ${sanitizeForNotify(String(raw))} — expected an integer from 1 to ${MAX_CACHE_KEY_SHARDS}. Using ${DEFAULT_CACHE_KEY_SHARDS}.`,
+	);
+	return DEFAULT_CACHE_KEY_SHARDS;
+}
+
 /**
  * ADOPTION-BOUNDARY VALIDATION (BG26). A snapshot is JSON on disk: unversioned,
  * hand-editable, and written by whatever slate version wrote it. The record types
@@ -354,6 +402,12 @@ function num(value: unknown): number | undefined {
 }
 function counter(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+function tokenQuantity(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+function moneyAmount(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 /** Validate the complete observation record, including its exact canonical reference. */
@@ -410,6 +464,7 @@ export const ADOPTED_THREAD_FIELDS = {
 	model: true,
 	baseModel: true,
 	baseEffort: true,
+	cacheKeyShard: true,
 	episodeIds: true,
 	episodeSeq: true,
 	createdAt: true,
@@ -426,6 +481,15 @@ export const ADOPTED_EPISODE_FIELDS = {
 	effort: true,
 	effortUnmeasured: true,
 	observations: true,
+	input: true,
+	output: true,
+	cacheRead: true,
+	cacheWrite: true,
+	workerCostUsd: true,
+	compressorUsage: true,
+	compressorCostUsd: true,
+	compactionUsage: true,
+	compactionCostUsd: true,
 	createdAt: true,
 } satisfies Record<keyof Required<EpisodeRecord>, true>;
 
@@ -506,6 +570,18 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		// this boundary only refuses a value that is not a string at all, so the vocabulary
 		// stays defined in exactly one place.
 		...(keep("baseEffort", t.baseEffort, str(t.baseEffort)) !== undefined ? { baseEffort: str(t.baseEffort) as ThinkingLevel } : {}),
+		...(keep(
+			"cacheKeyShard",
+			t.cacheKeyShard,
+			typeof t.cacheKeyShard === "number" &&
+				Number.isInteger(t.cacheKeyShard) &&
+				t.cacheKeyShard >= 0 &&
+				t.cacheKeyShard < MAX_CACHE_KEY_SHARDS
+				? t.cacheKeyShard
+				: undefined,
+		) !== undefined
+			? { cacheKeyShard: t.cacheKeyShard as number }
+			: {}),
 		episodeIds,
 		episodeSeq: keep("episodeSeq", t.episodeSeq, counter(t.episodeSeq)) ?? episodeIds.length,
 		createdAt: keep("createdAt", t.createdAt, num(t.createdAt)) ?? now,
@@ -537,6 +613,22 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 		return parsed;
 	};
 	const observations = keep("observations", e.observations, observationRecord(e.observations, id));
+	const nestedUsage = (name: "compressorUsage" | "compactionUsage", value: unknown): EpisodeUsage | undefined => {
+		if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+		const raw = value as Record<string, unknown>;
+		const usage: EpisodeUsage = {};
+		for (const field of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+			const parsed = tokenQuantity(raw[field]);
+			if (raw[field] !== undefined && parsed === undefined) {
+				repairs.push(`episode ${id}: ignoring ${name}.${field} (${typeof raw[field]})`);
+			} else if (parsed !== undefined) {
+				usage[field] = parsed;
+			}
+		}
+		return usage;
+	};
+	const compressorUsage = keep("compressorUsage", e.compressorUsage, nestedUsage("compressorUsage", e.compressorUsage));
+	const compactionUsage = keep("compactionUsage", e.compactionUsage, nestedUsage("compactionUsage", e.compactionUsage));
 	const built: EpisodeRecord = {
 		id,
 		threadId,
@@ -551,6 +643,21 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 			? { effortUnmeasured: true as const }
 			: {}),
 		...(observations !== undefined ? { observations } : {}),
+		...(keep("input", e.input, tokenQuantity(e.input)) !== undefined ? { input: tokenQuantity(e.input) } : {}),
+		...(keep("output", e.output, tokenQuantity(e.output)) !== undefined ? { output: tokenQuantity(e.output) } : {}),
+		...(keep("cacheRead", e.cacheRead, tokenQuantity(e.cacheRead)) !== undefined ? { cacheRead: tokenQuantity(e.cacheRead) } : {}),
+		...(keep("cacheWrite", e.cacheWrite, tokenQuantity(e.cacheWrite)) !== undefined ? { cacheWrite: tokenQuantity(e.cacheWrite) } : {}),
+		...(keep("workerCostUsd", e.workerCostUsd, moneyAmount(e.workerCostUsd)) !== undefined
+			? { workerCostUsd: moneyAmount(e.workerCostUsd) }
+			: {}),
+		...(compressorUsage !== undefined ? { compressorUsage } : {}),
+		...(keep("compressorCostUsd", e.compressorCostUsd, moneyAmount(e.compressorCostUsd)) !== undefined
+			? { compressorCostUsd: moneyAmount(e.compressorCostUsd) }
+			: {}),
+		...(compactionUsage !== undefined ? { compactionUsage } : {}),
+		...(keep("compactionCostUsd", e.compactionCostUsd, moneyAmount(e.compactionCostUsd)) !== undefined
+			? { compactionCostUsd: moneyAmount(e.compactionCostUsd) }
+			: {}),
 		createdAt: keep("createdAt", e.createdAt, num(e.createdAt)) ?? Date.now(),
 	};
 	noteUnadoptedFields("episode", id, e, built, refused, repairs); // CQ22
@@ -599,6 +706,8 @@ export interface SlateConfig {
 	episodeModel?: string; // "provider/id" for the episode compressor (D5)
 	workerTools?: string[];
 	workerExtensions?: string[]; // regex patterns selecting which of the HOST session's pi extensions worker threads may load (default [] = none); see worker-extensions.ts
+	cacheKeyEnabled?: boolean; // set false to disable prompt cache keys entirely (default true)
+	cacheKeyShards?: number; // stable OpenAI prompt-cache routing shard count while enabled (default 2; sanitized to 1..64)
 	maxConcurrent?: number; // global cap on concurrently running worker actions (default 4; must be ≥ 1 — unenforced, ≤ 0 silently hangs all dispatches; rationale: docs/design-principles.md §5 repo-local note)
 	pauseThresholdPercent?: number; // DEPRECATED: legacy percent-based auto-pause (default 40); applies only when set AND contextBudget is absent or entirely invalid (invalid sanitizes to absent — a partially invalid object stays budget mode)
 	contextBudget?: number | ContextBudgetObject; // absolute orchestrator token budget; bare number = { tokens: N }; {} opts into built-in defaults (256k, 400k for anthropic/*) — see handoff.ts
