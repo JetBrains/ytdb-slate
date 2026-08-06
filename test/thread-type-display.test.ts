@@ -277,6 +277,30 @@ test("dispatch result lines keep the marker through streaming, collapsed, and ex
   }
 });
 
+test("restart lineage stays exact across the thread listing and result render", async () => {
+  initTheme(undefined, false);
+  const source = record({ id: "t1", name: "source", supersededBy: "t2" });
+  const successor = record({ id: "t2", name: "successor", restartOf: "t1", episodeIds: ["t2.e1"] });
+  const { registered } = toolsFixture([source, successor]);
+  const threadsTool = registered.get("threads");
+  assert.ok(threadsTool);
+  const listed = await threadsTool.execute("call", {}, undefined, undefined, ctx) as {
+    content: Array<{ type: string; text: string }>;
+  };
+  assert.equal(
+    listed.content[0]?.text,
+    't1 "source" [idle] supersededBy=t2 — episodes: (none) — updated 1970-01-01T00:00:00.001Z\n' +
+      't2 "successor" [idle] restartOf=t1 — episodes: t2.e1 — updated 1970-01-01T00:00:00.001Z',
+  );
+
+  const rendered = renderThreadResult(
+    { content: [{ type: "text", text: "" }], details: { threadName: "successor", threadId: "t2", restartOf: "t1", episodeId: "t2.e1", status: "ok", done: true } },
+    { expanded: false },
+    theme,
+  );
+  assert.equal(firstLine(rendered), "✓ successor restart=t1->t2 t2.e1");
+});
+
 test("result rendering normalizes unknown, absent, and malformed stored types", () => {
   initTheme(undefined, false);
   for (const type of [undefined, "future-role", "reviewer\nFORGED"]) {
