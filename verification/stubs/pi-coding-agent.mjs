@@ -25,9 +25,39 @@ export const codingAgentStub = {
 };
 export const getAgentDir = (...args) => codingAgentStub.getAgentDir(...args);
 export const shouldCompact = (...args) => codingAgentStub.shouldCompact(...args);
+const ESTIMATED_IMAGE_CHARS = 4800;
+function estimateTextAndImageContentChars(content) {
+  if (typeof content === "string") return content.length;
+  let chars = 0;
+  for (const block of content) {
+    if (block.type === "text" && block.text) chars += block.text.length;
+    else if (block.type === "image") chars += ESTIMATED_IMAGE_CHARS;
+  }
+  return chars;
+}
 export const estimateTokens = (message) => {
-  const content = typeof message?.content === "string" ? message.content : JSON.stringify(message?.content ?? "");
-  return Math.ceil(Buffer.byteLength(content, "utf8") / 4);
+  let chars = 0;
+  switch (message.role) {
+    case "user":
+      return Math.ceil(estimateTextAndImageContentChars(message.content) / 4);
+    case "assistant":
+      for (const block of message.content) {
+        if (block.type === "text") chars += block.text.length;
+        else if (block.type === "thinking") chars += block.thinking.length;
+        else if (block.type === "toolCall") chars += block.name.length + JSON.stringify(block.arguments).length;
+      }
+      return Math.ceil(chars / 4);
+    case "custom":
+    case "toolResult":
+      return Math.ceil(estimateTextAndImageContentChars(message.content) / 4);
+    case "bashExecution":
+      return Math.ceil((message.command.length + message.output.length) / 4);
+    case "branchSummary":
+    case "compactionSummary":
+      return Math.ceil(message.summary.length / 4);
+    default:
+      return 0;
+  }
 };
 export const convertToLlm = (...args) => codingAgentStub.convertToLlm(...args);
 export const serializeConversation = (...args) => codingAgentStub.serializeConversation(...args);

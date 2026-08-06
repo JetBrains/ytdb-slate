@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { register } from "node:module";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -11,7 +11,9 @@ const { normalizeFreshContext, ThreadManager } = await import("../extension/thre
 const { SlateStore } = await import("../extension/state.ts");
 import type { ThreadRecord } from "../extension/state.ts";
 const { NO_SESSION_BASELINE } = await import("../extension/route.ts");
-const { threadChoiceLine } = await import("../extension/tools.ts");
+const { threadChoiceLine, registerSlateTools } = await import("../extension/tools.ts");
+const load = <T>(specifier: string): Promise<T> => import(specifier) as Promise<T>;
+const { estimateTokens } = await load<{ estimateTokens: (message: any) => number }>("../verification/stubs/pi-coding-agent.mjs");
 
 function context(cwd: string): ExtensionContext {
   return {
@@ -58,13 +60,27 @@ test("freshContext validation preserves absent, malformed, empty, and named stat
   assert.deepEqual(normalizeFreshContext([]), []);
   assert.deepEqual(normalizeFreshContext(["t1.e1", "t2.e1"]), ["t1.e1", "t2.e1"]);
   assert.equal(normalizeFreshContext(["t1.e1", 7] as unknown), null);
+  const oversized = new Proxy(Array.from({ length: 33 }, () => "never scanned"), {
+    get(target, property, receiver) {
+      if (property === "every") throw new Error("elements were scanned before the length guard");
+      return Reflect.get(target, property, receiver);
+    },
+  });
   assert.throws(
-    () => normalizeFreshContext(Array.from({ length: 33 }, (_, index) => `t1.e${index + 1}`)),
+    () => normalizeFreshContext(oversized),
     /accepts at most 32 episode ids/,
   );
 });
 
-test("named freshContext rejects unknown episodes before creating or mutating a thread", async () => {
+test("stub token estimation follows pi message roles and character accounting", () => {
+  assert.equal(estimateTokens({ role: "user", content: "éééé" }), 1);
+  assert.equal(estimateTokens({ role: "user", content: [{ type: "image", data: "ignored" }] }), 1200);
+  assert.equal(estimateTokens({ role: "assistant", content: [{ type: "thinking", thinking: "1234" }, { type: "toolCall", name: "read", arguments: { path: "x" } }] }), 5);
+  assert.equal(estimateTokens({ role: "bashExecution", command: "abcd", output: "efgh" }), 2);
+  assert.equal(estimateTokens({ role: "unknown", content: "a lot" }), 0);
+});
+
+test("named freshContext rejects unknown episodes before creating or mutating a thread", { timeout: 1000 }, async () => {
   const root = mkdtempSync(join("/tmp", "slate-dispatch-choice-validation-"));
   try {
     const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
@@ -79,11 +95,36 @@ test("named freshContext rejects unknown episodes before creating or mutating a 
   }
 });
 
+test("episode reads revalidate slate ownership and reject external symlinks", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join("/tmp", "slate-episode-read-boundary-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const episodeDir = join(root, ".pi", "slate", "episodes");
+  mkdirSync(episodeDir, { recursive: true });
+  const outside = join(root, "outside.md");
+  writeFileSync(outside, "outside");
+  const insideLink = join(episodeDir, "t1.e1.md");
+  symlinkSync(outside, insideLink);
+  const store = new SlateStore({ registerTool() {}, appendEntry() {} } as unknown as ExtensionAPI);
+  store.episodes.set("t1.e1", { id: "t1.e1", threadId: "t1", task: "x", status: "ok", file: outside, createdAt: 1 });
+  const registered = new Map<string, { execute(...args: unknown[]): Promise<unknown> }>();
+  const pi = {
+    appendEntry() {},
+    registerTool(tool: { name: string; execute(...args: unknown[]): Promise<unknown> }) { registered.set(tool.name, tool); },
+  } as unknown as ExtensionAPI;
+  registerSlateTools(pi, store, () => ({ liveFailoverModel: () => undefined } as never));
+  const episodeTool = registered.get("episode");
+  assert.ok(episodeTool);
+  await assert.rejects(episodeTool.execute("call", { id: "t1.e1" }, undefined, undefined, context(root)), /no longer a safe readable slate episode file/);
+  store.episodes.get("t1.e1")!.file = insideLink;
+  await assert.rejects(episodeTool.execute("call", { id: "t1.e1" }, undefined, undefined, context(root)), /no longer a safe readable slate episode file/);
+});
+
 test("report-only dispatch computes an exact verdict without moving work", { timeout: 1000 }, async (t) => {
   const root = mkdtempSync(join("/tmp", "slate-dispatch-choice-report-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
   const manager = new ThreadManager(store, { threadChoice: { report: true, act: false } });
+  t.after(() => manager.disposeAll());
   const internal = manager as unknown as {
     live: Map<string, unknown>;
     planChoice: (...args: unknown[]) => unknown;

@@ -6,4 +6,6 @@ export const Type = {
   Object: (value, options) => make("Object", value, options),
   Array: (value, options) => make("Array", value, options),
   Optional: (value) => make("Optional", value),
+  Literal: (value) => make("Literal", value),
+  Union: (value, options) => make("Union", value, options),
 };
