@@ -42,6 +42,10 @@ The decision rule therefore treats the transitions as binary:
 
 This rule is conservative rather than a provider guarantee. Provider caching is best effort. The same 2026-08-06 transcript audit found one unexplained OpenAI miss 571 seconds after the prior dispatch, inside the observed retention window and without a model change or known expiry. A zero read can therefore occur without a transition, and these samples cannot prove that every future model, API path, or provider release behaves the same way.
 
+**Unexplained-miss follow-up, 2026-08-06.** The 571-second miss did not reproduce. On the same OpenAI `gpt-5.6-sol` model, one dedicated key remained warm in **5 of 5 probes at 571 seconds** and **3 of 3 probes at 1,500 seconds**. A shared key under contention remained warm in **4 of 4 probes at 571 seconds**. An earlier OpenAI `gpt-5.6-luna` arm remained warm in **12 of 12 probes at 571 and 1,500 seconds** while four prefixes competed and a writer ran every 30 seconds.
+
+The follow-up means the original miss is rare or environment-specific. It also means cache-key contention is not the explanation at this tested scale. It does not explain the original miss, which remains unresolved. The original observation stays in this record because failure to reproduce it does not erase the observation.
+
 ## Fresh-thread rediscovery
 
 A fresh thread lacks the working context that an existing thread accumulated. Episodes can transfer durable results, but the new worker still has to orient itself to the task and repository.
