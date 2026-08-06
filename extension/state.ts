@@ -363,6 +363,51 @@ export function sanitizeEpisodeModel(raw: unknown, warn: (msg: string) => void):
 export const DEFAULT_CACHE_KEY_SHARDS = 2;
 export const MAX_CACHE_KEY_SHARDS = 64;
 
+const THREAD_CHOICE_KEYS = ["report", "act"];
+
+/** Validate the raw thread-choice config and apply independent safe defaults. */
+export function sanitizeThreadChoiceConfig(raw: unknown, warn: (msg: string) => void): Required<ThreadChoiceConfig> {
+	const defaults: Required<ThreadChoiceConfig> = { report: true, act: false };
+	if (raw === undefined) return defaults;
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+		warn('slate: ignoring threadChoice — expected an object like { "report": true, "act": false }');
+		return defaults;
+	}
+	const value = raw as { report?: unknown; act?: unknown };
+	let keys: string[];
+	try {
+		keys = Object.keys(value);
+	} catch {
+		warn("slate: ignoring threadChoice because its keys could not be read. Slate uses the defaults.");
+		return defaults;
+	}
+	const unknownKeys = keys.filter((key) => !THREAD_CHOICE_KEYS.includes(key));
+	if (unknownKeys.length > 0) {
+		warn(
+			`slate: ignoring unknown threadChoice key(s): ${sanitizeForNotify(unknownKeys.join(", "))} (known: ${THREAD_CHOICE_KEYS.map(
+				(key) => `"${key}"`,
+			).join(", ")})`,
+		);
+	}
+	const booleanValue = (key: keyof typeof value, fallback: boolean): boolean => {
+		let candidate: unknown;
+		try {
+			candidate = value[key];
+		} catch {
+			warn(`slate: ignoring threadChoice.${key} because its value could not be read (defaulting to ${fallback})`);
+			return fallback;
+		}
+		if (candidate === undefined) return fallback;
+		if (typeof candidate === "boolean") return candidate;
+		warn(`slate: ignoring threadChoice.${key} — expected true or false (defaulting to ${fallback})`);
+		return fallback;
+	};
+	return {
+		report: booleanValue("report", defaults.report),
+		act: booleanValue("act", defaults.act),
+	};
+}
+
 /** Validate the explicit prompt-cache-key feature switch. */
 export function sanitizeCacheKeyEnabled(raw: unknown, warn: (msg: string) => void): boolean {
 	if (raw === undefined) return true;
@@ -710,6 +755,12 @@ export interface RouterConfig {
 	showWarnings?: boolean;
 }
 
+/** Reporting and automatic action for the thread-choice verdict. */
+export interface ThreadChoiceConfig {
+	report?: boolean;
+	act?: boolean;
+}
+
 /** Optional writing checks and context-cadenced reminders. */
 export interface WritingConfig {
 	check?: boolean;
@@ -735,6 +786,7 @@ export interface SlateConfig {
 	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
 	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
 	router?: RouterConfig; // action-level model router: the closed model list + the evidence-gap policy (default: off) — see model-router.ts
+	threadChoice?: ThreadChoiceConfig; // verdict reporting defaults on; automatic action defaults off
 	writing?: WritingConfig; // writing guidance for orchestrator output (default: off) — see writing.ts
 }
 
