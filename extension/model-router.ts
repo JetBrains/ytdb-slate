@@ -232,7 +232,7 @@ function profileText(text: string, max = PROFILE_FIELD_MAX): string {
 	const collapsed = bounded
 		// A citation can act as the subject after punctuation. Restore a neutral
 		// subject before removing it: "; [G3] gives" becomes "; the source gives".
-		.replace(/(^|[;:,.])\s*\[[^\]]*\]\s+(?=[A-Za-z])/g, "$1 the source ")
+		.replace(/([;:,.])\s*\[[^\]]*\]\s+(?=[A-Za-z])/g, "$1 the source ")
 		.replace(/\[[^\]]*\]/g, "") // the source tags themselves
 		.replace(/\u00b7/g, " ") // profile text cannot forge the field-list separator
 		.replace(/\s+/g, " ") // the hole each removal leaves
