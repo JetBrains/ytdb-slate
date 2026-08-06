@@ -11,6 +11,8 @@ const { ThreadManager } = await import("../extension/threads.ts");
 const { SlateStore } = await import("../extension/state.ts");
 import type { ThreadRecord } from "../extension/state.ts";
 const { NO_SESSION_BASELINE } = await import("../extension/route.ts");
+const load = <T>(specifier: string): Promise<T> => import(specifier) as Promise<T>;
+const { piAiCompatStub } = await load<{ piAiCompatStub: { complete: (...args: unknown[]) => Promise<unknown> } }>("../verification/stubs/pi-ai-compat.mjs");
 
 interface FakeSession {
   messages: unknown[];
@@ -26,14 +28,15 @@ interface FakeSession {
   getContextUsage(): undefined;
 }
 
-function context(cwd: string): ExtensionContext {
+function context(cwd: string, models: Array<{ provider: string; id: string }> = []): ExtensionContext {
+  const bySpec = new Map(models.map((model) => [`${model.provider}/${model.id}`, model]));
   return {
     cwd,
     model: undefined,
     hasUI: false,
     modelRegistry: {
-      find: () => undefined,
-      getAvailable: async () => [],
+      find: (provider: string, id: string) => bySpec.get(`${provider}/${id}`),
+      getAvailable: async () => models,
       getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
       hasConfiguredAuth: () => true,
     },
@@ -84,6 +87,7 @@ function session(script: (self: FakeSession) => Promise<void> | void) {
 function harness(
   config: Record<string, unknown>,
   sessions: Array<ReturnType<typeof session>>,
+  testContext?: { after(callback: () => void): void },
 ) {
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
   const manager = new ThreadManager(store, config);
@@ -92,6 +96,10 @@ function harness(
     queues: Map<string, Promise<unknown>>;
     planChoice: (...args: unknown[]) => unknown;
     openWorkerFor: (args: { thread: { id: string } }) => Promise<{ session: FakeSession; baseline: typeof NO_SESSION_BASELINE }>;
+    buildPrompt: (...args: unknown[]) => string;
+    longContextWarned: Map<string, Set<string>>;
+    rollbackRestart: (source: ThreadRecord, successor: ThreadRecord) => void;
+    createThread: (...args: unknown[]) => ThreadRecord;
   };
   let index = 0;
   internal.openWorkerFor = async ({ thread }) => {
@@ -100,6 +108,7 @@ function harness(
     internal.live.set(thread.id, selected.value);
     return { session: selected.value, baseline: NO_SESSION_BASELINE };
   };
+  testContext?.after(() => manager.disposeAll());
   return { store, manager, internal };
 }
 
@@ -128,7 +137,7 @@ test("abort before successor prompt rolls back and restores a usable source", { 
     self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "source" }] });
   });
   const successorSession = session(async () => {});
-  const { store, manager, internal } = harness({ threadChoice: { report: true, act: true } }, [sourceSession, successorSession]);
+  const { store, manager, internal } = harness({ threadChoice: { report: true, act: true } }, [sourceSession, successorSession], t);
   const source = sourceRecord();
   store.threads.set(source.id, source);
   internal.planChoice = () => fresh;
@@ -182,7 +191,7 @@ test("abort after successor prompt commits lineage and retains the failed succes
     successorStarted();
     await successorGate;
   });
-  const { store, manager, internal } = harness({ threadChoice: { report: true, act: true } }, [sourceSession, successorSession]);
+  const { store, manager, internal } = harness({ threadChoice: { report: true, act: true } }, [sourceSession, successorSession], t);
   const source = sourceRecord();
   store.threads.set(source.id, source);
   internal.planChoice = () => fresh;
@@ -210,6 +219,168 @@ test("abort after successor prompt commits lineage and retains the failed succes
   assert.equal(internal.live.has("t2"), true);
 });
 
+test("a queued sibling cannot publish after its source is superseded", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join("/tmp", "slate-redispatch-sibling-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let releaseOpen!: () => void;
+  const openGate = new Promise<void>((resolve) => { releaseOpen = resolve; });
+  const sourceSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "first source action" }] });
+  });
+  const successorSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "successor" }] });
+  });
+  const { store, manager, internal } = harness({ threadChoice: { report: true, act: true } }, [sourceSession, successorSession], t);
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  internal.planChoice = () => fresh;
+  const originalOpen = internal.openWorkerFor;
+  internal.openWorkerFor = async (...args: unknown[]) => {
+    const thread = (args[0] as { thread: { id: string } }).thread;
+    if (thread.id === "t1") await openGate;
+    return originalOpen(args[0] as { thread: { id: string } });
+  };
+  const first = manager.dispatch({ threadId: "t1", task: "restart", type: "general", freshContext: [] }, context(root), undefined);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const sibling = manager.dispatch({ threadId: "t1", task: "sibling", type: "general", freshContext: [] }, context(root), undefined);
+  releaseOpen();
+  const firstResult = await first;
+  assert.equal(firstResult.thread.id, "t2");
+  await assert.rejects(sibling, /Thread "t1" was superseded by t2/);
+  assert.equal(source.episodeIds.length, 0);
+  assert.equal(store.episodes.has("t1.e1"), false);
+  assert.equal(store.episodes.has("t1.e2"), false);
+});
+
+test("successful restart retires the source runtime state", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join("/tmp", "slate-redispatch-retire-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const sourceSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "source" }] });
+  });
+  const successorSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "successor" }] });
+  });
+  const { store, manager, internal } = harness({ threadChoice: { report: true, act: true } }, [sourceSession, successorSession], t);
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  internal.planChoice = () => fresh;
+  const result = await manager.dispatch({ threadId: "t1", task: "restart", type: "general", freshContext: [] }, context(root), undefined);
+  assert.equal(result.thread.id, "t2");
+  assert.equal(internal.live.has("t1"), false);
+  assert.equal((internal as unknown as { liveBaselines: Map<string, unknown> }).liveBaselines.has("t1"), false);
+  assert.equal(internal.queues.has("t1"), false);
+  assert.equal(sourceSession.wasDisposed(), true);
+});
+
+test("rollback advances identifiers and clears deleted warning state", (t) => {
+  const sourceSession = session(() => {});
+  const successorSession = session(() => {});
+  const { store, internal } = harness({}, [sourceSession, successorSession], t);
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  const successorId = store.claimNextThreadId();
+  assert.equal(successorId, "t2");
+  const successor = { ...source, id: successorId, name: "successor" };
+  store.threads.set(successor.id, successor);
+  internal.live.set(successor.id, successorSession.value);
+  internal.queues.set(successor.id, Promise.resolve());
+  internal.longContextWarned.set(successor.id, new Set(["p/m"]));
+
+  internal.rollbackRestart(source, successor);
+  const replacement = internal.createThread({ task: "replacement", type: "general" }, {});
+  assert.equal(replacement.id, "t3");
+  assert.equal(internal.longContextWarned.has("t2"), false);
+  assert.equal(internal.longContextWarned.has(replacement.id), false);
+});
+
+test("restart unions context and allowance in stable order and refuses overflow", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join("/tmp", "slate-redispatch-context-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const sourceSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "source" }] });
+  });
+  const successorSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "successor" }] });
+  });
+  const { store, manager, internal } = harness({ threadChoice: { report: true, act: true } }, [sourceSession, successorSession], t);
+  for (const id of ["a", "b", "c"]) store.episodes.set(id, { id, threadId: "t1", task: id, status: "ok", file: "", createdAt: 1 });
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  internal.planChoice = () => fresh;
+  const prompts: string[] = [];
+  internal.buildPrompt = ((opts: { contextEpisodeIds?: string[] }) => {
+    prompts.push(JSON.stringify(opts.contextEpisodeIds ?? []));
+    return "prompt";
+  }) as unknown as (...args: unknown[]) => string;
+  const result = await manager.dispatch({ threadId: "t1", task: "restart", type: "general", contextEpisodeIds: ["a", "b"], freshContext: ["b", "c"] }, context(root), undefined);
+  assert.equal(result.thread.id, "t2");
+  assert.deepEqual(JSON.parse(prompts.at(-1) ?? "[]"), ["a", "b", "c"]);
+
+  const overflowSessions = [session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "source" }] });
+  })];
+  const overflow = harness({ threadChoice: { report: true, act: true } }, overflowSessions, t);
+  const overflowSource = sourceRecord();
+  overflow.store.threads.set(overflowSource.id, overflowSource);
+  overflow.internal.planChoice = () => fresh;
+  overflow.internal.buildPrompt = (() => "prompt") as unknown as (...args: unknown[]) => string;
+  for (let index = 0; index < 33; index++) {
+    const id = `e${index}`;
+    overflow.store.episodes.set(id, { id, threadId: "t1", task: id, status: "ok", file: "", createdAt: 1 });
+  }
+  const overflowResult = await overflow.manager.dispatch({ threadId: "t1", task: "overflow", type: "general", contextEpisodeIds: Array.from({ length: 2 }, (_, index) => `e${index}`), freshContext: Array.from({ length: 32 }, (_, index) => `e${index + 1}`) }, context(root), undefined);
+  assert.equal(overflowResult.thread.id, "t1");
+  assert.equal(overflow.store.threads.has("t2"), false);
+  assert.match(overflowResult.warnings.join("\n"), /combined context names 33 episodes/);
+});
+
+test("abort during committed successor compression preserves its episode", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join("/tmp", "slate-redispatch-compression-abort-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let releaseCompression!: () => void;
+  let compressionStarted!: () => void;
+  const compressionGate = new Promise<void>((resolve) => { releaseCompression = resolve; });
+  const compressionStart = new Promise<void>((resolve) => { compressionStarted = resolve; });
+  const originalComplete = piAiCompatStub.complete;
+  let compressionCalls = 0;
+  piAiCompatStub.complete = async (...args: unknown[]) => {
+    compressionCalls++;
+    if (compressionCalls === 1) {
+      compressionStarted();
+      await compressionGate;
+      const options = args[2] as { signal?: AbortSignal } | undefined;
+      if (options?.signal?.aborted) return { stopReason: "aborted", content: [], usage: {} };
+    }
+    return originalComplete(...args);
+  };
+  t.after(() => { piAiCompatStub.complete = originalComplete; });
+  const sourceSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "source" }] });
+  });
+  const successorSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "successor" }] });
+  });
+  const { store, manager, internal } = harness({ episodeModel: "anthropic/claude-sonnet-5", threadChoice: { report: true, act: true } }, [sourceSession, successorSession], t);
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  internal.planChoice = () => fresh;
+  const controller = new AbortController();
+  const compressor = { provider: "anthropic", id: "claude-sonnet-5", contextWindow: 200_000, maxTokens: 8192, reasoning: true, api: "anthropic-messages" };
+  const dispatch = manager.dispatch({ threadId: "t1", task: "restart", type: "general", freshContext: [] }, context(root, [compressor]), controller.signal);
+  await compressionStart;
+  controller.abort();
+  releaseCompression();
+  const result = await dispatch;
+  assert.equal(result.thread.id, "t2");
+  const successor = store.threads.get("t2");
+  assert.ok(successor);
+  const episodeId = successor.episodeIds[0];
+  assert.ok(episodeId);
+  assert.equal(store.episodes.has(episodeId), true);
+  assert.equal(store.episodes.get(episodeId)?.status, "ok");
+});
+
 test("a successor with a failed episode keeps its lineage", { timeout: 1000 }, async (t) => {
   const root = mkdtempSync(join("/tmp", "slate-redispatch-failed-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -220,7 +391,7 @@ test("a successor with a failed episode keeps its lineage", { timeout: 1000 }, a
     const message = { role: "assistant", stopReason: "error", content: [] };
     self.messages.push(message);
   });
-  const { store, manager, internal } = harness({ threadChoice: { report: true, act: true } }, [sourceSession, failedSuccessor]);
+  const { store, manager, internal } = harness({ threadChoice: { report: true, act: true } }, [sourceSession, failedSuccessor], t);
   const source = sourceRecord();
   store.threads.set(source.id, source);
   internal.planChoice = () => fresh;
@@ -241,7 +412,7 @@ test("a successor with a failed episode keeps its lineage", { timeout: 1000 }, a
   assert.equal(store.episodes.get(successorEpisodeId)?.status, "failed");
 });
 
-test("naming a superseded thread names its successor", async () => {
+test("naming a superseded thread names its successor", { timeout: 1000 }, async () => {
   const { store, manager } = harness({}, []);
   const source = { ...sourceRecord(), supersededBy: "t2" };
   store.threads.set(source.id, source);
@@ -264,7 +435,7 @@ test("acting off leaves the source without successor lineage", { timeout: 1000 }
   const worker = session(async (self) => {
     self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "source" }] });
   });
-  const { store, manager, internal } = harness({ threadChoice: { report: true, act: false } }, [worker]);
+  const { store, manager, internal } = harness({ threadChoice: { report: true, act: false } }, [worker], t);
   const source = sourceRecord();
   store.threads.set(source.id, source);
   internal.planChoice = () => fresh;
