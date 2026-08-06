@@ -121,14 +121,16 @@ test("routing doctrine renders dated prices and truthful candidate ordering", { 
   assert.match(doctrine, /Candidates\s+follow preference, tier sourcing, tier, price, then specification\./);
   assert.doesNotMatch(doctrine, /Route every action to the cheapest model and effort that clears it\./);
   assert.doesNotMatch(doctrine, /Prices as of \d{4}-\d{2}-\d{2} are base rates:/);
+  assert.match(doctrine, /A model or effort change empties the prompt cache\. Rewrites cost 12\.5 times cache reads\./);
 });
 
-test("thread-choice doctrine defines cold routes, short work, fresh cost, and its shipped reference", { timeout: 5000 }, async () => {
+test("thread-choice doctrine defines work streams, consent, restart limits, and its shipped reference", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine(routedResolution());
-  assert.match(doctrine, /Treat a different model or effort as cold,\s+with no prefix reuse\./);
-  assert.doesNotMatch(doctrine, /A different model or effort makes it cold\s+and prevents all prefix reuse\./);
-  assert.match(doctrine, /Continue the\s+thread when work needs at most two turns\./);
-  assert.match(doctrine, /For longer work, compare costs after\s+charging a fresh thread one extra turn\./);
+  assert.match(doctrine, /A work stream is actions for one outcome\. Start and reuse its thread\./);
+  assert.match(doctrine, /On continuation, set `freshContext`\. Use `\[\]` for one or two turns, or to retain\s+the live transcript\./);
+  assert.match(doctrine, /Else name episodes a fresh thread needs\. Slate restarts only\s+if enabled and cheaper\./);
+  assert.match(doctrine, /Continue the named successor\. It must publish an episode\s+before another restart\./);
+  assert.doesNotMatch(doctrine, /Treat a different model or effort as cold,\s+with no prefix reuse\./);
   const citation = /Details: (.+)$/m.exec(doctrine)?.[1];
   assert.equal(citation, THREAD_CACHE_COST_DOC);
   assert.equal(existsSync(THREAD_CACHE_COST_DOC), true);
