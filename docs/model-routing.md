@@ -511,8 +511,8 @@ data notes**. The default `router.showWarnings: false` therefore
 shows **0 of those warnings** and one discoverability line. That line
 begins `slate: there are 7 hidden warnings in the model router.`
 Enabling the option shows all 7 warnings and no discoverability
-line. Each warning fires at most once per session, and the resolution is frozen
-after the first consultation.
+line. Each warning fires at most once per session, and the resolution
+is frozen after the first consultation.
 
 | warnings | class | condition keys | why | shown by default |
 | --- | --- | --- | --- | --- |
