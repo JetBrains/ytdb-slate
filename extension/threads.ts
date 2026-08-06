@@ -1167,6 +1167,11 @@ export class ThreadManager {
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
+		// Admission happened before this queue slot ran. A predecessor may have
+		// superseded the source while this dispatch waited, so re-admit it now.
+		if (thread.supersededBy !== undefined) {
+			throw new Error(`Thread "${thread.id}" was superseded by ${thread.supersededBy}. Continue the successor instead.`);
+		}
 		// Recheck after this thread's FIFO predecessor. Two calls may both pass the
 		// public check before the first advances the counter.
 		const nextEpisodeId = nextSlateEpisodeId(thread.id, thread.episodeSeq);
@@ -1366,6 +1371,11 @@ export class ThreadManager {
 					// Only the economic fresh verdict may move work. Every refusal and every
 					// uncertainty stays on the source thread, including an empty allowance.
 					if (policy.act && plannedChoice.kind === "fresh") {
+						if (thread.supersededBy !== undefined) {
+							throw new DispatchAbort(
+								`Thread "${thread.id}" was superseded by ${thread.supersededBy} before it could restart.`,
+							);
+						}
 						const refusal = this.restartRefusal(thread);
 						if (refusal !== undefined) {
 							routeWarn(`slate: automatic fresh-thread restart refused — ${refusal}.`);
@@ -1637,6 +1647,23 @@ export class ThreadManager {
 		// answer (both halves) below.
 		const effortIsAsPlanned = plan?.effortUnmeasured === true && actualEffort !== undefined && actualEffort === plan.effort;
 		const actualEffortUnmeasured = effortIsAsPlanned && actualModel !== undefined && actualModel === plan?.effortJudgedFor;
+
+		// A supersession that appeared after prompt admission makes every measurement
+		// here stale. Do not publish an episode on a source that already has a successor.
+		if (thread.supersededBy !== undefined) {
+			thread.choiceEvidenceStale = true;
+			thread.status = "idle";
+			thread.updatedAt = Date.now();
+			this.store.workerCostUsd += usage.cost + (compactionCostUsd ?? 0);
+			try {
+				this.store.save();
+			} catch {
+				/* preserve the supersession error when snapshot persistence is unavailable */
+			}
+			throw new Error(
+				`Thread "${thread.id}" was superseded by ${thread.supersededBy} before its episode could publish. Continue the successor instead.`,
+			);
+		}
 
 		// The per-thread queue planned this id before any worker was opened. Advance
 		// the counter only when this attempted action reaches episode production.
