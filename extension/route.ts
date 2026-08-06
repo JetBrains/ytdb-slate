@@ -117,6 +117,8 @@ import {
 	checkEffort,
 	coveringPriceRow,
 	isValidPrice,
+	routerProfileText,
+	sanitizeRouterWarning,
 	ROUTER_OFF,
 	type EffortCheck,
 	type ModelRouterResolution,
@@ -772,20 +774,25 @@ function priceDivergenceWarning(
 		}
 		if (differences.length === 0) return undefined;
 		const label = sanitizeForNotify(spec, 80);
-		const userOnly =
+		const exactWarning =
 			`slate: model router: exact live registry pricing for ${label} differs from the shipped profile row for ${today}. ` +
-			`Profile asOf ${sanitizeForNotify(candidate.profile.asOf ?? "unknown", 20)}. ` +
+			`Profile asOf ${routerProfileText(String(candidate.profile.asOf ?? "unknown"), 20)}. ` +
 			`${differences.map((difference) => `${difference.field === "input" ? "Input" : "Output"}: shipped $${difference.shipped} and registry $${difference.registry} per million tokens.`).join(" ")} ` +
 			"Candidate ordering still uses shipped prices.";
 		try {
-			resolution.notifyUser?.(userOnly);
+			resolution.warnOnce?.(
+				"registry-price-divergence",
+				{ spec, today, differences },
+				exactWarning,
+				"model-data-note",
+			);
 		} catch {
-			/* a user notification must never block dispatch */
+			/* a router warning must never block dispatch */
 		}
-		return (
+		return sanitizeRouterWarning(
 			`slate: model router: live registry pricing for ${label} differs materially from the shipped profile row for ${today}. ` +
-			`${differences.map(roughDifference).join(". ")}. Candidate ordering still uses shipped prices. Dispatching anyway. ` +
-			"Exact rates are omitted from this model-visible warning."
+				`${differences.map(roughDifference).join(". ")}. Candidate ordering still uses shipped prices. Dispatching anyway. ` +
+				"Exact rates are omitted from this model-visible warning.",
 		);
 	} catch {
 		return undefined;

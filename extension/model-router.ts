@@ -87,9 +87,12 @@
  *    point (index.ts) is what filters notes when `router.showWarnings` is off,
  *    and what reports how many it hid.
  *
- *  - EVERY WARNING AT MOST ONCE PER SESSION (D58), sanitized through the shared
- *    sanitizeForNotify before display, exactly like the other sanitizers: config
- *    values and profile fields are user-editable text that reaches ctx.ui.notify.
+ *  - EVERY RESOLUTION WARNING AT MOST ONCE PER SESSION (D58), sanitized through
+ *    the shared sanitizeForNotify before display, exactly like the other
+ *    sanitizers: config values and profile fields are user-editable text that
+ *    reaches ctx.ui.notify. A dispatch-time divergence stays fresh per action.
+ *    Its exact-rate companion deduplicates identical live evidence through the
+ *    same condition-key set, while a changed registry rate forms a new condition.
  *    Each assembled message is capped as a WHOLE (ROUTER_MESSAGE_MAX), so the
  *    control-byte guard covers the finished string and not only its parts.
  *    Warnings are BOTH pushed to the sink and collected on the result, and the
@@ -210,6 +213,11 @@ const PROFILE_FIELD_MAX = 180;
  */
 const ROUTER_MESSAGE_MAX = 799;
 
+/** Apply the router's whole-message control stripping and length bound. */
+export function sanitizeRouterWarning(message: string): string {
+	return sanitizeForNotify(message, ROUTER_MESSAGE_MAX);
+}
+
 /**
  * Separator between field entries: U+00B7 MIDDLE DOT.
  *
@@ -232,7 +240,7 @@ const FIELD_SEPARATOR = " · ";
  * a user who wrote a nested array into `router.models` has to see those brackets
  * to recognise the value the warning is talking about.
  */
-function profileText(text: string, max = PROFILE_FIELD_MAX): string {
+export function routerProfileText(text: string, max = PROFILE_FIELD_MAX): string {
 	// Bound BEFORE scanning for tags. This keeps an unclosed bracket run from
 	// consuming session-start time, and the cap remains below the hostile 200-char
 	// fixture while clearing every real shipped entry.
@@ -288,8 +296,8 @@ export interface ModelRouterResolution {
 	registryCostFor?: (spec: string) => Readonly<RouterRegistryCost> | undefined;
 	/** Live UTC date source invoked by each dispatch-time price check. */
 	currentDate?: () => string;
-	/** User-only warning sink. Its output never enters a dispatch result. */
-	notifyUser?: (message: string) => void;
+	/** Main router warning path for exact dispatch-time data. Its output never enters a dispatch result or prompt. */
+	warnOnce?: (condition: string, value: unknown, message: string, warningClass: RouterWarningClass) => void;
 }
 
 /** The off state with no warnings — the default, shared and deep-frozen (CQ22). */
@@ -663,20 +671,21 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 	// A future warning added here without a class is therefore visible rather than
 	// silently hidden: forgetting the class costs noise, never a lost report.
 	const emitted = new Set<string>();
-	const userNotices = new Set<string>();
 	const warnings: string[] = [];
-	const once = (key: string, message: string, warningClass: RouterWarningClass = "configuration-fault") => {
-		if (emitted.has(key)) return;
+	const emitOnce = (key: string, message: string, warningClass: RouterWarningClass): string | undefined => {
+		if (emitted.has(key)) return undefined;
 		emitted.add(key);
-		// The whole assembled message is capped here, so the control-byte strip and the
-		// length bound apply to the finished string and not only to its interpolations.
-		const text = sanitizeForNotify(message, ROUTER_MESSAGE_MAX);
-		warnings.push(text);
+		const text = sanitizeRouterWarning(message);
 		try {
 			warn(text, warningClass);
 		} catch {
 			/* a broken warn sink costs the notice, never the resolution (BG3) */
 		}
+		return text;
+	};
+	const once = (key: string, message: string, warningClass: RouterWarningClass = "configuration-fault") => {
+		const text = emitOnce(key, message, warningClass);
+		if (text !== undefined) warnings.push(text);
 	};
 
 	const candidates: RouterCandidate[] = [];
@@ -774,7 +783,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			once(
 				conditionKey("invalid-price", raw),
 				`slate: model router: ${label} has invalid ${invalidPriceFields.join(" and ")} price data for ${today} in its profile — ` +
-					"prices must be finite numbers zero or greater. Invalid values are treated as unavailable",
+					"prices must be finite numbers zero or greater. Invalid values are treated as unavailable.",
+				"model-data-note",
 			);
 		}
 		if (inUsdPerMTok === undefined) {
@@ -838,7 +848,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 				// contrasts two sources, and mislabelling one of them is the whole defect
 				// this wording was rewritten to avoid.
 				`slate: model router: the context window for ${label} differs between two sources. The model profile records ` +
-					`${profileWindow} tokens, and that profile was recorded as of ${profileText(quoted(profile.asOf ?? "unknown"))}. ` +
+					`${profileWindow} tokens, and that profile was recorded as of ${routerProfileText(quoted(profile.asOf ?? "unknown"))}. ` +
 					`The pi model registry reports ${registryWindow} tokens. Routing uses the registry figure. ` +
 					"Slate does not establish here which source is correct." +
 					`${matchesBillingThreshold ? " That registry figure is also this model's long-context billing threshold. A separate note below names that pattern." : ""}`,
@@ -850,7 +860,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 		const unknownFields = Array.isArray(profile.unknownRoutingCriticalFields)
 			? profile.unknownRoutingCriticalFields.filter((f) => typeof f === "string" && f !== "")
 			: [];
-		const renderedUnknownFields = unknownFields.map((field) => profileText(field)).filter((field) => field !== "");
+		const renderedUnknownFields = unknownFields.map((field) => routerProfileText(field)).filter((field) => field !== "");
 		if (renderedUnknownFields.length > 0) {
 			// The CLASS explanation, once per session and only when a W3 warning fires at
 			// all. It is emitted BEFORE the first per-model line, so a reader meets the
@@ -1011,7 +1021,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			"nonpreferred-base",
 			"slate: model router: slate's model profiles mark every configured model as one it must never pick by " +
 				`itself. Slate still needs a default base model, so ${sanitizeForNotify(cheapest.spec, 60)} is the base ` +
-				`model for new threads. The recorded reason for that mark is: ${profileText(cheapest.nonPreferred ?? "")}. ` +
+				`model for new threads. The recorded reason for that mark is: ${routerProfileText(cheapest.nonPreferred ?? "")}. ` +
 				"Add a model without that mark to router.models to change the base model.",
 		);
 	}
@@ -1024,14 +1034,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 		warnings,
 		(spec) => findRegistryCosts(input.registry, spec),
 		utcToday,
-		(message) => {
-			if (userNotices.has(message)) return;
-			userNotices.add(message);
-			try {
-				warn(message, "configuration-fault");
-			} catch {
-				/* a throwing UI must not affect dispatch */
-			}
+		(condition, value, message, warningClass) => {
+			emitOnce(conditionKey(condition, value), message, warningClass);
 		},
 	);
 }
@@ -1045,7 +1049,7 @@ function frozenResolution(
 	warnings: string[],
 	registryCostFor?: (spec: string) => Readonly<RouterRegistryCost> | undefined,
 	currentDate?: () => string,
-	notifyUser?: (message: string) => void,
+	warnOnce?: (condition: string, value: unknown, message: string, warningClass: RouterWarningClass) => void,
 ): ModelRouterResolution {
 	return Object.freeze({
 		on,
@@ -1055,7 +1059,7 @@ function frozenResolution(
 		warnings: Object.freeze([...warnings]),
 		...(registryCostFor ? { registryCostFor } : {}),
 		...(currentDate ? { currentDate } : {}),
-		...(notifyUser ? { notifyUser } : {}),
+		...(warnOnce ? { warnOnce } : {}),
 	}) as unknown as ModelRouterResolution;
 }
 

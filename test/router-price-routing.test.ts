@@ -9,6 +9,7 @@ import {
   type RouterProfileSource,
   type RouterRegistry,
   type RouterRegistryModel,
+  type RouterWarningClass,
 } from "../extension/model-router.ts";
 import {
   planRoute,
@@ -76,8 +77,9 @@ function resolution(
   rows: readonly ModelProfile[],
   state: MutableRegistry,
   today = "2026-08-06",
-): { resolution: ModelRouterResolution; warnings: string[] } {
+): { resolution: ModelRouterResolution; warnings: string[]; warningClasses: RouterWarningClass[] } {
   const warnings: string[] = [];
+  const warningClasses: RouterWarningClass[] = [];
   const resolved = resolveModelRouter(
     {
       registry: state.registry,
@@ -85,10 +87,13 @@ function resolution(
       profiles: profileSource(rows),
       today,
     },
-    (warning) => warnings.push(warning),
+    (warning, warningClass) => {
+      warnings.push(warning);
+      warningClasses.push(warningClass);
+    },
   );
   assert.equal(resolved.on, true);
-  return { resolution: resolved, warnings };
+  return { resolution: resolved, warnings, warningClasses };
 }
 
 function plan(
@@ -172,7 +177,7 @@ test("invalid and absent prices sort last while zero remains cheapest", () => {
     profile("p/zero", [{ from: null, until: null, inUsdPerMTok: 0, outUsdPerMTok: 2 }]),
   ];
   const state = mutableRegistry(Object.fromEntries(rows.map((row) => [row.id, { contextWindow: 10 }])));
-  const { resolution: resolved, warnings } = resolution(rows, state);
+  const { resolution: resolved, warnings, warningClasses } = resolution(rows, state);
   const candidates = Object.fromEntries(resolved.candidates.map((candidate) => [candidate.spec, candidate]));
 
   assert.deepEqual(resolved.candidates.map((candidate) => candidate.spec), [
@@ -186,7 +191,9 @@ test("invalid and absent prices sort last while zero remains cheapest", () => {
   assert.equal(candidates["p/zero"]?.inUsdPerMTok, 0);
   assert.equal(candidates["p/absent"]?.inUsdPerMTok, undefined);
   assert.notEqual(candidates["p/zero"]?.inUsdPerMTok, candidates["p/absent"]?.inUsdPerMTok);
-  assert.equal(warnings.filter((warning) => warning.includes("invalid input price data")).length, 2);
+  const invalidIndexes = warnings.flatMap((warning, index) => warning.includes("invalid input price data") ? [index] : []);
+  assert.equal(invalidIndexes.length, 2);
+  assert.equal(invalidIndexes.every((index) => warningClasses[index] === "model-data-note"), true);
   assert.equal(warnings.some((warning) => warning.includes("p/absent has invalid")), false);
 });
 
@@ -197,7 +204,7 @@ test("fresh material registry divergence emits the exact advisory without changi
     cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
   };
   const state = mutableRegistry({ [spec]: model });
-  const { resolution: resolved, warnings: userWarnings } = resolution([profile(spec)], state);
+  const { resolution: resolved, warnings: userWarnings, warningClasses } = resolution([profile(spec)], state);
   const equal = plan(resolved, spec);
   model.cost.input = 2.3456789;
   const diverged = plan(resolved, spec);
@@ -218,9 +225,38 @@ test("fresh material registry divergence emits the exact advisory without changi
   assert.deepEqual(diverged.warnings, [expectedModelVisible]);
   const repeated = plan(resolved, spec);
   assert.deepEqual(repeated.warnings, [expectedModelVisible]);
-  assert.equal(userWarnings.filter((warning) => warning === expectedUserOnly).length, 1);
+  const exactIndexes = userWarnings.flatMap((warning, index) => warning === expectedUserOnly ? [index] : []);
+  assert.equal(exactIndexes.length, 1);
+  assert.equal(exactIndexes.every((index) => warningClasses[index] === "model-data-note"), true);
+  model.cost.input = 20;
+  const refreshed = plan(resolved, spec);
+  assert.equal(divergenceWarnings(refreshed).length, 1);
+  assert.equal(userWarnings.some((warning) => warning.includes("registry $20 per million tokens")), true);
+  assert.equal(userWarnings.filter((warning) => warning.includes("exact live registry pricing")).length, 2);
   assert.equal(expectedModelVisible.includes("2.3456789"), false);
-  assert.equal(diverged.warnings.some((warning) => warning.includes("2.3456789")), false);
+  assert.equal(JSON.stringify(diverged).includes("2.3456789"), false);
+});
+
+test("divergence warnings apply router field and whole-message hardening", () => {
+  const spec = `p/${"m".repeat(260)}`;
+  const hostileAsOf = `[private] ${"x".repeat(240)}\u202e\n`;
+  const model = { contextWindow: 10, cost: { input: 3, output: 2 } };
+  const state = mutableRegistry({ [spec]: model });
+  const p = profile(spec, undefined, hostileAsOf);
+  const { resolution: resolved, warnings } = resolution([p], state);
+  const verdict = plan(resolved, spec);
+  const exact = warnings.find((warning) => warning.includes("exact live registry pricing"));
+  const visible = divergenceWarnings(verdict)[0];
+
+  assert.ok(exact);
+  assert.ok(visible);
+  for (const warning of [exact, visible]) {
+    assert.ok(warning.length <= 800);
+    assert.doesNotMatch(warning, /[\u0000-\u001f\u007f\u0080-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/);
+    assert.equal(warning.includes("m".repeat(200)), false);
+  }
+  assert.doesNotMatch(exact, /\[private\]/);
+  assert.equal(exact.includes("x".repeat(200)), false);
 });
 
 test("input and output divergence honour both sides of the relative tolerance", () => {
@@ -363,19 +399,19 @@ test("divergence evidence failures stay silent and never block dispatch", () => 
   assertSilentProceed(noDateReader);
 
   model.cost = { input: 3, output: 2 };
-  const throwingUserSink = {
+  const throwingWarningPath = {
     ...resolved,
-    notifyUser: () => {
+    warnOnce: () => {
       throw new Error("UI unavailable");
     },
   };
-  const withThrowingUserSink = planRoute({
-    resolution: throwingUserSink,
+  const withThrowingWarningPath = planRoute({
+    resolution: throwingWarningPath,
     requestedModel: spec,
     currentDate: () => "2026-08-06",
   });
-  assert.equal(withThrowingUserSink.kind, "proceed");
-  assert.equal(divergenceWarnings(withThrowingUserSink).length, 1);
+  assert.equal(withThrowingWarningPath.kind, "proceed");
+  assert.equal(divergenceWarnings(withThrowingWarningPath).length, 1);
   model.cost = { input: 1, output: 2 };
 
   Object.defineProperty(p, "price", {

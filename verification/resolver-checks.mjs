@@ -2376,7 +2376,7 @@ try {
 				});
 				const byKey = new Map(classified.map((entry) => [entry.key, entry.warningClass]));
 				const noteKeys = [...byKey].filter(([, cls]) => cls === "model-data-note").map(([key]) => key).sort();
-				const expectedNotes = ["ladder", "price", "w1", "w1-billing-pattern", "w3", "w3-explainer"].sort();
+				const expectedNotes = ["invalid-price", "ladder", "price", "w1", "w1-billing-pattern", "w3", "w3-explainer"].sort();
 				checkAll("router-class-partition", "every warning condition is classified, with an exact closed roster of model-data-note keys and every other condition visible as a configuration fault (AD21)", [
 					["every real once call yielded a condition key", classified.length === onceCalls.length, { calls: onceCalls.length, classified }],
 					["model-data-note key roster is exact", JSON.stringify(noteKeys) === JSON.stringify(expectedNotes), noteKeys],
@@ -2500,7 +2500,7 @@ try {
 				// SE2 is a structural bound, not a machine-dependent stopwatch. The helper
 				// must slice the raw input before either bracket-scanning expression runs.
 				const routerSource = readFileSync(join(REPO, "extension", "model-router.ts"), "utf8");
-				const profileBody = routerSource.match(/function profileText\([^)]*\)[^{]*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+				const profileBody = routerSource.match(/function routerProfileText\([^)]*\)[^{]*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 				const sliceAt = profileBody.indexOf("text.slice(0, max)");
 				const firstTagScanAt = profileBody.indexOf(".replace(/");
 				const profileCode = profileBody.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
@@ -3317,7 +3317,7 @@ try {
 				["the post-resolution registry mutation is observed", warns(diverged, /model-visible warning/).length === 1, diverged.warnings],
 				["the only model-visible warning is the exact golden text", diverged.warnings.length === 1 && diverged.warnings[0] === MODEL_GOLDEN, diverged.warnings],
 				["the exact user-only warning reaches the existing sink", live.userWarnings.includes(USER_GOLDEN), live.userWarnings],
-				["the exact private registry rate never enters model-visible output", !diverged.warnings.some((warning) => warning.includes("2.3456789")), diverged.warnings],
+				["the exact private registry rate never enters model-visible output", !JSON.stringify(diverged).includes("2.3456789"), diverged],
 				["both plans dispatch the same model", equal.kind === "proceed" && diverged.kind === "proceed" && equal.model === live.spec && diverged.model === live.spec, [verdict(equal), verdict(diverged)]],
 			]);
 
