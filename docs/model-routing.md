@@ -199,7 +199,7 @@ opened on. M7 and E6 are known cases in which it does not.
 
 `router` lives in `.pi/slate.json` and, like the rest of that file,
 is honored **only in trusted projects** — an untrusted project loads
-no project config, so the router stays off. There are exactly two
+no project config, so the router stays off. There are exactly three
 keys:
 
 ```json
@@ -213,7 +213,8 @@ keys:
       "anthropic/claude-opus-5",
       "anthropic/claude-fable-5"
     ],
-    "allowUnmeasuredEffort": true
+    "allowUnmeasuredEffort": true,
+    "showWarnings": false
   }
 }
 ```
@@ -222,6 +223,7 @@ keys:
 | --- | --- | --- | --- |
 | `models` | array of `"provider/id"` strings | `[]` | the closed candidate list; empty or absent = router OFF |
 | `allowUnmeasuredEffort` | boolean | `true` | `false` turns an evidence gap from a warning into a refusal |
+| `showWarnings` | boolean | `false` | `true` shows model data notes in addition to the always-visible configuration faults |
 
 Validation, all of it at session start so a broken list surfaces
 before a dispatch is refused by it:
@@ -237,6 +239,9 @@ before a dispatch is refused by it:
   entries in the same list still apply.
 - A non-boolean `allowUnmeasuredEffort` is warned about and treated
   as `true`.
+- A non-boolean `showWarnings` is warned about as a configuration
+  fault and treated as `false`. The fault remains visible despite
+  that fallback.
 
 The config is read once, at session start. Editing `slate.json`
 mid-session takes effect only in a new pi session.
@@ -249,24 +254,54 @@ the credentials pi actually has configured. Resolution happens once
 per session, lazily at the first consultation, and the answer is
 then frozen for that session.
 
-| what happens | outcome | warning |
-| --- | --- | --- |
-| entry is not a canonical `provider/id` | dropped | names the entry and the defect |
-| no profile in Slate's model profiles | dropped | "has no benchmark data … excluding it from routing" |
-| two entries resolve to the same profile (an alias or a case variant) | first kept, second dropped | names both spellings and the profile |
-| the same spec listed twice | first kept | none (silent) |
-| pi's model registry does not know it | dropped | "routing there could only produce billed failures" |
-| pi has no usable credentials configured for it | dropped | same wording, credentials variant |
-| every entry dropped | router turns OFF | one summary line naming the count |
-| no usable input price for today's date | kept, ordered last | "its cost cannot be compared" |
-| no usable effort ladder in the profile | kept | "every explicit effort level for it will read as off-ladder" |
-| profile's context window differs from the registry's | kept (registry value used) | see [Expected first-session warnings](#expected-first-session-warnings) |
-| profile names unknown routing-critical fields | kept | "routing decisions for it are provisional", naming the fields |
-| no `modelFailover` entry for a candidate | kept | one aggregate line naming every uncovered candidate |
+The class test has two independent conditions. A warning is a
+**configuration fault** when EITHER condition holds:
 
-Every warning is emitted at most once per session and reaches the
-same channel as the other config warnings: a UI notification when a
-UI is attached, the console otherwise.
+1. Slate ignored or dropped part of the user's configuration.
+2. The user can stop the warning by ADDING something to their own
+   project config or pi credentials, such as a model, credential or
+   failover entry. This differs from only removing the model named
+   by the warning.
+
+Every other warning is a **model data note**. The single-part test
+that asks only whether a user can stop a warning does not partition
+the classes: removing a dropped `router.models` entry can silence its
+warning, but removal is not the ADD remedy in condition 2. Condition
+1 catches every silently ignored or dropped config value first.
+
+| what happens | outcome | warning fragment | class |
+| --- | --- | --- | --- |
+| entry is not a canonical `provider/id` | dropped | "It is not a canonical \"provider/id\" model spec. Reason:" | configuration fault |
+| no profile in Slate's model profile table | dropped | "has no entry in slate's model profile table" | configuration fault |
+| two entries resolve to the same profile (an alias or a case variant) | first kept, second dropped | "name the same profiled model" | configuration fault |
+| the same spec is listed twice | first kept | none (silent) | — |
+| pi's model registry does not know it | dropped | "is not in pi's model registry. Slate drops it from routing." | configuration fault |
+| pi has no usable credentials configured for it | dropped | "has no usable credentials configured in pi. Slate drops it from routing." | configuration fault |
+| every entry is dropped | router turns OFF | "survived validation. The warnings above name each dropped entry" | configuration fault |
+| no usable input price exists for today's date | kept, ordered last | "Slate cannot compare its cost with the other models." | model data note |
+| no usable effort ladder exists in the profile | kept | "Such a level passes through to pi, which clamps it" | model data note |
+| profile context window differs from the registry window | kept, registry value used | "differs between two sources" | model data note |
+| the first profile names unknown routing-critical fields | kept | "picks models from a research table shipped inside slate" | model data note |
+| a profile names unknown routing-critical fields | kept | "model fact that slate could not trace to a source" or "model facts that slate could not trace to a source" | model data note |
+| a reportable profile/registry context-window divergence exists, the registry figure is not the profile's recorded known-divergence figure, and the registry figure equals the model's own long-context billing threshold | kept | "context window equal to the model's own long-context billing threshold" | model data note |
+| no `modelFailover` entry exists for a candidate | kept | "routable models have no modelFailover entry" | configuration fault |
+| every configured candidate is marked non-preferred | cheapest candidate becomes the base | "profiles mark every configured model as one it must never pick by itself" | configuration fault |
+| resolution throws | router turns OFF | "routing is disabled. The router could not resolve its model list" | configuration fault |
+
+Every warning is emitted at most once per session. The complete
+resolution retains every warning regardless of display filtering.
+With `router.showWarnings: true`, every warning reaches the same
+channel as the other config warnings: a UI notification when a UI is
+attached, the console otherwise. With the default `false`, every
+configuration fault still reaches that channel and model data notes
+do not.
+
+When at least one note is hidden, Slate emits one discoverability
+line after resolution. It gives the hidden warning count, names
+`router.showWarnings`, and says that a hidden warning can affect
+which model runs an action. The count is warnings, not physical
+display lines: one warning can wrap across several lines. No
+discoverability line appears when nothing was hidden.
 
 Half a list is still a routing policy, so partial drops leave the
 router ON. Nothing surviving is not a policy: the router turns OFF
@@ -463,60 +498,78 @@ model's ladder is unreadable.
 
 ## Expected first-session warnings
 
-**A batch of warnings on the first routed session is expected UX,
-not a bug.** With a six-model list on a stock pi install, resolution
-emits eleven lines, broken down below. They are not repeated: every
-warning fires at most once per session, and the resolution is frozen
-after the first consultation.
+The stock count below is a render over this repository's
+`.pi/slate.json`, the shipped profile table, and the provider data
+inside the pinned pi 0.83.0 package. It does not read the live model
+registry. The packaged OpenAI data at
+`@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/data/openai.json`
+reports a **272,000-token** context window for
+`openai/gpt-5.6-luna`, `openai/gpt-5.6-terra` and
+`openai/gpt-5.6-sol`. The packaged Anthropic data reports 1,000,000
+for each configured Anthropic model. The render treated all six as
+authenticated, matching this repository's configured-auth state.
 
-In orchestrator mode that first consultation is the DOCTRINE BUILD,
+The shipped profiles record 1,050,000 tokens for those three OpenAI
+models. Each stock registry value therefore produces a context-window
+divergence note. The same 272,000-token value equals each model's
+long-context billing threshold, so one aggregate billing-pattern note
+also fires.
+
+Resolution emits **11 warnings: 0 configuration faults and 11 model
+data notes**. The default `router.showWarnings: false` therefore
+shows **0 of those warnings** and one discoverability line. That line
+begins `slate: there are 11 hidden warnings in the model router.`
+Enabling the option shows all 11 warnings and no discoverability
+line. Each warning fires at most once per session, and the resolution
+is frozen after the first consultation.
+
+| warnings | class | condition keys | why | shown by default |
+| --- | --- | --- | --- | --- |
+| 1 | model data note | `w3-explainer` | explains the shipped research table before the first unknown-data warning | 0 |
+| 6 | model data note | one `w3:string:<JSON spec>` for each configured model | each profile names model facts with no traced source, or conflicting figures with no adjudication | 0 |
+| 3 | model data note | one `w1:string:<JSON spec>` for each configured OpenAI model | each stock registry window differs from its profile window | 0 |
+| 1 | model data note | `w1-billing-pattern` | aggregates the three registry windows that equal their models' billing thresholds | 0 |
+| **11** | **all model data notes** | — | stock measured total | **0 warnings; 1 discoverability line** |
+
+The stock emission order is:
+
+1. `w1:string:"openai/gpt-5.6-luna"`
+2. `w3-explainer`
+3. `w3:string:"openai/gpt-5.6-luna"`
+4. `w1:string:"openai/gpt-5.6-terra"`
+5. `w3:string:"openai/gpt-5.6-terra"`
+6. `w1:string:"openai/gpt-5.6-sol"`
+7. `w3:string:"openai/gpt-5.6-sol"`
+8. `w3:string:"anthropic/claude-sonnet-5"`
+9. `w3:string:"anthropic/claude-opus-5"`
+10. `w3:string:"anthropic/claude-fable-5"`
+11. `w1-billing-pattern`
+
+This count depends on pi's registry data and any local registry
+override. This machine's `~/.pi/agent/models.json` overrides the
+three OpenAI windows to 1,050,000 tokens. A live render here therefore
+suppresses the three divergence notes and the billing-pattern note,
+leaving **7 model data notes**. That seven-note result describes this
+machine, not a stock install.
+
+The configured failover map covers all six candidates, so the
+failover-coverage condition does not fire in either render. Preferred
+candidates remain in the list, so the non-preferred-base condition
+does not fire either.
+
+In orchestrator mode the first consultation is the DOCTRINE BUILD,
 not a dispatch: the orchestrator's system prompt carries the
-routable model table, and it is assembled when your first message
-starts a turn. So the whole batch can arrive in a session where you
-typed nothing but "hi" and dispatched nothing at all — that is the
-router reading its inputs for the session, not a dispatch
-misfiring. (Outside orchestrator mode no doctrine is built, so the
-first dispatch triggers it instead. The config-shape warnings above
-land earlier still, at session start.)
+routable model table, and it is assembled when the first message
+starts a turn. Outside orchestrator mode the first dispatch triggers
+resolution instead. Config-shape warnings land earlier, at session
+start.
 
-The breakdown:
-
-| lines | class | why |
-| --- | --- | --- |
-| 6 | unknown routing data | each of the six profiles names routing-critical fields with no traced value, or with two published values and no adjudication, so routing decisions for them are provisional |
-| 3 | context-window divergence | the three `openai/gpt-5.6-*` models — see below |
-| 1 | billing-pattern note | one aggregate line naming those three models |
-| 1 | failover coverage | one aggregate line, when `modelFailover` covers none of them |
-
-The window divergence is real, and both sides are stated without
-adjudication. On a stock install pi's registry reports **272,000**
-tokens for `openai/gpt-5.6-luna`, `-terra` and `-sol`, while their
-profiles record **1,050,000** (with the profile's asOf date in the
-same line). Routing uses the REGISTRY figure — that is a fact about
-this code, and it is stated as such — but which figure is factually
-correct is not established by the router: it sees two numbers and no
-provenance for either.
-
-The registry's 272,000 is also exactly those models' long-context
-BILLING threshold, so one further line says so once, naming all
-three: a window equal to its own threshold would leave the
-long-context price tier unreachable, which is the
-billing-row-restated-as-a-capacity pattern. That is suggestive, not
-proof, which is why it is a pointer and not a verdict.
-
-**Why Slate does not "fix" this by changing its own number.** The
-research pass that produced this table explicitly withdrew 272,000
-as a capacity figure: in the source it appears only inside a pricing
-row, as a boundary on input tokens. Restating it as a window is the
-fabrication that pass caught and corrected. Editing the profile to
-match the registry would silence the warning by asserting something
-the evidence does not support, and would suppress a divergence that
-is currently true. The honest options are the two you already have:
-leave it (routing uses the registry number, which is the
-conservative one) or raise the registry window deliberately in pi's
-custom-models file, after which the warning stops on its own —
-`context-budget.md` documents that opt-in and the billing
-consequences of running above the threshold.
+A hidden warning can still alter which model runs an action. Context-
+window divergence is the concrete case, and the stock registry emits
+three such hidden notes for this list. Routing uses the registry
+window, and that value drives the context-window substitution guard.
+`router.showWarnings` changes display only; it does not change the
+resolution or the guard input.
 
 ## What the router does NOT enforce
 

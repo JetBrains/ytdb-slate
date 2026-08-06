@@ -315,6 +315,21 @@ const ROUTER_IDS = [
 	"router-w1-canary",
 	"router-w1-guards",
 	"router-w3-unknown",
+	"router-class-partition",
+	"router-class-default",
+	"router-tag-strip",
+	"router-tag-keep",
+	"router-empty-fields",
+	"router-subject-repair",
+	"router-nonpreferred-visible",
+	"router-field-cap",
+	"router-profile-input-bound",
+	"router-message-cap",
+	"router-separator",
+	"router-separator-forgery",
+	"router-notify-controls",
+	"router-profile-date",
+	"router-w3-explainer",
 	"router-failover-coverage",
 	"router-dedup",
 	// TS3: router-memo and router-labels belong here too — an unloadable router
@@ -1796,6 +1811,11 @@ try {
 		const res = router.resolveModelRouter(input, (m) => warned.push(m));
 		return { res, warned };
 	}
+	function resolveClassed(input) {
+		const events = [];
+		const res = router.resolveModelRouter(input, (message, warningClass) => events.push({ message, warningClass }));
+		return { res, events };
+	}
 	const has = (warnings, re) => warnings.some((m) => re.test(m));
 	const found = (warnings, re) => warnings.find((m) => re.test(m));
 	const specs = (res) => res.candidates.map((c) => c.spec).join(",");
@@ -1834,11 +1854,13 @@ try {
 
 			const unprofiled = resolve({ registry: reg, models: [keep, "p/no-benchmarks"], profiles: src });
 			const w = found(unprofiled.warned, /p\/no-benchmarks/) ?? "";
-			checkAll("router-unprofiled", "a model with no profile is warned about by name (no benchmark data, excluded) and kept out of the candidates", [
+			// AD14 repair: this check still proves that an unprofiled entry is named,
+			// excluded from candidates, and explained as lacking benchmark data.
+			checkAll("router-unprofiled", "a model with no profile is warned about by name (no benchmark data, dropped) and kept out of the candidates", [
 				["only the profiled model survives", specs(unprofiled.res) === keep, specs(unprofiled.res)],
 				["names the model", w.includes("p/no-benchmarks"), unprofiled.warned],
 				["says no benchmark data", /no benchmark data/.test(w), w],
-				["says excluded", /exclud/i.test(w), w],
+				["says slate drops it", /slate drops it from routing/i.test(w), w],
 			]);
 
 			// BG2 and its residual: a newline, a trailing space, a ZERO-WIDTH space and
@@ -1994,12 +2016,16 @@ try {
 				models: ["p/b1", "p/b2"],
 				profiles: profiles(allBanned),
 			});
+			// AD14 repair: this check still proves the all-non-preferred fallback picks
+			// the cheapest candidate, flags that choice, and explains it exactly once.
+			const fallbackWarnings = banRes.warned.filter((m) => /default base model/.test(m));
 			checkAll("router-cheapest-fallback", "when every candidate is non-preferred the cheapest is still the base model (D48 needs one), the result flags it and one warning explains it", [
 				["router stays on", banRes.res.on === true, banRes.res.on],
 				["cheapest overall is the base model", banRes.res.cheapest === "p/b2", banRes.res.cheapest],
 				["flagged", banRes.res.cheapestNonPreferred === true, banRes.res.cheapestNonPreferred],
-				["one explaining warning", banRes.warned.filter((m) => /non-preferred/.test(m)).length === 1, banRes.warned],
-				["the warning carries the reason", /reason two/.test(found(banRes.warned, /non-preferred/) ?? ""), banRes.warned],
+				["one explaining warning", fallbackWarnings.length === 1, banRes.warned],
+				["the warning names the selected base", (fallbackWarnings[0] ?? "").includes("p/b2"), fallbackWarnings],
+				["the warning carries the reason", /reason two/.test(fallbackWarnings[0] ?? ""), fallbackWarnings],
 			]);
 		});
 
@@ -2102,19 +2128,22 @@ try {
 			// source is correct is not established here"). So the sanctioned disclaimer is
 			// asserted verbatim and then REMOVED, and no verdict word may survive anywhere in
 			// what is left — including inside the hint, which is scanned too.
-			const DECLINES = "Routing uses the registry figure; which source is correct is not established here.";
-			const POINTER = " That registry figure is also this model's long-context BILLING threshold — see the note below.";
+			// AD14 repair: the exact strings changed, but the canary still proves the
+			// two-source report, non-adjudication, pointer pairing, aggregation, and order.
+			const DECLINES = "Slate does not establish here which source is correct.";
+			const POINTER = " That registry figure is also this model's long-context billing threshold. A separate note below names that pattern.";
 			/** The PER-MODEL line: per-model facts, plus the pointer when the coincidence holds. */
 			const REPORTS = (label, profileWindow, asOf, registryWindow, pointer = false) =>
-				`slate: model router: context window for ${label} differs between sources — the model profile records ` +
-				`${profileWindow} tokens (profile asOf ${JSON.stringify(asOf)}), pi's model registry reports ` +
-				`${registryWindow} tokens. ${DECLINES}` +
+				`slate: model router: the context window for ${label} differs between two sources. The model profile records ` +
+				`${profileWindow} tokens, and that profile was recorded as of ${JSON.stringify(asOf)}. ` +
+				`The pi model registry reports ${registryWindow} tokens. Routing uses the registry figure. ${DECLINES}` +
 				(pointer ? POINTER : "");
 			/** The ONCE-PER-SESSION explanation, naming every affected model in candidate order. */
 			const NOTE = (specs) =>
-				"slate: model router: the registry's context window equals the model's own long-context BILLING threshold for " +
-				`${specs.join(", ")} — a window equal to its own threshold would leave the long-context price ` +
-				"tier unreachable, which is the billing-row-restated-as-a-capacity pattern finding RI32 warns about.";
+				"slate: model router: for these models the pi model registry reports a context window equal to the model's own " +
+				`long-context billing threshold: ${specs.join(", ")}. A window equal to its own threshold would ` +
+				"leave the long-context price tier unreachable. That shape suggests a billing figure restated as a capacity " +
+				"figure. Slate reports the pattern and does not decide which figure is right.";
 			const VERDICT_WORDS = /\bstale\b|\bwins?\b|\bauthorit(y|ative)\b|\b(in)?correct(ly)?\b|\bwrong\b|\btrust(s|ed)?\b|\boverrid|\bsupersede/i;
 			const verdictIn = (msg) => msg.split(DECLINES).join(" ").match(VERDICT_WORDS)?.[0];
 			// The pair fires on a coincidence: the registry figure IS that model's own
@@ -2135,12 +2164,12 @@ try {
 			const hintedElsewhere = one("p/elsewhere", { registryWindow: 777777, longContextThreshold: 777777 });
 			const unhinted = one("p/nohint", { registryWindow: 400000, longContextThreshold: 128000 });
 			const w1Of = (r) => found(r.warned, /context window for /) ?? "";
-			const noteOf = (r) => found(r.warned, /equals the model's own long-context BILLING threshold for /) ?? "";
-			const notesIn = (r) => r.warned.filter((m) => /equals the model's own long-context BILLING threshold for /.test(m));
+			const noteOf = (r) => found(r.warned, /long-context billing threshold:/) ?? "";
+			const notesIn = (r) => r.warned.filter((m) => /long-context billing threshold:/.test(m));
 			const hintW1 = w1Of(hinted);
 			const elsewhereW1 = w1Of(hintedElsewhere);
 			const noHintW1 = w1Of(unhinted);
-			const unpaired = (r) => w1Of(r) !== "" && !w1Of(r).includes("BILLING") && notesIn(r).length === 0;
+			const unpaired = (r) => w1Of(r) !== "" && !w1Of(r).includes("billing threshold") && notesIn(r).length === 0;
 			// BG27's OWN CLAIM, and the only fixture that can see it: THREE models tripping the
 			// coincidence in one resolution, each at its own figure. The explanation must appear
 			// exactly ONCE while all three models are still named individually — both halves,
@@ -2164,8 +2193,8 @@ try {
 			// a failure while the two aggregates changing places is.
 			const at = (r, re) => r.warned.findIndex((m) => re.test(m));
 			const lastLine = three.warned.reduce((acc, m, i) => (/context window for /.test(m) ? i : acc), -1);
-			const noteAt = at(three, /equals the model's own long-context BILLING threshold for /);
-			const coverageAt = at(three, /no modelFailover entry for /);
+			const noteAt = at(three, /long-context billing threshold:/);
+			const coverageAt = at(three, /no modelFailover entry:/);
 			checkAll(
 				"router-w1-canary",
 				"the context-window divergence is REPORTED, not diagnosed, and since BG27 it is TWO messages whose split is itself the claim. The PER-MODEL line is a golden master — both figures with their sources, the `profile asOf` label (WC5: never `research`, because the asOf is whatever the loaded profile carries), the candidate carrying the REGISTRY value, the statement that routing USES it, and an explicit refusal to say which source is right; outside that one sanctioned disclaimer no verdict word may appear in ANY of the messages. When the registry figure equals that model's own long-context threshold the line gains a POINTER and a SEPARATE explanation is emitted — the pair fires together or not at all, at whatever figure the profile records rather than a hardcoded one. That explanation appears EXACTLY ONCE however many models match, while still naming every one of them individually and in candidate order (a dedup that kept the text by dropping the names would be a regression, not a fix), names only the models that actually matched, sits after every per-model line and before the failover-coverage aggregate, and is absent entirely when nothing matches",
@@ -2173,11 +2202,11 @@ try {
 					["warned", w1 !== "", warned],
 					["profile value named", w1.includes("1050000"), w1],
 					["registry value named", w1.includes("400000"), w1],
-					["asOf named, quoted, and labelled `profile` not `research` (WC5)", w1.includes('(profile asOf "2026-07-29")') && !w1.includes("research"), w1],
+					["asOf named, quoted, and labelled `profile` not `research` (WC5)", w1.includes('profile was recorded as of "2026-07-29"') && !w1.includes("research"), w1],
 					["candidate carries the registry value", res.candidates[0]?.contextWindow === 400000, res.candidates[0]?.contextWindow],
 					["the per-model line is EXACTLY this, whole (golden master)", w1 === REPORTS("p/diverged", 1050000, "2026-07-29", 400000), w1],
-					["...it REPORTS a divergence between two named sources", w1.includes(" differs between sources — the model profile records "), w1],
-					["...names the registry as the figure routing uses", w1.includes(" tokens. Routing uses the registry figure;"), w1],
+					["...it REPORTS a divergence between two named sources", w1.includes(" differs between two sources. The model profile records "), w1],
+					["...names the registry as the figure routing uses", w1.includes(" tokens. Routing uses the registry figure."), w1],
 					["...and declines to adjudicate, in that exact sentence", w1.includes(DECLINES), w1],
 					[
 						"OUTSIDE that disclaimer no verdict word survives, in ANY message — not `wins`, not `stale`, nothing",
@@ -2258,13 +2287,257 @@ try {
 				["an unrecorded third value still warns", has(knownDiv(200000).warned, /context window/), knownDiv(200000).warned],
 			]);
 
-			const w3 = found(warned, /unknown routing-critical/) ?? "";
+			// AD14 repair: this check still proves one per-model unknown-data warning,
+			// with model identity and every field intact. The class explainer is separate.
+			const w3 = found(warned, /model facts that slate could not trace/) ?? "";
 			checkAll("router-w3-unknown", "a candidate with unknownRoutingCriticalFields warns once, naming the model and the fields", [
 				["warned", w3 !== "", warned],
 				["names the model", w3.includes("p/diverged"), w3],
 				["names both fields", w3.includes("METR cheating rate") && w3.includes("TTFT at max"), w3],
-				["exactly once", warned.filter((m) => /unknown routing-critical/.test(m)).length === 1, warned],
+				["exactly once", warned.filter((m) => /model facts that slate could not trace/.test(m)).length === 1, warned],
 			]);
+
+			await section("router-warning-classes", async () => {
+				// AD21: inspect every real `once` call, not a hand-picked warning sample. A
+				// future call classified as hidden changes the exact note-key roster here.
+				const source = readFileSync(join(REPO, "extension", "model-router.ts"), "utf8")
+					.replace(/\/\*[\s\S]*?\*\//g, " ")
+					.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+				const onceCalls = [];
+				for (let i = source.indexOf("once("); i >= 0; i = source.indexOf("once(", i + 1)) {
+					let depth = 0;
+					for (let j = i + 4; j < source.length; j++) {
+						if (source[j] === "(") depth++;
+						else if (source[j] === ")" && --depth === 0) {
+							onceCalls.push(source.slice(i + 5, j));
+							break;
+						}
+					}
+				}
+				const classified = onceCalls.flatMap((call) => {
+					const key = call.match(/^\s*conditionKey\("([^"]+)"/)?.[1] ?? call.match(/^\s*"([^"]+)"/)?.[1];
+					if (!key) return [];
+					return [{ key, warningClass: /,\s*"model-data-note"\s*,?\s*$/.test(call) ? "model-data-note" : "configuration-fault" }];
+				});
+				const byKey = new Map(classified.map((entry) => [entry.key, entry.warningClass]));
+				const noteKeys = [...byKey].filter(([, cls]) => cls === "model-data-note").map(([key]) => key).sort();
+				const expectedNotes = ["ladder", "price", "w1", "w1-billing-pattern", "w3", "w3-explainer"].sort();
+				checkAll("router-class-partition", "every warning condition is classified, with an exact closed roster of model-data-note keys and every other condition visible as a configuration fault (AD21)", [
+					["every real once call yielded a condition key", classified.length === onceCalls.length, { calls: onceCalls.length, classified }],
+					["model-data-note key roster is exact", JSON.stringify(noteKeys) === JSON.stringify(expectedNotes), noteKeys],
+					["every other condition defaults to configuration-fault", [...byKey].filter(([key]) => !expectedNotes.includes(key)).every(([, cls]) => cls === "configuration-fault"), [...byKey]],
+				]);
+
+				// Drive an omitted third argument through the live `once` helper. Unprofiled
+				// is intentionally not annotated in production, so this catches a hidden default.
+				const defaulted = resolveClassed({
+					registry: registry({ "p/keep-default": { contextWindow: 1, auth: true } }),
+					models: ["p/default-class", "p/keep-default"],
+					profiles: profiles([profile("p/keep-default")]),
+					failover: { "p/keep-default": "p/target" },
+				});
+				const defaultEvent = defaulted.events.find((event) => event.message.includes("p/default-class"));
+				check("router-class-default", defaultEvent?.warningClass === "configuration-fault", "a warning emitted without an explicit class reaches the sink as a configuration fault", defaultEvent);
+			});
+
+			await section("router-warning-text", async () => {
+				const bracketSpan = /\[[^\]]*\]/;
+				const realFields = table ? table.MODEL_PROFILES.flatMap((p) => Array.isArray(p.unknownRoutingCriticalFields) ? p.unknownRoutingCriticalFields : []) : [];
+				const realReasons = table ? table.MODEL_PROFILES.map((p) => p.nonPreferred).filter((v) => typeof v === "string") : [];
+				const taggedFields = realFields.filter((text) => bracketSpan.test(text));
+				const taggedReasons = realReasons.filter((text) => bracketSpan.test(text));
+				const renderedProfileWarnings = [];
+				if (table) {
+					for (const p of table.MODEL_PROFILES) {
+						if (Array.isArray(p.unknownRoutingCriticalFields) && p.unknownRoutingCriticalFields.length > 0) {
+							const r = resolve({
+								registry: registry({ [p.id]: { contextWindow: p.contextWindow ?? 1, auth: true } }),
+								models: [p.id], profiles: router.SHIPPED_PROFILE_SOURCE, failover: { [p.id]: "p/target" },
+							});
+							renderedProfileWarnings.push(...r.warned.filter((m) => /model facts that slate could not trace/.test(m)));
+						}
+						if (typeof p.nonPreferred === "string") {
+							const r = resolve({
+								registry: registry({ [p.id]: { contextWindow: p.contextWindow ?? 1, auth: true } }),
+								models: [p.id], profiles: router.SHIPPED_PROFILE_SOURCE, failover: { [p.id]: "p/target" },
+							});
+							renderedProfileWarnings.push(...r.warned.filter((m) => /default base model/.test(m)));
+						}
+					}
+				}
+				checkAll("router-tag-strip", "bracket spans are stripped from every warning field sourced from the real shipped profile table, for unknown fields and non-preferred reasons", [
+					["real table contains tagged unknown fields", taggedFields.length > 0, taggedFields],
+					["real table contains tagged non-preferred reasons", taggedReasons.length > 0, taggedReasons],
+					["both profile-derived warning paths rendered", renderedProfileWarnings.some((m) => /model facts/.test(m)) && renderedProfileWarnings.some((m) => /default base model/.test(m)), renderedProfileWarnings],
+					["no bracket span survives", !renderedProfileWarnings.some((m) => bracketSpan.test(m)), renderedProfileWarnings.filter((m) => bracketSpan.test(m))],
+				]);
+
+				const echoed = [];
+				router.sanitizeRouterConfig({ models: [["p/nested"]] }, (message, warningClass) => echoed.push({ message, warningClass }));
+				checkAll("router-tag-keep", "an echoed nested-array user value keeps its bracketed form while being rejected, so the user can identify the bad entry (AD18)", [
+					["one warning fired", echoed.length === 1, echoed],
+					["bracketed user value survives", bracketSpan.test(echoed[0]?.message ?? "") && (echoed[0]?.message ?? "").includes("p/nested"), echoed],
+					["the rejection stays a configuration fault", echoed[0]?.warningClass === "configuration-fault", echoed],
+				]);
+
+				// BG1: a tag-only field disappears after profile rendering. The count must
+				// follow the rendered entries, rather than the raw three-element array.
+				const emptyField = resolve({
+					registry: registry({ "p/empty-field": { contextWindow: 1, auth: true } }), models: ["p/empty-field"],
+					profiles: profiles([profile("p/empty-field", { unknown: ["alpha", "[G3]", "omega"] })]), failover: { "p/empty-field": "p/target" },
+				});
+				const emptyFieldWarning = found(emptyField.warned, /model facts? that slate could not trace/) ?? "";
+				const emptyFieldList = emptyFieldWarning.match(/source: (.*)\. Routing to this model/)?.[1] ?? "";
+				const emptyFieldEntries = emptyFieldList === "" ? [] : emptyFieldList.split(" · ");
+				checkAll("router-empty-fields", "a profile field that strips to nothing is dropped, and the reported fact count equals the two visible entries rather than the raw field count", [
+					["warning rendered", emptyFieldWarning !== "", emptyField.warned],
+					["header reports two facts", /has 2 model facts that/.test(emptyFieldWarning), emptyFieldWarning],
+					["exactly two non-empty entries remain", emptyFieldEntries.length === 2 && emptyFieldEntries.every((entry) => entry !== "") && emptyFieldEntries.join(",") === "alpha,omega", emptyFieldEntries],
+					["no empty-entry separator shape", !emptyFieldWarning.includes("·  ·") && !bracketSpan.test(emptyFieldWarning), emptyFieldWarning],
+				]);
+
+				// A citation after punctuation can be an elided subject, while a leading tag
+				// merely attributes the field. Pin both directions in one fixture so repairing
+				// the former cannot silently fabricate a subject for the latter.
+				const subjectRepair = resolve({
+					registry: registry({ "p/subject": { contextWindow: 1, auth: true } }), models: ["p/subject"],
+					profiles: profiles([profile("p/subject", { unknown: ["vendor data is incomplete; [G3] gives input only", "latency [G4] remains uncertain", "[G3] missing benchmark result"] })]),
+					failover: { "p/subject": "p/target" },
+				});
+				const subjectWarning = found(subjectRepair.warned, /model facts? that slate could not trace/) ?? "";
+				checkAll("router-subject-repair", "a citation acting as the subject after punctuation becomes `the source`, while inline and leading citations follow plain stripping without a fabricated subject", [
+					["warning rendered with all three fields", /has 3 model facts that/.test(subjectWarning), subjectWarning],
+					["post-punctuation missing subject repaired", subjectWarning.includes("vendor data is incomplete; the source gives input only"), subjectWarning],
+					["inline citation only removed", subjectWarning.includes("latency remains uncertain") && !subjectWarning.includes("latency the source remains"), subjectWarning],
+					["leading citation only removed", subjectWarning.includes("missing benchmark result") && !subjectWarning.includes("the source missing benchmark result"), subjectWarning],
+					["no citation span survives", !bracketSpan.test(subjectWarning), subjectWarning],
+				]);
+
+				const allMarked = resolveClassed({
+					registry: registry({ "p/marked": { contextWindow: 1, auth: true } }),
+					models: ["p/marked"],
+					profiles: profiles([profile("p/marked", { nonPreferred: "unsafe [TRACE-1] reason" })]),
+					failover: { "p/marked": "p/target" },
+				});
+				const nonpreferred = allMarked.events.find((event) => /default base model/.test(event.message));
+				checkAll("router-nonpreferred-visible", "an all-non-preferred list emits one visible configuration fault naming the selected base, without a profile trace span", [
+					["warning fires", nonpreferred !== undefined, allMarked.events],
+					["configuration fault", nonpreferred?.warningClass === "configuration-fault", nonpreferred],
+					["selected base named", allMarked.res.cheapest === "p/marked" && nonpreferred?.message.includes("p/marked"), [allMarked.res.cheapest, nonpreferred]],
+					["profile tag removed", !bracketSpan.test(nonpreferred?.message ?? ""), nonpreferred],
+				]);
+
+				const hostileField = "X".repeat(200);
+				const cappedField = resolve({
+					registry: registry({ "p/field-cap": { contextWindow: 1, auth: true } }), models: ["p/field-cap"],
+					profiles: profiles([profile("p/field-cap", { unknown: [hostileField] })]), failover: { "p/field-cap": "p/target" },
+				});
+				const fieldWarning = found(cappedField.warned, /model facts? that slate could not trace/) ?? "";
+				const realProfileText = [...realFields, ...realReasons];
+				checkAll("router-field-cap", "the 180-character input cap preserves every current shipped unknown field and non-preferred reason, while truncating a hostile 200-character run", [
+					["real table contains both field kinds", realFields.length > 0 && realReasons.length > 0, { fields: realFields.length, reasons: realReasons.length }],
+					["every shipped profile-text input fits the pre-strip cap", realProfileText.every((text) => text.length <= 180), realProfileText.map((text) => text.length)],
+					["the two boundary reasons remain represented", realReasons.filter((text) => text.length === 180).length === 2, realReasons.map((text) => text.length)],
+					["hostile singular warning rendered correctly", /has 1 model fact that/.test(fieldWarning) && !/has 1 model facts that/.test(fieldWarning), fieldWarning],
+					["200-character run is truncated", !fieldWarning.includes(hostileField) && fieldWarning.includes("X".repeat(150)) && fieldWarning.includes("…"), fieldWarning],
+				]);
+
+				// SE2 is a structural bound, not a machine-dependent stopwatch. The helper
+				// must slice the raw input before either bracket-scanning expression runs.
+				const routerSource = readFileSync(join(REPO, "extension", "model-router.ts"), "utf8");
+				const profileBody = routerSource.match(/function profileText\([^)]*\)[^{]*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+				const sliceAt = profileBody.indexOf("text.slice(0, max)");
+				const firstTagScanAt = profileBody.indexOf(".replace(/");
+				const profileCode = profileBody.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+				const boundedChain = /const bounded\s*=\s*text\.slice\(0, max\)[\s\S]*?const collapsed\s*=\s*bounded\s*\.replace/.test(profileCode);
+				checkAll("router-profile-input-bound", "profile text is sliced to the field cap before either tag scanner can inspect an unclosed-bracket run (SE2)", [
+					["profileText body found", profileBody !== "", profileBody.slice(0, 200)],
+					["raw input sliced before first tag scan", sliceAt >= 0 && firstTagScanAt > sliceAt, { sliceAt, firstTagScanAt }],
+					["replacement chain starts from bounded input", boundedChain, profileBody.slice(0, 500)],
+				]);
+
+				const manyFields = Array.from({ length: 30 }, (_, i) => `${i}-${"Y".repeat(200)}`);
+				const cappedMessage = resolve({
+					registry: registry({ "p/message-cap": { contextWindow: 1, auth: true } }), models: ["p/message-cap"],
+					profiles: profiles([profile("p/message-cap", { unknown: manyFields })]), failover: { "p/message-cap": "p/target" },
+				});
+				const messageWarning = found(cappedMessage.warned, /model facts that slate could not trace/) ?? "";
+				checkAll("router-message-cap", "a whole assembled warning stays within the 800-character display bound even when a profile carries many long fields", [
+					["hostile assembled warning rendered", messageWarning !== "", cappedMessage.warned],
+					["total message bounded", messageWarning.length <= 800, messageWarning.length],
+					["fixture reached whole-message truncation", messageWarning.includes("…") && !messageWarning.includes("29-"), messageWarning],
+				]);
+
+				const separated = resolve({
+					registry: registry({ "p/separator": { contextWindow: 1, auth: true } }), models: ["p/separator"],
+					profiles: profiles([profile("p/separator", { unknown: ["first field", "second field"] })]), failover: { "p/separator": "p/target" },
+				});
+				const separatedWarning = found(separated.warned, /model facts that slate could not trace/) ?? "";
+				checkAll("router-separator", "unknown-field entries use U+00B7 MIDDLE DOT and the assembled warning contains no control byte, including newline", [
+					["middle dot joins the two entries", separatedWarning.includes("first field · second field"), separatedWarning],
+					["no control byte", !/[\u0000-\u001f\u007f-\u009f]/.test(separatedWarning), JSON.stringify(separatedWarning)],
+				]);
+
+				const forgedSeparator = resolve({
+					registry: registry({ "p/forged-separator": { contextWindow: 1, auth: true } }), models: ["p/forged-separator"],
+					profiles: profiles([profile("p/forged-separator", { unknown: ["first · forged", "second"] })]), failover: { "p/forged-separator": "p/target" },
+				});
+				const forgedSeparatorWarning = found(forgedSeparator.warned, /model facts? that slate could not trace/) ?? "";
+				const separatorCount = [...forgedSeparatorWarning].filter((char) => char === "·").length;
+				checkAll("router-separator-forgery", "an embedded middle dot is neutralized, so two profile fields render as two apparent entries and the count remains truthful (SE3)", [
+					["plural warning reports two facts", /has 2 model facts that/.test(forgedSeparatorWarning) && !/has 2 model fact that/.test(forgedSeparatorWarning), forgedSeparatorWarning],
+					["exactly one structural separator remains", separatorCount === 1, { separatorCount, forgedSeparatorWarning }],
+					["embedded dot became ordinary spacing", forgedSeparatorWarning.includes("first forged · second"), forgedSeparatorWarning],
+				]);
+
+				const c1 = String.fromCharCode(...Array.from({ length: 32 }, (_, i) => 0x80 + i));
+				const bidi = "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069";
+				const controlConfig = [];
+				router.sanitizeRouterConfig({ showWarnings: `false\u202etrue${c1}${bidi}` }, (message) => controlConfig.push(message));
+				const controlProfile = resolve({
+					registry: registry({ "p/controls": { contextWindow: 1, auth: true } }), models: ["p/controls"],
+					profiles: profiles([profile("p/controls", { unknown: ["\u009d0;PWNED\u009c"] })]), failover: { "p/controls": "p/target" },
+				});
+				const controlMessages = [...controlConfig, ...controlProfile.warned];
+				const strippedControls = /[\u0080-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+				checkAll("router-notify-controls", "the shared notification sanitizer strips the full C1 range and every Unicode bidirectional control on config and profile warning paths (SE1)", [
+					["both warning paths produced output", controlConfig.length === 1 && controlProfile.warned.some((m) => /model facts? that slate could not trace/.test(m)), controlMessages],
+					["all C1 and bidi controls removed", !controlMessages.some((message) => strippedControls.test(message)), controlMessages.map((message) => JSON.stringify(message))],
+					["review config counterexample reads in logical order", controlConfig[0]?.includes('"falsetrue"'), controlConfig],
+					["review profile counterexample keeps only visible text", controlProfile.warned.some((message) => message.includes("0;PWNED")), controlProfile.warned],
+				]);
+
+				const taggedDate = resolve({
+					registry: registry({ "p/tagged-date": { contextWindow: 400000, auth: true } }), models: ["p/tagged-date"],
+					profiles: profiles([profile("p/tagged-date", { contextWindow: 1050000, asOf: "2026-[G3]" })]), failover: { "p/tagged-date": "p/target" },
+				});
+				const taggedDateWarning = found(taggedDate.warned, /context window/) ?? "";
+				checkAll("router-profile-date", "profile asOf text passes through profile rendering, so a citation tag cannot leak into the context-window divergence warning (CQ3)", [
+					["divergence warning rendered", taggedDateWarning !== "", taggedDate.warned],
+					["cleaned date remains identifiable", taggedDateWarning.includes('profile was recorded as of "2026-"'), taggedDateWarning],
+					["citation span removed", !bracketSpan.test(taggedDateWarning) && !taggedDateWarning.includes("G3"), taggedDateWarning],
+				]);
+
+				const explained = resolveClassed({
+					registry: registry({ "p/w3-a": { contextWindow: 1, auth: true }, "p/w3-b": { contextWindow: 1, auth: true } }),
+					models: ["p/w3-a", "p/w3-b"], profiles: profiles([profile("p/w3-a", { unknown: ["one"] }), profile("p/w3-b", { unknown: ["one", "two"] })]),
+					failover: { "p/w3-a": "p/target", "p/w3-b": "p/target" },
+				});
+				const noUnknown = resolveClassed({
+					registry: registry({ "p/no-w3": { contextWindow: 1, auth: true } }), models: ["p/no-w3"],
+					profiles: profiles([profile("p/no-w3")]), failover: { "p/no-w3": "p/target" },
+				});
+				const explainers = explained.events.filter((event) => /research table shipped inside slate/.test(event.message));
+				const explainedW3 = explained.events.filter((event) => /model facts? that slate could not trace/.test(event.message));
+				checkAll("router-w3-explainer", "the unknown-data class explanation fires once and only with unknown-data warnings, whose singular and plural grammar are pinned separately", [
+					["two unknown-data warnings fired", explainedW3.length === 2, explained.events],
+					["singular fixture uses singular only", explainedW3.some((event) => /p\/w3-a has 1 model fact that/.test(event.message)) && !explainedW3.some((event) => /p\/w3-a has 1 model facts that/.test(event.message)), explainedW3],
+					["plural fixture uses plural only", explainedW3.some((event) => /p\/w3-b has 2 model facts that/.test(event.message)) && !explainedW3.some((event) => /p\/w3-b has 2 model fact that/.test(event.message)), explainedW3],
+					["one explainer fired", explainers.length === 1, explainers],
+					["explainer is a model data note", explainers[0]?.warningClass === "model-data-note", explainers],
+					["no unknown data means no explainer", !noUnknown.events.some((event) => /research table shipped inside slate/.test(event.message)), noUnknown.events],
+				]);
+			});
 
 			// CQ3: coverage is ONE aggregate line naming every uncovered candidate.
 			const cov = resolve({
@@ -2375,6 +2648,8 @@ try {
 				profiles: profiles([profile(longSpec), profile(cyrillic)]),
 			});
 			const longWarn = found(warned, /^slate: model router: p\/x+/) ?? "";
+			const renderedLongLabel = longWarn.match(/^slate: model router: (.*?) is not in pi's model registry\./)?.[1] ?? "";
+			const expectedLongLabel = `${longSpec.slice(0, 120)}…`;
 			const confusableWarn = found(warned, /U\+0430/) ?? "";
 
 			// TQ8: quoted()'s innermost guard needs BOTH a value JSON.stringify
@@ -2396,10 +2671,10 @@ try {
 				sanitizerSurvived = false;
 			}
 
-			checkAll("router-labels", "a valid spec in a warning is length-capped and annotated when it carries confusable non-ASCII characters, and a value that can neither be stringified nor coerced still renders as a bounded placeholder", [
-				["long spec is truncated with an ellipsis", longWarn.includes("…"), longWarn.slice(0, 160)],
+			checkAll("router-labels", "a valid spec inside a warning is capped to its exact 120-character display fragment regardless of surrounding remedy text, confusable characters are annotated, and unprintable values stay bounded", [
+				["the warning exposes a separable model label", renderedLongLabel !== "", longWarn],
+				["long spec label is exactly the capped fragment plus ellipsis", renderedLongLabel === expectedLongLabel && renderedLongLabel.length === 121, { renderedLongLabel, length: renderedLongLabel.length }],
 				["the raw 300-char spec never reaches the output", !warned.some((m) => m.includes("x".repeat(200))), warned.map((m) => m.length)],
-				["warning stays bounded", longWarn.length > 0 && longWarn.length <= 300, longWarn.length],
 				["the long spec is still a resolved (dropped) entry, not a crash", res.on === false && warned.length >= 3, [res.on, warned.length]],
 				["confusable code point named", confusableWarn.includes("U+0430") && /non-ASCII/.test(confusableWarn), confusableWarn],
 				["sanitizer survived the unprintable value", sanitizerSurvived === true, sanitizerSurvived],
@@ -2615,11 +2890,13 @@ try {
 			checkAll("router-robust", "hostile inputs degrade instead of crashing: a throwing warn sink keeps the memo, a throwing registry/profile source and a throwing getInput turn the router off, an unstringifiable or 30k-deep config value is dropped with a warning, allowUnmeasuredEffort:false survives, null config falls back, and a non-array model list is treated as empty", [
 				["throwing sink keeps resolve-once", memoHeld === true, { memoHeld, builds }],
 				["throwing registry → model dropped, router off", hostileDeps.res.on === false, hostileDeps.res],
-				["throwing getInput → off with one warning", failed.on === false && failed.warnings.length === 1 && /resolution failed/.test(failed.warnings[0]), failed],
+				// AD14 repair: this still proves a thrown input becomes one explanatory,
+				// cached OFF result. Only the plain-language wording changed.
+				["throwing getInput → off with one warning", failed.on === false && failed.warnings.length === 1 && /could not resolve its model list/.test(failed.warnings[0]), failed],
 				["throwing getInput memoized", failing() === failed, failing() === failed],
 				["sanitizer survives deep/cyclic/function entries", sanitizerSurvived === true, sanitizerSurvived],
 				["only the good spec survives", sanitized?.models.join(",") === "p/good", sanitized?.models],
-				["one warning per dropped entry", cfgWarn.filter((m) => /ignoring router.models entry/.test(m)).length === 3, cfgWarn],
+				["one warning per dropped entry", cfgWarn.filter((m) => /ignoring the router\.models entry/.test(m)).length === 3, cfgWarn],
 				["allowUnmeasuredEffort:false is preserved", sanitized?.allowUnmeasuredEffort === false, sanitized?.allowUnmeasuredEffort],
 				["null config warns once and defaults", nulled.models.length === 0 && nulled.allowUnmeasuredEffort === true && nullCfg.length === 1, [nulled, nullCfg]],
 				["non-array models → off, no warnings", nonArray.res === router.ROUTER_OFF && nonArray.warned.length === 0, [nonArray.res.on, nonArray.warned]],
@@ -2629,9 +2906,10 @@ try {
 		await section("router-config", async () => {
 			const warnedA = [];
 			const dflt = router.sanitizeRouterConfig(undefined, (m) => warnedA.push(m));
-			checkAll("router-config-default", "an absent router config silently yields { models: [], allowUnmeasuredEffort: true }", [
+			checkAll("router-config-default", "an absent router config silently yields { models: [], allowUnmeasuredEffort: true, showWarnings: false }", [
 				["empty list", Array.isArray(dflt.models) && dflt.models.length === 0, dflt.models],
 				["unmeasured effort allowed", dflt.allowUnmeasuredEffort === true, dflt.allowUnmeasuredEffort],
+				["model data notes hidden", dflt.showWarnings === false, dflt.showWarnings],
 				["silent", warnedA.length === 0, warnedA],
 			]);
 
@@ -2646,7 +2924,9 @@ try {
 			// The sanitizer path gets the same invisible-character treatment (BG2).
 			const warnedF = [];
 			const invisibleCfg = router.sanitizeRouterConfig({ models: ["p/go\u200bod", "p/good"] }, (m) => warnedF.push(m));
-			checkAll("router-config-invalid", "a wrong-shape router value warns once and falls back to the defaults; invalid models entries are dropped one warning each; a non-boolean allowUnmeasuredEffort warns and stays true; unknown keys are reported instead of silently ignored (CQ1)", [
+			const warnedG = [];
+			const invalidShow = router.sanitizeRouterConfig({ showWarnings: "yes" }, (message, warningClass) => warnedG.push({ message, warningClass }));
+			checkAll("router-config-invalid", "a wrong-shape router value warns once and falls back to the defaults; invalid model entries and option values warn and retain their defaults; unknown keys are reported instead of silently ignored (CQ1)", [
 				["array value → defaults + one warning", wrong.models.length === 0 && wrong.allowUnmeasuredEffort === true && warnedB.length === 1, [wrong, warnedB]],
 				["good entry kept", partial.models.join(",") === "p/good", partial.models],
 				["three entry warnings + one flag warning", warnedC.length === 4, warnedC],
@@ -2655,6 +2935,7 @@ try {
 				["unknown keys named", warnedE.length === 1 && /unknown router key/.test(warnedE[0]) && warnedE[0].includes("model") && warnedE[0].includes("allowUnmeasured"), warnedE],
 				["typo'd config still yields defaults", typo.models.length === 0 && typo.allowUnmeasuredEffort === true, typo],
 				["a zero-width-bearing entry is dropped, naming U+200B", invisibleCfg.models.join(",") === "p/good" && warnedF.length === 1 && /invisible or control characters \([^)]*U\+200B/.test(warnedF[0]), [invisibleCfg.models, warnedF]],
+				["invalid showWarnings warns visibly and stays false", invalidShow.showWarnings === false && warnedG.length === 1 && warnedG[0]?.warningClass === "configuration-fault" && /router\.showWarnings/.test(warnedG[0]?.message ?? ""), [invalidShow, warnedG]],
 			]);
 		});
 
@@ -4676,12 +4957,18 @@ try {
 		const notAssigned = required.filter(([key, fn]) => !new RegExp(`config\\.${key}\\s*=\\s*${fn}\\(`).test(src)).map(([key]) => key);
 		// The sink matters as much as the call: a sanitizer wired with a throwaway
 		// callback would validate and then swallow every diagnostic.
-		const notWarned = required.filter(([key, fn]) => !new RegExp(`${fn}\\(config\\.${key},\\s*warn\\)`).test(src)).map(([key]) => key);
+		// AD14 repair: every sanitizer must still receive a diagnostic sink. The router
+		// deliberately receives its class-aware routerWarn wrapper, while all others
+		// continue to receive the shared warn sink directly.
+		const notWarned = required.filter(([key, fn]) => {
+			const sink = key === "router" ? "routerWarn" : "warn";
+			return !new RegExp(`${fn}\\(config\\.${key},\\s*${sink}\\)`).test(src);
+		}).map(([key]) => key);
 		const notImported = required.filter(([, fn]) => !new RegExp(`import\\s*\\{[^}]*\\b${fn}\\b`).test(src)).map(([, fn]) => fn);
 		const warnSink = /const warn = \(msg: string\) => \(ctx\.hasUI \? ctx\.ui\.notify\(msg, "warning"\) : console\.warn\(msg\)\)/.test(src);
-		checkAll("wiring", "every config sanitizer is imported by index.ts AND called at session_start with its own key and the shared warn sink — a sanitizer that exists but is never wired is the silent failure RG20 was", [
+		checkAll("wiring", "every config sanitizer is imported by index.ts AND called at session_start with its own key and a live diagnostic sink — the router uses its class-aware wrapper and the others use the shared sink", [
 			["all assigned back to their key", notAssigned.length === 0, notAssigned],
-			["all given the shared warn sink", notWarned.length === 0, notWarned],
+			["all given their required live diagnostic sink", notWarned.length === 0, notWarned],
 			["all imported", notImported.length === 0, notImported],
 			["the warn sink still reaches the UI or the console", warnSink, warnSink],
 		]);
@@ -5998,7 +6285,9 @@ try {
 		"router-off", "router-unprofiled", "router-malformed", "router-unroutable", "router-alias-duplicate",
 		"router-all-dropped", "router-order", "router-order-ties", "router-cheapest", "router-cheapest-fallback",
 		"router-price-date", "router-price-rows",
-		"router-w1-canary", "router-w1-guards", "router-w3-unknown", "router-failover-coverage",
+		"router-w1-canary", "router-w1-guards", "router-w3-unknown",
+		"router-class-partition", "router-class-default", "router-tag-strip", "router-tag-keep", "router-empty-fields", "router-subject-repair", "router-nonpreferred-visible",
+		"router-field-cap", "router-profile-input-bound", "router-message-cap", "router-separator", "router-separator-forgery", "router-notify-controls", "router-profile-date", "router-w3-explainer", "router-failover-coverage",
 		"router-warnings-echo", "router-dedup", "router-memo", "router-labels",
 		"router-effort", "router-effort-gap", "router-effort-hard", "router-ladder-validation", "router-effort-off",
 		"router-hostile", "router-robust",

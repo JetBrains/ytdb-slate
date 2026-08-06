@@ -579,12 +579,11 @@ fabricated profile tables**, fabricated events with an injected clock, a
 fabricated compaction predicate, and temp-dir package fixtures, and assert the
 observable result.
 
-Every router check injects **its own** registry *and* **its own** profile table,
-so none of them depends on the *data* in `extension/model-profiles.ts` — with two
-deliberate exceptions: `router-shipped-default`, which exists precisely to prove
-the shipped table really is the default of the injected `profiles` parameter (it
-reads the first profile's id *from the table*, so a research refresh cannot stale
-it), and the `profiles-*` block, whose subject **is** the table. If the router or
+Router checks normally inject **their own** registry and profile table. Four
+checks deliberately read `extension/model-profiles.ts`. `router-shipped-default`
+proves that the shipped table is the resolver default. `router-tag-strip` tests
+real trace-bearing profile prose. `router-field-cap` measures every real unknown
+field against its cap. The `profiles-*` block tests the table itself. If the router or
 the table cannot be loaded, `router-load` / `profiles-load` **FAIL** and every
 check they void reports **NOT RUN** by name — the rest of the suite still runs.
 
@@ -839,13 +838,15 @@ avoid cell, and the thread base resolving to the cheapest candidate,
 `openai/gpt-5.6-luna`. This is the first confirmation the rendering is right in a
 real session rather than against a fixture, and it agrees with these checks.
 
-> **Environment caveat — the warning count from that session is NOT canonical.**
-> It observed **7** router warnings; a stock consumer would see **11**. This
-> machine's `~/.pi/agent/models.json` overrides `contextWindow` to 1,050,000 for
-> `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna` (verified), which is exactly the
-> figure the profile table records — so the three W1 window-divergence warnings and
-> the aggregate RI32 billing-pattern note that depends on them do not fire. Four
-> suppressed, hence 7. Do not record 7 as the expected count.
+> **Registry-dependent warning count.** The pinned pi package's shipped OpenAI
+> provider data records a 272,000-token context window for `gpt-5.6-luna`,
+> `gpt-5.6-terra` and `gpt-5.6-sol`. With that STOCK registry, the six-model project
+> configuration emits **11 model data notes**: one class explanation, six
+> unknown-data warnings, three context-window divergence warnings and one aggregate
+> billing-pattern warning. This machine's `~/.pi/agent/models.json` overrides those
+> three windows to 1,050,000 tokens. Its live registry therefore emits **7 model
+> data notes**, because the three divergences and aggregate do not fire. A local
+> registry override can therefore change the applicable count.
 
 **Recorded sizes use one portable basis.** The doctrine embeds ABSOLUTE doc
 paths. Raw size therefore changes with the install directory. `portable` removes
@@ -892,29 +893,51 @@ Model router (`extension/model-router.ts`):
 | --- | --- |
 | `router-load` / `profiles-load` | the modules load at all; a failure here converts the checks below into explicit NOT RUN lines |
 | `router-off` | an empty *or* absent model list yields the shared `ROUTER_OFF` result with zero warnings and without consulting the registry — the resolver's default empty-candidate fast path |
-| `router-unprofiled` | a model with no profile is warned about **by name** (no benchmark data ⇒ excluded) and kept out of the candidates |
+| `router-unprofiled` | a model with no profile is warned about **by name** (no benchmark data ⇒ dropped) and kept out of the candidates |
 | `router-malformed` | a spec that is not canonical `provider/id` is dropped with a warning that names the **reason** — including "control characters" and "leading or trailing whitespace", which the display sanitizer would otherwise strip, leaving a warning that reads like a valid name (BG2) |
 | `router-unroutable` | a model pi's registry does not know, and one with no configured credentials, are each warned about and dropped — routing there could only produce billed failures |
 | `router-alias-duplicate` | two specs resolving to the same profile (canonical id + alias) yield **one** candidate, the later one warned about and dropped |
 | `router-all-dropped` | when every entry is dropped the router is OFF with **exactly one** summary warning on top of the per-entry ones |
 | `router-order` / `router-order-ties` | ordering is tier ascending then effective input price ascending; a tier+price tie is broken by spec; a candidate with no usable price row sorts **last**, is warned about, and stays routable; a non-numeric tier sorts last instead of poisoning the comparator with `NaN` |
 | `router-cheapest` | the default base model (D48) is the cheapest **preferred** candidate: a profile carrying a `nonPreferred` reason is skipped even when it is the cheapest thing on the list, while remaining a routable candidate (BG1). The **ordering** honours the same markers (DF4): non-preferred candidates, and candidates whose tier is not a sourced ordinal, sort after their comparable siblings, so a consumer walking the list cannot meet an evidentially-thin model first |
-| `router-cheapest-fallback` | when *every* candidate is non-preferred a base model is still chosen (D48 requires one), the result flags it, and exactly one warning explains it with the profile's own reason |
+| `router-cheapest-fallback` | when *every* candidate is non-preferred a base model is still chosen (D48 requires one), the result flags it, and exactly one warning names that base and explains it with the profile's own reason |
 | `router-price-date` / `router-price-rows` | the effective row is the one in force on the resolution date; overlapping rows resolve to the greatest `from`; an expired or future-only schedule falls back to the most recent past row, else the first; non-ISO dates — including a **timestamp** where a date belongs, which string comparison would accept as a valid past bound and let win the pick — are treated as absent bounds instead of being compared lexicographically |
-| `router-w1-canary` | a profile/registry context-window divergence is **reported, not diagnosed** (W1/D55), and since BG27 it is **two messages** whose split is itself the claim. The **per-model line** is a golden master: both figures with their sources, the `profile asOf` label (WC5 — never `research`, because the asOf is whatever the *loaded* profile carries and deferred issue 001 would make a research attribution false), the candidate carrying the **registry** value, the statement that routing *uses* it, and one sanctioned sentence declining to say which source is right. Outside that sentence no verdict word may appear in **any** of the messages — the scan strips the disclaimer first, because "which source **is correct** is not established here" is the one place the word may legitimately stand. When the registry figure equals that model's own long-context threshold the line gains a **pointer** and a **separate** RI32 explanation is emitted; the pair fires together or not at all, at whatever figure the profile records (never hardcoded — pinned with a coincidence at an unrelated number). That explanation appears **exactly once** however many models match, while still naming **every one of them** individually and in candidate order, names only the models that actually matched, and sits after every per-model line and before the `failover-coverage` aggregate it was modelled on. Both halves of the once/named pair are asserted, because a dedup that kept the text by dropping the names would read as a fix. Before `98c63f3` this row asserted only two numbers, a date and the phrase "context window" — which the old message and the new one pass equally, so the change that mattered was unpinned |
+| `router-w1-canary` | a profile/registry context-window divergence is **reported, not diagnosed** (W1/D55), as a per-model golden-master line plus an optional aggregate billing-pattern note. The line pins both figures, both sources, the profile date, the registry value used by routing, and the exact non-adjudication sentence. The verdict-word scan removes that sanctioned sentence first, so its word `correct` cannot false-fail the check. A registry figure equal to the model's own threshold adds the exact pointer and aggregate. The pair fires together at arbitrary profile-provided figures. The aggregate appears once, names only every matching model in candidate order, and sits between per-model lines and failover coverage |
 | `router-w1-guards` | an absent window on either side is **not** a divergence, and neither is a registry value equal to the profile's recorded `contextWindowKnownDivergence` figure — while a third, unrecorded value still warns |
-| `router-w3-unknown` | a candidate with `unknownRoutingCriticalFields` warns once, naming the model and the fields (W3/D57) |
+| `router-w3-unknown` | a candidate with `unknownRoutingCriticalFields` produces exactly one per-model warning, naming the model and every field; the class explainer is a separate warning |
+| `router-class-partition` | every real `once` condition is classified. The exact model-data-note key roster is `price`, `w1`, `w1-billing-pattern`, `ladder`, `w3`, `w3-explainer`. Every other key is a configuration fault. A future hidden key therefore fails the roster (AD21) |
+| `router-class-default` | a real warning whose `once` call omits the class argument reaches the sink as `configuration-fault`; this executes the helper rather than inferring its default from source |
+| `router-tag-strip` | no bracket span survives in warnings built from real shipped unknown fields or real `nonPreferred` reasons. Both source sets must contain tagged text, and both warning paths must render, so the exclusions cannot pass vacuously |
+| `router-tag-keep` | a nested-array user value is rejected as a configuration fault while its bracketed display survives, preserving the identity of the bad entry (AD18) |
+| `router-empty-fields` | a tag-only profile field is dropped after rendering. A three-field raw array becomes two named entries, and the warning reports two facts with no empty separator slot |
+| `router-subject-repair` | both directions of citation handling are pinned in one three-field warning. A tag acting as the grammatical subject after punctuation becomes `the source`. Inline and start-of-field tags follow plain stripping and invent no subject. Every field renders and no tag survives |
+| `router-nonpreferred-visible` | an all-non-preferred fixture emits a configuration fault, names the selected base, and strips the profile reason's bracket span |
+| `router-field-cap` | every real shipped unknown field **and non-preferred reason** fits the 180-character pre-strip input cap. The two reasons exactly at the boundary are a canary. A hostile 200-character field truncates, and its one-field warning uses singular grammar |
+| `router-profile-input-bound` | a structural assertion, not a timing gate: `profileText` slices raw text to `max` before either bracket scanner, and the replacement chain starts from that bounded value. An unclosed bracket run therefore cannot scale tag scanning with hostile input length |
+| `router-message-cap` | a profile with many hostile fields still produces an assembled warning of at most 800 display characters, and the fixture proves whole-message truncation occurred |
+| `router-separator` | unknown fields are joined with U+00B7 MIDDLE DOT, and the assembled warning contains no C0 or C1 control byte, including newline |
+| `router-separator-forgery` | an embedded middle dot is neutralized. Two fields produce one structural separator, two apparent entries, and a count of two |
+| `router-notify-controls` | the shared notification sanitizer strips every C1 byte and every supported Unicode bidirectional control on both sanitizer and profile-warning paths. It pins `false\u202Etrue` → `falsetrue` and `\u009D0;PWNED\u009C` → `0;PWNED` |
+| `router-profile-date` | a tagged `profile.asOf` value passes through profile rendering. The divergence warning keeps the cleaned date and leaks no bracket span |
+| `router-w3-explainer` | one singular and one plural unknown-data warning produce exactly one model-data-note explainer. A candidate with no unknown data produces none. The separate fixtures reject both incorrect noun forms |
 | `router-failover-coverage` | uncovered candidates produce **one aggregate** warning naming them all (not one per model); a covered, window-aligned candidate warns about nothing at all; a map entry whose target is not a spec does not count as coverage |
 | `router-warnings-echo` | on the router-**ON** path the returned `warnings` are exactly what the warn sink received, in order |
-| `router-labels` | a valid spec inside a warning is length-capped (the only path where a >120-character spec is observable) and annotated with the code points when it carries confusable non-ASCII characters, e.g. a Cyrillic homoglyph; a value that can neither be JSON-stringified nor coerced to a string renders as a bounded placeholder instead of throwing |
+| `router-labels` | a valid spec inside a warning is extracted and pinned to the exact 120-character display fragment plus ellipsis, independent of changing explanatory or remedy prose around it. The full warning has no incidental 300-character budget. The same check annotates confusable non-ASCII code points and bounds a value that cannot be stringified or coerced |
 | `router-dedup` | a condition warns at most once per resolution even when its trigger repeats — exercised through the **live** duplicate path (three identical malformed specs), since a repeated *valid* spec is skipped earlier and cannot reach the dedup at all; two values sharing a JSON form but not a type (`NaN` / `null`) stay separate conditions |
 | `router-memo` | the memoizing resolver resolves once across repeated consultation, returns the same frozen object, and each warning reaches the sink once (D58) |
 | `router-ladder-validation` | the ladder handed back by the profile table is filtered to pi's own effort vocabulary and de-duplicated: a foreign level reads as `off-ladder` even when the table claims a measurement at it, and a non-array ladder (what a prototype-key lookup returns) yields an empty ladder **plus** a warning rather than silent nonsense |
 | `router-effort` / `router-effort-gap` / `router-effort-hard` / `router-effort-off` | the predicate returns `ok`, `not-listed`, `off-ladder` and `evidence-gap` and carries the ladder, `measured`, `listedGap` and `apiRejected`; a ladder level that is neither measured nor a listed gap reports `evidence-gap`, never a false `ok` (BG9); a level in `apiRejectedLevels` reports `off-ladder` even when it is measured and on the ladder; with the router off the predicate is inert, and an omitted effort is never a ladder complaint |
 | `router-hostile` | every warning — resolver and sanitizer alike — is stripped of control/ANSI bytes and length-capped, even when fed a 5000-char profile field and an escape-bearing spec |
-| `router-robust` | hostile inputs degrade instead of crashing: a throwing warn sink still leaves the memo intact, a throwing registry/profile source and a throwing `getInput` turn the router OFF (once, cached), a cyclic or 30 000-deep config value is dropped with a warning, `allowUnmeasuredEffort: false` survives, `null` config falls back to the defaults, and a non-array model list is treated as empty |
-| `router-config-default` / `router-config-invalid` | an absent `router` config silently yields `{ models: [], allowUnmeasuredEffort: true }`; a wrong-shape value warns once and falls back to those defaults; invalid `models` entries are dropped one warning each; a non-boolean `allowUnmeasuredEffort` warns and stays `true`; **unknown keys are reported**, so a typo'd `"model"` cannot masquerade as an empty list (CQ1) |
+| `router-robust` | hostile inputs degrade instead of crashing: a throwing warn sink still leaves the memo intact, a throwing registry/profile source and a throwing `getInput` turn the router OFF with one plain-language explanation, a cyclic or 30 000-deep config value is dropped with a warning, `allowUnmeasuredEffort: false` survives, `null` config falls back to the defaults, and a non-array model list is treated as empty |
+| `router-config-default` / `router-config-invalid` | an absent `router` config silently yields `{ models: [], allowUnmeasuredEffort: true, showWarnings: false }`; a wrong-shape value warns once and falls back to those defaults; invalid `models` entries are dropped one warning each; non-boolean option values warn and retain their defaults; **unknown keys are reported**, so a typo'd `"model"` cannot masquerade as an empty list (CQ1) |
 | `router-shipped-default` | with `profiles` omitted the resolver really does use the shipped table — tier, ladder and price all arrive from it — and an unprofiled spec is still excluded |
+
+The pure suite does **not** execute the class-aware sink wrapper in
+`extension/index.ts`. It therefore does not prove default suppression, the hidden
+warning count, or the one-time discoverability line. The extension-load check
+covers wrapper registration and session startup. A live interactive session
+covers the wrapper's rendered behavior. The resolver checks prove only that the
+resolver emits every warning and supplies the class that the wrapper consumes.
 
 Dispatch guards — the route planner (`extension/route.ts`). The **safety core** of
 action-level routing, and the one place where a regression is completely silent: a
@@ -1098,7 +1121,7 @@ Config-sanitizer wiring (`extension/index.ts`) — a **text** check:
 
 | id | what it proves |
 | --- | --- |
-| `wiring` | every config sanitizer is imported by `index.ts` and called at `session_start` with its own key **and the shared warn sink**. A sanitizer that exists but is never wired, or is wired with a sink that swallows its diagnostics, is precisely the silent failure RG20 was. `index.ts` cannot be *loaded* here (it reaches `@earendil-works/pi-ai` through `threads.ts` → `episodes.ts`, a peer dependency not installed in this repo), so this one asserts against the source text — weaker than execution, and still the difference between "the fix is wired" and "the fix compiles" |
+| `wiring` | every config sanitizer is imported by `index.ts` and called at `session_start` with its own key and a live diagnostic sink. The router receives the class-aware `routerWarn` wrapper. Every other sanitizer receives the shared `warn` sink. A missing call or throwaway sink is precisely the silent failure RG20 was. `index.ts` cannot be loaded here, so this check asserts against source text. It proves wiring, not wrapper behavior |
 
 Model-spec vocabulary and snapshot sanitizers (`extension/state.ts`):
 
@@ -1622,9 +1645,9 @@ and two of them were added AFTER this section was first written:
 
 - the **`wiring` check** — the oldest of them, and easy to forget in this count
   because it is a whole check rather than a term inside one: every config sanitizer
-  is imported by `index.ts` AND called at `session_start` with its own key and the
-  shared warn sink. `index.ts` cannot be loaded here, so it is asserted against the
-  source text;
+  is imported by `index.ts` and called at `session_start` with its own key and its
+  required live sink. The router uses `routerWarn`; the others use `warn`.
+  `index.ts` cannot be loaded here, so this is asserted against source text;
 - the **shipped-table import scan** in `route-off-ladder-source` — three conjunct
   terms over `route.ts`'s imports, because a back door is an import, not a value;
 - the **`applyRoute` baseline residual** in `route-baseline-capture` — one term,
