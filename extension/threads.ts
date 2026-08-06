@@ -563,12 +563,8 @@ export class ThreadManager {
 	}
 
 	/** Acting-only refusals that depend on thread semantics rather than price. */
-	private restartRefusal(source: ThreadRecord, allowance: string[] | null | undefined): string | undefined {
+	private restartRefusal(source: ThreadRecord): string | undefined {
 		if (isJudgementThreadType(source.type)) return `${source.type} threads keep their live review transcript`;
-		const lastEpisodeId = source.episodeIds.at(-1);
-		if (lastEpisodeId !== undefined && !allowance?.includes(lastEpisodeId)) {
-			return `freshContext does not include the source thread's latest episode ${lastEpisodeId}`;
-		}
 		// Five minutes is the shortest documented cache-retention window in the
 		// shipped profiles. A replacement inside it is recent enough to stop a chain.
 		if (source.restartOf !== undefined && Date.now() - source.createdAt <= 5 * 60 * 1000) {
@@ -1370,7 +1366,7 @@ export class ThreadManager {
 					// Only the economic fresh verdict may move work. Every refusal and every
 					// uncertainty stays on the source thread, including an empty allowance.
 					if (policy.act && plannedChoice.kind === "fresh") {
-						const refusal = this.restartRefusal(thread, opts.freshContext);
+						const refusal = this.restartRefusal(thread);
 						if (refusal !== undefined) {
 							routeWarn(`slate: automatic fresh-thread restart refused — ${refusal}.`);
 						} else {
