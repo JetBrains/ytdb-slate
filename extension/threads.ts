@@ -98,6 +98,7 @@ import {
 	getAgentDir,
 	SettingsManager,
 	shouldCompact,
+	estimateTokens,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 // TYPE-ONLY, and deliberately so: the orchestrator's base-model tracker is
@@ -575,9 +576,48 @@ export class ThreadManager {
 		return this.choiceConfig;
 	}
 
-	/** Four bytes per token is the planner's shared approximation for text that no provider measured. */
+	/** Use pi's own context estimator for text that has no provider-reported token count. */
 	private estimatedTokens(text: string): number {
-		return Math.ceil(Buffer.byteLength(text, "utf8") / 4);
+		return estimateTokens({ role: "user", content: text, timestamp: 0 });
+	}
+
+	/**
+	 * Estimate future work from the work stream's observed depth. One more than the
+	 * completed dispatch count is evidence of continuation, not a promise. The floor
+	 * of three reaches pricing while preserving the planner's two-turn short-work guard.
+	 */
+	private expectedChoiceTurns(thread: ThreadRecord): number {
+		return Math.max(3, thread.episodeIds.length + 1);
+	}
+
+	/** The cache state of the shard the next thread id would occupy. */
+	private freshSeedCacheState(
+		source: ThreadRecord,
+		model: string | undefined,
+		effort: ThinkingLevel | undefined,
+		now: number,
+		retentionSeconds: number | undefined,
+	): "read" | "write" | "unknown" {
+		if (this.config.cacheKeyEnabled === false) return "unknown";
+		const nextId = this.store.nextThreadId();
+		const ordinal = Number(nextId.slice(1));
+		const shards = this.config.cacheKeyShards ?? DEFAULT_CACHE_KEY_SHARDS;
+		if (!Number.isSafeInteger(ordinal) || ordinal < 1 || !Number.isSafeInteger(shards) || shards < 1) return "unknown";
+		const shard = (ordinal - 1) % shards;
+		const occupants = [...this.store.threads.values()].filter((thread) => thread.cacheKeyShard === shard && thread.episodeIds.length > 0);
+		if (occupants.length === 0) return "write";
+		if (model === undefined || effort === undefined || retentionSeconds === undefined) return "unknown";
+		const sourceTools = JSON.stringify(source.tools);
+		for (const occupant of occupants) {
+			if (occupant.type !== source.type || JSON.stringify(occupant.tools) !== sourceTools) continue;
+			const lastId = occupant.episodeIds.at(-1);
+			const last = lastId === undefined ? undefined : this.store.episodes.get(lastId);
+			if (last?.model !== model || last.effort !== effort) continue;
+			if (!((last.cacheRead ?? 0) > 0 || (last.cacheWrite ?? 0) > 0)) continue;
+			const age = (now - last.createdAt) / 1000;
+			if (Number.isFinite(age) && age >= 0 && age <= retentionSeconds) return "read";
+		}
+		return "unknown";
 	}
 
 	/** Build and run the pure choice planner from evidence available inside this thread's queue slot. */
@@ -610,13 +650,18 @@ export class ThreadManager {
 			retention?.measured && evidenceIsCurrent(retention.measured.observedOn)
 				? Math.max(0, ...retention.measured.warm.map((probe) => probe.afterSeconds))
 				: undefined;
-		let freshSeedTokens: number | undefined;
-		try {
-			const definitions = session.getActiveToolNames().map((name) => session.getToolDefinition(name));
-			freshSeedTokens = this.estimatedTokens(`${session.systemPrompt}\n${JSON.stringify(definitions)}`);
-		} catch {
-			freshSeedTokens = undefined;
-		}
+		const retentionSeconds =
+			documentedSeconds === undefined
+				? measuredWarmSeconds
+				: measuredWarmSeconds === undefined
+					? documentedSeconds
+					: Math.max(documentedSeconds, measuredWarmSeconds);
+		const freshSeedCache = this.freshSeedCacheState(thread, model, effort, now, retentionSeconds);
+		// pi reports the whole live context, not the seed alone. Using it as the seed
+		// size is a one-sided upper bound because it includes the existing transcript.
+		// That can suppress a restart, but it cannot make a fresh thread look too cheap.
+		// When pi reports no context estimate, absence lets the planner abstain.
+		const freshSeedTokens = this.contextTokens(session);
 		let episodeTokens: number | undefined = 0;
 		try {
 			for (const id of opts.freshContextEpisodeIds ?? []) {
@@ -631,7 +676,7 @@ export class ThreadManager {
 			now,
 			thread,
 			...(last !== undefined ? { last } : {}),
-			action: { model, effort },
+			action: { model, effort, expectedTurns: this.expectedChoiceTurns(thread) },
 			...(documentedSeconds !== undefined || measuredWarmSeconds !== undefined
 				? { retention: { documentedSeconds, measuredWarmSeconds } }
 				: {}),
@@ -657,6 +702,7 @@ export class ThreadManager {
 				freshSeedTokens,
 				episodeTokens,
 				taskTokens: this.estimatedTokens(opts.task),
+				freshSeedCache,
 			},
 			allowance: opts.freshContextEpisodeIds,
 			knownEpisodeIds: [...this.store.episodes.keys()],
