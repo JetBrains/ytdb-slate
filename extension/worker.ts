@@ -185,6 +185,7 @@ export function resolveModel(ctx: ExtensionContext, spec: string) {
 export async function openWorkerSession(opts: {
 	ctx: ExtensionContext;
 	sessionFile?: string; // resume when provided, else create new under <config dir>/slate/threads/
+	// Episode and observation paths do not belong here. Their shared artifact writer owns persistence.
 	model?: string; // "provider/id"
 	tools?: string[];
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)

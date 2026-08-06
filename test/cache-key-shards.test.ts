@@ -236,6 +236,7 @@ interface ManagerAccess {
     ctx: ExtensionContext;
     open: SessionOpenDecision;
     tools: string[] | undefined;
+    report: (message: string) => void;
   }): Promise<{ session: WorkerSession }>;
 }
 
@@ -272,9 +273,9 @@ test("new threads receive stable round-robin shards with a two-shard default", (
   const manager = new ThreadManager(slateStore, {});
   const internal = access(manager);
 
-  const first = internal.createThread({ task: "first" }, PROCEED);
-  const second = internal.createThread({ task: "second" }, PROCEED);
-  const third = internal.createThread({ task: "third" }, PROCEED);
+  const first = internal.createThread({ task: "first", type: "general" }, PROCEED);
+  const second = internal.createThread({ task: "second", type: "general" }, PROCEED);
+  const third = internal.createThread({ task: "third", type: "general" }, PROCEED);
 
   assert.deepEqual([first.cacheKeyShard, second.cacheKeyShard, third.cacheKeyShard], [0, 1, 0]);
   assert.equal(first.cacheKeyShard, 0);
@@ -285,15 +286,15 @@ test("new threads receive stable round-robin shards with a two-shard default", (
 test("the dedicated cache-key switch disables shard assignment while the default stays on", () => {
   const disabledStore = store();
   const disabled = access(new ThreadManager(disabledStore, { cacheKeyEnabled: false, cacheKeyShards: 3 }));
-  const thread = disabled.createThread({ task: "disabled" }, PROCEED);
+  const thread = disabled.createThread({ task: "disabled", type: "general" }, PROCEED);
   assert.equal(thread.cacheKeyShard, undefined);
   assert.equal("cacheKeyShard" in thread, false);
 
   const defaultStore = store();
   const defaulted = access(new ThreadManager(defaultStore, {}));
   assert.deepEqual(
-    [defaulted.createThread({ task: "first" }, PROCEED).cacheKeyShard,
-      defaulted.createThread({ task: "second" }, PROCEED).cacheKeyShard],
+    [defaulted.createThread({ task: "first", type: "general" }, PROCEED).cacheKeyShard,
+      defaulted.createThread({ task: "second", type: "general" }, PROCEED).cacheKeyShard],
     [0, 1],
   );
 
@@ -310,7 +311,7 @@ test("the dedicated cache-key switch disables shard assignment while the default
 test("configured shard counts are honored and invalid counts warn before defaulting", () => {
   const configuredStore = store();
   const configured = access(new ThreadManager(configuredStore, { cacheKeyShards: 3 }));
-  const shards = [0, 1, 2, 3].map((index) => configured.createThread({ task: `task ${index}` }, PROCEED).cacheKeyShard);
+  const shards = [0, 1, 2, 3].map((index) => configured.createThread({ task: `task ${index}`, type: "general" }, PROCEED).cacheKeyShard);
   assert.deepEqual(shards, [0, 1, 2, 0]);
 
   for (const invalid of [0, MAX_CACHE_KEY_SHARDS + 1, 1.5]) {
@@ -350,6 +351,7 @@ test("thread snapshot adoption preserves valid shards and leaves legacy records 
 
   const legacy = sanitizeThreadRecord(rawThread(), repairs);
   assert.equal(legacy?.cacheKeyShard, undefined);
+  assert.equal(legacy?.type, undefined);
   assert.deepEqual(repairs, []);
 
   const invalidRepairs: string[] = [];
@@ -368,6 +370,7 @@ test("legacy and restored threads open with their persisted cache behavior", { t
     ctx: context("legacy-open"),
     open: OPEN,
     tools: undefined,
+    report: () => {},
   });
   sessions.push(legacyOpen.session);
   const legacyPayload: Record<string, unknown> = { legacy: true };
@@ -380,6 +383,7 @@ test("legacy and restored threads open with their persisted cache behavior", { t
     ctx: context("restored-open"),
     open: OPEN,
     tools: undefined,
+    report: () => {},
   });
   sessions.push(restoredOpen.session);
   const restoredPayload: Record<string, unknown> = { restored: true };
@@ -394,6 +398,7 @@ test("legacy and restored threads open with their persisted cache behavior", { t
     ctx: context("restored-open"),
     open: OPEN,
     tools: undefined,
+    report: () => {},
   });
   sessions.push(siblingOpen.session);
   const siblingPayload: Record<string, unknown> = {};
@@ -406,6 +411,7 @@ test("legacy and restored threads open with their persisted cache behavior", { t
     ctx: context("disabled-restored-open"),
     open: OPEN,
     tools: undefined,
+    report: () => {},
   });
   sessions.push(disabledOpen.session);
   const disabledPayload: Record<string, unknown> = { disabled: true };

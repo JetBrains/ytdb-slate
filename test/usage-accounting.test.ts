@@ -174,7 +174,7 @@ test("worker episode usage preserves all quantities and accumulates several turn
     { input: 2, output: 3, cacheRead: 5, cacheWrite: 7, cost: { total: 0 } },
     { input: 11, output: 13, cacheRead: 17, cacheWrite: 19, cost: { total: 0 } },
   ]));
-  const result = await managerWithSessions([session]).dispatch({ task: "account worker usage" }, context(cwd), undefined);
+  const result = await managerWithSessions([session]).dispatch({ task: "account worker usage", type: "general" }, context(cwd), undefined);
 
   assert.deepEqual(
     {
@@ -191,7 +191,7 @@ test("worker episode usage preserves all quantities and accumulates several turn
 test("worker episode usage distinguishes an absent quantity from reported zero", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const session = fakeSession(successfulPrompt([{ input: 0, output: 4, cacheRead: 0, cost: { total: 0 } }]));
-  const result = await managerWithSessions([session]).dispatch({ task: "preserve absence" }, context(cwd), undefined);
+  const result = await managerWithSessions([session]).dispatch({ task: "preserve absence", type: "general" }, context(cwd), undefined);
 
   assert.equal(result.episode.input, 0);
   assert.equal(result.episode.cacheRead, 0);
@@ -205,7 +205,7 @@ test("worker episode usage distinguishes an absent quantity from reported zero",
 test("worker episode cost stays absent when no message reports dollars", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1 }]));
-  const result = await managerWithSessions([session]).dispatch({ task: "preserve missing worker cost" }, context(cwd), undefined);
+  const result = await managerWithSessions([session]).dispatch({ task: "preserve missing worker cost", type: "general" }, context(cwd), undefined);
 
   assert.equal(Object.hasOwn(result.episode, "workerCostUsd"), false);
   assert.equal(result.episode.workerCostUsd, undefined);
@@ -232,7 +232,7 @@ test("compressor usage persists all quantities and accumulates a billed failover
     modelFailover: { "test/primary": "test/fallback" },
   });
   const controller = new AbortController();
-  const result = await manager.dispatch({ task: "compress with failover" }, context(cwd, [primary, fallback]), controller.signal);
+  const result = await manager.dispatch({ task: "compress with failover", type: "general" }, context(cwd, [primary, fallback]), controller.signal);
 
   assert.equal(calls.length, 2);
   assert.strictEqual(calls[0]?.model, primary);
@@ -261,7 +261,7 @@ test("compressor usage is absent when no quantity was reported", { timeout: 1000
   piAiCompatStub.complete = async () => completeResponse({ cost: { total: 0 } });
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]));
   const result = await managerWithSessions([session], { episodeModel: "test/compressor" }).dispatch(
-    { task: "compress without usage" },
+    { task: "compress without usage", type: "general" },
     context(cwd, [compressor]),
     undefined,
   );
@@ -277,7 +277,7 @@ test("compressor cost stays absent when the call reports usage without dollars",
   piAiCompatStub.complete = async () => completeResponse({ input: 3, output: 2 });
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]));
   const result = await managerWithSessions([session], { episodeModel: "test/compressor" }).dispatch(
-    { task: "compress without reported dollars" },
+    { task: "compress without reported dollars", type: "general" },
     context(cwd, [compressor]),
     undefined,
   );
@@ -300,8 +300,8 @@ test("compaction usage counts one event once and does not contaminate the next d
   const second = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]));
   const manager = managerWithSessions([first, second]);
 
-  const firstResult = await manager.dispatch({ task: "dispatch with compaction" }, context(cwd), undefined);
-  const secondResult = await manager.dispatch({ task: "dispatch without compaction" }, context(cwd), undefined);
+  const firstResult = await manager.dispatch({ task: "dispatch with compaction", type: "general" }, context(cwd), undefined);
+  const secondResult = await manager.dispatch({ task: "dispatch without compaction", type: "general" }, context(cwd), undefined);
 
   assert.deepEqual(firstResult.episode.compactionUsage, { input: 2, output: 3, cacheRead: 5, cacheWrite: 7 });
   assert.equal(firstResult.episode.compactionCostUsd, 0.25);
@@ -318,8 +318,8 @@ test("dispatch subscriptions are removed after normal completion and error", { t
   });
   const manager = managerWithSessions([normal, failed]);
 
-  await manager.dispatch({ task: "normal teardown" }, context(cwd), undefined);
-  const failedResult = await manager.dispatch({ task: "error teardown" }, context(cwd), undefined);
+  await manager.dispatch({ task: "normal teardown", type: "general" }, context(cwd), undefined);
+  const failedResult = await manager.dispatch({ task: "error teardown", type: "general" }, context(cwd), undefined);
 
   assert.equal(normal.listenerCount(), 0);
   assert.equal(failed.listenerCount(), 0);
@@ -334,7 +334,7 @@ test("dispatch subscription is removed after abort", { timeout: 1000 }, async (t
     throw new Error("prompt stopped after abort");
   });
   const result = await managerWithSessions([aborted]).dispatch(
-    { task: "abort teardown" },
+    { task: "abort teardown", type: "general" },
     context(cwd),
     controller.signal,
   );
@@ -352,7 +352,9 @@ test("snapshot sanitizer loads old records without accounting fields", () => {
 
   assert.ok(record);
   assert.equal(record.task, "legacy");
-  assert.equal(Object.hasOwn(record, "input"), false);
+  for (const field of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+    assert.equal(Object.hasOwn(record, field), false, field);
+  }
   assert.equal(Object.hasOwn(record, "workerCostUsd"), false);
   assert.equal(Object.hasOwn(record, "compressorUsage"), false);
   assert.equal(Object.hasOwn(record, "compressorCostUsd"), false);

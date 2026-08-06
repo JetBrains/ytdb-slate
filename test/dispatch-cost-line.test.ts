@@ -84,7 +84,7 @@ async function renderedCostLine(
   assert.ok(registered, "the thread tool must be registered");
   const result = await registered.execute(
     "call-1",
-    { task: "measure cost", model: requestedModel },
+    { task: "measure cost", type: "general", model: requestedModel },
     undefined,
     undefined,
     {} as ExtensionContext,

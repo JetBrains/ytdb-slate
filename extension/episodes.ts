@@ -439,7 +439,10 @@ export interface CompressedEpisode {
 	compressorUsage?: EpisodeUsage;
 }
 
-/** Final episode persistence failed after this much compressor spend was incurred. */
+/**
+ * Final episode persistence failed after this much compressor spend was incurred.
+ * The dispatch layer adds this charge beside its independent worker and compaction charges.
+ */
 export class EpisodePersistenceError extends Error {
 	readonly costUsd: number | undefined;
 	readonly originalError: unknown;

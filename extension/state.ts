@@ -412,7 +412,8 @@ function moneyAmount(value: unknown): number | undefined {
 
 /** Validate the complete observation record, including its exact canonical reference. */
 function observationRecord(value: unknown, episodeId: string): ObservationRecord | undefined {
-	if (typeof value !== "object" || value === null) return undefined;
+	// Keep this as a strict tagged union. Extra keys and array-shaped objects are rejected.
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
 	const o = value as Record<string, unknown>;
 	const exactKeys = (expected: string[]) => {
 		const keys = Object.keys(o);

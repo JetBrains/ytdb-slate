@@ -470,6 +470,7 @@ export class ThreadManager {
 		const id = this.store.nextThreadId();
 		const type = parseThreadType(opts.type, true);
 		const ordinal = Number(id.slice(1));
+		// Thread role does not affect cache sharding. No measurement supports coupling them.
 		const cacheKeyShard =
 			this.config.cacheKeyEnabled === false
 				? undefined
