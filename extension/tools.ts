@@ -17,7 +17,13 @@ import {
 	type EpisodeUsage,
 	type SlateStore,
 } from "./state.ts";
-import { MAX_FRESH_CONTEXT_EPISODES, type DispatchProgress, type DispatchResult, type ThreadManager } from "./threads.ts";
+import {
+	MAX_FRESH_CONTEXT_EPISODES,
+	normalizeFreshContext,
+	type DispatchProgress,
+	type DispatchResult,
+	type ThreadManager,
+} from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
 
 const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
@@ -168,7 +174,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					type,
 					task: params.task,
 					contextEpisodeIds: params.context,
-					freshContextEpisodeIds: params.freshContext,
+					freshContext: normalizeFreshContext(params.freshContext),
 					model: params.model,
 					effort: params.effort,
 					tools: params.tools,

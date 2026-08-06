@@ -156,14 +156,15 @@ export function workerPromptCacheKey(cwd: string, shard: number): string {
 
 export const MAX_FRESH_CONTEXT_EPISODES = 32;
 
-/** Malformed allowance input means no consent. A valid oversized list is an explicit error. */
-export function normalizeFreshContext(value: unknown): string[] {
+/** Preserve no answer, malformed input, and an explicit empty list as distinct consent states. */
+export function normalizeFreshContext(value: unknown): string[] | null | undefined {
+	if (value === undefined) return undefined;
 	let normalized: string[];
 	try {
-		if (!Array.isArray(value) || !value.every((id) => typeof id === "string")) return [];
+		if (!Array.isArray(value) || !value.every((id) => typeof id === "string")) return null;
 		normalized = [...value];
 	} catch {
-		return [];
+		return null;
 	}
 	if (normalized.length > MAX_FRESH_CONTEXT_EPISODES) {
 		throw new Error(
@@ -179,7 +180,8 @@ export interface DispatchOptions {
 	type?: ThreadType;
 	task: string;
 	contextEpisodeIds?: string[];
-	freshContextEpisodeIds?: string[];
+	/** undefined = absent, null = malformed, array = explicit allowance. */
+	freshContext?: string[] | null;
 	model?: string; // "provider/id" for THIS action (see the header): the thread's base model when omitted
 	effort?: string; // pi thinking level for THIS action; validated against the target model's ladder
 	tools?: string[];
@@ -416,14 +418,16 @@ export class ThreadManager {
 		// first (it explains itself better than a routing complaint would), the
 		// routing guards next, and only then is a new thread created.
 		const existing = opts.threadId ? this.requireThread(opts.threadId) : undefined;
-		const freshContextEpisodeIds = normalizeFreshContext(opts.freshContextEpisodeIds);
-		for (const id of freshContextEpisodeIds) {
-			if (!this.store.episodes.has(id)) {
-				const known = [...this.store.episodes.keys()].join(", ") || "none";
-				throw new Error(`Unknown freshContext episode "${sanitizeForNotify(id, 80)}". Known episodes: ${known}`);
+		const freshContext = normalizeFreshContext(opts.freshContext);
+		if (Array.isArray(freshContext)) {
+			for (const id of freshContext) {
+				if (!this.store.episodes.has(id)) {
+					const known = [...this.store.episodes.keys()].join(", ") || "none";
+					throw new Error(`Unknown freshContext episode "${sanitizeForNotify(id, 80)}". Known episodes: ${known}`);
+				}
 			}
 		}
-		const dispatchOpts: DispatchOptions = { ...opts, freshContextEpisodeIds };
+		const dispatchOpts: DispatchOptions = { ...opts, freshContext };
 		if (existing && nextSlateEpisodeId(existing.id, existing.episodeSeq) === undefined) {
 			throw new Error(
 				`Slate cannot dispatch thread ${sanitizeForNotify(existing.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
@@ -664,7 +668,7 @@ export class ThreadManager {
 		const freshSeedTokens = this.contextTokens(session);
 		let episodeTokens: number | undefined = 0;
 		try {
-			for (const id of opts.freshContextEpisodeIds ?? []) {
+			for (const id of opts.freshContext ?? []) {
 				const episode = this.store.episodes.get(id);
 				if (episode === undefined) throw new Error("episode disappeared after validation");
 				episodeTokens += this.estimatedTokens(readFileSync(episode.file, "utf8"));
@@ -704,7 +708,9 @@ export class ThreadManager {
 				taskTokens: this.estimatedTokens(opts.task),
 				freshSeedCache,
 			},
-			allowance: opts.freshContextEpisodeIds,
+			// The planner deliberately accepts malformed runtime input. null crosses this
+			// typed boundary only to preserve that defensive contract and reports no consent.
+			allowance: opts.freshContext as readonly string[] | undefined,
 			knownEpisodeIds: [...this.store.episodes.keys()],
 		});
 	}
