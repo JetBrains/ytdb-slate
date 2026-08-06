@@ -469,6 +469,9 @@ export class ThreadManager {
 			const known = [...this.store.threads.keys()].join(", ") || "none";
 			throw new Error(`Unknown thread "${threadId}". Known threads: ${known}. Omit "thread" to create a new one.`);
 		}
+		if (existing.supersededBy !== undefined) {
+			throw new Error(`Thread "${threadId}" was superseded by ${existing.supersededBy}. Continue the successor instead.`);
+		}
 		return existing;
 	}
 
@@ -505,7 +508,7 @@ export class ThreadManager {
 	 * thread's own default is `baseModel` — recording the routed model as a pin
 	 * would make one action's route the thread's permanent base.
 	 */
-	private createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord {
+	private createThread(opts: DispatchOptions, plan: RoutePlanProceed, restartOf?: ThreadRecord): ThreadRecord {
 		const id = this.store.nextThreadId();
 		const type = parseThreadType(opts.type, true);
 		const ordinal = Number(id.slice(1));
@@ -516,27 +519,86 @@ export class ThreadManager {
 				: (ordinal - 1) % (this.config.cacheKeyShards ?? DEFAULT_CACHE_KEY_SHARDS);
 		// Concretize the same fallback openWorkerSession applies, so a later reopen
 		// does not silently adopt a changed configuration default.
-		const configuredTools = opts.tools ?? this.config.workerTools;
+		const configuredTools = restartOf?.tools ?? opts.tools ?? this.config.workerTools;
 		const tools = [...new Set(configuredTools && configuredTools.length > 0 ? configuredTools : DEFAULT_WORKER_TOOLS)];
+		const now = Date.now();
+		const restartGeneration = restartOf === undefined ? undefined : (restartOf.restartGeneration ?? 0) + 1;
+		if (restartGeneration !== undefined && !Number.isSafeInteger(restartGeneration)) {
+			throw new Error(`Thread ${restartOf?.id ?? id} has exhausted the restart generation range.`);
+		}
 		const record: ThreadRecord = {
 			id,
 			name: opts.name?.trim() || id,
 			sessionFile: "",
 			status: "idle",
 			type,
+			...(restartOf !== undefined ? { restartOf: restartOf.id, restartGeneration } : {}),
 			...(cacheKeyShard === undefined ? {} : { cacheKeyShard }),
-			...(this.routerResolution().on ? {} : { model: opts.model }),
-			...(plan.baseModel ? { baseModel: plan.baseModel } : {}),
-			...(plan.baseEffort ? { baseEffort: plan.baseEffort } : {}),
+			...(this.routerResolution().on ? {} : { model: restartOf?.model ?? opts.model }),
+			...((restartOf?.baseModel ?? plan.baseModel) ? { baseModel: restartOf?.baseModel ?? plan.baseModel } : {}),
+			...((restartOf?.baseEffort ?? plan.baseEffort) ? { baseEffort: restartOf?.baseEffort ?? plan.baseEffort } : {}),
 			tools,
 			episodeIds: [],
 			episodeSeq: 0,
-			createdAt: Date.now(),
-			updatedAt: Date.now(),
+			createdAt: now,
+			updatedAt: now,
 		};
+		if (restartOf !== undefined) {
+			restartOf.supersededBy = id;
+			restartOf.status = "idle";
+			restartOf.updatedAt = now;
+		}
 		this.store.threads.set(id, record);
-		this.store.save();
+		try {
+			this.store.save();
+		} catch (error) {
+			if (restartOf !== undefined) {
+				this.store.threads.delete(id);
+				delete restartOf.supersededBy;
+				restartOf.status = "running";
+			}
+			throw error;
+		}
 		return record;
+	}
+
+	/** Acting-only refusals that depend on thread semantics rather than price. */
+	private restartRefusal(source: ThreadRecord, allowance: string[] | null | undefined): string | undefined {
+		if (isJudgementThreadType(source.type)) return `${source.type} threads keep their live review transcript`;
+		const lastEpisodeId = source.episodeIds.at(-1);
+		if (lastEpisodeId !== undefined && !allowance?.includes(lastEpisodeId)) {
+			return `freshContext does not include the source thread's latest episode ${lastEpisodeId}`;
+		}
+		// Five minutes is the shortest documented cache-retention window in the
+		// shipped profiles. A replacement inside it is recent enough to stop a chain.
+		if (source.restartOf !== undefined && Date.now() - source.createdAt <= 5 * 60 * 1000) {
+			return `thread ${source.id} is itself a recent automatic restart`;
+		}
+		return undefined;
+	}
+
+	/** Undo a replacement that failed before it could return a usable dispatch result. */
+	private rollbackRestart(source: ThreadRecord, successor: ThreadRecord): void {
+		const session = this.live.get(successor.id);
+		try {
+			session?.dispose();
+		} catch {
+			/* rollback must still restore the source record */
+		}
+		this.live.delete(successor.id);
+		this.liveBaselines.delete(successor.id);
+		this.failoverLive.delete(successor.id);
+		this.queues.delete(successor.id);
+		for (const id of successor.episodeIds) this.store.episodes.delete(id);
+		this.store.threads.delete(successor.id);
+		delete source.supersededBy;
+		source.status = "running";
+		source.updatedAt = Date.now();
+		try {
+			this.store.save();
+		} catch {
+			/* the in-memory source remains usable even when persistence is unavailable */
+		}
 	}
 
 	private buildPrompt(opts: DispatchOptions): string {
@@ -1294,10 +1356,61 @@ export class ThreadManager {
 			// Same division of labour for a SEEDED base: the planner decided it (purely),
 			// this side writes it down — after the apply, for the same reason as above.
 			this.persistReseededBase(thread, applied);
-			if (opts.threadId !== undefined && this.threadChoiceConfig(routeWarn).report) {
-				// This method runs inside the promise chained to this thread's predecessor.
-				// The predecessor has therefore saved its episode before this read of episodeIds.
-				choice = this.planChoice(thread, opts, applied, session);
+			if (opts.threadId !== undefined) {
+				const policy = this.threadChoiceConfig(routeWarn);
+				if (policy.report || policy.act) {
+					// This method runs inside the promise chained to this thread's predecessor.
+					// The predecessor has therefore saved its episode before this read of episodeIds.
+					const plannedChoice = this.planChoice(thread, opts, applied, session);
+					if (policy.report) choice = plannedChoice;
+					// Only the economic fresh verdict may move work. Every refusal and every
+					// uncertainty stays on the source thread, including an empty allowance.
+					if (policy.act && plannedChoice.kind === "fresh") {
+						const refusal = this.restartRefusal(thread, opts.freshContext);
+						if (refusal !== undefined) {
+							routeWarn(`slate: automatic fresh-thread restart refused — ${refusal}.`);
+						} else {
+						let successor: ThreadRecord | undefined;
+						try {
+							const restartOpts: DispatchOptions = {
+								...opts,
+								threadId: undefined,
+								name: thread.name,
+								type: effectiveThreadType(thread, routeWarn),
+								contextEpisodeIds: opts.freshContext ?? [],
+								freshContext: undefined,
+								tools: thread.tools,
+							};
+							successor = this.createThread(restartOpts, applied, thread);
+							const successorEpisodeId = nextSlateEpisodeId(successor.id, successor.episodeSeq);
+							if (successorEpisodeId === undefined) throw new Error("the successor could not form an episode id");
+							const successorPrompt = this.buildPrompt(restartOpts);
+							const restartRun = this.runDispatchInner(
+								successor,
+								restartOpts,
+								successorPrompt,
+								successorEpisodeId,
+								ctx,
+								signal,
+								onProgress,
+							);
+							this.queues.set(successor.id, restartRun);
+							const restarted = await restartRun;
+							return {
+								...restarted,
+								...(policy.report ? { choice: plannedChoice } : {}),
+								warnings: [...warnings, ...restarted.warnings],
+							};
+						} catch (error) {
+							if (successor !== undefined) this.rollbackRestart(thread, successor);
+							routeWarn(
+								`slate: the fresh-thread restart failed, so this action remains in thread ${thread.id} — ` +
+									sanitizeForNotify(error instanceof Error ? error.message : String(error), 200),
+							);
+						}
+						}
+					}
+				}
 			}
 			if (applied.warnings.length > 0) emit(false);
 
