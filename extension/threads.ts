@@ -159,19 +159,24 @@ export const MAX_FRESH_CONTEXT_EPISODES = 32;
 /** Preserve no answer, malformed input, and an explicit empty list as distinct consent states. */
 export function normalizeFreshContext(value: unknown): string[] | null | undefined {
 	if (value === undefined) return undefined;
-	let normalized: string[];
+	if (!Array.isArray(value)) return null;
+	let length: number;
 	try {
-		if (!Array.isArray(value) || !value.every((id) => typeof id === "string")) return null;
-		normalized = [...value];
+		length = value.length;
 	} catch {
 		return null;
 	}
-	if (normalized.length > MAX_FRESH_CONTEXT_EPISODES) {
+	if (length > MAX_FRESH_CONTEXT_EPISODES) {
 		throw new Error(
 			`freshContext accepts at most ${MAX_FRESH_CONTEXT_EPISODES} episode ids. Reduce the list instead of sending an oversized worker prompt.`,
 		);
 	}
-	return normalized;
+	try {
+		if (!value.every((id) => typeof id === "string")) return null;
+		return [...value];
+	} catch {
+		return null;
+	}
 }
 
 export interface DispatchOptions {
