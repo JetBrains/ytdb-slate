@@ -258,30 +258,32 @@ The class test has two independent conditions. A warning is a
 **configuration fault** when EITHER condition holds:
 
 1. Slate ignored or dropped part of the user's configuration.
-2. The user can stop the warning by adding to project configuration
-   or pi credentials while keeping the same model list.
+2. The user can stop the warning by ADDING something to their own
+   project config or pi credentials, such as a model, credential or
+   failover entry. This differs from only removing the model named
+   by the warning.
 
-Every other warning is a **model data note**. The older test that
-asked only whether a user could stop the warning does not partition
-the classes: removing a dropped list entry would change the model
-list, but the ignored value must remain a visible configuration
-fault.
+Every other warning is a **model data note**. The single-part test
+that asks only whether a user can stop a warning does not partition
+the classes: removing a dropped `router.models` entry can silence its
+warning, but removal is not the ADD remedy in condition 2. Condition
+1 catches every silently ignored or dropped config value first.
 
 | what happens | outcome | warning fragment | class |
 | --- | --- | --- | --- |
-| entry is not a canonical `provider/id` | dropped | "ignoring the router.models entry … It is not a canonical" | configuration fault |
-| no profile in Slate's model profile table | dropped | "has no entry in slate's model profile table … drops it from routing" | configuration fault |
-| two entries resolve to the same profile (an alias or a case variant) | first kept, second dropped | "name the same profiled model … keeps the first entry and drops" | configuration fault |
+| entry is not a canonical `provider/id` | dropped | "It is not a canonical \"provider/id\" model spec. Reason:" | configuration fault |
+| no profile in Slate's model profile table | dropped | "has no entry in slate's model profile table" | configuration fault |
+| two entries resolve to the same profile (an alias or a case variant) | first kept, second dropped | "name the same profiled model" | configuration fault |
 | the same spec is listed twice | first kept | none (silent) | — |
-| pi's model registry does not know it | dropped | "is not in pi's model registry … drops it from routing" | configuration fault |
-| pi has no usable credentials configured for it | dropped | "has no usable credentials configured in pi … Add credentials in pi" | configuration fault |
-| every entry is dropped | router turns OFF | "routing is disabled. None of the … entries survived validation" | configuration fault |
-| no usable input price exists for today's date | kept, ordered last | "has no usable input price … cannot compare its cost" | model data note |
-| no usable effort ladder exists in the profile | kept | "has no usable effort ladder … passes through to pi, which clamps it" | model data note |
-| profile context window differs from the registry window | kept, registry value used | "context window … differs between two sources … Routing uses the registry figure" | model data note |
+| pi's model registry does not know it | dropped | "is not in pi's model registry. Slate drops it from routing." | configuration fault |
+| pi has no usable credentials configured for it | dropped | "has no usable credentials configured in pi. Slate drops it from routing." | configuration fault |
+| every entry is dropped | router turns OFF | "survived validation. The warnings above name each dropped entry" | configuration fault |
+| no usable input price exists for today's date | kept, ordered last | "Slate cannot compare its cost with the other models." | model data note |
+| no usable effort ladder exists in the profile | kept | "Such a level passes through to pi, which clamps it" | model data note |
+| profile context window differs from the registry window | kept, registry value used | "differs between two sources" | model data note |
 | the first profile names unknown routing-critical fields | kept | "picks models from a research table shipped inside slate" | model data note |
-| a profile names unknown routing-critical fields | kept | "has … model facts that slate could not trace to a source" | model data note |
-| registry window equals the model's long-context billing threshold | kept | "context window equal to the model's own long-context billing threshold" | model data note |
+| a profile names unknown routing-critical fields | kept | "model fact that slate could not trace to a source" or "model facts that slate could not trace to a source" | model data note |
+| a reportable profile/registry context-window divergence exists, the registry figure is not the profile's recorded known-divergence figure, and the registry figure equals the model's own long-context billing threshold | kept | "context window equal to the model's own long-context billing threshold" | model data note |
 | no `modelFailover` entry exists for a candidate | kept | "routable models have no modelFailover entry" | configuration fault |
 | every configured candidate is marked non-preferred | cheapest candidate becomes the base | "profiles mark every configured model as one it must never pick by itself" | configuration fault |
 | resolution throws | router turns OFF | "routing is disabled. The router could not resolve its model list" | configuration fault |
@@ -506,9 +508,10 @@ each configured Anthropic model.
 
 Resolution emitted **7 warnings: 0 configuration faults and 7 model
 data notes**. The default `router.showWarnings: false` therefore
-shows **0 of those warnings** and one discoverability line. Enabling
-the option shows all 7 warnings and no discoverability line. Each
-warning fires at most once per session, and the resolution is frozen
+shows **0 of those warnings** and one discoverability line. That line
+begins `slate: there are 7 hidden warnings in the model router.`
+Enabling the option shows all 7 warnings and no discoverability
+line. Each warning fires at most once per session, and the resolution is frozen
 after the first consultation.
 
 | warnings | class | condition keys | why | shown by default |
@@ -527,18 +530,15 @@ in configured-list order:
 5. `w3:string:"anthropic/claude-opus-5"`
 6. `w3:string:"anthropic/claude-fable-5"`
 
-The earlier ten-warning measurement used registry windows of 272,000
-for the three `openai/gpt-5.6-*` models. That snapshot produced six
-unknown-data warnings, three context-window divergences, and one
-billing-pattern warning. Its failover map covered all six candidates,
-so no failover-coverage warning fired. Its preferred candidates also
-prevented the non-preferred-base warning.
-
-The current registry reports 1,050,000 for those three models, which
+The current registry reports 1,050,000 for the three
+`openai/gpt-5.6-*` models, which
 matches their profile windows. The three divergence conditions and
 the aggregate billing-pattern condition therefore do not fire. The
 new class explanation adds one warning before the six unknown-data
-warnings, producing the measured total of seven.
+warnings, producing the measured total of seven. The configured
+failover map covers all six candidates, so the failover-coverage
+condition does not fire. Preferred candidates remain in the list, so
+the non-preferred-base condition does not fire.
 
 In orchestrator mode the first consultation is the DOCTRINE BUILD,
 not a dispatch: the orchestrator's system prompt carries the
