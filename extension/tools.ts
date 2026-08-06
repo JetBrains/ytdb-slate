@@ -11,6 +11,7 @@ import {
 	isThreadType,
 	parseThreadType,
 	resolveEpisodeFile,
+	restartLineageText,
 	threadTypeMarker,
 	THREAD_TYPE_GLOSSES,
 	THREAD_TYPES,
@@ -221,7 +222,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			// it is the DURABLE copy: it is written into the episode file, comes back through
 			// the `episode` tool, and travels into every later prompt that cites the episode,
 			// while this line is framing that exists only for this one tool result.
-			const restart = result.thread.restartOf ? ` | restart ${result.thread.restartOf}->${result.thread.id}` : "";
+			const restartText = restartLineageText(result.thread.restartOf, result.thread.id);
+			const restart = restartText ? ` | ${restartText}` : "";
 			const headline = `[episode ${result.episode.id} | thread ${result.thread.id} "${result.thread.name}"${restart} | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}]`;
 			// Routing notices reach the ORCHESTRATOR, not just the TUI: an evidence gap,
 			// a window substitution or a long-context billing cliff changes what the next
@@ -320,7 +322,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const live = getManager().liveFailoverModel(t.id);
 				if (live) marks.push(`live=${live} (failover)`);
 				const models = marks.length > 0 ? ` ${marks.join(" ")}` : "";
-				const lineage = `${t.restartOf ? ` restartOf=${t.restartOf}` : ""}${t.supersededBy ? ` supersededBy=${t.supersededBy}` : ""}`;
+				const lineage = [restartLineageText(t.restartOf, t.id), restartLineageText(t.id, t.supersededBy)]
+					.filter((value): value is string => value !== undefined)
+					.map((value) => ` ${value}`)
+					.join("");
 				return `${t.id} "${t.name}" [${t.status}]${typeMarker}${lineage}${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
 			});
 			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length } };

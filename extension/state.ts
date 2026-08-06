@@ -57,6 +57,13 @@ export function isCanonicalThreadId(value: unknown): value is string {
 	return Number.isSafeInteger(ordinal) && ordinal >= 1 && value === `t${ordinal}`;
 }
 
+/** One readable lineage phrase for every user-facing surface. */
+export function restartLineageText(source: unknown, successor: unknown): string | undefined {
+	return isCanonicalThreadId(source) && isCanonicalThreadId(successor)
+		? `source ${source} -> successor ${successor}`
+		: undefined;
+}
+
 /** Validate the conditionally required tool argument at its runtime boundary. */
 export function parseThreadType(value: unknown, required: boolean): ThreadType | undefined {
 	const allowed = THREAD_TYPES.join(", ");
