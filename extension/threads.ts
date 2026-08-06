@@ -140,7 +140,7 @@ import {
 	type ThreadRecord,
 	type ThreadType,
 } from "./state.ts";
-import { isJudgementThreadType, openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
+import { DEFAULT_WORKER_TOOLS, isJudgementThreadType, openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 
 export function workerPromptCacheKey(cwd: string, shard: number): string {
@@ -475,6 +475,10 @@ export class ThreadManager {
 			this.config.cacheKeyEnabled === false
 				? undefined
 				: (ordinal - 1) % (this.config.cacheKeyShards ?? DEFAULT_CACHE_KEY_SHARDS);
+		// Concretize the same fallback openWorkerSession applies, so a later reopen
+		// does not silently adopt a changed configuration default.
+		const configuredTools = opts.tools ?? this.config.workerTools;
+		const tools = [...new Set(configuredTools && configuredTools.length > 0 ? configuredTools : DEFAULT_WORKER_TOOLS)];
 		const record: ThreadRecord = {
 			id,
 			name: opts.name?.trim() || id,
@@ -485,6 +489,7 @@ export class ThreadManager {
 			...(this.routerResolution().on ? {} : { model: opts.model }),
 			...(plan.baseModel ? { baseModel: plan.baseModel } : {}),
 			...(plan.baseEffort ? { baseEffort: plan.baseEffort } : {}),
+			tools,
 			episodeIds: [],
 			episodeSeq: 0,
 			createdAt: Date.now(),
@@ -1060,7 +1065,9 @@ export class ThreadManager {
 					thread,
 					ctx,
 					open,
-					tools: opts.tools ?? this.config.workerTools,
+					// New records always carry this field. Legacy records retain the old open
+					// behavior, but their missing field remains visible to restart eligibility.
+					tools: thread.tools ?? opts.tools ?? this.config.workerTools,
 					report: routeWarn,
 				}));
 				// CQ18: the session FILE is deliberately not persisted yet. pi flushes a

@@ -127,6 +127,8 @@ export interface ThreadRecord {
 	baseEffort?: ThinkingLevel;
 	/** Stable OpenAI prompt-cache routing shard. Absent means caching predates this field. */
 	cacheKeyShard?: number;
+	/** Effective built-in worker tool allowlist. Absent means an older thread whose tools are unknown. */
+	tools?: string[];
 	episodeIds: string[];
 	episodeSeq: number; // monotonic per-thread episode counter
 	createdAt: number;
@@ -399,6 +401,9 @@ export function sanitizeCacheKeyShards(raw: unknown, warn: (msg: string) => void
 function str(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
 }
+function stringList(value: unknown): string[] | undefined {
+	return Array.isArray(value) && value.every((item) => typeof item === "string") ? [...value] : undefined;
+}
 function num(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
@@ -468,6 +473,7 @@ export const ADOPTED_THREAD_FIELDS = {
 	baseModel: true,
 	baseEffort: true,
 	cacheKeyShard: true,
+	tools: true,
 	episodeIds: true,
 	episodeSeq: true,
 	createdAt: true,
@@ -559,6 +565,7 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	};
 	const episodeIds = Array.isArray(t.episodeIds) ? t.episodeIds.filter((e): e is string => typeof e === "string") : [];
 	if (t.episodeIds !== undefined && !Array.isArray(t.episodeIds)) note("episodeIds", t.episodeIds);
+	const tools = keep("tools", t.tools, stringList(t.tools));
 	const now = Date.now();
 	const built: ThreadRecord = {
 		id,
@@ -586,6 +593,7 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		) !== undefined
 			? { cacheKeyShard: t.cacheKeyShard as number }
 			: {}),
+		...(tools !== undefined ? { tools } : {}),
 		episodeIds,
 		episodeSeq: keep("episodeSeq", t.episodeSeq, counter(t.episodeSeq)) ?? episodeIds.length,
 		createdAt: keep("createdAt", t.createdAt, num(t.createdAt)) ?? now,
