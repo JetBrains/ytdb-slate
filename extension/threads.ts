@@ -133,6 +133,7 @@ import {
 	isModelSpec,
 	isThreadType,
 	parseThreadType,
+	resolveEpisodeFile,
 	sanitizeThreadChoiceConfig,
 	splitModelSpec,
 	type EpisodeRecord,
@@ -622,14 +623,16 @@ export class ThreadManager {
 		}
 	}
 
-	private buildPrompt(opts: DispatchOptions): string {
+	private buildPrompt(opts: DispatchOptions, cwd: string): string {
 		const contextIds = opts.contextEpisodeIds ?? [];
 		if (contextIds.length === 0) return opts.task;
 		const parts: string[] = ["## Context from prior episodes (injected by the orchestrator)", ""];
 		for (const id of contextIds) {
 			const episode = this.store.episodes.get(id);
 			if (!episode) throw new Error(`Unknown episode "${id}". Known: ${[...this.store.episodes.keys()].join(", ") || "none"}`);
-			parts.push(readFileSync(episode.file, "utf8").trim(), "");
+			const file = resolveEpisodeFile(cwd, episode.file);
+			if (file === undefined) throw new Error(`Episode "${id}" is no longer a safe readable slate episode file.`);
+			parts.push(readFileSync(file, "utf8").trim(), "");
 		}
 		parts.push("## Action", "", opts.task);
 		return parts.join("\n");
@@ -713,6 +716,7 @@ export class ThreadManager {
 		opts: DispatchOptions,
 		plan: RoutePlanProceed,
 		session: WorkerSession,
+		cwd: string,
 	): ThreadChoiceVerdict {
 		const now = Date.now();
 		const today = new Date(now).toISOString().slice(0, 10);
@@ -760,7 +764,9 @@ export class ThreadManager {
 			for (const id of opts.freshContext ?? []) {
 				const episode = this.store.episodes.get(id);
 				if (episode === undefined) throw new Error("episode disappeared after validation");
-				episodeTokens += this.estimatedTokens(readFileSync(episode.file, "utf8"));
+				const file = resolveEpisodeFile(cwd, episode.file);
+				if (file === undefined) throw new Error("episode file became unsafe after validation");
+				episodeTokens += this.estimatedTokens(readFileSync(file, "utf8"));
 			}
 		} catch {
 			episodeTokens = undefined;
@@ -1201,7 +1207,7 @@ export class ThreadManager {
 				`Slate cannot dispatch thread ${sanitizeForNotify(thread.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
 			);
 		}
-		const prompt = this.buildPrompt(opts); // may throw on unknown episode ids (before any state change)
+		const prompt = this.buildPrompt(opts, ctx.cwd); // may throw on unknown episode ids (before any state change)
 		await this.semaphore.acquire();
 		try {
 			return await this.runDispatchInner(thread, opts, prompt, nextEpisodeId, ctx, signal, onProgress);
@@ -1388,7 +1394,7 @@ export class ThreadManager {
 				if (policy.report || policy.act) {
 					// This method runs inside the promise chained to this thread's predecessor.
 					// The predecessor has therefore saved its episode before this read of episodeIds.
-					const plannedChoice = this.planChoice(thread, opts, applied, session);
+					const plannedChoice = this.planChoice(thread, opts, applied, session, ctx.cwd);
 					if (policy.report) choice = plannedChoice;
 					// Only the economic fresh verdict may move work. Every refusal and every
 					// uncertainty stays on the source thread, including an empty allowance.
@@ -1421,7 +1427,7 @@ export class ThreadManager {
 							successor = this.createThread(restartOpts, applied, thread);
 							const successorEpisodeId = nextSlateEpisodeId(successor.id, successor.episodeSeq);
 							if (successorEpisodeId === undefined) throw new Error("the successor could not form an episode id");
-							const successorPrompt = this.buildPrompt(restartOpts);
+							const successorPrompt = this.buildPrompt(restartOpts, ctx.cwd);
 							const restartRun = this.runDispatchInner(
 								successor,
 								restartOpts,

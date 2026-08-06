@@ -9,8 +9,9 @@
  * on restore.
  */
 
-import { existsSync } from "node:fs";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, relative, sep } from "node:path";
+import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 // TYPE-ONLY: the effort vocabulary is defined once, in the profile table
 // (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
 // union. The import is erased at load time. State restoration therefore keeps
@@ -479,6 +480,25 @@ function tokenQuantity(value: unknown): number | undefined {
 }
 function moneyAmount(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/** Resolve a regular episode file only when its real path stays inside slate's episode directory. */
+export function resolveEpisodeFile(cwd: string, value: unknown): string | undefined {
+	if (typeof value !== "string" || value === "") return undefined;
+	try {
+		const expectedRoot = join(realpathSync(cwd), CONFIG_DIR_NAME, "slate", "episodes");
+		const root = realpathSync(expectedRoot);
+		if (root !== expectedRoot || !statSync(root).isDirectory()) return undefined;
+		const file = realpathSync(value);
+		if (!statSync(file).isFile()) return undefined;
+		const inside = relative(root, file);
+		if (inside === "" || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
+			return undefined;
+		}
+		return file;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Validate the complete observation record, including its exact canonical reference. */
@@ -980,11 +1000,13 @@ export class SlateStore {
 				dropped.push(`episode record without a usable id, thread id or file: ${typeof raw === "object" ? "ignored" : typeof raw}`);
 				continue;
 			}
-			if (!existsSync(e.file)) {
-				dropped.push(`episode ${e.id}: missing ${e.file}`);
+			const safeFile = resolveEpisodeFile(ctx.cwd, e.file);
+			if (safeFile === undefined) {
+				dropped.push(`episode ${e.id}: file is missing, non-regular, or outside slate's episode directory`);
 				continue;
 			}
 			if (!this.threads.has(e.threadId)) continue;
+			e.file = safeFile;
 			this.episodes.set(e.id, e);
 		}
 		// Prune episode ids that did not survive.

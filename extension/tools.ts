@@ -10,6 +10,7 @@ import {
 	displayThreadType,
 	isThreadType,
 	parseThreadType,
+	resolveEpisodeFile,
 	threadTypeMarker,
 	THREAD_TYPE_GLOSSES,
 	THREAD_TYPES,
@@ -334,14 +335,16 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		parameters: Type.Object({
 			id: Type.String({ description: "Episode id, e.g. \"t1.e2\"" }),
 		}),
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const episode = store.episodes.get(params.id);
 			if (!episode) {
 				const known = [...store.episodes.keys()].join(", ") || "none";
 				throw new Error(`Unknown episode "${params.id}". Known episodes: ${known}`);
 			}
+			const file = resolveEpisodeFile(ctx.cwd, episode.file);
+			if (file === undefined) throw new Error(`Episode "${params.id}" is no longer a safe readable slate episode file.`);
 			return {
-				content: [{ type: "text", text: readFileSync(episode.file, "utf8") }],
+				content: [{ type: "text", text: readFileSync(file, "utf8") }],
 				details: { id: episode.id, threadId: episode.threadId, status: episode.status },
 			};
 		},
