@@ -728,7 +728,7 @@ function priceDiffers(shipped: number, registry: number): boolean {
 }
 
 interface PriceDifference {
-	field: "input" | "output";
+	field: "input" | "output" | "cache read" | "cache write";
 	shipped: number;
 	registry: number;
 }
@@ -772,12 +772,27 @@ function priceDivergenceWarning(
 		) {
 			differences.push({ field: "output", shipped: row.outUsdPerMTok, registry: registry.output });
 		}
+		if (
+			isValidPrice(row.cachedInUsdPerMTok) &&
+			isValidPrice(registry.cacheRead) &&
+			priceDiffers(row.cachedInUsdPerMTok, registry.cacheRead)
+		) {
+			differences.push({ field: "cache read", shipped: row.cachedInUsdPerMTok, registry: registry.cacheRead });
+		}
+		const shippedCacheWrite = row.cacheWriteUsdPerMTok ?? row.cacheWrite5mUsdPerMTok;
+		if (
+			isValidPrice(shippedCacheWrite) &&
+			isValidPrice(registry.cacheWrite) &&
+			priceDiffers(shippedCacheWrite, registry.cacheWrite)
+		) {
+			differences.push({ field: "cache write", shipped: shippedCacheWrite, registry: registry.cacheWrite });
+		}
 		if (differences.length === 0) return undefined;
 		const label = sanitizeForNotify(spec, 80);
 		const exactWarning =
 			`slate: model router: exact live registry pricing for ${label} differs from the shipped profile row for ${today}. ` +
 			`Profile asOf ${routerProfileText(String(candidate.profile.asOf ?? "unknown"), 20)}. ` +
-			`${differences.map((difference) => `${difference.field === "input" ? "Input" : "Output"}: shipped $${difference.shipped} and registry $${difference.registry} per million tokens.`).join(" ")} ` +
+			`${differences.map((difference) => `${difference.field.replace(/^./, (initial) => initial.toUpperCase())}: shipped $${difference.shipped} and registry $${difference.registry} per million tokens.`).join(" ")} ` +
 			"Candidate ordering still uses shipped prices.";
 		try {
 			resolution.warnOnce?.(
