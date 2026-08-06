@@ -48,13 +48,18 @@ export function isThreadType(value: unknown): value is ThreadType {
 	return typeof value === "string" && (THREAD_TYPES as readonly string[]).includes(value);
 }
 
+/** Return the generated ordinal only for the exact canonical thread-id grammar. */
+function canonicalThreadOrdinal(value: unknown): number | undefined {
+	if (typeof value !== "string") return undefined;
+	const match = /^t([1-9]\d*)$/.exec(value);
+	if (match === null) return undefined;
+	const ordinal = Number(match[1]);
+	return Number.isSafeInteger(ordinal) && ordinal >= 1 && value === `t${ordinal}` ? ordinal : undefined;
+}
+
 /** Generated thread ids are exactly t followed by one canonical positive safe integer. */
 export function isCanonicalThreadId(value: unknown): value is string {
-	if (typeof value !== "string") return false;
-	const match = /^t([1-9]\d*)$/.exec(value);
-	if (match === null) return false;
-	const ordinal = Number(match[1]);
-	return Number.isSafeInteger(ordinal) && ordinal >= 1 && value === `t${ordinal}`;
+	return canonicalThreadOrdinal(value) !== undefined;
 }
 
 /** Render a primary thread id without allowing legacy punctuation to forge surrounding structure. */
@@ -900,8 +905,8 @@ export class SlateStore {
 	nextThreadId(): string {
 		let max = this.threadSeq;
 		for (const id of this.threads.keys()) {
-			const m = /^t(\d+)$/.exec(id);
-			if (m) max = Math.max(max, Number(m[1]));
+			const ordinal = canonicalThreadOrdinal(id);
+			if (ordinal !== undefined) max = Math.max(max, ordinal);
 		}
 		return `t${max + 1}`;
 	}
@@ -997,6 +1002,10 @@ export class SlateStore {
 				continue;
 			}
 			this.threads.set(t.id, t);
+			// Old snapshots have no persisted counter. Derive its floor from every
+			// surviving generated id before any new thread can claim an ordinal.
+			const ordinal = canonicalThreadOrdinal(t.id);
+			if (ordinal !== undefined) this.threadSeq = Math.max(this.threadSeq, ordinal);
 		}
 		// A dangling successor would permanently reject the source thread. Repair it
 		// only after every surviving thread is known, since this is a cross-record rule.
