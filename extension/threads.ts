@@ -1429,7 +1429,10 @@ export class ThreadManager {
 			if (!thread.sessionFile && session?.sessionFile && existsSync(session.sessionFile)) {
 				thread.sessionFile = session.sessionFile;
 			}
-			this.store.workerCostUsd += usage.cost + (error instanceof EpisodePersistenceError ? (error.costUsd ?? 0) : 0);
+			this.store.workerCostUsd +=
+				usage.cost +
+				(error instanceof EpisodePersistenceError ? (error.costUsd ?? 0) : 0) +
+				(compactionCostUsd ?? 0);
 			thread.status = "idle";
 			thread.updatedAt = Date.now();
 			try {

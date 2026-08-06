@@ -56,6 +56,11 @@ const session = {
     return () => subscribers.delete(listener);
   },
   prompt: async () => {
+    const compaction = {
+      type: "compaction_end",
+      result: { usage: { input: 3, output: 2, cost: { total: 0.5 } } },
+    };
+    for (const listener of subscribers) listener(compaction);
     const message = {
       role: "assistant",
       stopReason: "stop",
@@ -111,7 +116,7 @@ await assert.rejects(
 const thread = store.threads.get("t1");
 assert.equal(thread?.status, "idle");
 assert.equal(thread?.sessionFile, sessionFile);
-assert.equal(store.workerCostUsd, 2, "worker and compressor costs are each added once");
+assert.equal(store.workerCostUsd, 2.5, "worker, compressor, and compaction costs are each added once");
 assert.ok(saves >= 2, "dispatch state is saved");
 assert.equal(recoverySaves, 1, "episode-persistence recovery is saved exactly once");
 assert.equal(store.episodes.size, 0);
