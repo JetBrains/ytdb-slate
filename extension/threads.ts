@@ -1378,14 +1378,10 @@ export class ThreadManager {
 			// APPLY FIRST, then record what was decided. Everything above this line can
 			// still abort the dispatch unbilled, and an abort discards the warnings — so
 			// nothing that MARKS a notice as delivered may run before the notice can
-			// actually be delivered (BG17: the long-context memory was being consumed by a
-			// dispatch that then aborted, silencing the warning for the rest of the
-			// session). Past applyRoute the dispatch always ends in an episode and a result.
+			// actually be delivered (BG17). The restart decision below is the remaining
+			// unbilled exit, so notice memory waits until that decision settles.
 			await this.applyRoute(session, plan, thread, ctx, signal, routeWarn, baseline);
 			for (const message of applied.warnings) routeWarn(message);
-			// Guard 6's memory is this side's (route.ts is pure): record the pair the plan
-			// just warned about, so the next action on it stays quiet.
-			if (applied.longContextWarned !== undefined) this.noteLongContext(thread.id, applied.longContextWarned);
 			// Same division of labour for a SEEDED base: the planner decided it (purely),
 			// this side writes it down — after the apply, for the same reason as above.
 			this.persistReseededBase(thread, applied);
@@ -1475,6 +1471,9 @@ export class ThreadManager {
 					}
 				}
 			}
+			// A restart can still roll back unbilled above. Consume the source notice only
+			// when its action continues and can deliver that notice with its result.
+			if (applied.longContextWarned !== undefined) this.noteLongContext(thread.id, applied.longContextWarned);
 			if (applied.warnings.length > 0) emit(false);
 
 			messagesBefore = session.messages.length;
