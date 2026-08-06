@@ -25,6 +25,10 @@ export const codingAgentStub = {
 };
 export const getAgentDir = (...args) => codingAgentStub.getAgentDir(...args);
 export const shouldCompact = (...args) => codingAgentStub.shouldCompact(...args);
+export const estimateTokens = (message) => {
+  const content = typeof message?.content === "string" ? message.content : JSON.stringify(message?.content ?? "");
+  return Math.ceil(Buffer.byteLength(content, "utf8") / 4);
+};
 export const convertToLlm = (...args) => codingAgentStub.convertToLlm(...args);
 export const serializeConversation = (...args) => codingAgentStub.serializeConversation(...args);
 export const createAgentSession = (...args) => codingAgentStub.createAgentSession(...args);
