@@ -107,10 +107,10 @@ import {
 import type { BaseModelTracker } from "./base-model.ts";
 import { compressEpisode, EpisodePersistenceError } from "./episodes.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
-import type { ThinkingLevel } from "./model-profiles.ts";
+import { findProfile, type ThinkingLevel } from "./model-profiles.ts";
 import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture, type ObservationRecord } from "./observations.ts";
 import { nextSlateEpisodeId } from "./slate-files.ts";
-import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
+import { coveringPriceRow, ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
 	captureSessionBaseline,
@@ -132,6 +132,7 @@ import {
 	isModelSpec,
 	isThreadType,
 	parseThreadType,
+	sanitizeThreadChoiceConfig,
 	splitModelSpec,
 	type EpisodeRecord,
 	type EpisodeUsage,
@@ -140,6 +141,7 @@ import {
 	type ThreadRecord,
 	type ThreadType,
 } from "./state.ts";
+import { planThreadChoice, type ThreadChoiceVerdict } from "./thread-choice.ts";
 import { DEFAULT_WORKER_TOOLS, isJudgementThreadType, openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 
@@ -212,6 +214,8 @@ export interface DispatchResult {
 	episode: EpisodeRecord;
 	thread: ThreadRecord;
 	usage: UsageStats;
+	/** Reporting-only thread choice for this continuation. It never changes dispatch placement. */
+	choice?: ThreadChoiceVerdict;
 	/** Routing notices for THIS action (evidence gaps, window substitutions, billing cliffs). */
 	warnings: readonly string[];
 }
@@ -327,6 +331,8 @@ export class ThreadManager {
 	private resolveRouter: () => ModelRouterResolution;
 	/** Orchestrator base model used only by the episode compressor's last-resort rung. */
 	private baseModelTracker?: BaseModelTracker;
+	/** Sanitized once when the first continuation reaches thread-choice reporting. */
+	private choiceConfig?: ReturnType<typeof sanitizeThreadChoiceConfig>;
 
 	constructor(
 		store: SlateStore,
@@ -562,6 +568,99 @@ export class ThreadManager {
 		} catch {
 			return ROUTER_OFF;
 		}
+	}
+
+	private threadChoiceConfig(warn: (message: string) => void): ReturnType<typeof sanitizeThreadChoiceConfig> {
+		this.choiceConfig ??= sanitizeThreadChoiceConfig(this.config.threadChoice, warn);
+		return this.choiceConfig;
+	}
+
+	/** Four bytes per token is the planner's shared approximation for text that no provider measured. */
+	private estimatedTokens(text: string): number {
+		return Math.ceil(Buffer.byteLength(text, "utf8") / 4);
+	}
+
+	/** Build and run the pure choice planner from evidence available inside this thread's queue slot. */
+	private planChoice(
+		thread: ThreadRecord,
+		opts: DispatchOptions,
+		plan: RoutePlanProceed,
+		session: WorkerSession,
+	): ThreadChoiceVerdict {
+		const now = Date.now();
+		const today = new Date(now).toISOString().slice(0, 10);
+		const lastId = thread.episodeIds.at(-1);
+		const last = lastId === undefined ? undefined : this.store.episodes.get(lastId);
+		const model = session.model ? `${session.model.provider}/${session.model.id}` : plan.model;
+		const effort = this.sessionEffort(session) ?? plan.effort;
+		const profile = model === undefined ? undefined : findProfile(model);
+		const row = profile === undefined ? undefined : coveringPriceRow(profile, today);
+		const evidenceIsCurrent = (date: string | undefined): boolean => {
+			if (date === undefined) return false;
+			const then = Date.parse(`${date}T00:00:00Z`);
+			const age = now - then;
+			return Number.isFinite(then) && age >= 0 && age <= 90 * 24 * 60 * 60 * 1000;
+		};
+		const retention = profile?.cacheRetention;
+		const documentedSeconds =
+			retention && evidenceIsCurrent(retention.documented.retrieved)
+				? retention.documented.retentionSeconds
+				: undefined;
+		const measuredWarmSeconds =
+			retention?.measured && evidenceIsCurrent(retention.measured.observedOn)
+				? Math.max(0, ...retention.measured.warm.map((probe) => probe.afterSeconds))
+				: undefined;
+		let freshSeedTokens: number | undefined;
+		try {
+			const definitions = session.getActiveToolNames().map((name) => session.getToolDefinition(name));
+			freshSeedTokens = this.estimatedTokens(`${session.systemPrompt}\n${JSON.stringify(definitions)}`);
+		} catch {
+			freshSeedTokens = undefined;
+		}
+		let episodeTokens: number | undefined = 0;
+		try {
+			for (const id of opts.freshContextEpisodeIds ?? []) {
+				const episode = this.store.episodes.get(id);
+				if (episode === undefined) throw new Error("episode disappeared after validation");
+				episodeTokens += this.estimatedTokens(readFileSync(episode.file, "utf8"));
+			}
+		} catch {
+			episodeTokens = undefined;
+		}
+		return planThreadChoice({
+			now,
+			thread,
+			...(last !== undefined ? { last } : {}),
+			action: { model, effort },
+			...(documentedSeconds !== undefined || measuredWarmSeconds !== undefined
+				? { retention: { documentedSeconds, measuredWarmSeconds } }
+				: {}),
+			...(row !== undefined
+				? {
+						rates: {
+							inUsdPerMTok: row.inUsdPerMTok,
+							outUsdPerMTok: row.outUsdPerMTok,
+							cachedInUsdPerMTok: row.cachedInUsdPerMTok,
+							cacheWriteUsdPerMTok: row.cacheWriteUsdPerMTok ?? row.cacheWrite5mUsdPerMTok,
+						},
+					}
+				: {}),
+			...(profile !== undefined
+				? {
+						longContext: {
+							threshold: profile.longContextThreshold,
+							multipliers: profile.longContextMultipliers,
+						},
+					}
+				: {}),
+			sizes: {
+				freshSeedTokens,
+				episodeTokens,
+				taskTokens: this.estimatedTokens(opts.task),
+			},
+			allowance: opts.freshContextEpisodeIds,
+			knownEpisodeIds: [...this.store.episodes.keys()],
+		});
 	}
 
 	/**
@@ -1006,6 +1105,8 @@ export class ThreadManager {
 		let diagnostics: string | undefined;
 		/** The authoritative route for this action (apply-time plan); undefined if we never got that far. */
 		let plan: RoutePlanProceed | undefined;
+		/** Reporting-only verdict for a continuation. It never controls this dispatch. */
+		let choice: ThreadChoiceVerdict | undefined;
 		/** Set ONLY by an apply-time rejection: end the dispatch with no episode and no compression. */
 		let aborted: DispatchAbort | undefined;
 		const warnings: string[] = [];
@@ -1135,6 +1236,11 @@ export class ThreadManager {
 			// Same division of labour for a SEEDED base: the planner decided it (purely),
 			// this side writes it down — after the apply, for the same reason as above.
 			this.persistReseededBase(thread, applied);
+			if (opts.threadId !== undefined && this.threadChoiceConfig(routeWarn).report) {
+				// This method runs inside the promise chained to this thread's predecessor.
+				// The predecessor has therefore saved its episode before this read of episodeIds.
+				choice = this.planChoice(thread, opts, applied, session);
+			}
 			if (applied.warnings.length > 0) emit(false);
 
 			messagesBefore = session.messages.length;
@@ -1528,7 +1634,7 @@ export class ThreadManager {
 
 		emit(true, status);
 
-		return { episodeText: compressed.text, episode, thread, usage, warnings };
+		return { episodeText: compressed.text, episode, thread, usage, ...(choice !== undefined ? { choice } : {}), warnings };
 	}
 
 	disposeAll(): void {

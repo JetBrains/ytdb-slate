@@ -17,7 +17,7 @@ import {
 	type EpisodeUsage,
 	type SlateStore,
 } from "./state.ts";
-import { MAX_FRESH_CONTEXT_EPISODES, type DispatchProgress, type ThreadManager } from "./threads.ts";
+import { MAX_FRESH_CONTEXT_EPISODES, type DispatchProgress, type DispatchResult, type ThreadManager } from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
 
 const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
@@ -31,6 +31,20 @@ const FRESH_CONTEXT_PARAMETER_DESCRIPTION =
 	"Required on continuations: episodes a fresh thread would need. Omit on creation.";
 
 const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+
+function choicePrice(value: number | undefined): string {
+	if (value === undefined) return "unpriced";
+	return `$${value < 0.01 ? value.toFixed(6) : value.toFixed(4)}`;
+}
+
+/** One self-contained line for the orchestrator's thread-placement decision. */
+export function threadChoiceLine(choice: NonNullable<DispatchResult["choice"]>): string {
+	const estimate = "estimate" in choice ? choice.estimate : undefined;
+	return (
+		`Choice: ${choice.kind.toUpperCase()} | continue ${choicePrice(estimate?.continuation.usd)} | ` +
+		`fresh ${choicePrice(estimate?.fresh.usd)} | ${choice.reason.replace(/\s+/g, " ").trim()}`
+	);
+}
 
 /** Render recorded costs and usage without turning an unreported quantity into zero. */
 function dispatchCostLine(episode: EpisodeRecord): string {
@@ -178,8 +192,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			// dispatch should ask for, so they ride in the tool result above the episode.
 			const notices = result.warnings.length > 0 ? `${result.warnings.map((w) => `⚠ ${w}`).join("\n")}\n\n` : "";
 			const cost = dispatchCostLine(result.episode);
+			const choice = result.choice === undefined ? "" : `\n${threadChoiceLine(result.choice)}`;
 			return {
-				content: [{ type: "text", text: `${headline}\n${cost}\n\n${notices}${result.episodeText}` }],
+				content: [{ type: "text", text: `${headline}\n${cost}${choice}\n\n${notices}${result.episodeText}` }],
 				details: {
 					threadId: result.thread.id,
 					threadName: result.thread.name,
@@ -194,6 +209,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					ranModel: result.episode.model,
 					ranEffort: result.episode.effort,
 					ranEffortUnmeasured: result.episode.effortUnmeasured,
+					choice: result.choice,
 					warnings: result.warnings,
 					usage: result.usage,
 					done: true,
