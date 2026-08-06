@@ -16,7 +16,7 @@
  * and the kind is the whole instruction to the caller:
  *
  *   continue — run the action on the existing thread.
- *   fresh    — open a new thread and seed it with the named episodes.
+ *   fresh    — open a new thread and seed it with the allowance episodes.
  *   abstain  — the inputs cannot support a decision. The caller decides, and it
  *              must not read an abstention as either answer.
  *   refused  — a RULE forbids a fresh thread, whatever the economics say. The
@@ -28,10 +28,11 @@
  *
  * THE ORDER OF DECISION, and the order is load-bearing:
  *
- *   1. UNUSABLE INPUT — no action at all, or a named episode that cannot be
+ *   1. UNUSABLE INPUT — no action at all, or an allowance episode that cannot be
  *      checked because no episode index was supplied. Abstain.
  *   2. REFUSALS. They outrank every later step, because no price makes a
- *      forbidden thread permissible.
+ *      forbidden thread permissible. THE ALLOWANCE IS THE FIRST OF THEM: a
+ *      dispatch with no consent to move is settled before anything is measured.
  *   3. NO SOURCE THREAD — there is nothing to continue, so the answer is fresh
  *      and no arithmetic is needed.
  *   4. WARMTH — measured, never assumed (see classifyPrefixWarmth).
@@ -73,11 +74,42 @@
  * the arithmetic continues. Where continuation cannot be priced at all, this
  * module abstains rather than guessing in either direction.
  *
+ * TWO PARTIES DECIDE A THREAD CHOICE, AND NEITHER OVERRIDES THE OTHER.
+ *
+ * This module makes the ECONOMIC judgement: which option costs less over the
+ * whole work stream. The orchestrator makes the QUALITY judgement: whether the
+ * action still succeeds on compressed episodes instead of a live transcript.
+ * Only the orchestrator can make that one, because only it knows the work.
+ *
+ * THE ALLOWANCE is how the orchestrator states its half. On a dispatch that
+ * continues an existing thread, the caller supplies the episode identifiers a
+ * fresh thread would work from. That list is explicit CONSENT to run the action
+ * somewhere other than the named thread, and it is also the seed the fresh
+ * thread would carry. Three states, and all three are distinct:
+ *
+ *   · a NON-EMPTY list — consent, plus the episodes that carry the work.
+ *   · an EMPTY list — an explicit refusal. The action stays in its thread.
+ *   · an ABSENT list — no consent was expressed, which is not consent.
+ *
+ * The last two REFUSE a fresh thread, and that refusal outranks every cost
+ * comparison. A cheaper fresh thread that loses the context the action needs is
+ * not cheaper, it is a failed action at a discount. So the arithmetic below is
+ * never reached in those two states, and no estimate can reverse them.
+ *
+ * THE ALLOWANCE AND THE TOOL ALLOWLIST ANSWER DIFFERENT QUESTIONS, and their
+ * refusals must never read alike. The allowance answers "did you permit this
+ * move?". The stored worker tool allowlist answers "could a replacement thread
+ * even be equipped like the original?". A person reading a refusal has to know
+ * which of the two happened, so every allowance reason names the permission and
+ * every tool reason names the equipment, in those words.
+ *
  * WHAT THIS MODULE DOES NOT DECIDE. Thread separation is a semantic boundary
- * before it is a cost choice: an action that begins a NEW work stream belongs
- * in a new thread whatever the arithmetic says, and that judgement stays with
- * the orchestrator, which is the only party that knows the work. A caller
- * expressing that judgement passes no source thread, and step 3 answers fresh.
+ * before it is a cost choice, and that judgement also stays with the
+ * orchestrator. A caller expressing it passes NO source thread, and step 3
+ * answers fresh with no arithmetic. That is a definition rather than a policy: a
+ * dispatch that names no thread IS a new work stream, so there is no existing
+ * prefix, no cache to weigh and nothing to compare. An extra flag for the same
+ * fact would add a second way to say it, and the two could then disagree.
  */
 
 import type { ThinkingLevel } from "./model-profiles.ts";
@@ -179,8 +211,6 @@ export interface ThreadChoiceAction {
 	 * resolves to DEFAULT_EXPECTED_TURNS, which continues under the two-turn guard.
 	 */
 	expectedTurns?: number;
-	/** Episode ids a fresh thread would be seeded with. */
-	contextEpisodeIds?: readonly string[];
 }
 
 /**
@@ -211,8 +241,8 @@ export interface ThreadChoiceSizes {
 	 */
 	freshSeedTokens?: number;
 	/**
-	 * Tokens the named episodes add to a fresh thread's prefix. Absent abstains
-	 * when the action names episodes, because a fresh arm priced without them is
+	 * Tokens the allowance episodes add to a fresh thread's prefix. Absent abstains
+	 * when the allowance names episodes, because a fresh arm priced without them is
 	 * understated, and understating the fresh arm destroys warm threads.
 	 */
 	episodeTokens?: number;
@@ -255,7 +285,22 @@ export interface ThreadChoiceInput {
 	/** Token sizes of the two arms. */
 	sizes?: ThreadChoiceSizes;
 	/**
-	 * Every episode id the store holds. Absent abstains when the action names any
+	 * THE FRESH-THREAD ALLOWANCE: the episode ids the CALLER supplied for this
+	 * dispatch. It is the orchestrator's consent to move the action out of the named
+	 * thread, and it is the seed a fresh thread would carry. All three states matter
+	 * and none is a default for another (see THE ALLOWANCE in the module header):
+	 *
+	 *   · a non-empty list — consent, and the episodes that carry the work.
+	 *   · an empty list — an explicit refusal of a fresh thread.
+	 *   · absent — no consent was expressed, which this module never reads as
+	 *     consent. A malformed value reads as absent for the same reason.
+	 *
+	 * Both refusing states are answered before any cost is computed, so no estimate
+	 * can override them.
+	 */
+	allowance?: readonly string[];
+	/**
+	 * Every episode id the store holds. Absent abstains when the allowance names any
 	 * episode, because a seed that cannot be checked cannot be approved.
 	 */
 	knownEpisodeIds?: readonly string[];
@@ -330,6 +375,8 @@ export type ThreadChoiceAbstainCode =
 	| "episode-size-unknown"
 	| "fresh-size-unknown";
 export type ThreadChoiceRefusedCode =
+	| "allowance-absent"
+	| "allowance-empty"
 	| "episode-missing"
 	| "tool-allowance-unrecorded"
 	| "tool-allowance-empty"
@@ -758,16 +805,58 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 	}
 	const thread = input.thread && typeof input.thread === "object" ? input.thread : undefined;
 	const threadId = thread ? shown(specValue(thread.id) ?? "an unnamed thread") : undefined;
-	const named = stringList(action.contextEpisodeIds) ?? [];
+	// The allowance is read once, and a malformed value reads as ABSENT rather than as
+	// an empty list. Both states refuse, so the distinction costs nothing here, and
+	// reading a wrong-typed value as consent would cost everything.
+	const allowance = stringList(input.allowance);
 
 	// STEP 2 — THE REFUSALS. They come before the arithmetic because no price makes
 	// a forbidden thread permissible, and before the warmth measurement because a
 	// refusal needs no cache evidence at all.
 	//
-	// The episode rule is UNCONDITIONAL: a fresh thread is seeded from the named
-	// episodes, so a name that does not resolve would open a thread missing the
-	// context the action was planned around. That is worse than a slow dispatch,
-	// and it is the caller's request to correct.
+	// THE ALLOWANCE COMES FIRST. It is the orchestrator's consent to move this action
+	// out of its thread, and it is a QUALITY judgement this module cannot make: only
+	// the caller knows whether the action survives on compressed episodes instead of
+	// the live transcript. An absent or empty allowance therefore settles the dispatch
+	// before a single token is priced, and the arithmetic below is unreachable from
+	// here. A cheaper fresh thread that loses the context the action needs is not
+	// cheaper. It is a failed action at a discount.
+	//
+	// Both reasons say PERMISSION in as many words, because the tool-allowlist
+	// refusals further down are about EQUIPMENT, and a reader must not confuse the
+	// two.
+	if (thread && threadId !== undefined) {
+		if (allowance === undefined) {
+			return {
+				kind: "refused",
+				code: "allowance-absent",
+				reason:
+					"slate: a fresh thread is refused for a PERMISSION reason: this dispatch supplied no fresh-thread allowance, so " +
+					`the action stays in thread ${threadId}. The allowance is your own consent to move this action, and it names the ` +
+					"episodes a fresh thread would work from. Slate never reads a missing allowance as consent, and no cost estimate " +
+					"can overrule this. Supply the episode ids a fresh thread would need to make the move available.",
+				subject: threadId,
+			};
+		}
+		if (allowance.length === 0) {
+			return {
+				kind: "refused",
+				code: "allowance-empty",
+				reason:
+					"slate: a fresh thread is refused for a PERMISSION reason: the fresh-thread allowance for this dispatch is empty, " +
+					`which states that the action must stay in thread ${threadId}. An empty allowance is your explicit refusal of a ` +
+					"fresh thread, and slate honours it whatever the two options cost.",
+				subject: threadId,
+			};
+		}
+	}
+
+	// The episode-existence rule is UNCONDITIONAL, because it is about the fresh
+	// thread's own construction rather than about leaving a thread: an allowance name
+	// that does not resolve would open a thread missing the context the action was
+	// planned around. That is worse than a slow dispatch, and it is the caller's own
+	// request to correct.
+	const named = allowance ?? [];
 	const known = stringList(input.knownEpisodeIds);
 	if (named.length > 0) {
 		if (known === undefined) {
@@ -775,8 +864,8 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 				kind: "abstain",
 				code: "episode-index-unavailable",
 				reason:
-					"slate: the action names episodes to seed a fresh thread with, and slate received no episode index to check them " +
-					"against. A seed that cannot be checked cannot be approved.",
+					"slate: the fresh-thread allowance names episodes to seed a fresh thread with, and slate received no episode index " +
+					"to check them against. A seed that cannot be checked cannot be approved.",
 			};
 		}
 		const missing = named.filter((id) => !known.includes(id));
@@ -787,7 +876,7 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 				code: "episode-missing",
 				reason:
 					`slate: a fresh thread is refused because episode ${shown(first)} does not exist. ` +
-					`Named episodes seed a fresh thread, so slate will not open one around a missing episode. ` +
+					"The allowance episodes seed a fresh thread, so slate will not open one around a missing episode. " +
 					`Missing: ${missing.map(shown).join(", ")}.`,
 				subject: shown(first),
 			};
@@ -799,19 +888,23 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 		// The remaining refusals are about REPLACING this thread, so they apply only
 		// while a thread exists to replace.
 		//
-		// THE TOOL ALLOWANCE. A fresh thread has to reproduce the tool set the work
-		// already ran with. An UNRECORDED allowance is an older thread whose tools were
-		// never written down, so a replacement would silently adopt today's
-		// configuration default, which may differ. An EMPTY allowance grants no tools at
-		// all, so a replacement could not do the work. Neither is a value to guess.
+		// THE STORED WORKER TOOL ALLOWLIST is an EQUIPMENT question, and it is not the
+		// allowance above. A fresh thread has to reproduce the tool set the work already
+		// ran with. An UNRECORDED allowlist is an older thread whose tools were never
+		// written down, so a replacement would silently adopt today's configuration
+		// default, which may differ. An EMPTY allowlist grants no tools at all, so a
+		// replacement could not do the work. Neither is a value to guess, and neither is a
+		// statement about what the caller permitted.
 		const tools = stringList(thread.tools);
 		if (tools === undefined) {
 			return {
 				kind: "refused",
 				code: "tool-allowance-unrecorded",
 				reason:
-					`slate: a fresh thread is refused because thread ${threadId} records no worker tool allowlist. ` +
-					"A replacement would adopt today's configured default, which may differ from the tools this work has run with.",
+					`slate: a fresh thread is refused for an EQUIPMENT reason: thread ${threadId} records no worker tool allowlist, so ` +
+					"slate cannot equip a replacement thread the way this one was equipped. A replacement would adopt today's " +
+					"configured default, which may differ from the tools this work has run with. You permitted the move, and slate " +
+					"cannot carry it out.",
 				subject: threadId,
 			};
 		}
@@ -820,8 +913,8 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 				kind: "refused",
 				code: "tool-allowance-empty",
 				reason:
-					`slate: a fresh thread is refused because thread ${threadId}'s worker tool allowlist is empty. ` +
-					"A replacement thread would have no tools to work with.",
+					`slate: a fresh thread is refused for an EQUIPMENT reason: thread ${threadId}'s worker tool allowlist is empty, so a ` +
+					"replacement thread would have no tools to work with. You permitted the move, and slate cannot carry it out.",
 				subject: threadId,
 			};
 		}
@@ -842,14 +935,18 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 		}
 	}
 
-	// STEP 3 — nothing to continue. This is also how a caller expresses a NEW WORK
-	// STREAM: thread separation is a semantic judgement, it belongs to the
-	// orchestrator, and a caller that has made it passes no source thread.
+	// STEP 3 — nothing to continue, and no allowance is required for it: a dispatch
+	// that names NO thread is a new work stream by definition. There is no existing
+	// prefix, so no cache exists to weigh and there is nothing to consent to leaving.
+	// Thread separation stays the orchestrator's semantic judgement, and passing no
+	// source thread IS how a caller expresses it (module header).
 	if (!thread || threadId === undefined) {
 		return {
 			kind: "fresh",
 			code: "no-thread-to-continue",
-			reason: "slate: a fresh thread is the only option, because no existing thread was offered for this action.",
+			reason:
+				"slate: a fresh thread is the only option, because this dispatch named no existing thread. " +
+				"A dispatch with no thread starts a new work stream, so no cached prefix exists to weigh.",
 		};
 	}
 
@@ -924,7 +1021,7 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 			code: "episode-size-unknown",
 			reason:
 				"slate: slate cannot compare the two options, because the token size of " +
-				`${named.length === 1 ? "the named episode" : `the ${named.length} named episodes`} is unknown. ` +
+				`${named.length === 1 ? "the allowance episode" : `the ${named.length} allowance episodes`} is unknown. ` +
 				"A fresh thread priced without its seed episodes looks cheaper than it is.",
 			warmth,
 		};
@@ -990,7 +1087,7 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 		return {
 			kind: "fresh",
 			code: "fresh-cheaper",
-			reason: `slate: open a fresh thread seeded with the named episodes. ${comparison} ${warmth.reason}`,
+			reason: `slate: open a fresh thread seeded with the allowance episodes. ${comparison} ${warmth.reason}`,
 			warmth,
 			estimate,
 		};
