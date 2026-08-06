@@ -880,7 +880,7 @@ try {
 			["every isolated pending mutation leaves the snapshot equal", isolatedPendingResults.length === pendingKeys.length && isolatedPendingResults.every((result) => result.equal), isolatedPendingResults.filter((result) => !result.equal)],
 			["every runtime value was batch-mutated", automaticallyMutatedRuntime !== undefined && JSON.stringify(automaticallyMutatedRuntime) !== JSON.stringify(populatedRuntime), automaticallyMutatedRuntime],
 			["batch mutation changes no persisted value", baselineSnapshot !== undefined && JSON.stringify(mutatedRuntimeSnapshot) === JSON.stringify(baselineSnapshot), { baselineSnapshot, mutatedRuntimeSnapshot }],
-			["real snapshot exact top-level shape", exactSnapshotKeys === "carriedCostUsd,episodes,orchestratorMode,paused,threads,workerCostUsd", exactSnapshotKeys],
+			["real snapshot exact top-level shape", exactSnapshotKeys === "carriedCostUsd,episodes,orchestratorMode,paused,threadSeq,threads,workerCostUsd", exactSnapshotKeys],
 			["source shape also omits runtime object", snapshotType !== "" && snapshotMethod !== "" && adoptMethod !== "" && !/writingReminder/.test(snapshotType + snapshotMethod + adoptMethod), { snapshotType: snapshotType.length, snapshotMethod: snapshotMethod.length, adoptMethod: adoptMethod.length }],
 		]);
 
@@ -5495,21 +5495,21 @@ try {
 			// A well-formed record must come back BYTE-IDENTICAL. This is the term that stands
 			// between a user's history and an over-eager sanitizer.
 			const wellFormed = {
-				id: "t1",
+				id: "t2",
 				name: "impl",
 				sessionFile: "/tmp/x.jsonl",
 				status: "idle",
 				type: "reviewer",
-				restartOf: "t0",
+				restartOf: "t1",
 				restartGeneration: 1,
-				supersededBy: "t2",
+				supersededBy: "t3",
 				model: "p/pin",
 				baseModel: "p/base",
 				baseEffort: "medium",
 				cacheKeyShard: 1,
 				tools: ["read", "grep"],
 				choiceEvidenceStale: true,
-				episodeIds: ["t1.e1"],
+				episodeIds: ["t2.e1"],
 				episodeSeq: 1,
 				createdAt: 111,
 				updatedAt: 222,
