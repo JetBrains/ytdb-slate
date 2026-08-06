@@ -12,7 +12,6 @@ import {
   isSlateArtifactReference,
   SLATE_ARTIFACT_REFERENCE_MAX_BYTES,
   SlateWriteRefused,
-  removeSlateArtifact,
   writeSlateArtifact,
 } from "../extension/slate-files.ts";
 
@@ -384,6 +383,43 @@ test("failed-write cleanup preserves a competing replacement", (t) => {
   });
 });
 
+test("failed-write cleanup keeps its descriptor open through the unlink decision", (t) => {
+  withLab(({ project }) => {
+    const target = join(observationsDir(project), "t1.e1.md");
+    const originalClose = fs.closeSync;
+    const originalLstat = fs.lstatSync;
+    let closedIdentity: fs.Stats | undefined;
+    let competitorCreated = false;
+
+    t.mock.method(fs, "writeSync", (() => {
+      throw new Error("injected write failure");
+    }) as typeof fs.writeSync);
+    t.mock.method(fs, "closeSync", ((fd: number) => {
+      closedIdentity = fs.fstatSync(fd);
+      originalClose(fd);
+      rmSync(target, { force: true });
+      writeFileSync(target, "competitor created after close");
+      competitorCreated = true;
+    }) as typeof fs.closeSync);
+    t.mock.method(fs, "lstatSync", ((path: fs.PathLike, options?: unknown) => {
+      if (competitorCreated && String(path) === target) return closedIdentity;
+      return originalLstat(path, options as never);
+    }) as typeof fs.lstatSync);
+    syncBuiltinESMExports();
+    try {
+      assert.throws(
+        () => writeSlateArtifact({ cwd: project, kind: "observations", id: "t1.e1", content: "ours" }),
+        /injected write failure/,
+      );
+      assert.equal(competitorCreated, true);
+      assert.equal(readFileSync(target, "utf8"), "competitor created after close");
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+  });
+});
+
 test("replacement tolerates ENOENT after a concurrent unlink", (t) => {
   withLab(({ project }) => {
     mkdirSync(observationsDir(project), { recursive: true });
@@ -413,8 +449,28 @@ test("replacement tolerates ENOENT after a concurrent unlink", (t) => {
   });
 });
 
-test("two writers for the same id complete with last-writer-wins content", { timeout: 1000 }, async () => {
+// This bound detects deadlocks. Worker bootstrap and module import dominate it,
+// so it is not a write-performance contract.
+test("two writers for the same id complete with last-writer-wins content", { timeout: 30000 }, async (t) => {
   const { root, project } = lab();
+  const raceAbort = <T>(operation: Promise<T>): Promise<T> => new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(t.signal.reason ?? new Error("writer test aborted"));
+    if (t.signal.aborted) {
+      onAbort();
+      return;
+    }
+    t.signal.addEventListener("abort", onAbort, { once: true });
+    operation.then(
+      (value) => {
+        t.signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        t.signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
   const workers: Worker[] = [];
   const outcomes: Array<Promise<unknown>> = [];
   let view: Int32Array | undefined;
@@ -481,10 +537,10 @@ test("two writers for the same id complete with last-writer-wins content", { tim
       return { ready, result };
     };
     const writers = [run("writer-a"), run("writer-b")];
-    await Promise.all(writers.map((writer) => writer.ready));
+    await raceAbort(Promise.all(writers.map((writer) => writer.ready)));
     Atomics.store(view, 0, 1);
     Atomics.notify(view, 0, 2);
-    assert.deepEqual(await Promise.all(writers.map((writer) => writer.result)), ["ok", "ok"]);
+    assert.deepEqual(await raceAbort(Promise.all(writers.map((writer) => writer.result))), ["ok", "ok"]);
     assert.match(readFileSync(join(observationsDir(project), "t1.e1.md"), "utf8"), /^writer-[ab]$/);
   } finally {
     if (view) {
@@ -495,49 +551,6 @@ test("two writers for the same id complete with last-writer-wins content", { tim
     await Promise.all(outcomes);
     rmSync(root, { recursive: true, force: true });
   }
-});
-
-test("rollback removes only the file owned by the same write attempt", () => {
-  withLab(({ project }) => {
-    const first = writeSlateArtifact({ cwd: project, kind: "observations", id: "t1.e1", content: "first" });
-    const second = writeSlateArtifact({ cwd: project, kind: "observations", id: "t1.e1", content: "second" });
-
-    assert.equal(removeSlateArtifact({
-      cwd: project,
-      kind: "observations",
-      id: "t1.e1",
-      reference: first.reference,
-      identity: first.identity,
-    }), false);
-    assert.equal(readFileSync(second.absolutePath, "utf8"), "second");
-    assert.equal(removeSlateArtifact({
-      cwd: project,
-      kind: "observations",
-      id: "t1.e1",
-      reference: second.reference,
-      identity: second.identity,
-    }), true);
-    assert.equal(existsSync(second.absolutePath), false);
-  });
-});
-
-test("rollback refuses a changed artifact parent and leaves the outside file untouched", () => {
-  withLab(({ project, outside }) => {
-    const written = writeSlateArtifact({ cwd: project, kind: "observations", id: "t1.e1", content: "inside" });
-    const artifactDir = observationsDir(project);
-    rmSync(artifactDir, { recursive: true });
-    const decoy = join(outside, "observations");
-    mkdirSync(decoy);
-    const outsideFile = join(decoy, "t1.e1.md");
-    writeFileSync(outsideFile, "outside");
-    symlinkSync(decoy, artifactDir);
-
-    assert.throws(
-      () => removeSlateArtifact({ cwd: project, kind: "observations", id: "t1.e1", reference: written.reference, identity: written.identity }),
-      /artifact directory.*symbolic link/,
-    );
-    assert.equal(readFileSync(outsideFile, "utf8"), "outside");
-  });
 });
 
 test("an existing regular file is still overwritten in place of its name", () => {

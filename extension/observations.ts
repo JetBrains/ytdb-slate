@@ -8,7 +8,7 @@
  */
 
 import { sanitizeForNotify } from "./notify.ts";
-import { writeSlateArtifact, type SlateArtifactIdentity } from "./slate-files.ts";
+import { writeSlateArtifact } from "./slate-files.ts";
 
 // Worker responses are normally much smaller. This ceiling limits accidental
 // or hostile output while retaining enough exact prose for review findings.
@@ -41,13 +41,13 @@ export type ObservationRecord =
 		grammar: FindingsGrammarResult;
 	};
 
-/** Capture adds transient zero-findings, write ownership and warning facts. */
+/** Capture adds transient zero-findings and warning facts. */
 export type ObservationCapture =
-	| (Extract<ObservationRecord, { stored: true }> & { identity: SlateArtifactIdentity; zeroFindings: boolean })
+	| (Extract<ObservationRecord, { stored: true }> & { zeroFindings: boolean })
 	| Extract<ObservationRecord, { reason: "no-final-message" | "no-final-text" }>
 	| (Extract<ObservationRecord, { reason: "write-failed" }> & { zeroFindings: boolean; warning: string });
 
-/** Remove transient zero-findings, write ownership and warnings without changing durable facts. */
+/** Remove transient zero-findings and warnings without changing durable facts. */
 export function durableObservation(capture: ObservationCapture | ObservationRecord): ObservationRecord {
 	if (capture.stored) {
 		return {
@@ -139,7 +139,6 @@ export function captureObservation(cwd: string, episodeId: string, text: string 
 			bytes: bounded.content.byteLength,
 			truncated: bounded.truncated,
 			grammar,
-			identity: written.identity,
 			zeroFindings,
 		};
 	} catch {

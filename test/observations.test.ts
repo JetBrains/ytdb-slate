@@ -323,7 +323,6 @@ test("dispatch joins text around non-text blocks and distinguishes malformed war
     const observations = joined.episode.observations as { stored: boolean; path?: string; grammar?: string };
     assert.equal(observations.stored, true);
     assert.equal(observations.grammar, "present");
-    assert.equal("identity" in observations, false, "write ownership must not enter the durable episode record");
     assert.equal(readFileSync(join(root, observations.path ?? ""), "utf8"), "Review complete.\nBG1 | blocker | x.ts:1 | summary | counterexample");
     assert.equal(joined.warnings.some((warning) => warning.includes("findings row")), false);
 
@@ -467,10 +466,10 @@ test("dispatch routes observation and judgement warnings through results and pro
   }
 });
 
-test("episode persistence failure recovers after successful and failed observation rollback", { timeout: 5000 }, () => {
+test("episode persistence failure recovers with a retained or externally removed observation", { timeout: 5000 }, () => {
   const scratch = temporaryRoot();
   try {
-    for (const mode of ["success", "failure"] as const) {
+    for (const mode of ["retained", "removed"] as const) {
       const probeRoot = join(scratch, mode);
       const probe = spawnSync(
         process.execPath,
@@ -484,7 +483,7 @@ test("episode persistence failure recovers after successful and failed observati
           encoding: "utf8",
           timeout: 2000,
           killSignal: "SIGKILL",
-          env: { ...process.env, SLATE_PROBE_ROOT: probeRoot, SLATE_ROLLBACK_MODE: mode },
+          env: { ...process.env, SLATE_PROBE_ROOT: probeRoot, SLATE_OBSERVATION_MODE: mode },
         },
       );
       assert.equal(probe.error, undefined, `${mode} probe timed out or failed to start: ${probe.error?.message ?? "unknown error"}`);

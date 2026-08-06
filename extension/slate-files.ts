@@ -1,11 +1,11 @@
 /**
- * Shared writer and rollback helper for Slate episode and observation Markdown
- * artifacts. Other Slate state files have separate persistence paths.
+ * Shared writer for Slate episode and observation Markdown artifacts. Other
+ * Slate state files have separate persistence paths.
  *
- * Node has no portable directory-descriptor-relative open. The descriptor and
- * path identity checks before and after writing prevent Slate from accepting
- * content when the current path no longer names the opened file. They cannot
- * make every concurrent same-user directory change atomic.
+ * Node has no portable directory-descriptor-relative open. The writer compares
+ * the held descriptor with the current path before and after writing. A mismatch
+ * makes the attempt retry. Another writer can still replace the path after the
+ * final check, so these checks do not make same-user changes atomic.
  */
 
 import {
@@ -23,7 +23,6 @@ import { join } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import {
 	isSlateArtifactId,
-	isSlateArtifactReference,
 	slateArtifactReference,
 	type SlateArtifactKind,
 } from "./artifact-names.ts";
@@ -37,19 +36,11 @@ export {
 	type SlateArtifactKind,
 } from "./artifact-names.ts";
 
-/** Identity of the file created by one successful write attempt. */
-export interface SlateArtifactIdentity {
-	readonly dev: number;
-	readonly ino: number;
-}
-
 export interface SlateArtifactLocation {
 	/** Absolute path for runtime file access. */
 	absolutePath: string;
 	/** Stable project-relative reference for persisted metadata and prose. */
 	reference: string;
-	/** Transient identity used to limit rollback to this write attempt. */
-	identity: SlateArtifactIdentity;
 }
 
 const ARTIFACT_FILE_MODE = 0o666;
@@ -65,10 +56,10 @@ function refuse(message: string): never {
 	throw new SlateWriteRefused(message);
 }
 
-/** Verify one component, optionally creating it for a write. */
-function ensureRealDirectory(path: string, create: boolean): void {
+/** Verify one component, creating it when absent. */
+function ensureRealDirectory(path: string): void {
 	let entry = lstatSync(path, { throwIfNoEntry: false });
-	if (entry === undefined && create) {
+	if (entry === undefined) {
 		try {
 			mkdirSync(path);
 		} catch (error) {
@@ -80,13 +71,13 @@ function ensureRealDirectory(path: string, create: boolean): void {
 	if (!entry?.isDirectory()) refuse(`slate refused an artifact directory because that path is not a directory`);
 }
 
-/** Resolve and verify every artifact parent component. */
-function verifiedArtifactDirectory(cwd: string, kind: SlateArtifactKind, create: boolean): string {
+/** Create and verify every artifact parent component. */
+function ensureArtifactDirectory(cwd: string, kind: SlateArtifactKind): string {
 	const root = realpathSync(cwd);
 	let dir = root;
 	for (const component of [CONFIG_DIR_NAME, "slate", kind]) {
 		dir = join(dir, component);
-		ensureRealDirectory(dir, create);
+		ensureRealDirectory(dir);
 	}
 	if (realpathSync(dir) !== dir) refuse(`slate refused an artifact directory because its path changed`);
 	return dir;
@@ -112,7 +103,7 @@ function removeIfSame(file: string, held: ReturnType<typeof fstatSync>): void {
  * and existing hard links continue to name the old inode. This differs from an
  * in-place truncation, but avoids following links and retains last-writer-wins.
  */
-function writeFreshFile(dir: string, file: string, content: Buffer): SlateArtifactIdentity {
+function writeFreshFile(dir: string, file: string, content: Buffer): void {
 	for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
 		let fd: number;
 		try {
@@ -154,7 +145,7 @@ function writeFreshFile(dir: string, file: string, content: Buffer): SlateArtifa
 				removeIfSame(file, held);
 				continue;
 			}
-			return { dev: held.dev, ino: held.ino };
+			return;
 		} catch (error) {
 			// A failed write must never leave readable worker output that the durable
 			// record says was not stored. Do not unlink a competing replacement.
@@ -175,27 +166,8 @@ export function writeSlateArtifact(opts: {
 }): SlateArtifactLocation {
 	if (!isSlateArtifactId(opts.id)) refuse(`slate refused an invalid artifact id`);
 	const reference = slateArtifactReference(opts.kind, opts.id);
-	const dir = verifiedArtifactDirectory(opts.cwd, opts.kind, true);
+	const dir = ensureArtifactDirectory(opts.cwd, opts.kind);
 	const absolutePath = join(dir, `${opts.id}.md`);
-	const identity = writeFreshFile(dir, absolutePath, typeof opts.content === "string" ? Buffer.from(opts.content, "utf8") : opts.content);
-	return { absolutePath, reference, identity };
-}
-
-/** Best-effort removal for rollback. Invalid ids or references are refused. */
-export function removeSlateArtifact(opts: {
-	cwd: string;
-	kind: SlateArtifactKind;
-	id: string;
-	reference: string;
-	identity: SlateArtifactIdentity;
-}): boolean {
-	if (!isSlateArtifactReference(opts.reference, opts.kind, opts.id)) refuse(`slate refused an invalid artifact reference`);
-	const dir = verifiedArtifactDirectory(opts.cwd, opts.kind, false);
-	const absolutePath = join(dir, `${opts.id}.md`);
-	const entry = lstatSync(absolutePath, { throwIfNoEntry: false });
-	if (entry === undefined) return false;
-	if (entry.isSymbolicLink() || !entry.isFile()) refuse(`slate refused to remove a non-regular artifact`);
-	if (entry.dev !== opts.identity.dev || entry.ino !== opts.identity.ino) return false;
-	unlinkSync(absolutePath);
-	return true;
+	writeFreshFile(dir, absolutePath, typeof opts.content === "string" ? Buffer.from(opts.content, "utf8") : opts.content);
+	return { absolutePath, reference };
 }

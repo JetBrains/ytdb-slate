@@ -108,7 +108,7 @@ import { compressEpisode, EpisodePersistenceError } from "./episodes.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 import type { ThinkingLevel } from "./model-profiles.ts";
 import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture, type ObservationRecord } from "./observations.ts";
-import { nextSlateEpisodeId, removeSlateArtifact } from "./slate-files.ts";
+import { nextSlateEpisodeId } from "./slate-files.ts";
 import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
@@ -1242,9 +1242,9 @@ export class ThreadManager {
 		// The per-thread queue planned this id before any worker was opened. Advance
 		// the counter only when this attempted action reaches episode production.
 		thread.episodeSeq++;
-		// Capture before compression so the durable exact output exists even when
-		// compression fails. The returned union is the single source for the path,
-		// byte count, truncation fact and structural grammar result.
+		// Capture before compression so an episode-write failure does not itself
+		// remove the exact output. The returned union is the single source for the
+		// path, byte count, truncation fact and structural grammar result.
 		//
 		// BG6: this feature must NEVER fail a dispatch and never fail an episode, so
 		// EVERY step of it sits inside one guard — reading the final message,
@@ -1342,22 +1342,22 @@ export class ThreadManager {
 				signal: signal?.aborted ? undefined : signal,
 			});
 		} catch (error) {
-			// Compression includes the episode-file write. If that final write fails,
-			// roll back this attempt's earlier observation and persist every cost and
-			// recoverable session fact produced before the failure.
-			if (observation.stored && "identity" in observation) {
-				try {
-					removeSlateArtifact({
-						cwd: ctx.cwd,
-						kind: "observations",
-						id: episodeId,
-						reference: observation.path,
-						identity: observation.identity,
-					});
-				} catch {
-					/* rollback is best effort; no metadata is persisted for the orphan */
-				}
-			}
+			// Compression includes the episode-file write. If that write fails, the
+			// earlier observation normally becomes an unreferenced orphan. It remains
+			// until the user removes it. Persist every cost and recoverable session fact.
+			//
+			// A later session can reuse the id after snapshot repair drops a thread,
+			// snapshot repair rebuilds a stale episode counter, or the process exits
+			// before this increment is saved. A storing dispatch at that id overwrites
+			// the orphan through writeFreshFile's unlink-and-recreate path. Known accepted
+			// limitation: a non-storing dispatch (no-final-message, no-final-text or
+			// write-failed) leaves stale prose while its episode header says "not stored".
+			//
+			// Never add failure-time rollback or orphan sweeping. Measurements on ext4
+			// showed that inode reuse after unlink makes dev-plus-ino and strengthened
+			// timestamp identities delete a later live file. writeFreshFile replaces the
+			// canonical name only while storing the new artifact. Detached cleanup cannot
+			// prove ownership and must not delete that name.
 			if (!thread.sessionFile && session?.sessionFile && existsSync(session.sessionFile)) {
 				thread.sessionFile = session.sessionFile;
 			}

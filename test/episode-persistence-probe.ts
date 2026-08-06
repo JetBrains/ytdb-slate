@@ -6,19 +6,19 @@ import { SlateStore } from "../extension/state.ts";
 import { ThreadManager, type DispatchProgress } from "../extension/threads.ts";
 
 const root = process.env.SLATE_PROBE_ROOT;
-const rollbackMode = process.env.SLATE_ROLLBACK_MODE;
+const observationMode = process.env.SLATE_OBSERVATION_MODE;
 if (!root) throw new Error("SLATE_PROBE_ROOT is required");
-if (rollbackMode !== "success" && rollbackMode !== "failure") throw new Error("SLATE_ROLLBACK_MODE must be success or failure");
+if (observationMode !== "retained" && observationMode !== "removed") throw new Error("SLATE_OBSERVATION_MODE must be retained or removed");
 mkdirSync(root, { recursive: true });
 
 const compat = await import("@earendil-works/pi-ai/compat") as unknown as {
   piAiCompatStub: { complete: () => Promise<unknown> };
 };
 compat.piAiCompatStub.complete = async () => {
-  if (rollbackMode === "failure") {
+  if (observationMode === "removed") {
     const observations = join(root, ".pi", "slate", "observations");
     rmSync(observations, { recursive: true, force: true });
-    writeFileSync(observations, "rollback cannot traverse this file");
+    writeFileSync(observations, "compression fixture replaced this directory");
   }
   return {
     stopReason: "stop",
@@ -115,10 +115,17 @@ assert.equal(store.workerCostUsd, 2, "worker and compressor costs are each added
 assert.ok(saves >= 2, "dispatch state is saved");
 assert.equal(recoverySaves, 1, "episode-persistence recovery is saved exactly once");
 assert.equal(store.episodes.size, 0);
-assert.equal(existsSync(join(root, ".pi", "slate", "observations", "t1.e1.md")), false);
+const observationRetained = observationMode === "retained";
+assert.equal(
+  existsSync(join(root, ".pi", "slate", "observations", "t1.e1.md")),
+  observationRetained,
+  observationRetained
+    ? "the observation remains after episode persistence fails"
+    : "the external-removal fixture removes the observation",
+);
 const observationsParent = lstatSync(join(root, ".pi", "slate", "observations"));
-assert.equal(observationsParent.isDirectory(), rollbackMode === "success", "the selected rollback fixture has the expected final shape");
+assert.equal(observationsParent.isDirectory(), observationRetained, "the selected observation fixture has the expected final shape");
 assert.equal(progress.filter((update) => update.done).length, 1);
 assert.equal(progress.find((update) => update.done)?.status, "failed");
 assert.equal(progress.find((update) => update.done)?.lines.at(-1), "✗ slate could not store episode t1.e1.");
-process.stdout.write(`episode-persistence-probe: ${rollbackMode} PASS\n`);
+process.stdout.write(`episode-persistence-probe: ${observationMode} PASS\n`);
