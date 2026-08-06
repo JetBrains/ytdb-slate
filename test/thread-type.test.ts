@@ -258,7 +258,7 @@ test("a legacy thread can be typed once unless its worker session is live", () =
   view.live.set(liveLegacy.id, {});
   assert.throws(
     () => view.setExistingThreadType(liveLegacy, "general"),
-    /live worker session.*cannot be set safely.*Dispose or restart the Slate session/,
+    /live worker session.*cannot be set safely.*Omit "type" to continue this thread\. Create a new thread with type "general" to use that role/,
   );
   assert.equal(liveLegacy.type, undefined);
   assert.equal(snapshots.length, 1);

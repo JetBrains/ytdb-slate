@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import "../verification/test-hooks.mjs";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { THREAD_TYPES, type ThreadRecord, type ThreadType } from "../extension/state.ts";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SlateStore, THREAD_TYPES, type ThreadRecord, type ThreadType } from "../extension/state.ts";
 import type { WorkerSession } from "../extension/worker.ts";
 
 const codingAgentModule = await import("@earendil-works/pi-coding-agent") as unknown as {
@@ -115,6 +115,65 @@ test("real worker assembly delivers the charter only to review thread types", as
     }
     assert.equal(opened.length, cases.length);
     assert.deepEqual(reports, []);
+  } finally {
+    codingAgentStub.createAgentSession = originalCreateAgentSession;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("same-tick legacy continuations apply the reviewer charter and all succeed", { timeout: 1000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-same-tick-charter-test."));
+  const opened: Array<Record<string, unknown>> = [];
+  const messages: unknown[] = [];
+  const subscribers = new Set<(event: unknown) => void>();
+  const session = {
+    messages,
+    model: undefined,
+    thinkingLevel: undefined,
+    sessionFile: undefined,
+    getContextUsage: () => undefined,
+    subscribe: (listener: (event: unknown) => void) => {
+      subscribers.add(listener);
+      return () => subscribers.delete(listener);
+    },
+    prompt: async () => {
+      const message = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "No findings." }] };
+      messages.push(message);
+      for (const listener of subscribers) listener({ type: "message_end", message });
+    },
+  } as unknown as WorkerSession;
+  codingAgentStub.createAgentSession = async (options) => {
+    opened.push(options);
+    return { session };
+  };
+
+  try {
+    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const legacy = record("t1");
+    store.threads.set(legacy.id, legacy);
+    const manager = new ThreadManager(store, {});
+    const ctx = {
+      cwd: root,
+      model: undefined,
+      isProjectTrusted: () => true,
+    } as unknown as ExtensionContext;
+
+    // These calls intentionally share one synchronous tick. The first queued
+    // action must observe the correction made by the later calls before it opens.
+    const dispatches = [
+      manager.dispatch({ threadId: legacy.id, task: "first" }, ctx, undefined),
+      manager.dispatch({ threadId: legacy.id, task: "second", type: "adversarial" }, ctx, undefined),
+      manager.dispatch({ threadId: legacy.id, task: "third", type: "adversarial" }, ctx, undefined),
+    ];
+    const results = await Promise.all(dispatches);
+
+    assert.equal(legacy.type, "adversarial");
+    assert.equal(opened.length, 1);
+    const loader = opened[0]?.resourceLoader as { options?: { appendSystemPrompt?: unknown[] } } | undefined;
+    assert.deepEqual(loader?.options?.appendSystemPrompt, [workerPreamble(false, true)]);
+    assert.deepEqual(results.map((result) => result.thread.id), [legacy.id, legacy.id, legacy.id]);
+    assert.deepEqual(results.map((result) => result.episode.id), ["t1.e1", "t1.e2", "t1.e3"]);
+    assert.deepEqual(results.map((result) => result.episode.status), ["ok", "ok", "ok"]);
   } finally {
     codingAgentStub.createAgentSession = originalCreateAgentSession;
     rmSync(root, { recursive: true, force: true });

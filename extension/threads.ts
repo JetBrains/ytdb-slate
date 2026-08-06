@@ -388,6 +388,12 @@ export class ThreadManager {
 		// size, and reporting them twice (or consuming guard 6's once-per-pair notice
 		// before anyone could see it) would both be wrong.
 		if (early.kind === "reject") throw new Error(early.reason);
+		// Accepted residual race: this correction deliberately runs before the per-thread
+		// queue. In pi's default parallel tool-execution mode, calls from one assistant
+		// message run in one synchronous tick, which makes this correct for the dominant
+		// shape. Moving it inside the queue was measured to leave the thread untyped,
+		// drop the reviewer charter, and reject later continuations. The residual race
+		// needs a hand-driven interleaving to reach, and this ordering does not close it.
 		if (existing) this.setExistingThreadType(existing, requestedType);
 		const thread = existing ?? this.createThread({ ...opts, type: requestedType }, early);
 
@@ -423,7 +429,7 @@ export class ThreadManager {
 		if (this.live.has(thread.id)) {
 			throw new Error(
 				`Thread ${thread.id} has a live worker session, so its type cannot be set safely. ` +
-					"Dispose or restart the Slate session, then set the type before continuing the thread.",
+					`Omit "type" to continue this thread. Create a new thread with type "${requested}" to use that role.`,
 			);
 		}
 		thread.type = requested;

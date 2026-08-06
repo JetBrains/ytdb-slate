@@ -433,19 +433,31 @@ redirected into an artifact file) is still visible.
    launch-time-only check is not enough: a same-user racer replacing
    `<lab>/agent` with a symlink mid-run once let harness fixture data land in the
    symlink's target while only the launch was refused.
-5. **The real settings file is fingerprinted.** sha256, size and mtime, recorded
-   before the run and re-checked after; a change is a failed run (`SAFE FAIL`,
-   non-zero exit) saying a pi invocation escaped the redirect. Because mtime is
-   part of the fingerprint, ANY pi process on the machine trips it, not only one
-   the harness launched: an isolated-load smoke test, an interactive session or a
-   dogfooding session running concurrently produces a `SAFE FAIL` whose recorded
-   hash and size are IDENTICAL and whose mtime alone moved. That shape means a
-   concurrent writer rather than an escaped invocation. It is still a failed run,
-   because the sentinel can no longer speak for the rungs above it: stop the other
-   pi processes and rerun the ladder alone. The real agent
-   directory is located **the way pi locates it** — via `node os.homedir()`, which
-   still works when `HOME` is unset — or from `SLATE_LADDER_REAL_AGENT_DIR`; if
-   neither can be determined the script aborts rather than watch nothing.
+5. **The real settings file is fingerprinted.** sha256, size and mtime are
+   recorded before the run and re-checked after. A change is a failed run
+   (`SAFE FAIL`, non-zero exit) saying a pi invocation escaped the redirect.
+   Because mtime is part of the fingerprint, any pi process that writes the same
+   real `settings.json` trips it, regardless of its project or working tree. A
+   process with `PI_CODING_AGENT_DIR` set to another directory cannot trip this
+   fingerprint.
+
+   A pi process can write settings for many reasons. Model changes and effective
+   thinking-level changes are common examples, not an exhaustive list. The
+   harness cannot prove that an apparently idle session will remain read-only.
+   Treat every pi process sharing the real agent directory as a possible
+   concurrent writer.
+
+   An isolated-load smoke test, an interactive session or a dogfooding session
+   can rewrite the file concurrently. The resulting `SAFE FAIL` has an IDENTICAL
+   recorded hash and size, with only the mtime moved. That shape means a concurrent
+   writer rather than an escaped invocation. The run still fails because the
+   sentinel can no longer speak for the rungs above it. Stop the other pi processes
+   that share the real agent directory, then rerun the ladder alone.
+
+   The real agent directory is located **the way pi locates it** — via
+   `node os.homedir()`, which still works when `HOME` is unset — or from
+   `SLATE_LADDER_REAL_AGENT_DIR`. If neither can be determined, the script aborts
+   rather than watch nothing.
 
 On top of that, every pi invocation goes through one helper that sets
 `PI_CODING_AGENT_DIR=<lab>/agent` and unsets the inherited `PI_CODING_AGENT`,
