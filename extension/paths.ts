@@ -22,4 +22,5 @@ export const PR_PUBLISHING_DOC = join(DOCS_DIR, "pr-publishing.md");
 export const REVIEW_RULES_DOC = join(DOCS_DIR, "review-rules.md");
 export const DESIGN_PRINCIPLES_DOC = join(DOCS_DIR, "design-principles.md");
 export const MODEL_ROUTING_DOC = join(DOCS_DIR, "model-routing.md");
+export const THREAD_CACHE_COST_DOC = join(DOCS_DIR, "thread-cache-cost.md");
 export const WRITING_GUIDANCE_DOC = join(DOCS_DIR, "writing-guidance.md");

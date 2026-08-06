@@ -312,6 +312,8 @@ const ROUTER_IDS = [
 	"router-cheapest-fallback",
 	"router-price-date",
 	"router-price-rows",
+	"router-price-validity-order",
+	"router-price-validity-warning",
 	"router-w1-canary",
 	"router-w1-guards",
 	"router-w3-unknown",
@@ -349,7 +351,7 @@ const ROUTER_IDS = [
 	"router-config-invalid",
 	"router-shipped-default",
 ];
-const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta"];
+const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-price-values", "profiles-price-dates", "profiles-price-identity", "profiles-price-long-context", "profiles-meta"];
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
@@ -387,6 +389,11 @@ const ROUTE_IDS = [
 	"route-window-skip",
 	"route-window-reserve",
 	"route-long-context",
+	"route-price-divergence-golden",
+	"route-price-divergence-tolerance",
+	"route-price-divergence-absence",
+	"route-price-divergence-output",
+	"route-price-divergence-date",
 	"route-failover",
 	"route-lowest-effort",
 	"route-off-ladder-source",
@@ -1015,7 +1022,7 @@ try {
 		const onReal = onWith(realCandidates);
 		/** The rule's own text: from its number line to the end of the numbered block. */
 		const ruleOf = (d) => {
-			const at = d.search(/\n\d+\. Route every action/);
+			const at = d.search(/\n\d+\. Pick the first candidate/);
 			return at < 0 ? "" : d.slice(at);
 		};
 		/**
@@ -1085,7 +1092,7 @@ try {
 				[
 					["every router-off shape is byte-identical to the default call", differs.length === 0, { differs, len: byDefault.length }],
 					["...and identical again with the worker-extension rule present", extOff === extDefault && extDefault.startsWith(byDefault), [extOff === extDefault, extDefault.length]],
-					["no fragment of the routing rule renders", !/Route every action|route for\|avoid|per Mtok/.test(byDefault), byDefault.slice(-160)],
+					["no fragment of the routing rule renders", !/Pick the first candidate|route for\|avoid|per Mtok/.test(byDefault), byDefault.slice(-160)],
 					["...and no tail rule is numbered at all", tailNumbers(byDefault).length === 0, tailNumbers(byDefault)],
 					["the fixture is not vacuous: the SAME helper does render the rule when the router is on", ruleOf(on) !== "" && on.length > byDefault.length, [ruleOf(on).length, on.length - byDefault.length]],
 					// THE FIXTURE FLIP ITSELF, pinned rather than assumed. Every doctrine-* check
@@ -1132,7 +1139,7 @@ try {
 				[
 					["untrusted + a fully configured router renders NO routing rule", ruleOf(untrustedOn) === "", ruleOf(untrustedOn).slice(0, 120)],
 					["...byte-identical to the untrusted router-off doctrine", untrustedOn === untrustedOff, { on: untrustedOn.length, off: untrustedOff.length }],
-					["...with no fragment of the rule anywhere in it", !/Route every action|route for\|avoid|per Mtok|model-routing\.md/.test(untrustedOn), untrustedOn.slice(-160)],
+					["...with no fragment of the rule anywhere in it", !/Pick the first candidate|route for\|avoid|per Mtok|model-routing\.md/.test(untrustedOn), untrustedOn.slice(-160)],
 					[
 						"DISCRIMINATOR: the SAME resolution renders the rule when the project IS trusted — so the gate is what suppressed it, not an inert fixture",
 						ruleOf(trustedOn) !== "" && trustedOn.length > untrustedOn.length,
@@ -1164,7 +1171,7 @@ try {
 				both: await asTrusted(WITH_EXT, onReal),
 			};
 			const nums = Object.fromEntries(Object.entries(combos).map(([k, d]) => [k, tailNumbers(d)]));
-			const routing = Object.fromEntries(Object.entries(combos).map(([k, d]) => [k, numberOf(d, "Route every action")]));
+			const routing = Object.fromEntries(Object.entries(combos).map(([k, d]) => [k, numberOf(d, "Pick the first candidate")]));
 			const ext = Object.fromEntries(Object.entries(combos).map(([k, d]) => [k, numberOf(d, "Delegate any action that needs")]));
 			// CONTIGUITY, derived rather than spelled: whatever tail rules rendered, their
 			// numbers must be 11, 12, ... with nothing skipped and nothing repeated.
@@ -1573,16 +1580,16 @@ try {
 				"   release notes, and messages to the user.",
 				`   ${reminder.WRITING_SCOPE_EXCLUSION}`,
 			].join("\n");
-			const routingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Route every action")]));
+			const routingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Pick the first candidate")]));
 			const extensionNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Delegate any action that needs")]));
 			checkAll("writing-doctrine-numbering", "the writing rule is appended and numbered by tail position, without renumbering any rule before it", [
 				["writing alone is 11", writingNumbers.writing === 11 && numbers.writing.join() === "11", numbers],
 				["writing follows router", writingNumbers["writing + router"] === 12 && routingNumbers["writing + router"] === 11, [writingNumbers, routingNumbers]],
 				["writing follows extensions", writingNumbers["writing + extensions"] === 12 && extensionNumbers["writing + extensions"] === 11, [writingNumbers, extensionNumbers]],
 				["writing is last with all three", writingNumbers["all three"] === 13 && routingNumbers["all three"] === 12 && extensionNumbers["all three"] === 11, [writingNumbers, routingNumbers, extensionNumbers]],
-				["router number stays unchanged when writing is added", routingNumbers["writing + router"] === numberOf(combos["router without writing"], "Route every action"), [routingNumbers, numberOf(combos["router without writing"], "Route every action")]],
+				["router number stays unchanged when writing is added", routingNumbers["writing + router"] === numberOf(combos["router without writing"], "Pick the first candidate"), [routingNumbers, numberOf(combos["router without writing"], "Pick the first candidate")]],
 				["extension number stays unchanged when writing is added", extensionNumbers["writing + extensions"] === numberOf(combos["extensions without writing"], "Delegate any action that needs"), [extensionNumbers, numberOf(combos["extensions without writing"], "Delegate any action that needs")]],
-				["both preceding numbers stay unchanged when writing is added", routingNumbers["all three"] === numberOf(combos["all without writing"], "Route every action") && extensionNumbers["all three"] === numberOf(combos["all without writing"], "Delegate any action that needs"), [routingNumbers, extensionNumbers]],
+				["both preceding numbers stay unchanged when writing is added", routingNumbers["all three"] === numberOf(combos["all without writing"], "Pick the first candidate") && extensionNumbers["all three"] === numberOf(combos["all without writing"], "Delegate any action that needs"), [routingNumbers, extensionNumbers]],
 				["requirements stay indented under a clear lead-in and explicit scope", structuredWritingRule.includes(exactWritingStructure), structuredWritingRule],
 				["no roster bullet escapes to column zero", !doctrineRequirements.some((line) => structuredWritingRule.includes(`\n- ${line}`)), structuredWritingRule],
 			]);
@@ -1687,7 +1694,7 @@ try {
 			const prose = ruleChars - rowChars; // rows embed no doc path, so they need no normalising
 			const longest = rows.reduce((max, r) => Math.max(max, r.length), 0);
 			const workerStart = maximal.search(/\n\d+\. Delegate any action that needs/);
-			const workerEnd = maximal.search(/\n\d+\. Route every action/);
+			const workerEnd = maximal.search(/\n\d+\. Pick the first candidate/);
 			const workerRule = workerStart >= 0 && workerEnd > workerStart ? maximal.slice(workerStart, workerEnd) : "";
 			const maximalPortable = portable(maximal).length;
 			const writingPortable = portable(ruleOfWriting(writingOn)).length;
@@ -1725,12 +1732,12 @@ try {
 					["writing-only doctrine stays under 5600 portable chars", portable(writingOn).length <= 5600, { portable: portable(writingOn).length }],
 					["writing plus router stays under 6000 portable chars", portable(writingRouterOn).length <= 6000, { portable: portable(writingRouterOn).length }],
 					["writing plus extensions stays under 6000 portable chars", portable(writingExtensionsOn).length <= 6000, { portable: portable(writingExtensionsOn).length }],
-					["all three tail features stay under 6000 portable chars", portable(writingAllOn).length <= 6000, { portable: portable(writingAllOn).length }],
+					["all three tail features stay under 6200 portable chars", portable(writingAllOn).length <= 6200, { portable: portable(writingAllOn).length }],
 					// Update exact measurements with production wording in the same commit.
-					["the maximum all-feature fixture is the measured 6870 portable chars and stays within 7200", maximalPortable === 6870 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the maximum all-feature fixture is the measured 7034 portable chars and stays within 7200", maximalPortable === 7034 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and stays within 1600", workerRule.length === 1347 && workerRule.length <= 1600, { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					["the positive control exceeds 7200 by at least one model growth unit", overBudgetPortable > 7200 && overBudgetPortable - 7200 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7200, growthBeyondBound: overBudgetPortable - 7200, maxModelIncrement, maxToolIncrement }],
+					["the positive control is the measured 7798 portable chars and exceeds 7200 by at least one model growth unit", overBudgetPortable === 7798 && overBudgetPortable > 7200 && overBudgetPortable - 7200 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7200, growthBeyondBound: overBudgetPortable - 7200, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
@@ -2088,6 +2095,54 @@ try {
 				["non-ISO bounds are ignored, row still applies", row(junkDates, "2026-07-29")?.inUsdPerMTok === 2, row(junkDates, "2026-07-29")],
 				["a timestamp `from` never wins the pick", row(timestamped, "2026-07-29")?.inUsdPerMTok === 1, row(timestamped, "2026-07-29")],
 				["a non-ISO `today` does not crash", row(overlap, "not-a-date") !== undefined, row(overlap, "not-a-date")],
+			]);
+		});
+
+		await section("router-price-validity", async () => {
+			const priced = (id, inUsdPerMTok) =>
+				profile(id, {
+					tier: 1,
+					price: [{ from: null, until: null, inUsdPerMTok, outUsdPerMTok: 2 }],
+				});
+			const absent = profile("p/absent", {
+				tier: 1,
+				price: [{ from: null, until: null, outUsdPerMTok: 2 }],
+			});
+			const list = [priced("p/negative", -1), priced("p/infinite", Number.POSITIVE_INFINITY), absent, priced("p/zero", 0), priced("p/positive", 2)];
+			const models = Object.fromEntries(list.map((p) => [p.id, { contextWindow: 200_000, auth: true }]));
+			const ordered = resolve({
+				registry: registry(models),
+				models: ["p/negative", "p/infinite", "p/absent", "p/positive", "p/zero"],
+				profiles: profiles(list),
+				today: "2026-08-06",
+			});
+			const bySpec = Object.fromEntries(ordered.res.candidates.map((c) => [c.spec, c]));
+			checkAll("router-price-validity-order", "negative, non-finite and absent input prices sort last, while an explicit zero remains present and sorts as the genuinely cheapest price", [
+				["zero sorts first and positive follows", specs(ordered.res).startsWith("p/zero,p/positive,"), specs(ordered.res)],
+				["negative never sorts first", ordered.res.candidates[0]?.spec !== "p/negative", specs(ordered.res)],
+				["negative sorts in the unpriced tail", specs(ordered.res).endsWith("p/absent,p/infinite,p/negative"), specs(ordered.res)],
+				["non-finite sorts in the unpriced tail", ordered.res.candidates.findIndex((c) => c.spec === "p/infinite") > ordered.res.candidates.findIndex((c) => c.spec === "p/positive"), specs(ordered.res)],
+				["absent sorts in the unpriced tail", ordered.res.candidates.findIndex((c) => c.spec === "p/absent") > ordered.res.candidates.findIndex((c) => c.spec === "p/positive"), specs(ordered.res)],
+				["explicit zero remains zero", bySpec["p/zero"]?.inUsdPerMTok === 0, bySpec["p/zero"]?.inUsdPerMTok],
+				["absent remains undefined", bySpec["p/absent"]?.inUsdPerMTok === undefined, bySpec["p/absent"]?.inUsdPerMTok],
+				["zero and absent stay distinguishable", bySpec["p/zero"]?.inUsdPerMTok !== bySpec["p/absent"]?.inUsdPerMTok, [bySpec["p/zero"]?.inUsdPerMTok, bySpec["p/absent"]?.inUsdPerMTok]],
+				["zero is the default cheapest model", ordered.res.cheapest === "p/zero", ordered.res.cheapest],
+			]);
+
+			const invalidWarnings = ordered.warned.filter((m) => /has invalid input price data/.test(m));
+			const valid = resolve({
+				registry: registry({ "p/valid": { contextWindow: 200_000, auth: true } }),
+				models: ["p/valid"],
+				profiles: profiles([priced("p/valid", 0)]),
+				failover: { "p/valid": "p/valid" },
+				today: "2026-08-06",
+			});
+			checkAll("router-price-validity-warning", "each present invalid input price emits the invalid-price warning, while absent and valid zero prices do not emit that warning", [
+				["negative and non-finite each warn once", invalidWarnings.length === 2, invalidWarnings],
+				["negative is named", invalidWarnings.some((m) => m.includes("p/negative")), invalidWarnings],
+				["non-finite is named", invalidWarnings.some((m) => m.includes("p/infinite")), invalidWarnings],
+				["absent does not emit an invalid-price warning", !invalidWarnings.some((m) => m.includes("p/absent")), invalidWarnings],
+				["valid zero emits no warning at all", valid.warned.length === 0, valid.warned],
 			]);
 		});
 
@@ -3221,6 +3276,142 @@ try {
 		 * rejection into a proceed must fail the check, not blow up the section.
 		 */
 		const why = (v) => (v && typeof v.reason === "string" ? v.reason : "");
+
+		await section("route-price-divergence", async () => {
+			const fixture = ({
+				price = [{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+				registryCost = { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+				asOf = "2026-08-06",
+			} = {}) => {
+				const spec = "p/priced";
+				const model = { contextWindow: 200_000, auth: true, cost: { ...registryCost } };
+				const { res, warned } = resolve({
+					registry: registry({ [spec]: model }),
+					models: [spec],
+					profiles: profiles([profile(spec, { price, asOf })]),
+					today: "2026-08-06",
+				});
+				if (res.on !== true || res.candidates.length !== 1) throw new Error("price-divergence fixture did not resolve");
+				return {
+					spec,
+					model,
+					res,
+					userWarnings: warned,
+					at: (day) => plan({ resolution: res, requestedModel: spec, currentDate: () => day }),
+				};
+			};
+			const live = fixture();
+			const equal = live.at("2026-08-06");
+			live.model.cost.input = 2.3456789;
+			const diverged = live.at("2026-08-06");
+			const MODEL_GOLDEN =
+				"slate: model router: live registry pricing for p/priced differs materially from the shipped profile row for 2026-08-06. " +
+				"Registry input is higher by twofold to tenfold. Candidate ordering still uses shipped prices. Dispatching anyway. " +
+				"Exact rates are omitted from this model-visible warning.";
+			const USER_GOLDEN =
+				"slate: model router: exact live registry pricing for p/priced differs from the shipped profile row for 2026-08-06. " +
+				"Profile asOf 2026-08-06. Input: shipped $1 and registry $2.3456789 per million tokens. " +
+				"Candidate ordering still uses shipped prices.";
+			checkAll("route-price-divergence-golden", "a fresh dispatch-time registry read emits exactly one advisory route warning with the pinned model-visible text, reports exact rates only to the user, and never changes model selection", [
+				["equal prices emit no divergence warning", warns(equal, /model-visible warning/).length === 0, equal.warnings],
+				["the post-resolution registry mutation is observed", warns(diverged, /model-visible warning/).length === 1, diverged.warnings],
+				["the only model-visible warning is the exact golden text", diverged.warnings.length === 1 && diverged.warnings[0] === MODEL_GOLDEN, diverged.warnings],
+				["the exact user-only warning reaches the existing sink", live.userWarnings.includes(USER_GOLDEN), live.userWarnings],
+				["the exact private registry rate never enters model-visible output", !diverged.warnings.some((warning) => warning.includes("2.3456789")), diverged.warnings],
+				["both plans dispatch the same model", equal.kind === "proceed" && diverged.kind === "proceed" && equal.model === live.spec && diverged.model === live.spec, [verdict(equal), verdict(diverged)]],
+			]);
+
+			const tolerance = route.REGISTRY_PRICE_RELATIVE_TOLERANCE;
+			const near = fixture();
+			near.model.cost.input = 1 + tolerance * 0.5;
+			const inside = near.at("2026-08-06");
+			near.model.cost.input = 1 + tolerance * 2;
+			const outside = near.at("2026-08-06");
+			checkAll("route-price-divergence-tolerance", "a difference inside the explicit relative tolerance stays silent and a difference just outside it warns", [
+				["the tolerance is a finite positive fraction", Number.isFinite(tolerance) && tolerance > 0 && tolerance < 1, tolerance],
+				["inside stays silent", warns(inside, /model-visible warning/).length === 0, inside.warnings],
+				["outside warns once", warns(outside, /model-visible warning/).length === 1, outside.warnings],
+			]);
+
+			const noDivergence = (price, registryCost) => {
+				const f = fixture({ price, registryCost });
+				const result = f.at("2026-08-06");
+				return { result, warnings: warns(result, /model-visible warning/) };
+			};
+			const registryAbsent = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+				{ output: 2 },
+			);
+			const registryInvalid = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+				{ input: -1, output: 2 },
+			);
+			const shippedAbsent = noDivergence(
+				[{ from: null, until: null, outUsdPerMTok: 2 }],
+				{ input: 1, output: 2 },
+			);
+			const shippedInvalid = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: Number.NaN, outUsdPerMTok: 2 }],
+				{ input: 1, output: 2 },
+			);
+			const registryOutputAbsent = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+				{ input: 1 },
+			);
+			const registryOutputInvalid = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+				{ input: 1, output: Number.POSITIVE_INFINITY },
+			);
+			const shippedOutputAbsent = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1 }],
+				{ input: 1, output: 2 },
+			);
+			const shippedOutputInvalid = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: -2 }],
+				{ input: 1, output: 2 },
+			);
+			checkAll("route-price-divergence-absence", "an absent or invalid registry or shipped rate is not divergence and never blocks the dispatch", [
+				["absent registry input stays silent", registryAbsent.warnings.length === 0 && registryAbsent.result.kind === "proceed", [registryAbsent.warnings, verdict(registryAbsent.result)]],
+				["invalid registry input stays silent", registryInvalid.warnings.length === 0 && registryInvalid.result.kind === "proceed", [registryInvalid.warnings, verdict(registryInvalid.result)]],
+				["absent shipped input stays silent", shippedAbsent.warnings.length === 0 && shippedAbsent.result.kind === "proceed", [shippedAbsent.warnings, verdict(shippedAbsent.result)]],
+				["invalid shipped input stays silent", shippedInvalid.warnings.length === 0 && shippedInvalid.result.kind === "proceed", [shippedInvalid.warnings, verdict(shippedInvalid.result)]],
+				["absent registry output stays silent", registryOutputAbsent.warnings.length === 0 && registryOutputAbsent.result.kind === "proceed", [registryOutputAbsent.warnings, verdict(registryOutputAbsent.result)]],
+				["invalid registry output stays silent", registryOutputInvalid.warnings.length === 0 && registryOutputInvalid.result.kind === "proceed", [registryOutputInvalid.warnings, verdict(registryOutputInvalid.result)]],
+				["absent shipped output stays silent", shippedOutputAbsent.warnings.length === 0 && shippedOutputAbsent.result.kind === "proceed", [shippedOutputAbsent.warnings, verdict(shippedOutputAbsent.result)]],
+				["invalid shipped output stays silent", shippedOutputInvalid.warnings.length === 0 && shippedOutputInvalid.result.kind === "proceed", [shippedOutputInvalid.warnings, verdict(shippedOutputInvalid.result)]],
+			]);
+
+			const output = fixture({ registryCost: { input: 1, output: 3 } });
+			const outputResult = output.at("2026-08-06");
+			const outputWarnings = warns(outputResult, /model-visible warning/);
+			checkAll("route-price-divergence-output", "output divergence is detected independently when input agrees", [
+				["exactly one divergence warning", outputWarnings.length === 1, outputResult.warnings],
+				["the safe output direction and magnitude are named", outputWarnings[0]?.includes("Registry output is higher by less than twofold") === true, outputWarnings],
+				["no input difference is claimed", !outputWarnings[0]?.includes("Registry input"), outputWarnings],
+			]);
+
+			const dated = fixture({
+				price: [
+					{ from: null, until: "2026-07-29", inUsdPerMTok: 1, outUsdPerMTok: 2 },
+					{ from: "2026-07-30", until: null, inUsdPerMTok: 0.2, outUsdPerMTok: 1.2 },
+				],
+				registryCost: { input: 1, output: 2 },
+				asOf: "2026-07-30",
+			});
+			const beforeOld = dated.at("2026-07-29");
+			const boundaryOld = dated.at("2026-07-30");
+			dated.model.cost = { input: 0.2, output: 1.2 };
+			const beforeNew = dated.at("2026-07-29");
+			const boundaryNew = dated.at("2026-07-30");
+			checkAll("route-price-divergence-date", "each dispatch date selects the covering shipped row across the schedule boundary", [
+				["old registry agrees before the boundary", warns(beforeOld, /model-visible warning/).length === 0, beforeOld.warnings],
+				["old registry diverges on the boundary", warns(boundaryOld, /model-visible warning/).length === 1, boundaryOld.warnings],
+				["boundary warning names the safe input direction and magnitude", warns(boundaryOld, /model-visible warning/)[0]?.includes("Registry input is higher by twofold to tenfold") === true, boundaryOld.warnings],
+				["boundary warning names the safe output direction and magnitude", warns(boundaryOld, /model-visible warning/)[0]?.includes("Registry output is higher by less than twofold") === true, boundaryOld.warnings],
+				["new registry diverges before the boundary", warns(beforeNew, /model-visible warning/).length === 1, beforeNew.warnings],
+				["new registry agrees on the boundary", warns(boundaryNew, /model-visible warning/).length === 0, boundaryNew.warnings],
+			]);
+		});
 
 		await section("route-vocabulary", async () => {
 			// GUARD 0, and it runs FIRST: an `effort` outside pi's vocabulary is rejected
@@ -5106,6 +5297,7 @@ try {
 				model: "p/pin",
 				baseModel: "p/base",
 				baseEffort: "medium",
+				cacheKeyShard: 1,
 				episodeIds: ["t1.e1"],
 				episodeSeq: 1,
 				createdAt: 111,
@@ -5269,6 +5461,17 @@ try {
 			const boundaryId = `${"p".repeat(240 - referenceOverhead - 3)}.e1`;
 			const longestPath = `.pi/slate/observations/${boundaryId}.md`;
 			const boundaryObservations = sane({ ...base, id: boundaryId, observations: { stored: true, path: longestPath, bytes: 0, truncated: false, grammar: "absent" } });
+			const usageBad = sane({
+				...base,
+				input: -1000,
+				output: 1.5,
+				cacheRead: 0,
+				workerCostUsd: 0.0163,
+				compressorUsage: { input: 5, cacheRead: -2 },
+				compressorCostUsd: 0,
+				compactionUsage: { output: -3, cacheWrite: 0 },
+				compactionCostUsd: -0.01,
+			});
 			// ABSENT, the third case again: id + thread + file and nothing else must fill every
 			// default in silence, and must NOT invent the two optional keys.
 			const minimal = sane(base);
@@ -5287,7 +5490,7 @@ try {
 			// carries EVERY adopted field, which is the claim state.ts exports the map for.
 			// Written out rather than spread: byte-identity is KEY-ORDER sensitive (that is
 			// what makes the term strong), and the marker belongs before `createdAt`.
-			const everyField = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", effortUnmeasured: true, observations: storedObservations, createdAt: 5 };
+			const everyField = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", effortUnmeasured: true, observations: storedObservations, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, workerCostUsd: 0.0163, compressorUsage: { input: 50, output: 60 }, compressorCostUsd: 0, compactionUsage: { input: 70, output: 80 }, compactionCostUsd: 1.25, createdAt: 5 };
 			const everyRoundTrip = sane(everyField);
 			const adoptedKeys = Object.keys(state.ADOPTED_EPISODE_FIELDS ?? {});
 			const builtKeys = Object.keys(everyRoundTrip.out ?? {});
@@ -5295,7 +5498,7 @@ try {
 			const surplus = builtKeys.filter((k) => !adoptedKeys.includes(k));
 			const lost = [];
 			state.noteUnadoptedFields?.("episode", "e", { ...everyField }, { id: "e" }, new Set(), lost);
-			checkAll("state-episode-record", "an episode record is re-validated the same way: a well-formed one round-trips byte-identically, a record with no id, thread or file is dropped, `failed` is the only value that survives as a failure, the unmeasured marker needs the boolean and not a truthy string, and model/effort are TYPE-CHECKED ONLY — and every field it refuses is NOTED by name and type, in the thread sanitizer's own shape (CQ22), while an accepted value and a well-formed record stay silent", [
+			checkAll("state-episode-record", "an episode record is re-validated the same way: a well-formed one round-trips byte-identically, a record with no id, thread or file is dropped, `failed` is the only value that survives as a failure, token quantities require non-negative integers, money allows non-negative fractions, the unmeasured marker needs the boolean and not a truthy string, and model/effort are TYPE-CHECKED ONLY — and every field it refuses is NOTED by name and type, in the thread sanitizer's own shape (CQ22), while an accepted value and a well-formed record stay silent", [
 				["a well-formed record round-trips byte-identically", JSON.stringify(roundTrip.out) === JSON.stringify(wellFormed), roundTrip.out],
 				["a failed episode keeps its status", failed.out?.status === "failed", failed.out?.status],
 				["every unusable shape is dropped", kept.length === 0, kept],
@@ -5312,6 +5515,10 @@ try {
 				["a malformed-but-STRING spec or level survives untouched", specs.out?.model === "  p/x  " && specs.out?.effort === "HIGH", specs.out],
 				["...while non-strings are dropped", specsBad.out?.model === undefined && specsBad.out?.effort === undefined, specsBad.out],
 				["a wrong-typed timestamp becomes a real number", typeof stampBad.out?.createdAt === "number", stampBad.out?.createdAt],
+				["negative and fractional flat token quantities become absent while zero survives", usageBad.out?.input === undefined && usageBad.out?.output === undefined && usageBad.out?.cacheRead === 0, usageBad.out],
+				["negative nested token quantities become absent without destroying valid siblings", JSON.stringify(usageBad.out?.compressorUsage) === JSON.stringify({ input: 5 }) && JSON.stringify(usageBad.out?.compactionUsage) === JSON.stringify({ cacheWrite: 0 }), usageBad.out],
+				["money keeps fractions and zero while rejecting negatives", usageBad.out?.workerCostUsd === 0.0163 && usageBad.out?.compressorCostUsd === 0 && usageBad.out?.compactionCostUsd === undefined && /ignoring compactionCostUsd \(number\)/.test(usageBad.repairs.join("|")), [usageBad.out, usageBad.repairs]],
+				["every rejected token quantity logs its field-specific repair", /ignoring input \(number\)/.test(usageBad.repairs.join("|")) && /ignoring output \(number\)/.test(usageBad.repairs.join("|")) && /compressorUsage\.cacheRead \(number\)/.test(usageBad.repairs.join("|")) && /compactionUsage\.output \(number\)/.test(usageBad.repairs.join("|")), usageBad.repairs],
 				["a refused field is noted by NAME and TYPE, prefixed with the episode id (CQ22)", taskBad.repairs.join("|") === "episode t1.e1: ignoring task (number)" && specsBad.repairs.join("|") === "episode t1.e1: ignoring model (number)|episode t1.e1: ignoring effort (object)", [taskBad.repairs, specsBad.repairs]],
 				["...on every axis that can be refused, not just the ones with a string default", /status \(string\)/.test(statusOther.repairs.join()) && /effortUnmeasured \(string\)/.test(markerString.repairs.join()) && /createdAt \(string\)/.test(stampBad.repairs.join()), [statusOther.repairs, markerString.repairs, stampBad.repairs]],
 				["...while accepted values and an old record with no observations report nothing at all", [roundTrip, failed, specs, markerTrue, noFinalObservations, noFinalTextObservations, writeFailedObservations, minimal].every((r) => r.repairs.length === 0), [roundTrip.repairs, failed.repairs, specs.repairs, markerTrue.repairs, noFinalObservations.repairs, writeFailedObservations.repairs, minimal.repairs]],
@@ -6313,8 +6520,8 @@ try {
 				for (const [i, r] of rows.entries()) {
 					if (!(r.from === null || isIso(r.from))) bad.push(`${p.id} row ${i}: from is neither null nor ISO (${r.from})`);
 					if (!(r.until === null || isIso(r.until))) bad.push(`${p.id} row ${i}: until is neither null nor ISO (${r.until})`);
-					if (!(typeof r.inUsdPerMTok === "number" && r.inUsdPerMTok > 0 && Number.isFinite(r.inUsdPerMTok))) bad.push(`${p.id} row ${i}: input price not a positive number`);
-					if (!(typeof r.outUsdPerMTok === "number" && r.outUsdPerMTok > 0 && Number.isFinite(r.outUsdPerMTok))) bad.push(`${p.id} row ${i}: output price not a positive number`);
+					if (!(typeof r.inUsdPerMTok === "number" && r.inUsdPerMTok >= 0 && Number.isFinite(r.inUsdPerMTok))) bad.push(`${p.id} row ${i}: input price is not a finite non-negative number`);
+					if (!(typeof r.outUsdPerMTok === "number" && r.outUsdPerMTok >= 0 && Number.isFinite(r.outUsdPerMTok))) bad.push(`${p.id} row ${i}: output price is not a finite non-negative number`);
 					if (typeof r.outUsdPerMTok === "number" && typeof r.inUsdPerMTok === "number" && r.outUsdPerMTok < r.inUsdPerMTok) bad.push(`${p.id} row ${i}: output cheaper than input`);
 					if (r.from !== null && r.until !== null && isIso(r.from) && isIso(r.until) && r.until < r.from) bad.push(`${p.id} row ${i}: until precedes from`);
 					// Ascending, non-overlapping: a row must start after the previous
@@ -6341,6 +6548,67 @@ try {
 				["no violation", bad.length === 0, bad],
 				["tiers do not invert", inversions.length === 0, inversions],
 				["more than one tier present", tiers.length > 1, tiers],
+			]);
+		});
+
+		const expectedPrices = {
+			"openai/gpt-5.6-luna": {
+				old: { from: null, until: "2026-07-29", in: 1.0, out: 6.0, cachedIn: 0.1, cacheWrite: 1.25 },
+				current: { from: "2026-07-30", until: null, in: 0.2, out: 1.2, cachedIn: 0.02, cacheWrite: 0.25 },
+				long: { in: 0.4, out: 1.8 },
+			},
+			"openai/gpt-5.6-terra": {
+				old: { from: null, until: "2026-07-29", in: 2.5, out: 15.0, cachedIn: 0.25, cacheWrite: 3.125 },
+				current: { from: "2026-07-30", until: null, in: 2.0, out: 12.0, cachedIn: 0.2, cacheWrite: 2.5 },
+				long: { in: 4.0, out: 18.0 },
+			},
+		};
+		const priceRow = (id, index) => all.find((p) => p.id === id)?.price?.[index];
+		const rowAt = (id, date) => all.find((p) => p.id === id)?.price?.find((row) => (row.from === null || row.from <= date) && (row.until === null || row.until >= date));
+		const rowMatches = (row, expected) => row && row.from === expected.from && row.until === expected.until && row.inUsdPerMTok === expected.in && row.outUsdPerMTok === expected.out && row.cachedInUsdPerMTok === expected.cachedIn && row.cacheWriteUsdPerMTok === expected.cacheWrite;
+
+		await section("profiles-price-values", async () => {
+			const mismatches = Object.entries(expectedPrices).flatMap(([id, expected]) => {
+				const actual = [priceRow(id, 0), priceRow(id, 1)];
+				return [
+					[`${id} old row`, rowMatches(actual[0], expected.old), actual[0]],
+					[`${id} current row`, rowMatches(actual[1], expected.current), actual[1]],
+				];
+			}).filter(([, matches]) => !matches);
+			checkAll("profiles-price-values", "the Luna and Terra historical and current price rows match the confirmed input, output, cache-read, cache-write, and date values", [
+				["every expected row matches", mismatches.length === 0, mismatches],
+			]);
+		});
+
+		await section("profiles-price-dates", async () => {
+			const cases = Object.entries(expectedPrices).flatMap(([id, expected]) => [
+				[`${id} before boundary`, rowAt(id, "2026-07-29") === priceRow(id, 0), rowAt(id, "2026-07-29")],
+				[`${id} at boundary`, rowAt(id, "2026-07-30") === priceRow(id, 1), rowAt(id, "2026-07-30")],
+				[`${id} after boundary`, rowAt(id, "2026-07-31") === priceRow(id, 1), rowAt(id, "2026-07-31")],
+			]);
+			checkAll("profiles-price-dates", "the 2026-07-30 boundary selects the historical row before it and the current row on and after it", cases);
+		});
+
+		await section("profiles-price-identity", async () => {
+			const luna = all.find((p) => p.id === "openai/gpt-5.6-luna")?.price;
+			const terra = all.find((p) => p.id === "openai/gpt-5.6-terra")?.price;
+			checkAll("profiles-price-identity", "Luna and Terra retain distinct historical and current schedules", [
+				["historical rows differ", luna?.[0]?.inUsdPerMTok === 1.0 && terra?.[0]?.inUsdPerMTok === 2.5 && luna?.[0]?.outUsdPerMTok === 6.0 && terra?.[0]?.outUsdPerMTok === 15.0, { luna: luna?.[0], terra: terra?.[0] }],
+				["current rows differ", luna?.[1]?.inUsdPerMTok === 0.2 && terra?.[1]?.inUsdPerMTok === 2.0 && luna?.[1]?.outUsdPerMTok === 1.2 && terra?.[1]?.outUsdPerMTok === 12.0, { luna: luna?.[1], terra: terra?.[1] }],
+			]);
+		});
+
+		await section("profiles-price-long-context", async () => {
+			const mismatches = Object.entries(expectedPrices).map(([id, expected]) => {
+				const profile = all.find((p) => p.id === id);
+				const row = priceRow(id, 1);
+				const multipliers = profile?.longContextMultipliers;
+				const input = row && multipliers ? row.inUsdPerMTok * multipliers.in : undefined;
+				const output = row && multipliers ? row.outUsdPerMTok * multipliers.out : undefined;
+				return [id, Number.isFinite(input) && Number.isFinite(output) && Math.abs(input - expected.long.in) < 1e-9 && Math.abs(output - expected.long.out) < 1e-9, { row, multipliers, input, output }];
+			}).filter(([, matches]) => !matches);
+			checkAll("profiles-price-long-context", "the current Luna and Terra rows produce the confirmed long-context input and output prices", [
+				["every long-context price matches", mismatches.length === 0, mismatches],
 			]);
 		});
 
@@ -6385,7 +6653,7 @@ try {
 		"router-load", "profiles-load", "state-load",
 		"router-off", "router-unprofiled", "router-malformed", "router-unroutable", "router-alias-duplicate",
 		"router-all-dropped", "router-order", "router-order-ties", "router-cheapest", "router-cheapest-fallback",
-		"router-price-date", "router-price-rows",
+		"router-price-date", "router-price-rows", "router-price-validity-order", "router-price-validity-warning",
 		"router-w1-canary", "router-w1-guards", "router-w3-unknown",
 		"router-class-partition", "router-class-default", "router-tag-strip", "router-tag-keep", "router-empty-fields", "router-subject-repair", "router-nonpreferred-visible",
 		"router-field-cap", "router-profile-input-bound", "router-message-cap", "router-separator", "router-separator-forgery", "router-notify-controls", "router-profile-date", "router-w3-explainer", "router-failover-coverage",
@@ -6401,12 +6669,13 @@ try {
 		"route-read-failure-inert", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
+		"route-price-divergence-golden", "route-price-divergence-tolerance", "route-price-divergence-absence", "route-price-divergence-output", "route-price-divergence-date",
 		"route-failover", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
 		"wiring", "spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
 		"episode-load", "episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header",
-		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta",
+		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-price-values", "profiles-price-dates", "profiles-price-identity", "profiles-price-long-context", "profiles-meta",
 	];
 	const seen = new Set(reported);
 	const missing = EXPECTED.filter((id) => !seen.has(id));

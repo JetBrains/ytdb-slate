@@ -248,7 +248,7 @@ worker extensions and support verification decisions:
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
 | current `.pi/slate.json` dogfood config | 6 | real 2 units / 4 tools | 6 | 5,884 | 90 | ≈1,471 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 6,870 | 93 | ≈1,718 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 7,034 | 93 | ≈1,759 |
 
 The dogfood row uses `workflow.draftPRs: true`, `writing.check: true`, and the
 six models in `.pi/slate.json`. Its extension basis is
@@ -268,10 +268,10 @@ prose. The worker rule measures 1,347 characters against its 1,600-character
 verification budget.
 
 `doctrine-budget` caps that representative maximal doctrine at 7,200 portable
-characters. The measured 6,870 leaves 330 characters, or 4.6 percent of the
+characters. The measured 7,034 leaves 166 characters, or 2.3 percent of the
 7,200-character bound. A positive control adds one capped tool
-and three copies of the largest measured model row. It measures 7,634 portable
-characters and exceeds the bound by 434. These figures are verification budgets,
+and three copies of the largest measured model row. It measures 7,798 portable
+characters and exceeds the bound by 598. These figures are verification budgets,
 never runtime limits. Arbitrary user extension rosters can exceed them.
 
 The exact values are maintenance tripwires. A deliberate doctrine wording,
@@ -283,7 +283,7 @@ fixture design itself changes.
 Against a 256,000-token context budget, these blocks remain small. At four
 characters per token as a rough estimate, the shipped-rule table ranges from
 about 482 tokens to about 1,381 tokens. The current dogfood basis is about 1,471
-tokens. The representative maximum is about 1,718 tokens, or 0.67 percent of the
+tokens. The representative maximum is about 1,759 tokens, or 0.69 percent of the
 default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
@@ -381,7 +381,9 @@ long-context rates listed above.
 
 With action-level routing on, this override also settles a warning
 you will otherwise see once per session for each configured
-`gpt-5.6-*` model: Slate's own profile for those models records a
+`gpt-5.6-*` model during resolution. Dispatch-time price divergence warnings
+are conditional and can repeat on later dispatches. Slate's own profile for those
+models records a
 1,050,000-token window, pi's stock registry reports 272,000, and the
 router reports that divergence without adjudicating it (routing uses
 the registry figure). Raising the registry window removes the

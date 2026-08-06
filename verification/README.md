@@ -863,7 +863,8 @@ real session rather than against a fixture, and it agrees with these checks.
 > billing-pattern warning. This machine's `~/.pi/agent/models.json` overrides those
 > three windows to 1,050,000 tokens. Its live registry therefore emits **7 model
 > data notes**, because the three divergences and aggregate do not fire. A local
-> registry override can therefore change the applicable count.
+> registry override can therefore change the applicable count. Dispatch-time
+> warnings are conditional and can repeat after this resolution-time batch.
 
 **Recorded sizes use one portable basis.** The doctrine embeds ABSOLUTE doc
 paths. Raw size therefore changes with the install directory. `portable` removes

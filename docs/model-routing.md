@@ -279,6 +279,7 @@ warning, but removal is not the ADD remedy in condition 2. Condition
 | pi has no usable credentials configured for it | dropped | "has no usable credentials configured in pi. Slate drops it from routing." | configuration fault |
 | every entry is dropped | router turns OFF | "survived validation. The warnings above name each dropped entry" | configuration fault |
 | no usable input price exists for today's date | kept, ordered last | "Slate cannot compare its cost with the other models." | model data note |
+| a profile price is negative or non-finite | kept, ordered last or unavailable | "has invalid input price data" or "has invalid output price data" | configuration fault |
 | no usable effort ladder exists in the profile | kept | "Such a level passes through to pi, which clamps it" | model data note |
 | profile context window differs from the registry window | kept, registry value used | "differs between two sources" | model data note |
 | the first profile names unknown routing-critical fields | kept | "picks models from a research table shipped inside slate" | model data note |
@@ -302,6 +303,13 @@ line after resolution. It gives the hidden warning count, names
 which model runs an action. The count is warnings, not physical
 display lines: one warning can wrap across several lines. No
 discoverability line appears when nothing was hidden.
+
+Dispatch-time warnings are separate from resolution warnings. They cover
+context substitution, effort evidence gaps, long-context billing, failover
+window notices, and live registry price divergence. They are conditional on
+each planned action and can repeat on later dispatches. A model-visible price
+divergence warning omits exact rates. A separate user-only notice carries the
+exact shipped and registry prices.
 
 Half a list is still a routing policy, so partial drops leave the
 router ON. Nothing surviving is not a policy: the router turns OFF

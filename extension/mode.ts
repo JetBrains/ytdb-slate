@@ -19,12 +19,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
+import { PROFILES_AS_OF } from "./model-profiles.ts";
 import { checkEffort, ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "./model-router.ts";
 import {
 	DESIGN_PRINCIPLES_DOC,
 	MODEL_ROUTING_DOC,
 	PR_PUBLISHING_DOC,
 	REVIEW_RULES_DOC,
+	THREAD_CACHE_COST_DOC,
 	TRACK_WORKFLOW_DOC,
 	WRITING_CHECKER_URL,
 	WRITING_GUIDANCE_DOC,
@@ -379,7 +381,8 @@ function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: 
 	// so it is stated as it is configured rather than as both possibilities.
 	const gap = allowUnmeasuredEffort ? "runs, marked unmeasured" : "is refused too (router.allowUnmeasuredEffort is false)";
 	return `
-${n}. Route every action to the cheapest model and effort that clears it. Routable
+${n}. Pick the first candidate and lowest effort that clear each action. Candidates
+   follow preference, tier sourcing, tier, price, then specification. Routable
    this session (spec|$in/$out per Mtok|ctx|tier|measured|route for|avoid):
 ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    \`model\` and \`effort\` route THAT action only. Omit \`model\` for the thread's
@@ -387,8 +390,7 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    level, else the FIRST measured level of the model it routes to — never a higher
    one, so name the level harder work needs. Off-ladder and provider-rejected
    levels are tool errors; an unmeasured one ${gap}.
-   Prices are base rates: some models bill a long-context multiplier above a
-   token threshold, and a mid-thread model switch drops the prompt cache.
+   Prices include dated updates after ${PROFILES_AS_OF} research.
    DOCTRINE ONLY, not code-enforced: keep review and gate actions on measured
    levels, and honour a REFUSE in an avoid cell. Mechanics and config:
    ${MODEL_ROUTING_DOC}
@@ -475,8 +477,10 @@ threads execute. Rules:
    commands yourself.
 2. Dispatch independent actions in PARALLEL by emitting several \`thread\`
    calls in one turn. Never serialize what can run concurrently.
-3. Reuse a thread for follow-up actions in the same work stream — it
-   remembers its prior episodes. Create a new thread for a new work stream.
+3. Reuse a thread within its work stream. Start a new thread for a new work stream.
+   Treat a different model or effort as cold, with no prefix reuse. Continue the
+   thread when work needs at most two turns. For longer work, compare costs after
+   charging a fresh thread one extra turn. Details: ${THREAD_CACHE_COST_DOC}
 4. Compose context by reference: pass prior episode ids in \`context\` instead
    of restating their content.
 5. Your read-only tools (read/grep/find/ls) are for cheap orientation only;
