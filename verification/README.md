@@ -838,12 +838,15 @@ avoid cell, and the thread base resolving to the cheapest candidate,
 `openai/gpt-5.6-luna`. This is the first confirmation the rendering is right in a
 real session rather than against a fixture, and it agrees with these checks.
 
-> **Historical count only.** That interactive session observed **7** warnings.
-> At the time, this document estimated **11** for a stock consumer because local
-> model overrides suppressed three W1 lines and one aggregate. The warning rewrite
-> made that estimate obsolete. The current measured stock baseline is **7 model
-> data notes** for the six-model project configuration. Compare counts only within
-> the same router wording and profile-table revision.
+> **Registry-dependent warning count.** The pinned pi package's shipped OpenAI
+> provider data records a 272,000-token context window for `gpt-5.6-luna`,
+> `gpt-5.6-terra` and `gpt-5.6-sol`. With that STOCK registry, the six-model project
+> configuration emits **11 model data notes**: one class explanation, six
+> unknown-data warnings, three context-window divergence warnings and one aggregate
+> billing-pattern warning. This machine's `~/.pi/agent/models.json` overrides those
+> three windows to 1,050,000 tokens. Its live registry therefore emits **7 model
+> data notes**, because the three divergences and aggregate do not fire. A local
+> registry override can therefore change the applicable count.
 
 **Recorded sizes use one portable basis.** The doctrine embeds ABSOLUTE doc
 paths. Raw size therefore changes with the install directory. `portable` removes
@@ -919,7 +922,7 @@ Model router (`extension/model-router.ts`):
 | `router-w3-explainer` | one singular and one plural unknown-data warning produce exactly one model-data-note explainer. A candidate with no unknown data produces none. The separate fixtures reject both incorrect noun forms |
 | `router-failover-coverage` | uncovered candidates produce **one aggregate** warning naming them all (not one per model); a covered, window-aligned candidate warns about nothing at all; a map entry whose target is not a spec does not count as coverage |
 | `router-warnings-echo` | on the router-**ON** path the returned `warnings` are exactly what the warn sink received, in order |
-| `router-labels` | a valid spec inside a warning is length-capped (the only path where a >120-character spec is observable) and annotated with the code points when it carries confusable non-ASCII characters, e.g. a Cyrillic homoglyph; a value that can neither be JSON-stringified nor coerced to a string renders as a bounded placeholder instead of throwing |
+| `router-labels` | a valid spec inside a warning is extracted and pinned to the exact 120-character display fragment plus ellipsis, independent of changing explanatory or remedy prose around it. The full warning has no incidental 300-character budget. The same check annotates confusable non-ASCII code points and bounds a value that cannot be stringified or coerced |
 | `router-dedup` | a condition warns at most once per resolution even when its trigger repeats — exercised through the **live** duplicate path (three identical malformed specs), since a repeated *valid* spec is skipped earlier and cannot reach the dedup at all; two values sharing a JSON form but not a type (`NaN` / `null`) stay separate conditions |
 | `router-memo` | the memoizing resolver resolves once across repeated consultation, returns the same frozen object, and each warning reaches the sink once (D58) |
 | `router-ladder-validation` | the ladder handed back by the profile table is filtered to pi's own effort vocabulary and de-duplicated: a foreign level reads as `off-ladder` even when the table claims a measurement at it, and a non-array ladder (what a prototype-key lookup returns) yields an empty ladder **plus** a warning rather than silent nonsense |

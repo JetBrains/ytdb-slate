@@ -2447,7 +2447,7 @@ try {
 				const routerSource = readFileSync(join(REPO, "extension", "model-router.ts"), "utf8");
 				const profileBody = routerSource.match(/function profileText\([^)]*\)[^{]*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 				const sliceAt = profileBody.indexOf("text.slice(0, max)");
-				const firstTagScanAt = profileBody.indexOf(".replace(/(^|[;:,.])");
+				const firstTagScanAt = profileBody.indexOf(".replace(/");
 				const profileCode = profileBody.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
 				const boundedChain = /const bounded\s*=\s*text\.slice\(0, max\)[\s\S]*?const collapsed\s*=\s*bounded\s*\.replace/.test(profileCode);
 				checkAll("router-profile-input-bound", "profile text is sliced to the field cap before either tag scanner can inspect an unclosed-bracket run (SE2)", [
@@ -2648,6 +2648,8 @@ try {
 				profiles: profiles([profile(longSpec), profile(cyrillic)]),
 			});
 			const longWarn = found(warned, /^slate: model router: p\/x+/) ?? "";
+			const renderedLongLabel = longWarn.match(/^slate: model router: (.*?) is not in pi's model registry\./)?.[1] ?? "";
+			const expectedLongLabel = `${longSpec.slice(0, 120)}…`;
 			const confusableWarn = found(warned, /U\+0430/) ?? "";
 
 			// TQ8: quoted()'s innermost guard needs BOTH a value JSON.stringify
@@ -2669,10 +2671,10 @@ try {
 				sanitizerSurvived = false;
 			}
 
-			checkAll("router-labels", "a valid spec in a warning is length-capped and annotated when it carries confusable non-ASCII characters, and a value that can neither be stringified nor coerced still renders as a bounded placeholder", [
-				["long spec is truncated with an ellipsis", longWarn.includes("…"), longWarn.slice(0, 160)],
+			checkAll("router-labels", "a valid spec inside a warning is capped to its exact 120-character display fragment regardless of surrounding remedy text, confusable characters are annotated, and unprintable values stay bounded", [
+				["the warning exposes a separable model label", renderedLongLabel !== "", longWarn],
+				["long spec label is exactly the capped fragment plus ellipsis", renderedLongLabel === expectedLongLabel && renderedLongLabel.length === 121, { renderedLongLabel, length: renderedLongLabel.length }],
 				["the raw 300-char spec never reaches the output", !warned.some((m) => m.includes("x".repeat(200))), warned.map((m) => m.length)],
-				["warning stays bounded", longWarn.length > 0 && longWarn.length <= 300, longWarn.length],
 				["the long spec is still a resolved (dropped) entry, not a crash", res.on === false && warned.length >= 3, [res.on, warned.length]],
 				["confusable code point named", confusableWarn.includes("U+0430") && /non-ASCII/.test(confusableWarn), confusableWarn],
 				["sanitizer survived the unprintable value", sanitizerSurvived === true, sanitizerSurvived],
