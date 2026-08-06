@@ -956,6 +956,14 @@ export class SlateStore {
 			}
 			this.threads.set(t.id, t);
 		}
+		// A dangling successor would permanently reject the source thread. Repair it
+		// only after every surviving thread is known, since this is a cross-record rule.
+		for (const thread of this.threads.values()) {
+			if (thread.supersededBy !== undefined && !this.threads.has(thread.supersededBy)) {
+				dropped.push(`thread ${thread.id}: ignoring supersededBy ${thread.supersededBy} because that successor is absent`);
+				delete thread.supersededBy;
+			}
+		}
 		const episodeList = Array.isArray(latest.episodes) ? latest.episodes : [];
 		for (const raw of episodeList) {
 			const e = sanitizeEpisodeRecord(raw, dropped);
