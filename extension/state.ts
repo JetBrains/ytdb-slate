@@ -129,6 +129,8 @@ export interface ThreadRecord {
 	cacheKeyShard?: number;
 	/** Effective built-in worker tool allowlist. Absent means an older thread whose tools are unknown. */
 	tools?: string[];
+	/** True when the live session grew beyond its newest durable episode evidence. */
+	choiceEvidenceStale?: true;
 	episodeIds: string[];
 	episodeSeq: number; // monotonic per-thread episode counter
 	createdAt: number;
@@ -519,6 +521,7 @@ export const ADOPTED_THREAD_FIELDS = {
 	baseEffort: true,
 	cacheKeyShard: true,
 	tools: true,
+	choiceEvidenceStale: true,
 	episodeIds: true,
 	episodeSeq: true,
 	createdAt: true,
@@ -639,6 +642,9 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 			? { cacheKeyShard: t.cacheKeyShard as number }
 			: {}),
 		...(tools !== undefined ? { tools } : {}),
+		...(keep("choiceEvidenceStale", t.choiceEvidenceStale, t.choiceEvidenceStale === true ? (true as const) : undefined) !== undefined
+			? { choiceEvidenceStale: true as const }
+			: {}),
 		episodeIds,
 		episodeSeq: keep("episodeSeq", t.episodeSeq, counter(t.episodeSeq)) ?? episodeIds.length,
 		createdAt: keep("createdAt", t.createdAt, num(t.createdAt)) ?? now,

@@ -634,7 +634,13 @@ export class ThreadManager {
 		const now = Date.now();
 		const today = new Date(now).toISOString().slice(0, 10);
 		const lastId = thread.episodeIds.at(-1);
-		const last = lastId === undefined ? undefined : this.store.episodes.get(lastId);
+		const recordedLast = lastId === undefined ? undefined : this.store.episodes.get(lastId);
+		// A failed episode write leaves the live session ahead of durable evidence.
+		// Preserve the record for refusal checks, but remove the measurements so the
+		// planner reaches its honest prefix-size abstention instead of pricing stale data.
+		const last = thread.choiceEvidenceStale === true
+			? { ...(recordedLast ?? {}), cacheRead: undefined, cacheWrite: undefined, contextTokens: undefined }
+			: recordedLast;
 		const model = session.model ? `${session.model.provider}/${session.model.id}` : plan.model;
 		const effort = this.sessionEffort(session) ?? plan.effort;
 		const profile = model === undefined ? undefined : findProfile(model);
@@ -1608,6 +1614,9 @@ export class ThreadManager {
 				signal: signal?.aborted ? undefined : signal,
 			});
 		} catch (error) {
+			// The live session has grown, but no episode will publish its new cache and
+			// prefix evidence. The next choice must not reuse the older measurements.
+			thread.choiceEvidenceStale = true;
 			// Compression includes the episode-file write. If that write fails, the
 			// earlier observation normally becomes an unreferenced orphan. It remains
 			// until the user removes it. Persist every cost and recoverable session fact.
@@ -1677,6 +1686,7 @@ export class ThreadManager {
 		}
 		this.store.episodes.set(episodeId, episode);
 		thread.episodeIds.push(episodeId);
+		delete thread.choiceEvidenceStale;
 		thread.status = "idle";
 		thread.updatedAt = Date.now();
 		// Accumulate session-wide worker spend, including compression and compaction,
