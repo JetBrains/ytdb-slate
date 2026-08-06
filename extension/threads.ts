@@ -1377,7 +1377,11 @@ export class ThreadManager {
 								`Thread "${thread.id}" was superseded by ${thread.supersededBy} before it could restart.`,
 							);
 						}
-						const refusal = this.restartRefusal(thread);
+						const restartContext = [...new Set([...(opts.contextEpisodeIds ?? []), ...(opts.freshContext ?? [])])];
+						const refusal =
+							restartContext.length > MAX_FRESH_CONTEXT_EPISODES
+								? `the combined context names ${restartContext.length} episodes, above the ${MAX_FRESH_CONTEXT_EPISODES}-episode limit`
+								: this.restartRefusal(thread);
 						if (refusal !== undefined) {
 							routeWarn(`slate: automatic fresh-thread restart refused — ${refusal}.`);
 						} else {
@@ -1389,7 +1393,7 @@ export class ThreadManager {
 								threadId: undefined,
 								name: thread.name,
 								type: effectiveThreadType(thread, routeWarn),
-								contextEpisodeIds: opts.freshContext ?? [],
+								contextEpisodeIds: restartContext,
 								freshContext: undefined,
 								tools: thread.tools,
 							};
