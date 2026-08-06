@@ -6,8 +6,24 @@ import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { renderThreadCall, renderThreadResult } from "./render.ts";
-import { displayThreadType, isThreadType, parseThreadType, threadTypeMarker, THREAD_TYPES, type SlateStore } from "./state.ts";
+import {
+	displayThreadType,
+	isThreadType,
+	parseThreadType,
+	threadTypeMarker,
+	THREAD_TYPE_GLOSSES,
+	THREAD_TYPES,
+	type SlateStore,
+} from "./state.ts";
 import type { DispatchProgress, ThreadManager } from "./threads.ts";
+import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
+
+const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
+const judgementThreadTypes = JUDGEMENT_THREAD_TYPES.join(" and ");
+
+const THREAD_TYPE_PARAMETER_DESCRIPTION =
+	`Required for a new thread and immutable after creation. Pick by main job: ${threadTypeGlosses}. ` +
+	`Slate adds its reviewer evidence charter to ${judgementThreadTypes} threads.`;
 
 export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManager: () => ThreadManager): void {
 	pi.registerTool({
@@ -17,7 +33,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"Dispatch ONE bounded action to a persistent worker thread; receive an episode",
 			"(a compressed, structured record of its work).",
 			"Omit `thread` and give a short `name` to create one; pass its id to continue with all prior-action context.",
-			"A new thread requires `type`: researcher, reviewer, adversarial, implementer, or general.",
+			"See the `type` parameter for the thread-type choices and their meanings.",
 			"A thread type is immutable. A legacy untyped thread may be typed once before it has a live worker session.",
 			"Use `context` to inject episodes by id from any thread.",
 			"Each thread is serial; use DIFFERENT threads in one message for parallel work.",
@@ -42,7 +58,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			name: Type.Optional(Type.String({ description: "Short name for a NEW thread (e.g. \"recon\")" })),
 			type: Type.Optional(
 				Type.Union(THREAD_TYPES.map((value) => Type.Literal(value)), {
-					description: "The type is required for a new thread and is immutable after creation: researcher, reviewer, adversarial, implementer, or general.",
+					description: THREAD_TYPE_PARAMETER_DESCRIPTION,
 				}),
 			),
 			task: Type.String({ description: "The single bounded action to execute" }),

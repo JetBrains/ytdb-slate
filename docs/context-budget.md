@@ -134,6 +134,21 @@ rendered production string, without JSONL framing or provider-role overhead. The
 message enters conversation context only when a reminder fires. Later requests
 resend it with the rest of the conversation.
 
+## What always-loaded tool definitions cost the budget
+
+A registered tool adds its description and serialized parameter schema to each
+request while that tool is available. Parameter descriptions sit inside the
+schema. A tool description and a parameter description are therefore both
+always loaded.
+
+The current `thread` tool description is 1,386 UTF-8 bytes. Its serialized
+parameter schema is 1,791 bytes, measured as `JSON.stringify(parameters)`, and
+includes the 289-byte `type` parameter description. The description and schema
+are 3,177 bytes together before provider framing. This change adds 142 bytes to
+the previous combined figure, or roughly 36 tokens at four characters per
+token. The figure excludes the prompt snippet, prompt guidelines, tool name,
+provider framing, and any serialization outside the parameter schema.
+
 ## Compaction policy
 
 In orchestrator mode, for budget-driven configs only: a

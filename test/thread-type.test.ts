@@ -47,6 +47,11 @@ function storeHarness(): { store: SlateStore; snapshots: Record<string, unknown>
 
 interface RegisteredThreadTool {
   description: string;
+  parameters: {
+    properties: {
+      type: { description: string };
+    };
+  };
   execute(
     id: string,
     params: Record<string, unknown>,
@@ -88,7 +93,12 @@ const ctx = {} as ExtensionContext;
 test("thread tool enforces the creation type and publishes the closed vocabulary", async () => {
   const { tool, calls } = registeredThreadTool();
   const allowed = "researcher, reviewer, adversarial, implementer, general";
-  assert.match(tool.description, /researcher, reviewer, adversarial, implementer, or general/);
+  assert.match(tool.description, /See the `type` parameter for the thread-type choices and their meanings\./);
+  assert.doesNotMatch(tool.description, /researcher, reviewer, adversarial, implementer/);
+  assert.equal(
+    tool.parameters.properties.type.description,
+    "Required for a new thread and immutable after creation. Pick by main job: researcher investigates, reviewer judges work, adversarial seeks counterexamples, implementer makes the change, general is anything else. Slate adds its reviewer evidence charter to reviewer and adversarial threads.",
+  );
 
   await assert.rejects(
     tool.execute("missing", { task: "x" }, undefined, undefined, ctx),

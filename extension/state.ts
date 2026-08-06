@@ -34,6 +34,15 @@ import { createWritingReminderRuntime, type WritingReminderRuntime } from "./wri
 export const THREAD_TYPES = ["researcher", "reviewer", "adversarial", "implementer", "general"] as const;
 export type ThreadType = (typeof THREAD_TYPES)[number];
 
+/** Intent-only labels for explaining the closed thread-type vocabulary. */
+export const THREAD_TYPE_GLOSSES = {
+	researcher: "investigates",
+	reviewer: "judges work",
+	adversarial: "seeks counterexamples",
+	implementer: "makes the change",
+	general: "is anything else",
+} as const satisfies Record<ThreadType, string>;
+
 export function isThreadType(value: unknown): value is ThreadType {
 	return typeof value === "string" && (THREAD_TYPES as readonly string[]).includes(value);
 }

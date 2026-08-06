@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import "../verification/test-hooks.mjs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ThreadRecord, ThreadType } from "../extension/state.ts";
+import { THREAD_TYPES, type ThreadRecord, type ThreadType } from "../extension/state.ts";
 import type { WorkerSession } from "../extension/worker.ts";
 
 const codingAgentModule = await import("@earendil-works/pi-coding-agent") as unknown as {
@@ -47,6 +47,14 @@ function record(id: string, type?: ThreadType): ThreadRecord {
   };
 }
 
+const EXPECTED_CHARTER_BY_THREAD_TYPE = {
+  researcher: false,
+  reviewer: true,
+  adversarial: true,
+  implementer: false,
+  general: false,
+} as const satisfies Record<ThreadType, boolean>;
+
 test("workerPreamble composes base, writing, and reviewer guidance independently", () => {
   const base = workerPreamble(false, false);
   const writing = workerPreamble(true, false);
@@ -80,10 +88,7 @@ test("real worker assembly delivers the charter only to review thread types", as
   const manager = new ThreadManager({} as never, { writing: { check: true } });
   const view = manager as unknown as ManagerInternals;
   const cases: Array<[ThreadType | undefined, boolean]> = [
-    ["reviewer", true],
-    ["adversarial", true],
-    ["implementer", false],
-    ["general", false],
+    ...THREAD_TYPES.map((type): [ThreadType, boolean] => [type, EXPECTED_CHARTER_BY_THREAD_TYPE[type]]),
     [undefined, false],
   ];
 
