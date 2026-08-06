@@ -99,6 +99,15 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
     tool.parameters.properties.type.description,
     "Required for a new thread and immutable after creation. Pick by main job: researcher investigates, reviewer judges work, adversarial seeks counterexamples, implementer makes the change, general is anything else. Slate adds its reviewer evidence charter to reviewer and adversarial threads.",
   );
+  const descriptionBytes = Buffer.byteLength(tool.description, "utf8");
+  const parameterSchemaBytes = Buffer.byteLength(JSON.stringify(tool.parameters), "utf8");
+  assert.equal(descriptionBytes, 1_386, "thread description byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(parameterSchemaBytes, 1_791, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(
+    descriptionBytes + parameterSchemaBytes,
+    3_177,
+    "thread combined byte budget changed; update docs/context-budget.md in the same commit",
+  );
 
   await assert.rejects(
     tool.execute("missing", { task: "x" }, undefined, undefined, ctx),

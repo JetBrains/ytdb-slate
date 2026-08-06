@@ -144,10 +144,14 @@ always loaded.
 The current `thread` tool description is 1,386 UTF-8 bytes. Its serialized
 parameter schema is 1,791 bytes, measured as `JSON.stringify(parameters)`, and
 includes the 289-byte `type` parameter description. The description and schema
-are 3,177 bytes together before provider framing. This change adds 142 bytes to
-the previous combined figure, or roughly 36 tokens at four characters per
-token. The figure excludes the prompt snippet, prompt guidelines, tool name,
+are 3,177 bytes together before provider framing. The thread-type wording in
+the description and schema adds 142 bytes to the previous combined figure. The
+increase is roughly 36 tokens at four characters per token. The figure excludes
+the prompt snippet, prompt guidelines, tool name,
 provider framing, and any serialization outside the parameter schema.
+
+The always-loaded doctrine has a separate measurement after the compaction
+policy.
 
 ## Compaction policy
 

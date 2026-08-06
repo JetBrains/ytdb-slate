@@ -93,6 +93,10 @@ test("real worker assembly delivers the charter only to review thread types", as
   ];
 
   try {
+    assert.ok(
+      cases.some(([type, hasCharter]) => type === undefined && hasCharter === false),
+      "cases include the untyped legacy thread",
+    );
     for (const [type, hasCharter] of cases) {
       await view.openWorkerFor({
         thread: record(`thread-${type ?? "untyped"}`, type),
