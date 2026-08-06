@@ -63,8 +63,10 @@ test("workerPreamble composes base, writing, and reviewer guidance independently
 
   assert.equal(base, WORKER_PREAMBLE);
   assert.equal(writing, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}`);
-  assert.equal(charter, `${WORKER_PREAMBLE} ${REVIEWER_CHARTER}`);
-  assert.equal(both, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE} ${REVIEWER_CHARTER}`);
+  assert.equal(charter, `${WORKER_PREAMBLE}\n${REVIEWER_CHARTER}`);
+  assert.equal(both, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}\n${REVIEWER_CHARTER}`);
+  assert.equal(charter.match(/^- /gm)?.length, 10);
+  assert.equal(both.match(/^- /gm)?.length, 10);
   assert.doesNotMatch(base, /Trace, don't guess/);
   assert.doesNotMatch(writing, /Trace, don't guess/);
   assert.match(charter, /Trace, don't guess/);

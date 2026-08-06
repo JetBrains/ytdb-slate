@@ -303,8 +303,9 @@ per-turn doctrine.
 | Base + writing guidance + reviewer charter | 2,544 | 2,318 |
 
 The writing guidance is 157 bytes. The reviewer charter constant is
-2,159 bytes. Each addendum also needs one separating space. The current
-text uses UTF-8 punctuation, so byte and character counts can differ.
+2,159 bytes. The writing addendum needs one separating space. The reviewer
+charter addendum needs one separating newline. The current text uses UTF-8
+punctuation, so byte and character counts can differ.
 This separate figure states the worker-session cost without presenting
 it as orchestrator doctrine.
 

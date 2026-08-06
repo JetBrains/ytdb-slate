@@ -109,8 +109,8 @@ export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code a
 export function workerPreamble(writingCheck: boolean, reviewerCharter: boolean): string {
 	const additions: string[] = [];
 	if (writingCheck === true) additions.push(WORKER_WRITING_GUIDANCE);
-	if (reviewerCharter === true) additions.push(REVIEWER_CHARTER);
-	return [WORKER_PREAMBLE, ...additions].join(" ");
+	const prose = [WORKER_PREAMBLE, ...additions].join(" ");
+	return reviewerCharter === true ? `${prose}\n${REVIEWER_CHARTER}` : prose;
 }
 
 export function threadsDir(cwd: string): string {
