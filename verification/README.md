@@ -838,13 +838,12 @@ avoid cell, and the thread base resolving to the cheapest candidate,
 `openai/gpt-5.6-luna`. This is the first confirmation the rendering is right in a
 real session rather than against a fixture, and it agrees with these checks.
 
-> **Environment caveat — the warning count from that session is NOT canonical.**
-> It observed **7** router warnings; a stock consumer would see **11**. This
-> machine's `~/.pi/agent/models.json` overrides `contextWindow` to 1,050,000 for
-> `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna` (verified), which is exactly the
-> figure the profile table records — so the three W1 window-divergence warnings and
-> the aggregate RI32 billing-pattern note that depends on them do not fire. Four
-> suppressed, hence 7. Do not record 7 as the expected count.
+> **Historical count only.** That interactive session observed **7** warnings.
+> At the time, this document estimated **11** for a stock consumer because local
+> model overrides suppressed three W1 lines and one aggregate. The warning rewrite
+> made that estimate obsolete. The current measured stock baseline is **7 model
+> data notes** for the six-model project configuration. Compare counts only within
+> the same router wording and profile-table revision.
 
 **Recorded sizes use one portable basis.** The doctrine embeds ABSOLUTE doc
 paths. Raw size therefore changes with the install directory. `portable` removes
@@ -907,11 +906,17 @@ Model router (`extension/model-router.ts`):
 | `router-class-default` | a real warning whose `once` call omits the class argument reaches the sink as `configuration-fault`; this executes the helper rather than inferring its default from source |
 | `router-tag-strip` | no bracket span survives in warnings built from real shipped unknown fields or real `nonPreferred` reasons. Both source sets must contain tagged text, and both warning paths must render, so the exclusions cannot pass vacuously |
 | `router-tag-keep` | a nested-array user value is rejected as a configuration fault while its bracketed display survives, preserving the identity of the bad entry (AD18) |
+| `router-empty-fields` | a tag-only profile field is dropped after rendering. A three-field raw array becomes two named entries, and the warning reports two facts with no empty separator slot |
+| `router-subject-repair` | a citation tag acting as the grammatical subject after punctuation becomes `the source`; an inline citation is merely removed. Both fields render, neither tag survives, and the narrow distinction is pinned |
 | `router-nonpreferred-visible` | an all-non-preferred fixture emits a configuration fault, names the selected base, and strips the profile reason's bracket span |
-| `router-field-cap` | every real shipped unknown field is shorter than 180 characters, while a hostile 200-character run is truncated with an ellipsis. A research refresh that exceeds the field cap fails loudly |
+| `router-field-cap` | every real shipped unknown field **and non-preferred reason** fits the 180-character pre-strip input cap. The two reasons exactly at the boundary are a canary. A hostile 200-character field truncates, and its one-field warning uses singular grammar |
+| `router-profile-input-bound` | a structural assertion, not a timing gate: `profileText` slices raw text to `max` before either bracket scanner, and the replacement chain starts from that bounded value. An unclosed bracket run therefore cannot scale tag scanning with hostile input length |
 | `router-message-cap` | a profile with many hostile fields still produces an assembled warning of at most 800 display characters, and the fixture proves whole-message truncation occurred |
 | `router-separator` | unknown fields are joined with U+00B7 MIDDLE DOT, and the assembled warning contains no C0 or C1 control byte, including newline |
-| `router-w3-explainer` | two unknown-data warnings produce one model-data-note explainer. A candidate with no unknown data produces none |
+| `router-separator-forgery` | an embedded middle dot is neutralized. Two fields produce one structural separator, two apparent entries, and a count of two |
+| `router-notify-controls` | the shared notification sanitizer strips every C1 byte and every supported Unicode bidirectional control on both sanitizer and profile-warning paths. It pins `false\u202Etrue` → `falsetrue` and `\u009D0;PWNED\u009C` → `0;PWNED` |
+| `router-profile-date` | a tagged `profile.asOf` value passes through profile rendering. The divergence warning keeps the cleaned date and leaks no bracket span |
+| `router-w3-explainer` | one singular and one plural unknown-data warning produce exactly one model-data-note explainer. A candidate with no unknown data produces none. The separate fixtures reject both incorrect noun forms |
 | `router-failover-coverage` | uncovered candidates produce **one aggregate** warning naming them all (not one per model); a covered, window-aligned candidate warns about nothing at all; a map entry whose target is not a spec does not count as coverage |
 | `router-warnings-echo` | on the router-**ON** path the returned `warnings` are exactly what the warn sink received, in order |
 | `router-labels` | a valid spec inside a warning is length-capped (the only path where a >120-character spec is observable) and annotated with the code points when it carries confusable non-ASCII characters, e.g. a Cyrillic homoglyph; a value that can neither be JSON-stringified nor coerced to a string renders as a bounded placeholder instead of throwing |
