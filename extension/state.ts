@@ -474,12 +474,16 @@ export interface ContextBudgetObject {
  * pre-existing failover remain outside that feature-off statement.
  * `allowUnmeasuredEffort` (default TRUE) decides what the dispatch path does
  * with an effort level that is ladder-valid but has no capability evidence —
- * an evidence gap is advisory, not a prohibition. Validated by
- * sanitizeRouterConfig in model-router.ts.
+ * an evidence gap is advisory, not a prohibition. `showWarnings` (default
+ * FALSE) reveals the router's MODEL DATA NOTES — the warnings a user cannot stop
+ * by changing this file or their pi credentials. A configuration fault is always
+ * shown, whatever this key says. Validated by sanitizeRouterConfig in
+ * model-router.ts.
  */
 export interface RouterConfig {
 	models?: string[];
 	allowUnmeasuredEffort?: boolean;
+	showWarnings?: boolean;
 }
 
 /** Optional writing checks and context-cadenced reminders. */

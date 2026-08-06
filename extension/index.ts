@@ -38,11 +38,14 @@
  *     "preserveGlobalModelDefault": true,
  *     "doctrineExtraPath": "docs/project-doctrine.md",
  *     "reviewPerspectivesPath": "docs/review-perspectives.md",
- *     "router": { "models": ["provider/id", ...], "allowUnmeasuredEffort": true },
+ *     "router": { "models": ["provider/id", ...], "allowUnmeasuredEffort": true,
+ *                 "showWarnings": false },
  *     "writing": { "check": false } }
  * router.models is the closed list of models an action may be routed to (empty
  * or absent = router off, the default); allowUnmeasuredEffort (default true)
- * governs effort levels with no capability evidence — see model-router.ts.
+ * governs effort levels with no capability evidence; showWarnings (default
+ * false) also shows the router's model data notes, the warnings about shipped
+ * research data that no project config can fix — see model-router.ts.
  * contextBudget also takes { "tokens": N, "overrides": [{ "match": "regex",
  * "tokens": N }] } (match is anchored against "provider/id"); absent, the
  * built-in defaults apply (256k tokens; 400k for anthropic/*). The DEPRECATED
@@ -58,7 +61,13 @@ import { createBaseModelTracker, readLiveEffort, type BaseModelTracker } from ".
 import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.ts";
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
-import { createModelRouterResolver, ROUTER_OFF, sanitizeRouterConfig, type ModelRouterResolution } from "./model-router.ts";
+import {
+	createModelRouterResolver,
+	ROUTER_OFF,
+	sanitizeRouterConfig,
+	type ModelRouterResolution,
+	type RouterWarningClass,
+} from "./model-router.ts";
 import { sanitizeEpisodeModel, SlateStore, type SlateConfig } from "./state.ts";
 import { ThreadManager } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
@@ -146,7 +155,26 @@ export default function (pi: ExtensionAPI) {
 		config.workerExtensions = sanitizeWorkerExtensions(config.workerExtensions, warn);
 		// router likewise: a malformed model list must surface at session start, not
 		// when a dispatch is refused for naming a model the list silently dropped.
-		config.router = sanitizeRouterConfig(config.router, warn);
+		// The router's own warn sink. It reads the CLASS the router tags each warning
+		// with (model-router.ts) and hides a MODEL DATA NOTE — a fact about slate's
+		// shipped research table that no project config and no credential can change —
+		// unless the project asked for those with router.showWarnings. A CONFIGURATION
+		// FAULT always reaches the user, and so does a warning from a sink that omits
+		// the class argument. Nothing is dropped from the resolution itself: the router
+		// still emits every warning and still collects every one on its result.
+		let showRouterWarnings = false;
+		let hiddenRouterWarnings = 0;
+		const routerWarn = (msg: string, warningClass?: RouterWarningClass) => {
+			if (warningClass === "model-data-note" && !showRouterWarnings) {
+				hiddenRouterWarnings += 1;
+				return;
+			}
+			warn(msg);
+		};
+		config.router = sanitizeRouterConfig(config.router, routerWarn);
+		// Read AFTER sanitization, so an invalid value has already fallen back to false
+		// and reported itself as a configuration fault.
+		showRouterWarnings = config.router.showWarnings === true;
 		config.writing = sanitizeWritingConfig(config.writing, warn);
 		// episodeModel too (RG20): an unusable value falls back to the built-in
 		// compressor, and until this ran it did so without saying anything at all.
@@ -169,14 +197,41 @@ export default function (pi: ExtensionAPI) {
 		// visible — and every later consultation gets that same frozen answer (CQ7).
 		// `failover` is passed so the resolver can report candidates with no failover
 		// coverage; both keys are read through the closure, not captured by value.
-		resolveModelRouterResolution = createModelRouterResolver(
+		const memoizedRouterResolution = createModelRouterResolver(
 			() => ({
 				registry: ctx.modelRegistry,
 				models: config.router?.models ?? [],
 				failover: config.modelFailover ?? {},
 			}),
-			warn,
+			routerWarn,
 		);
+		// The discoverability line, at most once per session. It is flushed AFTER the
+		// memoized resolution returns, on EVERY return path — the normal one, the
+		// all-dropped one, and the resolver's own catch-all — because each of them can
+		// hide a note. The memo means a later consultation re-emits nothing and cannot
+		// count a warning twice, and `noticeFlushed` covers the FIRST consultation
+		// producing no hidden note at all. It counts WARNINGS, not rendered lines: one
+		// warning can wrap across several of those.
+		let noticeFlushed = false;
+		resolveModelRouterResolution = () => {
+			const resolution = memoizedRouterResolution();
+			if (!noticeFlushed) {
+				noticeFlushed = true;
+				if (hiddenRouterWarnings > 0) {
+					const count = hiddenRouterWarnings;
+					const plural = count === 1 ? "is 1 warning" : `are ${count} warnings`;
+					try {
+						warn(
+							`slate: there ${plural} in the model router. Set "router.showWarnings" to true in ` +
+								`${CONFIG_DIR_NAME}/slate.json to read them. A hidden warning can affect which model runs an action.`,
+						);
+					} catch {
+						/* BG3: a throwing sink costs the notice, never the resolution */
+					}
+				}
+			}
+			return resolution;
+		};
 		// Fresh tracker per session, seeded from the session's OWN resolved model —
 		// undefined is legitimate (no model, or no auth for one) and stays silent.
 		// Same warn channel as the sanitizers above. A handoff adoption re-seeds it

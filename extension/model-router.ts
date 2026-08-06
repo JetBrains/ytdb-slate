@@ -80,9 +80,18 @@
  *    path, Track 02, gated by `router.allowUnmeasuredEffort`, default true) that
  *    decides what to do with that. This module never refuses anything.
  *
+ *  - EVERY WARNING CARRIES A CLASS (see RouterWarningClass): a CONFIGURATION
+ *    FAULT the user can act on, or a MODEL DATA NOTE about shipped research the
+ *    user cannot change. This module never hides anything: it tags each warning
+ *    and sends every one of them to the sink it was handed. The extension entry
+ *    point (index.ts) is what filters notes when `router.showWarnings` is off,
+ *    and what reports how many it hid.
+ *
  *  - EVERY WARNING AT MOST ONCE PER SESSION (D58), sanitized through the shared
  *    sanitizeForNotify before display, exactly like the other sanitizers: config
  *    values and profile fields are user-editable text that reaches ctx.ui.notify.
+ *    Each assembled message is capped as a WHOLE (ROUTER_MESSAGE_MAX), so the
+ *    control-byte guard covers the finished string and not only its parts.
  *    Warnings are BOTH pushed to the sink and collected on the result, and the
  *    sink is called defensively — a throwing UI must not cost a resolution
  *    (BG3). Per-candidate notices that would otherwise scale with the list
@@ -137,6 +146,95 @@ export const SHIPPED_PROFILE_SOURCE: RouterProfileSource = {
 	findProfile: shippedFindProfile,
 	ladderFor: shippedLadderFor,
 };
+
+/**
+ * What KIND of problem a router warning reports. There are exactly two.
+ *
+ * THE TEST, and it has two parts. A warning is a `configuration-fault` when
+ * EITHER part holds:
+ *   (a) slate ignored or dropped part of the user's configuration, or
+ *   (b) the user can stop the warning by ADDING something to the project config
+ *       or to their pi credentials, while keeping the same model list.
+ * Otherwise it is a `model-data-note`.
+ *
+ * BOTH parts are load-bearing. The single-part "can the user stop it" question
+ * from the earlier design text does not partition the classes: a dropped
+ * `router.models` entry is stopped by REMOVING it, which changes the model list,
+ * so part (b) alone would file a silently ignored config value as a data note
+ * and hide it. Part (a) catches every such case first.
+ *
+ * A `model-data-note` reports the shipped research table itself: a figure that
+ * has no traced source, two sources that disagree, a price row that does not
+ * cover today. No project config and no credential closes that gap, so these are
+ * hidden unless `router.showWarnings` is true.
+ */
+export type RouterWarningClass = "configuration-fault" | "model-data-note";
+
+/**
+ * The warn sink, widened to carry the class alongside the message.
+ *
+ * A one-parameter `(message: string) => void` stays assignable to this type, so
+ * every existing caller keeps compiling AND keeps receiving every warning. Only
+ * a sink that WANTS to filter reads the second argument.
+ */
+export type RouterWarnSink = (message: string, warningClass: RouterWarningClass) => void;
+
+/**
+ * Per-field cap for PROFILE-SOURCED text (the unknown-field entries and the
+ * non-preferred reason). BOTH bounds matter:
+ *  - the longest entry in the shipped table measures 177 characters today (the
+ *    design text quoted 167, measured before the last profile refresh), so 180
+ *    keeps every real entry whole instead of cutting it mid-word;
+ *  - the hostile fixture in verification/resolver-checks.mjs asserts that no
+ *    warning carries a 200-character run, so the cap must stay BELOW 200.
+ * That leaves a narrow band, and 180 sits in it. The 80-character cap this
+ * replaces truncated most real entries.
+ */
+const PROFILE_FIELD_MAX = 180;
+
+/**
+ * Cap for one WHOLE assembled warning. A profile may carry any number of
+ * fields, so a per-field cap alone does not bound the message. 799 is chosen
+ * against the same hostile check: sanitizeForNotify appends an ellipsis, so the
+ * displayed string stays at or below the 800 characters that check allows, and
+ * the longest real message stays whole.
+ */
+const ROUTER_MESSAGE_MAX = 799;
+
+/**
+ * Separator between field entries: U+00B7 MIDDLE DOT.
+ *
+ * A newline is a control byte, and the hostile check bans one in any warning.
+ * U+00B7 was verified to survive sanitizeForNotify unchanged, and the
+ * confusable annotation (describeConfusables) never sees it, because that note
+ * is applied to a model SPEC and never to an assembled message.
+ */
+const FIELD_SEPARATOR = " · ";
+
+/**
+ * Display form of PROFILE-SOURCED text.
+ *
+ * The shipped table carries bracketed source tags ([G1e], [RI36], [arb]) that
+ * name unpublished research artifacts. They mean nothing to a reader of a
+ * warning, so they are removed here, the whitespace the removal leaves behind is
+ * collapsed, and a separator left dangling at the end is trimmed.
+ *
+ * USE THIS ONLY FOR PROFILE TEXT. An echoed USER value must keep its brackets:
+ * a user who wrote a nested array into `router.models` has to see those brackets
+ * to recognise the value the warning is talking about.
+ */
+function profileText(text: string, max = PROFILE_FIELD_MAX): string {
+	const collapsed = text
+		.replace(/\[[^\]]*\]/g, "") // the source tags themselves
+		.replace(/\s+/g, " ") // the hole each removal leaves
+		.replace(/,\s*\)/g, ")") // "(vendor, [G3])" would otherwise read "(vendor, )"
+		.replace(/\(\s*\)/g, "") // a parenthesis that held nothing but a tag
+		.replace(/\s+([,;:.)])/g, "$1") // "1736 , unadjudicated" would otherwise keep the gap
+		.replace(/\s+/g, " ")
+		.replace(/[\s,;:—–-]+$/, "") // a separator the last removal left dangling
+		.trim();
+	return sanitizeForNotify(collapsed, max);
+}
 
 /** One routable model: what survived validation, plus everything a caller needs to explain it. */
 export interface RouterCandidate {
@@ -356,7 +454,7 @@ export function effectivePriceRow(profile: ModelProfile, today: string): PriceRo
 }
 
 /** The known `router` keys — anything else is a typo worth surfacing (CQ1). */
-const ROUTER_KEYS = ["models", "allowUnmeasuredEffort"];
+const ROUTER_KEYS = ["models", "allowUnmeasuredEffort", "showWarnings"];
 
 /**
  * Validate the raw `router` config value (D4/D53). undefined → the defaults
@@ -366,33 +464,40 @@ const ROUTER_KEYS = ["models", "allowUnmeasuredEffort"];
  * and an unknown key is reported the way sanitizeContextBudget reports one
  * (CQ1 — a typo'd `"model"` must not look like an empty list).
  * `allowUnmeasuredEffort` defaults to TRUE — an evidence gap is advisory.
+ * `showWarnings` defaults to FALSE — model data notes are hidden until asked for.
+ *
+ * EVERY warning here is a configuration fault by the class test: each one names
+ * a value slate read from the project config and then ignored.
  */
-export function sanitizeRouterConfig(raw: unknown, warn: (msg: string) => void): Required<RouterConfig> {
-	const defaults: Required<RouterConfig> = { models: [], allowUnmeasuredEffort: true };
+export function sanitizeRouterConfig(raw: unknown, warn: RouterWarnSink): Required<RouterConfig> {
+	const defaults: Required<RouterConfig> = { models: [], allowUnmeasuredEffort: true, showWarnings: false };
+	const fault = (message: string) => warn(sanitizeForNotify(message, ROUTER_MESSAGE_MAX), "configuration-fault");
 	if (raw === undefined) return defaults;
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-		warn('slate: ignoring router — expected an object like { "models": ["provider/id"], "allowUnmeasuredEffort": true }');
+		fault('slate: ignoring the router config. It must be an object like { "models": ["provider/id"], "allowUnmeasuredEffort": true }.');
 		return defaults;
 	}
-	const value = raw as { models?: unknown; allowUnmeasuredEffort?: unknown };
+	const value = raw as { models?: unknown; allowUnmeasuredEffort?: unknown; showWarnings?: unknown };
 
 	const unknownKeys = Object.keys(value).filter((k) => !ROUTER_KEYS.includes(k));
 	if (unknownKeys.length > 0) {
-		warn(
-			`slate: ignoring unknown router key(s): ${sanitizeForNotify(unknownKeys.join(", "))} (known: ${ROUTER_KEYS.map(
+		fault(
+			`slate: ignoring unknown router key(s): ${sanitizeForNotify(unknownKeys.join(", "))}. The known router keys are ${ROUTER_KEYS.map(
 				(k) => `"${k}"`,
-			).join(", ")})`,
+			).join(", ")}.`,
 		);
 	}
 
 	const models: string[] = [];
 	if (value.models !== undefined) {
 		if (!Array.isArray(value.models)) {
-			warn('slate: router.models must be an array of "provider/id" strings — ignoring it (the router stays off)');
+			fault('slate: router.models must be an array of "provider/id" strings. Slate ignores the value, so the router stays off.');
 		} else {
 			for (const entry of value.models) {
 				if (!isModelSpec(entry)) {
-					warn(`slate: ignoring router.models entry ${quoted(entry)} — ${describeSpecDefect(entry)}`);
+					// quoted() echoes a USER value, so its brackets stay: a nested array has
+					// to be recognisable in the warning that rejects it.
+					fault(`slate: ignoring the router.models entry ${quoted(entry)}. Reason: ${describeSpecDefect(entry)}.`);
 					continue;
 				}
 				models.push(entry);
@@ -403,15 +508,27 @@ export function sanitizeRouterConfig(raw: unknown, warn: (msg: string) => void):
 	let allowUnmeasuredEffort = true;
 	if (value.allowUnmeasuredEffort !== undefined) {
 		if (typeof value.allowUnmeasuredEffort !== "boolean") {
-			warn(
-				`slate: ignoring router.allowUnmeasuredEffort ${quoted(value.allowUnmeasuredEffort)} — expected true or false (defaulting to true)`,
+			fault(
+				`slate: ignoring router.allowUnmeasuredEffort ${quoted(value.allowUnmeasuredEffort)}. Expected true or false. Slate uses true.`,
 			);
 		} else {
 			allowUnmeasuredEffort = value.allowUnmeasuredEffort;
 		}
 	}
 
-	return { models, allowUnmeasuredEffort };
+	// Same shape as allowUnmeasuredEffort above: a non-boolean value is reported
+	// and the default stands. Reporting it is itself a configuration fault, so a
+	// typo here can never hide behind the very option it fails to set.
+	let showWarnings = false;
+	if (value.showWarnings !== undefined) {
+		if (typeof value.showWarnings !== "boolean") {
+			fault(`slate: ignoring router.showWarnings ${quoted(value.showWarnings)}. Expected true or false. Slate uses false.`);
+		} else {
+			showWarnings = value.showWarnings;
+		}
+	}
+
+	return { models, allowUnmeasuredEffort, showWarnings };
 }
 
 /** Sort key for a tier: a malformed/absent tier sorts LAST instead of poisoning the comparator with NaN (CQ5). */
@@ -434,7 +551,7 @@ function tierOf(profile: ModelProfile): number {
  * normally runs first, but this function is also called directly — by the
  * checks, and by any future caller that builds a list itself (BG4).
  */
-export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) => void = () => {}): ModelRouterResolution {
+export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink = () => {}): ModelRouterResolution {
 	const models = Array.isArray(input.models) ? input.models : [];
 	if (models.length === 0) return ROUTER_OFF;
 
@@ -446,14 +563,21 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 	// what identifies a condition, so a reworded message cannot start repeating.
 	// BG3: the sink is called inside a try/catch — a throwing UI must not abort a
 	// resolution (and, through the memo below, must not un-cache it either).
+	//
+	// The CLASS is the third parameter, and it DEFAULTS to "configuration-fault".
+	// A future warning added here without a class is therefore visible rather than
+	// silently hidden: forgetting the class costs noise, never a lost report.
 	const emitted = new Set<string>();
 	const warnings: string[] = [];
-	const once = (key: string, message: string) => {
+	const once = (key: string, message: string, warningClass: RouterWarningClass = "configuration-fault") => {
 		if (emitted.has(key)) return;
 		emitted.add(key);
-		warnings.push(message);
+		// The whole assembled message is capped here, so the control-byte strip and the
+		// length bound apply to the finished string and not only to its interpolations.
+		const text = sanitizeForNotify(message, ROUTER_MESSAGE_MAX);
+		warnings.push(text);
 		try {
-			warn(message);
+			warn(text, warningClass);
 		} catch {
 			/* a broken warn sink costs the notice, never the resolution (BG3) */
 		}
@@ -468,7 +592,9 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 		if (!isModelSpec(raw)) {
 			once(
 				conditionKey("malformed", raw),
-				`slate: model router: ignoring ${quoted(raw)} — ${describeSpecDefect(raw)}, so it is not a canonical "provider/id" model spec`,
+				// quoted() echoes a USER value: brackets and all, so the entry stays recognisable.
+				`slate: model router: ignoring the router.models entry ${quoted(raw)}. It is not a canonical "provider/id" ` +
+					`model spec. Reason: ${describeSpecDefect(raw)}.`,
 			);
 			continue;
 		}
@@ -485,7 +611,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 		if (!profile || typeof profile !== "object") {
 			once(
 				conditionKey("unprofiled", raw),
-				`slate: model router: ${label} has no benchmark data in slate's model profiles — excluding it from routing`,
+				`slate: model router: ${label} has no entry in slate's model profile table. Slate has no benchmark data for it, ` +
+					"so slate drops it from routing. Remove it from router.models, or list a profiled model instead.",
 			);
 			continue;
 		}
@@ -499,8 +626,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 		if (claimedBy !== undefined) {
 			once(
 				conditionKey("alias-duplicate", raw),
-				`slate: model router: ${label} is the same profiled model as ${sanitizeForNotify(claimedBy)} ` +
-					`(both resolve to ${sanitizeForNotify(profileId)}) — keeping the first and dropping this one`,
+				`slate: model router: ${label} and ${sanitizeForNotify(claimedBy)} name the same profiled model. ` +
+					`Both resolve to the model profile ${sanitizeForNotify(profileId)}. Slate keeps the first entry and drops ${label}.`,
 			);
 			continue;
 		}
@@ -517,7 +644,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 		if (!model || typeof model !== "object") {
 			once(
 				conditionKey("unknown", raw),
-				`slate: model router: ${label} is not in pi's model registry — dropping it (routing there could only produce billed failures)`,
+				`slate: model router: ${label} is not in pi's model registry. Slate drops it from routing. ` +
+					"A dispatch to a model pi does not know could only produce a billed failure.",
 			);
 			continue;
 		}
@@ -530,7 +658,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 		if (!authed) {
 			once(
 				conditionKey("noauth", raw),
-				`slate: model router: ${label} has no usable credentials configured in pi — dropping it (routing there could only produce billed failures)`,
+				`slate: model router: ${label} has no usable credentials configured in pi. Slate drops it from routing. ` +
+					"A dispatch to a model without credentials could only produce a billed failure. Add credentials in pi to route to it.",
 			);
 			continue;
 		}
@@ -541,8 +670,9 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 		if (inUsdPerMTok === undefined) {
 			once(
 				conditionKey("price", raw),
-				`slate: model router: ${label} has no usable input price for ${today} in its profile — ` +
-					"keeping it, ordered last; its cost cannot be compared",
+				`slate: model router: ${label} has no usable input price for ${today} in its model profile. ` +
+					"Slate keeps the model and orders it last. Slate cannot compare its cost with the other models.",
+				"model-data-note",
 			);
 		}
 
@@ -596,10 +726,12 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 				// from the user, this line must name WHICH source it read — the sentence
 				// contrasts two sources, and mislabelling one of them is the whole defect
 				// this wording was rewritten to avoid.
-				`slate: model router: context window for ${label} differs between sources — the model profile records ` +
-					`${profileWindow} tokens (profile asOf ${quoted(profile.asOf ?? "unknown")}), pi's model registry reports ` +
-					`${registryWindow} tokens. Routing uses the registry figure; which source is correct is not established here.` +
-					`${matchesBillingThreshold ? " That registry figure is also this model's long-context BILLING threshold — see the note below." : ""}`,
+				`slate: model router: the context window for ${label} differs between two sources. The model profile records ` +
+					`${profileWindow} tokens, and that profile was recorded as of ${quoted(profile.asOf ?? "unknown")}. ` +
+					`The pi model registry reports ${registryWindow} tokens. Routing uses the registry figure. ` +
+					"Slate does not establish here which source is correct." +
+					`${matchesBillingThreshold ? " That registry figure is also this model's long-context billing threshold. A separate note below names that pattern." : ""}`,
+				"model-data-note",
 			);
 		}
 
@@ -608,10 +740,22 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 			? profile.unknownRoutingCriticalFields.filter((f) => typeof f === "string" && f !== "")
 			: [];
 		if (unknownFields.length > 0) {
+			// The CLASS explanation, once per session and only when a W3 warning fires at
+			// all. It is emitted BEFORE the first per-model line, so a reader meets the
+			// meaning of the class before the first instance of it (BG27's aggregation
+			// argument, applied to an explanation rather than to a set of models).
+			once(
+				"w3-explainer",
+				"slate: model router: slate picks models from a research table shipped inside slate. Some figures in that " +
+					"table have no traced source. Slate records the absence instead of a guess. Routing still works. " +
+					"The ranking of such a model rests on less evidence. You cannot close this gap from your configuration.",
+				"model-data-note",
+			);
 			once(
 				conditionKey("w3", raw),
-				`slate: model router: ${label} has unknown routing-critical data — ` +
-					`${unknownFields.map((f) => sanitizeForNotify(f, 80)).join("; ")} — routing decisions for it are provisional`,
+				`slate: model router: ${label} has ${unknownFields.length} model facts that slate could not trace to a ` +
+					`source: ${unknownFields.map((f) => profileText(f)).join(FIELD_SEPARATOR)}. Routing to this model still works.`,
+				"model-data-note",
 			);
 		}
 
@@ -631,10 +775,17 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 			? [...new Set(ladderRaw.filter((l): l is ThinkingLevel => THINKING_LEVELS.includes(l as string)))]
 			: [];
 		if (ladder.length === 0) {
+			// The earlier text claimed that every explicit effort level would read as
+			// off-ladder. That was wrong: guard 2 in route.ts fires only on a KNOWN ladder
+			// (`ladderKnown`), so an unreadable ladder makes it stand down and the level goes
+			// to pi, which clamps it. Guard 4 keeps its carve-out either way.
 			once(
 				conditionKey("ladder", raw),
-				`slate: model router: ${label} has no usable effort ladder in its profile — ` +
-					"keeping it, but every explicit effort level for it will read as off-ladder",
+				`slate: model router: ${label} has no usable effort ladder in its model profile. Slate keeps the model. ` +
+					"Slate cannot check an explicit effort level against a ladder it could not read. Such a level passes " +
+					"through to pi, which clamps it to a level the model supports. A level the provider rejects outright " +
+					"is still refused.",
+				"model-data-note",
 			);
 		}
 
@@ -663,8 +814,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 	if (!isNonEmpty(candidates)) {
 		once(
 			"all-dropped",
-			`slate: model router: routing is disabled — none of the ${models.length} configured router.models ` +
-				"entries survived validation (see the warnings above)",
+			`slate: model router: routing is disabled. None of the ${models.length} configured router.models entries ` +
+				"survived validation. The warnings above name each dropped entry and the reason for it.",
 		);
 		return frozenResolution(false, [], undefined, false, warnings);
 	}
@@ -677,9 +828,11 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 	if (billingPatternSpecs.length > 0) {
 		once(
 			"w1-billing-pattern",
-			`slate: model router: the registry's context window equals the model's own long-context BILLING threshold for ` +
-				`${billingPatternSpecs.join(", ")} — a window equal to its own threshold would leave the long-context price ` +
-				"tier unreachable, which is the billing-row-restated-as-a-capacity pattern finding RI32 warns about.",
+			"slate: model router: for these models the pi model registry reports a context window equal to the model's own " +
+				`long-context billing threshold: ${billingPatternSpecs.join(", ")}. A window equal to its own threshold would ` +
+				"leave the long-context price tier unreachable. That shape suggests a billing figure restated as a capacity " +
+				"figure. Slate reports the pattern and does not decide which figure is right.",
+			"model-data-note",
 		);
 	}
 
@@ -690,8 +843,9 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 	if (uncovered.length > 0) {
 		once(
 			"failover-coverage",
-			`slate: model router: no modelFailover entry for ${uncovered.join(", ")} — ` +
-				"a model failure while routed there has no failover coverage",
+			`slate: model router: these routable models have no modelFailover entry: ${uncovered.join(", ")}. ` +
+				"A model failure during an action routed to one of them has no failover coverage. " +
+				"Add a modelFailover entry for each of them to cover that case.",
 		);
 	}
 
@@ -735,10 +889,15 @@ export function resolveModelRouter(input: ModelRouterInput, warn: (msg: string) 
 	for (const c of pool) if (price(c) < price(cheapest)) cheapest = c;
 	const cheapestNonPreferred = cheapest.nonPreferred !== null;
 	if (cheapestNonPreferred) {
+		// Always visible (a configuration fault by part (b) of the class test: adding
+		// one preferred model to router.models stops it), so the text is
+		// project-authored and the interpolated reason is stripped of its source tags.
 		once(
 			"nonpreferred-base",
-			`slate: model router: every configured model is marked non-preferred, so ${sanitizeForNotify(cheapest.spec, 60)} ` +
-				`is the default base model anyway — ${sanitizeForNotify(cheapest.nonPreferred ?? "", 120)}`,
+			"slate: model router: slate's model profiles mark every configured model as one it must never pick by " +
+				`itself. Slate still needs a default base model, so ${sanitizeForNotify(cheapest.spec, 60)} is the base ` +
+				`model for new threads. The recorded reason for that mark is: ${profileText(cheapest.nonPreferred ?? "")}. ` +
+				"Add a model without that mark to router.models to change the base model.",
 		);
 	}
 
@@ -837,7 +996,7 @@ export function checkEffort(resolution: ModelRouterResolution, spec: string, eff
  */
 export function createModelRouterResolver(
 	getInput: () => ModelRouterInput,
-	warn: (msg: string) => void = () => {},
+	warn: RouterWarnSink = () => {},
 ): () => ModelRouterResolution {
 	let cached: ModelRouterResolution | undefined;
 	return () => {
@@ -845,11 +1004,17 @@ export function createModelRouterResolver(
 			try {
 				cached = resolveModelRouter(getInput(), warn);
 			} catch (error) {
-				const message = `slate: model router: routing is disabled — resolution failed: ${sanitizeForNotify(
-					error instanceof Error ? error.message : String(error),
-				)}`;
+				// A configuration fault by the class test: the user's own model list, config or
+				// credentials are the most likely input to a failed resolution, and a silent
+				// router that routes nothing is the worst outcome to hide.
+				const message = sanitizeForNotify(
+					`slate: model router: routing is disabled. The router could not resolve its model list. The error was: ${sanitizeForNotify(
+						error instanceof Error ? error.message : String(error),
+					)}`,
+					ROUTER_MESSAGE_MAX,
+				);
 				try {
-					warn(message);
+					warn(message, "configuration-fault");
 				} catch {
 					/* see BG3 above */
 				}
