@@ -677,7 +677,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			once(
 				conditionKey("unknown", raw),
 				`slate: model router: ${label} is not in pi's model registry. Slate drops it from routing. ` +
-					"A dispatch to a model pi does not know could only produce a billed failure.",
+					"A dispatch to a model pi does not know could only produce a billed failure. " +
+					"Add the model to pi's model registry, or remove it from router.models.",
 			);
 			continue;
 		}
