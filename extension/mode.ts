@@ -31,7 +31,14 @@ import {
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { THINKING_LEVELS } from "./route.ts";
-import { orchestratorCostUsd, type SlateConfig, type SlateStore } from "./state.ts";
+import {
+	displayThreadType,
+	orchestratorCostUsd,
+	threadTypeMarker,
+	type SlateConfig,
+	type SlateStore,
+	type ThreadRecord,
+} from "./state.ts";
 import {
 	claimWritingReminder,
 	commitWritingReminder,
@@ -539,6 +546,11 @@ work. Reply with a concise handoff brief (overall goal, per-thread state with
 episode ids, immediate next actions) and direct the user to run
 /slate handoff [optional focus].`;
 
+export function renderThreadWidgetLine(thread: ThreadRecord): string {
+	const marker = threadTypeMarker(displayThreadType(thread.type));
+	return `  ${thread.status === "running" ? "⏳" : "·"} ${thread.id} ${thread.name} [${thread.status}]${marker} ${thread.episodeIds.length} episode${thread.episodeIds.length === 1 ? "" : "s"}`;
+}
+
 export function registerSlateMode(
 	pi: ExtensionAPI,
 	store: SlateStore,
@@ -595,10 +607,7 @@ export function registerSlateMode(
 			`slate ⋅ orchestrator mode ⋅ ${threads.length} thread${threads.length === 1 ? "" : "s"}`,
 			`  ${costLine}`,
 			...(store.paused ? ["  ⛔ PAUSED (context budget) — run /slate handoff"] : []),
-			...threads.map(
-				(t) =>
-					`  ${t.status === "running" ? "⏳" : "·"} ${t.id} ${t.name} [${t.status}] ${t.episodeIds.length} episode${t.episodeIds.length === 1 ? "" : "s"}`,
-			),
+			...threads.map((thread) => renderThreadWidgetLine(thread)),
 		];
 		uiCtx.ui.setWidget("slate", lines);
 	};

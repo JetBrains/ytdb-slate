@@ -134,6 +134,25 @@ rendered production string, without JSONL framing or provider-role overhead. The
 message enters conversation context only when a reminder fires. Later requests
 resend it with the rest of the conversation.
 
+## What always-loaded tool definitions cost the budget
+
+A registered tool adds its description and serialized parameter schema to each
+request while that tool is available. Parameter descriptions sit inside the
+schema. A tool description and a parameter description are therefore both
+always loaded.
+
+The current `thread` tool description is 1,386 UTF-8 bytes. Its serialized
+parameter schema is 1,791 bytes, measured as `JSON.stringify(parameters)`, and
+includes the 289-byte `type` parameter description. The description and schema
+are 3,177 bytes together before provider framing. The thread-type wording in
+the description and schema adds 142 bytes to the previous combined figure. The
+increase is roughly 36 tokens at four characters per token. The figure excludes
+the prompt snippet, prompt guidelines, tool name,
+provider framing, and any serialization outside the parameter schema.
+
+The always-loaded doctrine has a separate measurement after the compaction
+policy.
+
 ## Compaction policy
 
 In orchestrator mode, for budget-driven configs only: a
@@ -274,12 +293,21 @@ much headroom Slate consumes before conversation content.
 
 The doctrine table does not include the worker preamble. It belongs
 to each worker session's system prompt, not to the orchestrator's
-per-turn doctrine. The feature-off preamble is 226 bytes. With
-`writing.check` on it is 384 bytes, a 158-byte increase (the
-157-byte guidance plus its separating space). These are UTF-8 byte
-counts; the current text is ASCII, so its character counts happen to
-be identical. This separate figure states the worker-session cost
-without presenting it as orchestrator doctrine.
+per-turn doctrine.
+
+| Worker preamble form | UTF-8 bytes | Increase from base |
+| --- | ---: | ---: |
+| Base | 226 | — |
+| Base + writing guidance | 384 | 158 |
+| Base + reviewer charter | 2,386 | 2,160 |
+| Base + writing guidance + reviewer charter | 2,544 | 2,318 |
+
+The writing guidance is 157 bytes. The reviewer charter constant is
+2,159 bytes. The writing addendum needs one separating space. The reviewer
+charter addendum needs one separating newline. The current text uses UTF-8
+punctuation, so byte and character counts can differ.
+This separate figure states the worker-session cost without presenting
+it as orchestrator doctrine.
 
 ## Worker threads: the routing window guard
 

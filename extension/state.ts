@@ -13,11 +13,12 @@ import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // TYPE-ONLY: the effort vocabulary is defined once, in the profile table
 // (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
-// union. The import is erased at load time, so it adds no runtime dependency to
-// this module — state.ts stays the leaf of the graph (see the model-spec note
-// below on why that matters).
+// union. The import is erased at load time. State restoration therefore keeps
+// no runtime dependency on model-profiles.ts (see the model-spec note below).
 import type { ThinkingLevel } from "./model-profiles.ts";
+import type { ObservationRecord } from "./observations.ts";
 import { sanitizeForNotify } from "./notify.ts";
+import { isSafeThreadId, isSlateArtifactReference } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 
 /**
@@ -30,11 +31,71 @@ import { createWritingReminderRuntime, type WritingReminderRuntime } from "./wri
  * per-action routing", which the dispatch path answers by falling back to the
  * pre-router `model` field and then to the host default, not by inventing a base.
  */
+export const THREAD_TYPES = ["researcher", "reviewer", "adversarial", "implementer", "general"] as const;
+export type ThreadType = (typeof THREAD_TYPES)[number];
+
+/** Intent-only labels for explaining the closed thread-type vocabulary. */
+export const THREAD_TYPE_GLOSSES = {
+	researcher: "investigates",
+	reviewer: "judges work",
+	adversarial: "seeks counterexamples",
+	implementer: "makes the change",
+	general: "is anything else",
+} as const satisfies Record<ThreadType, string>;
+
+export function isThreadType(value: unknown): value is ThreadType {
+	return typeof value === "string" && (THREAD_TYPES as readonly string[]).includes(value);
+}
+
+/** Validate the conditionally required tool argument at its runtime boundary. */
+export function parseThreadType(value: unknown, required: boolean): ThreadType | undefined {
+	const allowed = THREAD_TYPES.join(", ");
+	if (value === undefined) {
+		if (required) throw new Error(`A type is required when creating a thread. Allowed values: ${allowed}.`);
+		return undefined;
+	}
+	if (!isThreadType(value)) throw new Error(`Invalid thread type. Allowed values: ${allowed}.`);
+	return value;
+}
+
+function resolveThreadType(value: unknown): ThreadType {
+	return isThreadType(value) ? value : "general";
+}
+
+/** Resolve a display value without consuming the once-only warning for an adopted record. */
+export function displayThreadType(value: unknown): ThreadType {
+	return resolveThreadType(value);
+}
+
+const reportedUnknownThreadTypes = new WeakSet<ThreadRecord>();
+
+/**
+ * Resolve the persisted value at the point where thread behaviour needs it.
+ * Old records remain absent. An unknown string also behaves as `general`, but
+ * produces one visible report for that adopted record rather than one per use.
+ */
+export function effectiveThreadType(thread: ThreadRecord, report: (message: string) => void): ThreadType {
+	const storedType = thread.type;
+	const type = resolveThreadType(storedType);
+	if (storedType !== undefined && !isThreadType(storedType) && !reportedUnknownThreadTypes.has(thread)) {
+		reportedUnknownThreadTypes.add(thread);
+		report(`slate: thread ${thread.id} has unrecognised type ${sanitizeForNotify(storedType, 80)}. Slate is treating it as general.`);
+	}
+	return type;
+}
+
+/** Compact display marker shared by every thread surface; includes its own separator. */
+export function threadTypeMarker(type: ThreadType): string {
+	return type === "general" ? "" : ` type=${type}`;
+}
+
 export interface ThreadRecord {
 	id: string; // "t1", "t2", ...
 	name: string;
 	sessionFile: string; // absolute path to worker .jsonl ("" until first dispatch completes session creation)
 	status: "idle" | "running";
+	/** Immutable thread type. Absent means an older thread; resolve it with effectiveThreadType. */
+	type?: ThreadType;
 	/**
 	 * PRE-ROUTER pin: "provider/id" passed as `model` when the thread was created
 	 * WITH THE ROUTER OFF. It names what a NEW worker session opens on and never
@@ -82,6 +143,8 @@ export interface EpisodeRecord {
 	effort?: ThinkingLevel;
 	/** Set only when that effort level has NO capability measurement in the profile data. */
 	effortUnmeasured?: true;
+	/** Exact final-message capture facts. Absent on episodes written before this field existed. */
+	observations?: ObservationRecord;
 	createdAt: number;
 }
 
@@ -289,6 +352,34 @@ function str(value: unknown): string | undefined {
 function num(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
+function counter(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+/** Validate the complete observation record, including its exact canonical reference. */
+function observationRecord(value: unknown, episodeId: string): ObservationRecord | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const o = value as Record<string, unknown>;
+	const exactKeys = (expected: string[]) => {
+		const keys = Object.keys(o);
+		return keys.length === expected.length && keys.every((key) => expected.includes(key));
+	};
+	const grammar = o.grammar === "present" || o.grammar === "absent" || o.grammar === "malformed" ? o.grammar : undefined;
+	if (o.stored === true) {
+		const path = isSlateArtifactReference(o.path, "observations", episodeId) ? o.path : undefined;
+		const bytes = typeof o.bytes === "number" && Number.isSafeInteger(o.bytes) && o.bytes >= 0 ? o.bytes : undefined;
+		if (!exactKeys(["stored", "path", "bytes", "truncated", "grammar"]) || path === undefined || bytes === undefined || typeof o.truncated !== "boolean" || grammar === undefined) return undefined;
+		return { stored: true, path, bytes, truncated: o.truncated, grammar };
+	}
+	if (o.stored === false) {
+		if (!exactKeys(["stored", "reason", "grammar"]) || grammar === undefined) return undefined;
+		if ((o.reason === "no-final-message" || o.reason === "no-final-text") && grammar === "absent") {
+			return { stored: false, reason: o.reason, grammar };
+		}
+		if (o.reason === "write-failed") return { stored: false, reason: o.reason, grammar };
+	}
+	return undefined;
+}
 
 /**
  * EXHAUSTIVENESS WITNESSES for the two sanitizers below (CQ22).
@@ -315,6 +406,7 @@ export const ADOPTED_THREAD_FIELDS = {
 	name: true,
 	sessionFile: true,
 	status: true,
+	type: true,
 	model: true,
 	baseModel: true,
 	baseEffort: true,
@@ -333,6 +425,7 @@ export const ADOPTED_EPISODE_FIELDS = {
 	model: true,
 	effort: true,
 	effortUnmeasured: true,
+	observations: true,
 	createdAt: true,
 } satisfies Record<keyof Required<EpisodeRecord>, true>;
 
@@ -383,6 +476,10 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	const t = raw as Record<string, unknown>;
 	const id = str(t.id);
 	if (id === undefined || id === "") return undefined; // unaddressable: nothing can refer to it
+	if (!isSafeThreadId(id)) {
+		repairs.push(`thread ${sanitizeForNotify(id, 80)}: invalid id cannot form a canonical episode filename — remove or rename this record`);
+		return undefined;
+	}
 	const refused = new Set<string>();
 	const note = (field: string, value: unknown) => {
 		refused.add(field);
@@ -400,6 +497,9 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		name: keep("name", t.name, str(t.name)) ?? id,
 		sessionFile: keep("sessionFile", t.sessionFile, str(t.sessionFile)) ?? "",
 		status: "idle",
+		// Vocabulary is resolved only at the point of use. Adoption follows the
+		// model/base-effort precedent and rejects only a non-string value.
+		...(keep("type", t.type, str(t.type)) !== undefined ? { type: str(t.type) as ThreadType } : {}),
 		...(keep("model", t.model, str(t.model)) !== undefined ? { model: str(t.model) } : {}),
 		...(keep("baseModel", t.baseModel, str(t.baseModel)) !== undefined ? { baseModel: str(t.baseModel) } : {}),
 		// The LEVEL's vocabulary is re-checked by the reader (route.ts's storedLevel, BG21);
@@ -407,7 +507,7 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		// stays defined in exactly one place.
 		...(keep("baseEffort", t.baseEffort, str(t.baseEffort)) !== undefined ? { baseEffort: str(t.baseEffort) as ThinkingLevel } : {}),
 		episodeIds,
-		episodeSeq: keep("episodeSeq", t.episodeSeq, num(t.episodeSeq)) ?? episodeIds.length,
+		episodeSeq: keep("episodeSeq", t.episodeSeq, counter(t.episodeSeq)) ?? episodeIds.length,
 		createdAt: keep("createdAt", t.createdAt, num(t.createdAt)) ?? now,
 		updatedAt: keep("updatedAt", t.updatedAt, num(t.updatedAt)) ?? now,
 	};
@@ -436,6 +536,7 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 		}
 		return parsed;
 	};
+	const observations = keep("observations", e.observations, observationRecord(e.observations, id));
 	const built: EpisodeRecord = {
 		id,
 		threadId,
@@ -449,6 +550,7 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 		...(keep("effortUnmeasured", e.effortUnmeasured, e.effortUnmeasured === true ? (true as const) : undefined) !== undefined
 			? { effortUnmeasured: true as const }
 			: {}),
+		...(observations !== undefined ? { observations } : {}),
 		createdAt: keep("createdAt", e.createdAt, num(e.createdAt)) ?? Date.now(),
 	};
 	noteUnadoptedFields("episode", id, e, built, refused, repairs); // CQ22
@@ -615,9 +717,12 @@ export class SlateStore {
 		// inside a warning message.
 		const threadList = Array.isArray(latest.threads) ? latest.threads : [];
 		for (const raw of threadList) {
+			const repairsBefore = dropped.length;
 			const t = sanitizeThreadRecord(raw, dropped);
 			if (t === undefined) {
-				dropped.push(`thread record without a usable id: ${typeof raw === "object" ? "ignored" : typeof raw}`);
+				if (dropped.length === repairsBefore) {
+					dropped.push(`thread record without a usable id: ${typeof raw === "object" ? "ignored" : typeof raw}`);
+				}
 				continue;
 			}
 			if (t.sessionFile && !existsSync(t.sessionFile)) {

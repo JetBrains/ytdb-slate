@@ -34,11 +34,8 @@
  * line or a same-line field (SE1/SE2/SE3, CQ44).
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { complete } from "@earendil-works/pi-ai/compat";
 import {
-	CONFIG_DIR_NAME,
 	convertToLlm,
 	serializeConversation,
 	type ExtensionContext,
@@ -54,6 +51,12 @@ import { isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 // dependency on it.
 import type { ThinkingLevel } from "./model-profiles.ts";
 import { sanitizeForNotify } from "./notify.ts";
+import type { ObservationRecord } from "./observations.ts";
+// SE2: the episode file carries the SAME unsafe write pattern the observation
+// capture was found with — a predictable filename under the same tree, written
+// with recursive mkdir and writeFileSync — so both kinds now go through one safe
+// writer rather than shipping a new guard beside a known identical hole.
+import { writeSlateArtifact } from "./slate-files.ts";
 import { splitModelSpec } from "./state.ts";
 
 type CompressorModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
@@ -389,6 +392,8 @@ export interface CompressEpisodeOptions {
 	status: "ok" | "failed";
 	diagnostics?: string; // failure diagnostics (D6)
 	messages: unknown[]; // AgentMessages produced during this action
+	/** Durable final-message facts. Transient capture fields are not rendered. */
+	observations: ObservationRecord;
 	/**
 	 * The model the action ACTUALLY ran on — the live worker session's own model,
 	 * so a failover switch is reflected. Recorded in the episode HEADER and NEVER
@@ -430,6 +435,19 @@ export interface CompressedEpisode {
 	file: string;
 	compressor: string; // model used, or "(uncompressed fallback)"
 	costUsd: number; // USD cost of the compression LLM call (0 on fallback)
+}
+
+/** Final episode persistence failed after this much compressor spend was incurred. */
+export class EpisodePersistenceError extends Error {
+	readonly costUsd: number;
+	readonly originalError: unknown;
+
+	constructor(costUsd: number, originalError: unknown) {
+		super("slate episode persistence failed");
+		this.name = "EpisodePersistenceError";
+		this.costUsd = costUsd;
+		this.originalError = originalError;
+	}
 }
 
 type CompressionAttempt =
@@ -502,25 +520,20 @@ async function attemptCompression(
 }
 
 function lastAssistantText(messages: unknown[]): string {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const m = messages[i] as { role?: string; content?: Array<{ type: string; text?: string }> };
-		if (m.role === "assistant" && Array.isArray(m.content)) {
-			const text = m.content
-				.filter((c) => c.type === "text")
-				.map((c) => c.text ?? "")
-				.join("\n")
-				.trim();
-			if (text) return text;
-		}
-	}
-	return "(no output)";
+	const m = [...messages].reverse().find((message) => (message as { role?: unknown } | null)?.role === "assistant") as
+		| { content?: Array<{ type: string; text?: string }> }
+		| undefined;
+	if (!Array.isArray(m?.content)) return "(no output)";
+	const text = m.content
+		.filter((c) => c.type === "text")
+		.map((c) => c.text ?? "")
+		.join("\n")
+		.trim();
+	return text || "(no output)";
 }
 
 export async function compressEpisode(opts: CompressEpisodeOptions): Promise<CompressedEpisode> {
 	const { ctx } = opts;
-	const dir = join(ctx.cwd, CONFIG_DIR_NAME, "slate", "episodes");
-	mkdirSync(dir, { recursive: true });
-	const file = join(dir, `${opts.episodeId}.md`);
 
 	let body: string | undefined;
 	let compressor = "(uncompressed fallback)";
@@ -610,10 +623,14 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	const threadName = headerField(opts.threadName, 80);
 	const task = headerField(opts.task) ?? "(no task recorded)";
 	const failure = opts.status === "failed" ? headerField(opts.diagnostics, 300) : undefined;
+	const observations = opts.observations.stored
+		? `stored | path: ${headerField(opts.observations.path, 240) ?? "(unknown)"} | bytes: ${opts.observations.bytes} | truncated: ${opts.observations.truncated ? "yes" : "no"} | grammar: ${opts.observations.grammar}`
+		: `not stored | reason: ${opts.observations.reason} | grammar: ${opts.observations.grammar}`;
 	const header = [
 		`# Episode ${episodeId} — thread ${threadId}${threadName ? ` (${threadName})` : ""} — STATUS: ${statusLabel}`,
 		"",
 		`> task: ${task}`,
+		`> observations: ${observations}`,
 		`> date: ${new Date().toISOString()}${ranOn ? ` | ran: ${headerField(ranOn, 120)}` : ""} | compressor: ${headerField(compressor, 120) ?? "(unknown)"}`,
 		...(failure ? [`> failure: ${failure}`] : []),
 		"",
@@ -621,6 +638,13 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	].join("\n");
 
 	const text = `${header}${body}\n`;
-	writeFileSync(file, text, "utf8");
-	return { text, file, compressor, costUsd };
+	// The directory is now created HERE rather than before the compression call.
+	// Nothing reads it in between, and the write itself keeps its historical
+	// failure policy: a refusal or an fs error throws out of this function.
+	try {
+		const written = writeSlateArtifact({ cwd: ctx.cwd, kind: "episodes", id: opts.episodeId, content: text });
+		return { text, file: written.absolutePath, compressor, costUsd };
+	} catch (error) {
+		throw new EpisodePersistenceError(costUsd, error);
+	}
 }
