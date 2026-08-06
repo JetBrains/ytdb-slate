@@ -61,7 +61,9 @@ Router startup warnings have two classes. One class is a configuration fault. It
 
 The addition must go into their project configuration or pi credentials. Removing the model named by a warning does not meet this second test. Slate always shows configuration faults.
 
-The other class is a model data note. It reports shipped research data that project configuration cannot correct. Slate hides those notes by default. Slate instead shows one line with the hidden warning count and the `router.showWarnings` setting. A hidden note can still affect which model runs an action.
+The other class is a model data note. It reports shipped research data that project configuration cannot correct. Slate hides those notes by default.
+
+With this repository's six-model list and pi's stock registry, Slate hides eleven notes. Slate shows one discoverability line instead. A local registry override can change that count. The line names the hidden warning count and the `router.showWarnings` setting. A hidden note can still affect which model runs an action.
 
 What the code enforces is deliberately narrower than what the routing data advises. The dispatch guards refuse an unlisted model, a level off the target model's ladder and a level the provider rejects outright; they warn about — and mark — an unmeasured level, refusing it only when `router.allowUnmeasuredEffort` is `false`; and the context-window guard substitutes a wider listed model instead of ever blocking an action. The obligations that come from the profile data itself — keeping review and gate actions on measured levels, and honoring a REFUSE such as `anthropic/claude-fable-5`'s for zero-data-retention work — are stated in the doctrine for the orchestrator to honor; they are **not** code-enforced guards. Full semantics: the `router.*` rows in [Configuration](#configuration) and the shipped [`docs/model-routing.md`](docs/model-routing.md) — if they disagree, that document wins.
 

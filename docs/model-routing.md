@@ -498,19 +498,28 @@ model's ladder is unreadable.
 
 ## Expected first-session warnings
 
-The following count is a measured render, not warning arithmetic.
-It used this repository's `.pi/slate.json`, the shipped profile
-table, and the model registry and configured-auth snapshot from the
-pinned pi 0.83.0 installation. All six configured models were
-registered and authenticated. The registry reported 1,050,000
-context tokens for each `openai/gpt-5.6-*` model and 1,000,000 for
-each configured Anthropic model.
+The stock count below is a render over this repository's
+`.pi/slate.json`, the shipped profile table, and the provider data
+inside the pinned pi 0.83.0 package. It does not read the live model
+registry. The packaged OpenAI data at
+`@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/data/openai.json`
+reports a **272,000-token** context window for
+`openai/gpt-5.6-luna`, `openai/gpt-5.6-terra` and
+`openai/gpt-5.6-sol`. The packaged Anthropic data reports 1,000,000
+for each configured Anthropic model. The render treated all six as
+authenticated, matching this repository's configured-auth state.
 
-Resolution emitted **7 warnings: 0 configuration faults and 7 model
+The shipped profiles record 1,050,000 tokens for those three OpenAI
+models. Each stock registry value therefore produces a context-window
+divergence note. The same 272,000-token value equals each model's
+long-context billing threshold, so one aggregate billing-pattern note
+also fires.
+
+Resolution emits **11 warnings: 0 configuration faults and 11 model
 data notes**. The default `router.showWarnings: false` therefore
 shows **0 of those warnings** and one discoverability line. That line
-begins `slate: there are 7 hidden warnings in the model router.`
-Enabling the option shows all 7 warnings and no discoverability
+begins `slate: there are 11 hidden warnings in the model router.`
+Enabling the option shows all 11 warnings and no discoverability
 line. Each warning fires at most once per session, and the resolution
 is frozen after the first consultation.
 
@@ -518,27 +527,35 @@ is frozen after the first consultation.
 | --- | --- | --- | --- | --- |
 | 1 | model data note | `w3-explainer` | explains the shipped research table before the first unknown-data warning | 0 |
 | 6 | model data note | one `w3:string:<JSON spec>` for each configured model | each profile names model facts with no traced source, or conflicting figures with no adjudication | 0 |
-| **7** | **all model data notes** | — | measured total | **0 warnings; 1 discoverability line** |
+| 3 | model data note | one `w1:string:<JSON spec>` for each configured OpenAI model | each stock registry window differs from its profile window | 0 |
+| 1 | model data note | `w1-billing-pattern` | aggregates the three registry windows that equal their models' billing thresholds | 0 |
+| **11** | **all model data notes** | — | stock measured total | **0 warnings; 1 discoverability line** |
 
-Emission order was `w3-explainer`, then the six per-model conditions
-in configured-list order:
+The stock emission order is:
 
-1. `w3:string:"openai/gpt-5.6-luna"`
-2. `w3:string:"openai/gpt-5.6-terra"`
-3. `w3:string:"openai/gpt-5.6-sol"`
-4. `w3:string:"anthropic/claude-sonnet-5"`
-5. `w3:string:"anthropic/claude-opus-5"`
-6. `w3:string:"anthropic/claude-fable-5"`
+1. `w1:string:"openai/gpt-5.6-luna"`
+2. `w3-explainer`
+3. `w3:string:"openai/gpt-5.6-luna"`
+4. `w1:string:"openai/gpt-5.6-terra"`
+5. `w3:string:"openai/gpt-5.6-terra"`
+6. `w1:string:"openai/gpt-5.6-sol"`
+7. `w3:string:"openai/gpt-5.6-sol"`
+8. `w3:string:"anthropic/claude-sonnet-5"`
+9. `w3:string:"anthropic/claude-opus-5"`
+10. `w3:string:"anthropic/claude-fable-5"`
+11. `w1-billing-pattern`
 
-The current registry reports 1,050,000 for the three
-`openai/gpt-5.6-*` models, which
-matches their profile windows. The three divergence conditions and
-the aggregate billing-pattern condition therefore do not fire. The
-new class explanation adds one warning before the six unknown-data
-warnings, producing the measured total of seven. The configured
-failover map covers all six candidates, so the failover-coverage
-condition does not fire. Preferred candidates remain in the list, so
-the non-preferred-base condition does not fire.
+This count depends on pi's registry data and any local registry
+override. This machine's `~/.pi/agent/models.json` overrides the
+three OpenAI windows to 1,050,000 tokens. A live render here therefore
+suppresses the three divergence notes and the billing-pattern note,
+leaving **7 model data notes**. That seven-note result describes this
+machine, not a stock install.
+
+The configured failover map covers all six candidates, so the
+failover-coverage condition does not fire in either render. Preferred
+candidates remain in the list, so the non-preferred-base condition
+does not fire either.
 
 In orchestrator mode the first consultation is the DOCTRINE BUILD,
 not a dispatch: the orchestrator's system prompt carries the
@@ -548,7 +565,8 @@ resolution instead. Config-shape warnings land earlier, at session
 start.
 
 A hidden warning can still alter which model runs an action. Context-
-window divergence is the concrete case: routing uses the registry
+window divergence is the concrete case, and the stock registry emits
+three such hidden notes for this list. Routing uses the registry
 window, and that value drives the context-window substitution guard.
 `router.showWarnings` changes display only; it does not change the
 resolution or the guard input.
