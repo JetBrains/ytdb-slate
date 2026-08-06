@@ -943,6 +943,7 @@ export class ThreadManager {
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
+		let reportedContextTokens: number | undefined;
 		const episodeUsage: Partial<Pick<EpisodeRecord, "input" | "output" | "cacheRead" | "cacheWrite">> = {};
 		const addEpisodeUsage = (field: keyof typeof episodeUsage, value: number | undefined) => {
 			if (value === undefined) return;
@@ -1131,7 +1132,11 @@ export class ThreadManager {
 						workerCostUsd = (workerCostUsd ?? 0) + reportedCost;
 						usage.cost += reportedCost;
 					}
-					usage.contextTokens = msg.usage?.totalTokens ?? usage.contextTokens;
+					const contextTokens = msg.usage?.totalTokens;
+					if (typeof contextTokens === "number" && Number.isFinite(contextTokens) && Number.isInteger(contextTokens) && contextTokens >= 0) {
+						reportedContextTokens = contextTokens;
+						usage.contextTokens = contextTokens;
+					}
 					const text = (msg.content ?? [])
 						.filter((c) => c.type === "text")
 						.map((c) => c.text ?? "")
@@ -1461,6 +1466,7 @@ export class ThreadManager {
 			...(actualEffortUnmeasured ? { effortUnmeasured: true as const } : {}),
 			observations: durableObservations,
 			...episodeUsage,
+			...(reportedContextTokens !== undefined ? { contextTokens: reportedContextTokens } : {}),
 			...(workerCostUsd !== undefined ? { workerCostUsd } : {}),
 			...(compressed.compressorUsage ? { compressorUsage: compressed.compressorUsage } : {}),
 			...(compressed.costUsd !== undefined ? { compressorCostUsd: compressed.costUsd } : {}),

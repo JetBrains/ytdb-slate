@@ -162,6 +162,8 @@ export interface EpisodeRecord {
 	cacheRead?: number;
 	/** Worker prompt-cache write tokens. Absent means the provider did not report this quantity. */
 	cacheWrite?: number;
+	/** Final reported worker context tokens. Absent means the provider did not report a finite count. */
+	contextTokens?: number;
 	/** Reported worker-call cost in USD. Absent means no worker call reported cost. */
 	workerCostUsd?: number;
 	/** Usage billed by episode compression. Each absent quantity was not reported. */
@@ -486,6 +488,7 @@ export const ADOPTED_EPISODE_FIELDS = {
 	output: true,
 	cacheRead: true,
 	cacheWrite: true,
+	contextTokens: true,
 	workerCostUsd: true,
 	compressorUsage: true,
 	compressorCostUsd: true,
@@ -648,6 +651,9 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 		...(keep("output", e.output, tokenQuantity(e.output)) !== undefined ? { output: tokenQuantity(e.output) } : {}),
 		...(keep("cacheRead", e.cacheRead, tokenQuantity(e.cacheRead)) !== undefined ? { cacheRead: tokenQuantity(e.cacheRead) } : {}),
 		...(keep("cacheWrite", e.cacheWrite, tokenQuantity(e.cacheWrite)) !== undefined ? { cacheWrite: tokenQuantity(e.cacheWrite) } : {}),
+		...(keep("contextTokens", e.contextTokens, tokenQuantity(e.contextTokens)) !== undefined
+			? { contextTokens: tokenQuantity(e.contextTokens) }
+			: {}),
 		...(keep("workerCostUsd", e.workerCostUsd, moneyAmount(e.workerCostUsd)) !== undefined
 			? { workerCostUsd: moneyAmount(e.workerCostUsd) }
 			: {}),
