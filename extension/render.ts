@@ -31,6 +31,7 @@ interface ThreadDetails {
 	threadId?: string;
 	threadName?: string;
 	type?: ThreadType;
+	restartOf?: string;
 	episodeId?: string;
 	status?: "ok" | "failed";
 	lines?: string[];
@@ -106,11 +107,15 @@ export function renderThreadResult(
 	const name = details.threadName ?? details.threadId ?? "thread";
 	const typeMarker = threadTypeMarker(displayThreadType(details.type));
 	const shownType = typeMarker ? theme.fg("muted", typeMarker) : "";
+	const restart =
+		typeof details.restartOf === "string" && typeof details.threadId === "string"
+			? theme.fg("muted", ` restart=${details.restartOf}->${details.threadId}`)
+			: "";
 
 	// Streaming: show live progress lines.
 	if (options.isPartial || !details.done) {
 		const lines = (details.lines ?? []).slice(-6);
-		let text = `${theme.fg("warning", "⏳")} ${theme.fg("toolTitle", theme.bold(name))}${shownType} ${theme.fg("muted", "running")}`;
+		let text = `${theme.fg("warning", "⏳")} ${theme.fg("toolTitle", theme.bold(name))}${shownType}${restart} ${theme.fg("muted", "running")}`;
 		for (const line of lines) {
 			text += `\n  ${theme.fg("dim", line.length > 110 ? `${line.slice(0, 110)}...` : line)}`;
 		}
@@ -127,7 +132,7 @@ export function renderThreadResult(
 		const container = new Container();
 		container.addChild(
 			new Text(
-				`${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`,
+				`${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType}${restart} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`,
 				0,
 				0,
 			),
@@ -142,7 +147,7 @@ export function renderThreadResult(
 	}
 
 	// Collapsed: headline + Key Findings digest (or Open Issues when failed).
-	let text = `${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`;
+	let text = `${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType}${restart} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`;
 	// What it ACTUALLY ran on, in the call badge's style but labelled `ran` so it cannot
 	// be read as the request (CQ16). Collapsed only: the EXPANDED view renders the full
 	// episode markdown, whose header already prints this — repeating it there would be

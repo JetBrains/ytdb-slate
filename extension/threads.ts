@@ -1703,6 +1703,7 @@ export class ThreadManager {
 				episodeId,
 				threadId: thread.id,
 				threadName: thread.name,
+				restartOf: thread.restartOf,
 				task: opts.task,
 				status,
 				diagnostics,

@@ -187,6 +187,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 						threadId: p.threadId,
 						threadName: p.threadName,
 						type: displayedType(p.threadId),
+						restartOf: store.threads.get(p.threadId)?.restartOf,
 						lines: p.lines,
 						usage: p.usage,
 						done: p.done,
@@ -219,7 +220,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			// it is the DURABLE copy: it is written into the episode file, comes back through
 			// the `episode` tool, and travels into every later prompt that cites the episode,
 			// while this line is framing that exists only for this one tool result.
-			const headline = `[episode ${result.episode.id} | thread ${result.thread.id} "${result.thread.name}" | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}]`;
+			const restart = result.thread.restartOf ? ` | restart ${result.thread.restartOf}->${result.thread.id}` : "";
+			const headline = `[episode ${result.episode.id} | thread ${result.thread.id} "${result.thread.name}"${restart} | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}]`;
 			// Routing notices reach the ORCHESTRATOR, not just the TUI: an evidence gap,
 			// a window substitution or a long-context billing cliff changes what the next
 			// dispatch should ask for, so they ride in the tool result above the episode.
@@ -232,6 +234,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					threadId: result.thread.id,
 					threadName: result.thread.name,
 					type: displayThreadType(result.thread.type),
+					restartOf: result.thread.restartOf,
 					episodeId: result.episode.id,
 					status: result.episode.status,
 					episodeFile: result.episode.file,
@@ -316,7 +319,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const live = getManager().liveFailoverModel(t.id);
 				if (live) marks.push(`live=${live} (failover)`);
 				const models = marks.length > 0 ? ` ${marks.join(" ")}` : "";
-				return `${t.id} "${t.name}" [${t.status}]${typeMarker}${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
+				const lineage = `${t.restartOf ? ` restartOf=${t.restartOf}` : ""}${t.supersededBy ? ` supersededBy=${t.supersededBy}` : ""}`;
+				return `${t.id} "${t.name}" [${t.status}]${typeMarker}${lineage}${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
 			});
 			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length } };
 		},

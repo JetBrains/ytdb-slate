@@ -388,6 +388,8 @@ export interface CompressEpisodeOptions {
 	episodeId: string;
 	threadId: string;
 	threadName: string;
+	/** Source thread when this episode belongs to an automatic restart. */
+	restartOf?: string;
 	task: string;
 	status: "ok" | "failed";
 	diagnostics?: string; // failure diagnostics (D6)
@@ -656,13 +658,14 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	const episodeId = headerField(opts.episodeId, 80) ?? "(unknown)";
 	const threadId = headerField(opts.threadId, 80) ?? "(unknown)";
 	const threadName = headerField(opts.threadName, 80);
+	const restartOf = headerField(opts.restartOf, 80);
 	const task = headerField(opts.task) ?? "(no task recorded)";
 	const failure = opts.status === "failed" ? headerField(opts.diagnostics, 300) : undefined;
 	const observations = opts.observations.stored
 		? `stored | path: ${headerField(opts.observations.path, 240) ?? "(unknown)"} | bytes: ${opts.observations.bytes} | truncated: ${opts.observations.truncated ? "yes" : "no"} | grammar: ${opts.observations.grammar}`
 		: `not stored | reason: ${opts.observations.reason} | grammar: ${opts.observations.grammar}`;
 	const header = [
-		`# Episode ${episodeId} — thread ${threadId}${threadName ? ` (${threadName})` : ""} — STATUS: ${statusLabel}`,
+		`# Episode ${episodeId} — thread ${threadId}${threadName ? ` (${threadName})` : ""}${restartOf ? ` — RESTART: ${restartOf}->${threadId}` : ""} — STATUS: ${statusLabel}`,
 		"",
 		`> task: ${task}`,
 		`> observations: ${observations}`,
