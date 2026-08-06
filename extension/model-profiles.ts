@@ -12,13 +12,16 @@
  * underlying `gaps.md` / `openai.md` / `anthropic.md` row that digest cites —
  * and carries the corpus's own trace tags so a reader can find the source row.
  * `asOf` on every profile, and PROFILES_AS_OF for the set, is the date of that
- * research: 2026-07-29.
+ * research: 2026-07-29. Cache-retention evidence is a later addition. Its own
+ * documented retrieval and measured observation dates are carried at the value.
  *
  * PROVENANCE RULE, stated WITHOUT A COUNT so it cannot fall out of date: a
  * value here is transcribed from the corpus UNLESS this file marks it
  * otherwise AT ITS OWN SITE, and every such mark is either a machine-readable
- * field or a `derived` / `[registry]` tag on the value's own line. The marks in
- * use today are `id` (pi's registry decides that spelling — see ID CHOICE),
+ * field or a `derived` / `[registry]` tag on the value's own line. Cache
+ * retention is separately sourced to provider guides and dated local probes at
+ * its own fields. The other marks in use today are `id` (pi's registry decides
+ * that spelling — see ID CHOICE),
  * `tierUnsourced` (the tier is a cost class this module read off the prices,
  * not a sourced ordinal), `ladderAssumed` (the ladder is a provider-family
  * assumption, not a traced one), `capabilityMeasuredAt: []` on the §E models
@@ -188,12 +191,53 @@ export interface PriceRow {
 	cacheWrite1hUsdPerMTok?: number;
 }
 
+export interface CacheRetentionMeasurement {
+	/** Date of these live probes. */
+	observedOn: string;
+	/** Whether every gap used a cache key dedicated to that probe series. */
+	dedicatedCacheKey?: true;
+	warm: Array<{ afterSeconds: number; probes: number }>;
+	cold: Array<{ afterSeconds: number; probes: number }>;
+}
+
+export interface CacheInvalidationEvidence {
+	invalidates: true;
+	evidence: "documented" | "measured" | "documented-and-measured";
+	measuredOn?: string;
+	changedFromEffort?: ThinkingLevel;
+	changedToEffort?: ThinkingLevel;
+	coldProbes?: number;
+	warmControlProbes?: number;
+}
+
+export interface CacheRetention {
+	documented: {
+		retentionSeconds: number;
+		meaning: "minimum" | "lifetime";
+		defaultWhenOmitted?: true;
+		refreshOnRead?: true;
+		refreshOnReadAtNoCost?: true;
+		clockStartsAtRequestStart?: true;
+		source: string;
+		retrieved: string;
+	};
+	measured?: CacheRetentionMeasurement;
+	invalidatedBy: {
+		modelChange: CacheInvalidationEvidence;
+		reasoningEffortChange: CacheInvalidationEvidence;
+	};
+	/** Documented alternatives excluded from slate's retention model. */
+	excluded?: string[];
+}
+
 export interface ModelProfile {
 	/** canonical "provider/id" as pi resolves it */
 	id: string;
 	aliases: string[];
 	/** dated schedule, ascending; MUST encode claude-sonnet-5's 2026-09-01 step change */
 	price: PriceRow[];
+	/** Provider-documented cache lifetime plus dated local probes; absent or null where this pass established no retention policy. */
+	cacheRetention?: CacheRetention | null;
 	/** DOCUMENTATION-ONLY, non-authoritative: pi's model registry is the runtime authority. Used only for the staleness cross-check. */
 	contextWindow: number | null;
 	/** Other published figure for the same window, where the digest records one: a cross-check must treat THIS value as a KNOWN divergence and not warn. Absent = none recorded. */
@@ -247,6 +291,53 @@ function deepFreeze<T>(value: T): T {
 	return value;
 }
 
+const OPENAI_GPT_5_6_CACHE_RETENTION = {
+	documented: {
+		retentionSeconds: 1800,
+		meaning: "minimum",
+		defaultWhenOmitted: true,
+		source: "https://platform.openai.com/docs/guides/prompt-caching",
+		retrieved: "2026-08-06",
+	},
+	invalidatedBy: {
+		modelChange: { invalidates: true, evidence: "documented" },
+		reasoningEffortChange: {
+			invalidates: true,
+			evidence: "measured",
+			measuredOn: "2026-08-06",
+			changedFromEffort: "low",
+			changedToEffort: "high",
+			coldProbes: 3,
+			warmControlProbes: 3,
+		},
+	},
+} satisfies CacheRetention;
+
+const ANTHROPIC_CACHE_RETENTION = {
+	documented: {
+		retentionSeconds: 300,
+		meaning: "lifetime",
+		refreshOnRead: true,
+		refreshOnReadAtNoCost: true,
+		clockStartsAtRequestStart: true,
+		source: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching",
+		retrieved: "2026-08-06",
+	},
+	invalidatedBy: {
+		modelChange: { invalidates: true, evidence: "documented" },
+		reasoningEffortChange: {
+			invalidates: true,
+			evidence: "documented-and-measured",
+			measuredOn: "2026-08-06",
+			changedFromEffort: "low",
+			changedToEffort: "high",
+			coldProbes: 3,
+			warmControlProbes: 3,
+		},
+	},
+	excluded: ["Paid one-hour retention is not modelled because its write price is 2× the base input rate."],
+} satisfies CacheRetention;
+
 const PROFILES: ModelProfile[] = [
 	{
 		// t1 — the cheap end of the routed six. [Artifact A, Artifact B row 1]
@@ -276,6 +367,21 @@ const PROFILES: ModelProfile[] = [
 				cacheWriteUsdPerMTok: 0.25,
 			},
 		],
+		cacheRetention: {
+			...OPENAI_GPT_5_6_CACHE_RETENTION,
+			measured: {
+				observedOn: "2026-08-06",
+				dedicatedCacheKey: true,
+				warm: [
+					{ afterSeconds: 180, probes: 3 },
+					{ afterSeconds: 360, probes: 3 },
+					{ afterSeconds: 571, probes: 3 },
+					{ afterSeconds: 900, probes: 3 },
+					{ afterSeconds: 1500, probes: 3 },
+				],
+				cold: [{ afterSeconds: 2100, probes: 3 }],
+			},
+		},
 		contextWindow: 1050000, // doc-only [O2]
 		contextWindowKnownDivergence: 1000000, // AA normalises GPT-5.6 to 1,000,000 [GM10] — a registry reporting THIS figure is a KNOWN divergence, not a stale profile
 		maxOutput: 128000, // doc-only [O2]
@@ -336,6 +442,17 @@ const PROFILES: ModelProfile[] = [
 				cacheWrite1hUsdPerMTok: 6.0, // [G2#2]
 			},
 		],
+		cacheRetention: {
+			...ANTHROPIC_CACHE_RETENTION,
+			measured: {
+				observedOn: "2026-08-06",
+				warm: [
+					{ afterSeconds: 120, probes: 2 },
+					{ afterSeconds: 300, probes: 2 },
+				],
+				cold: [{ afterSeconds: 480, probes: 2 }],
+			},
+		},
 		contextWindow: 1000000, // doc-only [A2]
 		maxOutput: 128000, // doc-only; 300,000 via batch beta [A2]
 		longContextThreshold: null, // 1M billed at standard rates, NO long-context premium [A2] — a stated absence, not an unknown
@@ -394,6 +511,7 @@ const PROFILES: ModelProfile[] = [
 				cacheWriteUsdPerMTok: 2.5,
 			},
 		],
+		cacheRetention: { ...OPENAI_GPT_5_6_CACHE_RETENTION },
 		contextWindow: 1050000, // doc-only [O2]
 		contextWindowKnownDivergence: 1000000, // AA normalises GPT-5.6 to 1,000,000 [GM10]
 		maxOutput: 128000, // doc-only [O2]
@@ -445,6 +563,18 @@ const PROFILES: ModelProfile[] = [
 				cacheWriteUsdPerMTok: 6.25, // [O2, G2#1]
 			},
 		],
+		cacheRetention: {
+			...OPENAI_GPT_5_6_CACHE_RETENTION,
+			measured: {
+				observedOn: "2026-08-06",
+				dedicatedCacheKey: true,
+				warm: [
+					{ afterSeconds: 571, probes: 5 },
+					{ afterSeconds: 1500, probes: 3 },
+				],
+				cold: [],
+			},
+		},
 		contextWindow: 1050000, // doc-only [O2]
 		contextWindowKnownDivergence: 1000000, // AA normalises GPT-5.6 to 1,000,000 [GM10]
 		maxOutput: 128000, // doc-only [O2]
@@ -494,6 +624,7 @@ const PROFILES: ModelProfile[] = [
 				cacheWrite1hUsdPerMTok: 10.0, // [A2, G2#3]
 			},
 		],
+		cacheRetention: { ...ANTHROPIC_CACHE_RETENTION },
 		contextWindow: 1000000, // doc-only [A2]
 		maxOutput: 128000, // doc-only; 300,000 via batch [A2]
 		longContextThreshold: null, // no long-context premium [A2]
@@ -541,6 +672,7 @@ const PROFILES: ModelProfile[] = [
 				cacheWrite1hUsdPerMTok: 20.0, // [A2, G2#3]
 			},
 		],
+		cacheRetention: { ...ANTHROPIC_CACHE_RETENTION },
 		contextWindow: 1000000, // doc-only [A2]
 		maxOutput: 128000, // doc-only; 300,000 via batch [A2]
 		longContextThreshold: null, // no long-context premium [A2]
@@ -597,6 +729,7 @@ const PROFILES: ModelProfile[] = [
 				cachedInUsdPerMTok: 0.02, // cache read [G3]
 			},
 		],
+		cacheRetention: null,
 		contextWindow: null, // no capacity row in the corpus for this model [G3]
 		maxOutput: null, // [G3]
 		longContextThreshold: null, // §E.5 states only that no long-context price ROW is published — an absent row, not a stated absence of a premium, so the field is named as unknown below [G3]
@@ -623,6 +756,7 @@ const PROFILES: ModelProfile[] = [
 			"contextWindow / maxOutput — no capacity row in the corpus [G3]",
 			"longContextThreshold / longContextMultipliers — §E.5 reports only that no long-context price row is published; that is an absent row, not a statement that no premium exists [G3]",
 			"cache-WRITE price — not published for this model; [G3] gives in / cached / out only, and nothing is derived from the GPT-5.6 table's 1.25× rule [O2]",
+			"cache retention — this pass established a policy only for the GPT-5.6 family and Anthropic models",
 			"SWE-rebench resolve rate — does not appear on the board at all [G3]",
 			"price effectiveFrom — UNKNOWN; the corpus publishes no start date [G3]",
 		],
@@ -648,6 +782,7 @@ const PROFILES: ModelProfile[] = [
 				cachedInUsdPerMTok: 0.075, // cache read [G3]
 			},
 		],
+		cacheRetention: null,
 		contextWindow: null, // no capacity row in the corpus [G3]
 		maxOutput: null, // [G3]
 		longContextThreshold: null, // §E.5 reports only that no long-context price ROW is published; named as unknown below [G3]
@@ -673,6 +808,7 @@ const PROFILES: ModelProfile[] = [
 			"contextWindow / maxOutput — no capacity row in the corpus [G3]",
 			"longContextThreshold / longContextMultipliers — §E.5 reports only that no long-context price row is published; that is an absent row, not a statement that no premium exists [G3]",
 			"cache-WRITE price — not published for this model; [G3] gives in / cached / out only, and nothing is derived from the GPT-5.6 table's 1.25× rule [O2]",
+			"cache retention — this pass established a policy only for the GPT-5.6 family and Anthropic models",
 			"SWE-rebench resolve rate — does not appear on the board at all [G3]",
 			"price effectiveFrom — UNKNOWN; the corpus publishes no start date [G3]",
 		],
@@ -708,6 +844,7 @@ const PROFILES: ModelProfile[] = [
 				cacheWrite1hUsdPerMTok: 2.0, // [G3]
 			},
 		],
+		cacheRetention: { ...ANTHROPIC_CACHE_RETENTION },
 		contextWindow: 200000, // doc-only, like every window here [G3, registry]
 		maxOutput: 64000, // doc-only [G3]
 		longContextThreshold: null, // UNKNOWN: the corpus is SILENT for this model — silence is not a statement that no premium exists, so the field is named as unknown below [G3]
