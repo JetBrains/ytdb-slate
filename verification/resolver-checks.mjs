@@ -1734,10 +1734,10 @@ try {
 					["writing plus extensions stays under 6000 portable chars", portable(writingExtensionsOn).length <= 6000, { portable: portable(writingExtensionsOn).length }],
 					["all three tail features stay under 6200 portable chars", portable(writingAllOn).length <= 6200, { portable: portable(writingAllOn).length }],
 					// Update exact measurements with production wording in the same commit.
-					["the maximum all-feature fixture is the measured 7034 portable chars and stays within 7200", maximalPortable === 7034 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the maximum all-feature fixture is the measured 7189 portable chars and stays within 7200", maximalPortable === 7189 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and stays within 1600", workerRule.length === 1347 && workerRule.length <= 1600, { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					["the positive control is the measured 7798 portable chars and exceeds 7200 by at least one model growth unit", overBudgetPortable === 7798 && overBudgetPortable > 7200 && overBudgetPortable - 7200 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7200, growthBeyondBound: overBudgetPortable - 7200, maxModelIncrement, maxToolIncrement }],
+					["the positive control is the measured 7953 portable chars and exceeds 7200 by at least one model growth unit", overBudgetPortable === 7953 && overBudgetPortable > 7200 && overBudgetPortable - 7200 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7200, growthBeyondBound: overBudgetPortable - 7200, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
@@ -5294,10 +5294,15 @@ try {
 				sessionFile: "/tmp/x.jsonl",
 				status: "idle",
 				type: "reviewer",
+				restartOf: "t0",
+				restartGeneration: 1,
+				supersededBy: "t2",
 				model: "p/pin",
 				baseModel: "p/base",
 				baseEffort: "medium",
 				cacheKeyShard: 1,
+				tools: ["read", "grep"],
+				choiceEvidenceStale: true,
 				episodeIds: ["t1.e1"],
 				episodeSeq: 1,
 				createdAt: 111,
@@ -5490,7 +5495,7 @@ try {
 			// carries EVERY adopted field, which is the claim state.ts exports the map for.
 			// Written out rather than spread: byte-identity is KEY-ORDER sensitive (that is
 			// what makes the term strong), and the marker belongs before `createdAt`.
-			const everyField = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", effortUnmeasured: true, observations: storedObservations, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, workerCostUsd: 0.0163, compressorUsage: { input: 50, output: 60 }, compressorCostUsd: 0, compactionUsage: { input: 70, output: 80 }, compactionCostUsd: 1.25, createdAt: 5 };
+			const everyField = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", effortUnmeasured: true, observations: storedObservations, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, contextTokens: 45, workerCostUsd: 0.0163, compressorUsage: { input: 50, output: 60 }, compressorCostUsd: 0, compactionUsage: { input: 70, output: 80 }, compactionCostUsd: 1.25, createdAt: 5 };
 			const everyRoundTrip = sane(everyField);
 			const adoptedKeys = Object.keys(state.ADOPTED_EPISODE_FIELDS ?? {});
 			const builtKeys = Object.keys(everyRoundTrip.out ?? {});

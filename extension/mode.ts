@@ -391,6 +391,7 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    one, so name the level harder work needs. Off-ladder and provider-rejected
    levels are tool errors; an unmeasured one ${gap}.
    Prices include dated updates after ${PROFILES_AS_OF} research.
+   A model or effort change empties the prompt cache. Rewrites cost 12.5 times cache reads.
    DOCTRINE ONLY, not code-enforced: keep review and gate actions on measured
    levels, and honour a REFUSE in an avoid cell. Mechanics and config:
    ${MODEL_ROUTING_DOC}
@@ -477,10 +478,11 @@ threads execute. Rules:
    commands yourself.
 2. Dispatch independent actions in PARALLEL by emitting several \`thread\`
    calls in one turn. Never serialize what can run concurrently.
-3. Reuse a thread within its work stream. Start a new thread for a new work stream.
-   Treat a different model or effort as cold, with no prefix reuse. Continue the
-   thread when work needs at most two turns. For longer work, compare costs after
-   charging a fresh thread one extra turn. Details: ${THREAD_CACHE_COST_DOC}
+3. A work stream is actions for one outcome. Start and reuse its thread.
+   On continuation, set \`freshContext\`. Use \`[]\` for one or two turns, or to retain
+   the live transcript. Else name episodes a fresh thread needs. Slate restarts only
+   if enabled and cheaper. Continue the named successor. It must publish an episode
+   before another restart. Details: ${THREAD_CACHE_COST_DOC}
 4. Compose context by reference: pass prior episode ids in \`context\` instead
    of restating their content.
 5. Your read-only tools (read/grep/find/ls) are for cheap orientation only;
