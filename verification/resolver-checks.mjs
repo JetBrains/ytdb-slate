@@ -2396,20 +2396,20 @@ try {
 					["no empty-entry separator shape", !emptyFieldWarning.includes("·  ·") && !bracketSpan.test(emptyFieldWarning), emptyFieldWarning],
 				]);
 
-				// The source-subject repair is justified for the shipped shape. Profile bracket
-				// spans are citation tags, and this rule treats a tag before an ASCII word after
-				// punctuation as an omitted subject. Pin the intended repair and the distinct
-				// inline-removal path. The report records the broader lookahead's residual.
+				// A citation after punctuation can be an elided subject, while a leading tag
+				// merely attributes the field. Pin both directions in one fixture so repairing
+				// the former cannot silently fabricate a subject for the latter.
 				const subjectRepair = resolve({
 					registry: registry({ "p/subject": { contextWindow: 1, auth: true } }), models: ["p/subject"],
-					profiles: profiles([profile("p/subject", { unknown: ["vendor data is incomplete; [G3] gives input only", "latency [G4] remains uncertain"] })]),
+					profiles: profiles([profile("p/subject", { unknown: ["vendor data is incomplete; [G3] gives input only", "latency [G4] remains uncertain", "[G3] missing benchmark result"] })]),
 					failover: { "p/subject": "p/target" },
 				});
 				const subjectWarning = found(subjectRepair.warned, /model facts? that slate could not trace/) ?? "";
-				checkAll("router-subject-repair", "a citation acting as the subject after punctuation becomes `the source`, while an inline citation is removed without inventing a subject", [
-					["warning rendered with both fields", /has 2 model facts that/.test(subjectWarning), subjectWarning],
-					["missing subject repaired", subjectWarning.includes("vendor data is incomplete; the source gives input only"), subjectWarning],
+				checkAll("router-subject-repair", "a citation acting as the subject after punctuation becomes `the source`, while inline and leading citations follow plain stripping without a fabricated subject", [
+					["warning rendered with all three fields", /has 3 model facts that/.test(subjectWarning), subjectWarning],
+					["post-punctuation missing subject repaired", subjectWarning.includes("vendor data is incomplete; the source gives input only"), subjectWarning],
 					["inline citation only removed", subjectWarning.includes("latency remains uncertain") && !subjectWarning.includes("latency the source remains"), subjectWarning],
+					["leading citation only removed", subjectWarning.includes("missing benchmark result") && !subjectWarning.includes("the source missing benchmark result"), subjectWarning],
 					["no citation span survives", !bracketSpan.test(subjectWarning), subjectWarning],
 				]);
 
