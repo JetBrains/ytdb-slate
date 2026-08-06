@@ -174,14 +174,14 @@ you pay its input tokens every turn.
 
 **Its size depends on where the package is installed.** That is not
 obvious, and it catches anyone who measures: the doctrine cites the
-shipped docs by ABSOLUTE path, so three to six full filesystem paths
-are embedded in the block — three at minimum
-(`track-workflow.md`, `review-rules.md`, `design-principles.md`),
-plus `pr-publishing.md` when `workflow.draftPRs` is on, plus
-`model-routing.md` when the routing rule renders, plus
-`writing-guidance.md` when `writing.check` is on. Every additional
-character in the installed `docs/` directory therefore costs 3–6
-characters of doctrine.
+shipped docs by ABSOLUTE path, so four to seven full filesystem paths
+are embedded in the block — four at minimum
+(`thread-cache-cost.md`, `track-workflow.md`, `review-rules.md`,
+`design-principles.md`), plus `pr-publishing.md` when
+`workflow.draftPRs` is on, plus `model-routing.md` when the routing
+rule renders, plus `writing-guidance.md` when `writing.check` is on.
+Every additional character in the installed `docs/` directory therefore
+costs 4–7 characters of doctrine.
 
 The figures below are **portable characters**, defined exactly as
 Slate's own automated `doctrine-budget` check defines them: the
@@ -204,18 +204,18 @@ must be named instead of presented as the same measurement:
 
 | router | models | `draftPRs` | `writing.check` | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | off | 3 | 1,929 | 38 |
-| off | — | off | on | 4 | 2,999 | 60 |
-| off | — | on | off | 4 | 1,948 | 38 |
-| off | — | on | on | 5 | 3,018 | 60 |
-| on | `.pi/slate.json` six | off | off | 4 | 3,879 | 58 |
-| on | `.pi/slate.json` six | off | on | 5 | 4,949 | 80 |
-| on | `.pi/slate.json` six | on | off | 5 | 3,898 | 58 |
-| on | `.pi/slate.json` six | on | on | 6 | 4,968 | 80 |
-| on | all 9 shipped | off | off | 4 | 4,434 | 61 |
-| on | all 9 shipped | off | on | 5 | 5,504 | 83 |
-| on | all 9 shipped | on | off | 5 | 4,453 | 61 |
-| on | all 9 shipped | on | on | 6 | 5,523 | 83 |
+| off | — | off | off | 4 | 2,105 | 40 |
+| off | — | off | on | 5 | 3,175 | 62 |
+| off | — | on | off | 5 | 2,124 | 40 |
+| off | — | on | on | 6 | 3,194 | 62 |
+| on | `.pi/slate.json` six | off | off | 5 | 4,043 | 60 |
+| on | `.pi/slate.json` six | off | on | 6 | 5,113 | 82 |
+| on | `.pi/slate.json` six | on | off | 6 | 4,062 | 60 |
+| on | `.pi/slate.json` six | on | on | 7 | 5,132 | 82 |
+| on | all 9 shipped | off | off | 5 | 4,598 | 63 |
+| on | all 9 shipped | off | on | 6 | 5,668 | 85 |
+| on | all 9 shipped | on | off | 6 | 4,617 | 63 |
+| on | all 9 shipped | on | on | 7 | 5,687 | 85 |
 
 An untrusted project reads the first row whatever its `slate.json`
 says: no project config is loaded, so no optional rule renders. Line
@@ -231,9 +231,9 @@ path:
 
 - The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
   so what renders is the models you CONFIGURE — not the nine Slate
-  ships profiles for. In this snapshot it is 1,950 portable
+  ships profiles for. In this snapshot it is 1,938 portable
   characters and adds 20 doctrine lines for six configured models;
-  for all nine it is 2,505 characters and adds 23 lines. The six
+  for all nine it is 2,493 characters and adds 23 lines. The six
   model rows are 146–181 characters; all nine are 146–183. The
   legend adds a one-off clause per marker it has to explain, so
   growth is not only the sum of new rows.
@@ -247,8 +247,8 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| current `.pi/slate.json` dogfood config | 6 | real 2 units / 4 tools | 6 | 5,884 | 90 | ≈1,471 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 7,034 | 93 | ≈1,759 |
+| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 7 | 6,048 | 92 | ≈1,512 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,034 | 95 | ≈1,759 |
 
 The dogfood row uses `workflow.draftPRs: true`, `writing.check: true`, and the
 six models in `.pi/slate.json`. Its extension basis is
@@ -282,7 +282,7 @@ fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. At four
 characters per token as a rough estimate, the shipped-rule table ranges from
-about 482 tokens to about 1,381 tokens. The current dogfood basis is about 1,471
+about 526 tokens to about 1,422 tokens. The current dogfood basis is about 1,512
 tokens. The representative maximum is about 1,759 tokens, or 0.69 percent of the
 default budget.
 

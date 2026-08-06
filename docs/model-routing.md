@@ -279,7 +279,7 @@ warning, but removal is not the ADD remedy in condition 2. Condition
 | pi has no usable credentials configured for it | dropped | "has no usable credentials configured in pi. Slate drops it from routing." | configuration fault |
 | every entry is dropped | router turns OFF | "survived validation. The warnings above name each dropped entry" | configuration fault |
 | no usable input price exists for today's date | kept, ordered last | "Slate cannot compare its cost with the other models." | model data note |
-| a profile price is negative or non-finite | kept, ordered last or unavailable | "has invalid input price data" or "has invalid output price data" | configuration fault |
+| a profile price is negative or non-finite | kept, ordered last or unavailable | "has invalid input price data" or "has invalid output price data" | model data note |
 | no usable effort ladder exists in the profile | kept | "Such a level passes through to pi, which clamps it" | model data note |
 | profile context window differs from the registry window | kept, registry value used | "differs between two sources" | model data note |
 | the first profile names unknown routing-critical fields | kept | "picks models from a research table shipped inside slate" | model data note |
@@ -289,27 +289,30 @@ warning, but removal is not the ADD remedy in condition 2. Condition
 | every configured candidate is marked non-preferred | cheapest candidate becomes the base | "profiles mark every configured model as one it must never pick by itself" | configuration fault |
 | resolution throws | router turns OFF | "routing is disabled. The router could not resolve its model list" | configuration fault |
 
-Every warning is emitted at most once per session. The complete
-resolution retains every warning regardless of display filtering.
-With `router.showWarnings: true`, every warning reaches the same
-channel as the other config warnings: a UI notification when a UI is
-attached, the console otherwise. With the default `false`, every
-configuration fault still reaches that channel and model data notes
-do not.
+Each resolution warning is deduplicated by a condition key and retained in the
+frozen resolution regardless of display filtering. With `router.showWarnings:
+true`, every resolution warning reaches the normal UI notification or console
+channel. With the default `false`, every configuration fault remains visible
+and model data notes are hidden.
 
-When at least one note is hidden, Slate emits one discoverability
-line after resolution. It gives the hidden warning count, names
-`router.showWarnings`, and says that a hidden warning can affect
-which model runs an action. The count is warnings, not physical
-display lines: one warning can wrap across several lines. No
-discoverability line appears when nothing was hidden.
+When resolution hides at least one note, Slate emits one discoverability line.
+It gives the hidden warning count, names `router.showWarnings`, and says that a
+hidden warning can affect model selection. The count is warnings, not physical
+display lines. The line appears at most once per session.
 
-Dispatch-time warnings are separate from resolution warnings. They cover
-context substitution, effort evidence gaps, long-context billing, failover
-window notices, and live registry price divergence. They are conditional on
-each planned action and can repeat on later dispatches. A model-visible price
-divergence warning omits exact rates. A separate user-only notice carries the
-exact shipped and registry prices.
+Dispatch-time warnings are separate. Context substitution, effort evidence
+gaps, long-context billing, failover window notices, and the model-visible
+registry-price divergence warning are evaluated for each planned action. They
+can repeat on later dispatches. The divergence warning is hardened and capped
+through the router sanitizer. It omits exact rates and is not deduplicated.
+
+The exact-rate companion uses the class-aware router sink as a model data note.
+It is hidden by default and shown when `router.showWarnings` is true. Its
+condition key includes the model, date, and differing rates, so identical live
+evidence reports once while changed evidence reports again. It passes through
+the same control stripping, citation cleanup, field caps, and whole-message cap
+as resolution warnings. A hidden dispatch-time note can trigger the one-time
+discoverability line only when resolution did not already trigger it.
 
 Half a list is still a routing policy, so partial drops leave the
 router ON. Nothing surviving is not a policy: the router turns OFF
@@ -493,17 +496,18 @@ model's ladder is unreadable.
   `(unmeasured)` where that applies. `live=<model> (failover)` means
   a held fallback currently overrides the nominal base for the live
   session.
-- **At the session level:** the resolution's own warnings, as UI
-  notifications (console when no UI is attached).
+- **At the session level:** configuration faults and model data notes enabled by
+  `router.showWarnings`, as UI notifications or console output. The default
+  instead shows one discoverability line when it hides notes.
 - **In the orchestrator's own system prompt, every turn:** the
   doctrine gains a routing rule — a table with one row per routable
   model, plus the rules for reading it. This is the surface you do
-  not see, and it is the router's standing cost: 1,950 characters /
-  20 added doctrine lines for six configured models, 2,505 / 23 for
+  not see, and it is the router's standing cost: 1,938 characters /
+  20 added doctrine lines for six configured models, 2,493 / 23 for
   all nine. In the current snapshot a model row costs 146–183
   characters, plus a one-off legend clause for each marker it
   introduces. Configuring the router roughly doubles Slate's
-  always-loaded block (1,929 characters with routing and writing
+  always-loaded block (2,105 characters with routing and writing
   off). Those are PORTABLE characters — the
   doctrine with each occurrence of the installed `docs/` directory
   removed, filenames kept — because the doctrine embeds absolute doc
@@ -514,10 +518,12 @@ model's ladder is unreadable.
 
 ## Expected first-session warnings
 
-The stock count below is a render over this repository's
-`.pi/slate.json`, the shipped profile table, and the provider data
-inside the pinned pi 0.83.0 package. It does not read the live model
-registry. The packaged OpenAI data at
+The stock count below comes from executing `resolveModelRouter` with this
+repository's sanitized `.pi/slate.json`, the shipped profile table, and a real
+`ModelRuntime` from the pinned pi 0.83.0 package. The runtime used
+`modelsPath: null` and `allowModelNetwork: false`, so no local registry override
+or network refresh could affect it. Dummy OpenAI and Anthropic credentials made
+the configured-auth premise explicit. The packaged OpenAI data at
 `@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/data/openai.json`
 reports a **272,000-token** context window for
 `openai/gpt-5.6-luna`, `openai/gpt-5.6-terra` and
@@ -536,8 +542,8 @@ data notes**. The default `router.showWarnings: false` therefore
 shows **0 of those warnings** and one discoverability line. That line
 begins `slate: there are 11 hidden warnings in the model router.`
 Enabling the option shows all 11 warnings and no discoverability
-line. Each warning fires at most once per session, and the resolution
-is frozen after the first consultation.
+line. Each resolution warning fires at most once per session, and the
+resolution is frozen after the first consultation.
 
 | warnings | class | condition keys | why | shown by default |
 | --- | --- | --- | --- | --- |
