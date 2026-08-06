@@ -6,6 +6,13 @@ This document explains Slate's implemented choice between continuing a worker th
 
 This document is the durable measurement summary. The deleted research log was folded into the description of [pull request 130](https://github.com/JetBrains/ytdb-slate/pull/130), so that description preserves the approved decisions and their reasoning. It does not contain raw measurements, per-arm tables, or transcripts, and no repository copy of those raw records survives. For more decision rationale and implementation review history, read the pull request. The numerical evidence needed to assess the rules is carried below. Dates are measurement dates, not guarantees about later provider behavior.
 
+Every numerical figure carries one of these evidence labels:
+
+- **Measured probe** reports an observed provider response or local run. Its date and sample size bound the claim. Re-run it under the matching refresh condition below. Slate accepts cache-retention probes for 90 days, then treats them as stale.
+- **Documented provider price** reports a dated provider price row. The profile table records when a row was observed or took effect. No age check rejects an old price row, so maintainers must review prices under the refresh conditions below.
+- **Modelled projection** computes a result from stated inputs. It stays current only while every input and assumption stays current. Regenerate it when any listed input changes.
+- **Implemented constant** reports a code or configuration value. Re-check it whenever the named implementation changes.
+
 ## Terms
 
 A **warm thread** can reuse the cached request prefix from its previous turn. That prefix includes the worker instructions, tools, conversation, and prior tool results accepted by the provider's cache.
@@ -20,9 +27,9 @@ Changing an existing thread's model makes its next request cold. Changing its ef
 
 The two transition claims have different evidence.
 
-**Model-change method, 2026-08-06.** A transcript audit covered three real OpenAI worker threads and 71 assistant turns. It found one in-thread model transition, from `gpt-5.6-luna` to `gpt-5.6-sol`. The switch request read **0** cached tokens and wrote **53,763**; its next request recovered to a 0.528 cache-hit fraction. Thus the model-change sample size is **n=1**, on one provider family. It was observational rather than a controlled arm, and no Anthropic model-change sample was run.
+**Measured probe, model-change method, 2026-08-06.** A transcript audit covered three real OpenAI worker threads and 71 assistant turns. It found one in-thread model transition, from `gpt-5.6-luna` to `gpt-5.6-sol`. The switch request read **0** cached tokens and wrote **53,763**; its next request recovered to a 0.528 cache-hit fraction. Thus the model-change sample size is **n=1**, on one provider family. It was observational rather than a controlled arm, and no Anthropic model-change sample was run.
 
-**Effort-change method, 2026-08-06.** A corrected controlled run gave each arm a distinct approximately 18,000-token system prefix and a unique tool. It changed only the live effort through the same `setThinkingLevel` route Slate uses. Each provider family had one unchanged control and three changed arms: step up, step down, and `off`.
+**Measured probe, effort-change method, 2026-08-06.** A corrected controlled run gave each arm a distinct approximately 18,000-token system prefix and a unique tool. It changed only the live effort through the same `setThinkingLevel` route Slate uses. Each provider family had one unchanged control and three changed arms: step up, step down, and `off`.
 
 | family and model | unchanged control | changed arms | changed-arm result |
 | --- | ---: | ---: | --- |
@@ -31,7 +38,7 @@ The two transition claims have different evidence.
 
 The effort-change sample is **n=6 transitions** across two model families, with **n=2 controls**. No changed arm showed partial survival. An earlier calibration run had cross-arm tool-definition reuse and was excluded; unique tools removed that independent cache breakpoint.
 
-**Effort-change replication, 2026-08-06.** A second controlled harness used a dedicated cache key for every probe, an approximately 6,000-token prefix, and a 60-second gap. The harness also asserted the effort value sent on every request. A low-to-high change produced zero cache reads in **3 of 3 probes** on OpenAI `gpt-5.6-luna` and **3 of 3 probes** on Anthropic `claude-sonnet-5`. Same-effort controls remained warm in **3 of 3 probes** on each model. The sample is three probes per changed or control cell. It tested only a low-to-high transition and only one model from each provider family.
+**Measured probe, effort-change replication, 2026-08-06.** A second controlled harness used a dedicated cache key for every probe, an approximately 6,000-token prefix, and a 60-second gap. The harness also asserted the effort value sent on every request. A low-to-high change produced zero cache reads in **3 of 3 probes** on OpenAI `gpt-5.6-luna` and **3 of 3 probes** on Anthropic `claude-sonnet-5`. Same-effort controls remained warm in **3 of 3 probes** on each model. The sample is three probes per changed or control cell. It tested only a low-to-high transition and only one model from each provider family.
 
 Anthropic documents that a thinking or effort change invalidates the message portion of its cache, so the Anthropic result confirms documented behavior. OpenAI documents no cache effect for an effort change in either direction, so the OpenAI result is new evidence rather than a confirmation of a published guarantee.
 
@@ -42,7 +49,7 @@ The decision rule therefore treats the transitions as binary:
 
 This rule is conservative rather than a provider guarantee. Provider caching is best effort. The same 2026-08-06 transcript audit found one unexplained OpenAI miss 571 seconds after the prior dispatch, inside the observed retention window and without a model change or known expiry. A zero read can therefore occur without a transition, and these samples cannot prove that every future model, API path, or provider release behaves the same way.
 
-**Unexplained-miss follow-up, 2026-08-06.** The 571-second miss did not reproduce. On the same OpenAI `gpt-5.6-sol` model, one dedicated key remained warm in **5 of 5 probes at 571 seconds** and **3 of 3 probes at 1,500 seconds**. A shared key under contention remained warm in **4 of 4 probes at 571 seconds**. An earlier OpenAI `gpt-5.6-luna` arm remained warm in **12 of 12 probes at 571 and 1,500 seconds** while four prefixes competed and a writer ran every 30 seconds.
+**Measured probe, unexplained-miss follow-up, 2026-08-06.** The 571-second miss did not reproduce. On the same OpenAI `gpt-5.6-sol` model, one dedicated key remained warm in **5 of 5 probes at 571 seconds** and **3 of 3 probes at 1,500 seconds**. A shared key under contention remained warm in **4 of 4 probes at 571 seconds**. An earlier OpenAI `gpt-5.6-luna` arm remained warm in **12 of 12 probes at 571 and 1,500 seconds** while four prefixes competed and a writer ran every 30 seconds.
 
 The follow-up means the original miss is rare or environment-specific. It also means cache-key contention is not the explanation at this tested scale. It does not explain the original miss, which remains unresolved. The original observation stays in this record because failure to reproduce it does not erase the observation.
 
@@ -50,21 +57,21 @@ The follow-up means the original miss is rare or environment-specific. It also m
 
 A fresh thread lacks the working context that an existing thread accumulated. Episodes can transfer durable results, but the new worker still has to orient itself to the task and repository.
 
-**Method and result, 2026-08-06.** One repository follow-up was given to a continuation and to a fresh thread with durable episode context. The fresh arm made **one more tool call** than the continuation and produced the better answer, with line numbers and a flagged error. The usable sample is **n=1 task pair**. It was not designed as a model-family comparison, and the surviving decision record does not identify the worker models, so no provider-family conclusion follows. A second question supplies no independent sample because its continuation arm was contaminated by prior self-correction.
+**Measured probe, method and result, 2026-08-06.** One repository follow-up was given to a continuation and to a fresh thread with durable episode context. The fresh arm made **one more tool call** than the continuation and produced the better answer, with line numbers and a flagged error. The usable sample is **n=1 task pair**. It was not designed as a model-family comparison, and the surviving decision record does not identify the worker models, so no provider-family conclusion follows. A second question supplies no independent sample because its continuation arm was contaminated by prior self-correction.
 
 Slate expresses the observed **+1 tool call** as an approximate one-turn rediscovery penalty. Charge the fresh-thread option one extra turn when comparing it with continuation. The raw transcript and absolute per-arm call counts were not retained; only the measured difference, answer comparison, and contamination finding survive. The sample cannot establish a distribution or a universal constant. A simple action may need no rediscovery, while a poorly compressed or unusual work stream may need more.
 
 ## Basis of the two-turn guard
 
-**Method, 2026-08-06.** Six cost-model grids covered OpenAI and Anthropic paths. Each grid crossed context sizes **20k, 40k, 60k, 80k, 120k, and 160k** with **1, 3, 5, 10, and 20** future turns: 30 cells per grid and **180 modeled cells** in total, not 180 live dispatches. The cases were OpenAI warm and cold before shared seed reads, OpenAI warm and cold after shared seed reads, and Anthropic warm and cold.
+**Modelled projection, method, 2026-08-06.** Six cost-model grids covered OpenAI and Anthropic paths. Each grid crossed context sizes **20k, 40k, 60k, 80k, 120k, and 160k** with **1, 3, 5, 10, and 20** future turns: 30 cells per grid and **180 modeled cells** in total, not 180 live dispatches. The cases were OpenAI warm and cold before shared seed reads, OpenAI warm and cold after shared seed reads, and Anthropic warm and cold.
 
-The model used measured seeds of **16,116 OpenAI tokens** and **26,481 Anthropic tokens**, each observed twice. It used three injected episodes totaling **5,400 OpenAI tokens** or **7,200 Anthropic tokens**, plus **500 task tokens**, **3,500 growth tokens per turn**, and **600 output tokens per turn**. Current rows had cache-write/cache-read ratio **12.5**, giving this boundary:
+The projection used **measured probe** seeds of **16,116 OpenAI tokens** and **26,481 Anthropic tokens**, each observed twice. Its model inputs were three injected episodes totaling **5,400 OpenAI tokens** or **7,200 Anthropic tokens**, plus **500 task tokens**, **3,500 growth tokens per turn**, and **600 output tokens per turn**. **Documented provider price:** the dated current rows produced a cache-write/cache-read ratio of **12.5**. Those inputs gave this modelled boundary:
 
 `existing context > seed + episodes + 11.5 × written share / expected turns`
 
-The exact boundaries show why turn count matters:
+**Modelled projection:** the exact boundaries show why turn count matters.
 
-| case | 1 turn | 3 turns | 5 turns | 20 turns |
+| modelled case | 1 turn | 3 turns | 5 turns | 20 turns |
 | --- | ---: | ---: | ---: | ---: |
 | OpenAI warm, seed written | 269k | 104k | 71k | 34k |
 | OpenAI warm, seed read | 84k | 43k | 34k | 25k |
@@ -77,6 +84,8 @@ A 50k OpenAI threshold classified **22 of 30** warm, seed-written cells correctl
 The grids cannot establish a universal break-even point. Their result depends on the project's prompt seed, episode size, cache state, input and cache-write prices, expected output, and the accuracy of the orchestrator's turn estimate. They also optimize one dispatch rather than the permanent context growth of a whole work stream.
 
 ## Implemented choice mechanism
+
+Unless a paragraph carries another label, every figure in this section is an **implemented constant**.
 
 Slate divides thread choice between the orchestrator and the `thread` tool. The orchestrator retains every semantic decision.
 
@@ -119,15 +128,24 @@ For longer work, the planner prices both arms over every expected turn. It charg
 
 Input, cache-read, and cache-write buckets remain disjoint. Long-context billing applies independently to each arm at the exact threshold.
 
-The current cache-write to cache-read price ratio is **12.5**. A false cold estimate can therefore destroy a valuable warm prefix.
+**Documented provider price:** the dated current rows produce a cache-write to cache-read ratio of **12.5**. A false cold estimate can therefore destroy a valuable warm prefix.
 
 A tie continues the named thread. Uncertainty never becomes permission to destroy a warm prefix.
 
 ### Reporting, acting, and lineage
 
-The `threadChoice.report` switch defaults to `true`. The `threadChoice.act` switch defaults to `false`.
+Configure the feature under `threadChoice` in the project's `.pi/slate.json` file. This example reports choices and enables automatic restarts:
 
-The default therefore reports the verdict without moving work. Only a `fresh` verdict can move work when acting is enabled.
+```json
+{
+  "threadChoice": {
+    "report": true,
+    "act": true
+  }
+}
+```
+
+**Implemented constants:** `threadChoice.report` defaults to `true`, while `threadChoice.act` defaults to `false`. The default therefore reports the verdict without moving work. Only a `fresh` verdict can move work when acting is enabled.
 
 Acting adds semantic refusals after the economic verdict. Reviewer and adversarial threads keep their live review transcripts.
 
@@ -139,13 +157,17 @@ A later dispatch to the superseded source is a tool error. The error names the s
 
 A restart carries the source thread's type, tools, and base route. The named `freshContext` episodes become the successor's injected context.
 
-An abort or failure during restart removes the successor and restores the source. The source remains usable after rollback.
+A restart has an explicit commit point. The commit point occurs when the successor's worker session starts executing its prompt.
+
+Before the commit point, an abort or failure removes the successor and restores the source. A failure then runs the action on the source. An abort ends the action without running it again.
+
+At or after the commit point, an abort or failure never rolls the restart back. The successor keeps its lineage, and Slate reports the action outcome on that successor. Slate never repeats the committed action on the source.
 
 ### Missing and stale evidence
 
 The planner abstains rather than guessing when missing or stale evidence prevents honest pricing.
 
-The dispatch path accepts documented and measured retention evidence for 90 days. Older retention rows grant no retention window.
+**Implemented constant:** the dispatch path accepts documented and measured retention evidence for 90 days. Older retention rows grant no retention window.
 
 Documented retention comes from provider sources with retrieval dates. Measured retention comes from dated local probes listed in the model profiles.
 
@@ -161,14 +183,14 @@ Do not preserve warmth by choosing a model or effort that cannot clear the actio
 
 ## Cache-key sharding experiment
 
-A controlled experiment on 2026-08-06 tested the implementation as shipped in this branch on the OpenAI `gpt-5.6-luna` path. Two arms used distinct long prefixes. Each arm created four worker threads sequentially in one persistent process. Treatment used the default two shards. Control set `cacheKeyEnabled: false`, so Slate installed no shared key.
+**Measured probe, 2026-08-06.** A controlled experiment tested the implementation as shipped in this branch on the OpenAI `gpt-5.6-luna` path. Two arms used distinct long prefixes. Each arm created four worker threads sequentially in one persistent process. Treatment used the default two shards. Control set `cacheKeyEnabled: false`, so Slate installed no shared key.
 
-| arm | threads | input tokens | cached tokens | cached/input | worker cost |
+| measured arm | threads | input tokens | cached tokens | cached/input | worker cost |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | two-shard treatment | 4 | 119,124 | 59,496 | 0.499 | $0.01612032 |
 | disabled control | 4 | 119,116 | 0 | 0.000 | $0.02980240 |
 
-Worker cost fell 45.91%. All-in cost was $0.04249825 for treatment and $0.05489782 for control, or $0.09739607 across both arms.
+**Measured probe:** worker cost fell 45.91%. All-in cost was $0.04249825 for treatment and $0.05489782 for control, or $0.09739607 across both arms.
 
 The per-thread pattern is evidence that the provider path honors the key. The first thread on each treatment shard wrote its full prefix. The later thread on the same shard read 29,748 cached tokens. Threads with identical prefixes but different shard keys did not share cache. That pattern is inconsistent with a provider ignoring the key.
 
@@ -180,7 +202,7 @@ Re-measure each claim when its inputs can have changed:
 
 - **Cold transitions:** repeat controlled model and effort arms after a provider changes cache semantics, pi changes request construction, Slate changes route application, or a new model family becomes supported. A future model-change run should include controlled samples from both provider families because the current model evidence is one OpenAI event.
 - **Rediscovery:** repeat controlled pairs across several task shapes, model families, and repository sizes. Replace the one-turn charge only after the distribution is stable enough to support another policy.
-- **Two-turn guard:** regenerate the grids after material changes to prompt-seed size, episode construction, provider prices, cache-write behavior, cache-key behavior, compaction, or supported model families. Validate the inferred two-turn boundary with live two-turn actions when possible.
+- **Two-turn guard and prices:** regenerate the grids after material changes to prompt-seed size, episode construction, provider prices, cache-write behavior, cache-key behavior, compaction, or supported model families. Validate the inferred two-turn boundary with live two-turn actions when possible. Price rows have no automatic age check, so review their provider sources whenever this projection is refreshed.
 - **Cache-key sharding:** repeat with more threads and randomized arm order after changes to key derivation, shard assignment, the disable switch, the local proxy, the OpenAI API path, or provider cache policy. Add continuation, expiry, and compaction arms before applying the first-dispatch result to those cases.
 
 This document describes decision inputs. The provider's reported usage remains the authority for the cost that actually occurred.
