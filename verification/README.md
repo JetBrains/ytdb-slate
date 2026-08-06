@@ -535,6 +535,9 @@ A net much smaller than the ladder, for these subjects:
 - the **dispatch guards** in `extension/route.ts` (`route-*`) — the route planner:
   the seven guards that decide whether one dispatched action may run at all, and
   on which (model, effort) pair;
+- the **thread-choice planner** in `extension/thread-choice.ts` (`choice-*`) — the
+  pure continue-or-fresh decision, its safety refusals, cache evidence, pricing,
+  short-work guard and conservative uncertainty rules;
 - **episode compression** in `extension/episodes.ts` (`episode-*`) — the compressor
   pin, its usability rule, the newest-Sonnet ordering, its diagnostics and the
   episode header's sanitisation. Loaded through a second loader instance with the
@@ -960,6 +963,48 @@ warning count, or the one-time discoverability line. The extension-load check
 covers wrapper registration and session startup. A live interactive session
 covers the wrapper's rendered behavior. The resolver checks prove only that the
 resolver emits every warning and supplies the class that the wrapper consumes.
+
+Thread choice — the pure planner (`extension/thread-choice.ts`). A dead refusal
+or reversed comparison still produces a normal dispatch and episode, so every
+input is fabricated and every verdict is asserted by kind and code:
+
+| id | what it proves |
+| --- | --- |
+| `choice-load` | the module loads. A failure converts every other `choice-*` check into an explicit NOT RUN line |
+| `choice-order` | unusable input and safety refusals settle before source selection, warmth, short-work handling, or arithmetic |
+| `choice-refusals` | absent and empty permission, a missing episode, unrecorded or empty tools, and a failed last dispatch each return their exact refusal code |
+| `choice-new-stream` | no source thread returns `fresh/no-thread-to-continue` without allowance, cache, size, or price inputs |
+| `choice-warmth` | model changes, zero read-plus-write, retention boundaries, expiry, missing retention, and unknown age classify conservatively |
+| `choice-effort-cold` | an effort change is cold against an otherwise identical same-effort warm control |
+| `choice-short-work` | one and two turns continue before pricing, while three turns reach arithmetic |
+| `choice-abstentions` | every missing economic input returns its exact abstention code instead of a fabricated choice |
+| `choice-token-buckets` | cache-read, fresh, and output tokens remain disjoint, with zero or absent write premiums falling back to input price |
+| `choice-long-context` | multipliers start at the exact threshold and apply independently to both arms |
+| `choice-rediscovery` | the fresh arm keeps its extra turn, including at the maximum-turn clamp |
+| `choice-final-verdict` | wide cost gaps choose in both directions, while an exact tie continues. The fresh fixture is the positive control |
+| `choice-verdict-shape` | every verdict explains itself, and priced choices carry estimates and warmth evidence |
+| `choice-hostile` | malformed values never throw, verdict kinds stay closed, and oversized turn estimates clamp |
+
+Mutation checks give the family teeth. Moving the short-work guard above
+permission breaks `choice-order`. Removing effort comparison breaks
+`choice-effort-cold`. Double-charging fresh input breaks
+`choice-token-buckets`. Reversing the final comparison breaks
+`choice-final-verdict` despite its wide positive-control gap.
+
+Every other row has a discriminating mutation. Break the export for
+`choice-load`. Change one refusal code for `choice-refusals`. Require rates on a
+new work stream for `choice-new-stream`. Expire at equality for `choice-warmth`.
+Move the short-work boundary for `choice-short-work`. Default a missing price or
+size to zero for `choice-abstentions`. Start long-context billing above rather
+than at the threshold for `choice-long-context`. Clamp both arms before adding
+rediscovery for `choice-rediscovery`. Blank a reason for `choice-verdict-shape`.
+Remove the turn clamp for `choice-hostile`.
+
+The family executes only `thread-choice.ts`. It fabricates time, route, cache,
+retention, prices, sizes, episodes, tools, and turn estimates. It does not execute
+`ThreadManager`, a worker session, reporting, lineage, restart refusal, rollback,
+or successor creation. Those caller and acting-path behaviors belong in unit or
+integration tests.
 
 Dispatch guards — the route planner (`extension/route.ts`). The **safety core** of
 action-level routing, and the one place where a regression is completely silent: a

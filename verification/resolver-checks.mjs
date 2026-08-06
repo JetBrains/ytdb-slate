@@ -69,6 +69,9 @@ const baseLoad = await tryImport("extension/base-model.ts");
 // PURE module for exactly this harness (threads.ts transitively imports
 // @earendil-works/pi-ai, which this repo does not install).
 const routeLoad = await tryImport("extension/route.ts");
+// The continue-or-fresh planner is pure and receives every environment fact as
+// an input. Its caller and automatic restart execution remain outside this net.
+const choiceLoad = await tryImport("extension/thread-choice.ts");
 const router = routerLoad.module;
 const table = profilesLoad.module;
 const state = stateLoad.module;
@@ -78,6 +81,7 @@ const handoff = handoffLoad.module;
 const worker = workerLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
+const choice = choiceLoad.module;
 const checker = await import(pathToFileURL(`${REPO}/extension/writing-check.mjs`).href);
 const CHECKER_PATH = `${REPO}/extension/writing-check.mjs`;
 
@@ -357,10 +361,26 @@ const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
 const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
 const WORKER_IDS = ["worker-preamble", "reviewer-charter-sync"];
+/** Checks that need extension/thread-choice.ts — the pure continue-or-fresh planner. */
+const CHOICE_IDS = [
+	"choice-order",
+	"choice-refusals",
+	"choice-new-stream",
+	"choice-warmth",
+	"choice-effort-cold",
+	"choice-short-work",
+	"choice-abstentions",
+	"choice-token-buckets",
+	"choice-long-context",
+	"choice-rediscovery",
+	"choice-final-verdict",
+	"choice-verdict-shape",
+	"choice-hostile",
+];
 /**
  * Checks that need extension/route.ts — the dispatch guards. They also need
  * extension/model-router.ts, because the planner consumes its resolutions AND
- * imports it (so an unloadable router makes route.ts unloadable too); the skip
+ * imports it. An unloadable router makes route.ts unloadable too, so the skip
  * reason names whichever module actually failed.
  */
 const ROUTE_IDS = [
@@ -433,6 +453,7 @@ const VOIDABLE = [
 	// "route-" (the sixth character is "r", not "-"), so the two lists cannot claim
 	// each other's checks.
 	["route-", ROUTE_IDS, "route-load"],
+	["choice-", CHOICE_IDS, "choice-load"],
 	["router-", ROUTER_IDS, "router-load"],
 	["profiles-", PROFILE_IDS, "profiles-load"],
 	["worker-", WORKER_IDS, "worker-load"],
@@ -1832,6 +1853,7 @@ try {
 	check("state-load", state !== undefined, "extension/state.ts loads", stateLoad.error?.message);
 	check("base-load", tracker !== undefined, "extension/base-model.ts loads", baseLoad.error?.message);
 	check("route-load", route !== undefined, "extension/route.ts loads", routeLoad.error?.message);
+	check("choice-load", choice !== undefined, "extension/thread-choice.ts loads", choiceLoad.error?.message);
 
 	if (!router) {
 		for (const id of ROUTER_IDS) skip(id, "extension/model-router.ts could not be loaded");
@@ -5146,6 +5168,190 @@ try {
 	}
 
 	// =========================================================================
+	// Continue-or-fresh choice planner (extension/thread-choice.ts)
+	// =========================================================================
+	if (!choice) {
+		for (const id of CHOICE_IDS) skip(id, "extension/thread-choice.ts could not be loaded");
+	} else {
+		const input = (overrides = {}) => ({
+			now: 100_000,
+			thread: { id: "t1", tools: ["read"] },
+			last: { status: "ok", model: "p/a", effort: "low", cacheRead: 1000, cacheWrite: 0, contextTokens: 100_000, createdAt: 40_000 },
+			action: { model: "p/a", effort: "low", expectedTurns: 3 },
+			retention: { documentedSeconds: 300 },
+			rates: { inUsdPerMTok: 1, outUsdPerMTok: 1, cachedInUsdPerMTok: 0.1, cacheWriteUsdPerMTok: 1.25 },
+			sizes: { freshSeedTokens: 10_000, episodeTokens: 1000, taskTokens: 100, growthTokensPerTurn: 100, outputTokensPerTurn: 0, rediscoveryTurns: 1, freshSeedCache: "write" },
+			allowance: ["e1"],
+			knownEpisodeIds: ["e1"],
+			...overrides,
+		});
+		const planChoice = (overrides = {}) => choice.planThreadChoice(input(overrides));
+		const code = (value) => `${value?.kind ?? "none"}:${value?.code ?? "none"}`;
+
+		await section("choice-order", async () => {
+			const noAction = choice.planThreadChoice({ thread: { id: "t1" } });
+			const noPermission = planChoice({ allowance: undefined, action: { model: "p/a", effort: "low", expectedTurns: 1 } });
+			const noIndex = planChoice({ knownEpisodeIds: undefined });
+			checkAll("choice-order", "unusable input and safety refusals settle before source selection, warmth, the short-work guard, or arithmetic", [
+				["no action is the first decision", code(noAction) === "abstain:no-action", code(noAction)],
+				["missing permission outranks the one-turn guard", code(noPermission) === "refused:allowance-absent", code(noPermission)],
+				["an uncheckable episode seed outranks all cache and price evidence", code(noIndex) === "abstain:episode-index-unavailable", code(noIndex)],
+			]);
+		});
+
+		await section("choice-refusals", async () => {
+			const cases = [
+				["allowance-absent", { allowance: undefined }],
+				["allowance-empty", { allowance: [] }],
+				["episode-missing", { allowance: ["missing"] }],
+				["tool-allowance-unrecorded", { thread: { id: "t1" } }],
+				["tool-allowance-empty", { thread: { id: "t1", tools: [] } }],
+				["last-dispatch-failed", { last: { ...input().last, status: "failed" } }],
+			];
+			const got = cases.map(([expected, override]) => [expected, planChoice(override)]);
+			checkAll("choice-refusals", "each permission, episode, equipment, and failed-dispatch refusal returns its own code before economics can permit a restart", [
+				["all six refusal codes are reached exactly", got.every(([expected, value]) => code(value) === `refused:${expected}`), got.map(([expected, value]) => `${expected} -> ${code(value)}`)],
+				["every refusal explains itself", got.every(([, value]) => typeof value.reason === "string" && value.reason.length > 20), got.map(([, value]) => value.reason)],
+			]);
+		});
+
+		await section("choice-new-stream", async () => {
+			const fresh = choice.planThreadChoice({ action: { model: "p/a", effort: "low", expectedTurns: 3 } });
+			check("choice-new-stream", code(fresh) === "fresh:no-thread-to-continue", "a dispatch with no source thread starts a fresh work stream without requiring allowance or economic inputs", code(fresh));
+		});
+
+		await section("choice-warmth", async () => {
+			const warm = (overrides) => choice.classifyPrefixWarmth({ now: 100_000, model: "p/a", effort: "low", last: input().last, retention: { documentedSeconds: 60 }, ...overrides });
+			const got = {
+				none: warm({ last: undefined }),
+				model: warm({ model: "p/b" }),
+				miss: warm({ last: { ...input().last, cacheRead: 0, cacheWrite: 0 } }),
+				boundary: warm({}),
+				expired: warm({ now: 100_001 }),
+				noData: warm({ retention: undefined }),
+				unknownAge: warm({ now: undefined }),
+			};
+			checkAll("choice-warmth", "warmth uses positive cache evidence, expires strictly after the retention boundary, and treats missing retention or age conservatively", [
+				["no previous dispatch is cold", got.none.code === "no-previous-dispatch" && !got.none.warm, got.none],
+				["a model change is cold", got.model.code === "model-change" && !got.model.warm, got.model],
+				["zero read and write is a measured miss", got.miss.code === "measured-cache-miss" && !got.miss.warm, got.miss],
+				["the exact retention boundary stays warm", got.boundary.code === "within-retention" && got.boundary.warm, got.boundary],
+				["one millisecond past it is expired", got.expired.code === "retention-expired" && !got.expired.warm, got.expired],
+				["missing retention data favours warmth", got.noData.code === "no-retention-data" && got.noData.warm, got.noData],
+				["unknown age is not an expiry", got.unknownAge.code === "unknown-elapsed-time" && got.unknownAge.warm, got.unknownAge],
+			]);
+		});
+
+		await section("choice-effort-cold", async () => {
+			const common = { now: 100_000, model: "p/a", last: input().last, retention: { documentedSeconds: 300 } };
+			const changed = choice.classifyPrefixWarmth({ ...common, effort: "high" });
+			const control = choice.classifyPrefixWarmth({ ...common, effort: "low" });
+			checkAll("choice-effort-cold", "a known effort change makes an otherwise warm prefix cold, while the same-effort control remains warm", [
+				["changed effort is the measured cold path", changed.code === "effort-change" && !changed.warm, changed],
+				["same effort control stays warm", control.code === "within-retention" && control.warm, control],
+			]);
+		});
+
+		await section("choice-short-work", async () => {
+			const at = (expectedTurns) => planChoice({ action: { model: "p/a", effort: "low", expectedTurns }, rates: undefined });
+			const one = at(1);
+			const two = at(2);
+			const three = at(3);
+			checkAll("choice-short-work", "one and two turns continue before pricing, while three turns cross the exact guard boundary and require economic inputs", [
+				["one turn continues", code(one) === "continue:short-work", code(one)],
+				["two turns continue", code(two) === "continue:short-work", code(two)],
+				["three turns reaches pricing", code(three) === "abstain:prices-unusable", code(three)],
+			]);
+		});
+
+		await section("choice-abstentions", async () => {
+			const cases = [
+				["no-action", choice.planThreadChoice({})],
+				["episode-index-unavailable", planChoice({ knownEpisodeIds: undefined })],
+				["prices-unusable", planChoice({ rates: undefined })],
+				["prefix-size-unknown", planChoice({ last: { ...input().last, contextTokens: undefined } })],
+				["fresh-size-unknown", planChoice({ sizes: { ...input().sizes, freshSeedTokens: undefined } })],
+				["episode-size-unknown", planChoice({ sizes: { ...input().sizes, episodeTokens: undefined } })],
+			];
+			check("choice-abstentions", cases.every(([expected, value]) => code(value) === `abstain:${expected}`), "each unusable decision input abstains with its exact code instead of fabricating an economic choice", cases.map(([expected, value]) => `${expected} -> ${code(value)}`));
+		});
+
+		await section("choice-token-buckets", async () => {
+			const rates = { cacheRead: 0.1, fresh: 1, output: 2, freshFromInputPrice: false };
+			const estimated = choice.estimateArmCost({ cachedPrefixTokens: 100, uncachedPrefixTokens: 50, turns: 3, growthTokensPerTurn: 10, outputTokensPerTurn: 5, rates });
+			const zeroWrite = choice.resolveTokenRates({ inUsdPerMTok: 1, outUsdPerMTok: 2, cachedInUsdPerMTok: 0.1, cacheWriteUsdPerMTok: 0 });
+			const absentWrite = choice.resolveTokenRates({ inUsdPerMTok: 1, outUsdPerMTok: 2, cachedInUsdPerMTok: 0.1 });
+			checkAll("choice-token-buckets", "cache reads, fresh tokens, and output stay disjoint across turns, while zero or absent write premiums fall back to input price", [
+				["three turns have exact disjoint totals", estimated.cacheReadTokens === 410 && estimated.freshTokens === 70 && estimated.outputTokens === 15, estimated],
+				["the exact cost prices each bucket once", Math.abs(estimated.usd - 0.000141) < 1e-12, estimated.usd],
+				["zero and absent write premiums use input price", zeroWrite?.fresh === 1 && absentWrite?.fresh === 1 && zeroWrite.freshFromInputPrice && absentWrite.freshFromInputPrice, { zeroWrite, absentWrite }],
+			]);
+		});
+
+		await section("choice-long-context", async () => {
+			const rates = { cacheRead: 1, fresh: 1, output: 1, freshFromInputPrice: false };
+			const longContext = choice.resolveLongContext({ threshold: 100, multipliers: { in: 2, out: 3, cachedIn: 4, cacheWrite: 5 } });
+			const at = choice.estimateArmCost({ cachedPrefixTokens: 60, uncachedPrefixTokens: 40, turns: 1, growthTokensPerTurn: 0, outputTokensPerTurn: 10, rates, longContext });
+			const below = choice.estimateArmCost({ cachedPrefixTokens: 59, uncachedPrefixTokens: 40, turns: 1, growthTokensPerTurn: 0, outputTokensPerTurn: 10, rates, longContext });
+			const both = planChoice({ longContext: { threshold: 1, multipliers: { in: 2, out: 2, cachedIn: 2, cacheWrite: 2 } } });
+			checkAll("choice-long-context", "long-context billing starts at the exact threshold, prices each bucket with its multiplier, and applies independently to both planner arms", [
+				["exact threshold is multiplied", at.longContextTurns === 1 && Math.abs(at.usd - 0.00047) < 1e-12, at],
+				["one token below is not multiplied", below.longContextTurns === 0 && Math.abs(below.usd - 0.000109) < 1e-12, below],
+				["both planner arms cross independently", both.estimate?.continuation.longContextTurns > 0 && both.estimate?.fresh.longContextTurns > 0, both.estimate],
+			]);
+		});
+
+		await section("choice-rediscovery", async () => {
+			const ordinary = planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 3 } });
+			const clamped = planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 1000 } });
+			checkAll("choice-rediscovery", "the fresh arm keeps its extra rediscovery turn in ordinary pricing and at the maximum-turn clamp", [
+				["ordinary fresh arm has one extra turn", ordinary.estimate?.continuation.turns === 3 && ordinary.estimate?.fresh.turns === 4, ordinary.estimate],
+				["clamping preserves the gap", clamped.estimate?.continuation.turns === 99 && clamped.estimate?.fresh.turns === 100 && clamped.estimate?.turnsClamped === true, clamped.estimate],
+			]);
+		});
+
+		await section("choice-final-verdict", async () => {
+			const fresh = planChoice({ sizes: { ...input().sizes, freshSeedTokens: 1000, episodeTokens: 0 }, last: { ...input().last, contextTokens: 1_000_000 } });
+			const continuation = planChoice({ sizes: { ...input().sizes, freshSeedTokens: 1_000_000, episodeTokens: 100_000 }, last: { ...input().last, contextTokens: 1000 } });
+			const equal = planChoice({ rates: { inUsdPerMTok: 0, outUsdPerMTok: 0, cachedInUsdPerMTok: 0, cacheWriteUsdPerMTok: 0 } });
+			const gap = fresh.estimate ? fresh.estimate.continuation.usd - fresh.estimate.fresh.usd : 0;
+			checkAll("choice-final-verdict", "widely separated costs choose fresh or continuation in the correct direction, while an exact tie preserves the existing thread", [
+				["positive control produces a fresh verdict", code(fresh) === "fresh:fresh-cheaper", { verdict: code(fresh), gap }],
+				["the positive gap dwarfs floating-point noise", gap > 0.1, gap],
+				["opposite economics continue", code(continuation) === "continue:continuation-cheaper", { verdict: code(continuation), estimate: continuation.estimate }],
+				["an exact tie continues", code(equal) === "continue:equal-cost", { verdict: code(equal), estimate: equal.estimate }],
+			]);
+		});
+
+		await section("choice-verdict-shape", async () => {
+			const values = [
+				choice.planThreadChoice({}),
+				choice.planThreadChoice({ action: {} }),
+				planChoice({ allowance: undefined }),
+				planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 1 } }),
+				planChoice(),
+			];
+			checkAll("choice-verdict-shape", "every verdict carries a non-empty reason, and priced choices carry both their estimate and warmth evidence", [
+				["all verdicts explain themselves", values.every((value) => typeof value.reason === "string" && value.reason.trim().length > 0), values.map((value) => [code(value), value.reason])],
+				["priced choices carry estimate and warmth", values.filter((value) => value.estimate).every((value) => value.warmth && value.estimate.continuation && value.estimate.fresh), values.map((value) => [code(value), !!value.estimate, !!value.warmth])],
+			]);
+		});
+
+		await section("choice-hostile", async () => {
+			const hostile = [null, [], "bad", { action: [] }, { action: { expectedTurns: Number.POSITIVE_INFINITY } }, input({ action: { model: {}, effort: [], expectedTurns: 101 } })];
+			const got = hostile.map((value) => {
+				try { return { value: choice.planThreadChoice(value) }; } catch (error) { return { error: String(error) }; }
+			});
+			const bounded = planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 101 } });
+			checkAll("choice-hostile", "malformed values degrade to bounded verdicts without throwing, and oversized turn estimates stay within the planner limit", [
+				["no hostile shape throws", got.every((entry) => entry.error === undefined), got],
+				["every result has a closed verdict kind", got.every((entry) => ["continue", "fresh", "abstain", "refused"].includes(entry.value?.kind)), got.map((entry) => code(entry.value))],
+				["oversized work is clamped", bounded.estimate?.fresh.turns === choice.MAX_PRICED_TURNS && bounded.estimate?.turnsClamped === true, bounded.estimate],
+			]);
+		});
+	}
+
+	// =========================================================================
 	// Config-sanitizer WIRING (extension/index.ts) — a TEXT check, deliberately
 	// =========================================================================
 	// A sanitizer that exists but is never called is the exact silent failure this
@@ -6676,6 +6882,8 @@ try {
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
 		"route-price-divergence-golden", "route-price-divergence-tolerance", "route-price-divergence-absence", "route-price-divergence-output", "route-price-divergence-date",
 		"route-failover", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
+		"choice-load", "choice-order", "choice-refusals", "choice-new-stream", "choice-warmth", "choice-effort-cold", "choice-short-work",
+		"choice-abstentions", "choice-token-buckets", "choice-long-context", "choice-rediscovery", "choice-final-verdict", "choice-verdict-shape", "choice-hostile",
 		"wiring", "spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
