@@ -37,7 +37,7 @@ const THREAD_TYPE_PARAMETER_DESCRIPTION =
 	`Slate adds its reviewer evidence charter to ${judgementThreadTypes} threads.`;
 
 const FRESH_CONTEXT_PARAMETER_DESCRIPTION =
-	"Required on continuations: episodes a fresh thread would need. Omit on creation.";
+	"On continuations: omit for no permission, use [] to refuse, or list seed episodes to permit a fresh thread. Omit on creation.";
 
 const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 

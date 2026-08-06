@@ -142,13 +142,13 @@ schema. A tool description and a parameter description are therefore both
 always loaded.
 
 The current `thread` tool description is 1,386 UTF-8 bytes. Its serialized
-parameter schema is 1,960 bytes, measured as `JSON.stringify(parameters)`.
+parameter schema is 2,005 bytes, measured as `JSON.stringify(parameters)`.
 The schema includes the 289-byte `type` parameter description and the
 `freshContext` argument.
 
-The description and schema total 3,346 bytes before provider framing. The
-`freshContext` schema entry adds 169 bytes to the previous combined figure.
-The increase is roughly 42 tokens at four characters per token.
+The description and schema total 3,391 bytes before provider framing. The
+`freshContext` schema entry adds 214 bytes to the previous combined figure.
+The increase is roughly 54 tokens at four characters per token.
 
 The figure excludes the prompt snippet, prompt guidelines, tool name,
 provider framing, and serialization outside the parameter schema.
@@ -207,18 +207,18 @@ must be named instead of presented as the same measurement:
 
 | router | models | `draftPRs` | `writing.check` | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | off | 4 | 2,168 | 41 |
-| off | — | off | on | 5 | 3,238 | 63 |
-| off | — | on | off | 5 | 2,187 | 41 |
-| off | — | on | on | 6 | 3,257 | 63 |
-| on | `.pi/slate.json` six | off | off | 5 | 4,198 | 62 |
-| on | `.pi/slate.json` six | off | on | 6 | 5,268 | 84 |
-| on | `.pi/slate.json` six | on | off | 6 | 4,217 | 62 |
-| on | `.pi/slate.json` six | on | on | 7 | 5,287 | 84 |
-| on | all 9 shipped | off | off | 5 | 4,753 | 65 |
-| on | all 9 shipped | off | on | 6 | 5,823 | 87 |
-| on | all 9 shipped | on | off | 6 | 4,772 | 65 |
-| on | all 9 shipped | on | on | 7 | 5,842 | 87 |
+| off | — | off | off | 4 | 2,310 | 43 |
+| off | — | off | on | 5 | 3,380 | 65 |
+| off | — | on | off | 5 | 2,329 | 43 |
+| off | — | on | on | 6 | 3,399 | 65 |
+| on | `.pi/slate.json` six | off | off | 5 | 4,340 | 64 |
+| on | `.pi/slate.json` six | off | on | 6 | 5,410 | 86 |
+| on | `.pi/slate.json` six | on | off | 6 | 4,359 | 64 |
+| on | `.pi/slate.json` six | on | on | 7 | 5,429 | 86 |
+| on | all 9 shipped | off | off | 5 | 4,895 | 67 |
+| on | all 9 shipped | off | on | 6 | 5,965 | 89 |
+| on | all 9 shipped | on | off | 6 | 4,914 | 67 |
+| on | all 9 shipped | on | on | 7 | 5,984 | 89 |
 
 An untrusted project reads the first row whatever its `slate.json`
 says: no project config is loaded, so no optional rule renders. Line
@@ -250,8 +250,8 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 7 | 6,203 | 94 | ≈1,551 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,189 | 97 | ≈1,797 |
+| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 7 | 6,345 | 96 | ≈1,586 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,331 | 99 | ≈1,833 |
 
 The dogfood row uses `workflow.draftPRs: true`, `writing.check: true`, and the
 six models in `.pi/slate.json`. Its extension basis is
@@ -270,12 +270,15 @@ independent of installed extension labels, descriptions, versions and other
 prose. The worker rule measures 1,347 characters against its 1,600-character
 verification budget.
 
-`doctrine-budget` caps that representative maximal doctrine at 7,200 portable
-characters. The measured 7,189 leaves 11 characters, or 0.2 percent of the
-7,200-character bound. A positive control adds one capped tool
-and three copies of the largest measured model row. It measures 7,953 portable
-characters and exceeds the bound by 753. These figures are verification budgets,
-never runtime limits. Arbitrary user extension rosters can exceed them.
+`doctrine-budget` now caps that representative maximal doctrine at 7,400
+portable characters. The old 7,200-character bound could not hold the required
+three-state permission rule, setting name, and prompt-cache rewrite definition.
+Keeping that meaning raised the measured fixture from 7,189 to 7,331 characters.
+The new bound leaves 69 characters, or 0.9 percent. A positive control adds one
+capped tool and three copies of the largest measured model row. It measures 8,095
+portable characters and exceeds the new bound by 695. These figures are
+verification budgets, never runtime limits. Arbitrary user extension rosters can
+exceed them.
 
 The exact values are maintenance tripwires. A deliberate doctrine wording,
 requirement roster, renderer cap, or fixture change requires a fresh render
@@ -285,8 +288,8 @@ fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. At four
 characters per token as a rough estimate, the shipped-rule table ranges from
-about 542 tokens to about 1,461 tokens. The current dogfood basis is about 1,551
-tokens. The representative maximum is about 1,797 tokens, or 0.70 percent of the
+about 578 tokens to about 1,496 tokens. The current dogfood basis is about 1,586
+tokens. The representative maximum is about 1,833 tokens, or 0.72 percent of the
 default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how

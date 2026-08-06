@@ -1753,12 +1753,12 @@ try {
 					["writing-only doctrine stays under 5600 portable chars", portable(writingOn).length <= 5600, { portable: portable(writingOn).length }],
 					["writing plus router stays under 6000 portable chars", portable(writingRouterOn).length <= 6000, { portable: portable(writingRouterOn).length }],
 					["writing plus extensions stays under 6000 portable chars", portable(writingExtensionsOn).length <= 6000, { portable: portable(writingExtensionsOn).length }],
-					["all three tail features stay under 6200 portable chars", portable(writingAllOn).length <= 6200, { portable: portable(writingAllOn).length }],
+					["all three tail features stay under 6300 portable chars", portable(writingAllOn).length <= 6300, { portable: portable(writingAllOn).length }],
 					// Update exact measurements with production wording in the same commit.
-					["the maximum all-feature fixture is the measured 7189 portable chars and stays within 7200", maximalPortable === 7189 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the maximum all-feature fixture is the measured 7331 portable chars and stays within 7400", maximalPortable === 7331 && maximalPortable <= 7400, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and stays within 1600", workerRule.length === 1347 && workerRule.length <= 1600, { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					["the positive control is the measured 7953 portable chars and exceeds 7200 by at least one model growth unit", overBudgetPortable === 7953 && overBudgetPortable > 7200 && overBudgetPortable - 7200 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7200, growthBeyondBound: overBudgetPortable - 7200, maxModelIncrement, maxToolIncrement }],
+					["the positive control is the measured 8095 portable chars and exceeds 7400 by at least one model growth unit", overBudgetPortable === 8095 && overBudgetPortable > 7400 && overBudgetPortable - 7400 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7400, growthBeyondBound: overBudgetPortable - 7400, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
