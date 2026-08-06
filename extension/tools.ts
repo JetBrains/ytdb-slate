@@ -17,7 +17,7 @@ import {
 	type EpisodeUsage,
 	type SlateStore,
 } from "./state.ts";
-import type { DispatchProgress, ThreadManager } from "./threads.ts";
+import { MAX_FRESH_CONTEXT_EPISODES, type DispatchProgress, type ThreadManager } from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
 
 const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
@@ -26,6 +26,9 @@ const judgementThreadTypes = JUDGEMENT_THREAD_TYPES.join(" and ");
 const THREAD_TYPE_PARAMETER_DESCRIPTION =
 	`Required for a new thread and immutable after creation. Pick by main job: ${threadTypeGlosses}. ` +
 	`Slate adds its reviewer evidence charter to ${judgementThreadTypes} threads.`;
+
+const FRESH_CONTEXT_PARAMETER_DESCRIPTION =
+	"Required on continuations: episodes a fresh thread would need. Omit on creation.";
 
 const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 
@@ -93,6 +96,12 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			context: Type.Optional(
 				Type.Array(Type.String(), { description: "Episode ids to inject as context (e.g. [\"t1.e2\"])" }),
 			),
+			freshContext: Type.Optional(
+				Type.Array(Type.String(), {
+					description: FRESH_CONTEXT_PARAMETER_DESCRIPTION,
+					maxItems: MAX_FRESH_CONTEXT_EPISODES,
+				}),
+			),
 			model: Type.Optional(
 				Type.String({
 					description:
@@ -145,6 +154,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					type,
 					task: params.task,
 					contextEpisodeIds: params.context,
+					freshContextEpisodeIds: params.freshContext,
 					model: params.model,
 					effort: params.effort,
 					tools: params.tools,

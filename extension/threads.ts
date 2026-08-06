@@ -151,12 +151,32 @@ export function workerPromptCacheKey(cwd: string, shard: number): string {
 	return `slate-worker-${project}-${shard}`;
 }
 
+export const MAX_FRESH_CONTEXT_EPISODES = 32;
+
+/** Malformed allowance input means no consent. A valid oversized list is an explicit error. */
+export function normalizeFreshContext(value: unknown): string[] {
+	let normalized: string[];
+	try {
+		if (!Array.isArray(value) || !value.every((id) => typeof id === "string")) return [];
+		normalized = [...value];
+	} catch {
+		return [];
+	}
+	if (normalized.length > MAX_FRESH_CONTEXT_EPISODES) {
+		throw new Error(
+			`freshContext accepts at most ${MAX_FRESH_CONTEXT_EPISODES} episode ids. Reduce the list instead of sending an oversized worker prompt.`,
+		);
+	}
+	return normalized;
+}
+
 export interface DispatchOptions {
 	threadId?: string;
 	name?: string;
 	type?: ThreadType;
 	task: string;
 	contextEpisodeIds?: string[];
+	freshContextEpisodeIds?: string[];
 	model?: string; // "provider/id" for THIS action (see the header): the thread's base model when omitted
 	effort?: string; // pi thinking level for THIS action; validated against the target model's ladder
 	tools?: string[];
@@ -389,6 +409,14 @@ export class ThreadManager {
 		// first (it explains itself better than a routing complaint would), the
 		// routing guards next, and only then is a new thread created.
 		const existing = opts.threadId ? this.requireThread(opts.threadId) : undefined;
+		const freshContextEpisodeIds = normalizeFreshContext(opts.freshContextEpisodeIds);
+		for (const id of freshContextEpisodeIds) {
+			if (!this.store.episodes.has(id)) {
+				const known = [...this.store.episodes.keys()].join(", ") || "none";
+				throw new Error(`Unknown freshContext episode "${sanitizeForNotify(id, 80)}". Known episodes: ${known}`);
+			}
+		}
+		const dispatchOpts: DispatchOptions = { ...opts, freshContextEpisodeIds };
 		if (existing && nextSlateEpisodeId(existing.id, existing.episodeSeq) === undefined) {
 			throw new Error(
 				`Slate cannot dispatch thread ${sanitizeForNotify(existing.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
@@ -413,13 +441,13 @@ export class ThreadManager {
 		// drop the reviewer charter, and reject later continuations. The residual race
 		// needs a hand-driven interleaving to reach, and this ordering does not close it.
 		if (existing) this.setExistingThreadType(existing, requestedType);
-		const thread = existing ?? this.createThread({ ...opts, type: requestedType }, early);
+		const thread = existing ?? this.createThread({ ...dispatchOpts, type: requestedType }, early);
 
 		// Per-thread FIFO: chain onto the previous dispatch for this thread.
 		const prev = this.queues.get(thread.id) ?? Promise.resolve();
 		const run = prev
 			.catch(() => undefined) // a failed predecessor must not poison the queue
-			.then(() => this.runDispatch(thread, opts, ctx, signal, onProgress));
+			.then(() => this.runDispatch(thread, dispatchOpts, ctx, signal, onProgress));
 		this.queues.set(thread.id, run);
 		return run;
 	}
