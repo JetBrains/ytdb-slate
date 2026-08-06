@@ -1404,7 +1404,7 @@ export class ThreadManager {
 							return {
 								...restarted,
 								...(policy.report ? { choice: plannedChoice } : {}),
-								warnings: [...warnings, ...restarted.warnings],
+								warnings: [...new Set([...warnings, ...restarted.warnings])],
 							};
 						} catch (error) {
 							if (successor !== undefined) this.rollbackRestart(thread, successor, signal?.aborted ? "idle" : "running");
