@@ -565,10 +565,10 @@ export class ThreadManager {
 	/** Acting-only refusals that depend on thread semantics rather than price. */
 	private restartRefusal(source: ThreadRecord): string | undefined {
 		if (isJudgementThreadType(source.type)) return `${source.type} threads keep their live review transcript`;
-		// Five minutes is the shortest documented cache-retention window in the
-		// shipped profiles. A replacement inside it is recent enough to stop a chain.
-		if (source.restartOf !== undefined && Date.now() - source.createdAt <= 5 * 60 * 1000) {
-			return `thread ${source.id} is itself a recent automatic restart`;
+		// A successor with no episode has added no evidence since the prior move.
+		// Refuse a second move until this work stream publishes something of its own.
+		if (source.restartOf !== undefined && source.episodeIds.length === 0) {
+			return `thread ${source.id} is a successor with no episode of its own, so no new evidence supports another restart`;
 		}
 		return undefined;
 	}
