@@ -509,7 +509,7 @@ export class ThreadManager {
 	 * would make one action's route the thread's permanent base.
 	 */
 	private createThread(opts: DispatchOptions, plan: RoutePlanProceed, restartOf?: ThreadRecord): ThreadRecord {
-		const id = this.store.nextThreadId();
+		const id = this.store.claimNextThreadId();
 		const type = parseThreadType(opts.type, true);
 		const ordinal = Number(id.slice(1));
 		// Thread role does not affect cache sharding. No measurement supports coupling them.
@@ -564,6 +564,7 @@ export class ThreadManager {
 
 	/** Acting-only refusals that depend on thread semantics rather than price. */
 	private restartRefusal(source: ThreadRecord): string | undefined {
+		if (this.store.paused) return "slate is paused, so it cannot open a replacement thread";
 		if (isJudgementThreadType(source.type)) return `${source.type} threads keep their live review transcript`;
 		// A successor with no episode has added no evidence since the prior move.
 		// Refuse a second move until this work stream publishes something of its own.
@@ -571,6 +572,20 @@ export class ThreadManager {
 			return `thread ${source.id} is a successor with no episode of its own, so no new evidence supports another restart`;
 		}
 		return undefined;
+	}
+
+	/** Release runtime resources that no dispatch can reach after successful supersession. */
+	private retireSupersededSource(source: ThreadRecord): void {
+		try {
+			this.live.get(source.id)?.dispose();
+		} catch {
+			/* retirement continues through every runtime map */
+		}
+		this.live.delete(source.id);
+		this.liveBaselines.delete(source.id);
+		this.failoverLive.delete(source.id);
+		this.longContextWarned.delete(source.id);
+		this.queues.delete(source.id);
 	}
 
 	/** Undo a replacement that failed before it could return a usable dispatch result. */
@@ -588,6 +603,7 @@ export class ThreadManager {
 		this.live.delete(successor.id);
 		this.liveBaselines.delete(successor.id);
 		this.failoverLive.delete(successor.id);
+		this.longContextWarned.delete(successor.id);
 		this.queues.delete(successor.id);
 		for (const id of successor.episodeIds) this.store.episodes.delete(id);
 		this.store.threads.delete(successor.id);
@@ -1420,6 +1436,7 @@ export class ThreadManager {
 									`slate: the restart from thread ${thread.id} ended before its action started. The source thread remains usable.`,
 								);
 							}
+							this.retireSupersededSource(thread);
 							return {
 								...restarted,
 								...(policy.report ? { choice: plannedChoice } : {}),

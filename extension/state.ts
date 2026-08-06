@@ -190,6 +190,8 @@ export interface EpisodeRecord {
 export interface SlateSnapshot {
 	threads: ThreadRecord[];
 	episodes: EpisodeRecord[];
+	/** Highest allocated generated thread ordinal. Absent snapshots derive it from records. */
+	threadSeq?: number;
 	orchestratorMode: boolean;
 	paused: boolean;
 	workerCostUsd: number;
@@ -830,6 +832,7 @@ export interface SlateConfig {
 export class SlateStore {
 	threads = new Map<string, ThreadRecord>();
 	episodes = new Map<string, EpisodeRecord>();
+	private threadSeq = 0;
 	orchestratorMode = false;
 	/** When true (context budget exceeded) ThreadManager rejects NEW dispatches. */
 	paused = false;
@@ -853,7 +856,7 @@ export class SlateStore {
 	}
 
 	nextThreadId(): string {
-		let max = 0;
+		let max = this.threadSeq;
 		for (const id of this.threads.keys()) {
 			const m = /^t(\d+)$/.exec(id);
 			if (m) max = Math.max(max, Number(m[1]));
@@ -861,10 +864,17 @@ export class SlateStore {
 		return `t${max + 1}`;
 	}
 
+	claimNextThreadId(): string {
+		const id = this.nextThreadId();
+		this.threadSeq = Number(id.slice(1));
+		return id;
+	}
+
 	snapshot(): SlateSnapshot {
 		return {
 			threads: [...this.threads.values()].map((t) => ({ ...t, status: "idle" as const })),
 			episodes: [...this.episodes.values()],
+			threadSeq: this.threadSeq,
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
 			workerCostUsd: this.workerCostUsd,
@@ -911,6 +921,7 @@ export class SlateStore {
 	adoptSnapshot(latest: SlateSnapshot | undefined, ctx: ExtensionContext): void {
 		this.threads.clear();
 		this.episodes.clear();
+		this.threadSeq = 0;
 		this.orchestratorMode = false;
 		this.paused = false;
 		this.workerCostUsd = 0;
@@ -922,6 +933,7 @@ export class SlateStore {
 		// ?? 0: old snapshots lack the cost fields.
 		this.workerCostUsd = latest.workerCostUsd ?? 0;
 		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
+		this.threadSeq = counter(latest.threadSeq) ?? 0;
 		const dropped: string[] = [];
 		// EVERY record is validated field by field on the way in (BG26) — see
 		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
