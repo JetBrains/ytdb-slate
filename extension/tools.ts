@@ -11,6 +11,7 @@ import {
 	isThreadType,
 	parseThreadType,
 	resolveEpisodeFile,
+	renderThreadId,
 	restartLineageText,
 	threadTypeMarker,
 	THREAD_TYPE_GLOSSES,
@@ -224,7 +225,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			// while this line is framing that exists only for this one tool result.
 			const restartText = restartLineageText(result.thread.restartOf, result.thread.id);
 			const restart = restartText ? ` | ${restartText}` : "";
-			const headline = `[episode ${result.episode.id} | thread ${result.thread.id} "${result.thread.name}"${restart} | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}]`;
+			const threadId = renderThreadId(result.thread.id) ?? "(unknown)";
+			const headline = `[episode ${result.episode.id} | thread ${threadId} "${result.thread.name}"${restart} | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}]`;
 			// Routing notices reach the ORCHESTRATOR, not just the TUI: an evidence gap,
 			// a window substitution or a long-context billing cliff changes what the next
 			// dispatch should ask for, so they ride in the tool result above the episode.
@@ -326,7 +328,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					.filter((value): value is string => value !== undefined)
 					.map((value) => ` ${value}`)
 					.join("");
-				return `${t.id} "${t.name}" [${t.status}]${typeMarker}${lineage}${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
+				return `${renderThreadId(t.id) ?? "(unknown)"} "${t.name}" [${t.status}]${typeMarker}${lineage}${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
 			});
 			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length } };
 		},

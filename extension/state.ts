@@ -19,7 +19,7 @@ import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@eare
 import type { ThinkingLevel } from "./model-profiles.ts";
 import type { ObservationRecord } from "./observations.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { isSlateArtifactReference } from "./artifact-names.ts";
+import { isSafeThreadId, isSlateArtifactReference } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 
 /**
@@ -55,6 +55,12 @@ export function isCanonicalThreadId(value: unknown): value is string {
 	if (match === null) return false;
 	const ordinal = Number(match[1]);
 	return Number.isSafeInteger(ordinal) && ordinal >= 1 && value === `t${ordinal}`;
+}
+
+/** Render a primary thread id without allowing legacy punctuation to forge surrounding structure. */
+export function renderThreadId(value: unknown): string | undefined {
+	if (!isSafeThreadId(value)) return undefined;
+	return isCanonicalThreadId(value) ? value : JSON.stringify(value);
 }
 
 /** One readable lineage phrase for every user-facing surface. */
@@ -645,8 +651,8 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	const t = raw as Record<string, unknown>;
 	const id = str(t.id);
 	if (id === undefined || id === "") return undefined; // unaddressable: nothing can refer to it
-	if (!isCanonicalThreadId(id)) {
-		repairs.push(`thread ${sanitizeForNotify(id, 80)}: invalid id must match t followed by a positive safe integer — remove or rename this record`);
+	if (!isSafeThreadId(id)) {
+		repairs.push(`thread ${sanitizeForNotify(id, 80)}: invalid id cannot form a canonical episode filename — remove or rename this record`);
 		return undefined;
 	}
 	const refused = new Set<string>();

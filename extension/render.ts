@@ -8,7 +8,7 @@
 
 import { getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-import { displayThreadType, restartLineageText, threadTypeMarker, type ThreadType } from "./state.ts";
+import { displayThreadType, renderThreadId, restartLineageText, threadTypeMarker, type ThreadType } from "./state.ts";
 import type { UsageStats } from "./threads.ts";
 
 // Minimal structural theme type (avoids depending on exact Theme export).
@@ -83,7 +83,7 @@ function extractSection(episode: string, section: string): string {
 
 export function renderThreadCall(args: ThreadCallArgs, theme: ThemeLike) {
 	let text = theme.fg("toolTitle", theme.bold("thread "));
-	text += theme.fg("accent", args.thread ?? (args.name ? `new:"${args.name}"` : "new"));
+	text += theme.fg("accent", renderThreadId(args.thread) ?? (args.name ? `new:"${args.name}"` : "new"));
 	const typeMarker = args.type === undefined ? "" : threadTypeMarker(args.type);
 	if (typeMarker) text += theme.fg("muted", typeMarker);
 	// What this action ASKED for: "[model @effort]", or just "[@effort]" when only the
@@ -104,7 +104,7 @@ export function renderThreadResult(
 	theme: ThemeLike,
 ) {
 	const details = (result.details ?? {}) as ThreadDetails;
-	const name = details.threadName ?? details.threadId ?? "thread";
+	const name = details.threadName ?? renderThreadId(details.threadId) ?? "thread";
 	const typeMarker = threadTypeMarker(displayThreadType(details.type));
 	const shownType = typeMarker ? theme.fg("muted", typeMarker) : "";
 	const restartText = restartLineageText(details.restartOf, details.threadId);

@@ -57,7 +57,7 @@ import type { ObservationRecord } from "./observations.ts";
 // with recursive mkdir and writeFileSync — so both kinds now go through one safe
 // writer rather than shipping a new guard beside a known identical hole.
 import { writeSlateArtifact } from "./slate-files.ts";
-import { restartLineageText, splitModelSpec, type EpisodeUsage } from "./state.ts";
+import { renderThreadId, restartLineageText, splitModelSpec, type EpisodeUsage } from "./state.ts";
 
 type CompressorModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
 
@@ -656,7 +656,7 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	// introduce a line, a field or an unbounded run of text. The date is generated
 	// here and the status label is one of two literals, so both are already safe.
 	const episodeId = headerField(opts.episodeId, 80) ?? "(unknown)";
-	const threadId = headerField(opts.threadId, 80) ?? "(unknown)";
+	const threadId = headerField(renderThreadId(opts.threadId), 80) ?? "(unknown)";
 	const threadName = headerField(opts.threadName, 80);
 	const restartOf = headerField(opts.restartOf, 80);
 	const restart = restartLineageText(restartOf, threadId);

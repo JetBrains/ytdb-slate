@@ -35,6 +35,7 @@ import { loadPromptDocs } from "./prompt-docs.ts";
 import { THINKING_LEVELS } from "./route.ts";
 import {
 	displayThreadType,
+	renderThreadId,
 	orchestratorCostUsd,
 	threadTypeMarker,
 	type SlateConfig,
@@ -554,7 +555,7 @@ episode ids, immediate next actions) and direct the user to run
 
 export function renderThreadWidgetLine(thread: ThreadRecord): string {
 	const marker = threadTypeMarker(displayThreadType(thread.type));
-	return `  ${thread.status === "running" ? "⏳" : "·"} ${thread.id} ${thread.name} [${thread.status}]${marker} ${thread.episodeIds.length} episode${thread.episodeIds.length === 1 ? "" : "s"}`;
+	return `  ${thread.status === "running" ? "⏳" : "·"} ${renderThreadId(thread.id) ?? "(unknown)"} ${thread.name} [${thread.status}]${marker} ${thread.episodeIds.length} episode${thread.episodeIds.length === 1 ? "" : "s"}`;
 }
 
 export function registerSlateMode(
