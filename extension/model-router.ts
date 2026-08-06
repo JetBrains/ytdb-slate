@@ -153,15 +153,15 @@ export const SHIPPED_PROFILE_SOURCE: RouterProfileSource = {
  * THE TEST, and it has two parts. A warning is a `configuration-fault` when
  * EITHER part holds:
  *   (a) slate ignored or dropped part of the user's configuration, or
- *   (b) the user can stop the warning by ADDING something to the project config
- *       or to their pi credentials, while keeping the same model list.
+ *   (b) the user can stop the warning by ADDING something to their own project
+ *       config or pi credentials, such as a model, credential or failover entry.
+ *       This differs from only removing the model named by the warning.
  * Otherwise it is a `model-data-note`.
  *
  * BOTH parts are load-bearing. The single-part "can the user stop it" question
- * from the earlier design text does not partition the classes: a dropped
- * `router.models` entry is stopped by REMOVING it, which changes the model list,
- * so part (b) alone would file a silently ignored config value as a data note
- * and hide it. Part (a) catches every such case first.
+ * does not partition the classes: removing a dropped `router.models` entry can
+ * silence its warning, but removal is not the ADD remedy in part (b). Part (a)
+ * catches every silently ignored or dropped config value first.
  *
  * A `model-data-note` reports the shipped research table itself: a figure that
  * has no traced source, two sources that disagree, a price row that does not
@@ -224,8 +224,17 @@ const FIELD_SEPARATOR = " · ";
  * to recognise the value the warning is talking about.
  */
 function profileText(text: string, max = PROFILE_FIELD_MAX): string {
-	const collapsed = text
+	// Bound BEFORE scanning for tags. This keeps an unclosed bracket run from
+	// consuming session-start time, and the cap remains below the hostile 200-char
+	// fixture while clearing every real shipped entry.
+	const wasTruncated = text.length > max;
+	const bounded = text.slice(0, max);
+	const collapsed = bounded
+		// A citation can act as the subject after punctuation. Restore a neutral
+		// subject before removing it: "; [G3] gives" becomes "; the source gives".
+		.replace(/(^|[;:,.])\s*\[[^\]]*\]\s+(?=[A-Za-z])/g, "$1 the source ")
 		.replace(/\[[^\]]*\]/g, "") // the source tags themselves
+		.replace(/\u00b7/g, " ") // profile text cannot forge the field-list separator
 		.replace(/\s+/g, " ") // the hole each removal leaves
 		.replace(/,\s*\)/g, ")") // "(vendor, [G3])" would otherwise read "(vendor, )"
 		.replace(/\(\s*\)/g, "") // a parenthesis that held nothing but a tag
@@ -233,7 +242,12 @@ function profileText(text: string, max = PROFILE_FIELD_MAX): string {
 		.replace(/\s+/g, " ")
 		.replace(/[\s,;:—–-]+$/, "") // a separator the last removal left dangling
 		.trim();
-	return sanitizeForNotify(collapsed, max);
+	if (!wasTruncated) return sanitizeForNotify(collapsed, max);
+	// Preserve an explicit truncation mark even when slicing made the cleaned text
+	// exactly max characters. Remove the sanitizer's own mark before adding one,
+	// so the visible result has one mark and remains within the same cap.
+	const cleaned = sanitizeForNotify(collapsed, max - 1);
+	return `${cleaned.endsWith("…") ? cleaned.slice(0, -1) : cleaned}…`;
 }
 
 /** One routable model: what survived validation, plus everything a caller needs to explain it. */
@@ -479,7 +493,13 @@ export function sanitizeRouterConfig(raw: unknown, warn: RouterWarnSink): Requir
 	}
 	const value = raw as { models?: unknown; allowUnmeasuredEffort?: unknown; showWarnings?: unknown };
 
-	const unknownKeys = Object.keys(value).filter((k) => !ROUTER_KEYS.includes(k));
+	let unknownKeys: string[];
+	try {
+		unknownKeys = Object.keys(value).filter((k) => !ROUTER_KEYS.includes(k));
+	} catch {
+		fault("slate: ignoring the router config because its keys could not be read. Slate uses the router defaults.");
+		return defaults;
+	}
 	if (unknownKeys.length > 0) {
 		fault(
 			`slate: ignoring unknown router key(s): ${sanitizeForNotify(unknownKeys.join(", "))}. The known router keys are ${ROUTER_KEYS.map(
@@ -488,12 +508,22 @@ export function sanitizeRouterConfig(raw: unknown, warn: RouterWarnSink): Requir
 		);
 	}
 
+	const read = (key: keyof typeof value): { readable: boolean; value: unknown } => {
+		try {
+			return { readable: true, value: value[key] };
+		} catch {
+			fault(`slate: ignoring router.${key} because its value could not be read. Slate uses the default.`);
+			return { readable: false, value: undefined };
+		}
+	};
+
+	const rawModels = read("models");
 	const models: string[] = [];
-	if (value.models !== undefined) {
-		if (!Array.isArray(value.models)) {
+	if (rawModels.readable && rawModels.value !== undefined) {
+		if (!Array.isArray(rawModels.value)) {
 			fault('slate: router.models must be an array of "provider/id" strings. Slate ignores the value, so the router stays off.');
 		} else {
-			for (const entry of value.models) {
+			for (const entry of rawModels.value) {
 				if (!isModelSpec(entry)) {
 					// quoted() echoes a USER value, so its brackets stay: a nested array has
 					// to be recognisable in the warning that rejects it.
@@ -506,13 +536,14 @@ export function sanitizeRouterConfig(raw: unknown, warn: RouterWarnSink): Requir
 	}
 
 	let allowUnmeasuredEffort = true;
-	if (value.allowUnmeasuredEffort !== undefined) {
-		if (typeof value.allowUnmeasuredEffort !== "boolean") {
+	const rawAllowUnmeasuredEffort = read("allowUnmeasuredEffort");
+	if (rawAllowUnmeasuredEffort.readable && rawAllowUnmeasuredEffort.value !== undefined) {
+		if (typeof rawAllowUnmeasuredEffort.value !== "boolean") {
 			fault(
-				`slate: ignoring router.allowUnmeasuredEffort ${quoted(value.allowUnmeasuredEffort)}. Expected true or false. Slate uses true.`,
+				`slate: ignoring router.allowUnmeasuredEffort ${quoted(rawAllowUnmeasuredEffort.value)}. Expected true or false. Slate uses true.`,
 			);
 		} else {
-			allowUnmeasuredEffort = value.allowUnmeasuredEffort;
+			allowUnmeasuredEffort = rawAllowUnmeasuredEffort.value;
 		}
 	}
 
@@ -520,11 +551,12 @@ export function sanitizeRouterConfig(raw: unknown, warn: RouterWarnSink): Requir
 	// and the default stands. Reporting it is itself a configuration fault, so a
 	// typo here can never hide behind the very option it fails to set.
 	let showWarnings = false;
-	if (value.showWarnings !== undefined) {
-		if (typeof value.showWarnings !== "boolean") {
-			fault(`slate: ignoring router.showWarnings ${quoted(value.showWarnings)}. Expected true or false. Slate uses false.`);
+	const rawShowWarnings = read("showWarnings");
+	if (rawShowWarnings.readable && rawShowWarnings.value !== undefined) {
+		if (typeof rawShowWarnings.value !== "boolean") {
+			fault(`slate: ignoring router.showWarnings ${quoted(rawShowWarnings.value)}. Expected true or false. Slate uses false.`);
 		} else {
-			showWarnings = value.showWarnings;
+			showWarnings = rawShowWarnings.value;
 		}
 	}
 
@@ -727,7 +759,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 				// contrasts two sources, and mislabelling one of them is the whole defect
 				// this wording was rewritten to avoid.
 				`slate: model router: the context window for ${label} differs between two sources. The model profile records ` +
-					`${profileWindow} tokens, and that profile was recorded as of ${quoted(profile.asOf ?? "unknown")}. ` +
+					`${profileWindow} tokens, and that profile was recorded as of ${profileText(quoted(profile.asOf ?? "unknown"))}. ` +
 					`The pi model registry reports ${registryWindow} tokens. Routing uses the registry figure. ` +
 					"Slate does not establish here which source is correct." +
 					`${matchesBillingThreshold ? " That registry figure is also this model's long-context billing threshold. A separate note below names that pattern." : ""}`,
@@ -739,7 +771,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 		const unknownFields = Array.isArray(profile.unknownRoutingCriticalFields)
 			? profile.unknownRoutingCriticalFields.filter((f) => typeof f === "string" && f !== "")
 			: [];
-		if (unknownFields.length > 0) {
+		const renderedUnknownFields = unknownFields.map((field) => profileText(field)).filter((field) => field !== "");
+		if (renderedUnknownFields.length > 0) {
 			// The CLASS explanation, once per session and only when a W3 warning fires at
 			// all. It is emitted BEFORE the first per-model line, so a reader meets the
 			// meaning of the class before the first instance of it (BG27's aggregation
@@ -751,10 +784,11 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 					"The ranking of such a model rests on less evidence. You cannot close this gap from your configuration.",
 				"model-data-note",
 			);
+			const factNoun = renderedUnknownFields.length === 1 ? "fact" : "facts";
 			once(
 				conditionKey("w3", raw),
-				`slate: model router: ${label} has ${unknownFields.length} model facts that slate could not trace to a ` +
-					`source: ${unknownFields.map((f) => profileText(f)).join(FIELD_SEPARATOR)}. Routing to this model still works.`,
+				`slate: model router: ${label} has ${renderedUnknownFields.length} model ${factNoun} that slate could not trace to a ` +
+					`source: ${renderedUnknownFields.join(FIELD_SEPARATOR)}. Routing to this model still works.`,
 				"model-data-note",
 			);
 		}

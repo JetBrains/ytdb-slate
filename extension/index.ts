@@ -206,10 +206,11 @@ export default function (pi: ExtensionAPI) {
 			routerWarn,
 		);
 		// The discoverability line, at most once per session. It is flushed AFTER the
-		// memoized resolution returns, on EVERY return path — the normal one, the
-		// all-dropped one, and the resolver's own catch-all — because each of them can
-		// hide a note. The memo means a later consultation re-emits nothing and cannot
-		// count a warning twice, and `noticeFlushed` covers the FIRST consultation
+		// memoized resolution returns on every return path. The current resolver emits
+		// no model-data note on its all-dropped path, but the flush stays there because
+		// this wrapper must cover that return path if the resolver gains one later. The
+		// memo means a later consultation re-emits nothing and cannot count a warning
+		// twice, and `noticeFlushed` covers the FIRST consultation
 		// producing no hidden note at all. It counts WARNINGS, not rendered lines: one
 		// warning can wrap across several of those.
 		let noticeFlushed = false;
@@ -219,7 +220,7 @@ export default function (pi: ExtensionAPI) {
 				noticeFlushed = true;
 				if (hiddenRouterWarnings > 0) {
 					const count = hiddenRouterWarnings;
-					const plural = count === 1 ? "is 1 warning" : `are ${count} warnings`;
+					const plural = count === 1 ? "is 1 hidden warning" : `are ${count} hidden warnings`;
 					try {
 						warn(
 							`slate: there ${plural} in the model router. Set "router.showWarnings" to true in ` +
