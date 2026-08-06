@@ -43,6 +43,7 @@ interface ThreadDetails {
 	ranModel?: string;
 	ranEffort?: string;
 	ranEffortUnmeasured?: boolean;
+	choice?: { kind?: string };
 }
 
 function formatTokens(n: number): string {
@@ -148,6 +149,10 @@ export function renderThreadResult(
 	// the duplication that reporting was just consolidated out of.
 	const ran = [details.ranModel, details.ranEffort ? `@${details.ranEffort}` : undefined].filter((part) => !!part).join(" ");
 	if (ran) text += theme.fg("muted", ` [ran ${ran}${details.ranEffortUnmeasured ? " unmeasured" : ""}]`);
+	const choiceKind = details.choice?.kind;
+	if (choiceKind === "continue" || choiceKind === "fresh" || choiceKind === "abstain" || choiceKind === "refused") {
+		text += theme.fg("muted", ` choice=${choiceKind}`);
+	}
 	const digestSection = failed ? "Open Issues" : "Key Findings";
 	const digest = extractSection(full, digestSection);
 	if (digest) {
