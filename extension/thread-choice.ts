@@ -3,8 +3,8 @@
  * thread or runs in a FRESH thread seeded with named episodes.
  *
  * PURE, INJECTED — the discipline route.ts follows, and for the same reason. A
- * thread choice destroys or preserves a cached request prefix worth up to
- * twenty-two times the price of the alternative, and a planner that silently
+ * thread choice destroys or preserves a cached request prefix worth about
+ * twelve and a half times the price of the alternative, and a planner that silently
  * stops planning still "works": the dispatch runs, an episode is written, and
  * nothing reports a wrong verdict. So every environment fact arrives as a
  * parameter — INCLUDING THE CURRENT TIME (`now`) — and every answer is a value.
@@ -65,14 +65,18 @@
  *     token with no write premium bills at the model's INPUT rate, which is
  *     what the provider charges for it. See resolveTokenRates.
  *
- * UNCERTAINTY NEVER DESTROYS A WARM THREAD. A false cold estimate prices
- * continuation at up to twenty-two times its true cost, while a false warm
- * estimate costs one rewritten prefix. The two errors are not symmetric, so
- * every unreadable input resolves toward continuation: an unknown previous
- * model or effort is not a route change, an unknown elapsed time is not an
- * expiry, a model with no retention data at all is WARM, and an exact tie in
- * the arithmetic continues. Where continuation cannot be priced at all, this
- * module abstains rather than guessing in either direction.
+ * UNCERTAINTY NEVER DESTROYS A WARM THREAD. A false cold estimate prices a warm
+ * prefix at the cache-WRITE rate instead of the cache-READ rate, which the
+ * shipped price table puts at about twelve and a half times its true cost. (A
+ * higher ratio needs the paid Anthropic one-hour retention row, which this work
+ * excludes, so no larger figure is claimed here.) A false warm estimate costs one
+ * rewritten prefix. The two errors are not symmetric, so every unreadable input
+ * resolves toward continuation: an unknown previous model or effort is not a
+ * route change, an unknown elapsed time is not an expiry, a model with no
+ * retention data at all is WARM, an unknown shared-seed state prices a fresh
+ * thread's seed as written, and an exact tie in the arithmetic continues. Where
+ * continuation cannot be priced at all, this module abstains rather than guessing
+ * in either direction.
  *
  * TWO PARTIES DECIDE A THREAD CHOICE, AND NEITHER OVERRIDES THE OTHER.
  *
@@ -162,10 +166,12 @@ export interface ThreadChoiceThread {
  * satisfies it structurally, so a caller passes the thread's last episode.
  *
  * Every field may be absent, because a provider reports each quantity at its own
- * discretion and an unversioned snapshot may predate the field. Absent is
- * ALWAYS "unknown" here and never zero — the distinction decides warmth, since a
- * REPORTED cache read of zero is measured evidence of a cold prefix while an
- * absent one is no evidence at all.
+ * discretion and an unversioned snapshot may predate the field. Absent is ALWAYS
+ * "unknown" here and never zero, and the two cache figures are read TOGETHER:
+ * they describe different moments of the same dispatch. See classifyPrefixWarmth.
+ *
+ * `contextTokens` is the one field where a reported ZERO is also unusable rather
+ * than a real measurement — see positiveTokenCount.
  */
 export interface ThreadChoiceLastDispatch {
 	/** "failed" refuses a fresh replacement thread (see the refusal table). */
@@ -174,11 +180,21 @@ export interface ThreadChoiceLastDispatch {
 	model?: string;
 	/** Effort level the dispatch actually ran at, post-clamp. */
 	effort?: ThinkingLevel;
-	/** Reported prompt-cache read tokens. A reported ZERO is evidence of a cold prefix. */
+	/**
+	 * Reported prompt-cache read tokens, which describe how that request STARTED. A
+	 * reported zero says the prefix was missing THEN, and it says nothing about what
+	 * the same dispatch left behind.
+	 */
 	cacheRead?: number;
-	/** Reported prompt-cache write tokens. Carried for the caller's reporting only. */
+	/**
+	 * Reported prompt-cache write tokens, which describe what that request LEFT. A
+	 * positive value means a prefix now exists, whatever the read figure was.
+	 */
 	cacheWrite?: number;
-	/** Final reported worker context tokens — the size of the prefix a continuation reuses. */
+	/**
+	 * Final reported worker context tokens — the size of the prefix a continuation
+	 * reuses. A reported zero is UNUSABLE evidence rather than an empty prefix.
+	 */
 	contextTokens?: number;
 	/** Milliseconds since the epoch at which that dispatch's record was written. */
 	createdAt?: number;
@@ -255,11 +271,22 @@ export interface ThreadChoiceSizes {
 	/** Turns charged to the fresh arm for rediscovery. Absent uses DEFAULT_REDISCOVERY_TURNS. */
 	rediscoveryTurns?: number;
 	/**
-	 * true when the fresh thread's SEED is expected to be read from a shared cache
-	 * shard rather than written. Default FALSE: assuming a shared read makes a
-	 * fresh thread look cheap, which is the direction that destroys warm threads.
+	 * Whether a FRESH thread would READ its seed prefix from a shared prompt-cache
+	 * shard, or WRITE it. Slate routes worker threads onto a small number of stable
+	 * cache-key shards, and a measured sharding run had the second thread on a shard
+	 * read 29,748 cached tokens, so a shared read is the common case rather than the
+	 * exception. It is therefore an INPUT and not an assumption of this module:
+	 *
+	 *   · "read"    — the caller knows a warm shard holds that seed.
+	 *   · "write"   — the caller knows it must be established.
+	 *   · "unknown" or absent — the caller cannot tell.
+	 *
+	 * The UNKNOWN case is priced as "write", which keeps a fresh thread at its more
+	 * expensive shape and so breaks toward the continuing thread. The estimate and
+	 * the rendered reason both disclose that the figure rests on that assumption, so
+	 * the conservative choice never reads as a measurement.
 	 */
-	freshSeedCached?: boolean;
+	freshSeedCache?: "read" | "write" | "unknown";
 }
 
 /** Everything one thread choice depends on. */
@@ -356,6 +383,14 @@ export interface ThreadChoiceEstimate {
 	expectedTurns: number;
 	/** Turns charged to the fresh arm for rediscovery. */
 	rediscoveryTurns: number;
+	/** How the fresh arm's seed prefix was priced: read from a shared shard, or written. */
+	freshSeedCache: "read" | "write";
+	/**
+	 * true when NOBODY reported the shared-seed state and slate priced the seed as
+	 * written. The figure then rests on the conservative assumption rather than on a
+	 * fact about the cache shard, and a reader must be able to tell the two apart.
+	 */
+	freshSeedAssumedWritten?: true;
 	/** true when a turn estimate was clamped to MAX_PRICED_TURNS. */
 	turnsClamped?: true;
 	/**
@@ -428,6 +463,21 @@ function finite(value: unknown): number | undefined {
 function tokenCount(value: unknown): number | undefined {
 	const n = finite(value);
 	return n !== undefined && n >= 0 ? n : undefined;
+}
+
+/**
+ * A token count where ZERO is UNUSABLE rather than a measurement of nothing.
+ *
+ * One field needs this: a dispatch's final reported CONTEXT size. A gateway that
+ * omits the total in its usage report yields a zero there, and pi's own context
+ * accounting distrusts such a zero and falls back to summing the components. A
+ * thread that has run a dispatch does not hold an empty context, so a zero is a
+ * report defect, and reading it as an empty prefix would price continuation at
+ * nothing and destroy a warm thread on a missing field.
+ */
+function positiveTokenCount(value: unknown): number | undefined {
+	const n = tokenCount(value);
+	return n !== undefined && n > 0 ? n : undefined;
 }
 
 /** A price: finite and not negative. Zero is a real price (see resolveTokenRates). */
@@ -578,17 +628,28 @@ function perMillion(tokens: number, usdPerMTok: number): number {
 /**
  * Price one arm over its whole run of turns.
  *
- * THE TURN MODEL, stated once. At turn `t` the request carries everything
- * established before it, which is the two prefix figures plus the growth of each
- * earlier turn. Those tokens are billed as a cache READ, except at the first
- * turn, where only `cachedPrefixTokens` is a read and `uncachedPrefixTokens` is
- * processed fresh. Each turn also processes its own growth fresh and bills its
- * own output. No token appears in two buckets in one turn, which is the
- * disjoint-bucket rule made structural.
+ * THE TURN MODEL, stated once, and its INDEXING is the whole subtlety.
+ *
+ * A turn's growth is PRODUCED BY that turn: the response and the tool results it
+ * collects become context for the NEXT request, not for its own. So at turn `t`
+ * the request carries the two prefix figures plus the growth of the `t - 1` turns
+ * before it, and nothing more. Of that, the part an earlier request already
+ * processed is billed as a cache READ, and the part this request sees first is
+ * billed FRESH: the newest turn's growth at every later turn, and
+ * `uncachedPrefixTokens` at the first one. Each turn also bills its own output.
+ * No token appears in two buckets in one turn, which is the disjoint-bucket rule
+ * made structural, and no token is billed fresh twice.
+ *
+ * BILLING A TURN FOR ITS OWN FUTURE GROWTH was the earlier defect. It charged one
+ * extra growth increment as fresh and then carried that increment through every
+ * later turn's cache read, which overstated BOTH arms by roughly seven percent.
+ * The verdict barely moved, because the error applied to both sides. The printed
+ * money did move, and an orchestrator reads those figures.
  *
  * THE CLIFF IS JUDGED PER REQUEST, on the SUM of that turn's read and fresh
- * tokens — the input, cache-read and cache-write buckets together. A warm arm
- * carries a large read into that sum, so it can cross where a cold arm does not.
+ * tokens — the input, cache-read and cache-write buckets together, which is
+ * exactly the prefix present at that turn. A warm arm carries a large read into
+ * that sum, so it can cross where a cold arm does not.
  */
 export function estimateArmCost(arm: ThreadChoiceArm): ThreadChoiceArmCost {
 	const cached = tokenCount(arm.cachedPrefixTokens) ?? 0;
@@ -603,9 +664,12 @@ export function estimateArmCost(arm: ThreadChoiceArm): ThreadChoiceArmCost {
 	let longContextTurns = 0;
 	let total = 0;
 	for (let turn = 1; turn <= turns; turn++) {
-		const established = cached + uncached + growth * (turn - 1);
-		const read = turn === 1 ? cached : established;
-		const fresh = turn === 1 ? uncached + growth : growth;
+		// Tokens this request has seen before: the whole prefix of the PREVIOUS turn at
+		// turn two and later, and only the already-cached prefix at turn one.
+		const read = turn === 1 ? cached : cached + uncached + growth * (turn - 2);
+		// Tokens this request sees first: the previous turn's growth, or the uncached
+		// prefix at turn one. A turn never pays for growth it has not produced yet.
+		const fresh = turn === 1 ? uncached : growth;
 		const billed = read + fresh;
 		const long = cliff !== undefined && billed >= cliff.threshold;
 		if (long) longContextTurns++;
@@ -646,15 +710,25 @@ export interface PrefixWarmthInput {
  *      same-effort controls. Anthropic documents it; for OpenAI the measurement
  *      is the whole evidence, and it is why this rule is not a documentation
  *      transcription.
- *   3. A MEASURED CACHE READ OF ZERO on the previous dispatch. The provider
- *      already told us the prefix was not there. A REPORTED zero only: an absent
- *      figure is no measurement.
+ *   3. A DISPATCH THAT READ NOTHING AND WROTE NOTHING. The two cache figures
+ *      describe DIFFERENT MOMENTS of the same request, so they must be read
+ *      together: the read count is how that request STARTED, and the write count
+ *      is what it LEFT BEHIND. A read of zero therefore only says the prefix was
+ *      missing at that moment. If the same dispatch WROTE a prefix — a miss
+ *      normally does exactly that — then a prefix exists NOW, and the question
+ *      becomes its age, which rule 4 answers. Reading zero alone as a cold
+ *      verdict condemned the commonest shape there is: a dispatch that read 0 and
+ *      wrote 100,000 tokens leaves a fully warm thread, and that shape was called
+ *      a measured cache miss. Only a read of zero WITH a written zero is evidence
+ *      that nothing survived. An absent write figure is no measurement either
+ *      way, so it does not confirm the miss.
  *   4. ELAPSED TIME BEYOND THE RETENTION WINDOW, and this one is ASYMMETRIC.
  *      Inside the window the prefix is warm. Beyond it, cold. With NO retention
- *      data at all the prefix is WARM, because a false cold estimate prices
- *      continuation at up to twenty-two times its true cost while a false warm
- *      estimate costs one rewritten prefix. An unknown elapsed time reads the
- *      same way.
+ *      data at all the prefix is WARM, because a false cold estimate prices a warm
+ *      prefix at the cache-write rate rather than the cache-read rate, which the
+ *      shipped price table puts at about twelve and a half times its true cost,
+ *      while a false warm estimate costs one rewritten prefix. An unknown elapsed
+ *      time reads the same way.
  *
  * The window is the documented lifetime, EXTENDED by the longest gap a local
  * probe still measured warm. A measurement of warmth outranks a documented
@@ -695,12 +769,18 @@ export function classifyPrefixWarmth(input: PrefixWarmthInput): PrefixWarmth {
 				"An effort change measured zero cache reads on both provider families, so treat the prefix as gone.",
 		};
 	}
+	// The two figures are read TOGETHER, because they describe different moments of
+	// one request: the read is how it started, and the write is what it left. Only a
+	// dispatch that read nothing AND wrote nothing left nothing behind.
 	const lastRead = tokenCount(last.cacheRead);
-	if (lastRead === 0) {
+	const lastWrite = tokenCount(last.cacheWrite);
+	if (lastRead === 0 && lastWrite === 0) {
 		return {
 			warm: false,
 			code: "measured-cache-miss",
-			reason: "The previous dispatch on this thread reported a cache read of zero tokens, so no prefix survived it.",
+			reason:
+				"The previous dispatch on this thread reported a cache read of zero tokens and wrote no cache prefix either, " +
+				"so nothing survived it.",
 		};
 	}
 	const window = retentionWindowSeconds(input.retention);
@@ -990,15 +1070,22 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 		};
 	}
 	// The prefix a continuation reuses. NO previous dispatch means a prefix of zero
-	// tokens, which is known. A previous dispatch with no reported context size means
-	// the prefix size is UNKNOWN, and there is no honest substitute for it.
-	const prefixTokens = last === undefined ? 0 : tokenCount(last.contextTokens);
+	// tokens, which is known. A previous dispatch with no USABLE context size means the
+	// prefix size is UNKNOWN, and there is no honest substitute for it.
+	//
+	// A REPORTED ZERO counts as unusable, not as an empty prefix (positiveTokenCount):
+	// a gateway that omits the total in its usage report yields a zero, and a thread
+	// that has already run a dispatch does not hold an empty context. Believing that
+	// zero would price the largest term of the continuation arm at nothing and hand a
+	// warm thread to the fresh arm on a missing field.
+	const prefixTokens = last === undefined ? 0 : positiveTokenCount(last.contextTokens);
 	if (prefixTokens === undefined) {
 		return {
 			kind: "abstain",
 			code: "prefix-size-unknown",
 			reason:
-				`slate: slate cannot compare the two options, because thread ${threadId}'s last dispatch reported no context size. ` +
+				`slate: slate cannot compare the two options, because thread ${threadId}'s last dispatch reported no usable context ` +
+				"size. A reported zero counts as a missing figure here, because a thread that has run a dispatch is not empty. " +
 				"The size of the prefix a continuation reuses is the largest term in the comparison.",
 			warmth,
 		};
@@ -1034,7 +1121,14 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 	// absent figure therefore counts as zero instead of abstaining.
 	const taskTokens = tokenCount(sizes.taskTokens) ?? 0;
 	const cliff = resolveLongContext(input.longContext);
-	const freshSeedCached = sizes.freshSeedCached === true;
+	// THE SHARED SEED is the caller's fact to supply, because only the caller knows
+	// which cache-key shard a new thread would land on and what that shard holds. An
+	// UNKNOWN answer is priced as a written seed, which keeps the fresh arm at its more
+	// expensive shape and so breaks toward the thread that already exists. The estimate
+	// carries `freshSeedAssumedWritten` in that case, so the figure never passes for a
+	// measurement of the shard.
+	const declaredSeedCache = sizes.freshSeedCache === "read" || sizes.freshSeedCache === "write" ? sizes.freshSeedCache : undefined;
+	const freshSeedCached = declaredSeedCache === "read";
 	// A thread that has NEVER dispatched holds no prefix at all, so continuing it must
 	// establish the same opening prefix a fresh thread would. Pricing it at zero would
 	// make an empty thread look free and would not be arithmetic about anything.
@@ -1054,8 +1148,8 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 		longContext: cliff,
 	});
 	const freshArm = estimateArmCost({
-		// A fresh thread's seed is written unless the caller states that a shared cache
-		// shard already holds it. The named episodes and the task are always new.
+		// The seed is a cache READ only when the caller declared one. The allowance
+		// episodes and the task text are new to a fresh thread in every case.
 		cachedPrefixTokens: freshSeedCached ? seedTokens : 0,
 		uncachedPrefixTokens: (freshSeedCached ? 0 : seedTokens) + (episodeTokens ?? 0) + taskTokens,
 		turns: pricedTurns + rediscovery,
@@ -1066,19 +1160,27 @@ export function planThreadChoice(input: ThreadChoiceInput): ThreadChoiceVerdict 
 	});
 	const clampedEither = clamped || pricedTurns < expectedTurns;
 	const unpriced = cliff !== undefined && !cliff.priced && continuation.longContextTurns + freshArm.longContextTurns > 0;
+	const seedAssumed = declaredSeedCache === undefined;
 	const estimate: ThreadChoiceEstimate = {
 		continuation,
 		fresh: freshArm,
 		expectedTurns: pricedTurns,
 		rediscoveryTurns: rediscovery,
+		freshSeedCache: freshSeedCached ? "read" : "write",
 		...(clampedEither ? { turnsClamped: true as const } : {}),
 		...(unpriced ? { longContextUnpriced: true as const } : {}),
+		...(seedAssumed ? { freshSeedAssumedWritten: true as const } : {}),
 	};
 	const comparison =
 		`Continuing thread ${threadId} prices at about ${usd(continuation.usd)} over ${turnWord(continuation.turns)}, ` +
 		`against ${usd(freshArm.usd)} for a fresh thread over ${turnWord(freshArm.turns)}, which includes ` +
 		`${turnWord(rediscovery)} charged for rediscovery.` +
 		(rates.freshFromInputPrice ? " This model records no cache-write premium, so fresh tokens bill at its input rate." : "") +
+		(freshSeedCached ? " A fresh thread reads its seed prefix from a shared cache shard, as you reported." : "") +
+		(seedAssumed
+			? " Nobody reported whether a shared cache shard already holds a fresh thread's seed prefix, so slate priced that " +
+				"seed as written, which favours the existing thread."
+			: "") +
 		(unpriced ? " One arm crosses this model's long-context billing threshold, whose multipliers are not recorded." : "");
 
 	// A TIE CONTINUES. Equal estimates are not a reason to rewrite a prefix, and the
