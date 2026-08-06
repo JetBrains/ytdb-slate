@@ -18,7 +18,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { ThinkingLevel } from "./model-profiles.ts";
 import type { ObservationRecord } from "./observations.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { isSafeThreadId, isSlateArtifactReference } from "./artifact-names.ts";
+import { isSlateArtifactReference } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 
 /**
@@ -45,6 +45,15 @@ export const THREAD_TYPE_GLOSSES = {
 
 export function isThreadType(value: unknown): value is ThreadType {
 	return typeof value === "string" && (THREAD_TYPES as readonly string[]).includes(value);
+}
+
+/** Generated thread ids are exactly t followed by one canonical positive safe integer. */
+export function isCanonicalThreadId(value: unknown): value is string {
+	if (typeof value !== "string") return false;
+	const match = /^t([1-9]\d*)$/.exec(value);
+	if (match === null) return false;
+	const ordinal = Number(match[1]);
+	return Number.isSafeInteger(ordinal) && ordinal >= 1 && value === `t${ordinal}`;
 }
 
 /** Validate the conditionally required tool argument at its runtime boundary. */
@@ -609,8 +618,8 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	const t = raw as Record<string, unknown>;
 	const id = str(t.id);
 	if (id === undefined || id === "") return undefined; // unaddressable: nothing can refer to it
-	if (!isSafeThreadId(id)) {
-		repairs.push(`thread ${sanitizeForNotify(id, 80)}: invalid id cannot form a canonical episode filename — remove or rename this record`);
+	if (!isCanonicalThreadId(id)) {
+		repairs.push(`thread ${sanitizeForNotify(id, 80)}: invalid id must match t followed by a positive safe integer — remove or rename this record`);
 		return undefined;
 	}
 	const refused = new Set<string>();
@@ -627,7 +636,7 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	const tools = keep("tools", t.tools, stringList(t.tools));
 	const lineageId = (field: "restartOf" | "supersededBy"): string | undefined => {
 		const value = t[field];
-		return keep(field, value, isSafeThreadId(value) && value !== id ? value : undefined);
+		return keep(field, value, isCanonicalThreadId(value) && value !== id ? value : undefined);
 	};
 	let restartOf = lineageId("restartOf");
 	let restartGeneration = keep(
