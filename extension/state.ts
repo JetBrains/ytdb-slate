@@ -96,6 +96,12 @@ export interface ThreadRecord {
 	status: "idle" | "running";
 	/** Immutable thread type. Absent means an older thread; resolve it with effectiveThreadType. */
 	type?: ThreadType;
+	/** Source thread replaced by this automatic restart. Absent means no restart lineage. */
+	restartOf?: string;
+	/** One-based depth in an automatic-restart lineage. Valid only with restartOf. */
+	restartGeneration?: number;
+	/** Successor that replaced this thread. Absent means this thread was not superseded. */
+	supersededBy?: string;
 	/**
 	 * PRE-ROUTER pin: "provider/id" passed as `model` when the thread was created
 	 * WITH THE ROUTER OFF. It names what a NEW worker session opens on and never
@@ -516,6 +522,9 @@ export const ADOPTED_THREAD_FIELDS = {
 	sessionFile: true,
 	status: true,
 	type: true,
+	restartOf: true,
+	restartGeneration: true,
+	supersededBy: true,
 	model: true,
 	baseModel: true,
 	baseEffort: true,
@@ -614,6 +623,26 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	const episodeIds = Array.isArray(t.episodeIds) ? t.episodeIds.filter((e): e is string => typeof e === "string") : [];
 	if (t.episodeIds !== undefined && !Array.isArray(t.episodeIds)) note("episodeIds", t.episodeIds);
 	const tools = keep("tools", t.tools, stringList(t.tools));
+	const lineageId = (field: "restartOf" | "supersededBy"): string | undefined => {
+		const value = t[field];
+		return keep(field, value, isSafeThreadId(value) && value !== id ? value : undefined);
+	};
+	let restartOf = lineageId("restartOf");
+	let restartGeneration = keep(
+		"restartGeneration",
+		t.restartGeneration,
+		typeof t.restartGeneration === "number" && Number.isSafeInteger(t.restartGeneration) && t.restartGeneration >= 1
+			? t.restartGeneration
+			: undefined,
+	);
+	if ((restartOf === undefined) !== (restartGeneration === undefined)) {
+		if (restartOf !== undefined) refused.add("restartOf");
+		if (restartGeneration !== undefined) refused.add("restartGeneration");
+		repairs.push(`thread ${id}: ignoring incomplete restart lineage (restartOf and restartGeneration must appear together)`);
+		restartOf = undefined;
+		restartGeneration = undefined;
+	}
+	const supersededBy = lineageId("supersededBy");
 	const now = Date.now();
 	const built: ThreadRecord = {
 		id,
@@ -623,6 +652,8 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		// Vocabulary is resolved only at the point of use. Adoption follows the
 		// model/base-effort precedent and rejects only a non-string value.
 		...(keep("type", t.type, str(t.type)) !== undefined ? { type: str(t.type) as ThreadType } : {}),
+		...(restartOf !== undefined && restartGeneration !== undefined ? { restartOf, restartGeneration } : {}),
+		...(supersededBy !== undefined ? { supersededBy } : {}),
 		...(keep("model", t.model, str(t.model)) !== undefined ? { model: str(t.model) } : {}),
 		...(keep("baseModel", t.baseModel, str(t.baseModel)) !== undefined ? { baseModel: str(t.baseModel) } : {}),
 		// The LEVEL's vocabulary is re-checked by the reader (route.ts's storedLevel, BG21);
