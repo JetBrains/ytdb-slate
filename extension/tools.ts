@@ -43,13 +43,40 @@ function choicePrice(value: number | undefined): string {
 	return `$${value < 0.01 ? value.toFixed(6) : value.toFixed(4)}`;
 }
 
-/** One self-contained line for the orchestrator's thread-placement decision. */
+function compactWarmth(warmth: {
+	warm: boolean;
+	code: string;
+	elapsedSeconds?: number;
+	windowSeconds?: number;
+}): string {
+	const state = warmth.warm ? "warm" : "cold";
+	if (warmth.code === "within-retention") {
+		return `${state}: age ${Math.round(warmth.elapsedSeconds ?? 0)}s/${Math.round(warmth.windowSeconds ?? 0)}s retention`;
+	}
+	if (warmth.code === "retention-expired") {
+		return `${state}: age ${Math.round(warmth.elapsedSeconds ?? 0)}s exceeds ${Math.round(warmth.windowSeconds ?? 0)}s retention`;
+	}
+	const reasons: Record<string, string> = {
+		"no-previous-dispatch": "no prior dispatch",
+		"model-change": "model changed",
+		"effort-change": "effort changed",
+		"measured-cache-miss": "cache read and write were zero",
+		"no-retention-data": "no retention data",
+		"unknown-elapsed-time": "cache age unknown",
+	};
+	return `${state}: ${reasons[warmth.code] ?? warmth.code.replace(/-/g, " ")}`;
+}
+
+/** Compact context line. The structured result retains the planner's full reason and estimate. */
 export function threadChoiceLine(choice: NonNullable<DispatchResult["choice"]>): string {
 	const estimate = "estimate" in choice ? choice.estimate : undefined;
-	return (
-		`Choice: ${choice.kind.toUpperCase()} | continue ${choicePrice(estimate?.continuation.usd)} | ` +
-		`fresh ${choicePrice(estimate?.fresh.usd)} | ${choice.reason.replace(/\s+/g, " ").trim()}`
-	);
+	const continuation = estimate
+		? `${choicePrice(estimate.continuation.usd)}/${estimate.continuation.turns}t`
+		: "unpriced";
+	const fresh = estimate ? `${choicePrice(estimate.fresh.usd)}/${estimate.fresh.turns}t` : "unpriced";
+	const warmth = "warmth" in choice ? choice.warmth : undefined;
+	const reason = `${choice.code.replace(/-/g, " ")}${warmth ? `; ${compactWarmth(warmth)}` : ""}`;
+	return `Choice: ${choice.kind.toUpperCase()} | continue ${continuation} | fresh ${fresh} | ${reason}`;
 }
 
 /** Render recorded costs and usage without turning an unreported quantity into zero. */
