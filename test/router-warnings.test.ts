@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import slateExtension from "../extension/index.ts";
-import { MODEL_PROFILES, type ModelProfile } from "../extension/model-profiles.ts";
+import type { ModelProfile } from "../extension/model-profiles.ts";
 import {
   createModelRouterResolver,
   resolveModelRouter,
@@ -26,121 +26,138 @@ interface SlateHarness {
   close(): void;
 }
 
-function makeHarness(router: unknown, options: { throwingRegistry?: boolean } = {}): SlateHarness {
+interface HarnessOptions {
+  throwingRegistry?: boolean;
+  throwDiscoverability?: boolean;
+}
+
+function makeHarness(router: unknown, options: HarnessOptions = {}): SlateHarness {
   const cwd = mkdtempSync(join(tmpdir(), "slate-router-test-"));
-  mkdirSync(join(cwd, ".pi"));
-  writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({
-    router,
-    modelFailover: { "openai/gpt-5.6-luna": "openai/gpt-5.6-luna" },
-  }));
+  try {
+    mkdirSync(join(cwd, ".pi"));
+    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({
+      router,
+      modelFailover: { "openai/gpt-5.6-luna": "openai/gpt-5.6-luna" },
+    }));
 
-  const notifications: string[] = [];
-  const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => Promise<unknown>>>();
-  const commands = new Map<string, RegisteredCommand>();
-  const tools: Array<{ name: string }> = [];
-  let activeTools: string[] = [];
-  const registry = {
-    find(provider: string, id: string) {
-      if (provider === "openai" && id === "gpt-5.6-luna") return { contextWindow: 1_050_000 };
-      return undefined;
-    },
-    hasConfiguredAuth() {
-      return true;
-    },
-  };
+    const notifications: string[] = [];
+    const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => Promise<unknown>>>();
+    const commands = new Map<string, RegisteredCommand>();
+    const tools: Array<{ name: string }> = [];
+    let activeTools: string[] = [];
+    const registry = {
+      find(provider: string, id: string) {
+        if (provider === "openai" && id === "gpt-5.6-luna") return { contextWindow: 1_050_000 };
+        return undefined;
+      },
+      hasConfiguredAuth() {
+        return true;
+      },
+    };
 
-  const concrete = {
-    on(event: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<unknown>) {
-      const list = handlers.get(event) ?? [];
-      list.push(handler);
-      handlers.set(event, list);
-    },
-    registerCommand(name: string, command: RegisteredCommand) {
-      commands.set(name, command);
-    },
-    registerTool(tool: { name: string }) {
-      tools.push(tool);
-      activeTools.push(tool.name);
-    },
-    getAllTools() {
-      return tools;
-    },
-    getActiveTools() {
-      return activeTools;
-    },
-    setActiveTools(names: string[]) {
-      activeTools = names;
-    },
-    appendEntry() {},
-    getThinkingLevel() {
-      return "high";
-    },
-    setWidget() {},
-    sendMessage() {},
-  };
-  const pi = new Proxy(concrete, {
-    get(target, property, receiver) {
-      if (Reflect.has(target, property)) return Reflect.get(target, property, receiver);
-      return () => undefined;
-    },
-  }) as unknown as ExtensionAPI;
-  slateExtension(pi);
-
-  const contextBase = {
-    cwd,
-    hasUI: true,
-    ui: {
-      notify(message: string) {
-        notifications.push(message);
+    const concrete = {
+      on(event: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<unknown>) {
+        const list = handlers.get(event) ?? [];
+        list.push(handler);
+        handlers.set(event, list);
+      },
+      registerCommand(name: string, command: RegisteredCommand) {
+        commands.set(name, command);
+      },
+      registerTool(tool: { name: string }) {
+        tools.push(tool);
+        activeTools.push(tool.name);
+      },
+      getAllTools() {
+        return tools;
+      },
+      getActiveTools() {
+        return activeTools;
+      },
+      setActiveTools(names: string[]) {
+        activeTools = names;
+      },
+      appendEntry() {},
+      getThinkingLevel() {
+        return "high";
       },
       setWidget() {},
-      setStatus() {},
-    },
-    isProjectTrusted() {
-      return true;
-    },
-    sessionManager: {
-      getBranch() {
-        return [];
-      },
-      getEntries() {
-        return [];
-      },
-    },
-    model: undefined,
-  };
-  const ctx = new Proxy(contextBase, {
-    get(target, property, receiver) {
-      if (property === "modelRegistry" && options.throwingRegistry) throw new Error("registry unavailable");
-      if (property === "modelRegistry") return registry;
-      if (Reflect.has(target, property)) return Reflect.get(target, property, receiver);
-      return undefined;
-    },
-  }) as unknown as ExtensionContext;
+      sendMessage() {},
+    };
+    // Keep this fake explicit. A new ExtensionAPI call must throw instead of
+    // receiving the old proxy's silent no-op, so production coupling stays visible.
+    const pi = concrete as unknown as ExtensionAPI;
+    slateExtension(pi);
 
-  return {
-    cwd,
-    notifications,
-    async start() {
-      for (const handler of handlers.get("session_start") ?? []) await handler({}, ctx);
-      await commands.get("slate")?.handler("on", ctx);
-      notifications.length = 0;
-    },
-    async consult() {
-      for (const handler of handlers.get("before_agent_start") ?? []) {
-        await handler({ systemPrompt: "base" }, ctx);
-      }
-    },
-    close() {
-      rmSync(cwd, { recursive: true, force: true });
-    },
-  };
+    const contextBase = {
+      cwd,
+      hasUI: true,
+      ui: {
+        notify(message: string) {
+          notifications.push(message);
+          if (options.throwDiscoverability && message.startsWith("slate: there ")) {
+            throw new Error("closed notification UI");
+          }
+        },
+        setWidget() {},
+        setStatus() {},
+      },
+      isProjectTrusted() {
+        return true;
+      },
+      sessionManager: {
+        getBranch() {
+          return [];
+        },
+        getEntries() {
+          return [];
+        },
+      },
+      model: undefined,
+    };
+    Object.defineProperty(contextBase, "modelRegistry", {
+      get() {
+        if (options.throwingRegistry) throw new Error("registry unavailable");
+        return registry;
+      },
+    });
+    // The context is also a declared surface. Missing callable members now fail
+    // with TypeError rather than being fabricated by a permissive proxy.
+    const ctx = contextBase as unknown as ExtensionContext;
+
+    return {
+      cwd,
+      notifications,
+      async start() {
+        const startHandlers = handlers.get("session_start");
+        assert.ok(startHandlers);
+        for (const handler of startHandlers) await handler({}, ctx);
+        const command = commands.get("slate");
+        assert.ok(command);
+        await command.handler("on", ctx);
+        notifications.length = 0;
+      },
+      async consult() {
+        const startHandlers = handlers.get("before_agent_start");
+        assert.ok(startHandlers);
+        for (const handler of startHandlers) {
+          await handler({ systemPrompt: "base" }, ctx);
+        }
+      },
+      close() {
+        rmSync(cwd, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    rmSync(cwd, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function withHarness(
   router: unknown,
   run: (harness: SlateHarness) => Promise<void>,
-  options?: { throwingRegistry?: boolean },
+  options?: HarnessOptions,
 ): Promise<void> {
   const harness = makeHarness(router, options);
   try {
@@ -155,20 +172,23 @@ function discoverability(notifications: string[]): string[] {
   return notifications.filter((message) => message.startsWith("slate: there "));
 }
 
-test("router notes stay hidden and produce one plural discoverability notice across repeated consultations", async () => {
+// This end-to-end fixture intentionally uses one shipped profile. The index
+// entry point does not inject profile data. A profile refresh may change the
+// count, and this exact assertion must then be updated with the shipped data.
+test("router notes stay hidden and produce one plural discoverability notice across repeated consultations", { timeout: 1000 }, async () => {
   await withHarness({ models: ["openai/gpt-5.6-luna"] }, async (harness) => {
     await harness.consult();
     await harness.consult();
 
     assert.deepEqual(discoverability(harness.notifications), [
-      'slate: there are 2 warnings in the model router. Set "router.showWarnings" to true in .pi/slate.json to read them. A hidden warning can affect which model runs an action.',
+      'slate: there are 2 hidden warnings in the model router. Set "router.showWarnings" to true in .pi/slate.json to read them. A hidden warning can affect which model runs an action.',
     ]);
     assert.equal(harness.notifications.some((message) => message.includes("research table shipped inside slate")), false);
     assert.equal(harness.notifications.some((message) => message.includes("model facts that slate could not trace")), false);
   });
 });
 
-test("showWarnings reveals every model data note without a discoverability notice", async () => {
+test("showWarnings reveals every model data note without a discoverability notice", { timeout: 1000 }, async () => {
   await withHarness({ models: ["openai/gpt-5.6-luna"], showWarnings: true }, async (harness) => {
     await harness.consult();
 
@@ -178,7 +198,7 @@ test("showWarnings reveals every model data note without a discoverability notic
   });
 });
 
-test("configuration faults remain visible while model data notes are hidden", async () => {
+test("configuration faults remain visible while model data notes are hidden", { timeout: 1000 }, async () => {
   await withHarness({ models: ["openai/gpt-5.6-luna", "missing/model"] }, async (harness) => {
     await harness.consult();
 
@@ -188,19 +208,20 @@ test("configuration faults remain visible while model data notes are hidden", as
   });
 });
 
-test("router off and an all-dropped list emit no hidden-warning notice", async () => {
+test("router off stays silent while an all-dropped list explains each drop and emits no hidden-warning notice", { timeout: 1000 }, async () => {
   await withHarness({ models: [] }, async (harness) => {
     await harness.consult();
     assert.deepEqual(harness.notifications, []);
   });
   await withHarness({ models: ["missing/model"] }, async (harness) => {
     await harness.consult();
+    assert.equal(harness.notifications.some((message) => message.includes("has no entry in slate's model profile table")), true);
     assert.equal(harness.notifications.some((message) => message.includes("routing is disabled")), true);
     assert.deepEqual(discoverability(harness.notifications), []);
   });
 });
 
-test("resolver catch-all remains visible and does not invent a hidden-warning notice", async () => {
+test("resolver catch-all remains visible and does not invent a hidden-warning notice", { timeout: 1000 }, async () => {
   await withHarness(
     { models: ["openai/gpt-5.6-luna"] },
     async (harness) => {
@@ -212,10 +233,40 @@ test("resolver catch-all remains visible and does not invent a hidden-warning no
   );
 });
 
+test("a throwing discoverability notifier does not abort the session", { timeout: 1000 }, async () => {
+  await withHarness(
+    { models: ["openai/gpt-5.6-luna"] },
+    async (harness) => {
+      await harness.consult();
+      await harness.consult();
+      assert.equal(discoverability(harness.notifications).length, 1);
+    },
+    { throwDiscoverability: true },
+  );
+});
+
+const BASE_PROFILE: ModelProfile = {
+  id: "fixture/model",
+  aliases: [],
+  price: [{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+  contextWindow: 100_000,
+  maxOutput: 10_000,
+  longContextThreshold: null,
+  longContextMultipliers: null,
+  tier: 1,
+  nonPreferred: null,
+  routeFor: "fixture work",
+  avoidFor: "nothing",
+  hazards: [],
+  capabilityMeasuredAt: ["low"],
+  evidenceGapAt: [],
+  unknownRoutingCriticalFields: [],
+  evidence: "fixture evidence",
+  asOf: "2026-08-06",
+};
+
 function profileFixture(overrides: Partial<ModelProfile>): ModelProfile {
-  const base = MODEL_PROFILES[0];
-  assert.ok(base);
-  return { ...base, ...overrides };
+  return { ...BASE_PROFILE, ...overrides };
 }
 
 function resolveFixture(profile: ModelProfile): Array<{ message: string; warningClass: RouterWarningClass }> {
@@ -252,16 +303,26 @@ test("profile warning text strips research tags, keeps separators, and caps each
   assert.ok(detail.message.length < 799);
 });
 
-test("whole router warnings are capped and an omitted class defaults to configuration fault", () => {
+test("whole router warnings are capped after several individually capped fields", () => {
+  const fields = Array.from({ length: 7 }, (_, index) => `field-${index}-${"x".repeat(220)}`);
+  const warnings = resolveFixture(profileFixture({ unknownRoutingCriticalFields: fields }));
+  const detail = warnings.find(({ message }) => message.includes("model facts"));
+
+  assert.ok(detail);
+  assert.equal(detail.warningClass, "model-data-note");
+  assert.equal(detail.message.length, 800);
+  assert.match(detail.message, /…$/);
+  assert.equal(detail.message.includes("field-6"), false);
+});
+
+test("an omitted warning class defaults to configuration fault", () => {
   const warnings = resolveFixture(profileFixture({
-    nonPreferred: `NEVER AUTO-SELECT [arb] ${"reason ".repeat(250)}`,
-    unknownRoutingCriticalFields: [],
+    nonPreferred: "NEVER AUTO-SELECT [arb] fixture reason",
   }));
   const fallback = warnings.find(({ message }) => message.includes("default base model"));
 
   assert.ok(fallback);
   assert.equal(fallback.warningClass, "configuration-fault");
-  assert.ok(fallback.message.length <= 799);
   assert.doesNotMatch(fallback.message, /\[arb\]/);
 });
 
