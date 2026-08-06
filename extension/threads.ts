@@ -1197,6 +1197,7 @@ export class ThreadManager {
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
+		onPromptCommitted?: () => void,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
@@ -1381,6 +1382,7 @@ export class ThreadManager {
 							routeWarn(`slate: automatic fresh-thread restart refused — ${refusal}.`);
 						} else {
 						let successor: ThreadRecord | undefined;
+						let restartCommitted = false;
 						try {
 							const restartOpts: DispatchOptions = {
 								...opts,
@@ -1403,12 +1405,15 @@ export class ThreadManager {
 								ctx,
 								signal,
 								onProgress,
+								() => {
+									restartCommitted = true;
+								},
 							);
 							this.queues.set(successor.id, restartRun);
 							const restarted = await restartRun;
-							if (signal?.aborted) {
-								throw new DispatchAbort(
-									`slate: the restart from thread ${thread.id} was aborted. The source thread remains usable.`,
+							if (!restartCommitted) {
+								throw new Error(
+									`slate: the restart from thread ${thread.id} ended before its action started. The source thread remains usable.`,
 								);
 							}
 							return {
@@ -1417,6 +1422,12 @@ export class ThreadManager {
 								warnings: [...new Set([...warnings, ...restarted.warnings])],
 							};
 						} catch (error) {
+							if (restartCommitted) {
+								throw new DispatchAbort(
+									`slate: the committed restart from thread ${thread.id} failed after its action started — ` +
+										sanitizeForNotify(error instanceof Error ? error.message : String(error), 200),
+								);
+							}
 							if (successor !== undefined) this.rollbackRestart(thread, successor, signal?.aborted ? "idle" : "running");
 							if (signal?.aborted) {
 								throw new DispatchAbort(
@@ -1486,7 +1497,11 @@ export class ThreadManager {
 			// Attempt 1.
 			let thrown: { error: unknown } | undefined;
 			try {
-				await session.prompt(prompt);
+				const promptRun = session.prompt(prompt);
+				// COMMIT POINT: prompt execution has started. A caller may no longer
+				// roll this dispatch back or repeat its action on another thread.
+				onPromptCommitted?.();
+				await promptRun;
 			} catch (error) {
 				thrown = { error };
 			}
