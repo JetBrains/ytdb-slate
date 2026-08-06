@@ -31,6 +31,10 @@ The two transition claims have different evidence.
 
 The effort-change sample is **n=6 transitions** across two model families, with **n=2 controls**. No changed arm showed partial survival. An earlier calibration run had cross-arm tool-definition reuse and was excluded; unique tools removed that independent cache breakpoint.
 
+**Effort-change replication, 2026-08-06.** A second controlled harness used a dedicated cache key for every probe, an approximately 6,000-token prefix, and a 60-second gap. The harness also asserted the effort value sent on every request. A low-to-high change produced zero cache reads in **3 of 3 probes** on OpenAI `gpt-5.6-luna` and **3 of 3 probes** on Anthropic `claude-sonnet-5`. Same-effort controls remained warm in **3 of 3 probes** on each model. The sample is three probes per changed or control cell. It tested only a low-to-high transition and only one model from each provider family.
+
+Anthropic documents that a thinking or effort change invalidates the message portion of its cache, so the Anthropic result confirms documented behavior. OpenAI documents no cache effect for an effort change in either direction, so the OpenAI result is new evidence rather than a confirmation of a published guarantee.
+
 The decision rule therefore treats the transitions as binary:
 
 - the model and effort both stay unchanged, so the existing thread remains eligible for prefix reuse;
