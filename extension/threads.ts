@@ -578,7 +578,11 @@ export class ThreadManager {
 	}
 
 	/** Undo a replacement that failed before it could return a usable dispatch result. */
-	private rollbackRestart(source: ThreadRecord, successor: ThreadRecord): void {
+	private rollbackRestart(
+		source: ThreadRecord,
+		successor: ThreadRecord,
+		sourceStatus: "idle" | "running" = "running",
+	): void {
 		const session = this.live.get(successor.id);
 		try {
 			session?.dispose();
@@ -592,7 +596,7 @@ export class ThreadManager {
 		for (const id of successor.episodeIds) this.store.episodes.delete(id);
 		this.store.threads.delete(successor.id);
 		delete source.supersededBy;
-		source.status = "running";
+		source.status = sourceStatus;
 		source.updatedAt = Date.now();
 		try {
 			this.store.save();
@@ -1396,13 +1400,23 @@ export class ThreadManager {
 							);
 							this.queues.set(successor.id, restartRun);
 							const restarted = await restartRun;
+							if (signal?.aborted) {
+								throw new DispatchAbort(
+									`slate: the restart from thread ${thread.id} was aborted. The source thread remains usable.`,
+								);
+							}
 							return {
 								...restarted,
 								...(policy.report ? { choice: plannedChoice } : {}),
 								warnings: [...warnings, ...restarted.warnings],
 							};
 						} catch (error) {
-							if (successor !== undefined) this.rollbackRestart(thread, successor);
+							if (successor !== undefined) this.rollbackRestart(thread, successor, signal?.aborted ? "idle" : "running");
+							if (signal?.aborted) {
+								throw new DispatchAbort(
+									error instanceof Error ? error.message : `slate: the restart from thread ${thread.id} was aborted.`,
+								);
+							}
 							routeWarn(
 								`slate: the fresh-thread restart failed, so this action remains in thread ${thread.id} — ` +
 									sanitizeForNotify(error instanceof Error ? error.message : String(error), 200),
@@ -1585,7 +1599,11 @@ export class ThreadManager {
 			// this message, not a finished action with an episode id.
 			thread.status = "idle";
 			thread.updatedAt = Date.now();
-			this.store.save();
+			try {
+				this.store.save();
+			} catch {
+				/* preserve the abort boundary after best-effort rollback persistence */
+			}
 			throw new Error(aborted.message);
 		}
 
