@@ -121,8 +121,55 @@ function sourceRecord(): ThreadRecord {
 const fresh = { kind: "fresh", code: "fresh-cheaper", reason: "fresh is cheaper" } as const;
 const continued = { kind: "continue", code: "short-work", reason: "continue" } as const;
 
-test("abort rollback restores a usable source and removes every successor artefact", { timeout: 1000 }, async (t) => {
-  const root = mkdtempSync(join("/tmp", "slate-redispatch-abort-"));
+test("abort before successor prompt rolls back and restores a usable source", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join("/tmp", "slate-redispatch-abort-before-commit-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const sourceSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "source" }] });
+  });
+  const successorSession = session(async () => {});
+  const { store, manager, internal } = harness({ threadChoice: { report: true, act: true } }, [sourceSession, successorSession]);
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  internal.planChoice = () => fresh;
+  const controller = new AbortController();
+  const originalOpen = internal.openWorkerFor;
+  internal.openWorkerFor = async (...args: unknown[]) => {
+    const result = await originalOpen(args[0] as { thread: { id: string } });
+    const thread = (args[0] as { thread: { id: string } }).thread;
+    if (thread.id === "t2") controller.abort();
+    return result;
+  };
+  await assert.rejects(
+    manager.dispatch(
+      { threadId: source.id, task: "restart me", type: "general", freshContext: [] },
+      context(root),
+      controller.signal,
+    ),
+    /aborting the dispatch to thread t2 before any billed work/,
+  );
+
+  assert.equal(source.id, "t1");
+  assert.equal(store.threads.has("t2"), false);
+  assert.deepEqual([...store.episodes.keys()].filter((id) => id.startsWith("t2.")), []);
+  assert.equal(internal.queues.has("t2"), false);
+  assert.equal(internal.live.has("t2"), false);
+  assert.equal(successorSession.wasDisposed(), true);
+  assert.equal(source.supersededBy, undefined);
+  assert.equal(source.status, "idle");
+
+  internal.planChoice = () => continued;
+  const resumed = await manager.dispatch(
+    { threadId: source.id, task: "use source again", type: "general", freshContext: [] },
+    context(root),
+    undefined,
+  );
+  assert.equal(resumed.thread.id, "t1");
+  assert.equal(store.threads.has("t2"), false);
+});
+
+test("abort after successor prompt commits lineage and retains the failed successor", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join("/tmp", "slate-redispatch-abort-after-commit-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   let releaseSuccessor!: () => void;
   let successorStarted!: () => void;
@@ -148,24 +195,19 @@ test("abort rollback restores a usable source and removes every successor artefa
   await started;
   controller.abort();
   releaseSuccessor();
-  await assert.rejects(dispatch, /restart from thread t1 was aborted/);
+  const result = await dispatch;
+  assert.equal(result.thread.id, "t2");
 
-  assert.equal(store.threads.has("t2"), false);
-  assert.deepEqual([...store.episodes.keys()].filter((id) => id.startsWith("t2.")), []);
-  assert.equal(internal.queues.has("t2"), false);
-  assert.equal(internal.live.has("t2"), false);
-  assert.equal(successorSession.wasDisposed(), true);
-  assert.equal(source.supersededBy, undefined);
-  assert.equal(source.status, "idle");
-
-  internal.planChoice = () => continued;
-  const resumed = await manager.dispatch(
-    { threadId: source.id, task: "use source again", type: "general", freshContext: [] },
-    context(root),
-    undefined,
-  );
-  assert.equal(resumed.thread.id, "t1");
-  assert.equal(store.threads.has("t2"), false);
+  const successor = store.threads.get("t2");
+  assert.ok(successor);
+  assert.equal(source.supersededBy, "t2");
+  assert.equal(successor.restartOf, "t1");
+  assert.equal(successor.episodeIds.length, 1);
+  const episodeId = successor.episodeIds[0];
+  assert.ok(episodeId);
+  assert.equal(store.episodes.get(episodeId)?.status, "failed");
+  assert.equal(internal.queues.has("t2"), true);
+  assert.equal(internal.live.has("t2"), true);
 });
 
 test("a successor with a failed episode keeps its lineage", { timeout: 1000 }, async (t) => {

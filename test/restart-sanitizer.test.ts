@@ -45,8 +45,11 @@ test("valid restart lineage survives sanitization and snapshot adoption", () => 
   };
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
   store.adoptSnapshot(snapshot, context());
-  assert.deepEqual(store.threads.get("t2"), adopted);
-  assert.deepEqual(store.snapshot().threads[0], adopted);
+  const restored = store.threads.get("t2");
+  assert.deepEqual(restored?.restartOf, "t1");
+  assert.equal(restored?.restartGeneration, 2);
+  assert.equal(restored?.supersededBy, undefined);
+  assert.equal(store.snapshot().threadSeq, 2);
 });
 
 test("self-referential lineage is repaired without throwing", () => {
@@ -101,6 +104,21 @@ test("restart lineage source and generation fields are paired", () => {
   assert.deepEqual(missingSourceRepairs, [
     "thread t2: ignoring incomplete restart lineage (restartOf and restartGeneration must appear together)",
   ]);
+});
+
+test("lineage requires canonical ids while legacy primary ids survive", () => {
+  const repairs: string[] = [];
+  const adopted = sanitizeThreadRecord(
+    rawThread({ id: "legacy", restartOf: "t01", restartGeneration: 1, supersededBy: "legacy" }),
+    repairs,
+  );
+  assert.ok(adopted);
+  assert.equal(adopted.id, "legacy");
+  assert.equal(adopted.restartOf, undefined);
+  assert.equal(adopted.restartGeneration, undefined);
+  assert.equal(adopted.supersededBy, undefined);
+  assert.match(repairs.join("\\n"), /ignoring restartOf/);
+  assert.match(repairs.join("\\n"), /ignoring supersededBy/);
 });
 
 test("malformed lineage fields stay harmless and record repairs", () => {
