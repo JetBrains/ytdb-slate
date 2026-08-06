@@ -127,8 +127,9 @@ test("routing doctrine renders dated prices and truthful candidate ordering", { 
 test("thread-choice doctrine defines work streams, consent, restart limits, and its shipped reference", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine(routedResolution());
   assert.match(doctrine, /A work stream is actions for one outcome\. Start and reuse its thread\./);
-  assert.match(doctrine, /On continuation, set `freshContext`\. Use `\[\]` for one or two turns, or to retain\s+the live transcript\./);
-  assert.match(doctrine, /Else name episodes a fresh thread needs\. Slate restarts only\s+if enabled and cheaper\./);
+  assert.match(doctrine, /On continuation, omit `freshContext` for no permission, use `\[\]` to refuse, or\s+name seed episodes to permit a fresh thread\./);
+  assert.match(doctrine, /Use `\[\]` for one or two turns, or\s+to retain the live transcript\./);
+  assert.match(doctrine, /With `threadChoice\.act: true`, Slate restarts only\s+if cheaper\. A restart opens a successor and rewrites its full prompt-cache prefix\./);
   assert.match(doctrine, /Continue the named successor\. It must publish an episode\s+before another restart\./);
   assert.doesNotMatch(doctrine, /Treat a different model or effort as cold,\s+with no prefix reuse\./);
   const citation = /Details: (.+)$/m.exec(doctrine)?.[1];

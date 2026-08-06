@@ -102,10 +102,10 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
   const descriptionBytes = Buffer.byteLength(tool.description, "utf8");
   const parameterSchemaBytes = Buffer.byteLength(JSON.stringify(tool.parameters), "utf8");
   assert.equal(descriptionBytes, 1_386, "thread description byte budget changed; update docs/context-budget.md in the same commit");
-  assert.equal(parameterSchemaBytes, 1_960, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(parameterSchemaBytes, 2_005, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
   assert.equal(
     descriptionBytes + parameterSchemaBytes,
-    3_346,
+    3_391,
     "thread combined byte budget changed; update docs/context-budget.md in the same commit",
   );
 

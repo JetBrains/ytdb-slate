@@ -289,8 +289,8 @@ test("restart lineage stays exact across the thread listing and result render", 
   };
   assert.equal(
     listed.content[0]?.text,
-    't1 "source" [idle] supersededBy=t2 — episodes: (none) — updated 1970-01-01T00:00:00.001Z\n' +
-      't2 "successor" [idle] restartOf=t1 — episodes: t2.e1 — updated 1970-01-01T00:00:00.001Z',
+    't1 "source" [idle] source t1 -> successor t2 — episodes: (none) — updated 1970-01-01T00:00:00.001Z\n' +
+      't2 "successor" [idle] source t1 -> successor t2 — episodes: t2.e1 — updated 1970-01-01T00:00:00.001Z',
   );
 
   const rendered = renderThreadResult(
@@ -298,7 +298,11 @@ test("restart lineage stays exact across the thread listing and result render", 
     { expanded: false },
     theme,
   );
-  assert.equal(firstLine(rendered), "✓ successor restart=t1->t2 t2.e1");
+  assert.equal(firstLine(rendered), "✓ successor source t1 -> successor t2 t2.e1");
+
+  const legacyTool = toolsFixture([record({ id: "legacy", name: "legacy" })]).registered.get("thread");
+  assert.ok(legacyTool?.renderCall);
+  assert.equal(firstLine(legacyTool.renderCall({ thread: "legacy", task: "Inspect" }, theme)), 'thread "legacy"');
 });
 
 test("result rendering normalizes unknown, absent, and malformed stored types", () => {
