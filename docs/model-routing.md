@@ -590,8 +590,28 @@ A hidden warning can still alter which model runs an action. Context-
 window divergence is the concrete case, and the stock registry emits
 three such hidden notes for this list. Routing uses the registry
 window, and that value drives the context-window substitution guard.
-`router.showWarnings` changes display only; it does not change the
+`router.showWarnings` changes display only. It does not change the
 resolution or the guard input.
+
+## Thread choice after routing
+
+Routing resolves the model and effort for one action. Thread choice then uses that applied pair when it evaluates a continuation.
+
+A model or effort change makes the existing prefix cold. Current cache-write prices are 12.5 times the matching cache-read prices.
+
+The `thread` tool owns the economic comparison. The orchestrator still decides whether named episodes can replace the live transcript.
+
+On a continuation, `freshContext` carries that permission. An absent value grants none, an empty array refuses, and a list names the fresh seed.
+
+The planner can return `continue`, `fresh`, `abstain`, or `refused`. Only `fresh` can trigger a restart when `threadChoice.act` is enabled.
+
+Acting defaults off. The default `threadChoice.report` setting returns the verdict without moving the action.
+
+The planner uses current price rows, recorded prefix size, episode size, and dated retention evidence. It abstains when required price or size evidence is missing.
+
+A stale retention row grants no retention window. Missing retention or elapsed time does not prove expiry, so an unchanged route remains warm.
+
+The complete mechanism and evidence limits are in [Thread cache cost](thread-cache-cost.md).
 
 ## What the router does NOT enforce
 
@@ -738,11 +758,9 @@ concern; a green suite says nothing about it.
   the shipped profile for the plan target when pi's registry can serve
   that model. The `model` argument itself is passed through
   byte-for-byte, so a malformed spec still produces pi's own error.
-- **A mid-thread model switch costs the prompt cache.** A long
-  thread runs overwhelmingly on cache reads; routing a small action
-  to a cheaper model on a cold cache can cost more than staying on
-  the warm one. The router compares base rates, not the cache state
-  of your thread.
+- **A mid-thread route can cost the prompt cache.** A model or effort
+  change makes the prefix cold. The thread-choice planner prices that
+  cache state after routing. See [Thread choice after routing](#thread-choice-after-routing).
 - **The window guard can move an action to a model you did not
   choose** (it warns, and names what it replaced), and it never
   blocks: if nothing listed is wider, the action runs and pi

@@ -1,6 +1,6 @@
 # Thread cache cost
 
-This document explains how to compare continuing work in an existing worker thread with starting a new thread. It carries mechanism and evidence that would be too costly in Slate's doctrine, which enters every orchestrator turn.
+This document explains Slate's implemented choice between continuing a worker thread and starting a fresh one. It carries mechanism and evidence that would be too costly in Slate's doctrine.
 
 ## Evidence record
 
@@ -12,7 +12,7 @@ A **warm thread** can reuse the cached request prefix from its previous turn. Th
 
 A **cold thread** cannot reuse that prefix on its next request. The provider must process the prefix again. A cache hit remains a provider decision, so a warm classification predicts eligibility rather than guaranteeing billed cached tokens.
 
-A **turn** is one worker model response and its associated tool activity. The orchestrator estimates how many turns an action needs before choosing a thread.
+A **turn** is one worker model response and its associated tool activity. The planner prices a caller-supplied turn estimate.
 
 ## Total cold transitions
 
@@ -76,20 +76,88 @@ A 50k OpenAI threshold classified **22 of 30** warm, seed-written cells correctl
 
 The grids cannot establish a universal break-even point. Their result depends on the project's prompt seed, episode size, cache state, input and cache-write prices, expected output, and the accuracy of the orchestrator's turn estimate. They also optimize one dispatch rather than the permanent context growth of a whole work stream.
 
-## Comparing continuation with a fresh thread
+## Implemented choice mechanism
 
-Apply the comparison to one action:
+Slate divides thread choice between the orchestrator and the `thread` tool. The orchestrator retains every semantic decision.
 
-1. Start a new thread when the action begins a new work stream. Thread separation is a semantic boundary before it is a cost choice.
-2. Estimate the action's required model, effort, and worker turns. Preserve the quality needed to complete the action.
-3. Continue the existing thread when the action needs at most two turns. Measurements found that short actions do not recover the fresh-thread setup cost.
-4. For a longer action, classify continuation as warm only when its model and effort remain unchanged. Otherwise classify continuation as cold.
-5. Add one turn to the fresh-thread estimate for rediscovery.
-6. Compare the complete options. Include every estimated turn, the model's input and output rates, the existing prefix size, and any expected compaction. Give cached-input credit only to an option whose prefix is warm.
+The orchestrator chooses the work stream, thread, model, effort, task, and required context. It also decides whether episodes can replace the live transcript.
 
-Do not compare model prices alone. A cheaper routed model can lose its advantage when selecting it rewrites a large warm prefix. The same warning applies to a cheaper effort level because an effort change is also a total cold transition.
+The tool makes one narrow economic judgement. It decides whether continuing the named thread costs more than a fresh thread seeded with named episodes.
 
-Do not preserve warmth by choosing a model or effort that cannot clear the action. Cache savings are a cost input, not permission to lower required capability.
+### Permission through `freshContext`
+
+The `freshContext` argument states the orchestrator's quality judgement. It has three distinct states:
+
+- An absent value grants no permission to leave the named thread.
+- An empty array explicitly refuses a fresh thread.
+- A non-empty list grants permission and names the seed episodes.
+
+Slate never treats missing permission as consent. Slate also does not judge whether the named episodes preserve enough meaning.
+
+The orchestrator must make that judgement. The tool checks only that every named episode exists.
+
+### Planner verdicts and order
+
+The planner returns one of four verdicts:
+
+- `continue` keeps the named thread.
+- `fresh` says the fresh option costs less.
+- `abstain` says the available inputs cannot support a choice.
+- `refused` says a rule forbids a fresh thread.
+
+Every verdict carries a machine code and a human-readable reason. Priced verdicts include both arm estimates and their warmth evidence.
+
+The planner evaluates refusals before cache evidence or prices. Missing permission, missing episodes, unusable tools, and a failed last dispatch can forbid a fresh thread.
+
+A dispatch without a source thread starts a new work stream. No comparison is needed because no existing prefix can be reused.
+
+The pure planner keeps work of one or two turns on the named thread. The current dispatch caller estimates at least three turns from work-stream depth.
+
+The doctrine therefore uses an empty `freshContext` for one-turn or two-turn work. It also uses an empty value when the live transcript is required.
+
+For longer work, the planner prices both arms over every expected turn. It charges the fresh arm one extra rediscovery turn.
+
+Input, cache-read, and cache-write buckets remain disjoint. Long-context billing applies independently to each arm at the exact threshold.
+
+The current cache-write to cache-read price ratio is **12.5**. A false cold estimate can therefore destroy a valuable warm prefix.
+
+A tie continues the named thread. Uncertainty never becomes permission to destroy a warm prefix.
+
+### Reporting, acting, and lineage
+
+The `threadChoice.report` switch defaults to `true`. The `threadChoice.act` switch defaults to `false`.
+
+The default therefore reports the verdict without moving work. Only a `fresh` verdict can move work when acting is enabled.
+
+Acting adds semantic refusals after the economic verdict. Reviewer and adversarial threads keep their live review transcripts.
+
+A successor with no episode of its own cannot restart again. It must publish new evidence before another restart.
+
+Slate writes the successor and restart lineage before the successor publishes an episode. The source record names the successor through `supersededBy`.
+
+A later dispatch to the superseded source is a tool error. The error names the successor that must continue the work stream.
+
+A restart carries the source thread's type, tools, and base route. The named `freshContext` episodes become the successor's injected context.
+
+An abort or failure during restart removes the successor and restores the source. The source remains usable after rollback.
+
+### Missing and stale evidence
+
+The planner abstains rather than guessing when missing or stale evidence prevents honest pricing.
+
+The dispatch path accepts documented and measured retention evidence for 90 days. Older retention rows grant no retention window.
+
+Documented retention comes from provider sources with retrieval dates. Measured retention comes from dated local probes listed in the model profiles.
+
+Missing retention data does not prove expiry. The planner treats an unchanged route as warm when retention or elapsed time is unknown.
+
+An unknown shared-seed cache state is priced as a write. This conservative assumption makes a fresh thread look no cheaper than the evidence supports.
+
+The planner abstains when required prices or sizes are unavailable. Required sizes include the existing prefix, fresh seed, and named episodes.
+
+A failed episode write makes the live session newer than its durable measurements. The next choice drops those stale measurements and abstains.
+
+Do not preserve warmth by choosing a model or effort that cannot clear the action. Cache savings never justify lower required capability.
 
 ## Cache-key sharding experiment
 
