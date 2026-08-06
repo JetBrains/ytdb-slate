@@ -252,19 +252,28 @@ const PROFILES: ModelProfile[] = [
 		// t1 — the cheap end of the routed six. [Artifact A, Artifact B row 1]
 		id: "openai/gpt-5.6-luna",
 		aliases: [], // none published [O2]
-		// effectiveFrom is UNKNOWN in the digest for every OpenAI row (only the
-		// 2026-07-29 observation date is published) → from: null, and the field is
-		// named in unknownRoutingCriticalFields. FIRST-PARTY STANDARD tier only:
-		// batch/flex/priority rows and the +10% regional uplift are not carried;
-		// the above-threshold row is carried as multipliers. [O2, G2#1, GM12]
+		// FIRST-PARTY STANDARD tier only. Batch/flex/priority rows and the +10%
+		// regional uplift are not carried. The above-threshold row is carried as
+		// multipliers. [O2, G2#1, GM12]
 		price: [
 			{
 				from: null,
-				until: null,
+				until: "2026-07-29",
 				inUsdPerMTok: 1.0,
 				outUsdPerMTok: 6.0,
 				cachedInUsdPerMTok: 0.1, // cache read [O2, G2#1]
 				cacheWriteUsdPerMTok: 1.25, // [O2, G2#1]
+			},
+			// Effective 2026-07-30. First-party sources:
+			// https://developers.openai.com/api/docs/pricing
+			// https://developers.openai.com/api/docs/changelog
+			{
+				from: "2026-07-30",
+				until: null,
+				inUsdPerMTok: 0.2,
+				outUsdPerMTok: 1.2,
+				cachedInUsdPerMTok: 0.02,
+				cacheWriteUsdPerMTok: 0.25,
 			},
 		],
 		contextWindow: 1050000, // doc-only [O2]
@@ -290,7 +299,6 @@ const PROFILES: ModelProfile[] = [
 			"reward_hacks DENOMINATOR — the trial count behind tbench.ai's percentages appears in NO source, so every hack comparison is UNDETERMINED, not null [G1d, arb, RI36]",
 			"AA-Briefcase Elo [G1e]",
 			"LMArena Elo — registry entry only, no ranked row [G2#10]",
-			"price effectiveFrom — UNKNOWN for the standard row; the digest publishes only the 2026-07-29 observation date [O2, G2#1]",
 		],
 		evidence:
 			"SWE-rebench 43.6% at $0.11/problem @medium [G1a]; MRCR 8-needle 41.3% at 256K+ [O3]; highest displayed reward_hacks but denominator unknown [G1d, RI36].",
@@ -364,15 +372,26 @@ const PROFILES: ModelProfile[] = [
 		// `tierUnsourced` so no consumer reads it as a ranking. See the header.
 		id: "openai/gpt-5.6-terra",
 		aliases: [], // [O1, O2]
-		// First-party STANDARD tier; from: null = UNKNOWN start date [O2, G2#1].
+		// First-party STANDARD tier. [O2, G2#1]
 		price: [
 			{
 				from: null,
-				until: null,
+				until: "2026-07-29",
 				inUsdPerMTok: 2.5,
 				outUsdPerMTok: 15.0,
 				cachedInUsdPerMTok: 0.25, // cache read [O2, G2#1]
 				cacheWriteUsdPerMTok: 3.125, // [O2, G2#1]
+			},
+			// Effective 2026-07-30. First-party sources:
+			// https://developers.openai.com/api/docs/pricing
+			// https://developers.openai.com/api/docs/changelog
+			{
+				from: "2026-07-30",
+				until: null,
+				inUsdPerMTok: 2.0,
+				outUsdPerMTok: 12.0,
+				cachedInUsdPerMTok: 0.2,
+				cacheWriteUsdPerMTok: 2.5,
 			},
 		],
 		contextWindow: 1050000, // doc-only [O2]
@@ -402,7 +421,6 @@ const PROFILES: ModelProfile[] = [
 			"LMArena Elo — registry entry only, no ranked row [G2#10]",
 			"TTFT at max [G1f]",
 			"AA-Briefcase Elo [G1e]",
-			"price effectiveFrom — UNKNOWN for the standard row; the digest publishes only the 2026-07-29 observation date [O2, G2#1]",
 		],
 		evidence:
 			"Sole edge Vals LCB 85.930% is SIG vs sol but NS vs gpt-5.4-nano and loses SIG to opus-5 and fable-5 [G1b, G3, arb]; no SWE-rebench row [G1a].",

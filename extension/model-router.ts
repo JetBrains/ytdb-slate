@@ -101,10 +101,11 @@
  *    resolution for the session, the way createWorkerExtensionResolver does — a
  *    dispatch guard and a doctrine section built from two different resolutions
  *    of the same session would be a bug, and repeated consultation must not
- *    re-emit warnings. The registry and auth reads are therefore a SNAPSHOT:
+ *    re-emit warnings. Candidate and auth reads are therefore a SNAPSHOT:
  *    credentials or providers added later in the session are not picked up until
  *    the next session_start (CQ7), which is the same freeze the worker-extension
- *    resolver deliberately takes.
+ *    resolver deliberately takes. Registry prices are the exception. The frozen
+ *    resolution carries a callback that performs a fresh lookup for each dispatch.
  */
 
 import {
@@ -127,8 +128,16 @@ import { describeConfusables, describeSpecDefect, isModelSpec, splitModelSpec, t
  * survives resolution — that failure belongs to the dispatch path and its
  * failover, not to the router's list.
  */
+export interface RouterRegistryCost {
+	input: number | undefined;
+	output: number | undefined;
+	cacheRead: number | undefined;
+	cacheWrite: number | undefined;
+}
+
 export interface RouterRegistryModel {
 	contextWindow?: number;
+	cost?: Partial<Record<keyof RouterRegistryCost, number>>;
 }
 export interface RouterRegistry {
 	find(provider: string, id: string): RouterRegistryModel | undefined;
@@ -259,6 +268,7 @@ export interface RouterCandidate {
 	tier: ModelTier; // the profile's declared tier, verbatim (see tierOf for the sort key)
 	inUsdPerMTok: number | undefined; // current effective input price (undefined = no covering price row)
 	outUsdPerMTok: number | undefined; // current effective output price
+	registryCost: Readonly<RouterRegistryCost>;
 	contextWindow: number | undefined; // REGISTRY value — never the profile's (D55)
 	ladder: readonly ThinkingLevel[]; // ladderFor(profile), validated, captured so checkEffort needs no injection
 	hasFailover: boolean; // present as a key in the configured modelFailover map
@@ -274,6 +284,12 @@ export interface ModelRouterResolution {
 	cheapest: string | undefined; // default base model (D48): cheapest PREFERRED candidate
 	cheapestNonPreferred: boolean; // true = every candidate is non-preferred, so `cheapest` had to break that rule
 	warnings: readonly string[]; // every warning emitted for this resolution, in order
+	/** Fresh registry lookup for dispatch-time checks. This callback is never a captured price snapshot. */
+	registryCostFor?: (spec: string) => Readonly<RouterRegistryCost> | undefined;
+	/** Live UTC date source invoked by each dispatch-time price check. */
+	currentDate?: () => string;
+	/** User-only warning sink. Its output never enters a dispatch result. */
+	notifyUser?: (message: string) => void;
 }
 
 /** The off state with no warnings — the default, shared and deep-frozen (CQ22). */
@@ -364,6 +380,43 @@ function isIsoDate(value: unknown): value is string {
 /** Defensive read of a numeric profile/registry field: a finite number, or undefined. */
 function finite(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** The single validity rule for every price this router reads or compares. */
+export function isValidPrice(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+type RegistryCostField = "input" | "output" | "cacheRead" | "cacheWrite";
+
+/** Read one registry cost without trusting the model or its nested properties. */
+function registryCost(model: RouterRegistryModel, field: RegistryCostField): number | undefined {
+	try {
+		const value = model.cost?.[field];
+		return isValidPrice(value) ? value : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function registryCosts(model: RouterRegistryModel): Readonly<RouterRegistryCost> {
+	return Object.freeze({
+		input: registryCost(model, "input"),
+		output: registryCost(model, "output"),
+		cacheRead: registryCost(model, "cacheRead"),
+		cacheWrite: registryCost(model, "cacheWrite"),
+	});
+}
+
+function findRegistryCosts(registry: RouterRegistry, spec: string): Readonly<RouterRegistryCost> | undefined {
+	const parts = splitModelSpec(spec);
+	if (!parts) return undefined;
+	try {
+		const model = registry.find(parts.provider, parts.id);
+		return model && typeof model === "object" ? registryCosts(model) : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Defensive membership test over a profile's effort-level list (a malformed table may hold a non-array). */
@@ -465,6 +518,16 @@ export function effectivePriceRow(profile: ModelProfile, today: string): PriceRo
 	if (isNonEmpty(applicable)) return pick(applicable);
 	const past = rows.filter((r) => from(r) <= day);
 	return isNonEmpty(past) ? pick(past) : rows[0];
+}
+
+/** The effective row only when it actually covers the requested date. */
+export function coveringPriceRow(profile: ModelProfile, today: string): PriceRow | undefined {
+	if (!isIsoDate(today)) return undefined;
+	const row = effectivePriceRow(profile, today);
+	if (!row) return undefined;
+	const from = isIsoDate(row.from) ? row.from : null;
+	const until = isIsoDate(row.until) ? row.until : null;
+	return (from === null || from <= today) && (until === null || until >= today) ? row : undefined;
 }
 
 /** The known `router` keys — anything else is a typo worth surfacing (CQ1). */
@@ -600,6 +663,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 	// A future warning added here without a class is therefore visible rather than
 	// silently hidden: forgetting the class costs noise, never a lost report.
 	const emitted = new Set<string>();
+	const userNotices = new Set<string>();
 	const warnings: string[] = [];
 	const once = (key: string, message: string, warningClass: RouterWarningClass = "configuration-fault") => {
 		if (emitted.has(key)) return;
@@ -698,8 +762,21 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 		}
 
 		const row = effectivePriceRow(profile, today);
-		const inUsdPerMTok = row ? finite(row.inUsdPerMTok) : undefined;
-		const outUsdPerMTok = row ? finite(row.outUsdPerMTok) : undefined;
+		const rawInUsdPerMTok: unknown = row?.inUsdPerMTok;
+		const rawOutUsdPerMTok: unknown = row?.outUsdPerMTok;
+		const inUsdPerMTok = isValidPrice(rawInUsdPerMTok) ? rawInUsdPerMTok : undefined;
+		const outUsdPerMTok = isValidPrice(rawOutUsdPerMTok) ? rawOutUsdPerMTok : undefined;
+		const invalidPriceFields = [
+			...(rawInUsdPerMTok !== undefined && !isValidPrice(rawInUsdPerMTok) ? ["input"] : []),
+			...(rawOutUsdPerMTok !== undefined && !isValidPrice(rawOutUsdPerMTok) ? ["output"] : []),
+		];
+		if (invalidPriceFields.length > 0) {
+			once(
+				conditionKey("invalid-price", raw),
+				`slate: model router: ${label} has invalid ${invalidPriceFields.join(" and ")} price data for ${today} in its profile — ` +
+					"prices must be finite numbers zero or greater. Invalid values are treated as unavailable",
+			);
+		}
 		if (inUsdPerMTok === undefined) {
 			once(
 				conditionKey("price", raw),
@@ -724,6 +801,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 		// KNOWN-divergence figure is not one either: the table documents that second
 		// published number precisely so a cross-check stays quiet about it.
 		const registryWindow = finite(model.contextWindow);
+		const resolvedRegistryCosts = registryCosts(model);
 		const profileWindow = finite(profile.contextWindow ?? undefined);
 		const knownDivergence = finite(optional(profile).contextWindowKnownDivergence);
 		if (
@@ -834,6 +912,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			tier: profile.tier,
 			inUsdPerMTok,
 			outUsdPerMTok,
+			registryCost: resolvedRegistryCosts,
 			contextWindow: registryWindow,
 			ladder: Object.freeze(ladder),
 			hasFailover,
@@ -896,7 +975,8 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 	//                     rides on the candidate so a consumer can say so.
 	//   3. tier asc, 4. current effective input price asc,
 	//   5. spec — only so the order is total and reproducible.
-	const price = (c: RouterCandidate) => c.inUsdPerMTok ?? Number.POSITIVE_INFINITY;
+	const price = (c: RouterCandidate) =>
+		isValidPrice(c.inUsdPerMTok) ? c.inUsdPerMTok : Number.POSITIVE_INFINITY;
 	const preferenceRank = (c: RouterCandidate) => (c.nonPreferred === null ? 0 : 1);
 	const sourcingRank = (c: RouterCandidate) => (c.tierUnsourced ? 1 : 0);
 	candidates.sort(
@@ -936,7 +1016,24 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 		);
 	}
 
-	return frozenResolution(true, candidates, cheapest.spec, cheapestNonPreferred, warnings);
+	return frozenResolution(
+		true,
+		candidates,
+		cheapest.spec,
+		cheapestNonPreferred,
+		warnings,
+		(spec) => findRegistryCosts(input.registry, spec),
+		utcToday,
+		(message) => {
+			if (userNotices.has(message)) return;
+			userNotices.add(message);
+			try {
+				warn(message, "configuration-fault");
+			} catch {
+				/* a throwing UI must not affect dispatch */
+			}
+		},
+	);
 }
 
 /** Build the frozen result object — one place, so every return path is shaped and frozen identically. */
@@ -946,6 +1043,9 @@ function frozenResolution(
 	cheapest: string | undefined,
 	cheapestNonPreferred: boolean,
 	warnings: string[],
+	registryCostFor?: (spec: string) => Readonly<RouterRegistryCost> | undefined,
+	currentDate?: () => string,
+	notifyUser?: (message: string) => void,
 ): ModelRouterResolution {
 	return Object.freeze({
 		on,
@@ -953,6 +1053,9 @@ function frozenResolution(
 		cheapest,
 		cheapestNonPreferred,
 		warnings: Object.freeze([...warnings]),
+		...(registryCostFor ? { registryCostFor } : {}),
+		...(currentDate ? { currentDate } : {}),
+		...(notifyUser ? { notifyUser } : {}),
 	}) as unknown as ModelRouterResolution;
 }
 
@@ -1025,9 +1128,9 @@ export function checkEffort(resolution: ModelRouterResolution, spec: string, eff
  * NO second message-level dedup layer — it made the real dedup untestable (CQ4)
  * while adding nothing the memo does not already guarantee.
  *
- * CQ7: what is frozen includes the registry and auth SNAPSHOT. A key added to
+ * CQ7: what is frozen includes the candidate and auth SNAPSHOT. A key added to
  * pi mid-session does not revive a model dropped as unauthenticated until the
- * next session_start.
+ * next session_start. The dispatch price callback remains live by design.
  */
 export function createModelRouterResolver(
 	getInput: () => ModelRouterInput,
