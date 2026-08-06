@@ -273,6 +273,7 @@ This block works in `REPO_DIR`, the checkout step 0 ran in; it does not use the 
 - Both packaging-guard commands check the manifest and real pack list, including their self-tests.
 - `bash verification/run-load-check.sh --repo .` checks working-tree loading, hooks, tools and config syntax.
 - `bash verification/run-resolver-checks.sh --repo . --strict` checks pure pipelines and doctrine rendering.
+- `npm test` runs the unit suite and the patch-coverage gate.
 - `bash verification/run-ladder.sh --repo . --strict` checks model switches and worker settings isolation. It takes about three minutes. Do not run it as root.
 - `node verification/package-content-check.mjs --repo .` checks package-resolved runtime files.
 - `node verification/writing-check-tests.mjs` checks writing-checker correctness.
@@ -280,7 +281,7 @@ This block works in `REPO_DIR`, the checkout step 0 ran in; it does not use the 
 - `bash verification/run-writing-reminder-check.sh --repo .` checks the real reminder hook, steer and persistence path. It requires GNU `timeout`.
 - The isolated-load smoke test below provides an additional manual read of direct loader output.
 
-The CI set remains the four commands in `AGENTS.md`. The other commands above are release-time hand-run nets.
+The CI set remains the five checks in `AGENTS.md`. The other commands above are release-time hand-run nets.
 
 ```bash
 set -euo pipefail
@@ -308,6 +309,7 @@ bash verification/run-packaging-checks.sh --repo .
 bash verification/run-packaging-checks.sh --repo . --self-test
 bash verification/run-load-check.sh --repo .
 bash verification/run-resolver-checks.sh --repo . --strict
+npm test
 bash verification/run-ladder.sh --repo . --strict
 node verification/package-content-check.mjs --repo .
 node verification/writing-check-tests.mjs
@@ -372,6 +374,36 @@ node "$RELEASE_DIR/state.cjs" save "$RELEASE_DIR/release.json" --expect "$SLATE_
 ```
 
 Stop if GitHub does not report an exact merge commit or any check fails. Ancestry alone is not proof that the intended PR produced the SHA.
+
+Before step 4, require a successful continuous-integration run at that exact squash commit. The run must contain both matrix jobs.
+
+```bash
+set -euo pipefail
+: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
+RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
+STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" REPO SQUASH_SHA)
+eval "$STATE"
+
+RUNS=$(gh run list --repo "$REPO" --workflow ci.yml --commit "$SQUASH_SHA" --json databaseId,status,conclusion,headSha)
+RUN_ID=$(node -e '
+const runs = JSON.parse(process.argv[1]);
+const sha = process.argv[2];
+const run = runs.find(value => value.headSha === sha && value.status === "completed" && value.conclusion === "success");
+if (!run) throw new Error(`no successful completed CI run at ${sha}`);
+process.stdout.write(String(run.databaseId));
+' "$RUNS" "$SQUASH_SHA")
+JOBS=$(gh run view "$RUN_ID" --repo "$REPO" --json jobs)
+node -e '
+const jobs = JSON.parse(process.argv[1]).jobs;
+for (const name of ["Node 22", "Node 24"]) {
+  const job = jobs.find(value => value.name === name);
+  if (!job || job.status !== "completed" || job.conclusion !== "success") {
+    throw new Error(`${name} did not pass: ${JSON.stringify(job)}`);
+  }
+}
+' "$JOBS"
+printf 'CI run %s passed at %s with Node 22 and Node 24.\n' "$RUN_ID" "$SQUASH_SHA"
+```
 
 ## Step 4 — the agent verifies and packs the exact commit
 
