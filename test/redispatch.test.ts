@@ -11,6 +11,7 @@ const { ThreadManager } = await import("../extension/threads.ts");
 const { SlateStore } = await import("../extension/state.ts");
 import type { ThreadRecord } from "../extension/state.ts";
 const { NO_SESSION_BASELINE } = await import("../extension/route.ts");
+const { createModelRouterResolver } = await import("../extension/model-router.ts");
 const load = <T>(specifier: string): Promise<T> => import(specifier) as Promise<T>;
 const { piAiCompatStub } = await load<{ piAiCompatStub: { complete: (...args: unknown[]) => Promise<unknown> } }>("../verification/stubs/pi-ai-compat.mjs");
 
@@ -25,7 +26,7 @@ interface FakeSession {
   dispose(): void;
   setModel(): Promise<void>;
   setThinkingLevel(): void;
-  getContextUsage(): undefined;
+  getContextUsage(): { tokens: number } | undefined;
 }
 
 function context(cwd: string, models: Array<{ provider: string; id: string }> = []): ExtensionContext {
@@ -43,7 +44,7 @@ function context(cwd: string, models: Array<{ provider: string; id: string }> = 
   } as unknown as ExtensionContext;
 }
 
-function session(script: (self: FakeSession) => Promise<void> | void) {
+function session(script: (self: FakeSession) => Promise<void> | void, contextTokens?: number) {
   const listeners = new Set<(event: Record<string, unknown>) => void>();
   let disposed = false;
   const value: FakeSession = {
@@ -66,7 +67,7 @@ function session(script: (self: FakeSession) => Promise<void> | void) {
     async setModel() {},
     setThinkingLevel() {},
     getContextUsage() {
-      return undefined;
+      return contextTokens === undefined ? undefined : { tokens: contextTokens };
     },
   };
   return {
@@ -90,7 +91,14 @@ function harness(
   testContext?: { after(callback: () => void): void },
 ) {
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-  const manager = new ThreadManager(store, config);
+  const routerModels = (config.router as { models?: unknown } | undefined)?.models;
+  const resolveRouter = Array.isArray(routerModels)
+    ? createModelRouterResolver(() => ({
+        registry: { find: () => billedModel, hasConfiguredAuth: () => true },
+        models: routerModels.filter((model): model is string => typeof model === "string"),
+      }))
+    : undefined;
+  const manager = new ThreadManager(store, config, undefined, resolveRouter);
   const internal = manager as unknown as {
     live: Map<string, FakeSession>;
     queues: Map<string, Promise<unknown>>;
@@ -129,6 +137,9 @@ function sourceRecord(): ThreadRecord {
 
 const fresh = { kind: "fresh", code: "fresh-cheaper", reason: "fresh is cheaper" } as const;
 const continued = { kind: "continue", code: "short-work", reason: "continue" } as const;
+const billedModel = { provider: "openai", id: "gpt-5.6-luna", contextWindow: 1_050_000 };
+const billedConfig = { threadChoice: { report: true, act: true }, router: { models: ["openai/gpt-5.6-luna"] } };
+const billedSpec = "openai/gpt-5.6-luna";
 
 test("abort before successor prompt rolls back and restores a usable source", { timeout: 1000 }, async (t) => {
   const root = mkdtempSync(join("/tmp", "slate-redispatch-abort-before-commit-"));
@@ -175,6 +186,74 @@ test("abort before successor prompt rolls back and restores a usable source", { 
   );
   assert.equal(resumed.thread.id, "t1");
   assert.equal(store.threads.has("t2"), false);
+});
+
+test("an unbilled restart rollback does not consume the source long-context notice", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join("/tmp", "slate-redispatch-billing-rollback-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const sourceSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "source" }] });
+  }, 300_000);
+  const successorSession = session(async () => {});
+  const { store, manager, internal } = harness(billedConfig, [sourceSession, successorSession], t);
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  internal.planChoice = () => fresh;
+  const controller = new AbortController();
+  const originalOpen = internal.openWorkerFor;
+  internal.openWorkerFor = async (args) => {
+    if (args.thread.id === "t2") {
+      controller.abort();
+      throw new Error("successor failed before prompt");
+    }
+    return originalOpen(args);
+  };
+  await assert.rejects(
+    manager.dispatch({ threadId: source.id, task: "restart", type: "general", freshContext: [] }, context(root, [billedModel]), controller.signal),
+    /restart from thread t1 ended before its action started/,
+  );
+  assert.equal(internal.longContextWarned.has(source.id), false);
+});
+
+test("a legitimately consumed source notice is not repeated after restart rollback", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join("/tmp", "slate-redispatch-billing-already-seen-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const sourceSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "source" }] });
+  }, 300_000);
+  const successorSession = session(async () => {});
+  const { store, manager, internal } = harness(billedConfig, [sourceSession, successorSession], t);
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  internal.longContextWarned.set(source.id, new Set([billedSpec]));
+  internal.planChoice = () => fresh;
+  const originalOpen = internal.openWorkerFor;
+  internal.openWorkerFor = async (args) => {
+    if (args.thread.id === "t2") throw new Error("successor failed before prompt");
+    return originalOpen(args);
+  };
+  const result = await manager.dispatch({ threadId: source.id, task: "restart", type: "general", freshContext: [] }, context(root, [billedModel]), undefined);
+  assert.equal(result.thread.id, source.id);
+  assert.deepEqual([...internal.longContextWarned.get(source.id) ?? []], [billedSpec]);
+  assert.doesNotMatch(result.warnings.join("\n"), /long-context/);
+});
+
+test("a committed restart consumes the source long-context notice", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join("/tmp", "slate-redispatch-billing-commit-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const sourceSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "source" }] });
+  }, 300_000);
+  const successorSession = session(async (self) => {
+    self.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "successor" }] });
+  });
+  const { store, manager, internal } = harness(billedConfig, [sourceSession, successorSession], t);
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  internal.planChoice = () => fresh;
+  const result = await manager.dispatch({ threadId: source.id, task: "restart", type: "general", freshContext: [] }, context(root, [billedModel]), undefined);
+  assert.equal(result.thread.id, "t2");
+  assert.match(result.warnings.join("\n"), /long-context/);
 });
 
 test("abort after successor prompt commits lineage and retains the failed successor", { timeout: 1000 }, async (t) => {
