@@ -40,13 +40,20 @@ Full rationale: [`docs/design-principles.md`](docs/design-principles.md), shippe
 
 In orchestrator mode, Slate injects a mandatory track-based development workflow. Project configuration can extend it through `doctrineExtraPath`. Configuration cannot replace it.
 
+Slate uses four change classes:
+
+- A trivial change is a typo, mechanical rename, or obvious one-file fix.
+- A medium change has a known shape, touches multiple files, and avoids the risky areas below.
+- A complex change has an unclear shape, interacting parts, or a live design alternative.
+- A risky change affects concurrency, durability, recovery, security, public APIs, user data, or silent failure paths.
+
 1. **Classification and research** — the orchestrator proposes the change class, and the user confirms it. A research log is required for medium changes and above.
-2. **Design gates** — medium changes need user design approval before implementation. Complex and risky changes add an adversarial review between two user approvals.
+2. **Design gates** — medium changes need high-level design approval before implementation. Complex and risky changes add an adversarial review between two user approvals.
 3. **Track split** — the orchestrator owns the split. Size determines tracks and marker commits, not workflow gates.
 4. **Per-track loop** — each track gets implementation, fixes, and mandatory user review. Agent code review is skipped only when the whole change is trivial.
 5. **Delivery** — the user performs the squash merge when draft publishing is enabled. Otherwise, the squashed commit carries the workflow log's key content.
 
-Trivial changes have no design gate. Every change keeps mandatory user review of its track diff. Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
+Trivial changes have no high-level design gate. Every change keeps mandatory user review of its track diff. Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
 
 This summary is orientation only; the shipped docs listed below are normative.
 
@@ -171,7 +178,7 @@ Slate reads project configuration (`.pi/slate.json`) and injects project files (
 
 In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths are also why the block's character count depends on your install location; [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
 
-- `docs/track-workflow.md` — the class-scaled workflow for research, design, adversarial review, and track review
+- `docs/track-workflow.md` — the class-scaled workflow for research, high-level design, adversarial review, and track review
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
 - `docs/review-rules.md` — review discipline and finding rules
 - `docs/design-principles.md` — Slate's own design rationale

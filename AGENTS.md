@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repo is a [pi package](https://pi.dev/docs/latest/packages) providing the **slate** extension: thread-weaving orchestration for pi (orchestrator dispatches bounded actions to persistent worker threads; results come back as compressed episodes; a shipped doctrine enforces the research/design-review/adversarial-review/track-review workflow, with optional draft-PR publishing).
+This repo is a [pi package](https://pi.dev/docs/latest/packages) providing the **slate** extension: thread-weaving orchestration for pi (orchestrator dispatches bounded actions to persistent worker threads; results come back as compressed episodes; a shipped doctrine enforces a class-scaled research/design-review/adversarial-review/track-review workflow, with optional draft-PR publishing).
 
 Dispatch also carries **action-level model routing**: `router.models` in the project's `slate.json` names a CLOSED candidate list, resolved once per session, from which each action's model and effort are chosen and guarded. It is off by default: an empty list adds no candidate-routing policy, base seed, context-window substitution, billing notice, or routing doctrine rule. Per-action arguments and pre-existing live failover holds remain active. Reference: `docs/model-routing.md`, which the doctrine cites at runtime alongside the workflow/review/design docs.
 
@@ -311,7 +311,7 @@ These six requirements are project-authored:
 5. Express one idea in each sentence.
 6. Use one term for each concept.
 
-Research logs and worker-thread task text are excluded. A design statement is governed when `writing.check` is true, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. `docs/` and `verification/README.md` remain precision-first mechanism references and are excluded too.
+Research logs and worker-thread task text are excluded. A high-level design is governed when `writing.check` is true, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. `docs/` and `verification/README.md` remain precision-first mechanism references and are excluded too.
 
 The writing checker is diagnostic everywhere and authoritative nowhere. A match directs reviewer attention, and the reviewer decides whether the text has a defect. Changed convention-governed text should carry no fail-level findings. Findings in unchanged text are pre-existing debt, not an unrelated blocker. Every checker class is advisory in excluded files because length limits can conflict with required precision. ASD-STE100 inspires only, Slate claims no conformance, and contributors must copy no standard material or examples.
 

@@ -9,29 +9,36 @@ workflow-log lifecycle in that mode is owned by track-workflow.md
 
 ## Creation
 
-The umbrella draft PR is created after the design gate required by the
+For every change with a high-level design, draft the PR description
+before the pre-implementation presentation. Present the draft alongside
+the high-level design, so one approval covers both. The description has
+no separate approval gate.
+
+The umbrella draft PR is created after the gate required by the
 confirmed change class passes and BEFORE implementation. For a complex
-or risky change, that gate is the user design approval plus the
-adversarial review. For a medium change, it is the user design approval.
-A trivial change has no design gate, so the PR is created after the user
-confirms the class and before implementation:
+or risky change, that gate is the final high-level design approval after
+the adversarial review. For a medium change, it is the high-level design
+approval. A trivial change has no high-level design gate, so the PR is
+created after the user confirms the class and before implementation:
 
 - Created as a DRAFT, based on the repository's default development
   branch.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation, the research log's Planned changes content folds into
-  the PR description. Key decisions, Risks, and Open questions feed
-  the corresponding Planned-changes subsections. The applicable design
-  review verdict lines land in Risks & accepted trade-offs. The
-  adversarial review verdict line lands there only when that review ran;
-  a medium change carries the design verdict lines alone.
+- At creation for a medium, complex, or risky change, the research
+  log's Planned changes content folds into the PR description. Key
+  decisions, Risks, and Open questions feed the corresponding
+  Planned-changes subsections. The applicable design review verdict
+  lines land in Risks & accepted trade-offs. The adversarial review
+  verdict line lands there only when that review ran; a medium change
+  carries the design verdict lines alone.
+- For a trivial change, the initial request supplies Motivation. The
+  confirmed class proposal and intended fix supply Planned changes. If
+  a log exists, its relevant decisions and Open Questions also fold
+  into the description.
 - The research log is retained until delivery, and its Decision Log
   keeps appending during implementation. track-workflow.md § Research
   log owns the full lifecycle.
-- For a designed change, the description and track split are part of
-  the design the user approves before implementation. Neither receives
-  a separate approval.
 
 ## Description rules
 
@@ -59,7 +66,8 @@ Subsections activate when their content exists:
   when that review ran.
 - **Suggestions** — a one-line index per suggestion: identifier,
   location, and one-line summary. The standalone text lives in the
-  final report to the user or in a tracker issue.
+  final report to the user or in a tracker issue when
+  `workflow.followUpIssues` enables that prompt.
 - **Verification approach** — 1–2 lines.
 
 "Deep enough" test: a reviewer who knows the codebase but not this
@@ -167,6 +175,9 @@ task. The user's merge act is the final approval, including acceptance
 of any recorded size exception.
 
 ## After the merge
+
+Complete the research-log delivery cleanup defined by
+track-workflow.md § Research log.
 
 Any cleanup a layered peer-review process requires (closing its review
 PRs, deleting its pinned branches) is an agent duty, executed when the

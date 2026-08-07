@@ -43,6 +43,8 @@ type, also embed the §7 obligations or direct the reviewer to read them.
   - scope boundary;
   - deferred work;
   - acceptance condition.
+  When no track exists, such as during a design-stage adversarial
+  review, the same four fields describe the whole change instead.
   A reviewer without a target grades against an ideal and inflates
   severity.
 - Independent perspectives run in PARALLEL on the same artifact.
@@ -180,13 +182,16 @@ perspective's charter:
 
 ## 5. Reviewers find, implementers fix
 
-- A suggestion is NEVER fixed inside the change that found it. The
-  orchestrator collects suggestions and presents them at the end. Each
-  entry states what, where, why it matters, and what a fix needs. The
-  entry must be readable without the review that produced it.
-  Suggestions always have a durable home in the delivery record.
-  `workflow.followUpIssues` controls only whether the orchestrator then
-  asks the user which suggestions become tracker issues. The key
+- An implementation-stage suggestion is NEVER fixed inside the change
+  that found it. Design-stage triage follows track-workflow.md § Finding
+  triage instead. The orchestrator collects implementation-stage
+  suggestions and presents them at the end. Each entry states what,
+  where, why it matters, and what a fix needs. The entry must be
+  readable without the review that produced it. The delivery record
+  preserves a durable one-line index of every suggestion. The
+  standalone text lives in the final report to the user or in a tracker
+  issue. `workflow.followUpIssues` controls only whether the
+  orchestrator asks which suggestions become tracker issues. The key
   defaults to `false`. An off value never discards a suggestion.
 - Review threads never edit files; fix work is dispatched to an
   implementation thread (usually the one that produced the change, or

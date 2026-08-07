@@ -443,6 +443,6 @@ These are settled decisions. Read them as scope, not as a backlog.
   review comments, release notes and messages to the user. Research
   logs, worker task text and this repository's own agent instruction
   file are excluded, because a dense exact register serves them
-  better. When a project sets `writing.check` to true, its design
-  statement is governed prose even while it lives inside an otherwise
+  better. When a project sets `writing.check` to true, its high-level
+  design is governed prose even while it lives inside an otherwise
   excluded research log.
