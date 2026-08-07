@@ -440,7 +440,7 @@ export class ThreadManager {
 			for (const id of suppliedFreshContext) {
 				if (!this.store.episodes.has(id)) {
 					const known = [...this.store.episodes.keys()].join(", ") || "none";
-					throw new Error(`Unknown freshContext episode "${sanitizeForNotify(id, 80)}". Known episodes: ${known}`);
+					throw new Error(`Unknown freshContext episode "${sanitizeForNotify(id, 80)}". Known episodes: ${known}. Pass [] to refuse a restart.`);
 				}
 			}
 		}
