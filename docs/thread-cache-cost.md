@@ -95,15 +95,16 @@ The tool makes one narrow economic judgement. It decides whether continuing the 
 
 ### Permission through `freshContext`
 
-The `freshContext` argument states the orchestrator's quality judgement. It has three distinct states:
+The `freshContext` argument states the orchestrator's quality judgement. Its presence rule depends on the call:
 
-- An absent value grants no permission to leave the named thread.
-- An empty array explicitly refuses a fresh thread.
-- A non-empty list grants permission and names the seed episodes.
+- A continuation requires the argument when `threadChoice.act` is `true`. Omitting it is a tool error.
+- An empty array explicitly refuses a restart.
+- A non-empty list permits a restart and names the seed episodes.
+- A creation call may supply a valid value. Slate accepts that value but does not use it.
 
-Slate never treats missing permission as consent. Slate also does not judge whether the named episodes preserve enough meaning.
+Validity does not depend on the call or the acting setting. Whenever `freshContext` is supplied, Slate requires an array within the size limit. Every item must be a string that names an existing episode. A malformed value or unknown episode is a tool error before Slate creates or mutates anything.
 
-The orchestrator must make that judgement. The tool checks only that every named episode exists.
+Slate never treats missing permission as consent. Slate also does not judge whether the named episodes preserve enough meaning. The orchestrator must make that judgement.
 
 ### Planner verdicts and order
 
@@ -116,7 +117,7 @@ The planner returns one of four verdicts:
 
 Every verdict carries a machine code and a human-readable reason. Priced verdicts include both arm estimates and their warmth evidence.
 
-The planner evaluates refusals before cache evidence or prices. Missing permission, missing episodes, unusable tools, and a failed last dispatch can forbid a fresh thread.
+The planner evaluates refusals before cache evidence or prices. Missing permission, unusable tools, and a failed last dispatch can forbid a fresh thread. The dispatch boundary rejects malformed or unknown episodes before the planner runs.
 
 A dispatch without a source thread starts a new work stream. No comparison is needed because no existing prefix can be reused.
 

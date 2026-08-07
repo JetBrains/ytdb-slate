@@ -507,7 +507,7 @@ model's ladder is unreadable.
   all nine. In the current snapshot a model row costs 146–183
   characters, plus a one-off legend clause for each marker it
   introduces. Configuring the router roughly doubles Slate's
-  always-loaded block (2,310 characters with routing and writing
+  always-loaded block (2,337 characters with routing and writing
   off). Those are PORTABLE characters — the
   doctrine with each occurrence of the installed `docs/` directory
   removed, filenames kept — because the doctrine embeds absolute doc
@@ -601,7 +601,9 @@ A model or effort change makes the existing prefix cold. Current cache-write pri
 
 The `thread` tool owns the economic comparison. The orchestrator still decides whether named episodes can replace the live transcript.
 
-On a continuation, `freshContext` carries that permission. An absent value grants none, an empty array refuses, and a list names the fresh seed.
+On a continuation with `threadChoice.act: true`, `freshContext` is required. An empty array refuses a restart. A list permits one and names the fresh seed. Omission is a tool error.
+
+Whenever `freshContext` is supplied, malformed input or an unknown episode is a tool error before creation or mutation. A valid value on a creation call is accepted and unused.
 
 The planner can return `continue`, `fresh`, `abstain`, or `refused`. Only `fresh` can trigger a restart when `threadChoice.act` is enabled.
 
