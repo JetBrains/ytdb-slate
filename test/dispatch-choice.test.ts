@@ -29,6 +29,40 @@ function context(cwd: string): ExtensionContext {
   } as unknown as ExtensionContext;
 }
 
+function sourceRecord(): ThreadRecord {
+  return {
+    id: "t1",
+    name: "source",
+    sessionFile: "",
+    status: "idle" as const,
+    type: "general" as const,
+    tools: ["read"],
+    episodeIds: [],
+    episodeSeq: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function validationHarness(t: { after(callback: () => void): void }, config: Record<string, unknown> = {}) {
+  const root = mkdtempSync(join("/tmp", "slate-fresh-context-contract-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  const manager = new ThreadManager(store, config);
+  t.after(() => manager.disposeAll());
+  const internal = manager as unknown as {
+    live: Map<string, unknown>;
+    openWorkerFor: (args: { thread: { id: string } }) => Promise<{ session: ReturnType<typeof session>; baseline: typeof NO_SESSION_BASELINE }>;
+    planChoice: (...args: unknown[]) => unknown;
+  };
+  internal.openWorkerFor = async ({ thread }) => {
+    const worker = session();
+    internal.live.set(thread.id, worker);
+    return { session: worker, baseline: NO_SESSION_BASELINE };
+  };
+  return { root, store, manager, internal };
+}
+
 function session() {
   const listeners = new Set<(event: Record<string, unknown>) => void>();
   const value = {
@@ -78,6 +112,105 @@ test("stub token estimation follows pi message roles and character accounting", 
   assert.equal(estimateTokens({ role: "assistant", content: [{ type: "thinking", thinking: "1234" }, { type: "toolCall", name: "read", arguments: { path: "x" } }] }), 5);
   assert.equal(estimateTokens({ role: "bashExecution", command: "abcd", output: "efgh" }), 2);
   assert.equal(estimateTokens({ role: "unknown", content: "a lot" }), 0);
+});
+
+test("create without freshContext is accepted", { timeout: 1000 }, async (t) => {
+  const { root, store, manager } = validationHarness(t);
+  const result = await manager.dispatch({ task: "create", type: "general" }, context(root), undefined);
+  assert.equal(result.thread.id, "t1");
+  assert.equal(store.threads.has("t1"), true);
+});
+
+test("create validates a supplied freshContext value but does not use it", { timeout: 1000 }, async (t) => {
+  const { root, store, manager } = validationHarness(t);
+  store.episodes.set("t9.e1", { id: "t9.e1", threadId: "t9", task: "seed", status: "ok", file: "", createdAt: 1 });
+  const result = await manager.dispatch({ task: "create", type: "general", freshContext: ["t9.e1"] }, context(root), undefined);
+  assert.equal(result.thread.id, "t1");
+  assert.deepEqual(result.thread.episodeIds, ["t1.e1"]);
+});
+
+test("create rejects malformed or unknown freshContext before any state change", { timeout: 1000 }, async (t) => {
+  const { root, store, manager, internal } = validationHarness(t);
+  for (const freshContext of [null, ["missing"]] as const) {
+    await assert.rejects(
+      manager.dispatch({ task: "bad create", type: "general", freshContext }, context(root), undefined),
+      freshContext === null ? /freshContext must be \[\] or a list/ : /Unknown freshContext episode "missing"/,
+    );
+    assert.deepEqual([...store.threads.keys()], []);
+    assert.deepEqual([...store.episodes.keys()], []);
+    assert.equal(internal.live.size, 0);
+  }
+});
+
+test("a non-acting continuation may omit freshContext", { timeout: 1000 }, async (t) => {
+  const { root, store, manager } = validationHarness(t, { threadChoice: { report: true, act: false } });
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  const result = await manager.dispatch({ threadId: source.id, task: "continue", type: "general" }, context(root), undefined);
+  assert.equal(result.thread.id, source.id);
+});
+
+test("a non-acting continuation validates supplied freshContext but ignores it", { timeout: 1000 }, async (t) => {
+  const { root, store, manager } = validationHarness(t, { threadChoice: { report: true, act: false } });
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  store.episodes.set("t9.e1", { id: "t9.e1", threadId: "t9", task: "seed", status: "ok", file: "", createdAt: 1 });
+  const result = await manager.dispatch({ threadId: source.id, task: "continue", type: "general", freshContext: ["t9.e1"] }, context(root), undefined);
+  assert.equal(result.thread.id, source.id);
+  assert.equal(source.supersededBy, undefined);
+});
+
+test("a non-acting continuation rejects malformed or unknown freshContext before state change", { timeout: 1000 }, async (t) => {
+  const { root, store, manager, internal } = validationHarness(t, { threadChoice: { report: true, act: false } });
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  for (const freshContext of [null, ["missing"]] as const) {
+    await assert.rejects(manager.dispatch({ threadId: source.id, task: "bad", freshContext }, context(root), undefined));
+    assert.deepEqual(source, sourceRecord());
+    assert.deepEqual([...store.episodes.keys()], []);
+    assert.equal(internal.live.size, 0);
+  }
+});
+
+test("an acting continuation must not omit freshContext", { timeout: 1000 }, async (t) => {
+  const { root, store, manager, internal } = validationHarness(t, { threadChoice: { report: true, act: true } });
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  await assert.rejects(manager.dispatch({ threadId: source.id, task: "missing permission" }, context(root), undefined), /require freshContext/);
+  assert.deepEqual(source, sourceRecord());
+  assert.deepEqual([...store.episodes.keys()], []);
+  assert.equal(internal.live.size, 0);
+});
+
+test("an empty acting continuation refuses restart and keeps work on its source", { timeout: 1000 }, async (t) => {
+  const { root, store, manager, internal } = validationHarness(t, { threadChoice: { report: true, act: true } });
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  const result = await manager.dispatch({ threadId: source.id, task: "refuse restart", freshContext: [] }, context(root), undefined);
+  assert.equal(result.thread.id, source.id);
+  assert.equal(store.threads.has("t2"), false);
+});
+
+test("known episode ids permit an acting continuation to consider restart", { timeout: 1000 }, async (t) => {
+  const { root, store, manager, internal } = validationHarness(t, { threadChoice: { report: true, act: true } });
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  store.episodes.set("t9.e1", { id: "t9.e1", threadId: "t9", task: "seed", status: "ok", file: "", createdAt: 1 });
+  internal.planChoice = () => ({ kind: "continue", code: "short-work", reason: "continue" });
+  const result = await manager.dispatch({ threadId: source.id, task: "continue", freshContext: ["t9.e1"] }, context(root), undefined);
+  assert.equal(result.thread.id, source.id);
+});
+
+test("an acting continuation rejects malformed or unknown freshContext before state change", { timeout: 1000 }, async (t) => {
+  const { root, store, manager, internal } = validationHarness(t, { threadChoice: { report: true, act: true } });
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  for (const freshContext of [null, ["missing"]] as const) {
+    await assert.rejects(manager.dispatch({ threadId: source.id, task: "bad", freshContext }, context(root), undefined));
+    assert.deepEqual(source, sourceRecord());
+    assert.deepEqual([...store.episodes.keys()], []);
+    assert.equal(internal.live.size, 0);
+  }
 });
 
 test("named freshContext rejects unknown episodes before creating or mutating a thread", { timeout: 1000 }, async () => {
