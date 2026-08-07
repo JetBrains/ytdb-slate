@@ -127,10 +127,14 @@ test("routing doctrine renders dated prices and truthful candidate ordering", { 
 test("thread-choice doctrine defines work streams, consent, restart limits, and its shipped reference", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine(routedResolution());
   assert.match(doctrine, /3\. Keep each work stream in one thread\./);
-  assert.match(doctrine, /On continuations, `freshContext` is\s+required with `threadChoice\.act: true` and optional otherwise\. Every supplied\s+continuation value reaches the planner\. `\[\]` refuses a restart\. A non-empty list of existing\s+episode ids permits one and seeds the new thread\. Omission while required fails\.\s+Any supplied malformed value or unknown id fails before state changes\. A valid\s+creation value is accepted but unused\./);
-  assert.match(doctrine, /Use `\[\]` for short work or a needed live\s+transcript\./);
-  assert.match(doctrine, /Slate\s+restarts only if cheaper, opening a successor and rewriting its\s+full prompt-cache\s+prefix\./);
-  assert.match(doctrine, /Continue it\.\s+It must publish an episode\s+before another\s+restart\./);
+  assert.match(doctrine, /Omit `freshContext` on creation\./);
+  assert.match(doctrine, /On\s+continuations, it is required with `threadChoice\.act: true`\s+and optional otherwise\./);
+  assert.match(doctrine, /With acting off, omit it for no permission or supply it for a reported choice\./);
+  assert.match(doctrine, /`\[\]`\s+refuses a restart and preserves the live transcript\./);
+  assert.match(doctrine, /A non-empty list of existing\s+episode ids permits a restart and seeds the new thread\./);
+  assert.doesNotMatch(doctrine, /Omission while required fails\./);
+  assert.doesNotMatch(doctrine, /Any supplied malformed value or unknown id fails before state changes\./);
+  assert.doesNotMatch(doctrine, /A valid creation value is accepted but unused\./);
   assert.doesNotMatch(doctrine, /Treat a different model or effort as cold,\s+with no prefix reuse\./);
   const citation = /Details:\s+([^\n]+)$/m.exec(doctrine)?.[1]?.trim();
   assert.equal(citation, THREAD_CACHE_COST_DOC);
