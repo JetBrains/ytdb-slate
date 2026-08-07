@@ -31,6 +31,36 @@ The first match sets the class:
    reviewer pass covers it.
 4. **Medium:** Otherwise.
 
+### Worked classification examples
+
+**Trivial — correct one misspelled word in an internal comment.**
+
+- Step 1 does not match because no risky category changes.
+- Step 2 does not match because the shape is clear and no parts interact.
+- Step 3 matches. The correction is an obvious fix, behavior does not change,
+  and one reviewer pass can verify the complete diff.
+- Result: **Trivial**.
+
+**Medium — rename one internal helper and update its 40 call sites.**
+
+- Step 1 does not match because no public surface, behavior, or other risky
+  category changes.
+- Step 2 does not match because the mechanical shape is clear, the call sites
+  do not interact, and no design alternative exists.
+- Step 3 does not match. The repository-wide refactor is not an obvious fix,
+  and one reviewer pass cannot cover all references, strings, and documentation.
+- Step 4 matches by default.
+- Result: **Medium**.
+
+**Complex — reorganize test-fixture assembly across its loader, builder, and
+cleanup modules.**
+
+- Step 1 does not match because production behavior and every risky category
+  stay unchanged.
+- Step 2 matches. Several parts interact, and live alternatives either
+  centralize fixture state or pass it explicitly between the modules.
+- Result: **Complex**.
+
 The orchestrator proposes the class and the user confirms it. The
 proposal states the class, the reason, and the property that would
 raise it. The orchestrator re-proposes the class whenever new

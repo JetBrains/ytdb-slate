@@ -52,6 +52,8 @@ sets the class:
    reviewer pass covers it.
 4. **Medium:** Otherwise.
 
+After classification, follow these workflow steps:
+
 1. **Classification and research** — the orchestrator proposes the change class, and the user confirms it. A research log is required for medium changes and above.
 2. **Design gates** — medium changes need high-level design approval before implementation. Complex and risky changes add an adversarial review between two user approvals.
 3. **Track split** — the orchestrator owns the split. Size determines tracks and marker commits, not workflow gates.
