@@ -31,6 +31,19 @@ The first match sets the class:
    reviewer pass covers it.
 4. **Medium:** Otherwise.
 
+The orchestrator proposes the class and the user confirms it. The
+proposal states the class, the reason, and the property that would
+raise it. The orchestrator re-proposes the class whenever new
+information appears. An upgrade to any higher class after implementation
+starts pauses implementation. The orchestrator opens and backfills a
+research log when the new class requires one, then runs every newly
+required gate over the WHOLE change before implementation resumes. A
+gate whose prescribed timing has passed runs retroactively. The class
+is never lowered after implementation starts.
+
+Size drives only the track split and marker commits. The orchestrator
+owns the track split at every class; it is not a user approval gate.
+
 ### Worked classification examples
 
 **Trivial — correct one misspelled word in an internal comment.**
@@ -60,19 +73,6 @@ cleanup modules.**
 - Step 2 matches. Several parts interact, and live alternatives either
   centralize fixture state or pass it explicitly between the modules.
 - Result: **Complex**.
-
-The orchestrator proposes the class and the user confirms it. The
-proposal states the class, the reason, and the property that would
-raise it. The orchestrator re-proposes the class whenever new
-information appears. An upgrade to any higher class after implementation
-starts pauses implementation. The orchestrator opens and backfills a
-research log when the new class requires one, then runs every newly
-required gate over the WHOLE change before implementation resumes. A
-gate whose prescribed timing has passed runs retroactively. The class
-is never lowered after implementation starts.
-
-Size drives only the track split and marker commits. The orchestrator
-owns the track split at every class; it is not a user approval gate.
 
 ### Gate matrix
 
