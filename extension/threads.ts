@@ -444,7 +444,7 @@ export class ThreadManager {
 				}
 			}
 		}
-		const dispatchOpts: DispatchOptions = { ...opts, freshContext: actingContinuation ? suppliedFreshContext : undefined };
+		const dispatchOpts: DispatchOptions = { ...opts, freshContext: existing === undefined ? undefined : suppliedFreshContext };
 		if (existing && nextSlateEpisodeId(existing.id, existing.episodeSeq) === undefined) {
 			throw new Error(
 				`Slate cannot dispatch thread ${sanitizeForNotify(existing.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
