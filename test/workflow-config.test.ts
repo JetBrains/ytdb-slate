@@ -32,8 +32,26 @@ test("workflow follow-up issues defaults to false when workflow is absent", () =
   assert.deepEqual(warnings, []);
 });
 
-test("workflow follow-up issues defaults to false when workflow is not an object", () => {
+test("workflow follow-up issues defaults to false when workflow is null", () => {
+  const { result, warnings } = sanitize(null);
+  assert.deepEqual(result, { followUpIssues: false });
+  assert.deepEqual(warnings, []);
+});
+
+test("workflow follow-up issues defaults to false when workflow is an array", () => {
+  const { result, warnings } = sanitize([]);
+  assert.deepEqual(result, { followUpIssues: false });
+  assert.deepEqual(warnings, []);
+});
+
+test("workflow follow-up issues defaults to false when workflow is a string", () => {
   const { result, warnings } = sanitize("invalid workflow");
+  assert.deepEqual(result, { followUpIssues: false });
+  assert.deepEqual(warnings, []);
+});
+
+test("workflow follow-up issues defaults to false when workflow is a number", () => {
+  const { result, warnings } = sanitize(42);
   assert.deepEqual(result, { followUpIssues: false });
   assert.deepEqual(warnings, []);
 });
