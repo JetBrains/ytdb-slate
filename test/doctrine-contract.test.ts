@@ -142,11 +142,26 @@ test("thread-choice doctrine defines work streams, consent, restart limits, and 
   assert.equal(existsSync(THREAD_CACHE_COST_DOC), true);
 });
 
-test("doctrine scales gates across all four change classes", { timeout: 5000 }, async () => {
-  const doctrine = await renderDoctrine();
-  assert.match(doctrine, /Scale change gates by class: trivial, medium, complex, or risky\./);
-  assert.match(doctrine, /Medium and above require user-approved design\./);
-  assert.match(doctrine, /Complex\s+and risky require adversarial design review\./);
+test("doctrine enforces a user-confirmed class before file modification", { timeout: 5000 }, async () => {
+  const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
+  assert.ok(doctrine.includes("Scale change gates by class: trivial, medium, complex, or risky."));
+  assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the class and all required gates ran."));
+});
+
+test("complex and risky design gates preserve presentation order", { timeout: 5000 }, async () => {
+  const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
+  const design = doctrine.indexOf("Medium and above require user-approved design.");
+  const adversarial = doctrine.indexOf("Complex and risky then require adversarial design review,");
+  const approval = doctrine.indexOf("then final user approval.");
+  assert.ok(design >= 0);
+  assert.ok(adversarial > design);
+  assert.ok(approval > adversarial);
+});
+
+test("doctrine requires research logs and user review of every track diff", { timeout: 5000 }, async () => {
+  const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
+  assert.ok(doctrine.includes("Above trivial, keep a research log."));
+  assert.ok(doctrine.includes("Every track diff requires user review."));
 });
 
 test("doctrine states the exact restart-refusal test", { timeout: 5000 }, async () => {
@@ -154,8 +169,8 @@ test("doctrine states the exact restart-refusal test", { timeout: 5000 }, async 
   assert.ok(doctrine.includes("A blanket refusal of a thread restart has a price. Refuse only when the next action depends on context from the previous action that the thread's episodes do not carry."));
 });
 
-test("follow-up issue doctrine renders only when enabled in a trusted project", { timeout: 5000 }, async () => {
-  const sentence = "Ask the user which suggestions become tracker issues.";
+test("follow-up issue doctrine renders after review only when enabled", { timeout: 5000 }, async () => {
+  const sentence = "After review, ask the user which review suggestions become tracker issues.";
   assert.ok((await renderDoctrine(undefined, { workflow: { followUpIssues: true } })).includes(sentence));
   assert.equal((await renderDoctrine(undefined, { workflow: { followUpIssues: false } })).includes(sentence), false);
   assert.equal((await renderDoctrine()).includes(sentence), false);
@@ -165,7 +180,7 @@ test("untrusted follow-up issue configuration leaves doctrine byte-identical", {
   const enabled = await renderDoctrine(undefined, { workflow: { followUpIssues: true } }, false);
   const absent = await renderDoctrine(undefined, {}, false);
   assert.equal(enabled, absent);
-  assert.doesNotMatch(enabled, /Ask the user which suggestions become tracker issues\./);
+  assert.doesNotMatch(enabled, /After review, ask the user which review suggestions become tracker issues\./);
 });
 
 test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {

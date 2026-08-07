@@ -461,7 +461,7 @@ function buildDoctrine(
 			: `Durable workflow records anchor in the retained repo-root workflow
    log per the workflow doc.`;
 	const followUpTail = trusted && config.workflow?.followUpIssues === true
-		? " Ask the user which suggestions become tracker issues."
+		? "\n   After review, ask the user which review suggestions become tracker issues."
 		: "";
 	const perspectives = config.reviewPerspectivesPath;
 	const rule9Tail =
@@ -499,13 +499,16 @@ threads execute. Rules:
 7. Keep your own messages strategic: goals, task routing, synthesis.
 8. Scale change gates by class: trivial, medium, complex, or risky. The
    orchestrator owns the track split. Read ${TRACK_WORKFLOW_DOC} unless it is
-   already in context. Medium and above require user-approved design. Complex
-   and risky require adversarial design review.
+   already in context. Above trivial, keep a research log. Every track diff requires
+   user review. Before the first file-modifying dispatch, confirm the user confirmed
+   the class and all required gates ran. Medium and above require
+   user-approved design. Complex and risky then require adversarial design review,
+   then final user approval.
    ${rule8Tail}
 9. Every non-trivial change gets reviewed before it is declared done.
    Before dispatching review threads, read
    ${REVIEW_RULES_DOC}
-   (skip the read if it is already in your context) and follow it.${followUpTail}${rule9Tail}
+   (skip the read if it is already in your context) and follow it.${rule9Tail}${followUpTail}
 10. The design principles behind this architecture are documented in
    ${DESIGN_PRINCIPLES_DOC}.
    Read that file only when you must reason about slate itself (explaining
