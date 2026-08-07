@@ -847,24 +847,50 @@ export interface ThreadChoiceConfig {
 	act?: boolean;
 }
 
-/** Optional workflow publishing and follow-up issue controls. */
+/** Optional raw workflow publishing and follow-up issue controls. */
 export interface WorkflowConfig {
 	draftPRs?: boolean;
 	followUpIssues?: boolean;
 }
 
-/** Validate the follow-up issue switch while preserving the draft publishing value. */
-export function sanitizeWorkflowConfig(raw: unknown, warn: (msg: string) => void): WorkflowConfig & { followUpIssues: boolean } {
+/** Sanitized workflow shape. draftPRs stays unvalidated until issue 164 resolves it. */
+export interface SanitizedWorkflowConfig {
+	draftPRs?: unknown;
+	followUpIssues: boolean;
+}
+
+/** Display a rejected workflow value without letting serialization abort session startup. */
+function quotedWorkflowValue(value: unknown): string {
+	let text: string | undefined;
+	try {
+		text = JSON.stringify(value);
+	} catch {
+		text = undefined;
+	}
+	if (text === undefined) {
+		try {
+			text = String(value);
+		} catch {
+			text = `[unprintable ${typeof value}]`;
+		}
+	}
+	return sanitizeForNotify(text);
+}
+
+/** Validate the follow-up issue switch while preserving an own draft publishing value. */
+export function sanitizeWorkflowConfig(raw: unknown, warn: (msg: string) => void): SanitizedWorkflowConfig {
 	if (raw === undefined) return { followUpIssues: false };
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { followUpIssues: false };
-	const value = raw as { draftPRs?: boolean; followUpIssues?: unknown };
-	const candidate = value.followUpIssues;
-	if (candidate === undefined) return { draftPRs: value.draftPRs, followUpIssues: false };
-	if (typeof candidate === "boolean") return { draftPRs: value.draftPRs, followUpIssues: candidate };
+	const value = raw as { draftPRs?: unknown; followUpIssues?: unknown };
+	const hasOwn = (key: "draftPRs" | "followUpIssues") => Object.prototype.hasOwnProperty.call(value, key);
+	const draftPRs = hasOwn("draftPRs") ? { draftPRs: value.draftPRs } : {};
+	const candidate = hasOwn("followUpIssues") ? value.followUpIssues : undefined;
+	if (candidate === undefined) return { ...draftPRs, followUpIssues: false };
+	if (typeof candidate === "boolean") return { ...draftPRs, followUpIssues: candidate };
 	warn(
-		`slate: ignoring workflow.followUpIssues ${sanitizeForNotify(JSON.stringify(candidate) ?? String(candidate))}. Expected true or false. Slate uses false.`,
+		`slate: ignoring workflow.followUpIssues ${quotedWorkflowValue(candidate)}. Expected true or false. Slate uses false.`,
 	);
-	return { draftPRs: value.draftPRs, followUpIssues: false };
+	return { ...draftPRs, followUpIssues: false };
 }
 
 /** Optional writing checks and context-cadenced reminders. */
@@ -886,7 +912,7 @@ export interface SlateConfig {
 	orchestratorModeDefault?: boolean; // seed orchestrator mode ON for fresh interactive sessions (unsaved until first real mutation)
 	orchestratorPromptDocs?: string[]; // role-guideline docs appended to the orchestrator prompt (cwd-relative paths, default none)
 	workerPromptDocs?: string[]; // role-guideline docs appended to worker system prompts (cwd-relative paths, default none)
-	workflow?: WorkflowConfig; // workflow publishing and follow-up issue controls (both default false)
+	workflow?: WorkflowConfig | SanitizedWorkflowConfig; // raw or session-sanitized workflow controls (both default false)
 	modelFailover?: Record<string, string>; // model→model failover map ("provider/id" → "provider/id"); empty/absent = feature off
 	preserveGlobalModelDefault?: boolean; // restore the user's GLOBAL pi model defaults (defaultProvider/defaultModel/defaultThinkingLevel) after a slate-initiated model switch — failover and handoff adoption (default true; only an explicit false disables it) — see model-default.ts
 	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
