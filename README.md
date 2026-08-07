@@ -112,6 +112,7 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `orchestratorPromptDocs` | string[] | `[]` | Project markdown files (paths relative to the project root) whose **contents** are appended to the orchestrator system prompt. |
 | `workerPromptDocs` | string[] | `[]` | Project markdown files whose **contents** are appended to every worker-thread system prompt. |
 | `workflow.draftPRs` | boolean | `false` | Enable umbrella draft-PR publishing for tracks. |
+| `workflow.followUpIssues` | boolean | `false` | When true, the orchestrator asks which suggestions become follow-up issues in the project tracker. Suggestions are always reported whatever the value. |
 | `writing.check` | boolean | `false` | Add the writing doctrine rule, per-turn status, and worker guidance. An absent option is silently off. A malformed `writing` value, or a non-boolean `check` value, warns and defaults to off. Unknown `writing` keys warn and are ignored. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remind` | boolean | `false` | Send a hidden reminder after an eligible tool result. All gates must pass: orchestrator mode, project trust, `writing.check`, this option, no pause, cadence or handoff force, and one-per-round control. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remindPercent` | number | `10` | Set cadence as a percentage of Slate's current effective context budget. The value must be finite and in `(0, 100]`. The interval has an 8,192-token floor and no cap. A handoff force bypasses this threshold. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
@@ -132,7 +133,7 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
   "maxConcurrent": 4,
   "orchestratorPromptDocs": ["docs/agents/orchestrator-guidelines.md"],
   "workerPromptDocs": ["docs/agents/thread-guidelines.md"],
-  "workflow": { "draftPRs": true },
+  "workflow": { "draftPRs": true, "followUpIssues": false },
   "writing": {
     "check": true,
     "remind": false,

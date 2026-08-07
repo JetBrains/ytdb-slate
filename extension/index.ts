@@ -35,7 +35,7 @@
  *     "contextBudget": 256000, "orchestratorModeDefault": true,
  *     "orchestratorPromptDocs": ["docs/orchestrator-guidelines.md"],
  *     "workerPromptDocs": ["docs/thread-guidelines.md"],
- *     "workflow": { "draftPRs": false },
+ *     "workflow": { "draftPRs": false, "followUpIssues": false },
  *     "modelFailover": { "provider/id": "provider/id" },
  *     "preserveGlobalModelDefault": true,
  *     "doctrineExtraPath": "docs/project-doctrine.md",
@@ -74,6 +74,7 @@ import {
 	sanitizeCacheKeyEnabled,
 	sanitizeCacheKeyShards,
 	sanitizeEpisodeModel,
+	sanitizeWorkflowConfig,
 	SlateStore,
 	type SlateConfig,
 } from "./state.ts";
@@ -205,6 +206,7 @@ export default function (pi: ExtensionAPI) {
 		// and reported itself as a configuration fault.
 		showRouterWarnings = config.router.showWarnings === true;
 		config.writing = sanitizeWritingConfig(config.writing, warn);
+		config.workflow = sanitizeWorkflowConfig(config.workflow, warn);
 		// episodeModel too (RG20): an unusable value falls back to the built-in
 		// compressor, and until this ran it did so without saying anything at all.
 		config.episodeModel = sanitizeEpisodeModel(config.episodeModel, warn);
