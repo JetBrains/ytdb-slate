@@ -22,7 +22,6 @@ import {
 } from "./state.ts";
 import {
 	MAX_FRESH_CONTEXT_EPISODES,
-	normalizeFreshContext,
 	type DispatchProgress,
 	type DispatchResult,
 	type ThreadManager,
@@ -37,7 +36,7 @@ const THREAD_TYPE_PARAMETER_DESCRIPTION =
 	`Slate adds its reviewer evidence charter to ${judgementThreadTypes} threads.`;
 
 const FRESH_CONTEXT_PARAMETER_DESCRIPTION =
-	"On continuations: omit for no permission, use [] to refuse, or list seed episodes to permit a fresh thread. Omit on creation.";
+	"On continuations with threadChoice.act=true: pass [] to refuse, or list seed episodes to permit a restart. Otherwise ignored.";
 
 const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 
@@ -205,7 +204,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					type,
 					task: params.task,
 					contextEpisodeIds: params.context,
-					freshContext: normalizeFreshContext(params.freshContext),
+					freshContext: params.freshContext,
 					model: params.model,
 					effort: params.effort,
 					tools: params.tools,

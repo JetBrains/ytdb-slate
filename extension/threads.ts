@@ -156,6 +156,8 @@ export function workerPromptCacheKey(cwd: string, shard: number): string {
 }
 
 export const MAX_FRESH_CONTEXT_EPISODES = 32;
+const FRESH_CONTEXT_REQUIRED_ERROR =
+	`Continuations with threadChoice.act=true require freshContext: pass [] to refuse a restart or up to ${MAX_FRESH_CONTEXT_EPISODES} episode ids to permit one.`;
 
 /** Preserve no answer, malformed input, and an explicit empty list as distinct consent states. */
 export function normalizeFreshContext(value: unknown): string[] | null | undefined {
@@ -186,7 +188,7 @@ export interface DispatchOptions {
 	type?: ThreadType;
 	task: string;
 	contextEpisodeIds?: string[];
-	/** undefined = absent, null = malformed, array = explicit allowance. */
+	/** undefined = absent, null = malformed, array = explicit allowance. Interpreted only at the dispatch boundary. */
 	freshContext?: string[] | null;
 	model?: string; // "provider/id" for THIS action (see the header): the thread's base model when omitted
 	effort?: string; // pi thinking level for THIS action; validated against the target model's ladder
@@ -424,8 +426,17 @@ export class ThreadManager {
 		// first (it explains itself better than a routing complaint would), the
 		// routing guards next, and only then is a new thread created.
 		const existing = opts.threadId ? this.requireThread(opts.threadId) : undefined;
-		const freshContext = normalizeFreshContext(opts.freshContext);
-		if (Array.isArray(freshContext)) {
+		let freshContext: string[] | undefined;
+		if (existing !== undefined && sanitizeThreadChoiceConfig(this.config.threadChoice, () => undefined).act) {
+			try {
+				const normalized = normalizeFreshContext(opts.freshContext);
+				if (!Array.isArray(normalized)) throw new Error(FRESH_CONTEXT_REQUIRED_ERROR);
+				freshContext = normalized;
+			} catch {
+				throw new Error(FRESH_CONTEXT_REQUIRED_ERROR);
+			}
+		}
+		if (freshContext !== undefined) {
 			for (const id of freshContext) {
 				if (!this.store.episodes.has(id)) {
 					const known = [...this.store.episodes.keys()].join(", ") || "none";
@@ -803,9 +814,7 @@ export class ThreadManager {
 				taskTokens: this.estimatedTokens(opts.task),
 				freshSeedCache,
 			},
-			// The planner deliberately accepts malformed runtime input. null crosses this
-			// typed boundary only to preserve that defensive contract and reports no consent.
-			allowance: opts.freshContext as readonly string[] | undefined,
+			allowance: Array.isArray(opts.freshContext) ? opts.freshContext : undefined,
 			knownEpisodeIds: [...this.store.episodes.keys()],
 		});
 	}
