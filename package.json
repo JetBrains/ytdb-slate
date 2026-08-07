@@ -1,6 +1,6 @@
 {
   "name": "ytdb-slate",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Slate: thread-weaving orchestration for the pi coding agent — bounded worker actions, compressed episodes, mandatory research/design/adversarial/track review workflow, configurable model failover, and orchestrator context-budget handoff.",
   "license": "Apache-2.0",
   "repository": {
