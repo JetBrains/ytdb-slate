@@ -91,6 +91,14 @@ test("planner settles unusable input and permission before later decisions", () 
   assert.equal(missing.subject, "e1");
 });
 
+test("planner rejects malformed action and thread identities defensively", () => {
+  assert.equal(planThreadChoice({ thread, action: null as unknown as ThreadChoiceInput["action"] }).code, "no-action");
+  const noThread = planThreadChoice({ action: { model: "p/m", effort: "low", expectedTurns: 3 } });
+  assert.equal(noThread.code, "no-thread-to-continue");
+  const emptyId = planThreadChoice({ ...priced({ thread: { id: "", tools: ["read"] } }) });
+  assert.equal(emptyId.code, "fresh-cheaper");
+});
+
 test("planner applies equipment and failed-dispatch refusals after allowance checks", () => {
   const unrecorded = planThreadChoice({ ...priced(), thread: { id: "t1" }, allowance: ["e1"] });
   assert.equal(unrecorded.code, "tool-allowance-unrecorded");
@@ -175,6 +183,29 @@ test("long-context pricing uses the request threshold and reports an unpriced cl
   assert.deepEqual(unknown, { threshold: 1, cacheRead: 1, fresh: 1, output: 1, priced: false });
   const unpriced = planThreadChoice(priced({ longContext: { threshold: 1, multipliers: null } }));
   assert.equal(estimateOf(unpriced).longContextUnpriced, true);
+});
+
+test("defensive pricing guards reject malformed rates and retain known cliffs", () => {
+  assert.equal(resolveTokenRates(undefined), undefined);
+  assert.equal(resolveTokenRates({ inUsdPerMTok: -1, outUsdPerMTok: 1, cachedInUsdPerMTok: 1 }), undefined);
+  assert.equal(resolveTokenRates({ inUsdPerMTok: 1, outUsdPerMTok: Number.NaN, cachedInUsdPerMTok: 1 }), undefined);
+  assert.equal(resolveTokenRates({ inUsdPerMTok: 1, outUsdPerMTok: 1, cachedInUsdPerMTok: Number.POSITIVE_INFINITY }), undefined);
+  assert.deepEqual(resolveLongContext(undefined), undefined);
+  assert.deepEqual(resolveLongContext({ threshold: -1, multipliers: { in: 2, out: 2 } }), undefined);
+  assert.deepEqual(resolveLongContext({ threshold: 10, multipliers: { in: -1, cachedIn: -2, cacheWrite: 0, out: 0 } }), {
+    threshold: 10,
+    cacheRead: 1,
+    fresh: 1,
+    output: 1,
+    priced: false,
+  });
+  assert.deepEqual(resolveLongContext({ threshold: 10, multipliers: { in: 2, cachedIn: 0, cacheWrite: 0, out: 0 } }), {
+    threshold: 10,
+    cacheRead: 2,
+    fresh: 2,
+    output: 1,
+    priced: true,
+  });
 });
 
 test("planner preserves rediscovery, clamp metadata, seed assumptions, and exact ties", () => {
