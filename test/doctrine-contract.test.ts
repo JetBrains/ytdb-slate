@@ -126,8 +126,8 @@ test("routing doctrine renders dated prices and truthful candidate ordering", { 
 
 test("thread-choice doctrine defines work streams, consent, restart limits, and its shipped reference", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine(routedResolution());
-  assert.match(doctrine, /A work stream is actions for one outcome\. Start and reuse its thread\./);
-  assert.match(doctrine, /On continuation, omit `freshContext` for no permission, use `\[\]` to refuse, or\s+name seed episodes to permit a fresh thread\./);
+  assert.match(doctrine, /3\. Keep each work stream in one thread\./);
+  assert.match(doctrine, /With `threadChoice\.act: true`, continuations require `freshContext`\. `\[\]`\s+refuses a restart\. Episode ids permit one\. Omission fails\. Supplied malformed\s+values or unknown ids fail before state changes\. A valid creation value is accepted\s+but unused\./);
   assert.match(doctrine, /Use `\[\]` for one or two turns, or\s+to retain the live transcript\./);
   assert.match(doctrine, /With `threadChoice\.act: true`, Slate restarts only\s+if cheaper\. A restart opens a successor and rewrites its full prompt-cache prefix\./);
   assert.match(doctrine, /Continue the named successor\. It must publish an episode\s+before another restart\./);
