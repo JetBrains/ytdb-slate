@@ -19,17 +19,17 @@ below. Marker commits work identically in both modes.
 
 ## Change classes
 
-Gates key on the change class, not on size:
+Gates key on the change class, not on size. Evaluate these tests in order.
+The first match sets the class:
 
-| Class | Definition |
-| --- | --- |
-| Trivial | A typo, wording change, mechanical rename, or obvious one-file fix. |
-| Medium | A change of known shape that has no risky invariant. |
-| Complex | A change with an unclear shape, several interacting parts, or a live design alternative. |
-| Risky | A change that touches concurrency, durability, recovery, transactional semantics, security, or user data. It also includes a public API or behavioral change, or a silent failure mode. |
-
-When classes overlap, choose Risky over Complex, Complex over Trivial, and
-Trivial over Medium.
+1. **Risky:** The change touches concurrency, durability, recovery,
+   transactional semantics, security, or user data. This class also covers a
+   public API or behavioral change, or a silent failure mode.
+2. **Complex:** The shape is unclear, several parts interact, or a live design
+   alternative exists.
+3. **Trivial:** The change is an obvious fix with no behavioral change, and one
+   reviewer pass covers it.
+4. **Medium:** Otherwise.
 
 The orchestrator proposes the class and the user confirms it. The
 proposal states the class, the reason, and the property that would

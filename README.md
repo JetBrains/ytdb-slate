@@ -40,15 +40,17 @@ Full rationale: [`docs/design-principles.md`](docs/design-principles.md), shippe
 
 In orchestrator mode, Slate injects a mandatory track-based development workflow. Project configuration can extend it through `doctrineExtraPath`. Configuration cannot replace it.
 
-Slate uses four change classes:
+Slate uses four change classes. Evaluate these tests in order. The first match
+sets the class:
 
-- **Trivial:** A typo, wording change, mechanical rename, or obvious one-file fix.
-- **Medium:** A change of known shape that has no risky invariant.
-- **Complex:** A change with an unclear shape, several interacting parts, or a live design alternative.
-- **Risky:** A change that touches concurrency, durability, recovery, transactional semantics, security, or user data. It also includes a public API or behavioral change, or a silent failure mode.
-
-When classes overlap, choose Risky over Complex, Complex over Trivial, and
-Trivial over Medium.
+1. **Risky:** The change touches concurrency, durability, recovery,
+   transactional semantics, security, or user data. This class also covers a
+   public API or behavioral change, or a silent failure mode.
+2. **Complex:** The shape is unclear, several parts interact, or a live design
+   alternative exists.
+3. **Trivial:** The change is an obvious fix with no behavioral change, and one
+   reviewer pass covers it.
+4. **Medium:** Otherwise.
 
 1. **Classification and research** — the orchestrator proposes the change class, and the user confirms it. A research log is required for medium changes and above.
 2. **Design gates** — medium changes need high-level design approval before implementation. Complex and risky changes add an adversarial review between two user approvals.
