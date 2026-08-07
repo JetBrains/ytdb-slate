@@ -132,6 +132,7 @@ test("thread-choice doctrine defines work streams, consent, restart limits, and 
   assert.match(doctrine, /With acting off, omit it for no permission or supply it for a reported choice\./);
   assert.match(doctrine, /`\[\]`\s+refuses a restart and preserves the live transcript\./);
   assert.match(doctrine, /A non-empty list of existing\s+episode ids permits a restart and seeds the new thread\./);
+  // Behavioural coverage lives in dispatch-choice.test.ts's rejection tests, not these text guards.
   assert.doesNotMatch(doctrine, /Omission while required fails\./);
   assert.doesNotMatch(doctrine, /Any supplied malformed value or unknown id fails before state changes\./);
   assert.doesNotMatch(doctrine, /A valid creation value is accepted but unused\./);

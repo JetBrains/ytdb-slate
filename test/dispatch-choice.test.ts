@@ -224,9 +224,13 @@ test("a non-acting continuation rejects malformed or unknown freshContext before
   store.threads.set(source.id, source);
   const invalidValues: Array<string[] | null> = [null, ["missing"]];
   for (const freshContext of invalidValues) {
+    const sourceBefore = JSON.stringify(source);
+    const threadCountBefore = store.threads.size;
+    const episodeCountBefore = store.episodes.size;
     await assert.rejects(manager.dispatch({ threadId: source.id, task: "bad", freshContext }, context(root), undefined));
-    assert.deepEqual(source, sourceRecord());
-    assert.deepEqual([...store.episodes.keys()], []);
+    assert.equal(JSON.stringify(source), sourceBefore);
+    assert.equal(store.threads.size, threadCountBefore);
+    assert.equal(store.episodes.size, episodeCountBefore);
     assert.equal(internal.live.size, 0);
   }
 });
@@ -235,9 +239,13 @@ test("an acting continuation must not omit freshContext", { timeout: 1000 }, asy
   const { root, store, manager, internal } = validationHarness(t, { threadChoice: { report: true, act: true } });
   const source = sourceRecord();
   store.threads.set(source.id, source);
+  const sourceBefore = JSON.stringify(source);
+  const threadCountBefore = store.threads.size;
+  const episodeCountBefore = store.episodes.size;
   await assert.rejects(manager.dispatch({ threadId: source.id, task: "missing permission" }, context(root), undefined), /require freshContext/);
-  assert.deepEqual(source, sourceRecord());
-  assert.deepEqual([...store.episodes.keys()], []);
+  assert.equal(JSON.stringify(source), sourceBefore);
+  assert.equal(store.threads.size, threadCountBefore);
+  assert.equal(store.episodes.size, episodeCountBefore);
   assert.equal(internal.live.size, 0);
 });
 
@@ -307,9 +315,13 @@ test("an acting continuation rejects malformed or unknown freshContext before st
   store.threads.set(source.id, source);
   const invalidValues: Array<string[] | null> = [null, ["missing"]];
   for (const freshContext of invalidValues) {
+    const sourceBefore = JSON.stringify(source);
+    const threadCountBefore = store.threads.size;
+    const episodeCountBefore = store.episodes.size;
     await assert.rejects(manager.dispatch({ threadId: source.id, task: "bad", freshContext }, context(root), undefined));
-    assert.deepEqual(source, sourceRecord());
-    assert.deepEqual([...store.episodes.keys()], []);
+    assert.equal(JSON.stringify(source), sourceBefore);
+    assert.equal(store.threads.size, threadCountBefore);
+    assert.equal(store.episodes.size, episodeCountBefore);
     assert.equal(internal.live.size, 0);
   }
 });
