@@ -42,10 +42,10 @@ In orchestrator mode, Slate injects a mandatory track-based development workflow
 
 Slate uses four change classes:
 
-- A trivial change is a typo, mechanical rename, or obvious one-file fix.
-- A medium change has a known shape, touches multiple files, and avoids the risky areas below.
+- A trivial change is a typo, wording change, mechanical rename, or obvious one-file fix.
+- A medium change has a known shape, touches more than one file, and has no risky invariant.
 - A complex change has an unclear shape, interacting parts, or a live design alternative.
-- A risky change affects concurrency, durability, recovery, security, public APIs, user data, or silent failure paths.
+- A risky change touches concurrency, durability, recovery, transactional semantics, a public API or behavioral change, security, user data, or a silent failure mode.
 
 1. **Classification and research** — the orchestrator proposes the change class, and the user confirms it. A research log is required for medium changes and above.
 2. **Design gates** — medium changes need high-level design approval before implementation. Complex and risky changes add an adversarial review between two user approvals.
