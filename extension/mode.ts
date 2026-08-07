@@ -460,6 +460,9 @@ function buildDoctrine(
    publishing mechanics are in ${PR_PUBLISHING_DOC}.`
 			: `Durable workflow records anchor in the retained repo-root workflow
    log per the workflow doc.`;
+	const followUpTail = trusted && config.workflow?.followUpIssues === true
+		? " Ask the user which suggestions become tracker issues."
+		: "";
 	const perspectives = config.reviewPerspectivesPath;
 	const rule9Tail =
 		trusted && typeof perspectives === "string" && perspectives && existsSync(resolve(cwd, perspectives))
@@ -484,7 +487,9 @@ threads execute. Rules:
    With acting off, omit it for no permission or supply it for a reported choice. \`[]\`
    refuses a restart and preserves the live transcript. A non-empty list of existing
    episode ids permits a restart and seeds the new thread. Slate restarts only when
-   cheaper. Continue the successor. Details: ${THREAD_CACHE_COST_DOC}
+   cheaper. A blanket refusal of a thread restart has a price. Refuse only when the
+   next action depends on context from the previous action that the thread's episodes
+   do not carry. Continue the successor. Details: ${THREAD_CACHE_COST_DOC}
 4. Compose context by reference: pass prior episode ids in \`context\` instead
    of restating their content.
 5. Your read-only tools (read/grep/find/ls) are for cheap orientation only;
@@ -492,16 +497,15 @@ threads execute. Rules:
 6. After every episode, update your strategy. Episodes marked STATUS: FAILED
    require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.
-8. Repository changes follow the slate track-based workflow — read
-   ${TRACK_WORKFLOW_DOC}
-   (skip the read if it is already in your context). Before the FIRST
-   dispatch that modifies files, confirm the pre-implementation gates ran
-   (user design review, adversarial review, user-approved scope).
+8. Scale change gates by class: trivial, medium, complex, or risky. The
+   orchestrator owns the track split. Read ${TRACK_WORKFLOW_DOC} unless it is
+   already in context. Medium and above require user-approved design. Complex
+   and risky require adversarial design review.
    ${rule8Tail}
 9. Every non-trivial change gets reviewed before it is declared done.
    Before dispatching review threads, read
    ${REVIEW_RULES_DOC}
-   (skip the read if it is already in your context) and follow it.${rule9Tail}
+   (skip the read if it is already in your context) and follow it.${followUpTail}${rule9Tail}
 10. The design principles behind this architecture are documented in
    ${DESIGN_PRINCIPLES_DOC}.
    Read that file only when you must reason about slate itself (explaining

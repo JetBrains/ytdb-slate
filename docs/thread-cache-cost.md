@@ -93,6 +93,10 @@ The orchestrator chooses the work stream, thread, model, effort, task, and requi
 
 The tool makes one narrow economic judgement. It decides whether continuing the named thread costs more than a fresh thread seeded with named episodes.
 
+A blanket refusal of a thread restart has a price. Refuse a restart only when the next action depends on context from the previous action that the thread's episodes do not carry. The orchestrator can apply this test because it reads those episodes before choosing the successor's context.
+
+Episodes carry published findings, approved decisions, named file paths, and recorded verification results. They do not carry unrecorded intermediate reasoning, unpublished terminal output, or conversational details omitted during compression. Continue the live thread when the next action needs one of those missing details. Permit a restart when the published episode contains the context needed to act.
+
 ### Permission through `freshContext`
 
 The `freshContext` contract asks three separate questions:

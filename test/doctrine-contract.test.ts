@@ -43,11 +43,11 @@ class FakeExtensionApi {
   }
 }
 
-function extensionContext(cwd: string, warnings: string[] = []): ExtensionContext {
+function extensionContext(cwd: string, warnings: string[] = [], trusted = true): ExtensionContext {
   return {
     cwd,
     hasUI: true,
-    isProjectTrusted: () => true,
+    isProjectTrusted: () => trusted,
     model: undefined,
     modelRegistry: {},
     sessionManager: {
@@ -92,7 +92,7 @@ function routedResolution(): ModelRouterResolution {
   };
 }
 
-async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}): Promise<string> {
+async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}, trusted = true): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
@@ -109,7 +109,7 @@ async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfi
   );
   const handler = api.handlers.get("before_agent_start")?.[0];
   assert.ok(handler);
-  const result = await handler({ systemPrompt: "BASE" }, extensionContext(scratch)) as { systemPrompt: string };
+  const result = await handler({ systemPrompt: "BASE" }, extensionContext(scratch, [], trusted)) as { systemPrompt: string };
   assert.ok(result.systemPrompt.startsWith("BASE"));
   return result.systemPrompt.slice("BASE".length);
 }
@@ -140,6 +140,32 @@ test("thread-choice doctrine defines work streams, consent, restart limits, and 
   const citation = /Details:\s+([^\n]+)$/m.exec(doctrine)?.[1]?.trim();
   assert.equal(citation, THREAD_CACHE_COST_DOC);
   assert.equal(existsSync(THREAD_CACHE_COST_DOC), true);
+});
+
+test("doctrine scales gates across all four change classes", { timeout: 5000 }, async () => {
+  const doctrine = await renderDoctrine();
+  assert.match(doctrine, /Scale change gates by class: trivial, medium, complex, or risky\./);
+  assert.match(doctrine, /Medium and above require user-approved design\./);
+  assert.match(doctrine, /Complex\s+and risky require adversarial design review\./);
+});
+
+test("doctrine states the exact restart-refusal test", { timeout: 5000 }, async () => {
+  const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
+  assert.ok(doctrine.includes("A blanket refusal of a thread restart has a price. Refuse only when the next action depends on context from the previous action that the thread's episodes do not carry."));
+});
+
+test("follow-up issue doctrine renders only when enabled in a trusted project", { timeout: 5000 }, async () => {
+  const sentence = "Ask the user which suggestions become tracker issues.";
+  assert.ok((await renderDoctrine(undefined, { workflow: { followUpIssues: true } })).includes(sentence));
+  assert.equal((await renderDoctrine(undefined, { workflow: { followUpIssues: false } })).includes(sentence), false);
+  assert.equal((await renderDoctrine()).includes(sentence), false);
+});
+
+test("untrusted follow-up issue configuration leaves doctrine byte-identical", { timeout: 5000 }, async () => {
+  const enabled = await renderDoctrine(undefined, { workflow: { followUpIssues: true } }, false);
+  const absent = await renderDoctrine(undefined, {}, false);
+  assert.equal(enabled, absent);
+  assert.doesNotMatch(enabled, /Ask the user which suggestions become tracker issues\./);
 });
 
 test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {

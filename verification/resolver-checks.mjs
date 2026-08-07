@@ -359,7 +359,7 @@ const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "pro
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
-const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
+const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-follow-up", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
 const WORKER_IDS = ["worker-preamble", "reviewer-charter-sync"];
 /** Checks that need extension/thread-choice.ts — the pure continue-or-fresh planner. */
 const CHOICE_IDS = [
@@ -1702,8 +1702,10 @@ try {
 				toolNames: [],
 			};
 			const maximalConfig = { workflow: { draftPRs: true }, writing: { check: true } };
+			const maximalFollowUpConfig = { workflow: { draftPRs: true, followUpIssues: true }, writing: { check: true } };
 			const maximalNoDraftConfig = { workflow: { draftPRs: false }, writing: { check: true } };
 			const maximal = await asTrusted(MAX_EXT, onReal, maximalConfig);
+			const maximalFollowUp = await asTrusted(MAX_EXT, onReal, maximalFollowUpConfig);
 			const maximalNoDraft = await asTrusted(MAX_EXT, onReal, maximalNoDraftConfig);
 			const DOCS_DIR = dirname(paths.TRACK_WORKFLOW_DOC);
 			const portableFrom = (text, docsDir) => text.split(docsDir).join("");
@@ -1720,6 +1722,7 @@ try {
 			const workerEnd = maximal.search(/\n\d+\. Pick the first candidate/);
 			const workerRule = workerStart >= 0 && workerEnd > workerStart ? maximal.slice(workerStart, workerEnd) : "";
 			const maximalPortable = portable(maximal).length;
+			const maximalFollowUpPortable = portable(maximalFollowUp).length;
 			const maximalNoDraftPortable = portable(maximalNoDraft).length;
 			const writingPortable = portable(ruleOfWriting(writingOn)).length;
 			const modelIncrements = [];
@@ -1756,17 +1759,18 @@ try {
 					["no single model row exceeds 300 chars or consumes its five percent reserve", longest <= 300 && hasDoctrineReserve(longest, 300), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
-					["...and the whole router-on doctrine stays under 6500 portable chars with five percent reserve", portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length }],
-					["writing-only doctrine stays under 5600 portable chars with five percent reserve", portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length }],
-					["writing plus router stays under 6500 portable chars with five percent reserve", portable(writingRouterOn).length <= 6500 && hasDoctrineReserve(portable(writingRouterOn).length, 6500), { portable: portable(writingRouterOn).length }],
-					["writing plus extensions stays under 6000 portable chars with five percent reserve", portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length }],
-					["all three tail features stay under 6800 portable chars with five percent reserve", portable(writingAllOn).length <= 6800 && hasDoctrineReserve(portable(writingAllOn).length, 6800), { portable: portable(writingAllOn).length }],
+					["the router-off doctrine is the measured 2419 portable chars", portable(off).length === 2419, { portable: portable(off).length, lines: off.split("\n").length }],
+					["...and the whole router-on doctrine is the measured 5004 portable chars and stays under 6500 with five percent reserve", portable(on).length === 5004 && portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
+					["writing-only doctrine is the measured 3489 portable chars and stays under 5600 with five percent reserve", portable(writingOn).length === 3489 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
+					["writing plus router is the measured 6074 portable chars and stays under 6500 with five percent reserve", portable(writingRouterOn).length === 6074 && portable(writingRouterOn).length <= 6500 && hasDoctrineReserve(portable(writingRouterOn).length, 6500), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
+					["writing plus extensions is the measured 3744 portable chars and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 3744 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
+					["all three tail features are the measured 6329 portable chars and stay under 6800 with five percent reserve", portable(writingAllOn).length === 6329 && portable(writingAllOn).length <= 6800 && hasDoctrineReserve(portable(writingAllOn).length, 6800), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
 					// Update exact measurements with production wording in the same commit.
-					["the maximum all-feature fixture is the measured 7291 portable chars and stays within 7900 with five percent reserve", maximalPortable === 7291 && maximalPortable <= 7900 && hasDoctrineReserve(maximalPortable, 7900), { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					["the draft-PR-disabled maximum fixture is pinned independently at 7272 portable chars and shares the maximum bound", maximalNoDraftPortable === 7272 && maximalNoDraftPortable <= 7900 && hasDoctrineReserve(maximalNoDraftPortable, 7900), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the maximum all-feature fixture is the measured 7440 portable chars and stays within 7900 with five percent reserve", maximalPortable === 7440 && maximalPortable <= 7900 && hasDoctrineReserve(maximalPortable, 7900), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the draft-PR-disabled maximum fixture is pinned independently at 7421 portable chars and shares the maximum bound", maximalNoDraftPortable === 7421 && maximalNoDraftPortable <= 7900 && hasDoctrineReserve(maximalNoDraftPortable, 7900), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					["the positive control is the measured 8239 portable chars and exceeds 7900 by the larger growth unit", overBudgetPortable === 8239 && overBudgetPortable > 7900 && overBudgetPortable - 7900 >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, bound: 7900, growthBeyondBound: overBudgetPortable - 7900, maxModelIncrement, maxToolIncrement }],
+					["the positive control is the measured 8388 portable chars and exceeds 7900 by the larger growth unit", overBudgetPortable === 8388 && overBudgetPortable > 7900 && overBudgetPortable - 7900 >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: 7900, growthBeyondBound: overBudgetPortable - 7900, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
@@ -1776,6 +1780,13 @@ try {
 					["...and embeds exactly ONE doc path, so the citation is charged once per turn, not once per mention", DOCS_DIR !== "" && ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 === 1, { paths: DOCS_DIR === "" ? "no docs dir found" : ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 }],
 					["writing-on text is actually larger than writing-off text", writingOn.length > off.length, { off: off.length, writing: writingOn.length }],
 					["writing-on with extensions is larger than writing-on without them", writingAllOn.length > writingRouterOn.length, { router: writingRouterOn.length, all: writingAllOn.length }],
+				],
+			);
+			checkAll(
+				"doctrine-budget-follow-up",
+				"the trusted follow-up-issues configuration has its own pinned maximum fixture and preserves the existing maximum bound",
+				[
+					["the maximal follow-up fixture is the measured 7494 portable chars and stays within 7900 with five percent reserve", maximalFollowUpPortable === 7494 && maximalFollowUpPortable <= 7900 && hasDoctrineReserve(maximalFollowUpPortable, 7900), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: 7900 }],
 				],
 			);
 		});
@@ -6853,7 +6864,7 @@ try {
 	// check or a renamed id shows up here instead of vanishing into a clean exit.
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
-		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget",
+		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-follow-up",
 		"writing-config-default", "writing-config-reminder-valid", "writing-config-reminder-inert", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
 		"writing-reminder-load", "writing-reminder-roster", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-interval", "writing-reminder-cadence", "writing-reminder-gates", "writing-reminder-state-machine",
 		"writing-reminder-mode-send", "writing-reminder-rearm", "writing-reminder-mode-gates", "writing-reminder-mode-force", "writing-reminder-send-retry", "writing-reminder-cleared-retry", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",
