@@ -1732,6 +1732,10 @@ try {
 			const maxCandidate = realCandidates.find((candidate) => candidate.spec === maxModelIncrement.spec);
 			const overBudget = await asTrusted(MAX_EXT_PLUS_TOOL, onWith([...realCandidates, maxCandidate, maxCandidate, maxCandidate]), maximalConfig);
 			const overBudgetPortable = portable(overBudget).length;
+			// Exact measurements catch every size change. Bounds are coarse ceilings and
+			// retain at least five percent reserve, so one ordinary edit does not force a
+			// ceiling change. Required character-bound raises round up to the next hundred.
+			const hasDoctrineReserve = (measured, bound) => bound >= Math.ceil(measured * 1.05);
 			// The normalisation must actually BITE — if the doctrine ever stops embedding a
 			// path, or the directory stops being extractable, `portable()` silently becomes
 			// the identity and the bounds go back to being install-dependent.
@@ -1743,28 +1747,28 @@ try {
 					["the normalisation bites: the doctrine really does embed the authoritative docs directory", docPaths >= 3 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC), { docPaths, DOCS_DIR }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
 					["space-bearing docs directories normalize without parsing rendered text", spacedPortable === "read /track-workflow.md", spacedPortable],
-					["the whole rule stays under 4000 portable chars", ruleChars <= 4000, { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
-					["...and under 34 lines", rule.split("\n").length <= 34, rule.split("\n").length],
-					["its FIXED prose — the part that does not scale with the table — stays under 1500 portable chars", prose <= 1500, prose],
-					["no single model row exceeds 300 chars", longest <= 300, { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
+					["the whole rule stays under 4000 portable chars with five percent reserve", ruleChars <= 4000 && hasDoctrineReserve(ruleChars, 4000), { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
+					["...and under 34 lines with five percent reserve", rule.split("\n").length <= 34 && hasDoctrineReserve(rule.split("\n").length, 34), rule.split("\n").length],
+					["its FIXED prose — the part that does not scale with the table — stays under 1500 portable chars with five percent reserve", prose <= 1500 && hasDoctrineReserve(prose, 1500), prose],
+					["no single model row exceeds 300 chars or consumes its five percent reserve", longest <= 300 && hasDoctrineReserve(longest, 300), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
-					["...and the whole router-on doctrine stays under 6500 portable chars", portable(on).length <= 6500, { portable: portable(on).length, raw: on.length }],
-					["writing-only doctrine stays under 5600 portable chars", portable(writingOn).length <= 5600, { portable: portable(writingOn).length }],
-					["writing plus router stays under 6000 portable chars", portable(writingRouterOn).length <= 6000, { portable: portable(writingRouterOn).length }],
-					["writing plus extensions stays under 6000 portable chars", portable(writingExtensionsOn).length <= 6000, { portable: portable(writingExtensionsOn).length }],
-					["all three tail features stay under 6300 portable chars", portable(writingAllOn).length <= 6300, { portable: portable(writingAllOn).length }],
+					["...and the whole router-on doctrine stays under 6500 portable chars with five percent reserve", portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length }],
+					["writing-only doctrine stays under 5600 portable chars with five percent reserve", portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length }],
+					["writing plus router stays under 6300 portable chars with five percent reserve", portable(writingRouterOn).length <= 6300 && hasDoctrineReserve(portable(writingRouterOn).length, 6300), { portable: portable(writingRouterOn).length }],
+					["writing plus extensions stays under 6000 portable chars with five percent reserve", portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length }],
+					["all three tail features stay under 6600 portable chars with five percent reserve", portable(writingAllOn).length <= 6600 && hasDoctrineReserve(portable(writingAllOn).length, 6600), { portable: portable(writingAllOn).length }],
 					// Update exact measurements with production wording in the same commit.
-					["the maximum all-feature fixture is the measured 7358 portable chars and stays within 7400", maximalPortable === 7358 && maximalPortable <= 7400, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					["the capped worker rule is the measured 1347 chars and stays within 1600", workerRule.length === 1347 && workerRule.length <= 1600, { chars: workerRule.length, lines: workerRule.split("\n").length }],
+					["the maximum all-feature fixture is the measured 7358 portable chars and stays within 7800 with five percent reserve", maximalPortable === 7358 && maximalPortable <= 7800 && hasDoctrineReserve(maximalPortable, 7800), { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the capped worker rule is the measured 1347 chars and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					["the positive control is the measured 8122 portable chars and exceeds 7400 by at least one model growth unit", overBudgetPortable === 8122 && overBudgetPortable > 7400 && overBudgetPortable - 7400 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7400, growthBeyondBound: overBudgetPortable - 7400, maxModelIncrement, maxToolIncrement }],
+					["the positive control is the measured 8122 portable chars and exceeds 7800 by at least one model growth unit", overBudgetPortable === 8122 && overBudgetPortable > 7800 && overBudgetPortable - 7800 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7800, growthBeyondBound: overBudgetPortable - 7800, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
 					// The writing rule has its own bound because its absolute citation changes raw size.
-					["the writing rule is the measured 1070 portable chars and stays under 1150", writingPortable === 1070 && writingPortable <= 1150, { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length }],
-					["...and under 24 lines", ruleOfWriting(writingOn).split("\n").length <= 24, ruleOfWriting(writingOn).split("\n").length],
+					["the writing rule is the measured 1070 portable chars and stays under 1150 with five percent reserve", writingPortable === 1070 && writingPortable <= 1150 && hasDoctrineReserve(writingPortable, 1150), { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length }],
+					["...and under 25 lines with five percent reserve", ruleOfWriting(writingOn).split("\n").length <= 25 && hasDoctrineReserve(ruleOfWriting(writingOn).split("\n").length, 25), ruleOfWriting(writingOn).split("\n").length],
 					["...and embeds exactly ONE doc path, so the citation is charged once per turn, not once per mention", DOCS_DIR !== "" && ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 === 1, { paths: DOCS_DIR === "" ? "no docs dir found" : ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 }],
 					["writing-on text is actually larger than writing-off text", writingOn.length > off.length, { off: off.length, writing: writingOn.length }],
 					["writing-on with extensions is larger than writing-on without them", writingAllOn.length > writingRouterOn.length, { router: writingRouterOn.length, all: writingAllOn.length }],

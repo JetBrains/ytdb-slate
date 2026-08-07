@@ -270,25 +270,47 @@ independent of installed extension labels, descriptions, versions and other
 prose. The worker rule measures 1,347 characters against its 1,600-character
 verification budget.
 
-`doctrine-budget` now caps that representative maximal doctrine at 7,400
-portable characters. The old 7,200-character bound could not hold the required
-permission contract, setting name, and prompt-cache rewrite definition.
-Keeping that meaning raised the measured fixture from 7,189 to 7,358 characters.
-The new bound leaves 42 characters, or 0.6 percent. A positive control adds one
-capped tool and three copies of the largest measured model row. It measures 8,122
-portable characters and exceeds the new bound by 722. These figures are
-verification budgets, never runtime limits. Arbitrary user extension rosters can
-exceed them.
+The reserve policy is: every doctrine upper bound must exceed its current
+measurement by at least five percent, with a required character-bound raise
+rounded up to the next hundred characters. Existing bounds stay in place when
+they already satisfy the policy. Line bounds use the same five-percent rule and
+the next whole line.
 
-The writing-plus-router fixture is the binding checked combination. It measures
-5,992 against 6,000 and leaves eight characters. The maximal fixture does not set
-the tightest reserve.
+Two guards have different jobs. The exact pinned literal is the sensitive guard.
+It fails for every doctrine size change, including one character. The bound is a coarse ceiling that
+stops unbounded growth over time. A bound only eight characters above a fixture
+adds friction but no detection, because the exact literal already detects the
+change. Real reserve therefore weakens nothing.
 
-The exact values are maintenance tripwires. A deliberate doctrine wording,
-requirement roster, renderer cap, or fixture change requires a fresh render
-through `doctrine-budget`. Update its exact expectations and every published
-figure in the same commit. Keep the positive control steps unchanged unless the
-fixture design itself changes.
+A doctrine change updates the exact literal and every published measurement. A
+maintainer revisits a bound only when the reserve policy requires it. The check
+applies the five-percent rule to every upper bound, so this decision is auditable.
+
+| budget term | measured | old bound | current bound | current reserve |
+| --- | ---: | ---: | ---: | ---: |
+| routing rule characters | 2,585 | 4,000 | 4,000 | 1,415 |
+| routing rule lines | 25 | 34 | 34 | 9 |
+| routing fixed prose | 1,110 | 1,500 | 1,500 | 390 |
+| largest model row | 183 | 300 | 300 | 117 |
+| router-on doctrine | 4,922 | 6,500 | 6,500 | 1,578 |
+| writing-only doctrine | 3,407 | 5,600 | 5,600 | 2,193 |
+| writing plus router | 5,992 | 6,000 | 6,300 | 308 |
+| writing plus extensions | 3,662 | 6,000 | 6,000 | 2,338 |
+| writing plus router and extensions | 6,247 | 6,300 | 6,600 | 353 |
+| maximal doctrine | 7,358 | 7,400 | 7,800 | 442 |
+| capped worker rule | 1,347 | 1,600 | 1,600 | 253 |
+| writing rule characters | 1,070 | 1,150 | 1,150 | 80 |
+| writing rule lines | 23 | 24 | 25 | 2 |
+
+The positive control adds one capped tool and three copies of the largest
+measured model row. It measures 8,122 portable characters and exceeds the new
+7,800-character maximal bound by 322. That margin remains larger than the
+184-character maximum model-row growth and the 212-character capped tool growth.
+The raised bound does not blunt the positive control.
+
+These figures are verification budgets, never runtime limits. Arbitrary user
+extension rosters can exceed them. Keep the positive-control steps unchanged
+unless the fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. At four
 characters per token as a rough estimate, the shipped-rule table ranges from
