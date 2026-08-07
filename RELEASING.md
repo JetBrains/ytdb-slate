@@ -547,18 +547,14 @@ mkdir -p "$RELEASE_DIR/evidence"
 HANDOFF_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 node "$RELEASE_DIR/state.cjs" save "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" HANDOFF_AT="$HANDOFF_AT"
 cat <<HANDOFF
-Publish $PACKAGE@$VERSION. Run these two lines in your own terminal, so you can
+Publish $PACKAGE@$VERSION. Run this command in your own terminal, so you can
 answer the two-factor prompt:
 
   npm publish '$TARBALL'
-  echo "npm publish exit status: \$?"
-
-The second line is the answer. Zero means the transaction completed; anything
-else means it did not. Read that number rather than the wording of the output.
 
 The output is not redirected on purpose: npm asks for the one-time password on
 the terminal, and a pipe or a file can hide the prompt or suppress it entirely.
-Copy the whole output, including the exit-status line, into:
+Copy the whole console output into:
 
   $RELEASE_DIR/evidence/publish.log
 
@@ -570,14 +566,20 @@ The inspected bytes are:
 npm prints a shasum and an integrity line before it uploads. The integrity line
 must equal the value above. If it does not, stop and do not confirm the upload.
 
-Publish this file and no other. Do not repack it. Tell the agent the exit status
-when the command has finished.
+Publish this file and no other. Do not repack it. Tell the agent when the
+command has finished.
 HANDOFF
 ```
 
-**The user publishes.** Run the printed commands, complete two-factor, save the output. Report the exit status number, not an impression. If it is not zero, say so and stop; do not retry without the agent, because a second attempt against an accepted transaction is the one thing this runbook cannot undo.
+**The user publishes.** Run the printed command. Complete two-factor authentication. Save the console output. Do not retry without the agent. A second attempt can repeat an accepted transaction.
 
-**The agent waits.** It does not run `npm publish`, does not repack, and does not infer the outcome from what the user reports — not even from a reported exit status of zero, which says the CLI returned, not that the registry serves the inspected bytes. It proceeds to step 6 once the command has finished, whatever anyone believes happened.
+**The agent waits.** It does not run `npm publish` or repack. It proceeds to step 6 after the command finishes.
+
+Treat a reported exit status only as advisory evidence. The runbook never uses that status to decide whether the publish succeeded.
+
+A shell may fail to run the line that reports status. The shell then reports a failure that did not happen. Within a pipeline, the shell reports the last command's status. The shell does not necessarily report the `npm publish` status.
+
+Step 6 decides whether the publish succeeded. The registry must contain the artifact. The artifact must match what step 4 packed.
 
 ## Step 6 — the agent verifies the published artifact
 
