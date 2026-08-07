@@ -207,18 +207,18 @@ must be named instead of presented as the same measurement:
 
 | router | models | `draftPRs` | `writing.check` | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | off | 4 | 2,498 | 46 |
-| off | — | off | on | 5 | 3,568 | 68 |
-| off | — | on | off | 5 | 2,517 | 46 |
-| off | — | on | on | 6 | 3,587 | 68 |
-| on | `.pi/slate.json` six | off | off | 5 | 4,528 | 67 |
-| on | `.pi/slate.json` six | off | on | 6 | 5,598 | 89 |
-| on | `.pi/slate.json` six | on | off | 6 | 4,547 | 67 |
-| on | `.pi/slate.json` six | on | on | 7 | 5,617 | 89 |
-| on | all 9 shipped | off | off | 5 | 5,083 | 70 |
-| on | all 9 shipped | off | on | 6 | 6,153 | 92 |
-| on | all 9 shipped | on | off | 6 | 5,102 | 70 |
-| on | all 9 shipped | on | on | 7 | 6,172 | 92 |
+| off | — | off | off | 4 | 2,270 | 43 |
+| off | — | off | on | 5 | 3,340 | 65 |
+| off | — | on | off | 5 | 2,289 | 43 |
+| off | — | on | on | 6 | 3,359 | 65 |
+| on | `.pi/slate.json` six | off | off | 5 | 4,300 | 64 |
+| on | `.pi/slate.json` six | off | on | 6 | 5,370 | 86 |
+| on | `.pi/slate.json` six | on | off | 6 | 4,319 | 64 |
+| on | `.pi/slate.json` six | on | on | 7 | 5,389 | 86 |
+| on | all 9 shipped | off | off | 5 | 4,855 | 67 |
+| on | all 9 shipped | off | on | 6 | 5,925 | 89 |
+| on | all 9 shipped | on | off | 6 | 4,874 | 67 |
+| on | all 9 shipped | on | on | 7 | 5,944 | 89 |
 
 An untrusted project reads the first row whatever its `slate.json`
 says: no project config is loaded, so no optional rule renders. Line
@@ -250,8 +250,8 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 7 | 6,533 | 99 | ≈1,633 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,519 | 102 | ≈1,880 |
+| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 7 | 6,305 | 96 | ≈1,576 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,291 | 99 | ≈1,823 |
 
 The dogfood row uses `workflow.draftPRs: true`, `writing.check: true`, and the
 six models in `.pi/slate.json`. Its extension basis is
@@ -293,20 +293,20 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | routing rule lines | 25 | 34 | 34 | 9 |
 | routing fixed prose | 1,110 | 1,500 | 1,500 | 390 |
 | largest model row | 183 | 300 | 300 | 117 |
-| router-on doctrine | 5,083 | 6,500 | 6,500 | 1,417 |
-| writing-only doctrine | 3,568 | 5,600 | 5,600 | 2,032 |
-| writing plus router | 6,153 | 6,300 | 6,500 | 347 |
-| writing plus extensions | 3,823 | 6,000 | 6,000 | 2,177 |
-| writing plus router and extensions | 6,408 | 6,600 | 6,800 | 392 |
-| maximal doctrine, draft PRs enabled | 7,519 | 7,800 | 7,900 | 381 |
-| maximal doctrine, draft PRs disabled | 7,500 | 7,800 | 7,900 | 400 |
+| router-on doctrine | 4,855 | 6,500 | 6,500 | 1,645 |
+| writing-only doctrine | 3,340 | 5,600 | 5,600 | 2,260 |
+| writing plus router | 5,925 | 6,300 | 6,500 | 575 |
+| writing plus extensions | 3,595 | 6,000 | 6,000 | 2,405 |
+| writing plus router and extensions | 6,180 | 6,600 | 6,800 | 620 |
+| maximal doctrine, draft PRs enabled | 7,291 | 7,800 | 7,900 | 609 |
+| maximal doctrine, draft PRs disabled | 7,272 | 7,800 | 7,900 | 628 |
 | capped worker rule | 1,347 | 1,600 | 1,600 | 253 |
 | writing rule characters | 1,070 | 1,150 | 1,150 | 80 |
 | writing rule lines | 23 | 24 | 25 | 2 |
 
-The positive control adds one capped tool and three copies of the largest
-measured model row. It measures 8,283 portable characters and exceeds the new
-7,900-character maximal bound by 383. That margin remains larger than the
+The positive control adds one capped tool and four copies of the largest
+measured model row. It measures 8,239 portable characters and exceeds the new
+7,900-character maximal bound by 339. That margin remains larger than the
 184-character maximum model-row growth and the 212-character capped tool growth.
 The raised bound does not blunt the positive control.
 
@@ -316,8 +316,8 @@ unless the fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. At four
 characters per token as a rough estimate, the shipped-rule table ranges from
-about 625 tokens to about 1,543 tokens. The current dogfood basis is about 1,633
-tokens. The representative maximum is about 1,880 tokens, or 0.72 percent of the
+about 568 tokens to about 1,486 tokens. The current dogfood basis is about 1,576
+tokens. The representative maximum is about 1,823 tokens, or 0.72 percent of the
 default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how

@@ -1733,7 +1733,7 @@ try {
 			const toolGrown = await asTrusted(MAX_EXT_PLUS_TOOL, onReal, maximalConfig);
 			const maxToolIncrement = portable(toolGrown).length - maximalPortable;
 			const maxCandidate = realCandidates.find((candidate) => candidate.spec === maxModelIncrement.spec);
-			const overBudget = await asTrusted(MAX_EXT_PLUS_TOOL, onWith([...realCandidates, maxCandidate, maxCandidate, maxCandidate]), maximalConfig);
+			const overBudget = await asTrusted(MAX_EXT_PLUS_TOOL, onWith([...realCandidates, maxCandidate, maxCandidate, maxCandidate, maxCandidate]), maximalConfig);
 			const overBudgetPortable = portable(overBudget).length;
 			// Exact measurements catch every size change. Bounds are coarse ceilings and
 			// retain at least five percent reserve, so one ordinary edit does not force a
@@ -1745,7 +1745,7 @@ try {
 			const docPaths = DOCS_DIR === "" ? 0 : on.split(DOCS_DIR).length - 1;
 			checkAll(
 				"doctrine-budget",
-				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and three copies of the largest model row, so budget growth cannot pass vacuously",
+				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and four copies of the largest model row, so budget growth cannot pass vacuously",
 				[
 					["the normalisation bites: the doctrine really does embed the authoritative docs directory", docPaths >= 3 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC), { docPaths, DOCS_DIR }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
@@ -1762,11 +1762,11 @@ try {
 					["writing plus extensions stays under 6000 portable chars with five percent reserve", portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length }],
 					["all three tail features stay under 6800 portable chars with five percent reserve", portable(writingAllOn).length <= 6800 && hasDoctrineReserve(portable(writingAllOn).length, 6800), { portable: portable(writingAllOn).length }],
 					// Update exact measurements with production wording in the same commit.
-					["the maximum all-feature fixture is the measured 7519 portable chars and stays within 7900 with five percent reserve", maximalPortable === 7519 && maximalPortable <= 7900 && hasDoctrineReserve(maximalPortable, 7900), { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					["the draft-PR-disabled maximum fixture is pinned independently at 7500 portable chars and shares the maximum bound", maximalNoDraftPortable === 7500 && maximalNoDraftPortable <= 7900 && hasDoctrineReserve(maximalNoDraftPortable, 7900), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the maximum all-feature fixture is the measured 7291 portable chars and stays within 7900 with five percent reserve", maximalPortable === 7291 && maximalPortable <= 7900 && hasDoctrineReserve(maximalPortable, 7900), { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the draft-PR-disabled maximum fixture is pinned independently at 7272 portable chars and shares the maximum bound", maximalNoDraftPortable === 7272 && maximalNoDraftPortable <= 7900 && hasDoctrineReserve(maximalNoDraftPortable, 7900), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					["the positive control is the measured 8283 portable chars and exceeds 7900 by the larger growth unit", overBudgetPortable === 8283 && overBudgetPortable > 7900 && overBudgetPortable - 7900 >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, bound: 7900, growthBeyondBound: overBudgetPortable - 7900, maxModelIncrement, maxToolIncrement }],
+					["the positive control is the measured 8239 portable chars and exceeds 7900 by the larger growth unit", overBudgetPortable === 8239 && overBudgetPortable > 7900 && overBudgetPortable - 7900 >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, bound: 7900, growthBeyondBound: overBudgetPortable - 7900, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.

@@ -507,7 +507,7 @@ model's ladder is unreadable.
   all nine. In the current snapshot a model row costs 146–183
   characters, plus a one-off legend clause for each marker it
   introduces. Configuring the router roughly doubles Slate's
-  always-loaded block (2,498 characters with routing and writing
+  always-loaded block (2,270 characters with routing and writing
   off). Those are PORTABLE characters — the
   doctrine with each occurrence of the installed `docs/` directory
   removed, filenames kept — because the doctrine embeds absolute doc

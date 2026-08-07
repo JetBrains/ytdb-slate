@@ -479,15 +479,12 @@ threads execute. Rules:
    commands yourself.
 2. Dispatch independent actions in PARALLEL by emitting several \`thread\`
    calls in one turn. Never serialize what can run concurrently.
-3. Keep each work stream in one thread. On continuations, \`freshContext\` is
-   required with \`threadChoice.act: true\` and optional otherwise. Every supplied
-   continuation value reaches the planner. \`[]\` refuses a restart. A non-empty list of existing
-   episode ids permits one and seeds the new thread. Omission while required fails.
-   Any supplied malformed value or unknown id fails before state changes. A valid
-   creation value is accepted but unused. Use \`[]\` for short work or a needed live
-   transcript. Slate restarts only if cheaper, opening a successor and rewriting its
-   full prompt-cache prefix. Continue it. It must publish an episode before another
-   restart. Details: ${THREAD_CACHE_COST_DOC}
+3. Keep each work stream in one thread. Omit \`freshContext\` on creation. On
+   continuations, it is required with \`threadChoice.act: true\` and optional otherwise.
+   With acting off, omit it for no permission or supply it for a reported choice. \`[]\`
+   refuses a restart and preserves the live transcript. A non-empty list of existing
+   episode ids permits a restart and seeds the new thread. Slate restarts only when
+   cheaper. Continue the successor. Details: ${THREAD_CACHE_COST_DOC}
 4. Compose context by reference: pass prior episode ids in \`context\` instead
    of restating their content.
 5. Your read-only tools (read/grep/find/ls) are for cheap orientation only;
