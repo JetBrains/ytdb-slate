@@ -8,7 +8,7 @@ import slateExtension from "../extension/index.ts";
 import { PROFILES_AS_OF, MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
 import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { THREAD_CACHE_COST_DOC } from "../extension/paths.ts";
+import { THREAD_CACHE_COST_DOC, TRACK_WORKFLOW_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 
@@ -142,10 +142,11 @@ test("thread-choice doctrine defines work streams, consent, restart limits, and 
   assert.equal(existsSync(THREAD_CACHE_COST_DOC), true);
 });
 
-test("doctrine enforces a user-confirmed class before file modification", { timeout: 5000 }, async () => {
+test("doctrine reads workflow only for changes and enforces pre-implementation gates", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
   assert.ok(doctrine.includes("Scale change gates by class: trivial, medium, complex, or risky."));
-  assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the class and all required gates ran."));
+  assert.ok(doctrine.includes(`For repository changes, read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).`));
+  assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the class and all required pre-implementation gates ran."));
 });
 
 test("complex and risky design gates preserve presentation order", { timeout: 5000 }, async () => {
