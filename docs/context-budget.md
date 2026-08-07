@@ -207,18 +207,18 @@ must be named instead of presented as the same measurement:
 
 | router | models | `draftPRs` | `writing.check` | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | off | 4 | 2,270 | 43 |
-| off | — | off | on | 5 | 3,340 | 65 |
-| off | — | on | off | 5 | 2,289 | 43 |
-| off | — | on | on | 6 | 3,359 | 65 |
-| on | `.pi/slate.json` six | off | off | 5 | 4,300 | 64 |
-| on | `.pi/slate.json` six | off | on | 6 | 5,370 | 86 |
-| on | `.pi/slate.json` six | on | off | 6 | 4,319 | 64 |
-| on | `.pi/slate.json` six | on | on | 7 | 5,389 | 86 |
-| on | all 9 shipped | off | off | 5 | 4,855 | 67 |
-| on | all 9 shipped | off | on | 6 | 5,925 | 89 |
-| on | all 9 shipped | on | off | 6 | 4,874 | 67 |
-| on | all 9 shipped | on | on | 7 | 5,944 | 89 |
+| off | — | off | off | 4 | 2,701 | 46 |
+| off | — | off | on | 5 | 3,771 | 68 |
+| off | — | on | off | 5 | 2,720 | 46 |
+| off | — | on | on | 6 | 3,790 | 68 |
+| on | `.pi/slate.json` six | off | off | 5 | 4,731 | 67 |
+| on | `.pi/slate.json` six | off | on | 6 | 5,801 | 89 |
+| on | `.pi/slate.json` six | on | off | 6 | 4,750 | 67 |
+| on | `.pi/slate.json` six | on | on | 7 | 5,820 | 89 |
+| on | all 9 shipped | off | off | 5 | 5,286 | 70 |
+| on | all 9 shipped | off | on | 6 | 6,356 | 92 |
+| on | all 9 shipped | on | off | 6 | 5,305 | 70 |
+| on | all 9 shipped | on | on | 7 | 6,375 | 92 |
 
 An untrusted project reads the first row whatever its `slate.json`
 says: no project config is loaded, so no optional rule renders. Line
@@ -250,8 +250,9 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 7 | 6,305 | 96 | ≈1,576 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,291 | 99 | ≈1,823 |
+| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 7 | 6,736 | 99 | ≈1,684 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,722 | 102 | ≈1,931 |
+| follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,800 | 103 | ≈1,950 |
 
 The dogfood row uses `workflow.draftPRs: true`, `writing.check: true`, and the
 six models in `.pi/slate.json`. Its extension basis is
@@ -261,6 +262,7 @@ units and four tools. Their worker-extension rule is 916 portable characters /
 directory)`. No maintainer checkout path belongs in this shipped document.
 
 The stable maximal row uses all nine shipped profiles, draft PRs, and writing.
+The follow-up-issues row uses the same basis with `workflow.followUpIssues: true`.
 Its direct post-resolution worker fixture has two units and four tools. Unit
 labels are 128 characters. Tool names are 64 characters. Descriptions are 140
 characters.
@@ -278,35 +280,46 @@ the next whole line.
 
 Two guards have different jobs. An exact pinned literal is the sensitive guard.
 It fails for every size change in its rendered fixture, including one character.
-The paired maximal fixtures cover rule 8 with draft pull requests enabled and
-disabled. The bound is a coarse ceiling that stops unbounded growth over time.
-A bound close to a fixture adds friction but no detection, because its exact
+The maximal fixtures cover draft pull requests enabled, draft pull requests
+disabled, and follow-up issues enabled. Each budget term also has one enforced
+bound. The bound is a coarse ceiling that stops unbounded growth over time. A
+bound close to a fixture adds friction but no detection, because its exact
 literal already detects the change. Real reserve therefore weakens nothing.
 
 A doctrine change updates the exact literal and every published measurement. A
 maintainer revisits a bound only when the reserve policy requires it. The check
 applies the five-percent rule to every upper bound, so this decision is auditable.
 
-| budget term | measured | old bound | current bound | current reserve |
-| --- | ---: | ---: | ---: | ---: |
-| routing rule characters | 2,585 | 4,000 | 4,000 | 1,415 |
-| routing rule lines | 25 | 34 | 34 | 9 |
-| routing fixed prose | 1,110 | 1,500 | 1,500 | 390 |
-| largest model row | 183 | 300 | 300 | 117 |
-| router-on doctrine | 4,855 | 6,500 | 6,500 | 1,645 |
-| writing-only doctrine | 3,340 | 5,600 | 5,600 | 2,260 |
-| writing plus router | 5,925 | 6,300 | 6,500 | 575 |
-| writing plus extensions | 3,595 | 6,000 | 6,000 | 2,405 |
-| writing plus router and extensions | 6,180 | 6,600 | 6,800 | 620 |
-| maximal doctrine, draft PRs enabled | 7,291 | 7,800 | 7,900 | 609 |
-| maximal doctrine, draft PRs disabled | 7,272 | 7,800 | 7,900 | 628 |
-| capped worker rule | 1,347 | 1,600 | 1,600 | 253 |
-| writing rule characters | 1,070 | 1,150 | 1,150 | 80 |
-| writing rule lines | 23 | 24 | 25 | 2 |
+| budget term | current | enforced bound | current reserve |
+| --- | ---: | ---: | ---: |
+| routing rule characters | 2,585 | 4,000 | 1,415 |
+| routing rule lines | 25 | 34 | 9 |
+| routing fixed prose | 1,110 | 1,500 | 390 |
+| largest model row | 183 | 300 | 117 |
+| router-on doctrine | 5,286 | 6,500 | 1,214 |
+| writing-only doctrine | 3,771 | 5,600 | 1,829 |
+| writing plus router | 6,356 | 6,700 | 344 |
+| writing plus extensions | 4,026 | 6,000 | 1,974 |
+| writing plus router and extensions | 6,611 | 7,000 | 389 |
+| maximal doctrine, draft PRs enabled | 7,722 | 8,200 | 478 |
+| maximal doctrine, draft PRs disabled | 7,703 | 8,200 | 497 |
+| maximal doctrine, follow-up issues enabled | 7,800 | 8,200 | 400 |
+| capped worker rule | 1,347 | 1,600 | 253 |
+| writing rule characters | 1,070 | 1,150 | 80 |
+| writing rule lines | 23 | 25 | 2 |
+
+The four changed bound decisions record the user's choices. The fuller
+Option 3 text puts the enforcement trigger, class confirmation, presentation
+order, and two previously unstated gates in the injected prompt. Writing plus
+router moved from 6,500 to 6,700. Writing plus router and extensions moved from
+6,800 to 6,900. The maximal family moved from 7,900 to 8,200. Writing plus router
+and extensions then moved from 6,900 to 7,000 with user approval so rule 8 could
+keep the skip-the-read clause that rules 9 and 10 also carry. A redundant read of
+the track workflow document costs far more than the clause.
 
 The positive control adds one capped tool and four copies of the largest
-measured model row. It measures 8,239 portable characters and exceeds the new
-7,900-character maximal bound by 339. That margin remains larger than the
+measured model row. It measures 8,670 portable characters and exceeds the
+8,200-character maximal bound by 470. That margin remains larger than the
 184-character maximum model-row growth and the 212-character capped tool growth.
 The raised bound does not blunt the positive control.
 
@@ -314,11 +327,12 @@ These figures are verification budgets, never runtime limits. Arbitrary user
 extension rosters can exceed them. Keep the positive-control steps unchanged
 unless the fixture design itself changes.
 
-Against a 256,000-token context budget, these blocks remain small. At four
-characters per token as a rough estimate, the shipped-rule table ranges from
-about 568 tokens to about 1,486 tokens. The current dogfood basis is about 1,576
-tokens. The representative maximum is about 1,823 tokens, or 0.72 percent of the
-default budget.
+Against a 256,000-token context budget, these blocks remain small. The rough
+estimate divides each measured portable-character render by four and rounds to
+the nearest whole token. The shipped-rule table ranges from about 675 tokens to
+about 1,594 tokens. The current dogfood basis is about 1,684 tokens. The stable
+representative maximum is about 1,931 tokens. The follow-up-issues maximum is
+about 1,950 tokens, or 0.76 percent of the default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
 much headroom Slate consumes before conversation content.

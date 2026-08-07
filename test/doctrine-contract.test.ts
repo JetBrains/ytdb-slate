@@ -8,7 +8,7 @@ import slateExtension from "../extension/index.ts";
 import { PROFILES_AS_OF, MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
 import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { THREAD_CACHE_COST_DOC } from "../extension/paths.ts";
+import { THREAD_CACHE_COST_DOC, TRACK_WORKFLOW_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 
@@ -43,11 +43,11 @@ class FakeExtensionApi {
   }
 }
 
-function extensionContext(cwd: string, warnings: string[] = []): ExtensionContext {
+function extensionContext(cwd: string, warnings: string[] = [], trusted = true): ExtensionContext {
   return {
     cwd,
     hasUI: true,
-    isProjectTrusted: () => true,
+    isProjectTrusted: () => trusted,
     model: undefined,
     modelRegistry: {},
     sessionManager: {
@@ -92,7 +92,7 @@ function routedResolution(): ModelRouterResolution {
   };
 }
 
-async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}): Promise<string> {
+async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}, trusted = true): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
@@ -109,7 +109,7 @@ async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfi
   );
   const handler = api.handlers.get("before_agent_start")?.[0];
   assert.ok(handler);
-  const result = await handler({ systemPrompt: "BASE" }, extensionContext(scratch)) as { systemPrompt: string };
+  const result = await handler({ systemPrompt: "BASE" }, extensionContext(scratch, [], trusted)) as { systemPrompt: string };
   assert.ok(result.systemPrompt.startsWith("BASE"));
   return result.systemPrompt.slice("BASE".length);
 }
@@ -140,6 +140,48 @@ test("thread-choice doctrine defines work streams, consent, restart limits, and 
   const citation = /Details:\s+([^\n]+)$/m.exec(doctrine)?.[1]?.trim();
   assert.equal(citation, THREAD_CACHE_COST_DOC);
   assert.equal(existsSync(THREAD_CACHE_COST_DOC), true);
+});
+
+test("doctrine reads workflow only for changes and enforces pre-implementation gates", { timeout: 5000 }, async () => {
+  const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
+  assert.ok(doctrine.includes("Scale change gates by class: trivial, medium, complex, or risky."));
+  assert.ok(doctrine.includes(`For repository changes, read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).`));
+  assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the class and all required pre-implementation gates ran."));
+});
+
+test("complex and risky design gates preserve presentation order", { timeout: 5000 }, async () => {
+  const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
+  const design = doctrine.indexOf("Medium and above require user-approved design.");
+  const adversarial = doctrine.indexOf("Complex and risky then require adversarial design review,");
+  const approval = doctrine.indexOf("then final user approval.");
+  assert.ok(design >= 0);
+  assert.ok(adversarial > design);
+  assert.ok(approval > adversarial);
+});
+
+test("doctrine requires research logs and user review of every track diff", { timeout: 5000 }, async () => {
+  const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
+  assert.ok(doctrine.includes("Above trivial, keep a research log."));
+  assert.ok(doctrine.includes("Every track diff requires user review."));
+});
+
+test("doctrine states the exact restart-refusal test", { timeout: 5000 }, async () => {
+  const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
+  assert.ok(doctrine.includes("A blanket refusal of a thread restart has a price. Refuse only when the next action depends on context from the previous action that the thread's episodes do not carry."));
+});
+
+test("follow-up issue doctrine renders after review only when enabled", { timeout: 5000 }, async () => {
+  const sentence = "After review, ask the user which review suggestions become tracker issues.";
+  assert.ok((await renderDoctrine(undefined, { workflow: { followUpIssues: true } })).includes(sentence));
+  assert.equal((await renderDoctrine(undefined, { workflow: { followUpIssues: false } })).includes(sentence), false);
+  assert.equal((await renderDoctrine()).includes(sentence), false);
+});
+
+test("untrusted follow-up issue configuration leaves doctrine byte-identical", { timeout: 5000 }, async () => {
+  const enabled = await renderDoctrine(undefined, { workflow: { followUpIssues: true } }, false);
+  const absent = await renderDoctrine(undefined, {}, false);
+  assert.equal(enabled, absent);
+  assert.doesNotMatch(enabled, /After review, ask the user which review suggestions become tracker issues\./);
 });
 
 test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {

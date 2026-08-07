@@ -93,6 +93,10 @@ The orchestrator chooses the work stream, thread, model, effort, task, and requi
 
 The tool makes one narrow economic judgement. It decides whether continuing the named thread costs more than a fresh thread seeded with named episodes.
 
+A blanket refusal of a thread restart has a price. Refuse a restart only when the next action depends on context from the previous action that the thread's episodes do not carry. The orchestrator can apply this test because it reads those episodes before choosing the successor's context.
+
+The compressed path is instructed to retain published findings, approved decisions, named file paths, recorded verification results, commands, error messages, and outcomes. The fallback path carries the task and up to 8,000 characters of the raw final worker output instead. Therefore the first group is available on the compressed path when retained, and on the fallback path only when the final output contains it. Terminal output can reach a fallback episode when the worker pasted it into that output. Compression can also retain terminal details when they are relevant, so terminal output is not a universal exclusion. Unrecorded intermediate reasoning and conversational details omitted from the final output remain unavailable on the fallback path, while compression is instructed to drop tactical noise. Continue the live thread when the next action needs context the episode does not contain. Permit a restart when the episode contains the context needed to act.
+
 ### Permission through `freshContext`
 
 The `freshContext` contract asks three separate questions:

@@ -127,8 +127,11 @@ not test idea count. The reminder then includes this exact scope guard:
 
 `Exclude research logs, worker task text, and the project's own agent instruction file.`
 
-This guard prevents the five requirements from applying to those
-excluded artifacts.
+This guard is a coarse summary wherever Slate renders it, including the
+doctrine rule and the reminder. The summary names research logs as excluded.
+When `writing.check` is true, the high-level design remains governed even
+while it lives inside a research log. This document is the authority on the
+precise scope of every rendering.
 
 These requirements are not mechanical checker findings. The shipped
 checker has no rule for idioms or bare-reference openers. It also has
@@ -441,4 +444,6 @@ These are settled decisions. Read them as scope, not as a backlog.
   review comments, release notes and messages to the user. Research
   logs, worker task text and this repository's own agent instruction
   file are excluded, because a dense exact register serves them
-  better.
+  better. When a project sets `writing.check` to true, its high-level
+  design is governed prose even while it lives inside an otherwise
+  excluded research log.

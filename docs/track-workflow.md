@@ -2,51 +2,107 @@
 
 The mandatory flow for every change delivered under this workflow:
 
-Research → (lazy) research log → user design review → adversarial
-review → user approves the track split → per-track loop (implement →
-track code review → fixes → mandatory user review → marker commit) →
-delivery.
+Research → confirm the change class → open a research log when required
+→ prepare the high-level design for medium, complex, and risky changes
+→ obtain pre-adversarial approval and adversarial review for complex and
+risky changes → obtain pre-implementation approval for every high-level
+design → per-track loop (implement → track code review when required →
+fixes → mandatory user review → marker commit when required) → delivery.
 
 Publishing is conditional on `workflow.draftPRs` in the project's
 `slate.json` (default: false). When it is ENABLED, an umbrella draft
-PR is created after both reviews pass and before implementation
-starts — see pr-publishing.md in this directory for all PR mechanics.
-When it is DISABLED, the workflow log is the change's durable record;
-its lifecycle is defined in § Research log below. Marker commits work
-identically in both modes.
+PR is created after the applicable pre-implementation gates pass and
+before implementation starts — see pr-publishing.md in this directory
+for all PR mechanics. When it is DISABLED, the workflow log is the
+change's durable record; its lifecycle is defined in § Research log
+below. Marker commits work identically in both modes.
 
-The flow scales with change size:
+## Change classes
 
-| Change size | What applies |
-| --- | --- |
-| Multi-track change | Full flow as described above. |
-| Single-track change | No track split, no marker commits. Everything else applies. |
-| Trivial change (typo, doc-only, mechanical rename, obvious one-file fix) | No split. The planned-changes statement is a 2–3-sentence paragraph; the design review collapses into user consent to it. Micro adversarial review, or skip it with explicit user consent. |
+Gates key on the change class, not on size. Evaluate these tests in order.
+The first match sets the class:
 
-The mandatory user review gate applies at EVERY tier. For single-track
-and trivial changes the whole branch diff is the track, so the user
-review sits after the agent code review and before delivery.
+1. **Risky:** The change touches concurrency, durability, recovery,
+   transactional semantics, security, or user data. This class also covers a
+   public API or behavioral change, or a silent failure mode.
+2. **Complex:** The shape is unclear, several parts interact, or a live design
+   alternative exists.
+3. **Trivial:** The change is an obvious fix with no behavioral change, and one
+   reviewer pass covers it.
+4. **Medium:** Otherwise.
 
-Throughout this document, the "planned-changes statement" is the
-high-level design summary of the change. With publishing enabled it
-becomes the Planned-changes section of the PR description (see
-pr-publishing.md); with publishing disabled it lives in the workflow
-log.
+The orchestrator proposes the class and the user confirms it. The
+proposal states the class, the reason, and the property that would
+raise it. The orchestrator re-proposes the class whenever new
+information appears. An upgrade to any higher class after implementation
+starts pauses implementation. The orchestrator opens and backfills a
+research log when the new class requires one, then runs every newly
+required gate over the WHOLE change before implementation resumes. A
+gate whose prescribed timing has passed runs retroactively. The class
+is never lowered after implementation starts.
+
+Size drives only the track split and marker commits. The orchestrator
+owns the track split at every class; it is not a user approval gate.
+
+### Worked classification examples
+
+**Trivial — correct one misspelled word in an internal comment.**
+
+- Step 1 does not match because no risky category changes.
+- Step 2 does not match because the shape is clear and no parts interact.
+- Step 3 matches. The correction is an obvious fix, behavior does not change,
+  and one reviewer pass can verify the complete diff.
+- Result: **Trivial**.
+
+**Medium — rename one internal helper and update its 40 call sites.**
+
+- Step 1 does not match because no public surface, behavior, or other risky
+  category changes.
+- Step 2 does not match because the mechanical shape is clear, the call sites
+  do not interact, and no design alternative exists.
+- Step 3 does not match. The repository-wide refactor is not an obvious fix,
+  and one reviewer pass cannot cover all references, strings, and documentation.
+- Step 4 matches by default.
+- Result: **Medium**.
+
+**Complex — reorganize test-fixture assembly across its loader, builder, and
+cleanup modules.**
+
+- Step 1 does not match because production behavior and every risky category
+  stay unchanged.
+- Step 2 matches. Several parts interact, and live alternatives either
+  centralize fixture state or pass it explicitly between the modules.
+- Result: **Complex**.
+
+### Gate matrix
+
+| Gate | Trivial | Medium | Complex | Risky |
+| --- | --- | --- | --- | --- |
+| High-level design | No | Yes | Yes | Yes |
+| High-level design shown before adversarial review | No | No | Yes | Yes |
+| High-level design shown before implementation | No | Yes | Yes | Yes |
+| Adversarial review of the high-level design | No | No | Yes | Yes |
+| Research log | No, unless a trigger fires | Yes | Yes | Yes |
+| Agent code review of a track | No, when the whole change is wholly trivial | Yes | Yes | Yes |
+| User review of the track diff | Yes | Yes | Yes | Yes |
+
+The track split belongs to the orchestrator at every class.
 
 ## Research phase (lightweight)
 
 Research is interactive exploration before any implementation: read
 real source code, trace call chains, and clarify aims and constraints
-with the user. There is no design document, no implementation plan,
-and no mandatory artifacts. The phase ends when the initial design of
-the change is understood and has passed the user design review (see
-below).
+with the user. Before the class is settled, no design document,
+implementation plan, or mandatory artifact is assumed. The phase ends
+when the initial shape and class of the change are understood.
 
-## Research log (lazy-triggered)
+## Research log
 
-Start research WITHOUT a log. Open one the moment any trigger below
-fires, then backfill the decisions already made — backfilling is cheap
-while they are still in context.
+A research log is mandatory for every change above trivial. For the
+trivial class, and during research before the class is settled, start
+research WITHOUT a log. Open one the moment any trigger below fires,
+then backfill the decisions already made — backfilling is cheap while
+they are still in context.
 
 | # | Trigger |
 | --- | --- |
@@ -57,9 +113,19 @@ while they are still in context.
 | 5 | The change is multi-track. |
 | 6 | The user requests it. |
 
+The trigger table governs the trivial class and research before class
+confirmation. Once the user confirms a class above trivial, the log is
+mandatory whether or not a trigger fired.
+
+The Decision Log remains append-only throughout research and
+implementation. It records decisions taken after implementation
+starts because the log is the record that survives a context handoff.
+At high-level design approval, it records the workflow rule-set version and the
+gates already passed.
+
 ### Log format
 
-Four sections, opened with the log:
+Four sections are opened with the log:
 
 - **Initial request** — verbatim, written once.
 - **Decision Log** — append-only. Each entry is at most 4 lines: the
@@ -69,44 +135,53 @@ Four sections, opened with the log:
 - **Surprises & Discoveries**
 - **Open Questions**
 
-Two more named sections join as the corresponding phase begins:
+Three more named sections join as the corresponding material appears:
 
-- **Planned changes** — the planned-changes statement, added when the
-  design converges; the design review and adversarial review verdict
-  lines are appended at its end. (With publishing enabled this section
-  feeds the PR description at umbrella-PR creation.)
-- **Track table** — publishing disabled only: added when the user
-  approves the track split (constraints in § Track table). With
-  publishing enabled the table lives in the PR description from
-  creation instead.
+- **Planned changes** — contains the high-level design when it
+  converges; the applicable design-review and adversarial-review
+  verdict lines are appended at its end.
+- **Suggestions** — one standalone entry per suggestion. Each entry
+  states what the suggestion is, where it applies, why it matters,
+  and what a fix needs. It MUST be readable without the review that
+  produced it.
+- **Track table** — added when the orchestrator splits the change into
+  tracks (constraints in § Track table). With publishing enabled the
+  table also lives in the PR description as pr-publishing.md directs.
 
 ### Persistence
 
-During research the log lives as an untracked file `research-log.md`
-at the repo root. What happens next depends on `workflow.draftPRs`:
+During the change the log lives as an untracked file
+`research-log.md` at the repo root. The log is RETAINED until delivery
+with `workflow.draftPRs` either enabled or disabled. Post-design and
+implementation decisions keep appending to its Decision Log.
+pr-publishing.md owns how the log content reaches the pull request
+description when publishing is enabled.
 
-- **Enabled** — the log's life ends at umbrella-PR creation: its
-  content folds into the PR description and the file is deleted
-  (mechanics owned by pr-publishing.md § Creation).
-- **Disabled (default)** — the log is RETAINED at the repo root as the
-  change's workflow log until the change is delivered (§ Delivery
-  below). The planned-changes statement and both verdict lines anchor
-  in its Planned changes section, the track table in its Track table
-  section (§ Log format), and post-design decisions keep appending to
-  the Decision Log.
-
-### Delivery (publishing disabled)
+### Delivery
 
 A change is DELIVERED when its final squashed commit lands on the
 repository's default development branch, or when the user explicitly
-abandons it. At delivery the agent folds the log into the delivery
-commit's message body — the motivation, the planned-changes statement,
-and both verdict lines: the same content that would have become the PR
-description — strips the track table (track numbers are ephemeral
-branch-life identifiers and would dangle in history), resolves or
-explicitly hands any remaining Open Questions to the user, then
-deletes the log file. On abandonment the agent deletes the log file
-after offering its content to the user for archiving.
+abandons it. With publishing disabled for a medium, complex, or risky
+change, the agent folds the log into the delivery commit's message body
+— the motivation, Planned changes, and the applicable verdict lines:
+the same content that would have become the PR description — and strips
+the track table (track numbers are ephemeral branch-life identifiers and
+would dangle in history). For a trivial change, the initial request
+supplies the motivation, and the confirmed class proposal plus
+implemented result supply Planned changes. If that trivial change has a
+log, also fold in its relevant decisions and Open Questions. In either
+case, resolve or explicitly hand any remaining Open Questions to the
+user, then delete any log file. With publishing enabled,
+pr-publishing.md owns delivery of the log content. When the user reports
+the merge or a later session detects it, the agent deletes the retained
+local log. In both modes the retained local log is deleted only at
+delivery. On abandonment the agent deletes the log file after offering
+its content to the user for archiving.
+
+The delivery commit body carries a one-line index of every suggestion:
+identifier, location, and one-line summary. The standalone suggestion
+text lives in the final report to the user, or in a tracker issue when
+the project enables that prompt.
 
 Aim to keep the final delivery commit body at or below 16,384 UTF-8
 bytes, excluding the subject. This is a target, not a gate. Measure
@@ -139,102 +214,87 @@ nor an exercised exception for publishing-disabled delivery.
 
 ### Under-trigger guardrail
 
-When shaping the planned-changes statement without a log, state this
-explicitly (e.g. "no log kept — one trivial decision, no surprises")
-so the user can override and request one.
+For a trivial change shaped without a log, state this explicitly (for
+example, "no log kept — one trivial decision, no surprises") so the
+user can override and request one. This guardrail applies only to the
+trivial class.
 
-## User design review (mandatory, pre-adversarial)
+## High-level design and user review
 
-When research converges, the agent presents the design to the user:
-the proposed approach, key decisions with the alternatives rejected,
-risks, and open questions. The presentation input is keyed on log
-existence, the same way as the adversarial review's: log exists →
-present from the log; no log → present the draft planned-changes
-statement. The agent then loops on user feedback — revising the design
-(and log) — until the user explicitly approves. Only after that
-approval does the adversarial review run.
+The **high-level design** is the workflow's single design artifact. It
+is required for medium, complex, and risky changes. It contains only the
+goal, approach, key decisions, rejected alternatives, risks, scope
+boundary, and open questions. Implementation detail belongs to code
+review, not to the high-level design.
 
-Rationale: the user owns the design direction. Reviewing with the user
-first means the adversarial review attacks a stabilized, user-endorsed
-design instead of one the user may still redirect — adversarial rounds
-are not spent on designs that would change anyway. The loop mechanics
-mirror the track loop's mandatory user review (present → feedback →
-explicit approval); the position relative to machine review is
-deliberately inverted — here the user reviews first.
+For complex and risky changes, present the high-level design twice: once
+before the adversarial review, and once before implementation. For
+medium changes, present it once before implementation. For trivial
+changes, there is no high-level design and no consent gate. When the
+project sets `writing.check` to true, the high-level design follows the
+project's writing convention.
 
-Durable record — append a verdict line to the log:
+At each presentation, the orchestrator loops on user feedback and
+revises the high-level design and log until the user explicitly
+approves. For a complex or risky change, append this verdict line after
+the first approval:
 
 ```
-Design review: user-approved — YYYY-MM-DD
+Design review (pre-adversarial): user-approved — YYYY-MM-DD
 ```
 
-With no log, append the line to the draft planned-changes statement
-instead. With publishing enabled it travels into the PR description at
-umbrella-PR creation (pr-publishing.md § Creation); with publishing
-disabled the workflow log's Planned changes section is the verdict
-line's only durable home — writing the first verdict line opens the
-log if none exists, seeded with the planned-changes statement. (Crossing a session boundary before the change is published
-or delivered is research-log trigger #4.) The verdict line is written
-at every tier; at the trivial tier it is appended after the
-planned-changes paragraph, which stands in for the Risks & accepted
-trade-offs subsection.
+For every change with a high-level design, append this second verdict
+line after the approval immediately before implementation:
 
-Tier scaling: at the trivial tier the design review collapses into the
-user's consent to the 2–3-sentence planned-changes paragraph. With
-publishing enabled, the ask for trivial and single-track changes may
-be batched: the agent presents the design together with the draft PR
-description in ONE pre-adversarial ask, and the user's single approval
-covers both. Umbrella-PR creation still follows the adversarial
-review; the description is re-presented only if adversarial triage
-changed it.
+```
+Design review (pre-implementation): user-approved — YYYY-MM-DD
+```
 
-## Adversarial review (mandatory, pre-implementation)
+The Planned changes section of the retained log is the durable home
+for the high-level design and both lines. If adversarial triage changes
+the high-level design, the second presentation shows every change
+before the user gives the pre-implementation approval.
 
-Adversarial review runs after the user approves the design in the user
-design review, BEFORE the planned-changes statement is finalized and
-implementation starts, for EVERY change. The rationale, briefly:
-critique activates latent knowledge that constructive planning does
-not (generator/critic asymmetry), and a fresh-context reviewer has no
-anchoring on the author's rationale.
+## Adversarial review of the high-level design
 
-The reviewer must be a fresh context (sub-agent or fresh session) that
-did not author the decisions.
+Adversarial review runs only for complex and risky changes. It runs
+after the user approves the high-level design for review and before its
+pre-implementation presentation. The reviewer judges the HIGH-LEVEL DESIGN.
+Implementation detail and style are out of bounds. The reviewer must
+be a fresh context that did not author the decisions.
 
-Input is keyed on log existence:
+The adversary attacks the log and its cited evidence. Licensed null
+verdict: "no substantive findings" is an acceptable, respected outcome
+— the review prompt MUST say so.
 
-- Log exists → the adversary attacks the log (plus its cited
-  evidence).
-- No log → the adversary attacks the draft planned-changes statement.
-- Trivial tier → micro-review with one bounded question ("what breaks
-  / what am I not seeing?"), or skipped with explicit user consent.
+### Finding triage
 
-Charter scaling: for single-track changes, limit the mandate to
-correctness, hidden coupling, and missed alternatives — style and
-speculative scope creep are out of bounds.
-
-Licensed null verdict: "no substantive findings" is an acceptable,
-respected outcome — the review prompt must say so.
-
-Triage each finding with the user. Three outcomes:
+The orchestrator triages every finding itself with one of three
+outcomes:
 
 - **Strengthen** — enrich the alternatives-rejected rationale of the
   attacked decision.
 - **Reverse** — change the decision now, while it is still cheap.
 - **Accept-as-risk** — record it in Open Questions / Risks.
 
-Triage runs with the user, so a Reverse outcome is itself
-user-endorsed; after any reversal, refresh the design-review verdict
-line (new date) before any further adversarial round (a round-2
-reversal refreshes the line before the change is declared reviewed).
+Every reversal and every accepted risk appears in the high-level design
+that the user approves before implementation. A design-stage finding is
+triaged at design time whatever its severity. review-rules.md §5 governs
+implementation-stage suggestions, not design-stage findings.
 
-One round by default; run a second round only if any decision was
-actually reversed. Append a verdict line to the log (or to the draft
-planned-changes statement if there is no log — same homing rules as
-the design-review verdict line):
+One round runs by default. A second round runs only after a reversal.
+Append a verdict line to the log:
 
 ```
 Adversarial review: passed, N accepted risks — YYYY-MM-DD
 ```
+
+### Escape hatch during implementation
+
+review-rules.md in this directory defines a separate escape-hatch
+adversarial review. It runs during implementation when a fix is stuck.
+It is separate from this pre-implementation gate. Its output is
+evidence and never a verdict.
 
 ## Track loop
 
@@ -243,10 +303,12 @@ before it, stands alone as an independently reviewable diff, and
 carries as much of the change as one reviewable diff holds.
 
 Sizing (soft bounds): a track of ≤~12 in-scope files folds into a
-neighbor; >~20–25 in-scope files is a split candidate.
+neighbor; >~20–25 in-scope files is a split candidate. Size determines
+the split and whether marker commits are needed. It does not determine
+the change class or any gate.
 
-The user approves the proposed track split before implementation
-starts. Mid-flight changes to the split are re-presented to the user.
+The orchestrator owns the track split. No user approval gate applies
+to the split.
 
 All development is linear on the single working branch; each track is
 a contiguous commit range. Track numbering is append-only: completed
@@ -254,24 +316,38 @@ tracks never renumber, a replanned remainder gets new numbers, and
 abandoned planned tracks are struck through in the track table — their
 numbers are never reused.
 
+Every review dispatch carries a track intention block with four
+fields: target, scope boundary, deferred work, and acceptance
+condition.
+
 Per-track sequence:
 
 1. Implement the track, following the project's own engineering
-   guidelines for commit/test/push discipline.
+   guidelines for commit/test/push discipline. An implementation
+   commit body states what had to be implemented, then how the result
+   differs and why. It never restates the diff.
 2. MANDATORY agent code review of the cumulative track diff
    `git diff <prev-marker>..HEAD` — correctness, test coverage, style,
    API surface, documentation sync — composed per review-rules.md in
-   this directory.
-3. Fix findings as normal commits.
+   this directory. Skip this step only when the WHOLE change is
+   trivial. No track inside a medium or higher change is trivial.
+3. Fix findings and handle suggestions under review-rules.md §5. Record
+   each suggestion as a standalone entry in the log's Suggestions
+   section.
 4. MANDATORY user review: present the track summary and the track diff
    to the user, then loop on user feedback — landing fixes as normal
    commits — until the user explicitly approves. The agent waits for
    that approval; the marker commit certifies a fully user-reviewed
    track.
-5. Land the marker commit.
+5. Land the marker commit when the change has more than one track.
 6. Update the track's row in the track table (status, scope drift);
-   revise the planned-changes statement only if reality diverged from
-   it.
+   revise the high-level design only if reality diverged from it.
+
+### Internal review loops and escalations
+
+The adversarial and agent code review loops are internal to the
+orchestrator. The orchestrator asks the user only for a decision it
+cannot make. review-rules.md §6 owns the escalation list.
 
 ### Track table
 
@@ -280,7 +356,7 @@ display-only index of the split: track names, one-line scopes,
 statuses — never commit SHAs, and never the source of truth for track
 boundaries (marker commits are, see § Marker commits). It lives in the
 umbrella PR description when publishing is enabled and in the workflow
-log's Track table section when it is disabled.
+log's Track table section in both modes.
 
 ## Marker commits (source of truth for track boundaries)
 
@@ -309,7 +385,7 @@ Properties:
 - The track table is never an alternative source of truth for
   boundaries (constraints owned by § Track table).
 
-Single-track changes land no markers — the whole branch diff is the
+A change with one track lands no marker — the whole branch diff is the
 track.
 
 ## Rebase note
@@ -326,14 +402,25 @@ via a doctrine extension (the `doctrineExtraPath` key in the project's
 `slate.json`). A layered peer review supplements, never replaces, the
 mandatory per-track user review.
 
+## Migration
+
+A change whose high-level design was approved under the previous rules finishes
+under those rules. The new rules apply to a change started after the
+upgrade. When the previous document text is no longer installed, the
+log's recorded rule-set version and gate list are the authority.
+
 ## Layering richer workflows on top
 
 Richer internal planning and execution machinery — whatever agent
 tooling is in use — may be layered on top of this baseline, provided
-it satisfies the mandatory gates: a user design review before
-adversarial review, pre-implementation adversarial review, an agent
-code review per track, a mandatory user review per track, marker
-commits at track boundaries, and — when draft-PR publishing is
-enabled — the obligations of pr-publishing.md (umbrella draft PR
-before coding starts, user-performed merge). This document defines the
-baseline that applies regardless of the tooling.
+it satisfies the mandatory gates for the confirmed class: a
+high-level design for medium and above; high-level design presentation
+before adversarial review for complex and risky; high-level design
+presentation before implementation for medium and above; adversarial
+review of the high-level design
+for complex and risky; a research log for medium and above; agent code
+review for every track unless the whole change is trivial; mandatory
+user review of every track diff; marker commits at multi-track
+boundaries; and, when draft-PR publishing is enabled, the obligations
+of pr-publishing.md. This document defines the baseline that applies
+regardless of the tooling.
