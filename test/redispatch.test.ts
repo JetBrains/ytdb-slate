@@ -106,7 +106,7 @@ function harness(
     openWorkerFor: (args: { thread: { id: string } }) => Promise<{ session: FakeSession; baseline: typeof NO_SESSION_BASELINE }>;
     buildPrompt: (...args: unknown[]) => string;
     longContextWarned: Map<string, Set<string>>;
-    rollbackRestart: (source: ThreadRecord, successor: ThreadRecord) => void;
+    rollbackRestart: (source: ThreadRecord, successor: ThreadRecord, sourceStatus?: "idle" | "running") => void;
     retireSupersededSource: (source: ThreadRecord) => void;
     restartRefusal: (source: ThreadRecord) => string | undefined;
     createThread: (...args: unknown[]) => ThreadRecord;
