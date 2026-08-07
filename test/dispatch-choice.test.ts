@@ -131,10 +131,10 @@ test("create validates a supplied freshContext value but does not use it", { tim
 
 test("create rejects malformed or unknown freshContext before any state change", { timeout: 1000 }, async (t) => {
   const { root, store, manager, internal } = validationHarness(t);
-  for (const freshContext of [null, ["missing"]] as const) {
+  const invalidValues: Array<string[] | null> = [null, ["missing"]];
+  for (const freshContext of invalidValues) {
     await assert.rejects(
-      manager.dispatch({ task: "bad create", type: "general", freshContext }, context(root), undefined),
-      freshContext === null ? /freshContext must be \[\] or a list/ : /Unknown freshContext episode "missing"/,
+      manager.dispatch({ task: "bad create", type: "general", freshContext }, context(root), undefined),      freshContext === null ? /freshContext must be \[\] or a list/ : /Unknown freshContext episode "missing"/,
     );
     assert.deepEqual([...store.threads.keys()], []);
     assert.deepEqual([...store.episodes.keys()], []);
@@ -164,7 +164,8 @@ test("a non-acting continuation rejects malformed or unknown freshContext before
   const { root, store, manager, internal } = validationHarness(t, { threadChoice: { report: true, act: false } });
   const source = sourceRecord();
   store.threads.set(source.id, source);
-  for (const freshContext of [null, ["missing"]] as const) {
+  const invalidValues: Array<string[] | null> = [null, ["missing"]];
+  for (const freshContext of invalidValues) {
     await assert.rejects(manager.dispatch({ threadId: source.id, task: "bad", freshContext }, context(root), undefined));
     assert.deepEqual(source, sourceRecord());
     assert.deepEqual([...store.episodes.keys()], []);
@@ -183,7 +184,7 @@ test("an acting continuation must not omit freshContext", { timeout: 1000 }, asy
 });
 
 test("an empty acting continuation refuses restart and keeps work on its source", { timeout: 1000 }, async (t) => {
-  const { root, store, manager, internal } = validationHarness(t, { threadChoice: { report: true, act: true } });
+  const { root, store, manager } = validationHarness(t, { threadChoice: { report: true, act: true } });
   const source = sourceRecord();
   store.threads.set(source.id, source);
   const result = await manager.dispatch({ threadId: source.id, task: "refuse restart", freshContext: [] }, context(root), undefined);
@@ -205,7 +206,8 @@ test("an acting continuation rejects malformed or unknown freshContext before st
   const { root, store, manager, internal } = validationHarness(t, { threadChoice: { report: true, act: true } });
   const source = sourceRecord();
   store.threads.set(source.id, source);
-  for (const freshContext of [null, ["missing"]] as const) {
+  const invalidValues: Array<string[] | null> = [null, ["missing"]];
+  for (const freshContext of invalidValues) {
     await assert.rejects(manager.dispatch({ threadId: source.id, task: "bad", freshContext }, context(root), undefined));
     assert.deepEqual(source, sourceRecord());
     assert.deepEqual([...store.episodes.keys()], []);
