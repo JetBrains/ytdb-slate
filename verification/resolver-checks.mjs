@@ -1702,7 +1702,9 @@ try {
 				toolNames: [],
 			};
 			const maximalConfig = { workflow: { draftPRs: true }, writing: { check: true } };
+			const maximalNoDraftConfig = { workflow: { draftPRs: false }, writing: { check: true } };
 			const maximal = await asTrusted(MAX_EXT, onReal, maximalConfig);
+			const maximalNoDraft = await asTrusted(MAX_EXT, onReal, maximalNoDraftConfig);
 			const DOCS_DIR = dirname(paths.TRACK_WORKFLOW_DOC);
 			const portableFrom = (text, docsDir) => text.split(docsDir).join("");
 			const portable = (text) => portableFrom(text, DOCS_DIR);
@@ -1718,6 +1720,7 @@ try {
 			const workerEnd = maximal.search(/\n\d+\. Pick the first candidate/);
 			const workerRule = workerStart >= 0 && workerEnd > workerStart ? maximal.slice(workerStart, workerEnd) : "";
 			const maximalPortable = portable(maximal).length;
+			const maximalNoDraftPortable = portable(maximalNoDraft).length;
 			const writingPortable = portable(ruleOfWriting(writingOn)).length;
 			const modelIncrements = [];
 			for (const candidate of realCandidates) {
@@ -1755,14 +1758,15 @@ try {
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
 					["...and the whole router-on doctrine stays under 6500 portable chars with five percent reserve", portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length }],
 					["writing-only doctrine stays under 5600 portable chars with five percent reserve", portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length }],
-					["writing plus router stays under 6300 portable chars with five percent reserve", portable(writingRouterOn).length <= 6300 && hasDoctrineReserve(portable(writingRouterOn).length, 6300), { portable: portable(writingRouterOn).length }],
+					["writing plus router stays under 6500 portable chars with five percent reserve", portable(writingRouterOn).length <= 6500 && hasDoctrineReserve(portable(writingRouterOn).length, 6500), { portable: portable(writingRouterOn).length }],
 					["writing plus extensions stays under 6000 portable chars with five percent reserve", portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length }],
-					["all three tail features stay under 6600 portable chars with five percent reserve", portable(writingAllOn).length <= 6600 && hasDoctrineReserve(portable(writingAllOn).length, 6600), { portable: portable(writingAllOn).length }],
+					["all three tail features stay under 6800 portable chars with five percent reserve", portable(writingAllOn).length <= 6800 && hasDoctrineReserve(portable(writingAllOn).length, 6800), { portable: portable(writingAllOn).length }],
 					// Update exact measurements with production wording in the same commit.
-					["the maximum all-feature fixture is the measured 7358 portable chars and stays within 7800 with five percent reserve", maximalPortable === 7358 && maximalPortable <= 7800 && hasDoctrineReserve(maximalPortable, 7800), { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the maximum all-feature fixture is the measured 7519 portable chars and stays within 7900 with five percent reserve", maximalPortable === 7519 && maximalPortable <= 7900 && hasDoctrineReserve(maximalPortable, 7900), { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the draft-PR-disabled maximum fixture is pinned independently at 7500 portable chars and shares the maximum bound", maximalNoDraftPortable === 7500 && maximalNoDraftPortable <= 7900 && hasDoctrineReserve(maximalNoDraftPortable, 7900), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					["the positive control is the measured 8122 portable chars and exceeds 7800 by at least one model growth unit", overBudgetPortable === 8122 && overBudgetPortable > 7800 && overBudgetPortable - 7800 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7800, growthBeyondBound: overBudgetPortable - 7800, maxModelIncrement, maxToolIncrement }],
+					["the positive control is the measured 8283 portable chars and exceeds 7900 by the larger growth unit", overBudgetPortable === 8283 && overBudgetPortable > 7900 && overBudgetPortable - 7900 >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, bound: 7900, growthBeyondBound: overBudgetPortable - 7900, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.

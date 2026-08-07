@@ -95,16 +95,30 @@ The tool makes one narrow economic judgement. It decides whether continuing the 
 
 ### Permission through `freshContext`
 
-The `freshContext` argument states the orchestrator's quality judgement. Its presence rule depends on the call:
+The `freshContext` contract asks three separate questions:
 
-- A continuation requires the argument when `threadChoice.act` is `true`. Omitting it is a tool error.
-- An empty array explicitly refuses a restart.
-- A non-empty list permits a restart and names the seed episodes.
-- A creation call may supply a valid value. Slate accepts that value but does not use it.
+1. **Presence:** a continuation requires the argument only when `threadChoice.act` is `true`.
+2. **Validity:** every supplied value is validated on every call.
+3. **Delivery:** every continuation delivers a supplied valid value to the planner. Creation has no planner, so it delivers nothing.
 
-Validity does not depend on the call or the acting setting. Whenever `freshContext` is supplied, Slate requires an array within the size limit. Every item must be a string that names an existing episode. A malformed value or unknown episode is a tool error before Slate creates or mutates anything.
+The twelve distinct combinations follow. Creation has one behavior for both acting settings, so its four input rows cover acting off and on.
 
-Slate never treats missing permission as consent. Slate also does not judge whether the named episodes preserve enough meaning. The orchestrator must make that judgement.
+| call | acting | input | result |
+| --- | --- | --- | --- |
+| create | off or on | omitted | accepted, with nothing delivered |
+| create | off or on | malformed | tool error before creation or mutation |
+| create | off or on | `[]` | accepted and unused |
+| create | off or on | non-empty list | accepted and unused if every id names an existing episode, otherwise a tool error |
+| continue | off | omitted | accepted, with no permission delivered to the planner |
+| continue | off | malformed | tool error before mutation |
+| continue | off | `[]` | accepted, with an explicit refusal delivered to the planner |
+| continue | off | non-empty list | permission and seed episodes reach the planner if every id exists, otherwise a tool error |
+| continue | on | omitted | tool error before mutation |
+| continue | on | malformed | tool error before mutation |
+| continue | on | `[]` | accepted, with an explicit refusal delivered to the planner |
+| continue | on | non-empty list | permission and seed episodes reach the planner if every id exists, otherwise a tool error |
+
+A valid array stays within the size limit and contains only strings. Slate never treats missing permission as consent. Slate also does not judge whether the named episodes preserve enough meaning. The orchestrator must make that judgement.
 
 ### Planner verdicts and order
 

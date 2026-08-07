@@ -718,7 +718,7 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately bounds the routing rule, writing rule, worker rule, model rows and representative combinations. Its stable maximum uses all nine profiles, draft PRs, writing, two capped worker units and four capped tools. That fixture measures **7,358 of 7,800** portable characters. The **442-character reserve is 6.0% of the measurement**. Every upper bound must exceed its measurement by at least five percent. Required character raises round up to the next hundred. The binding checked combination is writing plus routing at **5,992 of 6,300**, with 308 characters left. The capped worker rule measures **1,347 of 1,600** characters. An **8,122-character** positive control adds one capped tool and three maximum-growth model rows. It exceeds the maximal bound by 322 and proves the guard can fail. These are verification budgets, not runtime limits. Arbitrary extension rosters can exceed them. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately bounds the routing rule, writing rule, worker rule, model rows and representative combinations. Its stable maximum uses all nine profiles, draft PRs, writing, two capped worker units and four capped tools. The draft-enabled fixture measures **7,519 of 7,900** portable characters. A separate draft-disabled pin measures **7,500**. Every upper bound must exceed its measurement by at least five percent. Required character raises round up to the next hundred. Writing plus routing measures **6,153 of 6,500**. The capped worker rule measures **1,347 of 1,600** characters. An **8,283-character** positive control adds one capped tool and three maximum-growth model rows. It exceeds the maximal bound by 383 and proves the guard can fail. These are verification budgets, not runtime limits. Arbitrary extension rosters can exceed them. |
 
 The **writing checker command** (`extension/writing-check.mjs`) is covered both by
 direct import and by spawned command tests. This is the checker's smallest net:
@@ -887,24 +887,27 @@ owns these stable verification fixtures:
 | routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
 | writing rule | 1 | **1,070** | 23 | 1,150 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| router-on doctrine | 5 | **4,922** | — | 6,500 |
-| writing-only doctrine | 5 | **3,407** | — | 5,600 |
-| writing plus router | 6 | **5,992** | — | 6,300 |
-| writing plus extensions | 5 | **3,662** | — | 6,000 |
-| writing plus router and extensions | 6 | **6,247** | — | 6,600 |
-| maximal doctrine, 9 profiles plus draft PRs, writing, and capped worker fixture | 7 | **7,358** | 100 | 7,800 |
-| positive control, one extra capped tool plus three maximum-growth model rows | 7 | **8,122** | — | must exceed 7,800 |
+| router-on doctrine | 5 | **5,083** | — | 6,500 |
+| writing-only doctrine | 5 | **3,568** | — | 5,600 |
+| writing plus router | 6 | **6,153** | — | 6,500 |
+| writing plus extensions | 5 | **3,823** | — | 6,000 |
+| writing plus router and extensions | 6 | **6,408** | — | 6,800 |
+| maximal doctrine with draft PRs enabled | 7 | **7,519** | 102 | 7,900 |
+| maximal doctrine with draft PRs disabled | 6 | **7,500** | 102 | 7,900 |
+| positive control, one extra capped tool plus three maximum-growth model rows | 7 | **8,283** | — | must exceed 7,900 |
 
-The exact pinned literals catch every doctrine size change. The upper bounds are
-coarse growth ceilings, not single-edit detectors. Every upper bound must exceed
-the current measurement by at least five percent. Required character raises
-round up to the next hundred, while line bounds use the next whole line.
+Each exact pinned literal catches every size change in its rendered fixture. The
+paired maximal pins cover rule 8 with draft pull requests enabled and disabled.
+The upper bounds are coarse growth ceilings, not single-edit detectors. Every
+upper bound must exceed the current measurement by at least five percent.
+Required character raises round up to the next hundred, while line bounds use
+the next whole line.
 
 A doctrine change updates its exact literal. A bound changes only when this
-reserve policy requires it. Writing plus routing now keeps 308 portable
-characters. The maximal doctrine keeps 442 characters. The largest model-row
-growth is 184 characters. The extra capped tool line is 212 characters. The
-positive control exceeds the maximal bound by 322 characters.
+reserve policy requires it. Writing plus routing now keeps 347 portable
+characters. The enabled maximal doctrine keeps 381 characters. The disabled one
+keeps 400. The largest model-row growth is 184 characters. The capped tool-line
+growth is 212 characters. The positive control exceeds the maximal bound by 383.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
