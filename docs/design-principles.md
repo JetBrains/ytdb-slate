@@ -317,9 +317,9 @@ the load-on-demand discipline the extension itself prescribes:
   appended to the system prompt every turn while orchestrator mode is
   on. Sizing it matters to the tiering argument, so it is measured
   rather than asserted: with every conditional tail rule off and
-  `workflow.draftPRs` off, the block is **2,641 portable characters /
+  `workflow.draftPRs` off, the block is **2,701 portable characters /
   46 lines**, and configuring the router for six models nearly
-  doubles it, to **4,671** on that same basis — the routing rule
+  doubles it, to **4,731** on that same basis — the routing rule
   renders one table row per routable model. (Portable characters, and
   the rest of the configurations, are defined and tabulated in
   `context-budget.md`; the raw count also depends on where the package
