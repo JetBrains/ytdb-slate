@@ -15,8 +15,11 @@ type, also embed the §7 obligations or direct the reviewer to read them.
 
 ## 1. When to review
 
-- Every non-trivial change gets reviewed before it is declared done.
-- Rigor scales with risk of the change, never with effort already spent.
+- The agent code review of a track is skipped only when the whole change
+  is trivial. No track inside a medium, complex, or risky change is
+  trivial. Every required review occurs before the change is declared
+  done. [track-workflow.md](track-workflow.md) defines these classes.
+- Rigor scales with the change class, never with effort already spent.
   When in doubt, review more.
 - For long multi-step work streams, review high-risk steps in isolation
   right after they land — defects localized to one step get buried once
@@ -32,9 +35,16 @@ type, also embed the §7 obligations or direct the reviewer to read them.
   dispatch. Use `adversarial` for a perspective that actively seeks
   counterexamples and `reviewer` for every other review perspective.
 - Do not pass implementer episodes or implementer reasoning to
-  reviewers. Give a reviewer the artifact/diff, the intent of the
-  change, its in-scope files, and its charter plus reasoning/output
-  obligations (see the intro).
+  reviewers. Section 8 defines the single exception.
+- Every review dispatch includes the artifact/diff, the charter plus
+  reasoning/output obligations (see the intro), and a TRACK INTENTION
+  BLOCK with these four fields:
+  - target;
+  - scope boundary;
+  - deferred work;
+  - acceptance condition.
+  A reviewer without a target grades against an ideal and inflates
+  severity.
 - Independent perspectives run in PARALLEL on the same artifact.
 
 ## 3. Choose perspectives by what the change touches
@@ -143,13 +153,41 @@ perspective's charter:
   free number for its prefix.
 - Severity: **blocker** (must fix before done), **should-fix** (fix
   unless explicitly justified and reported), **suggestion** (optional).
-- Synthesize across reviewers: deduplicate by location/root cause,
-  keep all contributing IDs on the merged finding, and take the
-  highest severity when duplicates disagree (upgrade-only — never
-  downgrade a severity during synthesis).
+- Grade severity against the stated target of the track. A defect that
+  stops the track from reaching its target is a blocker or should-fix.
+  A defect outside the target is a suggestion.
+- Target-relative grading never lowers a safety defect or a correctness
+  defect. This safety floor protects concurrency, durability, recovery,
+  transactional semantics, a public API or behavioral change, security,
+  user data, and a missing test for a changed branch. Target-relative
+  grading can lower style concerns, refactoring opportunities,
+  neighboring-code concerns, and structural preferences.
+- Synthesize across reviewers by deduplicating findings with the same
+  location or root cause. Keep all contributing IDs on the merged
+  finding, and take the highest reviewer severity when duplicates
+  disagree. This upgrade-only rule governs deduplication only.
+- After synthesis, the orchestrator validates every finding's severity,
+  because the orchestrator holds the widest view of the change. It may
+  raise or lower a severity. It may not lower a finding that a gate
+  thread marked STILL OPEN or REGRESSION. Lowering a blocker requires
+  user confirmation.
+- Every change records the reviewer severity, validated severity,
+  validation reason, reviewer episode identifier, and observation path
+  for every finding. The final report shows the reviewer and validated
+  severities side by side.
+- Blockers and should-fix findings are fixed inside the change. Every
+  other finding becomes a suggestion and follows §5.
 
 ## 5. Reviewers find, implementers fix
 
+- A suggestion is NEVER fixed inside the change that found it. The
+  orchestrator collects suggestions and presents them at the end. Each
+  entry states what, where, why it matters, and what a fix needs. The
+  entry must be readable without the review that produced it.
+  Suggestions always have a durable home in the delivery record.
+  `workflow.followUpIssues` controls only whether the orchestrator then
+  asks the user which suggestions become tracker issues. The key
+  defaults to `false`. An off value never discards a suggestion.
 - Review threads never edit files; fix work is dispatched to an
   implementation thread (usually the one that produced the change, or
   a fresh one if it is gone or compromised — context-poisoned or
@@ -197,6 +235,8 @@ perspective's charter:
 
 ## 6. Iteration and termination
 
+- The review loop is internal to the orchestrator. Do not show the user
+  each iteration.
 - After fixes, re-verify each addressed finding — in a gate thread,
   not by trusting the fixer's claim. Dispatch every gate thread with the
   `reviewer` type. A gate thread is a fresh thread whose sole job is
@@ -212,11 +252,16 @@ perspective's charter:
   - **REGRESSION** — the fix broke something else; file the breakage
     as a new blocker (RG prefix).
 - Blockers loop until clear. Should-fix findings get up to 3
-  iterations for normal changes; go deeper only for high-risk changes.
-- No-progress rule: if an iteration clears nothing and surfaces no new
-  fixable finding, stop and escalate to the user instead of spinning.
-- Done = no blockers remain, addressed findings VERIFIED, and any
-  remaining should-fix/suggestions explicitly reported to the user.
+  iterations. The escape hatch in §8 is available when a trigger fires.
+- These escalations always reach the user: an iteration that clears
+  nothing, a third iteration on should-fix findings, a second regression
+  filed on one finding, and any proposed lowering of a blocker.
+- No-progress rule: if an iteration clears nothing, stop the ordinary
+  fix loop and escalate to the user instead of spinning. The escape
+  hatch in §8 remains available.
+- Done = no blockers remain, every addressed finding is VERIFIED, no
+  should-fix remains open without a recorded justification, and every
+  suggestion is reported to the user.
 
 ## 7. Reviewer evidence standards (how reviewers argue)
 
@@ -264,3 +309,23 @@ than implement its method.
   arguments carry no formal guarantee and do not replace running the
   project's checks.
 <!-- reviewer-charter:end -->
+
+## 8. Escape-hatch adversarial review
+
+- The escape hatch is available when a fix iteration clears nothing, a
+  gate thread returns STILL OPEN twice on one finding, the implementer
+  cannot locate the cause, or a fix keeps producing regressions.
+- The hatch dispatches a fresh adversarial thread. Its job is to explain
+  why the fix fails, not to grade the change.
+- This review is separate from the pre-implementation adversarial review
+  in [track-workflow.md](track-workflow.md). Neither review satisfies the
+  other. The escape hatch is available at every change class.
+- This review is the single exception to the §2 ban on passing
+  implementer episodes to reviewers. The orchestrator passes the
+  smallest episode subset that carries the evidence. It names every
+  episode passed and states why each one is needed.
+- The hatch output is evidence, not a verdict. It closes no finding and
+  lowers no severity. A null verdict proves nothing. Anything the hatch
+  raises goes to a normal gate thread for a verdict.
+- The hatch needs no research log. Append any decision that comes out of
+  it to the Decision Log.
