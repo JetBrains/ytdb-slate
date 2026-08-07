@@ -142,13 +142,16 @@ schema. A tool description and a parameter description are therefore both
 always loaded.
 
 The current `thread` tool description is 1,386 UTF-8 bytes. Its serialized
-parameter schema is 1,791 bytes, measured as `JSON.stringify(parameters)`, and
-includes the 289-byte `type` parameter description. The description and schema
-are 3,177 bytes together before provider framing. The thread-type wording in
-the description and schema adds 142 bytes to the previous combined figure. The
-increase is roughly 36 tokens at four characters per token. The figure excludes
-the prompt snippet, prompt guidelines, tool name,
-provider framing, and any serialization outside the parameter schema.
+parameter schema is 2,005 bytes, measured as `JSON.stringify(parameters)`.
+The schema includes the 289-byte `type` parameter description and the
+`freshContext` argument.
+
+The description and schema total 3,391 bytes before provider framing. The
+`freshContext` schema entry adds 214 bytes to the previous combined figure.
+The increase is roughly 54 tokens at four characters per token.
+
+The figure excludes the prompt snippet, prompt guidelines, tool name,
+provider framing, and serialization outside the parameter schema.
 
 The always-loaded doctrine has a separate measurement after the compaction
 policy.
@@ -174,14 +177,14 @@ you pay its input tokens every turn.
 
 **Its size depends on where the package is installed.** That is not
 obvious, and it catches anyone who measures: the doctrine cites the
-shipped docs by ABSOLUTE path, so three to six full filesystem paths
-are embedded in the block — three at minimum
-(`track-workflow.md`, `review-rules.md`, `design-principles.md`),
-plus `pr-publishing.md` when `workflow.draftPRs` is on, plus
-`model-routing.md` when the routing rule renders, plus
-`writing-guidance.md` when `writing.check` is on. Every additional
-character in the installed `docs/` directory therefore costs 3–6
-characters of doctrine.
+shipped docs by ABSOLUTE path, so four to seven full filesystem paths
+are embedded in the block — four at minimum
+(`thread-cache-cost.md`, `track-workflow.md`, `review-rules.md`,
+`design-principles.md`), plus `pr-publishing.md` when
+`workflow.draftPRs` is on, plus `model-routing.md` when the routing
+rule renders, plus `writing-guidance.md` when `writing.check` is on.
+Every additional character in the installed `docs/` directory therefore
+costs 4–7 characters of doctrine.
 
 The figures below are **portable characters**, defined exactly as
 Slate's own automated `doctrine-budget` check defines them: the
@@ -204,18 +207,18 @@ must be named instead of presented as the same measurement:
 
 | router | models | `draftPRs` | `writing.check` | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | off | 3 | 1,929 | 38 |
-| off | — | off | on | 4 | 2,999 | 60 |
-| off | — | on | off | 4 | 1,948 | 38 |
-| off | — | on | on | 5 | 3,018 | 60 |
-| on | `.pi/slate.json` six | off | off | 4 | 3,879 | 58 |
-| on | `.pi/slate.json` six | off | on | 5 | 4,949 | 80 |
-| on | `.pi/slate.json` six | on | off | 5 | 3,898 | 58 |
-| on | `.pi/slate.json` six | on | on | 6 | 4,968 | 80 |
-| on | all 9 shipped | off | off | 4 | 4,434 | 61 |
-| on | all 9 shipped | off | on | 5 | 5,504 | 83 |
-| on | all 9 shipped | on | off | 5 | 4,453 | 61 |
-| on | all 9 shipped | on | on | 6 | 5,523 | 83 |
+| off | — | off | off | 4 | 2,270 | 43 |
+| off | — | off | on | 5 | 3,340 | 65 |
+| off | — | on | off | 5 | 2,289 | 43 |
+| off | — | on | on | 6 | 3,359 | 65 |
+| on | `.pi/slate.json` six | off | off | 5 | 4,300 | 64 |
+| on | `.pi/slate.json` six | off | on | 6 | 5,370 | 86 |
+| on | `.pi/slate.json` six | on | off | 6 | 4,319 | 64 |
+| on | `.pi/slate.json` six | on | on | 7 | 5,389 | 86 |
+| on | all 9 shipped | off | off | 5 | 4,855 | 67 |
+| on | all 9 shipped | off | on | 6 | 5,925 | 89 |
+| on | all 9 shipped | on | off | 6 | 4,874 | 67 |
+| on | all 9 shipped | on | on | 7 | 5,944 | 89 |
 
 An untrusted project reads the first row whatever its `slate.json`
 says: no project config is loaded, so no optional rule renders. Line
@@ -231,9 +234,9 @@ path:
 
 - The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
   so what renders is the models you CONFIGURE — not the nine Slate
-  ships profiles for. In this snapshot it is 1,950 portable
-  characters and adds 20 doctrine lines for six configured models;
-  for all nine it is 2,505 characters and adds 23 lines. The six
+  ships profiles for. In this snapshot it is 2,030 portable
+  characters and adds 21 doctrine lines for six configured models;
+  for all nine it is 2,585 characters and adds 24 lines. The six
   model rows are 146–181 characters; all nine are 146–183. The
   legend adds a one-off clause per marker it has to explain, so
   growth is not only the sum of new rows.
@@ -247,14 +250,14 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| current `.pi/slate.json` dogfood config | 6 | real 2 units / 4 tools | 6 | 5,884 | 90 | ≈1,471 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 6,870 | 93 | ≈1,718 |
+| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 7 | 6,305 | 96 | ≈1,576 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,291 | 99 | ≈1,823 |
 
 The dogfood row uses `workflow.draftPRs: true`, `writing.check: true`, and the
 six models in `.pi/slate.json`. Its extension basis is
 `pi-smart-fetch@0.3.12` plus `pi-web-search@1.3.1`. Those packages resolve to two
 units and four tools. Their worker-extension rule is 916 portable characters /
-11 lines. Raw size remains symbolic: `portable + 6 × length(installed docs
+11 lines. Raw size remains symbolic: `portable + 7 × length(installed docs
 directory)`. No maintainer checkout path belongs in this shipped document.
 
 The stable maximal row uses all nine shipped profiles, draft PRs, and writing.
@@ -267,23 +270,54 @@ independent of installed extension labels, descriptions, versions and other
 prose. The worker rule measures 1,347 characters against its 1,600-character
 verification budget.
 
-`doctrine-budget` caps that representative maximal doctrine at 7,200 portable
-characters. The measured 6,870 leaves 330 characters, or 4.6 percent of the
-7,200-character bound. A positive control adds one capped tool
-and three copies of the largest measured model row. It measures 7,634 portable
-characters and exceeds the bound by 434. These figures are verification budgets,
-never runtime limits. Arbitrary user extension rosters can exceed them.
+The reserve policy is: every doctrine upper bound must exceed its current
+measurement by at least five percent, with a required character-bound raise
+rounded up to the next hundred characters. Existing bounds stay in place when
+they already satisfy the policy. Line bounds use the same five-percent rule and
+the next whole line.
 
-The exact values are maintenance tripwires. A deliberate doctrine wording,
-requirement roster, renderer cap, or fixture change requires a fresh render
-through `doctrine-budget`. Update its exact expectations and every published
-figure in the same commit. Keep the positive control steps unchanged unless the
-fixture design itself changes.
+Two guards have different jobs. An exact pinned literal is the sensitive guard.
+It fails for every size change in its rendered fixture, including one character.
+The paired maximal fixtures cover rule 8 with draft pull requests enabled and
+disabled. The bound is a coarse ceiling that stops unbounded growth over time.
+A bound close to a fixture adds friction but no detection, because its exact
+literal already detects the change. Real reserve therefore weakens nothing.
+
+A doctrine change updates the exact literal and every published measurement. A
+maintainer revisits a bound only when the reserve policy requires it. The check
+applies the five-percent rule to every upper bound, so this decision is auditable.
+
+| budget term | measured | old bound | current bound | current reserve |
+| --- | ---: | ---: | ---: | ---: |
+| routing rule characters | 2,585 | 4,000 | 4,000 | 1,415 |
+| routing rule lines | 25 | 34 | 34 | 9 |
+| routing fixed prose | 1,110 | 1,500 | 1,500 | 390 |
+| largest model row | 183 | 300 | 300 | 117 |
+| router-on doctrine | 4,855 | 6,500 | 6,500 | 1,645 |
+| writing-only doctrine | 3,340 | 5,600 | 5,600 | 2,260 |
+| writing plus router | 5,925 | 6,300 | 6,500 | 575 |
+| writing plus extensions | 3,595 | 6,000 | 6,000 | 2,405 |
+| writing plus router and extensions | 6,180 | 6,600 | 6,800 | 620 |
+| maximal doctrine, draft PRs enabled | 7,291 | 7,800 | 7,900 | 609 |
+| maximal doctrine, draft PRs disabled | 7,272 | 7,800 | 7,900 | 628 |
+| capped worker rule | 1,347 | 1,600 | 1,600 | 253 |
+| writing rule characters | 1,070 | 1,150 | 1,150 | 80 |
+| writing rule lines | 23 | 24 | 25 | 2 |
+
+The positive control adds one capped tool and four copies of the largest
+measured model row. It measures 8,239 portable characters and exceeds the new
+7,900-character maximal bound by 339. That margin remains larger than the
+184-character maximum model-row growth and the 212-character capped tool growth.
+The raised bound does not blunt the positive control.
+
+These figures are verification budgets, never runtime limits. Arbitrary user
+extension rosters can exceed them. Keep the positive-control steps unchanged
+unless the fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. At four
 characters per token as a rough estimate, the shipped-rule table ranges from
-about 482 tokens to about 1,381 tokens. The current dogfood basis is about 1,471
-tokens. The representative maximum is about 1,718 tokens, or 0.67 percent of the
+about 568 tokens to about 1,486 tokens. The current dogfood basis is about 1,576
+tokens. The representative maximum is about 1,823 tokens, or 0.72 percent of the
 default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
@@ -381,7 +415,9 @@ long-context rates listed above.
 
 With action-level routing on, this override also settles a warning
 you will otherwise see once per session for each configured
-`gpt-5.6-*` model: Slate's own profile for those models records a
+`gpt-5.6-*` model during resolution. Dispatch-time price divergence warnings
+are conditional and can repeat on later dispatches. Slate's own profile for those
+models records a
 1,050,000-token window, pi's stock registry reports 272,000, and the
 router reports that divergence without adjudicating it (routing uses
 the registry figure). Raising the registry window removes the

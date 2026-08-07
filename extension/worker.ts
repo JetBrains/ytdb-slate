@@ -56,6 +56,12 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 	return (JUDGEMENT_THREAD_TYPES as readonly unknown[]).includes(type);
 }
 
+// pi-ai 0.83.0 declares this value in
+// @earendil-works/pi-ai/dist/api/openai-prompt-cache.js. pi's extension loader
+// aliases the package root to the compat.js FILE, so an extension cannot safely
+// import that deep subpath. The node test pins this copy to pi-ai's declaration.
+export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH = 64;
+
 // Keep this historical feature-off preamble byte-identical. Optional guidance is
 // added by workerPreamble only when its corresponding switch is on.
 export const WORKER_PREAMBLE = [
@@ -117,6 +123,51 @@ export function threadsDir(cwd: string): string {
 	return resolve(cwd, CONFIG_DIR_NAME, "slate", "threads");
 }
 
+function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string): void {
+	const previous = session.agent.onPayload;
+	session.agent.onPayload = async (payload, model) => {
+		let chainedPayload = payload;
+		try {
+			const result = await previous?.(payload, model);
+			if (result !== undefined && result !== null) chainedPayload = result;
+		} catch {
+			return payload;
+		}
+
+		try {
+			// pi-ai 0.83.0's api/openai-responses.ts buildParams always creates
+			// prompt_cache_key and assigns undefined when resolved cacheRetention is
+			// "none". Own-property presence therefore distinguishes that deliberate
+			// opt-out from a payload shape that never considered this field.
+			const platformDisabledCache =
+				typeof payload === "object" &&
+				payload !== null &&
+				Object.prototype.hasOwnProperty.call(payload, "prompt_cache_key") &&
+				(payload as Record<string, unknown>).prompt_cache_key === undefined;
+			const chainedDisabledCache =
+				typeof chainedPayload === "object" &&
+				chainedPayload !== null &&
+				Object.prototype.hasOwnProperty.call(chainedPayload, "prompt_cache_key") &&
+				(chainedPayload as Record<string, unknown>).prompt_cache_key === undefined;
+			if (
+				promptCacheKey === undefined ||
+				model.api !== "openai-responses" ||
+				platformDisabledCache ||
+				chainedDisabledCache ||
+				Array.from(promptCacheKey).length > OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH ||
+				typeof chainedPayload !== "object" ||
+				chainedPayload === null
+			) {
+				return chainedPayload;
+			}
+			(chainedPayload as Record<string, unknown>).prompt_cache_key = promptCacheKey;
+			return chainedPayload;
+		} catch {
+			return chainedPayload;
+		}
+	};
+}
+
 /**
  * Resolve a "provider/id" model string against the registry; throws a clear error
  * if unknown. Validation and splitting are the shared helpers (CQ2), so the
@@ -134,12 +185,14 @@ export function resolveModel(ctx: ExtensionContext, spec: string) {
 export async function openWorkerSession(opts: {
 	ctx: ExtensionContext;
 	sessionFile?: string; // resume when provided, else create new under <config dir>/slate/threads/
+	// Episode and observation paths do not belong here. Their shared artifact writer owns persistence.
 	model?: string; // "provider/id"
 	tools?: string[];
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
 	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
 	writingCheck?: boolean; // sanitized writing.check; only literal true enables worker guidance
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
+	promptCacheKey?: string; // optional OpenAI Responses cache-routing key
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
 	const dir = threadsDir(ctx.cwd);
@@ -317,5 +370,6 @@ export async function openWorkerSession(opts: {
 		sessionManager,
 		settingsManager,
 	});
+	if (opts.promptCacheKey !== undefined) installPromptCacheKey(session, opts.promptCacheKey);
 	return session;
 }

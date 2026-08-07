@@ -115,6 +115,10 @@
 import type { ThinkingLevel } from "./model-profiles.ts";
 import {
 	checkEffort,
+	coveringPriceRow,
+	isValidPrice,
+	routerProfileText,
+	sanitizeRouterWarning,
 	ROUTER_OFF,
 	type EffortCheck,
 	type ModelRouterResolution,
@@ -189,6 +193,8 @@ export interface RoutePlanInput {
 	failoverFrom?: string;
 	/** In failover mode: the target's REGISTRY context window (a failover target need not be a candidate). */
 	contextWindow?: number;
+	/** Optional UTC date override for fabricated dispatch-time price checks. */
+	currentDate?: () => string;
 }
 
 /** The action may run, on exactly this model and level. */
@@ -713,6 +719,101 @@ function count(tokens: number): string {
 	return tokens.toLocaleString("en-US");
 }
 
+/** One part per million ignores arithmetic noise while preserving every material catalogue difference. */
+export const REGISTRY_PRICE_RELATIVE_TOLERANCE = 1e-6;
+
+function priceDiffers(shipped: number, registry: number): boolean {
+	const scale = Math.max(Math.abs(shipped), Math.abs(registry));
+	return scale > 0 && Math.abs(shipped - registry) > REGISTRY_PRICE_RELATIVE_TOLERANCE * scale;
+}
+
+interface PriceDifference {
+	field: "input" | "output" | "cache read" | "cache write";
+	shipped: number;
+	registry: number;
+}
+
+function roughDifference({ field, shipped, registry }: PriceDifference): string {
+	const lower = Math.min(shipped, registry);
+	const higher = Math.max(shipped, registry);
+	const ratio = lower === 0 ? Number.POSITIVE_INFINITY : higher / lower;
+	const magnitude = ratio >= 10 ? "at least tenfold" : ratio >= 2 ? "twofold to tenfold" : "less than twofold";
+	return `Registry ${field} is ${registry > shipped ? "higher" : "lower"} by ${magnitude}`;
+}
+
+/** Build one advisory warning from fresh dispatch-time evidence, or stay silent when evidence is incomplete. */
+function priceDivergenceWarning(
+	input: RoutePlanInput,
+	resolution: ModelRouterResolution,
+	spec: string,
+): string | undefined {
+	try {
+		const candidate = candidateFor(resolution, spec);
+		const readRegistry = resolution.registryCostFor;
+		const readDate = input.currentDate ?? resolution.currentDate;
+		if (!candidate || typeof readRegistry !== "function" || typeof readDate !== "function") return undefined;
+		const today = readDate();
+		const row = coveringPriceRow(candidate.profile, today);
+		const registry = readRegistry(spec);
+		if (!row || !registry) return undefined;
+
+		const differences: PriceDifference[] = [];
+		if (
+			isValidPrice(row.inUsdPerMTok) &&
+			isValidPrice(registry.input) &&
+			priceDiffers(row.inUsdPerMTok, registry.input)
+		) {
+			differences.push({ field: "input", shipped: row.inUsdPerMTok, registry: registry.input });
+		}
+		if (
+			isValidPrice(row.outUsdPerMTok) &&
+			isValidPrice(registry.output) &&
+			priceDiffers(row.outUsdPerMTok, registry.output)
+		) {
+			differences.push({ field: "output", shipped: row.outUsdPerMTok, registry: registry.output });
+		}
+		if (
+			isValidPrice(row.cachedInUsdPerMTok) &&
+			isValidPrice(registry.cacheRead) &&
+			priceDiffers(row.cachedInUsdPerMTok, registry.cacheRead)
+		) {
+			differences.push({ field: "cache read", shipped: row.cachedInUsdPerMTok, registry: registry.cacheRead });
+		}
+		const shippedCacheWrite = row.cacheWriteUsdPerMTok ?? row.cacheWrite5mUsdPerMTok;
+		if (
+			isValidPrice(shippedCacheWrite) &&
+			isValidPrice(registry.cacheWrite) &&
+			priceDiffers(shippedCacheWrite, registry.cacheWrite)
+		) {
+			differences.push({ field: "cache write", shipped: shippedCacheWrite, registry: registry.cacheWrite });
+		}
+		if (differences.length === 0) return undefined;
+		const label = sanitizeForNotify(spec, 80);
+		const exactWarning =
+			`slate: model router: exact live registry pricing for ${label} differs from the shipped profile row for ${today}. ` +
+			`Profile asOf ${routerProfileText(String(candidate.profile.asOf ?? "unknown"), 20)}. ` +
+			`${differences.map((difference) => `${difference.field.replace(/^./, (initial) => initial.toUpperCase())}: shipped $${difference.shipped} and registry $${difference.registry} per million tokens.`).join(" ")} ` +
+			"Candidate ordering still uses shipped prices.";
+		try {
+			resolution.warnOnce?.(
+				"registry-price-divergence",
+				{ spec, today, differences },
+				exactWarning,
+				"model-data-note",
+			);
+		} catch {
+			/* a router warning must never block dispatch */
+		}
+		return sanitizeRouterWarning(
+			`slate: model router: live registry pricing for ${label} differs materially from the shipped profile row for ${today}. ` +
+				`${differences.map(roughDifference).join(". ")}. Candidate ordering still uses shipped prices. Dispatching anyway. ` +
+				"Exact rates are omitted from this model-visible warning.",
+		);
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * GUARD 7 — the failover carve-out. Guards 1–4 do not run: a model that just
  * failed is worse than an unlisted one that works, so the router may never veto a
@@ -746,6 +847,8 @@ function planFailoverSwitch(input: RoutePlanInput, resolution: ModelRouterResolu
 				"failing over anyway; pi will compact. Failover is never vetoed on window size.",
 		);
 	}
+	const priceWarning = priceDivergenceWarning(input, resolution, target);
+	if (priceWarning) warnings.push(priceWarning);
 	return { kind: "proceed", model: target, effortUnmeasured: false, warnings };
 }
 
@@ -1140,12 +1243,17 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	guardEffort(judgedModel, effortExplicit && substitutedFrom !== undefined);
 	if (rejection !== undefined) return { kind: "reject", reason: rejection, warnings };
 
+	const finalCandidate = candidateFor(resolution, model);
+	if (finalCandidate) {
+		const priceWarning = priceDivergenceWarning(input, resolution, finalCandidate.spec);
+		if (priceWarning) warn(priceWarning);
+	}
+
 	// GUARD 6 — LONG-CONTEXT BILLING. A cost cliff, never a capacity limit
 	// (model-profiles §W): above the threshold the price multipliers apply. Emitted
 	// at most once per thread and model, on the FINAL model — the memory is the
 	// caller's (warnedLongContext in, longContextWarned out) so this stays pure.
 	let longContextWarned: string | undefined;
-	const finalCandidate = candidateFor(resolution, model);
 	if (finalCandidate && tokens !== undefined && thread) {
 		const threshold = finite(finalCandidate.profile?.longContextThreshold);
 		// Array.isArray, not `?? []`: this input is fabricated by checks and assembled

@@ -69,6 +69,9 @@ const baseLoad = await tryImport("extension/base-model.ts");
 // PURE module for exactly this harness (threads.ts transitively imports
 // @earendil-works/pi-ai, which this repo does not install).
 const routeLoad = await tryImport("extension/route.ts");
+// The continue-or-fresh planner is pure and receives every environment fact as
+// an input. Its caller and automatic restart execution remain outside this net.
+const choiceLoad = await tryImport("extension/thread-choice.ts");
 const router = routerLoad.module;
 const table = profilesLoad.module;
 const state = stateLoad.module;
@@ -78,6 +81,7 @@ const handoff = handoffLoad.module;
 const worker = workerLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
+const choice = choiceLoad.module;
 const checker = await import(pathToFileURL(`${REPO}/extension/writing-check.mjs`).href);
 const CHECKER_PATH = `${REPO}/extension/writing-check.mjs`;
 
@@ -312,6 +316,8 @@ const ROUTER_IDS = [
 	"router-cheapest-fallback",
 	"router-price-date",
 	"router-price-rows",
+	"router-price-validity-order",
+	"router-price-validity-warning",
 	"router-w1-canary",
 	"router-w1-guards",
 	"router-w3-unknown",
@@ -349,16 +355,32 @@ const ROUTER_IDS = [
 	"router-config-invalid",
 	"router-shipped-default",
 ];
-const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta"];
+const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-price-values", "profiles-price-dates", "profiles-price-identity", "profiles-price-long-context", "profiles-meta"];
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
 const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
 const WORKER_IDS = ["worker-preamble", "reviewer-charter-sync"];
+/** Checks that need extension/thread-choice.ts — the pure continue-or-fresh planner. */
+const CHOICE_IDS = [
+	"choice-order",
+	"choice-refusals",
+	"choice-new-stream",
+	"choice-warmth",
+	"choice-effort-cold",
+	"choice-short-work",
+	"choice-abstentions",
+	"choice-token-buckets",
+	"choice-long-context",
+	"choice-rediscovery",
+	"choice-final-verdict",
+	"choice-verdict-shape",
+	"choice-hostile",
+];
 /**
  * Checks that need extension/route.ts — the dispatch guards. They also need
  * extension/model-router.ts, because the planner consumes its resolutions AND
- * imports it (so an unloadable router makes route.ts unloadable too); the skip
+ * imports it. An unloadable router makes route.ts unloadable too, so the skip
  * reason names whichever module actually failed.
  */
 const ROUTE_IDS = [
@@ -387,6 +409,11 @@ const ROUTE_IDS = [
 	"route-window-skip",
 	"route-window-reserve",
 	"route-long-context",
+	"route-price-divergence-golden",
+	"route-price-divergence-tolerance",
+	"route-price-divergence-absence",
+	"route-price-divergence-output",
+	"route-price-divergence-date",
 	"route-failover",
 	"route-lowest-effort",
 	"route-off-ladder-source",
@@ -426,6 +453,7 @@ const VOIDABLE = [
 	// "route-" (the sixth character is "r", not "-"), so the two lists cannot claim
 	// each other's checks.
 	["route-", ROUTE_IDS, "route-load"],
+	["choice-", CHOICE_IDS, "choice-load"],
 	["router-", ROUTER_IDS, "router-load"],
 	["profiles-", PROFILE_IDS, "profiles-load"],
 	["worker-", WORKER_IDS, "worker-load"],
@@ -852,7 +880,7 @@ try {
 			["every isolated pending mutation leaves the snapshot equal", isolatedPendingResults.length === pendingKeys.length && isolatedPendingResults.every((result) => result.equal), isolatedPendingResults.filter((result) => !result.equal)],
 			["every runtime value was batch-mutated", automaticallyMutatedRuntime !== undefined && JSON.stringify(automaticallyMutatedRuntime) !== JSON.stringify(populatedRuntime), automaticallyMutatedRuntime],
 			["batch mutation changes no persisted value", baselineSnapshot !== undefined && JSON.stringify(mutatedRuntimeSnapshot) === JSON.stringify(baselineSnapshot), { baselineSnapshot, mutatedRuntimeSnapshot }],
-			["real snapshot exact top-level shape", exactSnapshotKeys === "carriedCostUsd,episodes,orchestratorMode,paused,threads,workerCostUsd", exactSnapshotKeys],
+			["real snapshot exact top-level shape", exactSnapshotKeys === "carriedCostUsd,episodes,orchestratorMode,paused,threadSeq,threads,workerCostUsd", exactSnapshotKeys],
 			["source shape also omits runtime object", snapshotType !== "" && snapshotMethod !== "" && adoptMethod !== "" && !/writingReminder/.test(snapshotType + snapshotMethod + adoptMethod), { snapshotType: snapshotType.length, snapshotMethod: snapshotMethod.length, adoptMethod: adoptMethod.length }],
 		]);
 
@@ -1015,7 +1043,7 @@ try {
 		const onReal = onWith(realCandidates);
 		/** The rule's own text: from its number line to the end of the numbered block. */
 		const ruleOf = (d) => {
-			const at = d.search(/\n\d+\. Route every action/);
+			const at = d.search(/\n\d+\. Pick the first candidate/);
 			return at < 0 ? "" : d.slice(at);
 		};
 		/**
@@ -1085,7 +1113,7 @@ try {
 				[
 					["every router-off shape is byte-identical to the default call", differs.length === 0, { differs, len: byDefault.length }],
 					["...and identical again with the worker-extension rule present", extOff === extDefault && extDefault.startsWith(byDefault), [extOff === extDefault, extDefault.length]],
-					["no fragment of the routing rule renders", !/Route every action|route for\|avoid|per Mtok/.test(byDefault), byDefault.slice(-160)],
+					["no fragment of the routing rule renders", !/Pick the first candidate|route for\|avoid|per Mtok/.test(byDefault), byDefault.slice(-160)],
 					["...and no tail rule is numbered at all", tailNumbers(byDefault).length === 0, tailNumbers(byDefault)],
 					["the fixture is not vacuous: the SAME helper does render the rule when the router is on", ruleOf(on) !== "" && on.length > byDefault.length, [ruleOf(on).length, on.length - byDefault.length]],
 					// THE FIXTURE FLIP ITSELF, pinned rather than assumed. Every doctrine-* check
@@ -1132,7 +1160,7 @@ try {
 				[
 					["untrusted + a fully configured router renders NO routing rule", ruleOf(untrustedOn) === "", ruleOf(untrustedOn).slice(0, 120)],
 					["...byte-identical to the untrusted router-off doctrine", untrustedOn === untrustedOff, { on: untrustedOn.length, off: untrustedOff.length }],
-					["...with no fragment of the rule anywhere in it", !/Route every action|route for\|avoid|per Mtok|model-routing\.md/.test(untrustedOn), untrustedOn.slice(-160)],
+					["...with no fragment of the rule anywhere in it", !/Pick the first candidate|route for\|avoid|per Mtok|model-routing\.md/.test(untrustedOn), untrustedOn.slice(-160)],
 					[
 						"DISCRIMINATOR: the SAME resolution renders the rule when the project IS trusted — so the gate is what suppressed it, not an inert fixture",
 						ruleOf(trustedOn) !== "" && trustedOn.length > untrustedOn.length,
@@ -1164,7 +1192,7 @@ try {
 				both: await asTrusted(WITH_EXT, onReal),
 			};
 			const nums = Object.fromEntries(Object.entries(combos).map(([k, d]) => [k, tailNumbers(d)]));
-			const routing = Object.fromEntries(Object.entries(combos).map(([k, d]) => [k, numberOf(d, "Route every action")]));
+			const routing = Object.fromEntries(Object.entries(combos).map(([k, d]) => [k, numberOf(d, "Pick the first candidate")]));
 			const ext = Object.fromEntries(Object.entries(combos).map(([k, d]) => [k, numberOf(d, "Delegate any action that needs")]));
 			// CONTIGUITY, derived rather than spelled: whatever tail rules rendered, their
 			// numbers must be 11, 12, ... with nothing skipped and nothing repeated.
@@ -1573,16 +1601,16 @@ try {
 				"   release notes, and messages to the user.",
 				`   ${reminder.WRITING_SCOPE_EXCLUSION}`,
 			].join("\n");
-			const routingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Route every action")]));
+			const routingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Pick the first candidate")]));
 			const extensionNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Delegate any action that needs")]));
 			checkAll("writing-doctrine-numbering", "the writing rule is appended and numbered by tail position, without renumbering any rule before it", [
 				["writing alone is 11", writingNumbers.writing === 11 && numbers.writing.join() === "11", numbers],
 				["writing follows router", writingNumbers["writing + router"] === 12 && routingNumbers["writing + router"] === 11, [writingNumbers, routingNumbers]],
 				["writing follows extensions", writingNumbers["writing + extensions"] === 12 && extensionNumbers["writing + extensions"] === 11, [writingNumbers, extensionNumbers]],
 				["writing is last with all three", writingNumbers["all three"] === 13 && routingNumbers["all three"] === 12 && extensionNumbers["all three"] === 11, [writingNumbers, routingNumbers, extensionNumbers]],
-				["router number stays unchanged when writing is added", routingNumbers["writing + router"] === numberOf(combos["router without writing"], "Route every action"), [routingNumbers, numberOf(combos["router without writing"], "Route every action")]],
+				["router number stays unchanged when writing is added", routingNumbers["writing + router"] === numberOf(combos["router without writing"], "Pick the first candidate"), [routingNumbers, numberOf(combos["router without writing"], "Pick the first candidate")]],
 				["extension number stays unchanged when writing is added", extensionNumbers["writing + extensions"] === numberOf(combos["extensions without writing"], "Delegate any action that needs"), [extensionNumbers, numberOf(combos["extensions without writing"], "Delegate any action that needs")]],
-				["both preceding numbers stay unchanged when writing is added", routingNumbers["all three"] === numberOf(combos["all without writing"], "Route every action") && extensionNumbers["all three"] === numberOf(combos["all without writing"], "Delegate any action that needs"), [routingNumbers, extensionNumbers]],
+				["both preceding numbers stay unchanged when writing is added", routingNumbers["all three"] === numberOf(combos["all without writing"], "Pick the first candidate") && extensionNumbers["all three"] === numberOf(combos["all without writing"], "Delegate any action that needs"), [routingNumbers, extensionNumbers]],
 				["requirements stay indented under a clear lead-in and explicit scope", structuredWritingRule.includes(exactWritingStructure), structuredWritingRule],
 				["no roster bullet escapes to column zero", !doctrineRequirements.some((line) => structuredWritingRule.includes(`\n- ${line}`)), structuredWritingRule],
 			]);
@@ -1674,7 +1702,9 @@ try {
 				toolNames: [],
 			};
 			const maximalConfig = { workflow: { draftPRs: true }, writing: { check: true } };
+			const maximalNoDraftConfig = { workflow: { draftPRs: false }, writing: { check: true } };
 			const maximal = await asTrusted(MAX_EXT, onReal, maximalConfig);
+			const maximalNoDraft = await asTrusted(MAX_EXT, onReal, maximalNoDraftConfig);
 			const DOCS_DIR = dirname(paths.TRACK_WORKFLOW_DOC);
 			const portableFrom = (text, docsDir) => text.split(docsDir).join("");
 			const portable = (text) => portableFrom(text, DOCS_DIR);
@@ -1687,9 +1717,10 @@ try {
 			const prose = ruleChars - rowChars; // rows embed no doc path, so they need no normalising
 			const longest = rows.reduce((max, r) => Math.max(max, r.length), 0);
 			const workerStart = maximal.search(/\n\d+\. Delegate any action that needs/);
-			const workerEnd = maximal.search(/\n\d+\. Route every action/);
+			const workerEnd = maximal.search(/\n\d+\. Pick the first candidate/);
 			const workerRule = workerStart >= 0 && workerEnd > workerStart ? maximal.slice(workerStart, workerEnd) : "";
 			const maximalPortable = portable(maximal).length;
+			const maximalNoDraftPortable = portable(maximalNoDraft).length;
 			const writingPortable = portable(ruleOfWriting(writingOn)).length;
 			const modelIncrements = [];
 			for (const candidate of realCandidates) {
@@ -1702,41 +1733,46 @@ try {
 			const toolGrown = await asTrusted(MAX_EXT_PLUS_TOOL, onReal, maximalConfig);
 			const maxToolIncrement = portable(toolGrown).length - maximalPortable;
 			const maxCandidate = realCandidates.find((candidate) => candidate.spec === maxModelIncrement.spec);
-			const overBudget = await asTrusted(MAX_EXT_PLUS_TOOL, onWith([...realCandidates, maxCandidate, maxCandidate, maxCandidate]), maximalConfig);
+			const overBudget = await asTrusted(MAX_EXT_PLUS_TOOL, onWith([...realCandidates, maxCandidate, maxCandidate, maxCandidate, maxCandidate]), maximalConfig);
 			const overBudgetPortable = portable(overBudget).length;
+			// Exact measurements catch every size change. Bounds are coarse ceilings and
+			// retain at least five percent reserve, so one ordinary edit does not force a
+			// ceiling change. Required character-bound raises round up to the next hundred.
+			const hasDoctrineReserve = (measured, bound) => bound >= Math.ceil(measured * 1.05);
 			// The normalisation must actually BITE — if the doctrine ever stops embedding a
 			// path, or the directory stops being extractable, `portable()` silently becomes
 			// the identity and the bounds go back to being install-dependent.
 			const docPaths = DOCS_DIR === "" ? 0 : on.split(DOCS_DIR).length - 1;
 			checkAll(
 				"doctrine-budget",
-				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and three copies of the largest model row, so budget growth cannot pass vacuously",
+				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and four copies of the largest model row, so budget growth cannot pass vacuously",
 				[
 					["the normalisation bites: the doctrine really does embed the authoritative docs directory", docPaths >= 3 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC), { docPaths, DOCS_DIR }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
 					["space-bearing docs directories normalize without parsing rendered text", spacedPortable === "read /track-workflow.md", spacedPortable],
-					["the whole rule stays under 4000 portable chars", ruleChars <= 4000, { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
-					["...and under 34 lines", rule.split("\n").length <= 34, rule.split("\n").length],
-					["its FIXED prose — the part that does not scale with the table — stays under 1500 portable chars", prose <= 1500, prose],
-					["no single model row exceeds 300 chars", longest <= 300, { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
+					["the whole rule stays under 4000 portable chars with five percent reserve", ruleChars <= 4000 && hasDoctrineReserve(ruleChars, 4000), { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
+					["...and under 34 lines with five percent reserve", rule.split("\n").length <= 34 && hasDoctrineReserve(rule.split("\n").length, 34), rule.split("\n").length],
+					["its FIXED prose — the part that does not scale with the table — stays under 1500 portable chars with five percent reserve", prose <= 1500 && hasDoctrineReserve(prose, 1500), prose],
+					["no single model row exceeds 300 chars or consumes its five percent reserve", longest <= 300 && hasDoctrineReserve(longest, 300), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
-					["...and the whole router-on doctrine stays under 6500 portable chars", portable(on).length <= 6500, { portable: portable(on).length, raw: on.length }],
-					["writing-only doctrine stays under 5600 portable chars", portable(writingOn).length <= 5600, { portable: portable(writingOn).length }],
-					["writing plus router stays under 6000 portable chars", portable(writingRouterOn).length <= 6000, { portable: portable(writingRouterOn).length }],
-					["writing plus extensions stays under 6000 portable chars", portable(writingExtensionsOn).length <= 6000, { portable: portable(writingExtensionsOn).length }],
-					["all three tail features stay under 6000 portable chars", portable(writingAllOn).length <= 6000, { portable: portable(writingAllOn).length }],
+					["...and the whole router-on doctrine stays under 6500 portable chars with five percent reserve", portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length }],
+					["writing-only doctrine stays under 5600 portable chars with five percent reserve", portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length }],
+					["writing plus router stays under 6500 portable chars with five percent reserve", portable(writingRouterOn).length <= 6500 && hasDoctrineReserve(portable(writingRouterOn).length, 6500), { portable: portable(writingRouterOn).length }],
+					["writing plus extensions stays under 6000 portable chars with five percent reserve", portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length }],
+					["all three tail features stay under 6800 portable chars with five percent reserve", portable(writingAllOn).length <= 6800 && hasDoctrineReserve(portable(writingAllOn).length, 6800), { portable: portable(writingAllOn).length }],
 					// Update exact measurements with production wording in the same commit.
-					["the maximum all-feature fixture is the measured 6870 portable chars and stays within 7200", maximalPortable === 6870 && maximalPortable <= 7200, { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					["the capped worker rule is the measured 1347 chars and stays within 1600", workerRule.length === 1347 && workerRule.length <= 1600, { chars: workerRule.length, lines: workerRule.split("\n").length }],
+					["the maximum all-feature fixture is the measured 7291 portable chars and stays within 7900 with five percent reserve", maximalPortable === 7291 && maximalPortable <= 7900 && hasDoctrineReserve(maximalPortable, 7900), { portable: maximalPortable, raw: maximal.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the draft-PR-disabled maximum fixture is pinned independently at 7272 portable chars and shares the maximum bound", maximalNoDraftPortable === 7272 && maximalNoDraftPortable <= 7900 && hasDoctrineReserve(maximalNoDraftPortable, 7900), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the capped worker rule is the measured 1347 chars and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					["the positive control exceeds 7200 by at least one model growth unit", overBudgetPortable > 7200 && overBudgetPortable - 7200 >= maxModelIncrement.growth, { portable: overBudgetPortable, bound: 7200, growthBeyondBound: overBudgetPortable - 7200, maxModelIncrement, maxToolIncrement }],
+					["the positive control is the measured 8239 portable chars and exceeds 7900 by the larger growth unit", overBudgetPortable === 8239 && overBudgetPortable > 7900 && overBudgetPortable - 7900 >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, bound: 7900, growthBeyondBound: overBudgetPortable - 7900, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
 					// The writing rule has its own bound because its absolute citation changes raw size.
-					["the writing rule is the measured 1070 portable chars and stays under 1150", writingPortable === 1070 && writingPortable <= 1150, { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length }],
-					["...and under 24 lines", ruleOfWriting(writingOn).split("\n").length <= 24, ruleOfWriting(writingOn).split("\n").length],
+					["the writing rule is the measured 1070 portable chars and stays under 1150 with five percent reserve", writingPortable === 1070 && writingPortable <= 1150 && hasDoctrineReserve(writingPortable, 1150), { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length }],
+					["...and under 25 lines with five percent reserve", ruleOfWriting(writingOn).split("\n").length <= 25 && hasDoctrineReserve(ruleOfWriting(writingOn).split("\n").length, 25), ruleOfWriting(writingOn).split("\n").length],
 					["...and embeds exactly ONE doc path, so the citation is charged once per turn, not once per mention", DOCS_DIR !== "" && ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 === 1, { paths: DOCS_DIR === "" ? "no docs dir found" : ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 }],
 					["writing-on text is actually larger than writing-off text", writingOn.length > off.length, { off: off.length, writing: writingOn.length }],
 					["writing-on with extensions is larger than writing-on without them", writingAllOn.length > writingRouterOn.length, { router: writingRouterOn.length, all: writingAllOn.length }],
@@ -1825,6 +1861,7 @@ try {
 	check("state-load", state !== undefined, "extension/state.ts loads", stateLoad.error?.message);
 	check("base-load", tracker !== undefined, "extension/base-model.ts loads", baseLoad.error?.message);
 	check("route-load", route !== undefined, "extension/route.ts loads", routeLoad.error?.message);
+	check("choice-load", choice !== undefined, "extension/thread-choice.ts loads", choiceLoad.error?.message);
 
 	if (!router) {
 		for (const id of ROUTER_IDS) skip(id, "extension/model-router.ts could not be loaded");
@@ -2091,6 +2128,54 @@ try {
 			]);
 		});
 
+		await section("router-price-validity", async () => {
+			const priced = (id, inUsdPerMTok) =>
+				profile(id, {
+					tier: 1,
+					price: [{ from: null, until: null, inUsdPerMTok, outUsdPerMTok: 2 }],
+				});
+			const absent = profile("p/absent", {
+				tier: 1,
+				price: [{ from: null, until: null, outUsdPerMTok: 2 }],
+			});
+			const list = [priced("p/negative", -1), priced("p/infinite", Number.POSITIVE_INFINITY), absent, priced("p/zero", 0), priced("p/positive", 2)];
+			const models = Object.fromEntries(list.map((p) => [p.id, { contextWindow: 200_000, auth: true }]));
+			const ordered = resolve({
+				registry: registry(models),
+				models: ["p/negative", "p/infinite", "p/absent", "p/positive", "p/zero"],
+				profiles: profiles(list),
+				today: "2026-08-06",
+			});
+			const bySpec = Object.fromEntries(ordered.res.candidates.map((c) => [c.spec, c]));
+			checkAll("router-price-validity-order", "negative, non-finite and absent input prices sort last, while an explicit zero remains present and sorts as the genuinely cheapest price", [
+				["zero sorts first and positive follows", specs(ordered.res).startsWith("p/zero,p/positive,"), specs(ordered.res)],
+				["negative never sorts first", ordered.res.candidates[0]?.spec !== "p/negative", specs(ordered.res)],
+				["negative sorts in the unpriced tail", specs(ordered.res).endsWith("p/absent,p/infinite,p/negative"), specs(ordered.res)],
+				["non-finite sorts in the unpriced tail", ordered.res.candidates.findIndex((c) => c.spec === "p/infinite") > ordered.res.candidates.findIndex((c) => c.spec === "p/positive"), specs(ordered.res)],
+				["absent sorts in the unpriced tail", ordered.res.candidates.findIndex((c) => c.spec === "p/absent") > ordered.res.candidates.findIndex((c) => c.spec === "p/positive"), specs(ordered.res)],
+				["explicit zero remains zero", bySpec["p/zero"]?.inUsdPerMTok === 0, bySpec["p/zero"]?.inUsdPerMTok],
+				["absent remains undefined", bySpec["p/absent"]?.inUsdPerMTok === undefined, bySpec["p/absent"]?.inUsdPerMTok],
+				["zero and absent stay distinguishable", bySpec["p/zero"]?.inUsdPerMTok !== bySpec["p/absent"]?.inUsdPerMTok, [bySpec["p/zero"]?.inUsdPerMTok, bySpec["p/absent"]?.inUsdPerMTok]],
+				["zero is the default cheapest model", ordered.res.cheapest === "p/zero", ordered.res.cheapest],
+			]);
+
+			const invalidWarnings = ordered.warned.filter((m) => /has invalid input price data/.test(m));
+			const valid = resolve({
+				registry: registry({ "p/valid": { contextWindow: 200_000, auth: true } }),
+				models: ["p/valid"],
+				profiles: profiles([priced("p/valid", 0)]),
+				failover: { "p/valid": "p/valid" },
+				today: "2026-08-06",
+			});
+			checkAll("router-price-validity-warning", "each present invalid input price emits the invalid-price warning, while absent and valid zero prices do not emit that warning", [
+				["negative and non-finite each warn once", invalidWarnings.length === 2, invalidWarnings],
+				["negative is named", invalidWarnings.some((m) => m.includes("p/negative")), invalidWarnings],
+				["non-finite is named", invalidWarnings.some((m) => m.includes("p/infinite")), invalidWarnings],
+				["absent does not emit an invalid-price warning", !invalidWarnings.some((m) => m.includes("p/absent")), invalidWarnings],
+				["valid zero emits no warning at all", valid.warned.length === 0, valid.warned],
+			]);
+		});
+
 		await section("router-warnings", async () => {
 			const p = profile("p/diverged", { contextWindow: 1050000, asOf: "2026-07-29", unknown: ["METR cheating rate", "TTFT at max"] });
 			const { res, warned } = resolve({
@@ -2321,7 +2406,7 @@ try {
 				});
 				const byKey = new Map(classified.map((entry) => [entry.key, entry.warningClass]));
 				const noteKeys = [...byKey].filter(([, cls]) => cls === "model-data-note").map(([key]) => key).sort();
-				const expectedNotes = ["ladder", "price", "w1", "w1-billing-pattern", "w3", "w3-explainer"].sort();
+				const expectedNotes = ["invalid-price", "ladder", "price", "w1", "w1-billing-pattern", "w3", "w3-explainer"].sort();
 				checkAll("router-class-partition", "every warning condition is classified, with an exact closed roster of model-data-note keys and every other condition visible as a configuration fault (AD21)", [
 					["every real once call yielded a condition key", classified.length === onceCalls.length, { calls: onceCalls.length, classified }],
 					["model-data-note key roster is exact", JSON.stringify(noteKeys) === JSON.stringify(expectedNotes), noteKeys],
@@ -2445,7 +2530,7 @@ try {
 				// SE2 is a structural bound, not a machine-dependent stopwatch. The helper
 				// must slice the raw input before either bracket-scanning expression runs.
 				const routerSource = readFileSync(join(REPO, "extension", "model-router.ts"), "utf8");
-				const profileBody = routerSource.match(/function profileText\([^)]*\)[^{]*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+				const profileBody = routerSource.match(/function routerProfileText\([^)]*\)[^{]*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 				const sliceAt = profileBody.indexOf("text.slice(0, max)");
 				const firstTagScanAt = profileBody.indexOf(".replace(/");
 				const profileCode = profileBody.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
@@ -3221,6 +3306,142 @@ try {
 		 * rejection into a proceed must fail the check, not blow up the section.
 		 */
 		const why = (v) => (v && typeof v.reason === "string" ? v.reason : "");
+
+		await section("route-price-divergence", async () => {
+			const fixture = ({
+				price = [{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+				registryCost = { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+				asOf = "2026-08-06",
+			} = {}) => {
+				const spec = "p/priced";
+				const model = { contextWindow: 200_000, auth: true, cost: { ...registryCost } };
+				const { res, warned } = resolve({
+					registry: registry({ [spec]: model }),
+					models: [spec],
+					profiles: profiles([profile(spec, { price, asOf })]),
+					today: "2026-08-06",
+				});
+				if (res.on !== true || res.candidates.length !== 1) throw new Error("price-divergence fixture did not resolve");
+				return {
+					spec,
+					model,
+					res,
+					userWarnings: warned,
+					at: (day) => plan({ resolution: res, requestedModel: spec, currentDate: () => day }),
+				};
+			};
+			const live = fixture();
+			const equal = live.at("2026-08-06");
+			live.model.cost.input = 2.3456789;
+			const diverged = live.at("2026-08-06");
+			const MODEL_GOLDEN =
+				"slate: model router: live registry pricing for p/priced differs materially from the shipped profile row for 2026-08-06. " +
+				"Registry input is higher by twofold to tenfold. Candidate ordering still uses shipped prices. Dispatching anyway. " +
+				"Exact rates are omitted from this model-visible warning.";
+			const USER_GOLDEN =
+				"slate: model router: exact live registry pricing for p/priced differs from the shipped profile row for 2026-08-06. " +
+				"Profile asOf 2026-08-06. Input: shipped $1 and registry $2.3456789 per million tokens. " +
+				"Candidate ordering still uses shipped prices.";
+			checkAll("route-price-divergence-golden", "a fresh dispatch-time registry read emits exactly one advisory route warning with the pinned model-visible text, reports exact rates only to the user, and never changes model selection", [
+				["equal prices emit no divergence warning", warns(equal, /model-visible warning/).length === 0, equal.warnings],
+				["the post-resolution registry mutation is observed", warns(diverged, /model-visible warning/).length === 1, diverged.warnings],
+				["the only model-visible warning is the exact golden text", diverged.warnings.length === 1 && diverged.warnings[0] === MODEL_GOLDEN, diverged.warnings],
+				["the exact user-only warning reaches the existing sink", live.userWarnings.includes(USER_GOLDEN), live.userWarnings],
+				["the exact private registry rate never enters model-visible output", !JSON.stringify(diverged).includes("2.3456789"), diverged],
+				["both plans dispatch the same model", equal.kind === "proceed" && diverged.kind === "proceed" && equal.model === live.spec && diverged.model === live.spec, [verdict(equal), verdict(diverged)]],
+			]);
+
+			const tolerance = route.REGISTRY_PRICE_RELATIVE_TOLERANCE;
+			const near = fixture();
+			near.model.cost.input = 1 + tolerance * 0.5;
+			const inside = near.at("2026-08-06");
+			near.model.cost.input = 1 + tolerance * 2;
+			const outside = near.at("2026-08-06");
+			checkAll("route-price-divergence-tolerance", "a difference inside the explicit relative tolerance stays silent and a difference just outside it warns", [
+				["the tolerance is a finite positive fraction", Number.isFinite(tolerance) && tolerance > 0 && tolerance < 1, tolerance],
+				["inside stays silent", warns(inside, /model-visible warning/).length === 0, inside.warnings],
+				["outside warns once", warns(outside, /model-visible warning/).length === 1, outside.warnings],
+			]);
+
+			const noDivergence = (price, registryCost) => {
+				const f = fixture({ price, registryCost });
+				const result = f.at("2026-08-06");
+				return { result, warnings: warns(result, /model-visible warning/) };
+			};
+			const registryAbsent = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+				{ output: 2 },
+			);
+			const registryInvalid = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+				{ input: -1, output: 2 },
+			);
+			const shippedAbsent = noDivergence(
+				[{ from: null, until: null, outUsdPerMTok: 2 }],
+				{ input: 1, output: 2 },
+			);
+			const shippedInvalid = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: Number.NaN, outUsdPerMTok: 2 }],
+				{ input: 1, output: 2 },
+			);
+			const registryOutputAbsent = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+				{ input: 1 },
+			);
+			const registryOutputInvalid = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
+				{ input: 1, output: Number.POSITIVE_INFINITY },
+			);
+			const shippedOutputAbsent = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1 }],
+				{ input: 1, output: 2 },
+			);
+			const shippedOutputInvalid = noDivergence(
+				[{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: -2 }],
+				{ input: 1, output: 2 },
+			);
+			checkAll("route-price-divergence-absence", "an absent or invalid registry or shipped rate is not divergence and never blocks the dispatch", [
+				["absent registry input stays silent", registryAbsent.warnings.length === 0 && registryAbsent.result.kind === "proceed", [registryAbsent.warnings, verdict(registryAbsent.result)]],
+				["invalid registry input stays silent", registryInvalid.warnings.length === 0 && registryInvalid.result.kind === "proceed", [registryInvalid.warnings, verdict(registryInvalid.result)]],
+				["absent shipped input stays silent", shippedAbsent.warnings.length === 0 && shippedAbsent.result.kind === "proceed", [shippedAbsent.warnings, verdict(shippedAbsent.result)]],
+				["invalid shipped input stays silent", shippedInvalid.warnings.length === 0 && shippedInvalid.result.kind === "proceed", [shippedInvalid.warnings, verdict(shippedInvalid.result)]],
+				["absent registry output stays silent", registryOutputAbsent.warnings.length === 0 && registryOutputAbsent.result.kind === "proceed", [registryOutputAbsent.warnings, verdict(registryOutputAbsent.result)]],
+				["invalid registry output stays silent", registryOutputInvalid.warnings.length === 0 && registryOutputInvalid.result.kind === "proceed", [registryOutputInvalid.warnings, verdict(registryOutputInvalid.result)]],
+				["absent shipped output stays silent", shippedOutputAbsent.warnings.length === 0 && shippedOutputAbsent.result.kind === "proceed", [shippedOutputAbsent.warnings, verdict(shippedOutputAbsent.result)]],
+				["invalid shipped output stays silent", shippedOutputInvalid.warnings.length === 0 && shippedOutputInvalid.result.kind === "proceed", [shippedOutputInvalid.warnings, verdict(shippedOutputInvalid.result)]],
+			]);
+
+			const output = fixture({ registryCost: { input: 1, output: 3 } });
+			const outputResult = output.at("2026-08-06");
+			const outputWarnings = warns(outputResult, /model-visible warning/);
+			checkAll("route-price-divergence-output", "output divergence is detected independently when input agrees", [
+				["exactly one divergence warning", outputWarnings.length === 1, outputResult.warnings],
+				["the safe output direction and magnitude are named", outputWarnings[0]?.includes("Registry output is higher by less than twofold") === true, outputWarnings],
+				["no input difference is claimed", !outputWarnings[0]?.includes("Registry input"), outputWarnings],
+			]);
+
+			const dated = fixture({
+				price: [
+					{ from: null, until: "2026-07-29", inUsdPerMTok: 1, outUsdPerMTok: 2 },
+					{ from: "2026-07-30", until: null, inUsdPerMTok: 0.2, outUsdPerMTok: 1.2 },
+				],
+				registryCost: { input: 1, output: 2 },
+				asOf: "2026-07-30",
+			});
+			const beforeOld = dated.at("2026-07-29");
+			const boundaryOld = dated.at("2026-07-30");
+			dated.model.cost = { input: 0.2, output: 1.2 };
+			const beforeNew = dated.at("2026-07-29");
+			const boundaryNew = dated.at("2026-07-30");
+			checkAll("route-price-divergence-date", "each dispatch date selects the covering shipped row across the schedule boundary", [
+				["old registry agrees before the boundary", warns(beforeOld, /model-visible warning/).length === 0, beforeOld.warnings],
+				["old registry diverges on the boundary", warns(boundaryOld, /model-visible warning/).length === 1, boundaryOld.warnings],
+				["boundary warning names the safe input direction and magnitude", warns(boundaryOld, /model-visible warning/)[0]?.includes("Registry input is higher by twofold to tenfold") === true, boundaryOld.warnings],
+				["boundary warning names the safe output direction and magnitude", warns(boundaryOld, /model-visible warning/)[0]?.includes("Registry output is higher by less than twofold") === true, boundaryOld.warnings],
+				["new registry diverges before the boundary", warns(beforeNew, /model-visible warning/).length === 1, beforeNew.warnings],
+				["new registry agrees on the boundary", warns(boundaryNew, /model-visible warning/).length === 0, boundaryNew.warnings],
+			]);
+		});
 
 		await section("route-vocabulary", async () => {
 			// GUARD 0, and it runs FIRST: an `effort` outside pi's vocabulary is rejected
@@ -4955,6 +5176,190 @@ try {
 	}
 
 	// =========================================================================
+	// Continue-or-fresh choice planner (extension/thread-choice.ts)
+	// =========================================================================
+	if (!choice) {
+		for (const id of CHOICE_IDS) skip(id, "extension/thread-choice.ts could not be loaded");
+	} else {
+		const input = (overrides = {}) => ({
+			now: 100_000,
+			thread: { id: "t1", tools: ["read"] },
+			last: { status: "ok", model: "p/a", effort: "low", cacheRead: 1000, cacheWrite: 0, contextTokens: 100_000, createdAt: 40_000 },
+			action: { model: "p/a", effort: "low", expectedTurns: 3 },
+			retention: { documentedSeconds: 300 },
+			rates: { inUsdPerMTok: 1, outUsdPerMTok: 1, cachedInUsdPerMTok: 0.1, cacheWriteUsdPerMTok: 1.25 },
+			sizes: { freshSeedTokens: 10_000, episodeTokens: 1000, taskTokens: 100, growthTokensPerTurn: 100, outputTokensPerTurn: 0, rediscoveryTurns: 1, freshSeedCache: "write" },
+			allowance: ["e1"],
+			knownEpisodeIds: ["e1"],
+			...overrides,
+		});
+		const planChoice = (overrides = {}) => choice.planThreadChoice(input(overrides));
+		const code = (value) => `${value?.kind ?? "none"}:${value?.code ?? "none"}`;
+
+		await section("choice-order", async () => {
+			const noAction = choice.planThreadChoice({ thread: { id: "t1" } });
+			const noPermission = planChoice({ allowance: undefined, action: { model: "p/a", effort: "low", expectedTurns: 1 } });
+			const noIndex = planChoice({ knownEpisodeIds: undefined });
+			checkAll("choice-order", "unusable input and safety refusals settle before source selection, warmth, the short-work guard, or arithmetic", [
+				["no action is the first decision", code(noAction) === "abstain:no-action", code(noAction)],
+				["missing permission outranks the one-turn guard", code(noPermission) === "refused:allowance-absent", code(noPermission)],
+				["an uncheckable episode seed outranks all cache and price evidence", code(noIndex) === "abstain:episode-index-unavailable", code(noIndex)],
+			]);
+		});
+
+		await section("choice-refusals", async () => {
+			const cases = [
+				["allowance-absent", { allowance: undefined }],
+				["allowance-empty", { allowance: [] }],
+				["episode-missing", { allowance: ["missing"] }],
+				["tool-allowance-unrecorded", { thread: { id: "t1" } }],
+				["tool-allowance-empty", { thread: { id: "t1", tools: [] } }],
+				["last-dispatch-failed", { last: { ...input().last, status: "failed" } }],
+			];
+			const got = cases.map(([expected, override]) => [expected, planChoice(override)]);
+			checkAll("choice-refusals", "each permission, episode, equipment, and failed-dispatch refusal returns its own code before economics can permit a restart", [
+				["all six refusal codes are reached exactly", got.every(([expected, value]) => code(value) === `refused:${expected}`), got.map(([expected, value]) => `${expected} -> ${code(value)}`)],
+				["every refusal explains itself", got.every(([, value]) => typeof value.reason === "string" && value.reason.length > 20), got.map(([, value]) => value.reason)],
+			]);
+		});
+
+		await section("choice-new-stream", async () => {
+			const fresh = choice.planThreadChoice({ action: { model: "p/a", effort: "low", expectedTurns: 3 } });
+			check("choice-new-stream", code(fresh) === "fresh:no-thread-to-continue", "a dispatch with no source thread starts a fresh work stream without requiring allowance or economic inputs", code(fresh));
+		});
+
+		await section("choice-warmth", async () => {
+			const warm = (overrides) => choice.classifyPrefixWarmth({ now: 100_000, model: "p/a", effort: "low", last: input().last, retention: { documentedSeconds: 60 }, ...overrides });
+			const got = {
+				none: warm({ last: undefined }),
+				model: warm({ model: "p/b" }),
+				miss: warm({ last: { ...input().last, cacheRead: 0, cacheWrite: 0 } }),
+				boundary: warm({}),
+				expired: warm({ now: 100_001 }),
+				noData: warm({ retention: undefined }),
+				unknownAge: warm({ now: undefined }),
+			};
+			checkAll("choice-warmth", "warmth uses positive cache evidence, expires strictly after the retention boundary, and treats missing retention or age conservatively", [
+				["no previous dispatch is cold", got.none.code === "no-previous-dispatch" && !got.none.warm, got.none],
+				["a model change is cold", got.model.code === "model-change" && !got.model.warm, got.model],
+				["zero read and write is a measured miss", got.miss.code === "measured-cache-miss" && !got.miss.warm, got.miss],
+				["the exact retention boundary stays warm", got.boundary.code === "within-retention" && got.boundary.warm, got.boundary],
+				["one millisecond past it is expired", got.expired.code === "retention-expired" && !got.expired.warm, got.expired],
+				["missing retention data favours warmth", got.noData.code === "no-retention-data" && got.noData.warm, got.noData],
+				["unknown age is not an expiry", got.unknownAge.code === "unknown-elapsed-time" && got.unknownAge.warm, got.unknownAge],
+			]);
+		});
+
+		await section("choice-effort-cold", async () => {
+			const common = { now: 100_000, model: "p/a", last: input().last, retention: { documentedSeconds: 300 } };
+			const changed = choice.classifyPrefixWarmth({ ...common, effort: "high" });
+			const control = choice.classifyPrefixWarmth({ ...common, effort: "low" });
+			checkAll("choice-effort-cold", "a known effort change makes an otherwise warm prefix cold, while the same-effort control remains warm", [
+				["changed effort is the measured cold path", changed.code === "effort-change" && !changed.warm, changed],
+				["same effort control stays warm", control.code === "within-retention" && control.warm, control],
+			]);
+		});
+
+		await section("choice-short-work", async () => {
+			const at = (expectedTurns) => planChoice({ action: { model: "p/a", effort: "low", expectedTurns }, rates: undefined });
+			const one = at(1);
+			const two = at(2);
+			const three = at(3);
+			checkAll("choice-short-work", "one and two turns continue before pricing, while three turns cross the exact guard boundary and require economic inputs", [
+				["one turn continues", code(one) === "continue:short-work", code(one)],
+				["two turns continue", code(two) === "continue:short-work", code(two)],
+				["three turns reaches pricing", code(three) === "abstain:prices-unusable", code(three)],
+			]);
+		});
+
+		await section("choice-abstentions", async () => {
+			const cases = [
+				["no-action", choice.planThreadChoice({})],
+				["episode-index-unavailable", planChoice({ knownEpisodeIds: undefined })],
+				["prices-unusable", planChoice({ rates: undefined })],
+				["prefix-size-unknown", planChoice({ last: { ...input().last, contextTokens: undefined } })],
+				["fresh-size-unknown", planChoice({ sizes: { ...input().sizes, freshSeedTokens: undefined } })],
+				["episode-size-unknown", planChoice({ sizes: { ...input().sizes, episodeTokens: undefined } })],
+			];
+			check("choice-abstentions", cases.every(([expected, value]) => code(value) === `abstain:${expected}`), "each unusable decision input abstains with its exact code instead of fabricating an economic choice", cases.map(([expected, value]) => `${expected} -> ${code(value)}`));
+		});
+
+		await section("choice-token-buckets", async () => {
+			const rates = { cacheRead: 0.1, fresh: 1, output: 2, freshFromInputPrice: false };
+			const estimated = choice.estimateArmCost({ cachedPrefixTokens: 100, uncachedPrefixTokens: 50, turns: 3, growthTokensPerTurn: 10, outputTokensPerTurn: 5, rates });
+			const zeroWrite = choice.resolveTokenRates({ inUsdPerMTok: 1, outUsdPerMTok: 2, cachedInUsdPerMTok: 0.1, cacheWriteUsdPerMTok: 0 });
+			const absentWrite = choice.resolveTokenRates({ inUsdPerMTok: 1, outUsdPerMTok: 2, cachedInUsdPerMTok: 0.1 });
+			checkAll("choice-token-buckets", "cache reads, fresh tokens, and output stay disjoint across turns, while zero or absent write premiums fall back to input price", [
+				["three turns have exact disjoint totals", estimated.cacheReadTokens === 410 && estimated.freshTokens === 70 && estimated.outputTokens === 15, estimated],
+				["the exact cost prices each bucket once", Math.abs(estimated.usd - 0.000141) < 1e-12, estimated.usd],
+				["zero and absent write premiums use input price", zeroWrite?.fresh === 1 && absentWrite?.fresh === 1 && zeroWrite.freshFromInputPrice && absentWrite.freshFromInputPrice, { zeroWrite, absentWrite }],
+			]);
+		});
+
+		await section("choice-long-context", async () => {
+			const rates = { cacheRead: 1, fresh: 1, output: 1, freshFromInputPrice: false };
+			const longContext = choice.resolveLongContext({ threshold: 100, multipliers: { in: 2, out: 3, cachedIn: 4, cacheWrite: 5 } });
+			const at = choice.estimateArmCost({ cachedPrefixTokens: 60, uncachedPrefixTokens: 40, turns: 1, growthTokensPerTurn: 0, outputTokensPerTurn: 10, rates, longContext });
+			const below = choice.estimateArmCost({ cachedPrefixTokens: 59, uncachedPrefixTokens: 40, turns: 1, growthTokensPerTurn: 0, outputTokensPerTurn: 10, rates, longContext });
+			const both = planChoice({ longContext: { threshold: 1, multipliers: { in: 2, out: 2, cachedIn: 2, cacheWrite: 2 } } });
+			checkAll("choice-long-context", "long-context billing starts at the exact threshold, prices each bucket with its multiplier, and applies independently to both planner arms", [
+				["exact threshold is multiplied", at.longContextTurns === 1 && Math.abs(at.usd - 0.00047) < 1e-12, at],
+				["one token below is not multiplied", below.longContextTurns === 0 && Math.abs(below.usd - 0.000109) < 1e-12, below],
+				["both planner arms cross independently", both.estimate?.continuation.longContextTurns > 0 && both.estimate?.fresh.longContextTurns > 0, both.estimate],
+			]);
+		});
+
+		await section("choice-rediscovery", async () => {
+			const ordinary = planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 3 } });
+			const clamped = planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 1000 } });
+			checkAll("choice-rediscovery", "the fresh arm keeps its extra rediscovery turn in ordinary pricing and at the maximum-turn clamp", [
+				["ordinary fresh arm has one extra turn", ordinary.estimate?.continuation.turns === 3 && ordinary.estimate?.fresh.turns === 4, ordinary.estimate],
+				["clamping preserves the gap", clamped.estimate?.continuation.turns === 99 && clamped.estimate?.fresh.turns === 100 && clamped.estimate?.turnsClamped === true, clamped.estimate],
+			]);
+		});
+
+		await section("choice-final-verdict", async () => {
+			const fresh = planChoice({ sizes: { ...input().sizes, freshSeedTokens: 1000, episodeTokens: 0 }, last: { ...input().last, contextTokens: 1_000_000 } });
+			const continuation = planChoice({ sizes: { ...input().sizes, freshSeedTokens: 1_000_000, episodeTokens: 100_000 }, last: { ...input().last, contextTokens: 1000 } });
+			const equal = planChoice({ rates: { inUsdPerMTok: 0, outUsdPerMTok: 0, cachedInUsdPerMTok: 0, cacheWriteUsdPerMTok: 0 } });
+			const gap = fresh.estimate ? fresh.estimate.continuation.usd - fresh.estimate.fresh.usd : 0;
+			checkAll("choice-final-verdict", "widely separated costs choose fresh or continuation in the correct direction, while an exact tie preserves the existing thread", [
+				["positive control produces a fresh verdict", code(fresh) === "fresh:fresh-cheaper", { verdict: code(fresh), gap }],
+				["the positive gap dwarfs floating-point noise", gap > 0.1, gap],
+				["opposite economics continue", code(continuation) === "continue:continuation-cheaper", { verdict: code(continuation), estimate: continuation.estimate }],
+				["an exact tie continues", code(equal) === "continue:equal-cost", { verdict: code(equal), estimate: equal.estimate }],
+			]);
+		});
+
+		await section("choice-verdict-shape", async () => {
+			const values = [
+				choice.planThreadChoice({}),
+				choice.planThreadChoice({ action: {} }),
+				planChoice({ allowance: undefined }),
+				planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 1 } }),
+				planChoice(),
+			];
+			checkAll("choice-verdict-shape", "every verdict carries a non-empty reason, and priced choices carry both their estimate and warmth evidence", [
+				["all verdicts explain themselves", values.every((value) => typeof value.reason === "string" && value.reason.trim().length > 0), values.map((value) => [code(value), value.reason])],
+				["priced choices carry estimate and warmth", values.filter((value) => value.estimate).every((value) => value.warmth && value.estimate.continuation && value.estimate.fresh), values.map((value) => [code(value), !!value.estimate, !!value.warmth])],
+			]);
+		});
+
+		await section("choice-hostile", async () => {
+			const hostile = [null, [], "bad", { action: [] }, { action: { expectedTurns: Number.POSITIVE_INFINITY } }, input({ action: { model: {}, effort: [], expectedTurns: 101 } })];
+			const got = hostile.map((value) => {
+				try { return { value: choice.planThreadChoice(value) }; } catch (error) { return { error: String(error) }; }
+			});
+			const bounded = planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 101 } });
+			checkAll("choice-hostile", "malformed values degrade to bounded verdicts without throwing, and oversized turn estimates stay within the planner limit", [
+				["no hostile shape throws", got.every((entry) => entry.error === undefined), got],
+				["every result has a closed verdict kind", got.every((entry) => ["continue", "fresh", "abstain", "refused"].includes(entry.value?.kind)), got.map((entry) => code(entry.value))],
+				["oversized work is clamped", bounded.estimate?.fresh.turns === choice.MAX_PRICED_TURNS && bounded.estimate?.turnsClamped === true, bounded.estimate],
+			]);
+		});
+	}
+
+	// =========================================================================
 	// Config-sanitizer WIRING (extension/index.ts) — a TEXT check, deliberately
 	// =========================================================================
 	// A sanitizer that exists but is never called is the exact silent failure this
@@ -5098,15 +5503,21 @@ try {
 			// A well-formed record must come back BYTE-IDENTICAL. This is the term that stands
 			// between a user's history and an over-eager sanitizer.
 			const wellFormed = {
-				id: "t1",
+				id: "t2",
 				name: "impl",
 				sessionFile: "/tmp/x.jsonl",
 				status: "idle",
 				type: "reviewer",
+				restartOf: "t1",
+				restartGeneration: 1,
+				supersededBy: "t3",
 				model: "p/pin",
 				baseModel: "p/base",
 				baseEffort: "medium",
-				episodeIds: ["t1.e1"],
+				cacheKeyShard: 1,
+				tools: ["read", "grep"],
+				choiceEvidenceStale: true,
+				episodeIds: ["t2.e1"],
 				episodeSeq: 1,
 				createdAt: 111,
 				updatedAt: 222,
@@ -5269,6 +5680,17 @@ try {
 			const boundaryId = `${"p".repeat(240 - referenceOverhead - 3)}.e1`;
 			const longestPath = `.pi/slate/observations/${boundaryId}.md`;
 			const boundaryObservations = sane({ ...base, id: boundaryId, observations: { stored: true, path: longestPath, bytes: 0, truncated: false, grammar: "absent" } });
+			const usageBad = sane({
+				...base,
+				input: -1000,
+				output: 1.5,
+				cacheRead: 0,
+				workerCostUsd: 0.0163,
+				compressorUsage: { input: 5, cacheRead: -2 },
+				compressorCostUsd: 0,
+				compactionUsage: { output: -3, cacheWrite: 0 },
+				compactionCostUsd: -0.01,
+			});
 			// ABSENT, the third case again: id + thread + file and nothing else must fill every
 			// default in silence, and must NOT invent the two optional keys.
 			const minimal = sane(base);
@@ -5287,7 +5709,7 @@ try {
 			// carries EVERY adopted field, which is the claim state.ts exports the map for.
 			// Written out rather than spread: byte-identity is KEY-ORDER sensitive (that is
 			// what makes the term strong), and the marker belongs before `createdAt`.
-			const everyField = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", effortUnmeasured: true, observations: storedObservations, createdAt: 5 };
+			const everyField = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", model: "p/m", effort: "high", effortUnmeasured: true, observations: storedObservations, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, contextTokens: 45, workerCostUsd: 0.0163, compressorUsage: { input: 50, output: 60 }, compressorCostUsd: 0, compactionUsage: { input: 70, output: 80 }, compactionCostUsd: 1.25, createdAt: 5 };
 			const everyRoundTrip = sane(everyField);
 			const adoptedKeys = Object.keys(state.ADOPTED_EPISODE_FIELDS ?? {});
 			const builtKeys = Object.keys(everyRoundTrip.out ?? {});
@@ -5295,7 +5717,7 @@ try {
 			const surplus = builtKeys.filter((k) => !adoptedKeys.includes(k));
 			const lost = [];
 			state.noteUnadoptedFields?.("episode", "e", { ...everyField }, { id: "e" }, new Set(), lost);
-			checkAll("state-episode-record", "an episode record is re-validated the same way: a well-formed one round-trips byte-identically, a record with no id, thread or file is dropped, `failed` is the only value that survives as a failure, the unmeasured marker needs the boolean and not a truthy string, and model/effort are TYPE-CHECKED ONLY — and every field it refuses is NOTED by name and type, in the thread sanitizer's own shape (CQ22), while an accepted value and a well-formed record stay silent", [
+			checkAll("state-episode-record", "an episode record is re-validated the same way: a well-formed one round-trips byte-identically, a record with no id, thread or file is dropped, `failed` is the only value that survives as a failure, token quantities require non-negative integers, money allows non-negative fractions, the unmeasured marker needs the boolean and not a truthy string, and model/effort are TYPE-CHECKED ONLY — and every field it refuses is NOTED by name and type, in the thread sanitizer's own shape (CQ22), while an accepted value and a well-formed record stay silent", [
 				["a well-formed record round-trips byte-identically", JSON.stringify(roundTrip.out) === JSON.stringify(wellFormed), roundTrip.out],
 				["a failed episode keeps its status", failed.out?.status === "failed", failed.out?.status],
 				["every unusable shape is dropped", kept.length === 0, kept],
@@ -5312,6 +5734,10 @@ try {
 				["a malformed-but-STRING spec or level survives untouched", specs.out?.model === "  p/x  " && specs.out?.effort === "HIGH", specs.out],
 				["...while non-strings are dropped", specsBad.out?.model === undefined && specsBad.out?.effort === undefined, specsBad.out],
 				["a wrong-typed timestamp becomes a real number", typeof stampBad.out?.createdAt === "number", stampBad.out?.createdAt],
+				["negative and fractional flat token quantities become absent while zero survives", usageBad.out?.input === undefined && usageBad.out?.output === undefined && usageBad.out?.cacheRead === 0, usageBad.out],
+				["negative nested token quantities become absent without destroying valid siblings", JSON.stringify(usageBad.out?.compressorUsage) === JSON.stringify({ input: 5 }) && JSON.stringify(usageBad.out?.compactionUsage) === JSON.stringify({ cacheWrite: 0 }), usageBad.out],
+				["money keeps fractions and zero while rejecting negatives", usageBad.out?.workerCostUsd === 0.0163 && usageBad.out?.compressorCostUsd === 0 && usageBad.out?.compactionCostUsd === undefined && /ignoring compactionCostUsd \(number\)/.test(usageBad.repairs.join("|")), [usageBad.out, usageBad.repairs]],
+				["every rejected token quantity logs its field-specific repair", /ignoring input \(number\)/.test(usageBad.repairs.join("|")) && /ignoring output \(number\)/.test(usageBad.repairs.join("|")) && /compressorUsage\.cacheRead \(number\)/.test(usageBad.repairs.join("|")) && /compactionUsage\.output \(number\)/.test(usageBad.repairs.join("|")), usageBad.repairs],
 				["a refused field is noted by NAME and TYPE, prefixed with the episode id (CQ22)", taskBad.repairs.join("|") === "episode t1.e1: ignoring task (number)" && specsBad.repairs.join("|") === "episode t1.e1: ignoring model (number)|episode t1.e1: ignoring effort (object)", [taskBad.repairs, specsBad.repairs]],
 				["...on every axis that can be refused, not just the ones with a string default", /status \(string\)/.test(statusOther.repairs.join()) && /effortUnmeasured \(string\)/.test(markerString.repairs.join()) && /createdAt \(string\)/.test(stampBad.repairs.join()), [statusOther.repairs, markerString.repairs, stampBad.repairs]],
 				["...while accepted values and an old record with no observations report nothing at all", [roundTrip, failed, specs, markerTrue, noFinalObservations, noFinalTextObservations, writeFailedObservations, minimal].every((r) => r.repairs.length === 0), [roundTrip.repairs, failed.repairs, specs.repairs, markerTrue.repairs, noFinalObservations.repairs, writeFailedObservations.repairs, minimal.repairs]],
@@ -6313,8 +6739,8 @@ try {
 				for (const [i, r] of rows.entries()) {
 					if (!(r.from === null || isIso(r.from))) bad.push(`${p.id} row ${i}: from is neither null nor ISO (${r.from})`);
 					if (!(r.until === null || isIso(r.until))) bad.push(`${p.id} row ${i}: until is neither null nor ISO (${r.until})`);
-					if (!(typeof r.inUsdPerMTok === "number" && r.inUsdPerMTok > 0 && Number.isFinite(r.inUsdPerMTok))) bad.push(`${p.id} row ${i}: input price not a positive number`);
-					if (!(typeof r.outUsdPerMTok === "number" && r.outUsdPerMTok > 0 && Number.isFinite(r.outUsdPerMTok))) bad.push(`${p.id} row ${i}: output price not a positive number`);
+					if (!(typeof r.inUsdPerMTok === "number" && r.inUsdPerMTok >= 0 && Number.isFinite(r.inUsdPerMTok))) bad.push(`${p.id} row ${i}: input price is not a finite non-negative number`);
+					if (!(typeof r.outUsdPerMTok === "number" && r.outUsdPerMTok >= 0 && Number.isFinite(r.outUsdPerMTok))) bad.push(`${p.id} row ${i}: output price is not a finite non-negative number`);
 					if (typeof r.outUsdPerMTok === "number" && typeof r.inUsdPerMTok === "number" && r.outUsdPerMTok < r.inUsdPerMTok) bad.push(`${p.id} row ${i}: output cheaper than input`);
 					if (r.from !== null && r.until !== null && isIso(r.from) && isIso(r.until) && r.until < r.from) bad.push(`${p.id} row ${i}: until precedes from`);
 					// Ascending, non-overlapping: a row must start after the previous
@@ -6341,6 +6767,67 @@ try {
 				["no violation", bad.length === 0, bad],
 				["tiers do not invert", inversions.length === 0, inversions],
 				["more than one tier present", tiers.length > 1, tiers],
+			]);
+		});
+
+		const expectedPrices = {
+			"openai/gpt-5.6-luna": {
+				old: { from: null, until: "2026-07-29", in: 1.0, out: 6.0, cachedIn: 0.1, cacheWrite: 1.25 },
+				current: { from: "2026-07-30", until: null, in: 0.2, out: 1.2, cachedIn: 0.02, cacheWrite: 0.25 },
+				long: { in: 0.4, out: 1.8 },
+			},
+			"openai/gpt-5.6-terra": {
+				old: { from: null, until: "2026-07-29", in: 2.5, out: 15.0, cachedIn: 0.25, cacheWrite: 3.125 },
+				current: { from: "2026-07-30", until: null, in: 2.0, out: 12.0, cachedIn: 0.2, cacheWrite: 2.5 },
+				long: { in: 4.0, out: 18.0 },
+			},
+		};
+		const priceRow = (id, index) => all.find((p) => p.id === id)?.price?.[index];
+		const rowAt = (id, date) => all.find((p) => p.id === id)?.price?.find((row) => (row.from === null || row.from <= date) && (row.until === null || row.until >= date));
+		const rowMatches = (row, expected) => row && row.from === expected.from && row.until === expected.until && row.inUsdPerMTok === expected.in && row.outUsdPerMTok === expected.out && row.cachedInUsdPerMTok === expected.cachedIn && row.cacheWriteUsdPerMTok === expected.cacheWrite;
+
+		await section("profiles-price-values", async () => {
+			const mismatches = Object.entries(expectedPrices).flatMap(([id, expected]) => {
+				const actual = [priceRow(id, 0), priceRow(id, 1)];
+				return [
+					[`${id} old row`, rowMatches(actual[0], expected.old), actual[0]],
+					[`${id} current row`, rowMatches(actual[1], expected.current), actual[1]],
+				];
+			}).filter(([, matches]) => !matches);
+			checkAll("profiles-price-values", "the Luna and Terra historical and current price rows match the confirmed input, output, cache-read, cache-write, and date values", [
+				["every expected row matches", mismatches.length === 0, mismatches],
+			]);
+		});
+
+		await section("profiles-price-dates", async () => {
+			const cases = Object.entries(expectedPrices).flatMap(([id, expected]) => [
+				[`${id} before boundary`, rowAt(id, "2026-07-29") === priceRow(id, 0), rowAt(id, "2026-07-29")],
+				[`${id} at boundary`, rowAt(id, "2026-07-30") === priceRow(id, 1), rowAt(id, "2026-07-30")],
+				[`${id} after boundary`, rowAt(id, "2026-07-31") === priceRow(id, 1), rowAt(id, "2026-07-31")],
+			]);
+			checkAll("profiles-price-dates", "the 2026-07-30 boundary selects the historical row before it and the current row on and after it", cases);
+		});
+
+		await section("profiles-price-identity", async () => {
+			const luna = all.find((p) => p.id === "openai/gpt-5.6-luna")?.price;
+			const terra = all.find((p) => p.id === "openai/gpt-5.6-terra")?.price;
+			checkAll("profiles-price-identity", "Luna and Terra retain distinct historical and current schedules", [
+				["historical rows differ", luna?.[0]?.inUsdPerMTok === 1.0 && terra?.[0]?.inUsdPerMTok === 2.5 && luna?.[0]?.outUsdPerMTok === 6.0 && terra?.[0]?.outUsdPerMTok === 15.0, { luna: luna?.[0], terra: terra?.[0] }],
+				["current rows differ", luna?.[1]?.inUsdPerMTok === 0.2 && terra?.[1]?.inUsdPerMTok === 2.0 && luna?.[1]?.outUsdPerMTok === 1.2 && terra?.[1]?.outUsdPerMTok === 12.0, { luna: luna?.[1], terra: terra?.[1] }],
+			]);
+		});
+
+		await section("profiles-price-long-context", async () => {
+			const mismatches = Object.entries(expectedPrices).map(([id, expected]) => {
+				const profile = all.find((p) => p.id === id);
+				const row = priceRow(id, 1);
+				const multipliers = profile?.longContextMultipliers;
+				const input = row && multipliers ? row.inUsdPerMTok * multipliers.in : undefined;
+				const output = row && multipliers ? row.outUsdPerMTok * multipliers.out : undefined;
+				return [id, Number.isFinite(input) && Number.isFinite(output) && Math.abs(input - expected.long.in) < 1e-9 && Math.abs(output - expected.long.out) < 1e-9, { row, multipliers, input, output }];
+			}).filter(([, matches]) => !matches);
+			checkAll("profiles-price-long-context", "the current Luna and Terra rows produce the confirmed long-context input and output prices", [
+				["every long-context price matches", mismatches.length === 0, mismatches],
 			]);
 		});
 
@@ -6385,7 +6872,7 @@ try {
 		"router-load", "profiles-load", "state-load",
 		"router-off", "router-unprofiled", "router-malformed", "router-unroutable", "router-alias-duplicate",
 		"router-all-dropped", "router-order", "router-order-ties", "router-cheapest", "router-cheapest-fallback",
-		"router-price-date", "router-price-rows",
+		"router-price-date", "router-price-rows", "router-price-validity-order", "router-price-validity-warning",
 		"router-w1-canary", "router-w1-guards", "router-w3-unknown",
 		"router-class-partition", "router-class-default", "router-tag-strip", "router-tag-keep", "router-empty-fields", "router-subject-repair", "router-nonpreferred-visible",
 		"router-field-cap", "router-profile-input-bound", "router-message-cap", "router-separator", "router-separator-forgery", "router-notify-controls", "router-profile-date", "router-w3-explainer", "router-failover-coverage",
@@ -6401,12 +6888,15 @@ try {
 		"route-read-failure-inert", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
+		"route-price-divergence-golden", "route-price-divergence-tolerance", "route-price-divergence-absence", "route-price-divergence-output", "route-price-divergence-date",
 		"route-failover", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
+		"choice-load", "choice-order", "choice-refusals", "choice-new-stream", "choice-warmth", "choice-effort-cold", "choice-short-work",
+		"choice-abstentions", "choice-token-buckets", "choice-long-context", "choice-rediscovery", "choice-final-verdict", "choice-verdict-shape", "choice-hostile",
 		"wiring", "spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
 		"episode-load", "episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header",
-		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-meta",
+		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-price-values", "profiles-price-dates", "profiles-price-identity", "profiles-price-long-context", "profiles-meta",
 	];
 	const seen = new Set(reported);
 	const missing = EXPECTED.filter((id) => !seen.has(id));

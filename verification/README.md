@@ -535,6 +535,9 @@ A net much smaller than the ladder, for these subjects:
 - the **dispatch guards** in `extension/route.ts` (`route-*`) — the route planner:
   the seven guards that decide whether one dispatched action may run at all, and
   on which (model, effort) pair;
+- the **thread-choice planner** in `extension/thread-choice.ts` (`choice-*`) — the
+  pure continue-or-fresh decision, its safety refusals, cache evidence, pricing,
+  short-work guard and conservative uncertainty rules;
 - **episode compression** in `extension/episodes.ts` (`episode-*`) — the compressor
   pin, its usability rule, the newest-Sonnet ordering, its diagnostics and the
   episode header's sanitisation. Loaded through a second loader instance with the
@@ -715,7 +718,7 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately bounds the routing rule, writing rule, worker rule, model rows and representative combinations. Its stable maximum uses all nine profiles, draft PRs, writing, two capped worker units and four capped tools. That fixture measures **6,870 of 7,200** portable characters. The **330-character reserve is 4.6% of the 7,200 bound**. The capped worker rule measures **1,347 of 1,600** characters. A **7,634-character** positive control adds one capped tool and three maximum-growth model rows. It exceeds the bound by 434 and proves the guard can fail. These are verification budgets, not runtime limits. Arbitrary extension rosters can exceed them. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately bounds the routing rule, writing rule, worker rule, model rows and representative combinations. Its stable maximum uses all nine profiles, draft PRs, writing, two capped worker units and four capped tools. The draft-enabled fixture measures **7,291 of 7,900** portable characters. A separate draft-disabled pin measures **7,272**. Every upper bound must exceed its measurement by at least five percent. Required character raises round up to the next hundred. Writing plus routing measures **5,925 of 6,500**. The capped worker rule measures **1,347 of 1,600** characters. An **8,239-character** positive control adds one capped tool and four maximum-growth model rows. It exceeds the maximal bound by 339 and proves the guard can fail. These are verification budgets, not runtime limits. Arbitrary extension rosters can exceed them. |
 
 The **writing checker command** (`extension/writing-check.mjs`) is covered both by
 direct import and by spawned command tests. This is the checker's smallest net:
@@ -860,10 +863,15 @@ real session rather than against a fixture, and it agrees with these checks.
 > `gpt-5.6-terra` and `gpt-5.6-sol`. With that STOCK registry, the six-model project
 > configuration emits **11 model data notes**: one class explanation, six
 > unknown-data warnings, three context-window divergence warnings and one aggregate
-> billing-pattern warning. This machine's `~/.pi/agent/models.json` overrides those
-> three windows to 1,050,000 tokens. Its live registry therefore emits **7 model
-> data notes**, because the three divergences and aggregate do not fire. A local
-> registry override can therefore change the applicable count.
+> billing-pattern warning. With `router.showWarnings: false`, all 11 notes are hidden
+> and one discoverability line is visible. With `true`, all 11 notes are visible
+> and the discoverability line is absent. This machine's `~/.pi/agent/models.json`
+> overrides those three windows to 1,050,000 tokens. Its live registry therefore
+> emits **7 model data notes**, because the three divergences and aggregate do not
+> fire. A local registry override can therefore change the applicable count.
+> Dispatch-time warnings are conditional and can repeat after this resolution-time
+> batch. The model-visible price-divergence warning is not deduplicated. Its exact-rate
+> `model-data-note` companion uses condition-key deduplication and the same display gate.
 
 **Recorded sizes use one portable basis.** The doctrine embeds ABSOLUTE doc
 paths. Raw size therefore changes with the install directory. `portable` removes
@@ -876,15 +884,30 @@ owns these stable verification fixtures:
 
 | fixture | paths | portable | lines | bound |
 | --- | ---: | ---: | ---: | ---: |
+| routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
 | writing rule | 1 | **1,070** | 23 | 1,150 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| maximal doctrine, 9 profiles plus draft PRs, writing, and capped worker fixture | 6 | **6,870** | 93 | 7,200 |
-| positive control, one extra capped tool plus three maximum-growth model rows | 6 | **7,634** | — | must exceed 7,200 |
+| router-on doctrine | 5 | **4,855** | — | 6,500 |
+| writing-only doctrine | 5 | **3,340** | — | 5,600 |
+| writing plus router | 6 | **5,925** | — | 6,500 |
+| writing plus extensions | 5 | **3,595** | — | 6,000 |
+| writing plus router and extensions | 6 | **6,180** | — | 6,800 |
+| maximal doctrine with draft PRs enabled | 7 | **7,291** | 99 | 7,900 |
+| maximal doctrine with draft PRs disabled | 6 | **7,272** | 99 | 7,900 |
+| positive control, one extra capped tool plus four maximum-growth model rows | 7 | **8,239** | — | must exceed 7,900 |
 
-The maximal doctrine keeps 330 portable characters of reserve. That is 4.6
-percent of the 7,200-character bound. The largest model-row growth is 184
-characters. The extra capped tool line is 212 characters. The positive control
-exceeds the bound by 434 characters.
+Each exact pinned literal catches every size change in its rendered fixture. The
+paired maximal pins cover rule 8 with draft pull requests enabled and disabled.
+The upper bounds are coarse growth ceilings, not single-edit detectors. Every
+upper bound must exceed the current measurement by at least five percent.
+Required character raises round up to the next hundred, while line bounds use
+the next whole line.
+
+A doctrine change updates its exact literal. A bound changes only when this
+reserve policy requires it. Writing plus routing now keeps 575 portable
+characters. The enabled maximal doctrine keeps 609 characters. The disabled one
+keeps 628. The largest model-row growth is 184 characters. The capped tool-line
+growth is 212 characters. The positive control exceeds the maximal bound by 339.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
@@ -922,7 +945,7 @@ Model router (`extension/model-router.ts`):
 | `router-w1-canary` | a profile/registry context-window divergence is **reported, not diagnosed** (W1/D55), as a per-model golden-master line plus an optional aggregate billing-pattern note. The line pins both figures, both sources, the profile date, the registry value used by routing, and the exact non-adjudication sentence. The verdict-word scan removes that sanctioned sentence first, so its word `correct` cannot false-fail the check. A registry figure equal to the model's own threshold adds the exact pointer and aggregate. The pair fires together at arbitrary profile-provided figures. The aggregate appears once, names only every matching model in candidate order, and sits between per-model lines and failover coverage |
 | `router-w1-guards` | an absent window on either side is **not** a divergence, and neither is a registry value equal to the profile's recorded `contextWindowKnownDivergence` figure — while a third, unrecorded value still warns |
 | `router-w3-unknown` | a candidate with `unknownRoutingCriticalFields` produces exactly one per-model warning, naming the model and every field; the class explainer is a separate warning |
-| `router-class-partition` | every real `once` condition is classified. The exact model-data-note key roster is `price`, `w1`, `w1-billing-pattern`, `ladder`, `w3`, `w3-explainer`. Every other key is a configuration fault. A future hidden key therefore fails the roster (AD21) |
+| `router-class-partition` | every real resolution-time `once` condition is classified. The exact model-data-note key roster is `invalid-price`, `price`, `w1`, `w1-billing-pattern`, `ladder`, `w3`, `w3-explainer`. Every other resolution key is a configuration fault. A future hidden key therefore fails the roster (AD21) |
 | `router-class-default` | a real warning whose `once` call omits the class argument reaches the sink as `configuration-fault`; this executes the helper rather than inferring its default from source |
 | `router-tag-strip` | no bracket span survives in warnings built from real shipped unknown fields or real `nonPreferred` reasons. Both source sets must contain tagged text, and both warning paths must render, so the exclusions cannot pass vacuously |
 | `router-tag-keep` | a nested-array user value is rejected as a configuration fault while its bracketed display survives, preserving the identity of the bad entry (AD18) |
@@ -956,6 +979,48 @@ covers wrapper registration and session startup. A live interactive session
 covers the wrapper's rendered behavior. The resolver checks prove only that the
 resolver emits every warning and supplies the class that the wrapper consumes.
 
+Thread choice — the pure planner (`extension/thread-choice.ts`). A dead refusal
+or reversed comparison still produces a normal dispatch and episode, so every
+input is fabricated and every verdict is asserted by kind and code:
+
+| id | what it proves |
+| --- | --- |
+| `choice-load` | the module loads. A failure converts every other `choice-*` check into an explicit NOT RUN line |
+| `choice-order` | unusable input and safety refusals settle before source selection, warmth, short-work handling, or arithmetic |
+| `choice-refusals` | absent and empty permission, a missing episode, unrecorded or empty tools, and a failed last dispatch each return their exact refusal code |
+| `choice-new-stream` | no source thread returns `fresh/no-thread-to-continue` without allowance, cache, size, or price inputs |
+| `choice-warmth` | model changes, zero read-plus-write, retention boundaries, expiry, missing retention, and unknown age classify conservatively |
+| `choice-effort-cold` | an effort change is cold against an otherwise identical same-effort warm control |
+| `choice-short-work` | one and two turns continue before pricing, while three turns reach arithmetic |
+| `choice-abstentions` | every missing economic input returns its exact abstention code instead of a fabricated choice |
+| `choice-token-buckets` | cache-read, fresh, and output tokens remain disjoint, with zero or absent write premiums falling back to input price |
+| `choice-long-context` | multipliers start at the exact threshold and apply independently to both arms |
+| `choice-rediscovery` | the fresh arm keeps its extra turn, including at the maximum-turn clamp |
+| `choice-final-verdict` | wide cost gaps choose in both directions, while an exact tie continues. The fresh fixture is the positive control |
+| `choice-verdict-shape` | every verdict explains itself, and priced choices carry estimates and warmth evidence |
+| `choice-hostile` | malformed values never throw, verdict kinds stay closed, and oversized turn estimates clamp |
+
+Mutation checks give the family teeth. Moving the short-work guard above
+permission breaks `choice-order`. Removing effort comparison breaks
+`choice-effort-cold`. Double-charging fresh input breaks
+`choice-token-buckets`. Reversing the final comparison breaks
+`choice-final-verdict` despite its wide positive-control gap.
+
+Every other row has a discriminating mutation. Break the export for
+`choice-load`. Change one refusal code for `choice-refusals`. Require rates on a
+new work stream for `choice-new-stream`. Expire at equality for `choice-warmth`.
+Move the short-work boundary for `choice-short-work`. Default a missing price or
+size to zero for `choice-abstentions`. Start long-context billing above rather
+than at the threshold for `choice-long-context`. Clamp both arms before adding
+rediscovery for `choice-rediscovery`. Blank a reason for `choice-verdict-shape`.
+Remove the turn clamp for `choice-hostile`.
+
+The family executes only `thread-choice.ts`. It fabricates time, route, cache,
+retention, prices, sizes, episodes, tools, and turn estimates. It does not execute
+`ThreadManager`, a worker session, reporting, lineage, restart refusal, rollback,
+or successor creation. Those caller and acting-path behaviors belong in unit or
+integration tests.
+
 Dispatch guards — the route planner (`extension/route.ts`). The **safety core** of
 action-level routing, and the one place where a regression is completely silent: a
 guard that stops guarding still "works", the dispatch runs and an episode is
@@ -981,6 +1046,7 @@ session's frozen resolution carries:
 | `route-window-substitute` | a model that cannot hold the thread's context is replaced by the **widest** candidate (not the next, not the cheapest); the verdict still PROCEEDS and records `substitutedFrom`; the warning names both models and the widest window; and a level invalid on the *substituted* model is **dropped with a warning** rather than rejecting the action |
 | `route-window-skip` | the guard is skipped when the context size is unknowable, when pi supplies no compaction predicate, and when that predicate throws — and it never rejects: with no listed model able to hold the context the widest is used anyway ("pi will compact"), and with nothing wider the resolved model is kept with a warning |
 | `route-window-reserve` | capacity is judged by **pi's own** compaction predicate on the candidate's **registry** window — a context that fits the bare window but *not* the window minus pi's reserve is substituted; the predicate is asked with exactly `(tokens, window)`; a predicate that says it fits is obeyed; and `reserveTokens` only shapes the warning text |
+| `route-price-divergence-*` | dispatch reads fresh registry prices and the dispatch date. Material divergence returns one hardened model-visible warning without exact rates. An exact-rate companion goes through the router sink as a `model-data-note`. Identical evidence is condition-key deduplicated there, while the model-visible warning is re-evaluated and can repeat. The checks cover exact wording, tolerance, absent or invalid rates, output-only divergence, and dated schedule boundaries |
 | `route-long-context` | the long-context **billing** notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a substitution the notice belongs to the model the planner routes to |
 | `route-failover` | a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a **non-substituting** window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-OFF failover emits **no window warning at all**, which is the only pre-router equivalence this row asserts (it says nothing about router-OFF per-action model switches, which still move a held session) |
 | `route-lowest-effort` | the base-effort seed is the **lowest measured, non-provider-rejected** level on that model's ladder — never an evidence gap — ascending from pi's vocabulary rather than the table's authoring order, and `undefined` (pi's own default) when there is no measured level, the model is unlisted, the router is off, or the resolution is junk |
@@ -1676,8 +1742,8 @@ and two of them were added AFTER this section was first written:
   because mutation found the first three conjuncts blind to a
   live reading laundered through `as SessionBaseline`; `OpenModel` was added to it
   later (TQ14) after a gate reproduced `open: { model: (open.model ?? opts.model) as
-  OpenModel }` — BG22-on-the-opening-path verbatim — with the suite reporting 106
-  pass, 0 fail;
+  OpenModel }` — BG22-on-the-opening-path verbatim — while the suite otherwise
+  passed. The run's own summary line remains the count authority;
 - **session state released on disposal**, also in `route-baseline-capture` — the
   other end of the same lifecycle. `liveBaselines` is keyed by THREAD ID, ids are
   reused, and an entry surviving disposal would be handed to `decideModelSwitch` as

@@ -8,7 +8,7 @@
 
 import { getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-import { displayThreadType, threadTypeMarker, type ThreadType } from "./state.ts";
+import { displayThreadType, renderThreadId, restartLineageText, threadTypeMarker, type ThreadType } from "./state.ts";
 import type { UsageStats } from "./threads.ts";
 
 // Minimal structural theme type (avoids depending on exact Theme export).
@@ -31,6 +31,7 @@ interface ThreadDetails {
 	threadId?: string;
 	threadName?: string;
 	type?: ThreadType;
+	restartOf?: string;
 	episodeId?: string;
 	status?: "ok" | "failed";
 	lines?: string[];
@@ -43,6 +44,7 @@ interface ThreadDetails {
 	ranModel?: string;
 	ranEffort?: string;
 	ranEffortUnmeasured?: boolean;
+	choice?: { kind?: string };
 }
 
 function formatTokens(n: number): string {
@@ -81,7 +83,7 @@ function extractSection(episode: string, section: string): string {
 
 export function renderThreadCall(args: ThreadCallArgs, theme: ThemeLike) {
 	let text = theme.fg("toolTitle", theme.bold("thread "));
-	text += theme.fg("accent", args.thread ?? (args.name ? `new:"${args.name}"` : "new"));
+	text += theme.fg("accent", renderThreadId(args.thread) ?? (args.name ? `new:"${args.name}"` : "new"));
 	const typeMarker = args.type === undefined ? "" : threadTypeMarker(args.type);
 	if (typeMarker) text += theme.fg("muted", typeMarker);
 	// What this action ASKED for: "[model @effort]", or just "[@effort]" when only the
@@ -102,14 +104,16 @@ export function renderThreadResult(
 	theme: ThemeLike,
 ) {
 	const details = (result.details ?? {}) as ThreadDetails;
-	const name = details.threadName ?? details.threadId ?? "thread";
+	const name = details.threadName ?? renderThreadId(details.threadId) ?? "thread";
 	const typeMarker = threadTypeMarker(displayThreadType(details.type));
 	const shownType = typeMarker ? theme.fg("muted", typeMarker) : "";
+	const restartText = restartLineageText(details.restartOf, details.threadId);
+	const restart = restartText ? theme.fg("muted", ` ${restartText}`) : "";
 
 	// Streaming: show live progress lines.
 	if (options.isPartial || !details.done) {
 		const lines = (details.lines ?? []).slice(-6);
-		let text = `${theme.fg("warning", "⏳")} ${theme.fg("toolTitle", theme.bold(name))}${shownType} ${theme.fg("muted", "running")}`;
+		let text = `${theme.fg("warning", "⏳")} ${theme.fg("toolTitle", theme.bold(name))}${shownType}${restart} ${theme.fg("muted", "running")}`;
 		for (const line of lines) {
 			text += `\n  ${theme.fg("dim", line.length > 110 ? `${line.slice(0, 110)}...` : line)}`;
 		}
@@ -126,7 +130,7 @@ export function renderThreadResult(
 		const container = new Container();
 		container.addChild(
 			new Text(
-				`${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`,
+				`${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType}${restart} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`,
 				0,
 				0,
 			),
@@ -141,13 +145,17 @@ export function renderThreadResult(
 	}
 
 	// Collapsed: headline + Key Findings digest (or Open Issues when failed).
-	let text = `${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`;
+	let text = `${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType}${restart} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`;
 	// What it ACTUALLY ran on, in the call badge's style but labelled `ran` so it cannot
 	// be read as the request (CQ16). Collapsed only: the EXPANDED view renders the full
 	// episode markdown, whose header already prints this — repeating it there would be
 	// the duplication that reporting was just consolidated out of.
 	const ran = [details.ranModel, details.ranEffort ? `@${details.ranEffort}` : undefined].filter((part) => !!part).join(" ");
 	if (ran) text += theme.fg("muted", ` [ran ${ran}${details.ranEffortUnmeasured ? " unmeasured" : ""}]`);
+	const choiceKind = details.choice?.kind;
+	if (choiceKind === "continue" || choiceKind === "fresh" || choiceKind === "abstain" || choiceKind === "refused") {
+		text += theme.fg("muted", ` choice=${choiceKind}`);
+	}
 	const digestSection = failed ? "Open Issues" : "Key Findings";
 	const digest = extractSection(full, digestSection);
 	if (digest) {

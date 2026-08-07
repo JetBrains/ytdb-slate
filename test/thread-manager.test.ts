@@ -228,6 +228,7 @@ test("SlateStore saves through the ExtensionAPI supplied to its constructor", ()
       data: {
         threads: [],
         episodes: [],
+        threadSeq: 0,
         orchestratorMode: false,
         paused: true,
         workerCostUsd: 1.25,

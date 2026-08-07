@@ -91,12 +91,14 @@
  * it can load route.ts.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import {
 	DEFAULT_COMPACTION_SETTINGS,
 	getAgentDir,
 	SettingsManager,
 	shouldCompact,
+	estimateTokens,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 // TYPE-ONLY, and deliberately so: the orchestrator's base-model tracker is
@@ -106,10 +108,10 @@ import {
 import type { BaseModelTracker } from "./base-model.ts";
 import { compressEpisode, EpisodePersistenceError } from "./episodes.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
-import type { ThinkingLevel } from "./model-profiles.ts";
+import { findProfile, type ThinkingLevel } from "./model-profiles.ts";
 import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture, type ObservationRecord } from "./observations.ts";
 import { nextSlateEpisodeId } from "./slate-files.ts";
-import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
+import { coveringPriceRow, ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
 	captureSessionBaseline,
@@ -126,19 +128,59 @@ import {
 	type SessionOpenDecision,
 } from "./route.ts";
 import {
+	DEFAULT_CACHE_KEY_SHARDS,
 	effectiveThreadType,
 	isModelSpec,
 	isThreadType,
 	parseThreadType,
+	resolveEpisodeFile,
+	sanitizeThreadChoiceConfig,
 	splitModelSpec,
 	type EpisodeRecord,
+	type EpisodeUsage,
 	type SlateConfig,
 	type SlateStore,
 	type ThreadRecord,
 	type ThreadType,
 } from "./state.ts";
-import { isJudgementThreadType, openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
+import { planThreadChoice, type ThreadChoiceVerdict } from "./thread-choice.ts";
+import { DEFAULT_WORKER_TOOLS, isJudgementThreadType, openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
+
+export function workerPromptCacheKey(cwd: string, shard: number): string {
+	// Sixteen hex characters provide a short stable project namespace without
+	// sending a path or username. The worst key is 32 characters:
+	// "slate-worker-" (13) + digest (16) + "-" (1) + shard 63 (2).
+	const project = createHash("sha256").update(cwd).digest("hex").slice(0, 16);
+	return `slate-worker-${project}-${shard}`;
+}
+
+export const MAX_FRESH_CONTEXT_EPISODES = 32;
+const FRESH_CONTEXT_REQUIRED_ERROR =
+	`Continuations with threadChoice.act=true require freshContext: pass [] to refuse a restart or up to ${MAX_FRESH_CONTEXT_EPISODES} episode ids to permit one.`;
+
+/** Preserve no answer, malformed input, and an explicit empty list as distinct consent states. */
+export function normalizeFreshContext(value: unknown): string[] | null | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) return null;
+	let length: number;
+	try {
+		length = value.length;
+	} catch {
+		return null;
+	}
+	if (length > MAX_FRESH_CONTEXT_EPISODES) {
+		throw new Error(
+			`freshContext accepts at most ${MAX_FRESH_CONTEXT_EPISODES} episode ids. Reduce the list instead of sending an oversized worker prompt.`,
+		);
+	}
+	try {
+		if (!value.every((id) => typeof id === "string")) return null;
+		return [...value];
+	} catch {
+		return null;
+	}
+}
 
 export interface DispatchOptions {
 	threadId?: string;
@@ -146,6 +188,8 @@ export interface DispatchOptions {
 	type?: ThreadType;
 	task: string;
 	contextEpisodeIds?: string[];
+	/** undefined = absent, null = malformed, array = explicit allowance. Interpreted only at the dispatch boundary. */
+	freshContext?: string[] | null;
 	model?: string; // "provider/id" for THIS action (see the header): the thread's base model when omitted
 	effort?: string; // pi thinking level for THIS action; validated against the target model's ladder
 	tools?: string[];
@@ -181,6 +225,8 @@ export interface DispatchResult {
 	episode: EpisodeRecord;
 	thread: ThreadRecord;
 	usage: UsageStats;
+	/** Reporting-only thread choice for this continuation. It never changes dispatch placement. */
+	choice?: ThreadChoiceVerdict;
 	/** Routing notices for THIS action (evidence gaps, window substitutions, billing cliffs). */
 	warnings: readonly string[];
 }
@@ -190,7 +236,14 @@ interface WorkerAssistantMsg {
 	role?: string;
 	stopReason?: string;
 	errorMessage?: string;
-	usage?: { input?: number; output?: number; totalTokens?: number; cost?: { total?: number } };
+	usage?: {
+		input?: number;
+		output?: number;
+		cacheRead?: number;
+		cacheWrite?: number;
+		totalTokens?: number;
+		cost?: { total?: number };
+	};
 	content?: Array<{ type: string; text?: string }>;
 }
 
@@ -289,6 +342,8 @@ export class ThreadManager {
 	private resolveRouter: () => ModelRouterResolution;
 	/** Orchestrator base model used only by the episode compressor's last-resort rung. */
 	private baseModelTracker?: BaseModelTracker;
+	/** Sanitized once when the first continuation reaches thread-choice reporting. */
+	private choiceConfig?: ReturnType<typeof sanitizeThreadChoiceConfig>;
 
 	constructor(
 		store: SlateStore,
@@ -371,6 +426,25 @@ export class ThreadManager {
 		// first (it explains itself better than a routing complaint would), the
 		// routing guards next, and only then is a new thread created.
 		const existing = opts.threadId ? this.requireThread(opts.threadId) : undefined;
+		const actingContinuation = existing !== undefined && sanitizeThreadChoiceConfig(this.config.threadChoice, () => undefined).act;
+		let suppliedFreshContext: string[] | undefined;
+		if (opts.freshContext !== undefined) {
+			const normalized = normalizeFreshContext(opts.freshContext);
+			if (!Array.isArray(normalized)) {
+				throw new Error(`freshContext must be [] or a list of up to ${MAX_FRESH_CONTEXT_EPISODES} episode ids.`);
+			}
+			suppliedFreshContext = normalized;
+		}
+		if (actingContinuation && suppliedFreshContext === undefined) throw new Error(FRESH_CONTEXT_REQUIRED_ERROR);
+		if (suppliedFreshContext !== undefined) {
+			for (const id of suppliedFreshContext) {
+				if (!this.store.episodes.has(id)) {
+					const known = [...this.store.episodes.keys()].join(", ") || "none";
+					throw new Error(`Unknown freshContext episode "${sanitizeForNotify(id, 80)}". Known episodes: ${known}. Pass [] to refuse a restart.`);
+				}
+			}
+		}
+		const dispatchOpts: DispatchOptions = { ...opts, freshContext: existing === undefined ? undefined : suppliedFreshContext };
 		if (existing && nextSlateEpisodeId(existing.id, existing.episodeSeq) === undefined) {
 			throw new Error(
 				`Slate cannot dispatch thread ${sanitizeForNotify(existing.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
@@ -395,13 +469,13 @@ export class ThreadManager {
 		// drop the reviewer charter, and reject later continuations. The residual race
 		// needs a hand-driven interleaving to reach, and this ordering does not close it.
 		if (existing) this.setExistingThreadType(existing, requestedType);
-		const thread = existing ?? this.createThread({ ...opts, type: requestedType }, early);
+		const thread = existing ?? this.createThread({ ...dispatchOpts, type: requestedType }, early);
 
 		// Per-thread FIFO: chain onto the previous dispatch for this thread.
 		const prev = this.queues.get(thread.id) ?? Promise.resolve();
 		const run = prev
 			.catch(() => undefined) // a failed predecessor must not poison the queue
-			.then(() => this.runDispatch(thread, opts, ctx, signal, onProgress));
+			.then(() => this.runDispatch(thread, dispatchOpts, ctx, signal, onProgress));
 		this.queues.set(thread.id, run);
 		return run;
 	}
@@ -411,6 +485,9 @@ export class ThreadManager {
 		if (!existing) {
 			const known = [...this.store.threads.keys()].join(", ") || "none";
 			throw new Error(`Unknown thread "${threadId}". Known threads: ${known}. Omit "thread" to create a new one.`);
+		}
+		if (existing.supersededBy !== undefined) {
+			throw new Error(`Thread "${threadId}" was superseded by ${existing.supersededBy}. Continue the successor instead.`);
 		}
 		return existing;
 	}
@@ -448,36 +525,125 @@ export class ThreadManager {
 	 * thread's own default is `baseModel` — recording the routed model as a pin
 	 * would make one action's route the thread's permanent base.
 	 */
-	private createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord {
-		const id = this.store.nextThreadId();
+	private createThread(opts: DispatchOptions, plan: RoutePlanProceed, restartOf?: ThreadRecord): ThreadRecord {
+		const id = this.store.claimNextThreadId();
 		const type = parseThreadType(opts.type, true);
+		const ordinal = Number(id.slice(1));
+		// Thread role does not affect cache sharding. No measurement supports coupling them.
+		const cacheKeyShard =
+			this.config.cacheKeyEnabled === false
+				? undefined
+				: (ordinal - 1) % (this.config.cacheKeyShards ?? DEFAULT_CACHE_KEY_SHARDS);
+		// Concretize the same fallback openWorkerSession applies, so a later reopen
+		// does not silently adopt a changed configuration default.
+		const configuredTools = restartOf?.tools ?? opts.tools ?? this.config.workerTools;
+		const tools = [...new Set(configuredTools && configuredTools.length > 0 ? configuredTools : DEFAULT_WORKER_TOOLS)];
+		const now = Date.now();
+		const restartGeneration = restartOf === undefined ? undefined : (restartOf.restartGeneration ?? 0) + 1;
+		if (restartGeneration !== undefined && !Number.isSafeInteger(restartGeneration)) {
+			throw new Error(`Thread ${restartOf?.id ?? id} has exhausted the restart generation range.`);
+		}
 		const record: ThreadRecord = {
 			id,
 			name: opts.name?.trim() || id,
 			sessionFile: "",
 			status: "idle",
 			type,
-			...(this.routerResolution().on ? {} : { model: opts.model }),
-			...(plan.baseModel ? { baseModel: plan.baseModel } : {}),
-			...(plan.baseEffort ? { baseEffort: plan.baseEffort } : {}),
+			...(restartOf !== undefined ? { restartOf: restartOf.id, restartGeneration } : {}),
+			...(cacheKeyShard === undefined ? {} : { cacheKeyShard }),
+			...(this.routerResolution().on ? {} : { model: restartOf?.model ?? opts.model }),
+			...((restartOf?.baseModel ?? plan.baseModel) ? { baseModel: restartOf?.baseModel ?? plan.baseModel } : {}),
+			...((restartOf?.baseEffort ?? plan.baseEffort) ? { baseEffort: restartOf?.baseEffort ?? plan.baseEffort } : {}),
+			tools,
 			episodeIds: [],
 			episodeSeq: 0,
-			createdAt: Date.now(),
-			updatedAt: Date.now(),
+			createdAt: now,
+			updatedAt: now,
 		};
+		if (restartOf !== undefined) {
+			restartOf.supersededBy = id;
+			restartOf.status = "idle";
+			restartOf.updatedAt = now;
+		}
 		this.store.threads.set(id, record);
-		this.store.save();
+		try {
+			this.store.save();
+		} catch (error) {
+			if (restartOf !== undefined) {
+				this.store.threads.delete(id);
+				delete restartOf.supersededBy;
+				restartOf.status = "running";
+			}
+			throw error;
+		}
 		return record;
 	}
 
-	private buildPrompt(opts: DispatchOptions): string {
+	/** Acting-only refusals that depend on thread semantics rather than price. */
+	private restartRefusal(source: ThreadRecord): string | undefined {
+		if (this.store.paused) return "slate is paused, so it cannot open a replacement thread";
+		if (isJudgementThreadType(source.type)) return `${source.type} threads keep their live review transcript`;
+		// A successor with no episode has added no evidence since the prior move.
+		// Refuse a second move until this work stream publishes something of its own.
+		if (source.restartOf !== undefined && source.episodeIds.length === 0) {
+			return `thread ${source.id} is a successor with no episode of its own, so no new evidence supports another restart`;
+		}
+		return undefined;
+	}
+
+	/** Release runtime resources that no dispatch can reach after successful supersession. */
+	private retireSupersededSource(source: ThreadRecord): void {
+		try {
+			this.live.get(source.id)?.dispose();
+		} catch {
+			/* retirement continues through every runtime map */
+		}
+		this.live.delete(source.id);
+		this.liveBaselines.delete(source.id);
+		this.failoverLive.delete(source.id);
+		this.longContextWarned.delete(source.id);
+		this.queues.delete(source.id);
+	}
+
+	/** Undo a replacement that failed before it could return a usable dispatch result. */
+	private rollbackRestart(
+		source: ThreadRecord,
+		successor: ThreadRecord,
+		sourceStatus: "idle" | "running" = "running",
+	): void {
+		const session = this.live.get(successor.id);
+		try {
+			session?.dispose();
+		} catch {
+			/* rollback must still restore the source record */
+		}
+		this.live.delete(successor.id);
+		this.liveBaselines.delete(successor.id);
+		this.failoverLive.delete(successor.id);
+		this.longContextWarned.delete(successor.id);
+		this.queues.delete(successor.id);
+		for (const id of successor.episodeIds) this.store.episodes.delete(id);
+		this.store.threads.delete(successor.id);
+		delete source.supersededBy;
+		source.status = sourceStatus;
+		source.updatedAt = Date.now();
+		try {
+			this.store.save();
+		} catch {
+			/* the in-memory source remains usable even when persistence is unavailable */
+		}
+	}
+
+	private buildPrompt(opts: DispatchOptions, cwd: string): string {
 		const contextIds = opts.contextEpisodeIds ?? [];
 		if (contextIds.length === 0) return opts.task;
 		const parts: string[] = ["## Context from prior episodes (injected by the orchestrator)", ""];
 		for (const id of contextIds) {
 			const episode = this.store.episodes.get(id);
 			if (!episode) throw new Error(`Unknown episode "${id}". Known: ${[...this.store.episodes.keys()].join(", ") || "none"}`);
-			parts.push(readFileSync(episode.file, "utf8").trim(), "");
+			const file = resolveEpisodeFile(cwd, episode.file);
+			if (file === undefined) throw new Error(`Episode "${id}" is no longer a safe readable slate episode file.`);
+			parts.push(readFileSync(file, "utf8").trim(), "");
 		}
 		parts.push("## Action", "", opts.task);
 		return parts.join("\n");
@@ -504,6 +670,153 @@ export class ThreadManager {
 		} catch {
 			return ROUTER_OFF;
 		}
+	}
+
+	private threadChoiceConfig(warn: (message: string) => void): ReturnType<typeof sanitizeThreadChoiceConfig> {
+		this.choiceConfig ??= sanitizeThreadChoiceConfig(this.config.threadChoice, warn);
+		return this.choiceConfig;
+	}
+
+	/** Use pi's own context estimator for text that has no provider-reported token count. */
+	private estimatedTokens(text: string): number {
+		return estimateTokens({ role: "user", content: text, timestamp: 0 });
+	}
+
+	/**
+	 * Estimate future work from the work stream's observed depth. One more than the
+	 * completed dispatch count is evidence of continuation, not a promise. The floor
+	 * of three reaches pricing while preserving the planner's two-turn short-work guard.
+	 */
+	private expectedChoiceTurns(thread: ThreadRecord): number {
+		return Math.max(3, thread.episodeIds.length + 1);
+	}
+
+	/** The cache state of the shard the next thread id would occupy. */
+	private freshSeedCacheState(
+		source: ThreadRecord,
+		model: string | undefined,
+		effort: ThinkingLevel | undefined,
+		now: number,
+		retentionSeconds: number | undefined,
+	): "read" | "write" | "unknown" {
+		if (this.config.cacheKeyEnabled === false) return "unknown";
+		const nextId = this.store.nextThreadId();
+		const ordinal = Number(nextId.slice(1));
+		const shards = this.config.cacheKeyShards ?? DEFAULT_CACHE_KEY_SHARDS;
+		if (!Number.isSafeInteger(ordinal) || ordinal < 1 || !Number.isSafeInteger(shards) || shards < 1) return "unknown";
+		const shard = (ordinal - 1) % shards;
+		const occupants = [...this.store.threads.values()].filter((thread) => thread.cacheKeyShard === shard && thread.episodeIds.length > 0);
+		if (occupants.length === 0) return "write";
+		if (model === undefined || effort === undefined || retentionSeconds === undefined) return "unknown";
+		const sourceTools = JSON.stringify(source.tools);
+		for (const occupant of occupants) {
+			if (occupant.type !== source.type || JSON.stringify(occupant.tools) !== sourceTools) continue;
+			const lastId = occupant.episodeIds.at(-1);
+			const last = lastId === undefined ? undefined : this.store.episodes.get(lastId);
+			if (last?.model !== model || last.effort !== effort) continue;
+			if (!((last.cacheRead ?? 0) > 0 || (last.cacheWrite ?? 0) > 0)) continue;
+			const age = (now - last.createdAt) / 1000;
+			if (Number.isFinite(age) && age >= 0 && age <= retentionSeconds) return "read";
+		}
+		return "unknown";
+	}
+
+	/** Build and run the pure choice planner from evidence available inside this thread's queue slot. */
+	private planChoice(
+		thread: ThreadRecord,
+		opts: DispatchOptions,
+		plan: RoutePlanProceed,
+		session: WorkerSession,
+		cwd: string,
+	): ThreadChoiceVerdict {
+		const now = Date.now();
+		const today = new Date(now).toISOString().slice(0, 10);
+		const lastId = thread.episodeIds.at(-1);
+		const recordedLast = lastId === undefined ? undefined : this.store.episodes.get(lastId);
+		// A failed episode write leaves the live session ahead of durable evidence.
+		// Preserve the record for refusal checks, but remove the measurements so the
+		// planner reaches its honest prefix-size abstention instead of pricing stale data.
+		const last = thread.choiceEvidenceStale === true
+			? { ...(recordedLast ?? {}), cacheRead: undefined, cacheWrite: undefined, contextTokens: undefined }
+			: recordedLast;
+		const model = session.model ? `${session.model.provider}/${session.model.id}` : plan.model;
+		const effort = this.sessionEffort(session) ?? plan.effort;
+		const profile = model === undefined ? undefined : findProfile(model);
+		const row = profile === undefined ? undefined : coveringPriceRow(profile, today);
+		const evidenceIsCurrent = (date: string | undefined): boolean => {
+			if (date === undefined) return false;
+			const then = Date.parse(`${date}T00:00:00Z`);
+			const age = now - then;
+			return Number.isFinite(then) && age >= 0 && age <= 90 * 24 * 60 * 60 * 1000;
+		};
+		const retention = profile?.cacheRetention;
+		const documentedSeconds =
+			retention && evidenceIsCurrent(retention.documented.retrieved)
+				? retention.documented.retentionSeconds
+				: undefined;
+		const measuredWarmSeconds =
+			retention?.measured && evidenceIsCurrent(retention.measured.observedOn)
+				? Math.max(0, ...retention.measured.warm.map((probe) => probe.afterSeconds))
+				: undefined;
+		const retentionSeconds =
+			documentedSeconds === undefined
+				? measuredWarmSeconds
+				: measuredWarmSeconds === undefined
+					? documentedSeconds
+					: Math.max(documentedSeconds, measuredWarmSeconds);
+		const freshSeedCache = this.freshSeedCacheState(thread, model, effort, now, retentionSeconds);
+		// pi reports the whole live context, not the seed alone. Using it as the seed
+		// size is a one-sided upper bound because it includes the existing transcript.
+		// That can suppress a restart, but it cannot make a fresh thread look too cheap.
+		// When pi reports no context estimate, absence lets the planner abstain.
+		const freshSeedTokens = this.contextTokens(session);
+		let episodeTokens: number | undefined = 0;
+		try {
+			for (const id of opts.freshContext ?? []) {
+				const episode = this.store.episodes.get(id);
+				if (episode === undefined) throw new Error("episode disappeared after validation");
+				const file = resolveEpisodeFile(cwd, episode.file);
+				if (file === undefined) throw new Error("episode file became unsafe after validation");
+				episodeTokens += this.estimatedTokens(readFileSync(file, "utf8"));
+			}
+		} catch {
+			episodeTokens = undefined;
+		}
+		return planThreadChoice({
+			now,
+			thread,
+			...(last !== undefined ? { last } : {}),
+			action: { model, effort, expectedTurns: this.expectedChoiceTurns(thread) },
+			...(documentedSeconds !== undefined || measuredWarmSeconds !== undefined
+				? { retention: { documentedSeconds, measuredWarmSeconds } }
+				: {}),
+			...(row !== undefined
+				? {
+						rates: {
+							inUsdPerMTok: row.inUsdPerMTok,
+							outUsdPerMTok: row.outUsdPerMTok,
+							cachedInUsdPerMTok: row.cachedInUsdPerMTok,
+							cacheWriteUsdPerMTok: row.cacheWriteUsdPerMTok ?? row.cacheWrite5mUsdPerMTok,
+						},
+					}
+				: {}),
+			...(profile !== undefined
+				? {
+						longContext: {
+							threshold: profile.longContextThreshold,
+							multipliers: profile.longContextMultipliers,
+						},
+					}
+				: {}),
+			sizes: {
+				freshSeedTokens,
+				episodeTokens,
+				taskTokens: this.estimatedTokens(opts.task),
+				freshSeedCache,
+			},
+			allowance: Array.isArray(opts.freshContext) ? opts.freshContext : undefined,
+			knownEpisodeIds: [...this.store.episodes.keys()],
+		});
 	}
 
 	/**
@@ -856,6 +1169,10 @@ export class ThreadManager {
 			extensionPaths: this.resolveExtensions().paths,
 			writingCheck: this.config.writing?.check === true,
 			reviewerCharter: isJudgementThreadType(type),
+			promptCacheKey:
+				this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
+					? undefined
+					: workerPromptCacheKey(args.ctx.cwd, args.thread.cacheKeyShard),
 		});
 		this.live.set(args.thread.id, session);
 		// A freshly opened session starts on its configured model — drop any stale
@@ -886,6 +1203,11 @@ export class ThreadManager {
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
+		// Admission happened before this queue slot ran. A predecessor may have
+		// superseded the source while this dispatch waited, so re-admit it now.
+		if (thread.supersededBy !== undefined) {
+			throw new Error(`Thread "${thread.id}" was superseded by ${thread.supersededBy}. Continue the successor instead.`);
+		}
 		// Recheck after this thread's FIFO predecessor. Two calls may both pass the
 		// public check before the first advances the counter.
 		const nextEpisodeId = nextSlateEpisodeId(thread.id, thread.episodeSeq);
@@ -894,7 +1216,7 @@ export class ThreadManager {
 				`Slate cannot dispatch thread ${sanitizeForNotify(thread.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
 			);
 		}
-		const prompt = this.buildPrompt(opts); // may throw on unknown episode ids (before any state change)
+		const prompt = this.buildPrompt(opts, ctx.cwd); // may throw on unknown episode ids (before any state change)
 		await this.semaphore.acquire();
 		try {
 			return await this.runDispatchInner(thread, opts, prompt, nextEpisodeId, ctx, signal, onProgress);
@@ -911,8 +1233,28 @@ export class ThreadManager {
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
+		onPromptCommitted?: () => void,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
+		let workerCostUsd: number | undefined;
+		let reportedContextTokens: number | undefined;
+		const episodeUsage: Partial<Pick<EpisodeRecord, "input" | "output" | "cacheRead" | "cacheWrite">> = {};
+		const addEpisodeUsage = (field: keyof typeof episodeUsage, value: number | undefined) => {
+			if (value === undefined) return;
+			episodeUsage[field] = (episodeUsage[field] ?? 0) + value;
+		};
+		const compactionUsage: EpisodeUsage = {};
+		let compactionCostUsd: number | undefined;
+		const seenCompactionEvents = new WeakSet<object>();
+		const addCompactionUsage = (reported: (EpisodeUsage & { cost?: { total?: number } }) | undefined) => {
+			if (reported === undefined) return;
+			for (const field of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+				const value = reported[field];
+				if (value !== undefined) compactionUsage[field] = (compactionUsage[field] ?? 0) + value;
+			}
+			const cost = reported.cost?.total;
+			if (cost !== undefined) compactionCostUsd = (compactionCostUsd ?? 0) + cost;
+		};
 		const lines: string[] = [];
 		const emit = (done: boolean, status?: "ok" | "failed") =>
 			onProgress?.({ threadId: thread.id, threadName: thread.name, lines, usage, done, status });
@@ -925,6 +1267,8 @@ export class ThreadManager {
 		let diagnostics: string | undefined;
 		/** The authoritative route for this action (apply-time plan); undefined if we never got that far. */
 		let plan: RoutePlanProceed | undefined;
+		/** Reporting-only verdict for a continuation. It never controls this dispatch. */
+		let choice: ThreadChoiceVerdict | undefined;
 		/** Set ONLY by an apply-time rejection: end the dispatch with no episode and no compression. */
 		let aborted: DispatchAbort | undefined;
 		const warnings: string[] = [];
@@ -1012,7 +1356,9 @@ export class ThreadManager {
 					thread,
 					ctx,
 					open,
-					tools: opts.tools ?? this.config.workerTools,
+					// New records always carry this field. Legacy records retain the old open
+					// behavior, but their missing field remains visible to restart eligibility.
+					tools: thread.tools ?? opts.tools ?? this.config.workerTools,
 					report: routeWarn,
 				}));
 				// CQ18: the session FILE is deliberately not persisted yet. pi flushes a
@@ -1041,17 +1387,102 @@ export class ThreadManager {
 			// APPLY FIRST, then record what was decided. Everything above this line can
 			// still abort the dispatch unbilled, and an abort discards the warnings — so
 			// nothing that MARKS a notice as delivered may run before the notice can
-			// actually be delivered (BG17: the long-context memory was being consumed by a
-			// dispatch that then aborted, silencing the warning for the rest of the
-			// session). Past applyRoute the dispatch always ends in an episode and a result.
+			// actually be delivered (BG17). The restart decision below is the remaining
+			// unbilled exit, so notice memory waits until that decision settles.
 			await this.applyRoute(session, plan, thread, ctx, signal, routeWarn, baseline);
 			for (const message of applied.warnings) routeWarn(message);
-			// Guard 6's memory is this side's (route.ts is pure): record the pair the plan
-			// just warned about, so the next action on it stays quiet.
-			if (applied.longContextWarned !== undefined) this.noteLongContext(thread.id, applied.longContextWarned);
 			// Same division of labour for a SEEDED base: the planner decided it (purely),
 			// this side writes it down — after the apply, for the same reason as above.
 			this.persistReseededBase(thread, applied);
+			if (opts.threadId !== undefined) {
+				const policy = this.threadChoiceConfig(routeWarn);
+				if (policy.report || policy.act) {
+					// This method runs inside the promise chained to this thread's predecessor.
+					// The predecessor has therefore saved its episode before this read of episodeIds.
+					const plannedChoice = this.planChoice(thread, opts, applied, session, ctx.cwd);
+					if (policy.report) choice = plannedChoice;
+					// Only the economic fresh verdict may move work. Every refusal and every
+					// uncertainty stays on the source thread, including an empty allowance.
+					if (policy.act && plannedChoice.kind === "fresh") {
+						if (thread.supersededBy !== undefined) {
+							throw new DispatchAbort(
+								`Thread "${thread.id}" was superseded by ${thread.supersededBy} before it could restart.`,
+							);
+						}
+						const restartContext = [...new Set([...(opts.contextEpisodeIds ?? []), ...(opts.freshContext ?? [])])];
+						const refusal =
+							restartContext.length > MAX_FRESH_CONTEXT_EPISODES
+								? `the combined context names ${restartContext.length} episodes, above the ${MAX_FRESH_CONTEXT_EPISODES}-episode limit`
+								: this.restartRefusal(thread);
+						if (refusal !== undefined) {
+							routeWarn(`slate: automatic fresh-thread restart refused — ${refusal}.`);
+						} else {
+						let successor: ThreadRecord | undefined;
+						let restartCommitted = false;
+						try {
+							const restartOpts: DispatchOptions = {
+								...opts,
+								threadId: undefined,
+								name: thread.name,
+								type: effectiveThreadType(thread, routeWarn),
+								contextEpisodeIds: restartContext,
+								freshContext: undefined,
+								tools: thread.tools,
+							};
+							successor = this.createThread(restartOpts, applied, thread);
+							const successorEpisodeId = nextSlateEpisodeId(successor.id, successor.episodeSeq);
+							if (successorEpisodeId === undefined) throw new Error("the successor could not form an episode id");
+							const successorPrompt = this.buildPrompt(restartOpts, ctx.cwd);
+							const restartRun = this.runDispatchInner(
+								successor,
+								restartOpts,
+								successorPrompt,
+								successorEpisodeId,
+								ctx,
+								signal,
+								onProgress,
+								() => {
+									restartCommitted = true;
+								},
+							);
+							this.queues.set(successor.id, restartRun);
+							const restarted = await restartRun;
+							if (!restartCommitted) {
+								throw new Error(
+									`slate: the restart from thread ${thread.id} ended before its action started. The source thread remains usable.`,
+								);
+							}
+							this.retireSupersededSource(thread);
+							return {
+								...restarted,
+								...(policy.report ? { choice: plannedChoice } : {}),
+								warnings: [...new Set([...warnings, ...restarted.warnings])],
+							};
+						} catch (error) {
+							if (restartCommitted) {
+								throw new DispatchAbort(
+									`slate: the committed restart from thread ${thread.id} failed after its action started — ` +
+										sanitizeForNotify(error instanceof Error ? error.message : String(error), 200),
+								);
+							}
+							if (successor !== undefined) this.rollbackRestart(thread, successor, signal?.aborted ? "idle" : "running");
+							if (signal?.aborted) {
+								throw new DispatchAbort(
+									error instanceof Error ? error.message : `slate: the restart from thread ${thread.id} was aborted.`,
+								);
+							}
+							routeWarn(
+								`slate: the fresh-thread restart failed, so this action remains in thread ${thread.id} — ` +
+									sanitizeForNotify(error instanceof Error ? error.message : String(error), 200),
+							);
+						}
+						}
+					}
+				}
+			}
+			// A restart can still roll back unbilled above. Consume the source notice only
+			// when its action continues and can deliver that notice with its result.
+			if (applied.longContextWarned !== undefined) this.noteLongContext(thread.id, applied.longContextWarned);
 			if (applied.warnings.length > 0) emit(false);
 
 			messagesBefore = session.messages.length;
@@ -1060,6 +1491,13 @@ export class ThreadManager {
 				if (event.type === "tool_execution_start") {
 					lines.push(`→ ${(event as unknown as { toolName: string }).toolName}`);
 					emit(false);
+				} else if (event.type === "compaction_end") {
+					if (seenCompactionEvents.has(event)) return;
+					seenCompactionEvents.add(event);
+					const result = (event as unknown as {
+						result?: { usage?: EpisodeUsage & { cost?: { total?: number } } };
+					}).result;
+					addCompactionUsage(result?.usage);
 				} else if (event.type === "message_end") {
 					// Usage accumulation + progress lines ONLY — outcome is derived
 					// after prompt() settles (see deriveOutcome above, AF3).
@@ -1068,8 +1506,20 @@ export class ThreadManager {
 					usage.turns++;
 					usage.input += msg.usage?.input ?? 0;
 					usage.output += msg.usage?.output ?? 0;
-					usage.cost += msg.usage?.cost?.total ?? 0;
-					usage.contextTokens = msg.usage?.totalTokens ?? usage.contextTokens;
+					addEpisodeUsage("input", msg.usage?.input);
+					addEpisodeUsage("output", msg.usage?.output);
+					addEpisodeUsage("cacheRead", msg.usage?.cacheRead);
+					addEpisodeUsage("cacheWrite", msg.usage?.cacheWrite);
+					const reportedCost = msg.usage?.cost?.total;
+					if (reportedCost !== undefined) {
+						workerCostUsd = (workerCostUsd ?? 0) + reportedCost;
+						usage.cost += reportedCost;
+					}
+					const contextTokens = msg.usage?.totalTokens;
+					if (typeof contextTokens === "number" && Number.isFinite(contextTokens) && Number.isInteger(contextTokens) && contextTokens >= 0) {
+						reportedContextTokens = contextTokens;
+						usage.contextTokens = contextTokens;
+					}
 					const text = (msg.content ?? [])
 						.filter((c) => c.type === "text")
 						.map((c) => c.text ?? "")
@@ -1087,7 +1537,11 @@ export class ThreadManager {
 			// Attempt 1.
 			let thrown: { error: unknown } | undefined;
 			try {
-				await session.prompt(prompt);
+				const promptRun = session.prompt(prompt);
+				// COMMIT POINT: prompt execution has started. A caller may no longer
+				// roll this dispatch back or repeat its action on another thread.
+				onPromptCommitted?.();
+				await promptRun;
 			} catch (error) {
 				thrown = { error };
 			}
@@ -1206,7 +1660,11 @@ export class ThreadManager {
 			// this message, not a finished action with an episode id.
 			thread.status = "idle";
 			thread.updatedAt = Date.now();
-			this.store.save();
+			try {
+				this.store.save();
+			} catch {
+				/* preserve the abort boundary after best-effort rollback persistence */
+			}
 			throw new Error(aborted.message);
 		}
 
@@ -1244,6 +1702,23 @@ export class ThreadManager {
 		// answer (both halves) below.
 		const effortIsAsPlanned = plan?.effortUnmeasured === true && actualEffort !== undefined && actualEffort === plan.effort;
 		const actualEffortUnmeasured = effortIsAsPlanned && actualModel !== undefined && actualModel === plan?.effortJudgedFor;
+
+		// A supersession that appeared after prompt admission makes every measurement
+		// here stale. Do not publish an episode on a source that already has a successor.
+		if (thread.supersededBy !== undefined) {
+			thread.choiceEvidenceStale = true;
+			thread.status = "idle";
+			thread.updatedAt = Date.now();
+			this.store.workerCostUsd += usage.cost + (compactionCostUsd ?? 0);
+			try {
+				this.store.save();
+			} catch {
+				/* preserve the supersession error when snapshot persistence is unavailable */
+			}
+			throw new Error(
+				`Thread "${thread.id}" was superseded by ${thread.supersededBy} before its episode could publish. Continue the successor instead.`,
+			);
+		}
 
 		// The per-thread queue planned this id before any worker was opened. Advance
 		// the counter only when this attempted action reaches episode production.
@@ -1324,6 +1799,7 @@ export class ThreadManager {
 				episodeId,
 				threadId: thread.id,
 				threadName: thread.name,
+				restartOf: thread.restartOf,
 				task: opts.task,
 				status,
 				diagnostics,
@@ -1348,6 +1824,9 @@ export class ThreadManager {
 				signal: signal?.aborted ? undefined : signal,
 			});
 		} catch (error) {
+			// The live session has grown, but no episode will publish its new cache and
+			// prefix evidence. The next choice must not reuse the older measurements.
+			thread.choiceEvidenceStale = true;
 			// Compression includes the episode-file write. If that write fails, the
 			// earlier observation normally becomes an unreferenced orphan. It remains
 			// until the user removes it. Persist every cost and recoverable session fact.
@@ -1367,7 +1846,10 @@ export class ThreadManager {
 			if (!thread.sessionFile && session?.sessionFile && existsSync(session.sessionFile)) {
 				thread.sessionFile = session.sessionFile;
 			}
-			this.store.workerCostUsd += usage.cost + (error instanceof EpisodePersistenceError ? error.costUsd : 0);
+			this.store.workerCostUsd +=
+				usage.cost +
+				(error instanceof EpisodePersistenceError ? (error.costUsd ?? 0) : 0) +
+				(compactionCostUsd ?? 0);
 			thread.status = "idle";
 			thread.updatedAt = Date.now();
 			try {
@@ -1395,6 +1877,13 @@ export class ThreadManager {
 			...(actualEffort ? { effort: actualEffort } : {}),
 			...(actualEffortUnmeasured ? { effortUnmeasured: true as const } : {}),
 			observations: durableObservations,
+			...episodeUsage,
+			...(reportedContextTokens !== undefined ? { contextTokens: reportedContextTokens } : {}),
+			...(workerCostUsd !== undefined ? { workerCostUsd } : {}),
+			...(compressed.compressorUsage ? { compressorUsage: compressed.compressorUsage } : {}),
+			...(compressed.costUsd !== undefined ? { compressorCostUsd: compressed.costUsd } : {}),
+			...(Object.keys(compactionUsage).length > 0 ? { compactionUsage } : {}),
+			...(compactionCostUsd !== undefined ? { compactionCostUsd } : {}),
 			createdAt: Date.now(),
 		};
 		// CQ18: the worker session file exists only once pi has flushed it (it holds an
@@ -1407,16 +1896,17 @@ export class ThreadManager {
 		}
 		this.store.episodes.set(episodeId, episode);
 		thread.episodeIds.push(episodeId);
+		delete thread.choiceEvidenceStale;
 		thread.status = "idle";
 		thread.updatedAt = Date.now();
-		// Accumulate session-wide worker spend (worker turns + episode compressor)
+		// Accumulate session-wide worker spend, including compression and compaction,
 		// BEFORE save so it persists with the snapshot.
-		this.store.workerCostUsd += usage.cost + compressed.costUsd;
+		this.store.workerCostUsd += usage.cost + (compressed.costUsd ?? 0) + (compactionCostUsd ?? 0);
 		this.store.save();
 
 		emit(true, status);
 
-		return { episodeText: compressed.text, episode, thread, usage, warnings };
+		return { episodeText: compressed.text, episode, thread, usage, ...(choice !== undefined ? { choice } : {}), warnings };
 	}
 
 	disposeAll(): void {

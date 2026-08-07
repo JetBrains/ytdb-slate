@@ -29,7 +29,9 @@
  * ".pi" by default), honored ONLY when the project is trusted — untrusted
  * projects run on built-in defaults with no project file injection:
  *   { "episodeModel": "provider/id", "workerTools": [...],
- *     "workerExtensions": ["regex", ...], "maxConcurrent": 4,
+ *     "workerExtensions": ["regex", ...], "cacheKeyEnabled": true,
+ *     "cacheKeyShards": 2,
+ *     "maxConcurrent": 4,
  *     "contextBudget": 256000, "orchestratorModeDefault": true,
  *     "orchestratorPromptDocs": ["docs/orchestrator-guidelines.md"],
  *     "workerPromptDocs": ["docs/thread-guidelines.md"],
@@ -68,7 +70,13 @@ import {
 	type ModelRouterResolution,
 	type RouterWarningClass,
 } from "./model-router.ts";
-import { sanitizeEpisodeModel, SlateStore, type SlateConfig } from "./state.ts";
+import {
+	sanitizeCacheKeyEnabled,
+	sanitizeCacheKeyShards,
+	sanitizeEpisodeModel,
+	SlateStore,
+	type SlateConfig,
+} from "./state.ts";
 import { ThreadManager } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
 import {
@@ -153,6 +161,8 @@ export default function (pi: ExtensionAPI) {
 		config.modelFailover = sanitizeModelFailover(config.modelFailover, warn);
 		config.contextBudget = sanitizeContextBudget(config.contextBudget, warn);
 		config.workerExtensions = sanitizeWorkerExtensions(config.workerExtensions, warn);
+		config.cacheKeyEnabled = sanitizeCacheKeyEnabled(config.cacheKeyEnabled, warn);
+		config.cacheKeyShards = sanitizeCacheKeyShards(config.cacheKeyShards, warn);
 		// router likewise: a malformed model list must surface at session start, not
 		// when a dispatch is refused for naming a model the list silently dropped.
 		// The router's own warn sink. It reads the CLASS the router tags each warning
@@ -164,9 +174,28 @@ export default function (pi: ExtensionAPI) {
 		// still emits every warning and still collects every one on its result.
 		let showRouterWarnings = false;
 		let hiddenRouterWarnings = 0;
+		let resolutionConsulted = false;
+		let noticeFlushed = false;
+		const flushHiddenRouterWarnings = () => {
+			if (noticeFlushed || hiddenRouterWarnings === 0) return;
+			noticeFlushed = true;
+			const count = hiddenRouterWarnings;
+			const plural = count === 1 ? "is 1 hidden warning" : `are ${count} hidden warnings`;
+			try {
+				warn(
+					`slate: there ${plural} in the model router. Set "router.showWarnings" to true in ` +
+						`${CONFIG_DIR_NAME}/slate.json to read them. A hidden warning can affect which model runs an action.`,
+				);
+			} catch {
+				/* BG3: a throwing sink costs the notice, never the resolution */
+			}
+		};
 		const routerWarn = (msg: string, warningClass?: RouterWarningClass) => {
 			if (warningClass === "model-data-note" && !showRouterWarnings) {
 				hiddenRouterWarnings += 1;
+				// Resolution-time notes are aggregated after the memoized resolver returns.
+				// A dispatch-time note arrives later, so it triggers the same one-time line here.
+				if (resolutionConsulted) flushHiddenRouterWarnings();
 				return;
 			}
 			warn(msg);
@@ -210,27 +239,13 @@ export default function (pi: ExtensionAPI) {
 		// no model-data note on its all-dropped path, but the flush stays there because
 		// this wrapper must cover that return path if the resolver gains one later. The
 		// memo means a later consultation re-emits nothing and cannot count a warning
-		// twice, and `noticeFlushed` covers the FIRST consultation
-		// producing no hidden note at all. It counts WARNINGS, not rendered lines: one
-		// warning can wrap across several of those.
-		let noticeFlushed = false;
+		// twice. A later dispatch-time note can still flush the line when resolution
+		// produced no hidden note. It counts WARNINGS, not rendered lines: one warning
+		// can wrap across several of those.
 		resolveModelRouterResolution = () => {
 			const resolution = memoizedRouterResolution();
-			if (!noticeFlushed) {
-				noticeFlushed = true;
-				if (hiddenRouterWarnings > 0) {
-					const count = hiddenRouterWarnings;
-					const plural = count === 1 ? "is 1 hidden warning" : `are ${count} hidden warnings`;
-					try {
-						warn(
-							`slate: there ${plural} in the model router. Set "router.showWarnings" to true in ` +
-								`${CONFIG_DIR_NAME}/slate.json to read them. A hidden warning can affect which model runs an action.`,
-						);
-					} catch {
-						/* BG3: a throwing sink costs the notice, never the resolution */
-					}
-				}
-			}
+			resolutionConsulted = true;
+			flushHiddenRouterWarnings();
 			return resolution;
 		};
 		// Fresh tracker per session, seeded from the session's OWN resolved model —

@@ -316,10 +316,10 @@ the load-on-demand discipline the extension itself prescribes:
   that ships with this package (`track-workflow.md` in this directory),
   appended to the system prompt every turn while orchestrator mode is
   on. Sizing it matters to the tiering argument, so it is measured
-  rather than asserted: with both conditional tail rules and
-  `workflow.draftPRs` off, the block is **1,929 portable characters /
-  38 lines**, and configuring the router for six models roughly
-  DOUBLES it, to **3,870** on that same basis — the routing rule
+  rather than asserted: with every conditional tail rule off and
+  `workflow.draftPRs` off, the block is **2,270 portable characters /
+  43 lines**, and configuring the router for six models nearly
+  doubles it, to **4,300** on that same basis — the routing rule
   renders one table row per routable model. (Portable characters, and
   the rest of the configurations, are defined and tabulated in
   `context-budget.md`; the raw count also depends on where the package

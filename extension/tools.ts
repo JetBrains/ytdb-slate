@@ -10,12 +10,22 @@ import {
 	displayThreadType,
 	isThreadType,
 	parseThreadType,
+	resolveEpisodeFile,
+	renderThreadId,
+	restartLineageText,
 	threadTypeMarker,
 	THREAD_TYPE_GLOSSES,
 	THREAD_TYPES,
+	type EpisodeRecord,
+	type EpisodeUsage,
 	type SlateStore,
 } from "./state.ts";
-import type { DispatchProgress, ThreadManager } from "./threads.ts";
+import {
+	MAX_FRESH_CONTEXT_EPISODES,
+	type DispatchProgress,
+	type DispatchResult,
+	type ThreadManager,
+} from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
 
 const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
@@ -24,6 +34,76 @@ const judgementThreadTypes = JUDGEMENT_THREAD_TYPES.join(" and ");
 const THREAD_TYPE_PARAMETER_DESCRIPTION =
 	`Required for a new thread and immutable after creation. Pick by main job: ${threadTypeGlosses}. ` +
 	`Slate adds its reviewer evidence charter to ${judgementThreadTypes} threads.`;
+
+const FRESH_CONTEXT_PARAMETER_DESCRIPTION =
+	"Continuation: [] refuses a restart and episode ids permit one. Required with threadChoice.act=true. Every value is validated.";
+
+const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+
+function choicePrice(value: number | undefined): string {
+	if (value === undefined) return "unpriced";
+	return `$${value < 0.01 ? value.toFixed(6) : value.toFixed(4)}`;
+}
+
+function compactWarmth(warmth: {
+	warm: boolean;
+	code: string;
+	elapsedSeconds?: number;
+	windowSeconds?: number;
+}): string {
+	const state = warmth.warm ? "warm" : "cold";
+	if (warmth.code === "within-retention") {
+		return `${state}: age ${Math.round(warmth.elapsedSeconds ?? 0)}s/${Math.round(warmth.windowSeconds ?? 0)}s retention`;
+	}
+	if (warmth.code === "retention-expired") {
+		return `${state}: age ${Math.round(warmth.elapsedSeconds ?? 0)}s exceeds ${Math.round(warmth.windowSeconds ?? 0)}s retention`;
+	}
+	const reasons: Record<string, string> = {
+		"no-previous-dispatch": "no prior dispatch",
+		"model-change": "model changed",
+		"effort-change": "effort changed",
+		"measured-cache-miss": "cache read and write were zero",
+		"no-retention-data": "no retention data",
+		"unknown-elapsed-time": "cache age unknown",
+	};
+	return `${state}: ${reasons[warmth.code] ?? warmth.code.replace(/-/g, " ")}`;
+}
+
+/** Compact context line. The structured result retains the planner's full reason and estimate. */
+export function threadChoiceLine(choice: NonNullable<DispatchResult["choice"]>): string {
+	const estimate = "estimate" in choice ? choice.estimate : undefined;
+	const continuation = estimate
+		? `${choicePrice(estimate.continuation.usd)}/${estimate.continuation.turns}t`
+		: "unpriced";
+	const fresh = estimate ? `${choicePrice(estimate.fresh.usd)}/${estimate.fresh.turns}t` : "unpriced";
+	const warmth = "warmth" in choice ? choice.warmth : undefined;
+	const reason = `${choice.code.replace(/-/g, " ")}${warmth ? `; ${compactWarmth(warmth)}` : ""}`;
+	return `Choice: ${choice.kind.toUpperCase()} | continue ${continuation} | fresh ${fresh} | ${reason}`;
+}
+
+/** Render recorded costs and usage without turning an unreported quantity into zero. */
+function dispatchCostLine(episode: EpisodeRecord): string {
+	const usageSources: EpisodeUsage[] = [episode, episode.compressorUsage ?? {}, episode.compactionUsage ?? {}];
+	const quantities = USAGE_FIELDS.map((field) => {
+		let quantity = 0;
+		let complete = true;
+		for (const source of usageSources) {
+			const value = source[field];
+			if (value === undefined) complete = false;
+			else quantity += value;
+		}
+		const label = field === "cacheRead" ? "cache read" : field === "cacheWrite" ? "cache write" : field;
+		return `${label} ${complete ? "" : "≥"}${quantity.toLocaleString("en-US")}`;
+	});
+	const sourceCosts = [episode.workerCostUsd, episode.compressorCostUsd, episode.compactionCostUsd];
+	const reportedCost = sourceCosts.reduce<number>((sum, cost) => sum + (cost ?? 0), 0);
+	const partialCost = sourceCosts.some((cost) => cost === undefined);
+	const costScope = partialCost ? " across reported calls and models. Some cost was not reported" : " across all calls and models";
+	const model = episode.model ?? "unknown model";
+	const effort = episode.effort ? `@${episode.effort}` : "@unknown effort";
+	const warm = episode.cacheRead !== undefined && episode.cacheRead > 0 ? " | warm" : "";
+	return `Cost: ${partialCost ? "≥" : ""}$${reportedCost.toFixed(4)}${costScope} | tokens: ${quantities.join(", ")} | ended ${model} ${effort}${warm}`;
+}
 
 export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManager: () => ThreadManager): void {
 	pi.registerTool({
@@ -65,6 +145,12 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			context: Type.Optional(
 				Type.Array(Type.String(), { description: "Episode ids to inject as context (e.g. [\"t1.e2\"])" }),
 			),
+			freshContext: Type.Optional(
+				Type.Array(Type.String(), {
+					description: FRESH_CONTEXT_PARAMETER_DESCRIPTION,
+					maxItems: MAX_FRESH_CONTEXT_EPISODES,
+				}),
+			),
 			model: Type.Optional(
 				Type.String({
 					description:
@@ -103,6 +189,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 						threadId: p.threadId,
 						threadName: p.threadName,
 						type: displayedType(p.threadId),
+						restartOf: store.threads.get(p.threadId)?.restartOf,
 						lines: p.lines,
 						usage: p.usage,
 						done: p.done,
@@ -117,6 +204,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					type,
 					task: params.task,
 					contextEpisodeIds: params.context,
+					freshContext: params.freshContext,
 					model: params.model,
 					effort: params.effort,
 					tools: params.tools,
@@ -134,17 +222,23 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			// it is the DURABLE copy: it is written into the episode file, comes back through
 			// the `episode` tool, and travels into every later prompt that cites the episode,
 			// while this line is framing that exists only for this one tool result.
-			const headline = `[episode ${result.episode.id} | thread ${result.thread.id} "${result.thread.name}" | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}]`;
+			const restartText = restartLineageText(result.thread.restartOf, result.thread.id);
+			const restart = restartText ? ` | ${restartText}` : "";
+			const threadId = renderThreadId(result.thread.id) ?? "(unknown)";
+			const headline = `[episode ${result.episode.id} | thread ${threadId} "${result.thread.name}"${restart} | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}]`;
 			// Routing notices reach the ORCHESTRATOR, not just the TUI: an evidence gap,
 			// a window substitution or a long-context billing cliff changes what the next
 			// dispatch should ask for, so they ride in the tool result above the episode.
 			const notices = result.warnings.length > 0 ? `${result.warnings.map((w) => `⚠ ${w}`).join("\n")}\n\n` : "";
+			const cost = dispatchCostLine(result.episode);
+			const choice = result.choice === undefined ? "" : `\n${threadChoiceLine(result.choice)}`;
 			return {
-				content: [{ type: "text", text: `${headline}\n\n${notices}${result.episodeText}` }],
+				content: [{ type: "text", text: `${headline}\n${cost}${choice}\n\n${notices}${result.episodeText}` }],
 				details: {
 					threadId: result.thread.id,
 					threadName: result.thread.name,
 					type: displayThreadType(result.thread.type),
+					restartOf: result.thread.restartOf,
 					episodeId: result.episode.id,
 					status: result.episode.status,
 					episodeFile: result.episode.file,
@@ -155,6 +249,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					ranModel: result.episode.model,
 					ranEffort: result.episode.effort,
 					ranEffortUnmeasured: result.episode.effortUnmeasured,
+					choice: result.choice,
 					warnings: result.warnings,
 					usage: result.usage,
 					done: true,
@@ -228,7 +323,11 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const live = getManager().liveFailoverModel(t.id);
 				if (live) marks.push(`live=${live} (failover)`);
 				const models = marks.length > 0 ? ` ${marks.join(" ")}` : "";
-				return `${t.id} "${t.name}" [${t.status}]${typeMarker}${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
+				const lineage = [restartLineageText(t.restartOf, t.id), restartLineageText(t.id, t.supersededBy)]
+					.filter((value): value is string => value !== undefined)
+					.map((value) => ` ${value}`)
+					.join("");
+				return `${renderThreadId(t.id) ?? "(unknown)"} "${t.name}" [${t.status}]${typeMarker}${lineage}${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
 			});
 			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length } };
 		},
@@ -242,14 +341,16 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		parameters: Type.Object({
 			id: Type.String({ description: "Episode id, e.g. \"t1.e2\"" }),
 		}),
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const episode = store.episodes.get(params.id);
 			if (!episode) {
 				const known = [...store.episodes.keys()].join(", ") || "none";
 				throw new Error(`Unknown episode "${params.id}". Known episodes: ${known}`);
 			}
+			const file = resolveEpisodeFile(ctx.cwd, episode.file);
+			if (file === undefined) throw new Error(`Episode "${params.id}" is no longer a safe readable slate episode file.`);
 			return {
-				content: [{ type: "text", text: readFileSync(episode.file, "utf8") }],
+				content: [{ type: "text", text: readFileSync(file, "utf8") }],
 				details: { id: episode.id, threadId: episode.threadId, status: episode.status },
 			};
 		},
