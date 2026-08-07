@@ -4,7 +4,9 @@
 
 Slate is a thread-weaving orchestration extension for the [pi coding agent](https://pi.dev).
 
-The orchestrator (your main pi session) dispatches **bounded actions** to persistent **worker threads**. Each completed action is compressed by an LLM into an **episode** — a durable, structured record (intent, actions, findings, artifacts, open issues, handoff notes) that the orchestrator composes into further dispatches instead of re-reading raw transcripts. On top of that, Slate injects a mandatory workflow doctrine: research before design, design review, adversarial review, and track review — with optional umbrella **draft-PR publishing** for tracks. An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative. A second opt-in, **action-level model routing**, gives each dispatched action a model and an effort level chosen to be up to the task and no more, so cost is bounded per action instead of per session.
+The orchestrator (your main pi session) dispatches **bounded actions** to persistent **worker threads**. Each completed action is compressed by an LLM into an **episode** — a durable, structured record (intent, actions, findings, artifacts, open issues, handoff notes) that the orchestrator composes into further dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its design and review gates scale with the confirmed change class. Optional umbrella **draft-PR publishing** covers tracks.
+
+An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative. A second opt-in, **action-level model routing**, gives each dispatched action a model and an effort level chosen to be up to the task and no more, so cost is bounded per action instead of per session.
 
 ## Why Slate?
 
@@ -36,16 +38,15 @@ Full rationale: [`docs/design-principles.md`](docs/design-principles.md), shippe
 
 ## Feature development workflow
 
-In orchestrator mode, Slate injects a track-based development workflow as doctrine — it is not optional; project configuration can extend it (`doctrineExtraPath`) but never replace it. The flow:
+In orchestrator mode, Slate injects a mandatory track-based development workflow. Project configuration can extend it through `doctrineExtraPath`. Configuration cannot replace it.
 
-1. **Research** — interactive exploration; a research log opens lazily when defined triggers fire (non-trivial decisions, surprises, risky invariants, session boundaries).
-2. **User design review** — the user approves the design direction before any machine review.
-3. **Adversarial review** — a fresh-context reviewer attacks the design pre-implementation; findings are triaged with the user.
-4. **Track split approval** — the user approves how the change splits into independently reviewable tracks.
-5. **Per-track loop** — implement → agent code review → fixes → mandatory user review → marker commit (an empty commit marking the track's boundary in history).
-6. **Delivery** — with draft-PR publishing enabled, the squash-merge is performed by the user; the agent never merges. With it disabled (the default), the change lands as a squashed commit that carries the workflow log's key content in its message.
+1. **Classification and research** — the orchestrator proposes the change class, and the user confirms it. A research log is required for medium changes and above.
+2. **Design gates** — medium changes need user design approval before implementation. Complex and risky changes add an adversarial review between two user approvals.
+3. **Track split** — the orchestrator owns the split. Size determines tracks and marker commits, not workflow gates.
+4. **Per-track loop** — each track gets implementation, fixes, and mandatory user review. Agent code review is skipped only when the whole change is trivial.
+5. **Delivery** — the user performs the squash merge when draft publishing is enabled. Otherwise, the squashed commit carries the workflow log's key content.
 
-The workflow scales with change size: multi-track changes get the full flow, single-track changes skip the split and the marker commits, and trivial changes shrink the pre-implementation reviews to consent plus a micro-review (skippable with explicit user consent) — the agent code review and the mandatory user review still apply at every tier. Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
+Trivial changes have no design gate. Every change keeps mandatory user review of its track diff. Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
 
 This summary is orientation only; the shipped docs listed below are normative.
 
@@ -170,7 +171,7 @@ Slate reads project configuration (`.pi/slate.json`) and injects project files (
 
 In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths are also why the block's character count depends on your install location; [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
 
-- `docs/track-workflow.md` — the track-based workflow (research → design review → adversarial review → track review)
+- `docs/track-workflow.md` — the class-scaled workflow for research, design, adversarial review, and track review
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
 - `docs/review-rules.md` — review discipline and finding rules
 - `docs/design-principles.md` — Slate's own design rationale

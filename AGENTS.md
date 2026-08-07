@@ -311,7 +311,7 @@ These six requirements are project-authored:
 5. Express one idea in each sentence.
 6. Use one term for each concept.
 
-Research logs and worker-thread task text are excluded. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. `docs/` and `verification/README.md` remain precision-first mechanism references and are excluded too.
+Research logs and worker-thread task text are excluded. A design statement is governed when `writing.check` is true, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. `docs/` and `verification/README.md` remain precision-first mechanism references and are excluded too.
 
 The writing checker is diagnostic everywhere and authoritative nowhere. A match directs reviewer attention, and the reviewer decides whether the text has a defect. Changed convention-governed text should carry no fail-level findings. Findings in unchanged text are pre-existing debt, not an unrelated blocker. Every checker class is advisory in excluded files because length limits can conflict with required precision. ASD-STE100 inspires only, Slate claims no conformance, and contributors must copy no standard material or examples.
 

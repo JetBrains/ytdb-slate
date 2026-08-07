@@ -312,8 +312,8 @@ the load-on-demand discipline the extension itself prescribes:
 
 - **Tier 1 — always loaded.** The doctrine in `mode.ts` is the operational
   distillation of P1–P10, the review discipline defined in
-  `review-rules.md`, and a pointer to the track-based workflow protocol
-  that ships with this package (`track-workflow.md` in this directory),
+  `review-rules.md`, and a pointer to the class-scaled track workflow
+  protocol that ships with this package (`track-workflow.md` in this directory),
   appended to the system prompt every turn while orchestrator mode is
   on. Sizing it matters to the tiering argument, so it is measured
   rather than asserted: with every conditional tail rule off and

@@ -9,21 +9,29 @@ workflow-log lifecycle in that mode is owned by track-workflow.md
 
 ## Creation
 
-The umbrella draft PR is created once the design has passed the user
-design review and the adversarial review, BEFORE implementation:
+The umbrella draft PR is created after the design gate required by the
+confirmed change class passes and BEFORE implementation. For a complex
+or risky change, that gate is the user design approval plus the
+adversarial review. For a medium change, it is the user design approval.
+A trivial change has no design gate, so the PR is created after the user
+confirms the class and before implementation:
 
 - Created as a DRAFT, based on the repository's default development
   branch.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation, the research log's content folds into the PR
-  description — Key decisions, Risks, and Open questions feed the
-  corresponding Planned-changes subsections, and the design review and
-  adversarial review verdict lines land in Risks & accepted
-  trade-offs — and the log file is deleted. Decisions made after PR
-  creation are appended to the PR description directly.
-- The user approves the description (and the track split — see
-  track-workflow.md) before implementation starts.
+- At creation, the research log's Planned changes content folds into
+  the PR description. Key decisions, Risks, and Open questions feed
+  the corresponding Planned-changes subsections. The applicable design
+  review verdict lines land in Risks & accepted trade-offs. The
+  adversarial review verdict line lands there only when that review ran;
+  a medium change carries the design verdict lines alone.
+- The research log is retained until delivery, and its Decision Log
+  keeps appending during implementation. track-workflow.md § Research
+  log owns the full lifecycle.
+- For a designed change, the description and track split are part of
+  the design the user approves before implementation. Neither receives
+  a separate approval.
 
 ## Description rules
 
@@ -46,8 +54,12 @@ Subsections activate when their content exists:
 - **Key decisions** — chosen vs rejected; preempts "why not X?" review
   comments.
 - **Out of scope** — explicit non-goals.
-- **Risks & accepted trade-offs** — including the design review and
-  adversarial review verdict lines.
+- **Risks & accepted trade-offs** — including the applicable design
+  review verdict lines, and the adversarial review verdict line only
+  when that review ran.
+- **Suggestions** — a one-line index per suggestion: identifier,
+  location, and one-line summary. The standalone text lives in the
+  final report to the user or in a tracker issue.
 - **Verification approach** — 1–2 lines.
 
 "Deep enough" test: a reviewer who knows the codebase but not this
@@ -113,7 +125,10 @@ executed in order:
   review) is completed or explicitly user-waived — flipping never
   discards a pending review.
 - All commits landed since the last user-approved gate are presented
-  to the user.
+  to the user. For a trivial change, present the description here
+  because no design gate presented it before implementation.
+- Every remaining suggestion is reported to the user, and the
+  Suggestions index is present in the description.
 - Strip the whole Tracks section from the description, whatever its
   form — the table for multi-track changes or the "N/A (single-track)"
   placeholder — plus any notes under it. Track numbers are ephemeral
