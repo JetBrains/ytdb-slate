@@ -426,25 +426,25 @@ export class ThreadManager {
 		// first (it explains itself better than a routing complaint would), the
 		// routing guards next, and only then is a new thread created.
 		const existing = opts.threadId ? this.requireThread(opts.threadId) : undefined;
-		let freshContext: string[] | undefined;
-		if (existing !== undefined && sanitizeThreadChoiceConfig(this.config.threadChoice, () => undefined).act) {
-			try {
-				const normalized = normalizeFreshContext(opts.freshContext);
-				if (!Array.isArray(normalized)) throw new Error(FRESH_CONTEXT_REQUIRED_ERROR);
-				freshContext = normalized;
-			} catch {
-				throw new Error(FRESH_CONTEXT_REQUIRED_ERROR);
+		const actingContinuation = existing !== undefined && sanitizeThreadChoiceConfig(this.config.threadChoice, () => undefined).act;
+		let suppliedFreshContext: string[] | undefined;
+		if (opts.freshContext !== undefined) {
+			const normalized = normalizeFreshContext(opts.freshContext);
+			if (!Array.isArray(normalized)) {
+				throw new Error(`freshContext must be [] or a list of up to ${MAX_FRESH_CONTEXT_EPISODES} episode ids.`);
 			}
+			suppliedFreshContext = normalized;
 		}
-		if (freshContext !== undefined) {
-			for (const id of freshContext) {
+		if (actingContinuation && suppliedFreshContext === undefined) throw new Error(FRESH_CONTEXT_REQUIRED_ERROR);
+		if (suppliedFreshContext !== undefined) {
+			for (const id of suppliedFreshContext) {
 				if (!this.store.episodes.has(id)) {
 					const known = [...this.store.episodes.keys()].join(", ") || "none";
 					throw new Error(`Unknown freshContext episode "${sanitizeForNotify(id, 80)}". Known episodes: ${known}`);
 				}
 			}
 		}
-		const dispatchOpts: DispatchOptions = { ...opts, freshContext };
+		const dispatchOpts: DispatchOptions = { ...opts, freshContext: actingContinuation ? suppliedFreshContext : undefined };
 		if (existing && nextSlateEpisodeId(existing.id, existing.episodeSeq) === undefined) {
 			throw new Error(
 				`Slate cannot dispatch thread ${sanitizeForNotify(existing.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
