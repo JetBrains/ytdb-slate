@@ -107,6 +107,8 @@ function harness(
     buildPrompt: (...args: unknown[]) => string;
     longContextWarned: Map<string, Set<string>>;
     rollbackRestart: (source: ThreadRecord, successor: ThreadRecord) => void;
+    retireSupersededSource: (source: ThreadRecord) => void;
+    restartRefusal: (source: ThreadRecord) => string | undefined;
     createThread: (...args: unknown[]) => ThreadRecord;
   };
   let index = 0;
@@ -506,6 +508,74 @@ test("a successor without its own episode refuses another restart", () => {
   const refusal = (manager as unknown as { restartRefusal(source: { id: string; type: string; restartOf?: string; episodeIds: string[] }): string | undefined })
     .restartRefusal({ id: "t2", type: "general", restartOf: "t1", episodeIds: [] });
   assert.equal(refusal, "thread t2 is a successor with no episode of its own, so no new evidence supports another restart");
+});
+
+test("restart refusals protect paused, judgement, and successor threads", () => {
+  const { internal } = harness({}, []);
+  assert.equal(internal.restartRefusal({ ...sourceRecord() }), undefined);
+  const paused = harness({}, []);
+  paused.store.paused = true;
+  assert.match(paused.internal.restartRefusal(sourceRecord()) ?? "", /paused/);
+  assert.match(internal.restartRefusal({ ...sourceRecord(), type: "reviewer" }) ?? "", /review transcript/);
+  assert.match(internal.restartRefusal({ ...sourceRecord(), restartOf: "t0", episodeIds: [] }) ?? "", /no new evidence/);
+  assert.equal(internal.restartRefusal({ ...sourceRecord(), restartOf: "t0", episodeIds: ["t0.e1"] }), undefined);
+});
+
+test("rollback restores source state when successor disposal throws", () => {
+  const sourceSession = session(() => {});
+  const successorSession = session(() => {});
+  successorSession.value.dispose = () => { throw new Error("dispose failed"); };
+  const { store, internal } = harness({}, [sourceSession, successorSession]);
+  const source = sourceRecord();
+  const successor = { ...source, id: "t2", restartOf: "t1" as const, restartGeneration: 1 };
+  store.threads.set(source.id, source);
+  store.threads.set(successor.id, successor);
+  internal.live.set(successor.id, successorSession.value);
+  internal.queues.set(successor.id, Promise.resolve());
+  internal.rollbackRestart(source, successor);
+  assert.equal(store.threads.has(successor.id), false);
+  assert.equal(source.supersededBy, undefined);
+  assert.equal(source.status, "running");
+  assert.equal(internal.live.has(successor.id), false);
+});
+
+test("rollback handles an idle source without a live successor", () => {
+  const { store, internal } = harness({}, []);
+  const source = sourceRecord();
+  const successor = { ...source, id: "t2", restartOf: "t1" as const, restartGeneration: 1 };
+  store.threads.set(source.id, source);
+  store.threads.set(successor.id, successor);
+  internal.rollbackRestart(source, successor, "idle");
+  assert.equal(store.threads.has(successor.id), false);
+  assert.equal(source.status, "idle");
+  assert.equal(source.supersededBy, undefined);
+});
+
+test("retirement clears runtime state when source disposal throws", () => {
+  const worker = session(() => {});
+  worker.value.dispose = () => { throw new Error("dispose failed"); };
+  const { internal } = harness({}, [worker]);
+  const source = sourceRecord();
+  internal.live.set(source.id, worker.value);
+  internal.longContextWarned.set(source.id, new Set(["p/m"]));
+  internal.queues.set(source.id, Promise.resolve());
+  internal.retireSupersededSource(source);
+  assert.equal(internal.live.has(source.id), false);
+  assert.equal(internal.longContextWarned.has(source.id), false);
+  assert.equal(internal.queues.has(source.id), false);
+});
+
+test("restart creation rolls back lineage when persistence throws", () => {
+  const { store, internal } = harness({}, []);
+  const source = sourceRecord();
+  store.threads.set(source.id, source);
+  store.save = () => { throw new Error("save failed"); };
+  assert.throws(
+    () => internal.createThread({ task: "restart", type: "general" }, {}, source),
+    /save failed/,
+  );
+  assert.equal(source.supersededBy, undefined);
+  assert.equal(store.threads.has("t2"), false);
 });
 
 test("acting off leaves the source without successor lineage", { timeout: 1000 }, async (t) => {

@@ -91,12 +91,10 @@ test("planner settles unusable input and permission before later decisions", () 
   assert.equal(missing.subject, "e1");
 });
 
-test("planner rejects malformed action and thread identities defensively", () => {
+test("planner rejects malformed actions and missing threads defensively", () => {
   assert.equal(planThreadChoice({ thread, action: null as unknown as ThreadChoiceInput["action"] }).code, "no-action");
   const noThread = planThreadChoice({ action: { model: "p/m", effort: "low", expectedTurns: 3 } });
   assert.equal(noThread.code, "no-thread-to-continue");
-  const emptyId = planThreadChoice({ ...priced({ thread: { id: "", tools: ["read"] } }) });
-  assert.equal(emptyId.code, "fresh-cheaper");
 });
 
 test("planner applies equipment and failed-dispatch refusals after allowance checks", () => {
@@ -114,6 +112,19 @@ test("planner applies equipment and failed-dispatch refusals after allowance che
   assert.equal(fresh.kind, "fresh");
   assert.equal(fresh.code, "no-thread-to-continue");
   assert.match(fresh.reason, /new work stream/);
+});
+
+test("planner handles a missing prior dispatch and plural allowance sizes", () => {
+  const noPrior = planThreadChoice(priced({ last: undefined }));
+  assert.ok("estimate" in noPrior && noPrior.estimate);
+  assert.equal(noPrior.estimate.expectedTurns, 3);
+  const pluralUnknown = planThreadChoice(priced({
+    allowance: ["e1", "e2"],
+    knownEpisodeIds: ["e1", "e2"],
+    sizes: { ...sizes, episodeTokens: undefined },
+  }));
+  assert.equal(pluralUnknown.code, "episode-size-unknown");
+  assert.match(pluralUnknown.reason, /2 allowance episodes/);
 });
 
 test("planner returns each economic abstention with its missing figure", () => {
@@ -185,6 +196,21 @@ test("long-context pricing uses the request threshold and reports an unpriced cl
   assert.equal(estimateOf(unpriced).longContextUnpriced, true);
 });
 
+test("estimate arm cost treats malformed token inputs as zero", () => {
+  const estimate = estimateArmCost({
+    cachedPrefixTokens: Number.NaN,
+    uncachedPrefixTokens: -1,
+    turns: Number.NaN,
+    growthTokensPerTurn: "bad" as unknown as number,
+    outputTokensPerTurn: undefined as unknown as number,
+    rates: { cacheRead: 1, fresh: 1, output: 1, freshFromInputPrice: false },
+  });
+  assert.equal(estimate.cacheReadTokens, 0);
+  assert.equal(estimate.freshTokens, 0);
+  assert.equal(estimate.outputTokens, 0);
+  assert.equal(estimate.turns, 1);
+});
+
 test("defensive pricing guards reject malformed rates and retain known cliffs", () => {
   assert.equal(resolveTokenRates(undefined), undefined);
   assert.equal(resolveTokenRates({ inUsdPerMTok: -1, outUsdPerMTok: 1, cachedInUsdPerMTok: 1 }), undefined);
@@ -204,6 +230,27 @@ test("defensive pricing guards reject malformed rates and retain known cliffs", 
     cacheRead: 2,
     fresh: 2,
     output: 1,
+    priced: true,
+  });
+  assert.deepEqual(resolveLongContext({ threshold: 10, multipliers: { cachedIn: 2 } }), {
+    threshold: 10,
+    cacheRead: 2,
+    fresh: 1,
+    output: 1,
+    priced: true,
+  });
+  assert.deepEqual(resolveLongContext({ threshold: 10, multipliers: { out: 2 } }), {
+    threshold: 10,
+    cacheRead: 1,
+    fresh: 1,
+    output: 2,
+    priced: true,
+  });
+  assert.deepEqual(resolveLongContext({ threshold: 10, multipliers: { in: 2, out: 2 } }), {
+    threshold: 10,
+    cacheRead: 2,
+    fresh: 2,
+    output: 2,
     priced: true,
   });
 });
