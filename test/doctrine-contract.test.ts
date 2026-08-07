@@ -128,11 +128,11 @@ test("thread-choice doctrine defines work streams, consent, restart limits, and 
   const doctrine = await renderDoctrine(routedResolution());
   assert.match(doctrine, /3\. Keep each work stream in one thread\./);
   assert.match(doctrine, /With `threadChoice\.act: true`, continuations require `freshContext`\. `\[\]`\s+refuses a restart\. Episode ids permit one\. Omission fails\. Supplied malformed\s+values or unknown ids fail before state changes\. A valid creation value is accepted\s+but unused\./);
-  assert.match(doctrine, /Use `\[\]` for one or two turns, or\s+to retain the live transcript\./);
-  assert.match(doctrine, /With `threadChoice\.act: true`, Slate restarts only\s+if cheaper\. A restart opens a successor and rewrites its full prompt-cache prefix\./);
-  assert.match(doctrine, /Continue the named successor\. It must publish an episode\s+before another restart\./);
+  assert.match(doctrine, /Use `\[\]` for short work or a needed live transcript\./);
+  assert.match(doctrine, /Slate\s+restarts only if cheaper, opening a successor and rewriting its full prompt-cache\s+prefix\./);
+  assert.match(doctrine, /Continue it\. It must publish an episode before another restart\./);
   assert.doesNotMatch(doctrine, /Treat a different model or effort as cold,\s+with no prefix reuse\./);
-  const citation = /Details: (.+)$/m.exec(doctrine)?.[1];
+  const citation = /Details:\s+([^\n]+)$/m.exec(doctrine)?.[1]?.trim();
   assert.equal(citation, THREAD_CACHE_COST_DOC);
   assert.equal(existsSync(THREAD_CACHE_COST_DOC), true);
 });
