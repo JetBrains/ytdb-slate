@@ -24,9 +24,12 @@ Gates key on the change class, not on size:
 | Class | Definition |
 | --- | --- |
 | Trivial | A typo, wording change, mechanical rename, or obvious one-file fix. |
-| Medium | A change of known shape that touches more than one file and has no risky invariant. |
+| Medium | A change of known shape that has no risky invariant. |
 | Complex | A change with an unclear shape, several interacting parts, or a live design alternative. |
-| Risky | A change that touches concurrency, durability, recovery, transactional semantics, a public API or behavioral change, security, or user data, or that has a silent failure mode. |
+| Risky | A change that touches concurrency, durability, recovery, transactional semantics, security, or user data. It also includes a public API or behavioral change, or a silent failure mode. |
+
+When classes overlap, choose Risky over Complex, Complex over Trivial, and
+Trivial over Medium.
 
 The orchestrator proposes the class and the user confirms it. The
 proposal states the class, the reason, and the property that would

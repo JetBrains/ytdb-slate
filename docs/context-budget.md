@@ -281,33 +281,34 @@ the next whole line.
 Two guards have different jobs. An exact pinned literal is the sensitive guard.
 It fails for every size change in its rendered fixture, including one character.
 The maximal fixtures cover draft pull requests enabled, draft pull requests
-disabled, and follow-up issues enabled. The bound is a coarse ceiling that stops unbounded growth over time.
-A bound close to a fixture adds friction but no detection, because its exact
+disabled, and follow-up issues enabled. Each budget term also has one enforced
+bound. The bound is a coarse ceiling that stops unbounded growth over time. A
+bound close to a fixture adds friction but no detection, because its exact
 literal already detects the change. Real reserve therefore weakens nothing.
 
 A doctrine change updates the exact literal and every published measurement. A
 maintainer revisits a bound only when the reserve policy requires it. The check
 applies the five-percent rule to every upper bound, so this decision is auditable.
 
-| budget term | current | soft bound | hard bound | current reserve |
-| --- | ---: | ---: | ---: | ---: |
-| routing rule characters | 2,585 | 4,000 | 4,000 | 1,415 |
-| routing rule lines | 25 | 34 | 34 | 9 |
-| routing fixed prose | 1,110 | 1,500 | 1,500 | 390 |
-| largest model row | 183 | 300 | 300 | 117 |
-| router-on doctrine | 5,286 | 6,500 | 6,500 | 1,214 |
-| writing-only doctrine | 3,771 | 5,600 | 5,600 | 1,829 |
-| writing plus router | 6,356 | 6,500 | 6,700 | 344 |
-| writing plus extensions | 4,026 | 6,000 | 6,000 | 1,974 |
-| writing plus router and extensions | 6,611 | 6,900 | 7,000 | 389 |
-| maximal doctrine, draft PRs enabled | 7,722 | 7,900 | 8,200 | 478 |
-| maximal doctrine, draft PRs disabled | 7,703 | 7,900 | 8,200 | 497 |
-| maximal doctrine, follow-up issues enabled | 7,800 | 7,900 | 8,200 | 400 |
-| capped worker rule | 1,347 | 1,600 | 1,600 | 253 |
-| writing rule characters | 1,070 | 1,150 | 1,150 | 80 |
-| writing rule lines | 23 | 24 | 25 | 2 |
+| budget term | current | enforced bound | current reserve |
+| --- | ---: | ---: | ---: |
+| routing rule characters | 2,585 | 4,000 | 1,415 |
+| routing rule lines | 25 | 34 | 9 |
+| routing fixed prose | 1,110 | 1,500 | 390 |
+| largest model row | 183 | 300 | 117 |
+| router-on doctrine | 5,286 | 6,500 | 1,214 |
+| writing-only doctrine | 3,771 | 5,600 | 1,829 |
+| writing plus router | 6,356 | 6,700 | 344 |
+| writing plus extensions | 4,026 | 6,000 | 1,974 |
+| writing plus router and extensions | 6,611 | 7,000 | 389 |
+| maximal doctrine, draft PRs enabled | 7,722 | 8,200 | 478 |
+| maximal doctrine, draft PRs disabled | 7,703 | 8,200 | 497 |
+| maximal doctrine, follow-up issues enabled | 7,800 | 8,200 | 400 |
+| capped worker rule | 1,347 | 1,600 | 253 |
+| writing rule characters | 1,070 | 1,150 | 80 |
+| writing rule lines | 23 | 25 | 2 |
 
-The four changed hard-bound decisions record the user's choices. The fuller
+The four changed bound decisions record the user's choices. The fuller
 Option 3 text puts the enforcement trigger, class confirmation, presentation
 order, and two previously unstated gates in the injected prompt. Writing plus
 router moved from 6,500 to 6,700. Writing plus router and extensions moved from
