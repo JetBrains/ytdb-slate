@@ -36,9 +36,44 @@ node <package>/extension/size-grade.mjs --base <ref> --head <ref>
 ```
 
 `<package>` is the absolute package root that contains this document. Slate
-exports that command path as `SIZE_GRADE_SCRIPT`. The command prints the
-changed production-logic line count, the files-touched count and the exclusion
-decision for every changed file.
+exports that command path as `SIZE_GRADE_SCRIPT`. Run it from any working
+directory inside the target Git repository. The command resolves the project
+root for `.pi/size-grade.json`. Both refs are required.
+
+The default format is JSON. `--format json` selects it explicitly. The result
+object has these fields:
+
+| field | type and meaning |
+| --- | --- |
+| `base` | string containing the supplied base ref |
+| `head` | string containing the supplied head ref |
+| `changedProductionLogicLines` | number of added plus deleted source lines |
+| `changedFiles` | number of numstat records |
+| `sizeGrade` | `SMALL`, `MEDIUM` or `LARGE` |
+| `files` | array containing one object per numstat record |
+
+Every object in `files` has these fields:
+
+| field | type and meaning |
+| --- | --- |
+| `path` | string containing the path from numstat |
+| `added` | number of added lines, or zero for a binary record |
+| `deleted` | number of deleted lines, or zero for a binary record |
+| `changedLines` | number equal to `added + deleted` |
+| `binary` | boolean that identifies a binary numstat record |
+| `kind` | `generated`, `test`, `documentation`, `build`, `configuration`, `source` or `other` |
+| `excluded` | boolean that is true unless `kind` is `source` |
+| `reason` | string containing the classifier's reason |
+
+`--format text` prints three summary lines for grade, production-logic lines
+and changed files. It then prints one line per record. Each record line states
+`INCLUDED` or `EXCLUDED`, the sanitized path, the classifier reason and the
+changed-line count.
+
+Success and `--help` exit with status 0. An argument, configuration, Git or
+input-limit error exits with status 1 and writes a `size-grade:` diagnostic to
+standard error. Git output and `.pi/size-grade.json` are each limited to
+1,048,576 bytes.
 
 Run the command during initial assessment. Record both counts. Run it again on
 the real diff at the first track boundary. The first run supports the proposed
@@ -54,7 +89,9 @@ added-line count and deleted-line count. Only files classified as `source`
 contribute to the production-logic line total. The excluded kinds are `test`,
 `generated`, `documentation`, `build`, `configuration` and `other`.
 
-The classifier applies this order and stops at the first match:
+The shipped command is the authority for the exact extension, filename and
+directory tables used by classification. This document does not duplicate
+those tables. The classifier applies this order and stops at the first match:
 
 1. generated, including configured generated markers and lockfile names.
 2. test.
@@ -208,7 +245,7 @@ by development tooling is not sensitive configuration.
 ### 4. Core behaviour or algorithms
 
 Core behaviour or algorithms covers logic central to the product function
-that has non-trivial invariants or state machines. Its frequency is not a
+that has substantial invariants or state machines. Its frequency is not a
 reason to disengage it.
 
 ### 5. Performance
@@ -273,13 +310,9 @@ charter item is licensing and provenance exposure.
 A short internal comment, a test name or a mechanical label does not engage
 this area.
 
-### Reviewer merge rule
-
-Merge two focus areas into one reviewer only when both reviewers would read
-the same code and use the same evidence. Do not merge areas that read
-different lines or use the same lines for different reasons. The orchestrator
-records the shared code, shared evidence and reason for every merge. No fixed
-reviewer-slot map applies.
+Reviewer composition and merging belong to
+[review-rules.md](review-rules.md), in § Reviewer sets, merge rule and
+charters. This document does not duplicate those rules.
 
 ## Optional path declarations
 
@@ -295,138 +328,24 @@ and add-only.
 A path is evidence, not a definition. Paths cannot decide core behaviour or
 algorithms, design uncertainty, or a silent failure mode.
 
-## Four focus touchpoints
+## Lifecycle rules owned by the spine
 
-The workflow produces and corrects the focus set at four explicit points.
+[track-workflow.md](track-workflow.md) § Focus touchpoints owns prediction,
+declaration, confirmation and the reviewer backstop. Its § Fast path owns fast
+path eligibility, the mechanical checklist, every voiding condition and the
+verification-machinery carve-out. This document does not duplicate those
+rules.
 
-### 1. PREDICT
-
-Before implementation, derive the engaged areas from the design, planned file
-list and any project path declarations. Give each area a one-line reason.
-Present the predicted set, measured counts and proposed grade at the single
-user confirmation gate. An uncertain area counts as engaged.
-
-### 2. DECLARE
-
-Every implementer reports each area that its work engaged in its episode. Use
-one line for each area:
-
-```text
-focus: <area name> | file: <path> | reason: <one short clause>
-```
-
-An implementer that engaged no area emits one line saying so. Silence is not a
-declaration. The declaration reaches the orchestrator and successor
-implementers. It never reaches a reviewer.
-
-A missing declaration blocks the track. Ask the same thread again and record
-the miss. After two failed attempts, escalate to the user. Offer exactly three options:
-use a fresh implementer thread, re-run the track, or accept a declaration
-supplied by the user.
-
-### 3. CONFIRM
-
-Compare the declaration with the design and predicted set. Re-clarify with the
-same implementer when an area appears missing. A declared area missed during
-prediction joins the change-level set immediately and adds its gate.
-
-### 4. BACKSTOP
-
-Every reviewer reports any observed focus area missing from the current set.
-A missed area fires the halt rule below. Do not pass an implementer's focus
-declaration to a reviewer, because that would give the backstop the same blind
-spot.
-
-The backstop does not exist on a reviewer-free fast path. The fast path instead
-uses its checklist, the track diff in the user packet and blocking
-change-level acceptance.
-
-## Fast path
-
-A change is eligible only when every condition below holds:
-
-- its grade is SMALL.
-- no focus area is engaged.
-- the track content is not tests alone.
-- the change does not touch verification or gate machinery.
-- no other voiding condition below applies.
-
-An eligible change follows these steps and no heavier path:
-
-1. Research the change. Run the size command and record both counts. Predict
-   an empty focus set.
-2. Present the counts, SMALL grade, empty set with reasons, and a short design
-   note containing intent, files and a risk statement. Obtain the user's
-   confirmation and record the validation mark.
-3. When `workflow.draftPRs` is true, publish as
-   [pr-publishing.md](pr-publishing.md) directs.
-4. Dispatch one implementer with the declared file list. Obtain its focus
-   declaration. Apply the commit rules below and run the mechanical checklist.
-5. Run the size command on the real diff at the track boundary. Apply the
-   grade correction route when the measured band is higher.
-6. Confirm the focus declaration. A newly engaged area voids this path. A
-   missing declaration blocks the track.
-7. Present the user packet with aim, size grade, commit range, track diff and
-   checklist result. Use a diffstat beside the commit range for a large diff.
-   This packet is non-blocking.
-8. At delivery, state that no research log was kept and whether any user note
-   arrived. Present and measure the delivery commit body. Obtain blocking final
-   acceptance.
-
-### Mechanical checklist
-
-1. Every changed file appears in the declared file list, and every declared
-   file is changed.
-2. No file outside the declared list is added, renamed or deleted.
-3. The focus declaration is present in the episode and uses the fixed shape.
-4. The commit message carries the track prefix and two-part body required by
-   [track-workflow.md](track-workflow.md) and this document.
-5. The size command ran, and both counts remain inside the confirmed band.
-6. Every project check required for the changed paths ran and exited zero.
-7. The writing checker ran over every changed convention-governed prose file,
-   and its fail-class count is zero or recorded.
-8. On a track whose only content adds tests, every added test fails against the
-   pre-change tree and passes against the post-change tree.
-
-Item 8 remains a cheap backstop after test-only content has voided the fast
-path. The test-quality reviewer is authoritative.
-
-### Fast-path voiding conditions
-
-Any one of these conditions takes the change off the fast path:
-
-1. A research-log trigger in [track-workflow.md](track-workflow.md) fires.
-2. A halt fires.
-3. A user note arrives.
-4. The change has more than one track.
-5. A finding is raised on the track.
-6. A focus area becomes engaged at any touchpoint.
-7. The track content is tests alone.
-8. The change touches verification or gate machinery.
-9. The boundary measurement lands above the confirmed band.
-10. The user requests a full packet, log, review or other heavier path.
-
-The verification-machinery carve-out applies when every changed file belongs
-to the project's own checks. A project declares that file set. In this
-repository the set is everything under `verification/`,
-`.github/workflows/ci.yml`, `extension/writing-check.mjs` and
-`extension/size-grade.mjs`.
-
-A track removed by condition 8 receives Reviewer I, the implementation
-reviewer. This is the only case where a SMALL track receives Reviewer I solely
-because of size and path shape. Any engaged focus area adds its reviewer too.
-
-User-facing or licensing-adjacent prose needs no separate carve-out. It
-engages area 10 and leaves the fast path through condition 6. Publishing alone
-does not void the fast path.
+[review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters owns
+Reviewer I on a SMALL track removed by that carve-out.
 
 ## Halt, re-derivation and grade correction
 
 An implementer halts when work engages an unlisted focus area or requires an
 unplanned sensitive configuration change. The implementer also halts before
-weakening a test or materially deviating from the approved design. A reviewer backstop that finds a missed
-area also fires a halt. The halt occurs before further work builds on the new
-fact.
+weakening a test or materially deviating from the approved design. A reviewer
+backstop that finds a missed area also fires a halt. The halt occurs before
+further work builds on the new fact.
 
 On a halt, the orchestrator:
 

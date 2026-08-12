@@ -21,23 +21,14 @@ user approval.
 
 Final change-level acceptance is blocking at every size grade. The change does
 not terminate until the user accepts it under the delivery rules in
-`track-workflow.md`.
+[track-workflow.md](track-workflow.md).
 
-### SMALL packet
-
-A SMALL packet has these five fields:
-
-1. **Aim.** The intended result of the track.
-2. **Size grade.** The confirmed grade.
-3. **Commit range.** The range that contains the track.
-4. **Track diff.** The diff, or a diffstat beside the commit range when the diff
-   is large.
-5. **Checklist result.** The result of the mechanical checklist.
+The five-field SMALL packet belongs to [track-workflow.md](track-workflow.md)
+§ Short packet shape. This document does not duplicate that shape.
 
 ### MEDIUM and LARGE packet
 
-A MEDIUM or LARGE packet has these ten fields. The shape is a superset of the
-SMALL packet.
+A MEDIUM or LARGE packet has these ten fields.
 
 1. **Aim, grade and rationale.** The intended result, the confirmed size grade,
    and the reason for that grade.
@@ -58,10 +49,11 @@ SMALL packet.
 10. **Escalations.** Every escalation raised for the track and its recorded
     disposition.
 
-Every packet reports the current size of each live register subject to field
-eight. Register growth has no numeric escalation threshold. The orchestrator
-escalates when growth widens the gate set for the change or a remaining track,
-or when the user asks.
+Every MEDIUM or LARGE packet reports the current size of each live register
+subject to field eight. A SMALL packet adds no register-size field. Register
+growth has no numeric escalation threshold. The orchestrator escalates when
+growth widens the gate set for the change or a remaining track, or when the
+user asks.
 
 ## Receiving and routing a user note
 
@@ -142,13 +134,14 @@ statement is self-contained. It states what the finding or deferred work is,
 where it applies, why it matters, and what a fix needs. The entry must remain
 readable without the review that produced it.
 
-Each packet carries only the entries created since the previous packet and the
-running ledger count. The final report carries the complete ledger. The
-delivery record carries a one-line index of every ledger entry. The index gives
-the identifier, location and one-line summary.
+Each MEDIUM or LARGE packet carries only the entries created since the
+previous packet and the running ledger count. The final report carries the
+complete ledger. The delivery record carries a one-line index of every ledger
+entry. The index gives the identifier, location and one-line summary.
 
-A defect protected by the safety floor in `review-rules.md` does not enter the
-ledger on severity grounds alone. A protected pre-existing defect enters the
+A defect protected by the safety floor in
+[review-rules.md](review-rules.md) does not enter the ledger on severity
+grounds alone. A protected pre-existing defect enters the
 ledger only when the user selects the ledger option at its mandatory
 escalation. An unanswered protected escalation never reaches the ledger.
 

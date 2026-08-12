@@ -10,9 +10,9 @@ export const MAX_INPUT_BYTES = 1024 * 1024;
 
 const DOCUMENT_EXTENSIONS = new Set([".md", ".adoc", ".rst", ".txt", ".pdf"]);
 const SOURCE_EXTENSIONS = new Set([
-  ".java", ".kt", ".kts", ".scala", ".py", ".js", ".jsx", ".ts", ".tsx",
-  ".groovy", ".gql", ".graphql", ".g4", ".jj", ".jjt", ".sql", ".osql",
-  ".html", ".css", ".sh", ".bat", ".cmd",
+  ".java", ".kt", ".kts", ".scala", ".py", ".js", ".jsx", ".mjs", ".cjs",
+  ".ts", ".tsx", ".mts", ".cts", ".groovy", ".gql", ".graphql", ".g4",
+  ".jj", ".jjt", ".sql", ".osql", ".html", ".css", ".sh", ".bat", ".cmd",
 ]);
 const CONFIG_EXTENSIONS = new Set([".json", ".yaml", ".yml", ".xml", ".properties", ".ini", ".config", ".toml", ".hcl", ".env"]);
 
@@ -29,8 +29,10 @@ export const DEFAULT_DECLARATIONS = Object.freeze({
   lockfiles: Object.freeze(["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]),
 });
 
-function readDeclarations() {
-  const path = join(process.cwd(), ".pi", "size-grade.json");
+export const REGULAR_FILE_OPEN_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
+
+export function readDeclarations(repositoryRoot) {
+  const path = join(repositoryRoot, ".pi", "size-grade.json");
   let stat;
   try { stat = fs.lstatSync(path); }
   catch (error) {
@@ -39,15 +41,38 @@ function readDeclarations() {
   }
   if (!stat.isFile()) throw new Error(`Refused ${path}: configuration must be a regular file`);
   if (stat.size > MAX_INPUT_BYTES) throw new Error(`Refused ${path}: configuration exceeds the ${MAX_INPUT_BYTES}-byte limit`);
+
+  let fd;
+  let text;
+  try {
+    fd = fs.openSync(path, REGULAR_FILE_OPEN_FLAGS);
+    const opened = fs.fstatSync(fd);
+    if (!opened.isFile()) throw new Error("opened configuration is not a regular file");
+    if (opened.size > MAX_INPUT_BYTES) throw new Error(`configuration exceeds the ${MAX_INPUT_BYTES}-byte limit`);
+    const buffer = Buffer.alloc(opened.size + 1);
+    let used = 0;
+    while (used < buffer.length) {
+      const count = fs.readSync(fd, buffer, used, buffer.length - used, null);
+      if (count === 0) break;
+      used += count;
+    }
+    if (used > opened.size) throw new Error("configuration changed while it was read");
+    text = buffer.subarray(0, used).toString("utf8");
+  } catch (error) {
+    throw new Error(`Cannot read ${path}: ${error.message}`);
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+
   let value;
-  try { value = JSON.parse(fs.readFileSync(path, "utf8")); }
+  try { value = JSON.parse(text); }
   catch (error) { throw new Error(`Invalid ${path}: ${error.message}`); }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Invalid ${path}: expected an object`);
   const allowed = new Set(["testPaths", "generatedMarkers", "lockfiles"]);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new Error(`Invalid ${path}: unknown key ${key}`);
   const declarations = {};
   for (const key of allowed) {
-    const list = value[key] ?? DEFAULT_DECLARATIONS[key];
+    const list = Object.hasOwn(value, key) ? value[key] : DEFAULT_DECLARATIONS[key];
     if (!Array.isArray(list) || list.some((item) => typeof item !== "string" || item.length === 0)) {
       throw new Error(`Invalid ${path}: ${key} must be an array of non-empty strings`);
     }
@@ -56,7 +81,7 @@ function readDeclarations() {
   return Object.freeze(declarations);
 }
 
-function compileDeclarations(declarations) {
+export function compileDeclarations(declarations) {
   try {
     return {
       testPaths: declarations.testPaths.map((pattern) => new RegExp(pattern, "i")),
@@ -80,6 +105,7 @@ function git(args) {
     throw new Error(`Cannot run git: ${result.error.message}`);
   }
   if (result.status !== 0) {
+    if (result.signal) throw new Error(`Git terminated by signal ${result.signal}`);
     const detail = Buffer.from(result.stderr ?? "").toString("utf8").trim();
     throw new Error(detail || `git exited ${result.status}`);
   }
@@ -117,7 +143,7 @@ export function parseNumstat(buffer) {
   return files;
 }
 
-function classifyPath(path, declarations) {
+export function classifyPath(path, declarations) {
   const normalized = path.replaceAll("\\", "/");
   const lower = normalized.toLowerCase();
   const parts = lower.split("/");
@@ -150,10 +176,13 @@ export function gradeFor(lines, fileCount) {
 }
 
 export function measure(base, head) {
-  const declarations = compileDeclarations(readDeclarations());
+  const repositoryRoot = git(["rev-parse", "--show-toplevel"]).toString("utf8").trim();
+  if (repositoryRoot === "") throw new Error("Git returned an empty repository root");
+  const declarations = compileDeclarations(readDeclarations(repositoryRoot));
   // Match the 918-PR corpus command exactly. In particular, --no-renames makes
   // a rename appear as one deletion and one addition rather than one rename.
-  const raw = git(["diff", "--no-renames", "--numstat", "-z", base, head, "--"]);
+  // --end-of-options keeps untrusted refs from becoming git-diff options.
+  const raw = git(["diff", "--no-renames", "--numstat", "-z", "--end-of-options", base, head, "--"]);
   const changed = parseNumstat(raw);
   let changedProductionLogicLines = 0;
   const files = changed.map((file) => {
@@ -209,8 +238,11 @@ function cli() {
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--base" && args[index + 1]) base = args[++index];
     else if (args[index] === "--head" && args[index + 1]) head = args[++index];
-    else if (args[index] === "--format" && /^(?:json|text)$/.test(args[index + 1] ?? "")) format = args[++index];
-    else if (args[index] === "--help") { console.log(usage()); return; }
+    else if (args[index] === "--format") {
+      const value = args[++index];
+      if (!/^(?:json|text)$/.test(value ?? "")) throw new Error("--format requires json or text");
+      format = value;
+    } else if (args[index] === "--help") { console.log(usage()); return; }
     else throw new Error(`Unknown or incomplete argument: ${args[index]}`);
   }
   if (base === null || head === null) throw new Error("Both --base and --head are required");
