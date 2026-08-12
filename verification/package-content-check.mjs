@@ -107,11 +107,15 @@ for (const statement of modeTree.statements) {
 	for (const element of bindings.elements) importedPathNames.add((element.propertyName ?? element.name).text);
 }
 
-let checker;
+const commandNames = ["WRITING_CHECKER", "SIZE_GRADE_SCRIPT"];
+const exportedCommands = [];
 try {
-	checker = derive("WRITING_CHECKER");
-	if (!exported.has("WRITING_CHECKER") || checker?.root !== "extension" || checker.file === "") {
-		throw new Error("cannot derive exported WRITING_CHECKER from extension/paths.ts");
+	for (const name of commandNames) {
+		const command = derive(name);
+		if (!exported.has(name) || command?.root !== "extension" || command.file === "") {
+			throw new Error(`cannot derive exported ${name} from extension/paths.ts`);
+		}
+		exportedCommands.push([name, command.file]);
 	}
 } catch (error) {
 	console.error(`package-content-check: ${error instanceof Error ? error.message : String(error)}`);
@@ -145,7 +149,7 @@ try {
 }
 
 const expected = [
-	[`WRITING_CHECKER (${checker.file})`, `extension/${checker.file}`],
+	...exportedCommands.map(([name, file]) => [`${name} (${file})`, `extension/${file}`]),
 	...exportedDocs.map(([name, file]) => [`${name} (${file})`, `docs/${file}`]),
 ];
 const packed = spawnSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
