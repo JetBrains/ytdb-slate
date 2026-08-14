@@ -3239,23 +3239,61 @@ evidence.`);
 
 			const fastPath = workflow.match(/^## Fast path\n([\s\S]*?)(?=^## Short packet shape)/m)?.[1] ?? "";
 			const checklist = [...fastPath.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
-			const fastSequence = "prediction → confirmation → implementation → mechanical validation → focus declaration → committed-boundary size measurement → mechanical checklist → short packet → blocking final acceptance → delivery";
-			const expectedFastGrant = normalizeText("When all ten conditions pass, the fast path omits the high-level design, adversarial design review, machine reviewer, research log, and closing review. Another rule can still require any omitted gate or artifact.");
-			const fastGrant = normalizeText(fastPath.match(/^When all ten conditions pass,[\s\S]*?^Another rule can still require any omitted gate or artifact\.$/m)?.[0] ?? "");
-			const fastSequenceMatch = fastPath.match(/^The fast-path sequence is ([\s\S]*?)\nAfter boundary/m);
-			const fastSequenceParagraph = normalizeText(fastSequenceMatch?.[1] ?? "").replace(/\.$/, "");
-			const widenedFastGrant = `${expectedFastGrant} A widened fast path may also omit the track reviewer.`;
-			const widenedFastSequence = `${fastSequence} → undocumented shortcut`;
-			checkAll("contract-fast-path-artifact", "the SMALL fast path pins its ten-item checklist, omitted gates, retained sequence, and fallback to ordinary SMALL", [
-				["enumerated checklist", checklist.length === 10, checklist],
-				["condition 6 is any focus area", checklist[5] === "No focus area is engaged.", checklist[5]],
-				["condition 7 is any project test artifact", checklist[6] === "No project test artifact changes.", checklist[6]],
-				["verification machinery voids", /No verification, gate, coverage, packaging, release, or workflow machinery changes\./.test(checklist[7] ?? ""), checklist[7]],
-				["grant is exact", fastGrant === expectedFastGrant, fastGrant],
-				["widened grant fails exact comparison", widenedFastGrant !== expectedFastGrant, widenedFastGrant],
-				["sequence is exact", fastSequenceParagraph === fastSequence, fastSequenceParagraph],
-				["widened sequence fails exact comparison", widenedFastSequence !== fastSequence, widenedFastSequence],
-				["failed checklist returns to ordinary SMALL", /If any item fails, return to the ordinary SMALL workflow before packet delivery\./.test(normalizeText(fastPath)), normalizeText(fastPath)],
+			const expectedFastPath = normalizeText(`A SMALL single-track change may use the fast path only when every item passes.
+
+1. The outcome is mechanical and has one clear implementation.
+2. No design uncertainty exists.
+3. No existing consumer-reachable rule changes.
+4. No sensitive configuration changes.
+5. No silent failure requires new detection reasoning.
+6. No focus area is engaged.
+7. No project test artifact changes.
+8. No verification, gate, coverage, packaging, release, or workflow machinery changes.
+9. The change remains within the declared file list.
+10. One mechanical validation can establish the result.
+
+When all ten conditions pass, the fast path omits the high-level design,
+adversarial design review, machine reviewer, research log, and closing review.
+Another rule can still require any omitted gate or artifact.
+
+The fast-path sequence is prediction → confirmation → implementation →
+mechanical validation → focus declaration → committed-boundary size measurement
+→ mechanical checklist → short packet → blocking final acceptance → delivery.
+After boundary measurement, run all ten checklist items against the committed
+range and actual declarations.
+If any item fails, return to the ordinary SMALL workflow before packet delivery.
+
+Any project test artifact voids the fast path. Any verification or gate
+machinery also voids it. Carved-out SMALL verification work receives Reviewer I.
+Other SMALL work receives every reviewer whose canonical focus-area gate runs per track.`);
+			const widenedFastGrant = fastPath.replace("Another rule can still require any omitted gate or artifact.", "Another rule can still require any omitted gate or artifact. A widened fast path may also omit the track reviewer.");
+			const widenedFastSequence = fastPath.replace("→ delivery.", "→ delivery → undocumented shortcut.");
+			const grantMutationApplied = widenedFastGrant !== fastPath;
+			const sequenceMutationApplied = widenedFastSequence !== fastPath;
+			const coreDefinitionMatch = blast.match(/^### 4\. Core behaviour or algorithms\n([\s\S]*?)(?=^### 5\.)/m);
+			const coreDefinition = { count: coreDefinitionMatch ? 1 : 0, text: coreDefinitionMatch?.[1]?.trim() ?? "" };
+			const expectedCoreDefinition = normalizeText(`Core behaviour or algorithms covers every change to production behaviour,
+branch meaning, state transition, error path or algorithm that is not purely
+mechanical and behaviour-preserving. A change engages this area even when the
+changed behaviour is small or has no substantial state machine. A formatting,
+renaming or other mechanical edit engages it only when the edit changes
+production behaviour.`);
+			const weakenedCoreDefinition = coreDefinition.text.replace("every change to production behaviour", "logic central to the product function");
+			const coreMutationApplied = weakenedCoreDefinition !== coreDefinition.text;
+			const reviewerRow = workflow.match(/^\| per-track \| engaged-area reviewers \|.*$/m)?.[0] ?? "";
+			const expectedReviewerRow = "| per-track | engaged-area reviewers | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track |";
+			const designRow = workflow.match(/^\| 6 \| design uncertainty \|.*$/m)?.[0] ?? "";
+			const expectedDesignRow = "| 6 | design uncertainty | the change-level adversarial design review, and no track reviewer | once, at the design loop |";
+			checkAll("contract-fast-path-artifact", "the SMALL fast path is a complete canonical artifact and widened grant or sequence mutations fail", [
+				["complete fast path is exact", normalizeText(fastPath) === expectedFastPath, normalizeText(fastPath)],
+				["widened grant mutation applied", grantMutationApplied, widenedFastGrant],
+				["widened grant fails canonical comparison", grantMutationApplied && normalizeText(widenedFastGrant) !== expectedFastPath, normalizeText(widenedFastGrant)],
+				["widened sequence mutation applied", sequenceMutationApplied, widenedFastSequence],
+				["widened sequence fails canonical comparison", sequenceMutationApplied && normalizeText(widenedFastSequence) !== expectedFastPath, normalizeText(widenedFastSequence)],
+				["grade table reviewer qualifier is exact", reviewerRow === expectedReviewerRow, reviewerRow],
+				["design uncertainty has no track reviewer", designRow === expectedDesignRow, designRow],
+				["core definition is exact", coreDefinition.count === 1 && normalizeText(coreDefinition.text) === expectedCoreDefinition, normalizeText(coreDefinition.text)],
+				["weakened core definition fails canonical comparison", coreMutationApplied && normalizeText(weakenedCoreDefinition) !== expectedCoreDefinition, normalizeText(weakenedCoreDefinition)],
 			]);
 
 			const composite = reviews.match(/^### Test-quality and structure reviewer\n([\s\S]*?)(?=^### Prose and licensing reviewer)/m)?.[1] ?? "";

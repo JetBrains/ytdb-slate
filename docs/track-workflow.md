@@ -172,7 +172,7 @@ If any item fails, return to the ordinary SMALL workflow before packet delivery.
 
 Any project test artifact voids the fast path. Any verification or gate
 machinery also voids it. Carved-out SMALL verification work receives Reviewer I.
-Other SMALL work still receives every engaged-area reviewer.
+Other SMALL work receives every reviewer whose canonical focus-area gate runs per track.
 
 ## Short packet shape
 
