@@ -11,6 +11,24 @@ implementer episode, implementer reasoning, or focus declaration. The stuck-fix
 consultation in § Stuck-fix consultation is the only episode exception.
 Independent reviewers run in parallel.
 
+Before applying its specific charter, every reviewer runs:
+
+```bash
+node <package>/extension/writing-check.mjs --diff <regular-temp-diff> --format text
+```
+
+`<package>` is the absolute root of the installed `ytdb-slate` package. Resolve
+it from this document's absolute installed path. Write the unified review diff
+to a regular temporary file outside the checkout. See
+[writing-guidance.md](writing-guidance.md) for checker scope and limits.
+
+The checker is diagnostic. In governed prose, a `fail` is normally major. A
+`warning` is at most minor without independent evidence. A `house-style` match
+is at most a nit when the convention applies.
+
+An `advisory` is never a finding by itself. Independent evidence may justify
+another severity. Reviewer judgment remains authoritative.
+
 ## Reviewer sets, merge rule and charters
 
 **Reviewer I** is the general implementation reviewer. Reviewer I checks
@@ -124,10 +142,8 @@ reader tasks, terminology, structure, cross-references, prompt safety, context
 cost, and the project writing convention. User-facing strings in code remain
 in scope. Code reviewers own claims about code they already inspect.
 
-Every perspective first runs the shipped writing checker over the review diff.
-Apply the reviewed project's scope before grading output. Checker output is
-diagnostic. It cannot establish accuracy, completeness, or conformance by
-itself.
+Apply the reviewed project's writing scope before grading checker output. A
+clean result cannot establish accuracy, completeness, or conformance.
 
 ## Findings and output
 
@@ -192,6 +208,10 @@ needs. [user-notes.md](user-notes.md) owns register shape and final accounting.
 
 The following marked block is the generic worker charter. The worker prompt
 must match it after whitespace normalization.
+
+These standards adapt Ugare and Chandra, "Agentic Code Reasoning",
+arXiv:2603.01896, https://arxiv.org/abs/2603.01896. Slate adapts the evidence
+obligations and does not implement the paper's method.
 
 <!-- reviewer-charter:begin -->
 - Trace, don't guess: cite evidence from code actually read (file:line

@@ -294,6 +294,7 @@ failure would be detected.
 
 ### 9. Project test artifact
 
+<!-- project-test-artifact-definition:begin -->
 A project test artifact is an artifact whose purpose is to exercise, configure,
 feed, isolate, or assert project behavior under a project test or check. The
 area includes test logic, assertions, fixtures, snapshots, golden data, mocks,
@@ -307,6 +308,7 @@ For a dual-purpose artifact, inspect the changed responsibility. A product
 artifact does not engage area 9 merely because tests call it. Engage area 9
 when the changed responsibility serves test execution, isolation, inputs, or
 evidence.
+<!-- project-test-artifact-definition:end -->
 
 Area 9 always adds one `test-quality and structure reviewer` at every size
 grade. No tests-alone or weakening condition limits this rule. Reviewer
@@ -345,9 +347,9 @@ algorithms, design uncertainty, or a silent failure mode.
 
 [track-workflow.md](track-workflow.md) § Focus touchpoints owns prediction,
 declaration, confirmation and the reviewer backstop. Its § Fast path owns fast
-path eligibility, the mechanical checklist, every voiding condition and the
-verification-machinery carve-out. This document does not duplicate those
-rules.
+path eligibility, the omitted gates, retained sequence, mechanical checklist,
+every voiding condition and the verification-machinery carve-out. This document
+does not duplicate those rules.
 
 [review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters owns
 Reviewer I on a SMALL track removed by that carve-out.

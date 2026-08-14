@@ -26,13 +26,16 @@ implementation:
   branch.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation for a MEDIUM or LARGE change, the research log's Planned
-  changes content folds into the PR description. Key
-  decisions, Risks, and Open questions feed the corresponding
-  Planned-changes subsections. The applicable design review verdict
-  lines land in Risks & accepted trade-offs. The adversarial review
-  verdict line lands there only when that review ran. A change without
-  that review carries the design verdict lines alone.
+- At creation for every change with a high-level design, the research log's
+  Planned changes content folds into the PR description. This includes a SMALL
+  change whose focus set required design. Create the pull request only after
+  final design approval, as stated above.
+
+  Key decisions, Risks, and Open questions feed the corresponding
+  Planned-changes subsections. The applicable design review verdict lines land
+  in Risks & accepted trade-offs. The adversarial review verdict line lands
+  there only when that review ran. A change without that review carries the
+  design verdict lines alone.
 - For a SMALL change without a high-level design, the initial request supplies
   Motivation. The confirmed grade, focus proposal, and intended fix supply
   Planned changes. If

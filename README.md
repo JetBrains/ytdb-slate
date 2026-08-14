@@ -48,14 +48,15 @@ production-logic lines. MEDIUM covers 51 through 1,000. LARGE covers more than
 
 Focus is separate from size. Ten focus areas add design or review gates. They
 cover concurrency, durability, security, core behavior, performance, design
-uncertainty, contracts, silent failures, project test artifacts, and public
-prose. Every project test artifact gets a separate test-quality and structure
-reviewer. That reviewer checks behavioral effectiveness and test isolation.
+uncertainty, contracts, silent failures, project test artifacts, and
+user-facing or licensing-adjacent prose. Every project test artifact gets a
+separate test-quality and structure reviewer. That reviewer checks behavioral
+effectiveness and test isolation.
 
 The workflow follows these steps:
 
 1. **Predict and confirm** — the orchestrator predicts size and focus before implementation. The user confirms both together.
-2. **Design** — MEDIUM and LARGE need a high-level design. Engaged design uncertainty or changed public rules add adversarial design review.
+2. **Design** — MEDIUM and LARGE need a high-level design. Design uncertainty adds adversarial review. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
 3. **Implement tracks** — each track declares its files and focus areas. Packets are non-blocking, while final change acceptance remains blocking.
 4. **Measure** — the package-resolved size command verifies the committed range at the first track boundary.
 5. **Review and deliver** — grade and focus select fresh machine reviewers. The user gives final acceptance and performs any squash merge.
@@ -65,6 +66,10 @@ Run the shipped size command with the refs that bound the committed change:
 ```bash
 node <package>/extension/size-grade.mjs --base <ref> --head <ref>
 ```
+
+`<package>` is the absolute root of the installed `ytdb-slate` package. Slate
+supplies absolute installed document paths. Their `docs` directory has the
+package root as its parent.
 
 SMALL has a mechanical fast path. Any focus area, project test artifact, or
 verification machinery voids it. Umbrella draft-PR publishing activates only

@@ -453,12 +453,12 @@ function buildDoctrine(
 	router: ModelRouterResolution,
 ): string {
 	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
-	// one of the gates; otherwise durable records live in the workflow log.
+	// one of the gates; otherwise durable records live in the research log.
 	const rule8Tail =
 		config.workflow?.draftPRs === true
 			? `An umbrella draft PR is part of the pre-implementation gates; PR
    publishing mechanics are in ${PR_PUBLISHING_DOC}.`
-			: `Durable workflow records anchor in the retained repo-root workflow
+			: `Durable workflow records anchor in the retained repo-root research
    log per the workflow doc.`;
 	const followUpTail = trusted && config.workflow?.followUpIssues === true
 		? "\n   After review, ask the user which review suggestions become tracker issues."

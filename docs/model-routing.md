@@ -508,7 +508,8 @@ model's ladder is unreadable.
   characters, plus a one-off legend clause for each marker it
   introduces. The router grows Slate's always-loaded block from 2,908
   portable characters and 48 lines to 4,938 portable characters and 69 lines
-  for this repository's six-model list. Those are PORTABLE characters — the
+  for the fixed fabricated six-model fixture. That roster currently matches this
+  repository's list but does not read project config. Those are PORTABLE characters — the
   doctrine with each occurrence of the installed `docs/` directory
   removed, filenames kept — because the doctrine embeds absolute doc
   paths and its raw size therefore depends on where the package is

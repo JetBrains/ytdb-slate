@@ -198,8 +198,9 @@ construction and makes the arithmetic one multiplication:
 `doctrine-budget` in `verification/resolver-checks.mjs` is the
 definition of record for this convention and its enforced bounds.
 This table is a measured snapshot, not a second authority. It uses
-the same shipped-profile fixture as that check. The six-model rows
-use the six models in this repository's `.pi/slate.json`. Every row
+the same shipped-profile fixture as that check. The six-model rows use a fixed
+fabricated roster of six resolvable shipped profile specs. The roster currently
+matches this repository's config, but the check never reads that config. Every row
 states its full basis, because router state, model count, `draftPRs`,
 and `writing.check` each move the number. Rows with the same fixture
 and basis must agree with `verification/README.md`. A different basis
@@ -211,10 +212,10 @@ must be named instead of presented as the same measurement:
 | off | — | off | on | 5 | 3,978 | 70 |
 | off | — | on | off | 5 | 2,927 | 48 |
 | off | — | on | on | 6 | 3,997 | 70 |
-| on | `.pi/slate.json` six | off | off | 5 | 4,938 | 69 |
-| on | `.pi/slate.json` six | off | on | 6 | 6,008 | 91 |
-| on | `.pi/slate.json` six | on | off | 6 | 4,957 | 69 |
-| on | `.pi/slate.json` six | on | on | 7 | 6,027 | 91 |
+| on | fixed six-model fixture | off | off | 5 | 4,938 | 69 |
+| on | fixed six-model fixture | off | on | 6 | 6,008 | 91 |
+| on | fixed six-model fixture | on | off | 6 | 4,957 | 69 |
+| on | fixed six-model fixture | on | on | 7 | 6,027 | 91 |
 | on | all 9 shipped | off | off | 5 | 5,493 | 72 |
 | on | all 9 shipped | off | on | 6 | 6,563 | 94 |
 | on | all 9 shipped | on | off | 6 | 5,512 | 72 |
@@ -349,11 +350,11 @@ per-turn doctrine.
 | --- | ---: | ---: |
 | Base | 226 | — |
 | Base + writing guidance | 384 | 158 |
-| Base + reviewer charter | 2,386 | 2,160 |
-| Base + writing guidance + reviewer charter | 2,544 | 2,318 |
+| Base + reviewer charter | 2,381 | 2,155 |
+| Base + writing guidance + reviewer charter | 2,539 | 2,313 |
 
 The writing guidance is 157 bytes. The reviewer charter constant is
-2,159 bytes. The writing addendum needs one separating space. The reviewer
+2,154 bytes. The writing addendum needs one separating space. The reviewer
 charter addendum needs one separating newline. The current text uses UTF-8
 punctuation, so byte and character counts can differ.
 This separate figure states the worker-session cost without presenting

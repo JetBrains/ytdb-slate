@@ -64,16 +64,16 @@ Use the higher grade when uncertainty crosses a band. The user may confirm a
 lower prediction before implementation starts. Record the reason. The grade
 never falls after implementation starts.
 
-| gate | SMALL | MEDIUM | LARGE |
-| --- | --- | --- | --- |
-| high-level design | only when design uncertainty or a changed existing public contract engages it | required | required |
-| validation before adversarial review | when a design adversary is required | required | required |
-| adversarial design review | when design uncertainty engages, or an existing consumer-reachable rule changes | when the same focus condition engages | when the same focus condition engages |
-| final design approval | after required design work | required after validation and any adversarial review | required after validation and any adversarial review |
-| research log | when any trigger fires | always | always |
-| Reviewer I | no by grade, except carved-out verification work | every track | every track |
-| engaged-area reviewers | every engaged area | every engaged area | every engaged area |
-| final change acceptance | blocking | blocking | blocking |
+| stage | gate | SMALL | MEDIUM | LARGE |
+| --- | --- | --- | --- | --- |
+| pre-implementation | high-level design | only when design uncertainty or a changed existing public contract engages it | required | required |
+| pre-implementation | validation before adversarial review | when a design adversary is required | required | required |
+| pre-implementation | adversarial design review | when design uncertainty engages, or an existing consumer-reachable rule changes | when the same focus condition engages | when the same focus condition engages |
+| pre-implementation | final design approval | after required design work | required after validation and any adversarial review | required after validation and any adversarial review |
+| lifecycle | research log | when any trigger fires | always | always |
+| per-track | Reviewer I | no by grade, except carved-out verification work | every track | every track |
+| per-track | engaged-area reviewers | every engaged area | every engaged area | every engaged area |
+| final | final change acceptance | blocking | blocking | blocking |
 
 The package-resolved command does not measure absent work. At the first track
 boundary, run it against the real committed range:
@@ -81,6 +81,10 @@ boundary, run it against the real committed range:
 ```bash
 node <package>/extension/size-grade.mjs --base <ref> --head <ref>
 ```
+
+`<package>` is the absolute root of the installed `ytdb-slate` package. Slate's
+doctrine supplies absolute installed document paths. The package root is the
+parent of their `docs` directory.
 
 Record both counts and the grade. A measured higher band halts work and returns
 to § Confirmation gate. A lower band does not lower the grade. The canonical
@@ -154,6 +158,16 @@ A SMALL single-track change may use the fast path only when every item passes.
 8. No verification, gate, coverage, packaging, release, or workflow machinery changes.
 9. The change remains within the declared file list.
 10. One mechanical validation can establish the result.
+
+When all ten conditions pass, the fast path omits the high-level design,
+adversarial design review, machine reviewer, research log, and closing review.
+Another rule can still require any omitted gate or artifact.
+
+The fast-path sequence is prediction → confirmation → implementation → focus
+declaration → committed-boundary size measurement → mechanical checklist →
+short packet → blocking final acceptance → delivery. After boundary measurement,
+run all ten checklist items against the committed range and actual declarations.
+If any item fails, return to the ordinary SMALL workflow before packet delivery.
 
 Any project test artifact voids the fast path. Any verification or gate
 machinery also voids it. Carved-out SMALL verification work receives Reviewer I.

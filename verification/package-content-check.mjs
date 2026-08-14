@@ -1,10 +1,20 @@
 #!/usr/bin/env node
 /** Verify the complete package-resolved runtime-file roster. */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import {
+	copyFileSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import process from "node:process";
-import ts from "typescript";
 
 const args = process.argv.slice(2);
 let repo = ".";
@@ -14,7 +24,7 @@ for (let i = 0; i < args.length; i += 1) {
 	else if (args[i] === "--self-test") selfTest = true;
 	else if (args[i] === "-h" || args[i] === "--help") {
 		console.log("Usage: node verification/package-content-check.mjs [--repo <dir>] [--self-test]");
-		console.log("  --self-test  prove missing command exports, document exports, and packed runtime files are detected");
+		console.log("  --self-test  prove command, document, packed-file, and dependency guards detect their mutations");
 		process.exit(0);
 	} else {
 		console.error(`package-content-check: unknown or incomplete argument: ${args[i]}`);
@@ -22,6 +32,15 @@ for (let i = 0; i < args.length; i += 1) {
 	}
 }
 repo = resolve(repo);
+
+let ts;
+try {
+	const loaded = await import("typescript");
+	ts = loaded.default ?? loaded;
+} catch (error) {
+	console.error(`package-content-check: refused to start — TypeScript dependency unavailable: ${error instanceof Error ? error.message : String(error)}`);
+	process.exit(2);
+}
 
 function parse(source, file) {
 	const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -147,6 +166,21 @@ function walkMarkdown(dir, prefix = "") {
 	return files.sort();
 }
 
+function isCommandEntry(path, source) {
+	return path.endsWith(".mjs") && source.split(/\r?\n/, 1)[0] === "#!/usr/bin/env node";
+}
+
+function walkCommands(dir, prefix = "") {
+	const files = [];
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const rel = prefix === "" ? entry.name : join(prefix, entry.name);
+		const abs = join(dir, entry.name);
+		if (entry.isDirectory()) files.push(...walkCommands(abs, rel));
+		else if (entry.isFile() && entry.name.endsWith(".mjs") && isCommandEntry(rel, readFileSync(abs, "utf8"))) files.push(slash(rel));
+	}
+	return files.sort();
+}
+
 function realInputs() {
 	let pathsSource;
 	let modeSource;
@@ -156,10 +190,7 @@ function realInputs() {
 		pathsSource = readFileSync(resolve(repo, "extension/paths.ts"), "utf8");
 		modeSource = readFileSync(resolve(repo, "extension/mode.ts"), "utf8");
 		docsFiles = walkMarkdown(resolve(repo, "docs"));
-		commandFiles = readdirSync(resolve(repo, "extension"), { withFileTypes: true })
-			.filter((entry) => entry.isFile() && entry.name.endsWith(".mjs"))
-			.map((entry) => entry.name)
-			.sort();
+		commandFiles = walkCommands(resolve(repo, "extension"));
 		if (!statSync(resolve(repo, "package.json")).isFile()) throw new Error("package.json is not a regular file");
 	} catch (error) {
 		throw new Error(`cannot read runtime roster inputs: ${error instanceof Error ? error.message : String(error)}`);
@@ -182,32 +213,56 @@ function realInputs() {
 }
 
 function runSelfTest() {
-	const pathsSource = [
-		'const EXTENSION_DIR = "/extension";',
-		'const DOCS_DIR = "/docs";',
-		'export const COMMAND = join(EXTENSION_DIR, "command.mjs");',
-		'export const DOC_A = join(DOCS_DIR, "a.md");',
-	].join("\n");
-	const modeSource = 'import { DOC_A } from "./paths.ts";\nvoid DOC_A;';
-	const base = { pathsSource, modeSource, docsFiles: ["a.md"], commandFiles: ["command.mjs"], packedFiles: new Set(["extension/command.mjs", "docs/a.md"]) };
-	const mutations = [
-		["missing-command-export", { ...base, pathsSource: pathsSource.replace("export const COMMAND", "const COMMAND") }, /missing command export/],
-		["missing-document-export", { ...base, pathsSource: pathsSource.replace("export const DOC_A", "const DOC_A"), modeSource: "" }, /missing document export/],
-		["missing-packed-runtime", { ...base, packedFiles: new Set(["docs/a.md"]) }, /missing packed runtime file/],
-	];
-	let failed = false;
-	const clean = inspectRoster(base);
-	if (clean.findings.length !== 0) {
-		console.log(`SELF baseline FAIL — ${clean.findings.join(" | ")}`);
-		failed = true;
-	} else console.log("SELF baseline PASS — fabricated complete roster passes");
-	for (const [name, fixture, expected] of mutations) {
-		const result = inspectRoster(fixture);
-		const caught = result.findings.some((finding) => expected.test(finding));
-		console.log(`SELF ${name} ${caught ? "PASS" : "FAIL"} — ${caught ? result.findings.find((finding) => expected.test(finding)) : "mutation escaped detection"}`);
-		if (!caught) failed = true;
+	const fixtureRoot = mkdtempSync(join(tmpdir(), "slate-package-content-self-"));
+	try {
+		const extensionDir = join(fixtureRoot, "extension");
+		mkdirSync(join(extensionDir, "commands"), { recursive: true });
+		mkdirSync(join(extensionDir, "helpers"), { recursive: true });
+		writeFileSync(join(extensionDir, "commands", "command.mjs"), "#!/usr/bin/env node\n");
+		writeFileSync(join(extensionDir, "helpers", "helper.mjs"), "export const helper = true;\n");
+		const commandFiles = walkCommands(extensionDir);
+		const pathsSource = [
+			'const EXTENSION_DIR = "/extension";',
+			'const DOCS_DIR = "/docs";',
+			'export const COMMAND = join(EXTENSION_DIR, "commands", "command.mjs");',
+			'export const DOC_A = join(DOCS_DIR, "a.md");',
+		].join("\n");
+		const modeSource = 'import { DOC_A } from "./paths.ts";\nvoid DOC_A;';
+		const base = { pathsSource, modeSource, docsFiles: ["a.md"], commandFiles, packedFiles: new Set(["extension/commands/command.mjs", "extension/helpers/helper.mjs", "docs/a.md"]) };
+		const mutations = [
+			["missing-nested-command-export", { ...base, pathsSource: pathsSource.replace("export const COMMAND", "const COMMAND") }, /missing command export/],
+			["missing-document-export", { ...base, pathsSource: pathsSource.replace("export const DOC_A", "const DOC_A"), modeSource: "" }, /missing document export/],
+			["missing-packed-runtime", { ...base, packedFiles: new Set(["docs/a.md"]) }, /missing packed runtime file/],
+		];
+		let failed = false;
+		const clean = inspectRoster(base);
+		if (clean.findings.length !== 0) {
+			console.log(`SELF baseline FAIL — ${clean.findings.join(" | ")}`);
+			failed = true;
+		} else console.log("SELF baseline PASS — fabricated complete roster passes");
+		const recursionOk = commandFiles.join() === "commands/command.mjs";
+		console.log(`SELF nested-command-helper ${recursionOk ? "PASS" : "FAIL"} — recursive shebang command included, helper without shebang excluded`);
+		if (!recursionOk) failed = true;
+		for (const [name, fixture, expected] of mutations) {
+			const result = inspectRoster(fixture);
+			const caught = result.findings.some((finding) => expected.test(finding));
+			console.log(`SELF ${name} ${caught ? "PASS" : "FAIL"} — ${caught ? result.findings.find((finding) => expected.test(finding)) : "mutation escaped detection"}`);
+			if (!caught) failed = true;
+		}
+
+		const isolatedScript = join(fixtureRoot, "package-content-check.mjs");
+		copyFileSync(fileURLToPath(import.meta.url), isolatedScript);
+		const help = spawnSync(process.execPath, [isolatedScript, "--help"], { encoding: "utf8" });
+		const missingDependency = spawnSync(process.execPath, [isolatedScript, "--repo", fixtureRoot], { encoding: "utf8" });
+		const helpOk = help.status === 0 && /Usage:/.test(help.stdout);
+		const dependencyOk = missingDependency.status === 2 && /refused to start — TypeScript dependency unavailable/.test(missingDependency.stderr);
+		console.log(`SELF help-without-typescript ${helpOk ? "PASS" : "FAIL"} — help is parsed before optional analyzer loading`);
+		console.log(`SELF missing-typescript ${dependencyOk ? "PASS" : "FAIL"} — real analysis refuses with exit 2 and a bounded diagnostic`);
+		if (!helpOk || !dependencyOk) failed = true;
+		return failed ? 1 : 0;
+	} finally {
+		rmSync(fixtureRoot, { recursive: true, force: true });
 	}
-	return failed ? 1 : 0;
 }
 
 try {

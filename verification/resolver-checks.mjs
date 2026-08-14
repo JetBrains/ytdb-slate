@@ -1696,7 +1696,14 @@ try {
 			const writingRouterOn = await asTrusted(EMPTY_EXT, onReal, { writing: { check: true } });
 			const writingExtensionsOn = await asTrusted(WITH_EXT, () => ({ on: false, candidates: [] }), { writing: { check: true } });
 			const writingAllOn = await asTrusted(WITH_EXT, onReal, { writing: { check: true } });
-			const configuredSpecs = JSON.parse(readFileSync(join(REPO, ".pi", "slate.json"), "utf8")).router?.models ?? [];
+			const configuredSpecs = [
+				"openai/gpt-5.6-luna",
+				"openai/gpt-5.6-terra",
+				"openai/gpt-5.6-sol",
+				"anthropic/claude-sonnet-5",
+				"anthropic/claude-opus-5",
+				"anthropic/claude-fable-5",
+			];
 			const configuredCandidates = realCandidates.filter((candidate) => configuredSpecs.includes(candidate.spec));
 			const onConfigured = onWith(configuredCandidates);
 			const configuredOffDraft = await asTrusted(EMPTY_EXT, onConfigured);
@@ -3163,44 +3170,84 @@ try {
 				};
 			};
 			const normalize = (text) => text.trim().replace(/\r\n/g, "\n");
+			const normalizeText = (text) => normalize(text).replace(/\s+/g, " ").trim();
 			const safetyWorkflow = block(workflow, "safety-floor");
 			const safetyReviews = block(reviews, "safety-floor");
-			checkAll("contract-safety-floor-sync", "the two canonical safety-floor blocks are present once and byte-equal after line-ending normalization", [
+			const expectedSafety = [
+				"- concurrency and ordering guarantees.",
+				"- durability, recovery, and transactional semantics.",
+				"- security, authorization, secrets, and user-data exposure.",
+				"- consumer-reachable public interfaces and behavioural contracts.",
+				"- silent failures without a reliable detection path.",
+				"- missing or ineffective tests for changed behaviour, branches, or failure paths.",
+				"- verification and gate machinery that can report success without establishing its claim.",
+			].join("\n");
+			checkAll("contract-safety-floor-sync", "the two canonical safety-floor blocks are unique, byte-equal after line-ending normalization, and equal to the fixed seven-item floor", [
 				["workflow block marked once", safetyWorkflow.count === 1 && safetyWorkflow.endCount === 1 && safetyWorkflow.text !== "", safetyWorkflow],
 				["review block marked once", safetyReviews.count === 1 && safetyReviews.endCount === 1 && safetyReviews.text !== "", safetyReviews],
 				["blocks equal", normalize(safetyWorkflow.text) === normalize(safetyReviews.text), { workflow: safetyWorkflow.text, reviews: safetyReviews.text }],
+				["content is the fixed seven-item safety floor", normalize(safetyWorkflow.text) === expectedSafety, safetyWorkflow.text],
 			]);
 
 			const focusWorkflow = block(workflow, "focus-area-table");
 			const focusBlast = block(blast, "focus-area-table");
+			const expectedFocus = `| # | focus area | the gate it adds | where the gate runs |
+| --- | --- | --- | --- |
+| 1 | concurrency | one area reviewer for concurrency | every track that engages the area |
+| 2 | durability | one area reviewer for durability and recovery | every track that engages the area |
+| 3 | security | one area reviewer for security | every track that engages the area |
+| 4 | core behaviour or algorithms | one area reviewer for behavioural correctness | every track that engages the area |
+| 5 | performance | one area reviewer for performance | every track that engages the area |
+| 6 | design uncertainty | the change-level adversarial design review, and no track reviewer | once, at the design loop |
+| 7 | public interface or contract | one contract reviewer | every track that engages the area |
+| 8 | silent failure mode | one area reviewer that must state how each failure would be detected | every track that engages the area |
+| 9 | project test artifact | one test-quality and structure reviewer | every track that engages the area |
+| 10 | user-facing or licensing-adjacent prose | one prose and licensing reviewer | every track that engages the area |`;
 			const parseRows = (text) => text.split("\n").filter((line) => /^\| \d+ \|/.test(line)).map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()));
 			const workflowRows = parseRows(focusWorkflow.text);
 			const blastRows = parseRows(focusBlast.text);
-			checkAll("contract-focus-table-sync", "the marked ten-area tables are present once, parse to rows 1 through 10, and are exactly equal", [
+			checkAll("contract-focus-table-sync", "the marked ten-area tables are unique, exactly equal, and equal to the fixed canonical table", [
 				["workflow table marked once", focusWorkflow.count === 1 && focusWorkflow.endCount === 1, focusWorkflow],
 				["blast table marked once", focusBlast.count === 1 && focusBlast.endCount === 1, focusBlast],
 				["ten ordered rows", workflowRows.map((row) => row[0]).join() === "1,2,3,4,5,6,7,8,9,10", workflowRows.map((row) => row[0])],
 				["blocks equal", normalize(focusWorkflow.text) === normalize(focusBlast.text), { workflowRows, blastRows }],
+				["content is the fixed canonical table", normalize(focusWorkflow.text) === expectedFocus, focusWorkflow.text],
 			]);
 
-			const area9 = blast.match(/^### 9\. Project test artifact\n([\s\S]*?)(?=^### 10\.)/m)?.[1] ?? "";
-			const normalizedArea9 = area9.replace(/\s+/g, " ");
+			const area9Definition = block(blast, "project-test-artifact-definition");
+			const expectedArea9Definition = normalizeText(`A project test artifact is an artifact whose purpose is to exercise, configure,
+feed, isolate, or assert project behavior under a project test or check. The
+area includes test logic, assertions, fixtures, snapshots, golden data, mocks,
+stubs, harnesses, test-specific configuration, and test support.
+
+Decide purpose from content, imports, callers, project test commands, and
+optional declarations. Filenames and directories are evidence, not
+definitions. Uncertainty engages area 9.
+
+For a dual-purpose artifact, inspect the changed responsibility. A product
+artifact does not engage area 9 merely because tests call it. Engage area 9
+when the changed responsibility serves test execution, isolation, inputs, or
+evidence.`);
+			const negatedArea9 = normalizeText(area9Definition.text.replace("is an artifact whose purpose", "is not an artifact whose purpose"));
 			const area9Row = blastRows.find((row) => row[0] === "9") ?? [];
-			const requiredArea9 = ["exercise", "configure", "feed", "isolate", "assert project behavior", "test logic", "assertions", "fixtures", "snapshots", "golden data", "mocks", "stubs", "harnesses", "test-specific configuration", "test support", "content", "imports", "callers", "project test commands", "Filenames and directories are evidence, not", "Uncertainty engages area 9", "does not engage area 9 merely because tests call it", "serves test execution, isolation, inputs, or evidence", "at every size grade"];
-			checkAll("contract-area9-artifact", "area 9 uses the widened purpose-based project-test-artifact condition and always adds the fixed composite reviewer", [
+			checkAll("contract-area9-artifact", "the unique marked project-test-artifact definition and tie-break equal the canonical text, so a negation or weakening fails", [
+				["definition marked once", area9Definition.count === 1 && area9Definition.endCount === 1, area9Definition],
 				["canonical row names the area and composite", area9Row[1] === "project test artifact" && area9Row[2] === "one test-quality and structure reviewer", area9Row],
-				["all widened condition terms present", requiredArea9.every((term) => normalizedArea9.includes(term)), requiredArea9.filter((term) => !normalizedArea9.includes(term))],
-				["no weakening or tests-alone limiter", !/only (?:deleting|weakening)|tests-alone adds|only content adds tests/i.test(area9), area9],
+				["definition and tie-break are exact", normalizeText(area9Definition.text) === expectedArea9Definition, normalizeText(area9Definition.text)],
+				["negated counterfactual fails exact comparison", negatedArea9 !== expectedArea9Definition, negatedArea9],
 			]);
 
 			const fastPath = workflow.match(/^## Fast path\n([\s\S]*?)(?=^## Short packet shape)/m)?.[1] ?? "";
 			const checklist = [...fastPath.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
-			checkAll("contract-fast-path-artifact", "the SMALL fast path has an enumerated mechanical checklist and is voided by every project test artifact and verification machinery", [
+			const fastSequence = "prediction → confirmation → implementation → focus declaration → committed-boundary size measurement → mechanical checklist → short packet → blocking final acceptance → delivery";
+			checkAll("contract-fast-path-artifact", "the SMALL fast path pins its ten-item checklist, omitted gates, retained sequence, and fallback to ordinary SMALL", [
 				["enumerated checklist", checklist.length === 10, checklist],
 				["condition 6 is any focus area", checklist[5] === "No focus area is engaged.", checklist[5]],
 				["condition 7 is any project test artifact", checklist[6] === "No project test artifact changes.", checklist[6]],
 				["verification machinery voids", /No verification, gate, coverage, packaging, release, or workflow machinery changes\./.test(checklist[7] ?? ""), checklist[7]],
-				["old tests-alone item absent", !/only (?:adds|changes) tests|tests alone/i.test(fastPath), fastPath],
+				["grant omits exactly the optional floor", /omits the high-level design,\s+adversarial design review, machine reviewer, research log, and closing review/.test(fastPath), fastPath],
+				["retained sequence is exact", normalizeText(fastPath).includes(fastSequence), normalizeText(fastPath)],
+				["failed checklist returns to ordinary SMALL", /If any item fails, return to the ordinary SMALL workflow before packet delivery\./.test(normalizeText(fastPath)), normalizeText(fastPath)],
 			]);
 
 			const composite = reviews.match(/^### Test-quality and structure reviewer\n([\s\S]*?)(?=^### Prose and licensing reviewer)/m)?.[1] ?? "";
@@ -3222,13 +3269,23 @@ try {
 				["composite cannot merge with other roles", /never merges with\s+Reviewer I, a production area reviewer, prose and licensing, or closing\s+integration/.test(reviews), reviews.slice(0, 2500)],
 			]);
 
-			const workflowTargets = ["Lifecycle and phases", "Size script and focus prediction", "Confirmation gate", "Focus touchpoints", "Fast path", "Short packet shape", "Track intention block and focus declaration", "Session handoff and the research log", "Resume order and reconciliation", "Closing review"];
-			const reviewTargets = ["Reviewer sets, merge rule and charters"];
-			const missingWorkflow = workflowTargets.filter((name) => !new RegExp(`^## ${name.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}$`, "m").test(workflow));
-			const missingReviews = reviewTargets.filter((name) => !new RegExp(`^## ${name.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}$`, "m").test(reviews));
-			checkAll("contract-section-targets", "every externally named workflow and review section target exists exactly as a level-two heading", [
-				["workflow targets present", missingWorkflow.length === 0, missingWorkflow],
-				["review targets present", missingReviews.length === 0, missingReviews],
+			const userNotes = readFileSync(join(REPO, "docs", "user-notes.md"), "utf8");
+			const publishing = readFileSync(join(REPO, "docs", "pr-publishing.md"), "utf8");
+			const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			const headingCount = (source, name) => (source.match(new RegExp(`^## ${escapeRegex(name)}$`, "gm")) ?? []).length;
+			const targetDocs = [
+				["track-workflow.md", workflow, ["Lifecycle and phases", "Size script and focus prediction", "Confirmation gate", "Focus touchpoints", "Fast path", "Short packet shape", "Track intention block and focus declaration", "Session handoff and the research log", "Resume order and reconciliation", "Closing review", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
+				["review-rules.md", reviews, ["Reviewer sets, merge rule and charters", "Findings and output", "Reviewer evidence standards", "Observation files and evidence recovery", "Fix loop and gate verdicts", "Stuck-fix consultation", "Termination and follow-up routing"]],
+				["blast-radius.md", blast, ["Two independent axes", "Size measurement and the exclusion list", "Track function and track constraints", "Focus areas and their gates", "Optional path declarations", "Lifecycle rules owned by the spine", "Halt, re-derivation and grade correction", "Review coverage and the coverage register", "Commit discipline for drift and boundaries"]],
+				["user-notes.md", userNotes, ["Track packets", "Receiving and routing a user note", "Note queue and drain", "Follow-up ledger", "Override log", "Register entry shape", "Mandatory escalation set", "User note accounting", "Final report"]],
+				["pr-publishing.md", publishing, ["Creation", "Description rules", "Tracks table", "Keeping the PR in sync", "Ready-for-review flip", "After the flip", "After the merge"]],
+			];
+			const headingDefects = targetDocs.flatMap(([file, source, names]) => names.flatMap((name) => headingCount(source, name) === 1 ? [] : [`${file} § ${name} → ${headingCount(source, name)}`]));
+			const duplicatedFastPath = `${workflow}\n## Fast path\nContradictory duplicate.\n`;
+			checkAll("contract-section-targets", "every named level-two target across all five workflow documents exists exactly once, and duplicate headings fail the predicate", [
+				["all named targets are unique", headingDefects.length === 0, headingDefects],
+				["regex escaping handles metacharacters", escapeRegex("Fast path (SMALL) [gate]") === "Fast path \\(SMALL\\) \\[gate\\]", escapeRegex("Fast path (SMALL) [gate]")],
+				["duplicated Fast path counterfactual fails uniqueness", headingCount(duplicatedFastPath, "Fast path") === 2 && headingCount(duplicatedFastPath, "Fast path") !== 1, headingCount(duplicatedFastPath, "Fast path")],
 			]);
 		});
 

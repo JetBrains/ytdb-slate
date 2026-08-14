@@ -318,7 +318,7 @@ the load-on-demand discipline the extension itself prescribes:
   on. Sizing it matters to the tiering argument, so it is measured
   rather than asserted. With every conditional tail rule off and
   `workflow.draftPRs` off, the block is **2,908 portable characters /
-  48 lines**. Configuring the router for six models grows it to
+  48 lines**. The fixed fabricated six-model fixture grows it to
   **4,938 portable characters / 69 lines** on that same basis. The routing rule
   renders one table row per routable model. (Portable characters, and
   the rest of the configurations, are defined and tabulated in

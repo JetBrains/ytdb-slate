@@ -8,7 +8,7 @@ import slateExtension from "../extension/index.ts";
 import { PROFILES_AS_OF, MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
 import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { REVIEW_RULES_DOC, THREAD_CACHE_COST_DOC, TRACK_WORKFLOW_DOC } from "../extension/paths.ts";
+import { PR_PUBLISHING_DOC, REVIEW_RULES_DOC, THREAD_CACHE_COST_DOC, TRACK_WORKFLOW_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 
@@ -150,12 +150,10 @@ test("doctrine reads workflow only for changes and enforces size-focus confirmat
   assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the predicted grade and focus set, and every required pre-implementation gate ran."));
 });
 
-test("design gates preserve validation and final-approval order", { timeout: 5000 }, async () => {
+test("design gates state validation, adversarial review, and final approval as one ordered contract", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  const validation = doctrine.indexOf("Validate each required design before adversarial design review,");
-  const approval = doctrine.indexOf("then obtain final user approval.");
-  assert.ok(validation >= 0);
-  assert.ok(approval > validation);
+  assert.ok(doctrine.includes("Validate each required design before adversarial design review, then obtain final user approval."));
+  assert.doesNotMatch(doctrine, /final user approval before adversarial design review/);
 });
 
 test("doctrine states research-log, packet, acceptance, and reviewer rules", { timeout: 5000 }, async () => {
@@ -165,6 +163,18 @@ test("doctrine states research-log, packet, acceptance, and reviewer rules", { t
   assert.ok(doctrine.includes("Review every track with the set required by its grade and engaged focus areas."));
   assert.ok(doctrine.includes("Verification or gate machinery receives the general implementation reviewer even at SMALL."));
   assert.ok(doctrine.includes(`Before dispatching review threads, read ${REVIEW_RULES_DOC}`));
+});
+
+test("rule 8 renders the exact research-log and draft-publishing tails", { timeout: 5000 }, async () => {
+  const local = (await renderDoctrine()).replace(/\s+/g, " ");
+  assert.ok(local.includes("Durable workflow records anchor in the retained repo-root research log per the workflow doc."));
+  assert.doesNotMatch(local, /repo-root workflow log/);
+  assert.equal(local.includes(PR_PUBLISHING_DOC), false);
+
+  const published = (await renderDoctrine(undefined, { workflow: { draftPRs: true } })).replace(/\s+/g, " ");
+  assert.ok(published.includes("An umbrella draft PR is part of the pre-implementation gates;"));
+  assert.ok(published.includes(`PR publishing mechanics are in ${PR_PUBLISHING_DOC}.`));
+  assert.doesNotMatch(published, /repo-root (?:workflow|research) log/);
 });
 
 test("doctrine states the exact restart-refusal test", { timeout: 5000 }, async () => {
