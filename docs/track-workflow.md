@@ -163,10 +163,11 @@ When all ten conditions pass, the fast path omits the high-level design,
 adversarial design review, machine reviewer, research log, and closing review.
 Another rule can still require any omitted gate or artifact.
 
-The fast-path sequence is prediction → confirmation → implementation → focus
-declaration → committed-boundary size measurement → mechanical checklist →
-short packet → blocking final acceptance → delivery. After boundary measurement,
-run all ten checklist items against the committed range and actual declarations.
+The fast-path sequence is prediction → confirmation → implementation →
+mechanical validation → focus declaration → committed-boundary size measurement
+→ mechanical checklist → short packet → blocking final acceptance → delivery.
+After boundary measurement, run all ten checklist items against the committed
+range and actual declarations.
 If any item fails, return to the ordinary SMALL workflow before packet delivery.
 
 Any project test artifact voids the fast path. Any verification or gate

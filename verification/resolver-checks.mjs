@@ -3239,7 +3239,7 @@ evidence.`);
 
 			const fastPath = workflow.match(/^## Fast path\n([\s\S]*?)(?=^## Short packet shape)/m)?.[1] ?? "";
 			const checklist = [...fastPath.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
-			const fastSequence = "prediction → confirmation → implementation → focus declaration → committed-boundary size measurement → mechanical checklist → short packet → blocking final acceptance → delivery";
+			const fastSequence = "prediction → confirmation → implementation → mechanical validation → focus declaration → committed-boundary size measurement → mechanical checklist → short packet → blocking final acceptance → delivery";
 			checkAll("contract-fast-path-artifact", "the SMALL fast path pins its ten-item checklist, omitted gates, retained sequence, and fallback to ordinary SMALL", [
 				["enumerated checklist", checklist.length === 10, checklist],
 				["condition 6 is any focus area", checklist[5] === "No focus area is engaged.", checklist[5]],
@@ -3282,9 +3282,14 @@ evidence.`);
 			];
 			const headingDefects = targetDocs.flatMap(([file, source, names]) => names.flatMap((name) => headingCount(source, name) === 1 ? [] : [`${file} § ${name} → ${headingCount(source, name)}`]));
 			const duplicatedFastPath = `${workflow}\n## Fast path\nContradictory duplicate.\n`;
+			const metacharHeading = "Fast path (SMALL) [gate]";
+			const metacharSource = `## ${metacharHeading}\n`;
+			const defectiveHeadingCount = (source, name) => (source.match(new RegExp(`^## ${name}$`, "gm")) ?? []).length;
 			checkAll("contract-section-targets", "every named level-two target across all five workflow documents exists exactly once, and duplicate headings fail the predicate", [
 				["all named targets are unique", headingDefects.length === 0, headingDefects],
-				["regex escaping handles metacharacters", escapeRegex("Fast path (SMALL) [gate]") === "Fast path \\(SMALL\\) \\[gate\\]", escapeRegex("Fast path (SMALL) [gate]")],
+				["regex escaping handles metacharacters", escapeRegex(metacharHeading) === "Fast path \\(SMALL\\) \\[gate\\]", escapeRegex(metacharHeading)],
+				["escaped fabricated heading matches exactly once", headingCount(metacharSource, metacharHeading) === 1, headingCount(metacharSource, metacharHeading)],
+				["unescaped counterfactual differs", defectiveHeadingCount(metacharSource, metacharHeading) !== 1, defectiveHeadingCount(metacharSource, metacharHeading)],
 				["duplicated Fast path counterfactual fails uniqueness", headingCount(duplicatedFastPath, "Fast path") === 2 && headingCount(duplicatedFastPath, "Fast path") !== 1, headingCount(duplicatedFastPath, "Fast path")],
 			]);
 		});
