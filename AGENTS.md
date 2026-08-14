@@ -288,7 +288,7 @@ The self-test uses temporary fixtures outside the checkout. It proves recursive 
 
 ### Size-grade regression suite
 
-`node verification/size-grade-tests.mjs` is the regression suite for the shipped `extension/size-grade.mjs` command. It covers grade boundaries, every declared source extension, binary numstat records, configuration safety, Git failures and output formats. The suite runs first inside `verification/run-tests.sh`, so `npm test` and `npm run test:coverage` execute it before the TypeScript tests and coverage gate. The standalone `npm run test:size-grade` script provides a discoverable focused command.
+`node verification/size-grade-tests.mjs` is the regression suite for the shipped `extension/size-grade.mjs` command. It covers grade boundaries, every declared source extension, binary numstat records, configuration safety, Git failures and output formats. The suite runs first inside `verification/run-tests.sh`, so `npm test` and `npm run test:coverage` execute it before the TypeScript tests and coverage gate. The standalone `npm run test:size-grade` script provides a discoverable focused command. `run-tests.sh` refuses to start with exit 2 when the suite file is absent, so CI cannot silently skip this net.
 
 Run `node verification/size-grade-tests.mjs` after any change to `extension/size-grade.mjs` or `verification/size-grade-tests.mjs`. Run `npm test -- --base <ref>` after changes under `extension/`, `test/`, `verification/run-tests.sh` or `package.json`. The wrapper forwards `--base`, `--no-gate`, and threshold arguments to the existing coverage workflow.
 

@@ -2,7 +2,7 @@
 
 ## Size-grade regression suite
 
-`node verification/size-grade-tests.mjs` checks the shipped `extension/size-grade.mjs` command. The suite covers grade boundaries, all declared source extensions, binary numstat zero-line handling, configuration safety, Git failures, and output formats. It runs first through `verification/run-tests.sh`, so `npm test` and `npm run test:coverage` include it before the TypeScript tests and coverage gate. Use `npm run test:size-grade` for the focused package script.
+`node verification/size-grade-tests.mjs` checks the shipped `extension/size-grade.mjs` command. The suite covers grade boundaries, all declared source extensions, binary numstat zero-line handling, configuration safety, Git failures, and output formats. It runs first through `verification/run-tests.sh`, so `npm test` and `npm run test:coverage` include it before the TypeScript tests and coverage gate. Use `npm run test:size-grade` for the focused package script. `run-tests.sh` refuses to start with exit 2 when the suite file is absent, so CI cannot silently skip this net.
 
 Run the focused suite after any change to `extension/size-grade.mjs` or `verification/size-grade-tests.mjs`. Run `npm test -- --base <ref>` after changes to those files, `verification/run-tests.sh`, `package.json`, or any covered TypeScript source. The wrapper preserves forwarded `--base`, `--no-gate`, and threshold arguments.
 
