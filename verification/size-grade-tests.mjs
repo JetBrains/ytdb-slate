@@ -104,9 +104,11 @@ test("line boundaries are SMALL at 50, MEDIUM at 51 and 1000, and LARGE at 1001"
   assert.equal(gradeFor(1001, 1), "LARGE");
 });
 
-test("file boundary raises at 26 but not 25 and never raises past LARGE", () => {
+test("file boundary raises at 26 for SMALL and MEDIUM, but never past LARGE", () => {
   assert.equal(gradeFor(25, 25), "SMALL");
   assert.equal(gradeFor(25, 26), "MEDIUM");
+  assert.equal(gradeFor(1000, 25), "MEDIUM");
+  assert.equal(gradeFor(1000, 26), "LARGE");
   assert.equal(gradeFor(1001, 26), "LARGE");
 });
 
@@ -132,9 +134,14 @@ test("CLI raises a 26-file change and keeps a 25-file change SMALL", () => withL
   assert.equal(jsonResult(runCli(paths, records(26))).sizeGrade, "MEDIUM");
 }));
 
-test("Node module source extensions include mjs cjs mts and cts", () => {
+test("every declared source extension contributes production logic", () => {
   const declarations = compileDeclarations({ testPaths: [], generatedMarkers: [], lockfiles: [] });
-  for (const extension of [".mjs", ".cjs", ".mts", ".cts"]) {
+  const extensions = [
+    ".java", ".kt", ".kts", ".scala", ".py", ".js", ".jsx", ".mjs", ".cjs",
+    ".ts", ".tsx", ".mts", ".cts", ".groovy", ".gql", ".graphql", ".g4", ".jj", ".jjt",
+    ".sql", ".osql", ".html", ".css", ".sh", ".bat", ".cmd",
+  ];
+  for (const extension of extensions) {
     assert.equal(classifyPath(`extension/file${extension}`, declarations).kind, "source", extension);
   }
 });
@@ -212,6 +219,22 @@ test("configuration rejects malformed, oversized, and non-regular inputs", () =>
   const fifo = spawnSync("mkfifo", [config], { encoding: "utf8" });
   assert.equal(fifo.status, 0, fifo.stderr);
   assert.throws(() => readDeclarations(paths.root), /must be a regular file/);
+}));
+
+test("binary numstat records contribute zero lines and retain their binary marker", () => {
+  assert.deepEqual(parseNumstat(Buffer.from("-\t-\timage.png\0")), [{
+    path: "image.png", added: 0, deleted: 0, binary: true,
+  }]);
+});
+
+test("CLI excludes binary source records from the line total", () => withLab((paths) => {
+  const output = jsonResult(runCli(paths, "49\t0\tchange.mjs\0-\t-\tcompiled.mjs\0"));
+  assert.equal(output.changedProductionLogicLines, 49);
+  assert.equal(output.sizeGrade, "SMALL");
+  assert.deepEqual(output.files[1], {
+    path: "compiled.mjs", added: 0, deleted: 0, changedLines: 0, binary: true,
+    kind: "source", excluded: false, reason: "production logic",
+  });
 }));
 
 test("numstat parser rejects malformed records", () => {
@@ -318,11 +341,11 @@ test("refs beginning with two dashes follow end-of-options and cannot become git
 
 const EXPECTED = [
   "line boundaries are SMALL at 50, MEDIUM at 51 and 1000, and LARGE at 1001",
-  "file boundary raises at 26 but not 25 and never raises past LARGE",
+  "file boundary raises at 26 for SMALL and MEDIUM, but never past LARGE",
   "CLI measures every grade boundary and an empty diff",
   "CLI adds inserted and deleted source lines",
   "CLI raises a 26-file change and keeps a 25-file change SMALL",
-  "Node module source extensions include mjs cjs mts and cts",
+  "every declared source extension contributes production logic",
   "default classifier excludes test documentation build configuration and other files",
   "CLI text format reports counts and per-file decisions",
   "CLI help reports usage and exits successfully",
@@ -330,6 +353,8 @@ const EXPECTED = [
   "present null declarations are rejected instead of defaulted",
   "declaration helpers reject unknown keys, wrong values, and broken patterns",
   "configuration rejects malformed, oversized, and non-regular inputs",
+  "binary numstat records contribute zero lines and retain their binary marker",
+  "CLI excludes binary source records from the line total",
   "numstat parser rejects malformed records",
   "configuration open refuses a symlink swapped in after inspection",
   "configuration open does not block when a FIFO replaces an inspected file",

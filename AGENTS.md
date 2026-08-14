@@ -286,9 +286,15 @@ The self-test uses temporary fixtures outside the checkout. It proves recursive 
 - `node verification/writing-check-scaling.mjs` — GROWTH: nothing in that module may grow faster than linearly. ~18 s, wall-clock. It is a separate file on purpose, so a timing assertion never makes the correctness suite read as machine-dependent.
 - **Re-run BOTH after any change to `extension/writing-check.mjs`**, and the scaling gate in particular after adding or editing a REGEX, which is the change that reintroduces the class. Re-run the correctness suite and pure-resolver checks after a change to `extension/writing.ts`. Three reviews found six superlinear paths in the checker while every correctness net stayed green — the findings were right and the module was slow, which is precisely the failure a correctness suite cannot see. The gate's `roster` refuses an unclassified new regex literal by name, and its `canary` fails if the thresholds stop discriminating.
 
+### Size-grade regression suite
+
+`node verification/size-grade-tests.mjs` is the regression suite for the shipped `extension/size-grade.mjs` command. It covers grade boundaries, every declared source extension, binary numstat records, configuration safety, Git failures and output formats. The suite runs first inside `verification/run-tests.sh`, so `npm test` and `npm run test:coverage` execute it before the TypeScript tests and coverage gate. The standalone `npm run test:size-grade` script provides a discoverable focused command.
+
+Run `node verification/size-grade-tests.mjs` after any change to `extension/size-grade.mjs` or `verification/size-grade-tests.mjs`. Run `npm test -- --base <ref>` after changes under `extension/`, `test/`, `verification/run-tests.sh` or `package.json`. The wrapper forwards `--base`, `--no-gate`, and threshold arguments to the existing coverage workflow.
+
 ### Unit tests and the coverage gate
 
-`npm test` runs `verification/run-tests.sh`: it runs `verification/link-peers.sh`, then the `node:test` suite under `test/`, then the patch-coverage gate in `verification/coverage-gate.mjs`. It needs `node`, `git` and a pi; the linker resolves `PI_BIN`, then the exact-pinned `node_modules/.bin/pi`, then `PATH`, and deliberately refuses to start without one.
+`npm test` runs `verification/run-tests.sh`: it runs the size-grade regression suite, then `verification/link-peers.sh`, then the `node:test` suite under `test/`, then the patch-coverage gate in `verification/coverage-gate.mjs`. It needs `node`, `git` and a pi. The linker resolves `PI_BIN`, then the exact-pinned `node_modules/.bin/pi`, then `PATH`, and deliberately refuses to start without one.
 
 **CI runs this net on both exact-pinned Node legs.** The checkout uses `fetch-depth: 0`, because the gate measures a COMMITTED `<base>..HEAD` diff. The base is event-specific and explicit. `pull_request.base.sha` against GitHub's synthetic PR merge commit measures that PR candidate. `merge_group.base_sha` against the queue's synthetic head measures the queued candidate. `github.event.before` against a push head measures that push to `main`.
 

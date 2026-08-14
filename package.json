@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bash verification/run-tests.sh",
     "test:coverage": "bash verification/run-tests.sh",
+    "test:size-grade": "node verification/size-grade-tests.mjs",
     "coverage:gate": "node verification/coverage-gate.mjs",
     "link:peers": "bash verification/link-peers.sh"
   },
