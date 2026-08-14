@@ -4,41 +4,43 @@ Umbrella draft PR mechanics for the track-based workflow (see
 track-workflow.md in this directory). This document applies ONLY when
 `workflow.draftPRs` is enabled in the project's `slate.json` (default:
 false). When it is disabled, the workflow creates no PR; the
-workflow-log lifecycle in that mode is owned by track-workflow.md
-§ Research log.
+research-log lifecycle in that mode is owned by track-workflow.md
+§ Session handoff and the research log.
 
 ## Creation
 
-For every change with a high-level design, draft the PR description
-before the pre-implementation presentation. Present the draft alongside
-the high-level design, so one approval covers both. The description has
-no separate approval gate.
+For every change with a high-level design, draft the pull request description
+before final design approval. Present the draft beside the validated design.
+When an adversarial design review is required, present both after that review.
+One final approval covers the design and description. The description has no
+separate approval gate.
 
-The umbrella draft PR is created after the gate required by the
-confirmed change class passes and BEFORE implementation. For a complex
-or risky change, that gate is the final high-level design approval after
-the adversarial review. For a medium change, it is the high-level design
-approval. A trivial change has no high-level design gate, so the PR is
-created after the user confirms the class and before implementation:
+The umbrella draft pull request is created after the gates required by the
+confirmed size grade and focus set pass. It is created before implementation.
+Validation always precedes a required adversarial design review. Final design
+approval follows that review. A SMALL change with no high-level design creates
+the pull request after the user confirms grade and focus, and before
+implementation:
 
 - Created as a DRAFT, based on the repository's default development
   branch.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation for a medium, complex, or risky change, the research
-  log's Planned changes content folds into the PR description. Key
+- At creation for a MEDIUM or LARGE change, the research log's Planned
+  changes content folds into the PR description. Key
   decisions, Risks, and Open questions feed the corresponding
   Planned-changes subsections. The applicable design review verdict
   lines land in Risks & accepted trade-offs. The adversarial review
-  verdict line lands there only when that review ran; a medium change
-  carries the design verdict lines alone.
-- For a trivial change, the initial request supplies Motivation. The
-  confirmed class proposal and intended fix supply Planned changes. If
+  verdict line lands there only when that review ran. A change without
+  that review carries the design verdict lines alone.
+- For a SMALL change without a high-level design, the initial request supplies
+  Motivation. The confirmed grade, focus proposal, and intended fix supply
+  Planned changes. If
   a log exists, its relevant decisions and Open Questions also fold
   into the description.
 - The research log is retained until delivery, and its Decision Log
-  keeps appending during implementation. track-workflow.md § Research
-  log owns the full lifecycle.
+  keeps appending during implementation. track-workflow.md § Session handoff
+  and the research log owns the full lifecycle.
 
 ## Description rules
 
@@ -108,7 +110,7 @@ or a content-equivalent exception in the publishing-disabled path.
 
 The description's Tracks section holds the track table; its
 constraints (display-only, no SHAs, never the source of truth for
-track boundaries) are owned by track-workflow.md § Track table.
+track boundaries) are owned by track-workflow.md § Delivery and termination.
 Single-track changes carry an "N/A (single-track)" placeholder instead
 of a table.
 
@@ -129,12 +131,12 @@ handing the PR to the user; post-flip fix work and post-merge cleanup
 stay agent duties (below). The flip is gated by this checklist,
 executed in order:
 
-- Any layered peer-review process (see track-workflow.md § Peer
-  review) is completed or explicitly user-waived — flipping never
+- Any layered peer-review process (see track-workflow.md § Layering richer
+  workflows on top) is completed or explicitly user-waived — flipping never
   discards a pending review.
 - All commits landed since the last user-approved gate are presented
-  to the user. For a trivial change, present the description here
-  because no design gate presented it before implementation.
+  to the user. For a SMALL change without a design gate, present the description
+  here because no design approval presented it before implementation.
 - Every remaining suggestion is reported to the user, and the
   Suggestions index is present in the description.
 - Strip the whole Tracks section from the description, whatever its
@@ -176,8 +178,8 @@ of any recorded size exception.
 
 ## After the merge
 
-Complete the research-log delivery cleanup defined by
-track-workflow.md § Research log.
+Complete the research-log delivery cleanup defined by track-workflow.md
+§ Session handoff and the research log.
 
 Any cleanup a layered peer-review process requires (closing its review
 PRs, deleting its pinned branches) is an agent duty, executed when the

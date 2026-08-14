@@ -361,6 +361,15 @@ const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
 const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-follow-up", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
 const WORKER_IDS = ["worker-preamble", "reviewer-charter-sync"];
+const DOCTRINE_CONTRACT_IDS = [
+	"contract-safety-floor-sync",
+	"contract-focus-table-sync",
+	"contract-area9-artifact",
+	"contract-fast-path-artifact",
+	"contract-test-composite",
+	"contract-no-test-structure",
+	"contract-section-targets",
+];
 /** Checks that need extension/thread-choice.ts — the pure continue-or-fresh planner. */
 const CHOICE_IDS = [
 	"choice-order",
@@ -1687,6 +1696,17 @@ try {
 			const writingRouterOn = await asTrusted(EMPTY_EXT, onReal, { writing: { check: true } });
 			const writingExtensionsOn = await asTrusted(WITH_EXT, () => ({ on: false, candidates: [] }), { writing: { check: true } });
 			const writingAllOn = await asTrusted(WITH_EXT, onReal, { writing: { check: true } });
+			const configuredSpecs = JSON.parse(readFileSync(join(REPO, ".pi", "slate.json"), "utf8")).router?.models ?? [];
+			const configuredCandidates = realCandidates.filter((candidate) => configuredSpecs.includes(candidate.spec));
+			const onConfigured = onWith(configuredCandidates);
+			const configuredOffDraft = await asTrusted(EMPTY_EXT, onConfigured);
+			const configuredOffDraftWriting = await asTrusted(EMPTY_EXT, onConfigured, { writing: { check: true } });
+			const configuredDraft = await asTrusted(EMPTY_EXT, onConfigured, { workflow: { draftPRs: true } });
+			const configuredDraftWriting = await asTrusted(EMPTY_EXT, onConfigured, { workflow: { draftPRs: true }, writing: { check: true } });
+			const offDraft = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { workflow: { draftPRs: true } });
+			const offDraftWriting = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { workflow: { draftPRs: true }, writing: { check: true } });
+			const allDraft = await asTrusted(EMPTY_EXT, onReal, { workflow: { draftPRs: true } });
+			const allDraftWriting = await asTrusted(EMPTY_EXT, onReal, { workflow: { draftPRs: true }, writing: { check: true } });
 			const capString = (ch, n) => ch.repeat(n);
 			const MAX_EXT = {
 				units: ["a", "b"].map((ch, unitIndex) => ({
@@ -1745,18 +1765,20 @@ try {
 			// The normalisation must actually BITE — if the doctrine ever stops embedding a
 			// path, or the directory stops being extractable, `portable()` silently becomes
 			// the identity and the bounds go back to being install-dependent.
-			const docPaths = DOCS_DIR === "" ? 0 : on.split(DOCS_DIR).length - 1;
-			// 2026-08-07: 6500 → 6700 because the user chose Option 3, restoring the enforcement trigger, class confirmation, presentation order, and two previously unstated gates.
-			const WRITING_ROUTER_BOUND = 6700;
-			// 2026-08-07: 6900 → 7000 because the user approved the raise so rule 8 could keep the skip-the-read clause that rules 9 and 10 also carry. A redundant track-workflow read costs far more than the clause.
-			const ALL_TAILS_BOUND = 7000;
-			// 2026-08-07: 7900 → 8200 because the user chose Option 3, restoring the enforcement trigger, class confirmation, presentation order, and two previously unstated gates.
-			const MAXIMAL_BOUND = 8200;
+			const pathOccurrences = (text) => DOCS_DIR === "" ? 0 : text.split(DOCS_DIR).length - 1;
+			const docPaths = pathOccurrences(on);
+			// 2026-08-10: 6,563 × 1.05 = 6,891.15; ceil 6,892, then round the bound up to 6,900.
+			const WRITING_ROUTER_BOUND = 6900;
+			// 2026-08-10: 6,818 × 1.05 = 7,158.9; ceil 7,159, then round the bound up to 7,200.
+			const ALL_TAILS_BOUND = 7200;
+			// 2026-08-10: the 8,007 follow-up maximum is largest. 8,007 × 1.05 = 8,407.35; ceil 8,408, then round the bound up to 8,500.
+			const MAXIMAL_BOUND = 8500;
 			checkAll(
 				"doctrine-budget",
 				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and four copies of the largest model row, so budget growth cannot pass vacuously",
 				[
-					["the normalisation bites: the doctrine really does embed the authoritative docs directory", docPaths >= 3 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC), { docPaths, DOCS_DIR }],
+					["the normalisation bites: the doctrine really does embed the authoritative docs directory", docPaths === 5 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC), { docPaths, DOCS_DIR }],
+					["every fixture has the exact embedded-path occurrence count", pathOccurrences(off) === 4 && pathOccurrences(on) === 5 && pathOccurrences(writingOn) === 5 && pathOccurrences(writingRouterOn) === 6 && pathOccurrences(writingExtensionsOn) === 5 && pathOccurrences(writingAllOn) === 6 && pathOccurrences(maximal) === 7 && pathOccurrences(maximalNoDraft) === 6 && pathOccurrences(maximalFollowUp) === 7 && pathOccurrences(overBudget) === 7, { off: pathOccurrences(off), on: pathOccurrences(on), writing: pathOccurrences(writingOn), writingRouter: pathOccurrences(writingRouterOn), writingExtensions: pathOccurrences(writingExtensionsOn), all: pathOccurrences(writingAllOn), maximal: pathOccurrences(maximal), maximalNoDraft: pathOccurrences(maximalNoDraft), followUp: pathOccurrences(maximalFollowUp), positive: pathOccurrences(overBudget) }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
 					["space-bearing docs directories normalize without parsing rendered text", spacedPortable === "read /track-workflow.md", spacedPortable],
 					["the whole rule stays under 4000 portable chars with five percent reserve", ruleChars <= 4000 && hasDoctrineReserve(ruleChars, 4000), { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
@@ -1764,25 +1786,34 @@ try {
 					["its FIXED prose — the part that does not scale with the table — stays under 1500 portable chars with five percent reserve", prose <= 1500 && hasDoctrineReserve(prose, 1500), prose],
 					["no single model row exceeds 300 chars or consumes its five percent reserve", longest <= 300 && hasDoctrineReserve(longest, 300), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
+					["the configured-model fixture is the exact six-model project list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
-					["the router-off doctrine is the measured 2701 portable chars", portable(off).length === 2701, { portable: portable(off).length, lines: off.split("\n").length }],
-					["...and the whole router-on doctrine is the measured 5286 portable chars and stays under 6500 with five percent reserve", portable(on).length === 5286 && portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
-					["writing-only doctrine is the measured 3771 portable chars and stays under 5600 with five percent reserve", portable(writingOn).length === 3771 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
-					[`writing plus router is the measured 6356 portable chars and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 6356 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
-					["writing plus extensions is the measured 4026 portable chars and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 4026 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
-					[`all three tail features are the measured 6611 portable chars and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 6611 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
+					["the router-off doctrine is the measured 2908 portable chars and 48 lines", portable(off).length === 2908 && off.split("\n").length === 48, { portable: portable(off).length, lines: off.split("\n").length }],
+					["...and the whole router-on doctrine is the measured 5493 portable chars and 72 lines, and stays under 6500 with five percent reserve", portable(on).length === 5493 && on.split("\n").length === 72 && portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
+					["writing-only doctrine is the measured 3978 portable chars and 70 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 3978 && writingOn.split("\n").length === 70 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
+					["draft-enabled router-off doctrine is 2927 portable chars and 48 lines", portable(offDraft).length === 2927 && offDraft.split("\n").length === 48, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
+					["draft-enabled router-off writing doctrine is 3997 portable chars and 70 lines", portable(offDraftWriting).length === 3997 && offDraftWriting.split("\n").length === 70, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
+					["the six-model fixture is 4938 portable chars and 69 lines without draft publishing or writing", portable(configuredOffDraft).length === 4938 && configuredOffDraft.split("\n").length === 69, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
+					["the six-model fixture is 6008 portable chars and 91 lines with writing", portable(configuredOffDraftWriting).length === 6008 && configuredOffDraftWriting.split("\n").length === 91, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
+					["the six-model draft fixture is 4957 portable chars and 69 lines", portable(configuredDraft).length === 4957 && configuredDraft.split("\n").length === 69, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
+					["the six-model draft and writing fixture is 6027 portable chars and 91 lines", portable(configuredDraftWriting).length === 6027 && configuredDraftWriting.split("\n").length === 91, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
+					[`writing plus router is the measured 6563 portable chars and 94 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 6563 && writingRouterOn.split("\n").length === 94 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
+					["writing plus extensions is the measured 4233 portable chars and 76 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 4233 && writingExtensionsOn.split("\n").length === 76 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
+					[`all three tail features are the measured 6818 portable chars and 100 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 6818 && writingAllOn.split("\n").length === 100 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
+					["the all-nine draft fixture is 5512 portable chars and 72 lines", portable(allDraft).length === 5512 && allDraft.split("\n").length === 72, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
+					["the all-nine draft and writing fixture is 6582 portable chars and 94 lines", portable(allDraftWriting).length === 6582 && allDraftWriting.split("\n").length === 94, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
 					// Update exact measurements with production wording in the same commit.
-					[`the maximum all-feature fixture is the measured 7722 portable chars and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 7722 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					[`the draft-PR-disabled maximum fixture is pinned independently at 7703 portable chars and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 7703 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					["the capped worker rule is the measured 1347 chars and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
+					[`the maximum all-feature fixture is the measured 7929 portable chars and 104 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 7929 && maximal.split("\n").length === 104 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the draft-PR-disabled maximum fixture is pinned independently at 7910 portable chars and 104 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 7910 && maximalNoDraft.split("\n").length === 104 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					["the capped worker rule is the measured 1347 chars and 11 split lines, and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					[`the positive control is the measured 8670 portable chars and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 8670 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
+					[`the positive control is the measured 8877 portable chars and 109 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 8877 && overBudget.split("\n").length === 109 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
 					// The writing rule has its own bound because its absolute citation changes raw size.
 					["the writing rule is the measured 1070 portable chars and stays under 1150 with five percent reserve", writingPortable === 1070 && writingPortable <= 1150 && hasDoctrineReserve(writingPortable, 1150), { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length }],
-					["...and under 25 lines with five percent reserve", ruleOfWriting(writingOn).split("\n").length <= 25 && hasDoctrineReserve(ruleOfWriting(writingOn).split("\n").length, 25), ruleOfWriting(writingOn).split("\n").length],
+					["...and is 23 split lines, adding 22 whole-doctrine lines, under the 25-line bound with five percent reserve", ruleOfWriting(writingOn).split("\n").length === 23 && writingOn.split("\n").length - off.split("\n").length === 22 && hasDoctrineReserve(ruleOfWriting(writingOn).split("\n").length, 25), ruleOfWriting(writingOn).split("\n").length],
 					["...and embeds exactly ONE doc path, so the citation is charged once per turn, not once per mention", DOCS_DIR !== "" && ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 === 1, { paths: DOCS_DIR === "" ? "no docs dir found" : ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 }],
 					["writing-on text is actually larger than writing-off text", writingOn.length > off.length, { off: off.length, writing: writingOn.length }],
 					["writing-on with extensions is larger than writing-on without them", writingAllOn.length > writingRouterOn.length, { router: writingRouterOn.length, all: writingAllOn.length }],
@@ -1792,7 +1823,7 @@ try {
 				"doctrine-budget-follow-up",
 				"the trusted follow-up-issues configuration has its own pinned maximum fixture and preserves the existing maximum bound",
 				[
-					[`the maximal follow-up fixture is the measured 7800 portable chars and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 7800 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
+					[`the maximal follow-up fixture is the measured 8007 portable chars and 105 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8007 && maximalFollowUp.split("\n").length === 105 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
 				],
 			);
 		});
@@ -3111,6 +3142,93 @@ try {
 				["malformed hostile inputs warn while inherited input stays silent", hostileResults[0].warned.length >= 1 && hostileResults[1].warned.length >= 1 && hostileResults[2].warned.length === 0 && hostileResults[3].warned.length >= 1, hostileResults.map(({ warned }) => warned.length)],
 				["result is fresh", hostileResults.every(({ raw, result }) => result !== raw), hostileResults.map(({ raw, result }) => raw === result)],
 				["no prototype pollution", ({}).polluted === undefined && ({}).typo === undefined, Object.prototype],
+			]);
+		});
+
+		await section("doctrine-contracts", async () => {
+			const workflow = readFileSync(join(REPO, "docs", "track-workflow.md"), "utf8");
+			const blast = readFileSync(join(REPO, "docs", "blast-radius.md"), "utf8");
+			const reviews = readFileSync(join(REPO, "docs", "review-rules.md"), "utf8");
+			const block = (source, name) => {
+				const begin = `<!-- ${name}:begin -->`;
+				const end = `<!-- ${name}:end -->`;
+				const beginAt = source.indexOf(begin);
+				const endAt = source.indexOf(end);
+				return {
+					beginAt,
+					endAt,
+					text: beginAt >= 0 && endAt > beginAt ? source.slice(beginAt + begin.length, endAt).trim() : "",
+					count: source.split(begin).length - 1,
+					endCount: source.split(end).length - 1,
+				};
+			};
+			const normalize = (text) => text.trim().replace(/\r\n/g, "\n");
+			const safetyWorkflow = block(workflow, "safety-floor");
+			const safetyReviews = block(reviews, "safety-floor");
+			checkAll("contract-safety-floor-sync", "the two canonical safety-floor blocks are present once and byte-equal after line-ending normalization", [
+				["workflow block marked once", safetyWorkflow.count === 1 && safetyWorkflow.endCount === 1 && safetyWorkflow.text !== "", safetyWorkflow],
+				["review block marked once", safetyReviews.count === 1 && safetyReviews.endCount === 1 && safetyReviews.text !== "", safetyReviews],
+				["blocks equal", normalize(safetyWorkflow.text) === normalize(safetyReviews.text), { workflow: safetyWorkflow.text, reviews: safetyReviews.text }],
+			]);
+
+			const focusWorkflow = block(workflow, "focus-area-table");
+			const focusBlast = block(blast, "focus-area-table");
+			const parseRows = (text) => text.split("\n").filter((line) => /^\| \d+ \|/.test(line)).map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()));
+			const workflowRows = parseRows(focusWorkflow.text);
+			const blastRows = parseRows(focusBlast.text);
+			checkAll("contract-focus-table-sync", "the marked ten-area tables are present once, parse to rows 1 through 10, and are exactly equal", [
+				["workflow table marked once", focusWorkflow.count === 1 && focusWorkflow.endCount === 1, focusWorkflow],
+				["blast table marked once", focusBlast.count === 1 && focusBlast.endCount === 1, focusBlast],
+				["ten ordered rows", workflowRows.map((row) => row[0]).join() === "1,2,3,4,5,6,7,8,9,10", workflowRows.map((row) => row[0])],
+				["blocks equal", normalize(focusWorkflow.text) === normalize(focusBlast.text), { workflowRows, blastRows }],
+			]);
+
+			const area9 = blast.match(/^### 9\. Project test artifact\n([\s\S]*?)(?=^### 10\.)/m)?.[1] ?? "";
+			const normalizedArea9 = area9.replace(/\s+/g, " ");
+			const area9Row = blastRows.find((row) => row[0] === "9") ?? [];
+			const requiredArea9 = ["exercise", "configure", "feed", "isolate", "assert project behavior", "test logic", "assertions", "fixtures", "snapshots", "golden data", "mocks", "stubs", "harnesses", "test-specific configuration", "test support", "content", "imports", "callers", "project test commands", "Filenames and directories are evidence, not", "Uncertainty engages area 9", "does not engage area 9 merely because tests call it", "serves test execution, isolation, inputs, or evidence", "at every size grade"];
+			checkAll("contract-area9-artifact", "area 9 uses the widened purpose-based project-test-artifact condition and always adds the fixed composite reviewer", [
+				["canonical row names the area and composite", area9Row[1] === "project test artifact" && area9Row[2] === "one test-quality and structure reviewer", area9Row],
+				["all widened condition terms present", requiredArea9.every((term) => normalizedArea9.includes(term)), requiredArea9.filter((term) => !normalizedArea9.includes(term))],
+				["no weakening or tests-alone limiter", !/only (?:deleting|weakening)|tests-alone adds|only content adds tests/i.test(area9), area9],
+			]);
+
+			const fastPath = workflow.match(/^## Fast path\n([\s\S]*?)(?=^## Short packet shape)/m)?.[1] ?? "";
+			const checklist = [...fastPath.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
+			checkAll("contract-fast-path-artifact", "the SMALL fast path has an enumerated mechanical checklist and is voided by every project test artifact and verification machinery", [
+				["enumerated checklist", checklist.length === 10, checklist],
+				["condition 6 is any focus area", checklist[5] === "No focus area is engaged.", checklist[5]],
+				["condition 7 is any project test artifact", checklist[6] === "No project test artifact changes.", checklist[6]],
+				["verification machinery voids", /No verification, gate, coverage, packaging, release, or workflow machinery changes\./.test(checklist[7] ?? ""), checklist[7]],
+				["old tests-alone item absent", !/only (?:adds|changes) tests|tests alone/i.test(fastPath), fastPath],
+			]);
+
+			const composite = reviews.match(/^### Test-quality and structure reviewer\n([\s\S]*?)(?=^### Prose and licensing reviewer)/m)?.[1] ?? "";
+			const behavioral = composite.match(/^#### Behavioral effectiveness\n([\s\S]*?)(?=^#### Structure and isolation)/m)?.[1] ?? "";
+			const structural = composite.match(/^#### Structure and isolation\n([\s\S]*)/m)?.[1] ?? "";
+			const behaviorTerms = ["test locations", "behavior or regression", "minimum production path", "branches and failure paths", "assertion and observable outcome", "mock or stub", "behavior-breaking counterfactual", "tests run and results", "coverage gaps", "absent, constant, tautological, or unrelated assertions", "Coverage is not evidence by itself"];
+			const structureTerms = ["fixture, snapshot, and golden-data", "shared state", "setup and cleanup", "resource lifecycle", "order dependence", "isolation and parallel safety", "mock and stub ownership and reset", "test-to-production integration", "coverage gaps"];
+			checkAll("contract-test-composite", "the composite reviewer has both mandatory final-response sections and every behavioral and structure evidence field", [
+				["behavioral section complete", behavioral !== "" && behaviorTerms.every((term) => behavioral.includes(term)), behaviorTerms.filter((term) => !behavioral.includes(term))],
+				["structure section complete", structural !== "" && structureTerms.every((term) => structural.includes(term)), structureTerms.filter((term) => !structural.includes(term))],
+				["not-applicable requires artifact reason", /not applicable only with an artifact-specific\s+reason/.test(composite), composite.slice(0, 500)],
+				["missing either is incomplete even with No findings", /Missing either section makes the review incomplete/.test(composite) && /No findings\./.test(composite), composite.slice(0, 500)],
+				["read-only with no episode or declaration", /receives no implementer episode or focus declaration[\s\S]*?read-only/.test(composite), composite.slice(0, 500)],
+			]);
+
+			checkAll("contract-no-test-structure", "project test artifacts use one fixed composite reviewer and no separately dispatched test-structure specialist remains", [
+				["retirement explicit", /old separately dispatched test-structure specialist is\s+retired/.test(reviews), reviews.match(/.{0,80}test-structure.{0,120}/s)?.[0]],
+				["no standalone test-structure charter", !/^### .*test structure|\*\*test structure\*\*/im.test(reviews), reviews.match(/^### .*test structure|\*\*test structure\*\*/im)?.[0]],
+				["composite cannot merge with other roles", /never merges with\s+Reviewer I, a production area reviewer, prose and licensing, or closing\s+integration/.test(reviews), reviews.slice(0, 2500)],
+			]);
+
+			const workflowTargets = ["Lifecycle and phases", "Size script and focus prediction", "Confirmation gate", "Focus touchpoints", "Fast path", "Short packet shape", "Track intention block and focus declaration", "Session handoff and the research log", "Resume order and reconciliation", "Closing review"];
+			const reviewTargets = ["Reviewer sets, merge rule and charters"];
+			const missingWorkflow = workflowTargets.filter((name) => !new RegExp(`^## ${name.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}$`, "m").test(workflow));
+			const missingReviews = reviewTargets.filter((name) => !new RegExp(`^## ${name.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}$`, "m").test(reviews));
+			checkAll("contract-section-targets", "every externally named workflow and review section target exists exactly as a level-two heading", [
+				["workflow targets present", missingWorkflow.length === 0, missingWorkflow],
+				["review targets present", missingReviews.length === 0, missingReviews],
 			]);
 		});
 
@@ -6881,6 +6999,7 @@ try {
 		"writing-status-gate-switch", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui",
 		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-cap-visible", "writing-status-counting", "writing-status-no-store-write",
 		"worker-load", "worker-preamble", "reviewer-charter-sync",
+		...DOCTRINE_CONTRACT_IDS,
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",
 		"bar-self-exclude", "bar-collision",

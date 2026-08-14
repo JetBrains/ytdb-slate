@@ -8,9 +8,11 @@ composition and finding handling.
 
 ## Two independent axes
 
-**Size is measured.** One script counts changed production-logic lines and
-files touched. The line count sets the initial size grade. The file count sets
-the track floor and can raise the grade.
+**Size is predicted, then measured.** Before a committed diff exists, the
+orchestrator predicts changed production-logic lines, files touched and the
+initial grade. The prediction states its basis and uncertainty. The script
+verifies the real committed range at the first track boundary. It never claims
+to measure absent work.
 
 **Focus is judged.** The orchestrator decides which focus areas the change and
 each track engage. No script decides focus.
@@ -75,9 +77,10 @@ input-limit error exits with status 1 and writes a `size-grade:` diagnostic to
 standard error. Git output and `.pi/size-grade.json` are each limited to
 1,048,576 bytes.
 
-Run the command during initial assessment. Record both counts. Run it again on
-the real diff at the first track boundary. The first run supports the proposed
-grade and track plan. The boundary run verifies them against implemented work.
+During initial assessment, predict both counts and state the evidence. A
+committed candidate may inform that prediction but never mechanically sets it.
+Run the command on the real committed range at the first track boundary. That
+mandatory boundary run verifies the prediction against implemented work.
 
 ### Canonical counting and exclusion rules
 
@@ -204,7 +207,7 @@ together, and neither engages alone, reaches the closing review.
 | 6 | design uncertainty | the change-level adversarial design review, and no track reviewer | once, at the design loop |
 | 7 | public interface or contract | one contract reviewer | every track that engages the area |
 | 8 | silent failure mode | one area reviewer that must state how each failure would be detected | every track that engages the area |
-| 9 | test integrity | the test-quality reviewer | every track that engages the area |
+| 9 | project test artifact | one test-quality and structure reviewer | every track that engages the area |
 | 10 | user-facing or licensing-adjacent prose | one prose and licensing reviewer | every track that engages the area |
 <!-- focus-area-table:end -->
 
@@ -213,10 +216,9 @@ second copy is in [track-workflow.md](track-workflow.md). The two marked blocks
 must remain equal.
 
 Duplicated doctrine blocks follow the reviewer-charter marker convention. An
-HTML comment `<!-- <block-name>:begin -->` immediately precedes the block, and
-`<!-- <block-name>:end -->` immediately follows it. This table's block name is
-`focus-area-table`. Its second copy must use the exact markers
-`<!-- focus-area-table:begin -->` and `<!-- focus-area-table:end -->`.
+HTML begin comment immediately precedes each block. Its matching end comment
+immediately follows it. This table uses the block name `focus-area-table` in
+both documents.
 
 ### 1. Concurrency
 
@@ -290,15 +292,26 @@ A silent failure mode is a failure that produces no signal by which a later
 check or operator can detect it. Its reviewer must state how every in-scope
 failure would be detected.
 
-### 9. Test integrity
+### 9. Project test artifact
 
-Test integrity covers deleting a test, weakening an assertion, relaxing a
-tolerance or adding a skip or ignore marker. It always adds the test-quality
-reviewer.
+A project test artifact is an artifact whose purpose is to exercise, configure,
+feed, isolate, or assert project behavior under a project test or check. The
+area includes test logic, assertions, fixtures, snapshots, golden data, mocks,
+stubs, harnesses, test-specific configuration, and test support.
 
-Test addition is not a focus area. A track whose only content adds tests still
-receives the test-quality reviewer. When tests accompany code, the area
-reviewers read those tests and test addition adds no separate thread.
+Decide purpose from content, imports, callers, project test commands, and
+optional declarations. Filenames and directories are evidence, not
+definitions. Uncertainty engages area 9.
+
+For a dual-purpose artifact, inspect the changed responsibility. A product
+artifact does not engage area 9 merely because tests call it. Engage area 9
+when the changed responsibility serves test execution, isolation, inputs, or
+evidence.
+
+Area 9 always adds one `test-quality and structure reviewer` at every size
+grade. No tests-alone or weakening condition limits this rule. Reviewer
+composition belongs to [review-rules.md](review-rules.md) § Reviewer sets,
+merge rule and charters.
 
 ### 10. User-facing or licensing-adjacent prose
 

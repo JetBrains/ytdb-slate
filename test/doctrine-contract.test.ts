@@ -8,7 +8,7 @@ import slateExtension from "../extension/index.ts";
 import { PROFILES_AS_OF, MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
 import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { THREAD_CACHE_COST_DOC, TRACK_WORKFLOW_DOC } from "../extension/paths.ts";
+import { REVIEW_RULES_DOC, THREAD_CACHE_COST_DOC, TRACK_WORKFLOW_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 
@@ -142,27 +142,29 @@ test("thread-choice doctrine defines work streams, consent, restart limits, and 
   assert.equal(existsSync(THREAD_CACHE_COST_DOC), true);
 });
 
-test("doctrine reads workflow only for changes and enforces pre-implementation gates", { timeout: 5000 }, async () => {
+test("doctrine reads workflow only for changes and enforces size-focus confirmation", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Scale change gates by class: trivial, medium, complex, or risky."));
+  assert.ok(doctrine.includes("Scale change gates by size grade: SMALL, MEDIUM, or LARGE."));
+  assert.ok(doctrine.includes("Predict focus areas separately."));
   assert.ok(doctrine.includes(`For repository changes, read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).`));
-  assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the class and all required pre-implementation gates ran."));
+  assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the predicted grade and focus set, and every required pre-implementation gate ran."));
 });
 
-test("complex and risky design gates preserve presentation order", { timeout: 5000 }, async () => {
+test("design gates preserve validation and final-approval order", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  const design = doctrine.indexOf("Medium and above require user-approved design.");
-  const adversarial = doctrine.indexOf("Complex and risky then require adversarial design review,");
-  const approval = doctrine.indexOf("then final user approval.");
-  assert.ok(design >= 0);
-  assert.ok(adversarial > design);
-  assert.ok(approval > adversarial);
+  const validation = doctrine.indexOf("Validate each required design before adversarial design review,");
+  const approval = doctrine.indexOf("then obtain final user approval.");
+  assert.ok(validation >= 0);
+  assert.ok(approval > validation);
 });
 
-test("doctrine requires research logs and user review of every track diff", { timeout: 5000 }, async () => {
+test("doctrine states research-log, packet, acceptance, and reviewer rules", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Above trivial, keep a research log."));
-  assert.ok(doctrine.includes("Every track diff requires user review."));
+  assert.ok(doctrine.includes("MEDIUM and LARGE always keep a research log; SMALL opens one on a listed trigger."));
+  assert.ok(doctrine.includes("Track packets are non-blocking, but final change acceptance is blocking."));
+  assert.ok(doctrine.includes("Review every track with the set required by its grade and engaged focus areas."));
+  assert.ok(doctrine.includes("Verification or gate machinery receives the general implementation reviewer even at SMALL."));
+  assert.ok(doctrine.includes(`Before dispatching review threads, read ${REVIEW_RULES_DOC}`));
 });
 
 test("doctrine states the exact restart-refusal test", { timeout: 5000 }, async () => {

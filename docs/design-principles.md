@@ -312,20 +312,20 @@ the load-on-demand discipline the extension itself prescribes:
 
 - **Tier 1 — always loaded.** The doctrine in `mode.ts` is the operational
   distillation of P1–P10, the review discipline defined in
-  `review-rules.md`, and a pointer to the class-scaled track workflow
-  protocol that ships with this package (`track-workflow.md` in this directory),
+  `review-rules.md`, and a pointer to the size-grade and focus-area workflow
+  that ships with this package (`track-workflow.md` in this directory),
   appended to the system prompt every turn while orchestrator mode is
   on. Sizing it matters to the tiering argument, so it is measured
-  rather than asserted: with every conditional tail rule off and
-  `workflow.draftPRs` off, the block is **2,701 portable characters /
-  46 lines**, and configuring the router for six models nearly
-  doubles it, to **4,731** on that same basis — the routing rule
+  rather than asserted. With every conditional tail rule off and
+  `workflow.draftPRs` off, the block is **2,908 portable characters /
+  48 lines**. Configuring the router for six models grows it to
+  **4,938 portable characters / 69 lines** on that same basis. The routing rule
   renders one table row per routable model. (Portable characters, and
   the rest of the configurations, are defined and tabulated in
   `context-budget.md`; the raw count also depends on where the package
   is installed, because the doctrine embeds absolute doc paths.) At a
-  rough 4 characters per token that is order-700 tokens, order-1,200
-  with the router on — so the original "a few hundred tokens" holds
+  rough four characters per token that is about 727 tokens, or 1,235
+  with the six-model router. The original "a few hundred tokens" holds
   only for the fixed rules, and a configured router buys its table with
   a real slice of every request. It still covers everything routine
   dispatching needs.

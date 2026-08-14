@@ -83,7 +83,7 @@ export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code a
   prose, enumerate the affected audiences, reader tasks, claims,
   definitions, cross-references, examples, exceptions, and boundary
   conditions instead of execution paths.
-- Back every defect claim (blocker or should-fix) with a concrete
+- Back every defect claim (blocker or major) with a concrete
   counterexample: the input, state, or interleaving that triggers the
   defect, traced through the code.
 - Back every correctness claim ("no issue here") with a justification

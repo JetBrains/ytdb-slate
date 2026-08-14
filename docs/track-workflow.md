@@ -1,426 +1,350 @@
 # Track-based development workflow
 
-The mandatory flow for every change delivered under this workflow:
+This document is the lifecycle spine for every repository change. Size is a
+workload grade. Focus identifies the review gates that the change engages.
+Neither axis substitutes for the other.
 
-Research → confirm the change class → open a research log when required
-→ prepare the high-level design for medium, complex, and risky changes
-→ obtain pre-adversarial approval and adversarial review for complex and
-risky changes → obtain pre-implementation approval for every high-level
-design → per-track loop (implement → track code review when required →
-fixes → mandatory user review → marker commit when required) → delivery.
+| actor | grade or shape | document | exact section |
+| --- | --- | --- | --- |
+| orchestrator | every change | this document | § Lifecycle and phases |
+| orchestrator | size and focus assessment | [blast-radius.md](blast-radius.md) | § Two independent axes |
+| implementer | every track | this document | § Track intention block and focus declaration |
+| reviewer | every review | [review-rules.md](review-rules.md) | § Reviewer sets, merge rule and charters |
+| user | completed track | [user-notes.md](user-notes.md) | § Track packets |
+| publisher | draft pull request enabled | [pr-publishing.md](pr-publishing.md) | § Creation |
 
-Publishing is conditional on `workflow.draftPRs` in the project's
-`slate.json` (default: false). When it is ENABLED, an umbrella draft
-PR is created after the applicable pre-implementation gates pass and
-before implementation starts — see pr-publishing.md in this directory
-for all PR mechanics. When it is DISABLED, the workflow log is the
-change's durable record; its lifecycle is defined in § Research log
-below. Marker commits work identically in both modes.
+## Lifecycle and phases
 
-## Change classes
+The mandatory phases run in this order:
 
-Gates key on the change class, not on size. Evaluate these tests in order.
-The first match sets the class:
+1. research.
+2. predict size and focus.
+3. obtain user confirmation.
+4. design and validate when required.
+5. run adversarial design review when required.
+6. obtain final design approval.
+7. run the track loop.
+8. run closing review when required.
+9. obtain blocking final acceptance.
+10. deliver.
 
-1. **Risky:** The change touches concurrency, durability, recovery,
-   transactional semantics, security, or user data. This class also covers a
-   public API or behavioral change, or a silent failure mode.
-2. **Complex:** The shape is unclear, several parts interact, or a live design
-   alternative exists.
-3. **Trivial:** The change is an obvious fix with no behavioral change, and one
-   reviewer pass covers it.
-4. **Medium:** Otherwise.
+The track loop is implement, validate, declare focus, measure the first real
+committed boundary, review, fix, deliver a non-blocking packet, and mark the
+boundary.
 
-The orchestrator proposes the class and the user confirms it. The
-proposal states the class, the reason, and the property that would
-raise it. The orchestrator re-proposes the class whenever new
-information appears. An upgrade to any higher class after implementation
-starts pauses implementation. The orchestrator opens and backfills a
-research log when the new class requires one, then runs every newly
-required gate over the WHOLE change before implementation resumes. A
-gate whose prescribed timing has passed runs retroactively. The class
-is never lowered after implementation starts.
+A high-level design states the goal, approach, key decisions, rejected
+alternatives, risks, scope boundary, and open questions. The user validates the
+design before an adversarial design review. A fresh adversary tests the design
+and cited evidence. `No substantive findings.` is a valid result.
 
-Size drives only the track split and marker commits. The orchestrator
-owns the track split at every class; it is not a user approval gate.
+The orchestrator triages each finding by strengthening a rationale, reversing
+a decision, or recording an accepted risk. A reversal permits one more
+adversarial round. The user gives final design approval after adversarial review
+and triage. When no adversarial review is required, validation and final
+approval form one gate.
 
-### Worked classification examples
+Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
+[pr-publishing.md](pr-publishing.md). When disabled, the retained research log
+is the durable workflow record.
 
-**Trivial — correct one misspelled word in an internal comment.**
+## Size script and focus prediction
 
-- Step 1 does not match because no risky category changes.
-- Step 2 does not match because the shape is clear and no parts interact.
-- Step 3 matches. The correction is an obvious fix, behavior does not change,
-  and one reviewer pass can verify the complete diff.
-- Result: **Trivial**.
+The orchestrator predicts the initial size grade before committed work exists.
+The prediction states the expected changed production-logic lines, files,
+grade, basis, and uncertainty. A committed candidate may inform the prediction.
+It never mechanically sets the initial grade.
 
-**Medium — rename one internal helper and update its 40 call sites.**
+| size grade | predicted changed production-logic lines | file rule |
+| --- | ---: | --- |
+| SMALL | 0–50 | more than 25 files raises the grade to MEDIUM |
+| MEDIUM | 51–1,000 | more than 25 files raises the grade to LARGE |
+| LARGE | more than 1,000 | remains LARGE |
 
-- Step 1 does not match because no public surface, behavior, or other risky
-  category changes.
-- Step 2 does not match because the mechanical shape is clear, the call sites
-  do not interact, and no design alternative exists.
-- Step 3 does not match. The repository-wide refactor is not an obvious fix,
-  and one reviewer pass cannot cover all references, strings, and documentation.
-- Step 4 matches by default.
-- Result: **Medium**.
+Use the higher grade when uncertainty crosses a band. The user may confirm a
+lower prediction before implementation starts. Record the reason. The grade
+never falls after implementation starts.
 
-**Complex — reorganize test-fixture assembly across its loader, builder, and
-cleanup modules.**
+| gate | SMALL | MEDIUM | LARGE |
+| --- | --- | --- | --- |
+| high-level design | only when design uncertainty or a changed existing public contract engages it | required | required |
+| validation before adversarial review | when a design adversary is required | required | required |
+| adversarial design review | when design uncertainty engages, or an existing consumer-reachable rule changes | when the same focus condition engages | when the same focus condition engages |
+| final design approval | after required design work | required after validation and any adversarial review | required after validation and any adversarial review |
+| research log | when any trigger fires | always | always |
+| Reviewer I | no by grade, except carved-out verification work | every track | every track |
+| engaged-area reviewers | every engaged area | every engaged area | every engaged area |
+| final change acceptance | blocking | blocking | blocking |
 
-- Step 1 does not match because production behavior and every risky category
-  stay unchanged.
-- Step 2 matches. Several parts interact, and live alternatives either
-  centralize fixture state or pass it explicitly between the modules.
-- Result: **Complex**.
+The package-resolved command does not measure absent work. At the first track
+boundary, run it against the real committed range:
 
-### Gate matrix
-
-| Gate | Trivial | Medium | Complex | Risky |
-| --- | --- | --- | --- | --- |
-| High-level design | No | Yes | Yes | Yes |
-| High-level design shown before adversarial review | No | No | Yes | Yes |
-| High-level design shown before implementation | No | Yes | Yes | Yes |
-| Adversarial review of the high-level design | No | No | Yes | Yes |
-| Research log | No, unless a trigger fires | Yes | Yes | Yes |
-| Agent code review of a track | No, when the whole change is wholly trivial | Yes | Yes | Yes |
-| User review of the track diff | Yes | Yes | Yes | Yes |
-
-The track split belongs to the orchestrator at every class.
-
-## Research phase (lightweight)
-
-Research is interactive exploration before any implementation: read
-real source code, trace call chains, and clarify aims and constraints
-with the user. Before the class is settled, no design document,
-implementation plan, or mandatory artifact is assumed. The phase ends
-when the initial shape and class of the change are understood.
-
-## Research log
-
-A research log is mandatory for every change above trivial. For the
-trivial class, and during research before the class is settled, start
-research WITHOUT a log. Open one the moment any trigger below fires,
-then backfill the decisions already made — backfilling is cheap while
-they are still in context.
-
-| # | Trigger |
-| --- | --- |
-| 1 | Second non-trivial decision (a choice where a plausible alternative was rejected for a reason). |
-| 2 | First surprise — the codebase behaves differently than assumed. |
-| 3 | First risky invariant identified — concurrency, durability or recovery, transactional semantics, a public API or behavioral change. |
-| 4 | Research will cross a session boundary. |
-| 5 | The change is multi-track. |
-| 6 | The user requests it. |
-
-The trigger table governs the trivial class and research before class
-confirmation. Once the user confirms a class above trivial, the log is
-mandatory whether or not a trigger fired.
-
-The Decision Log remains append-only throughout research and
-implementation. It records decisions taken after implementation
-starts because the log is the record that survives a context handoff.
-At high-level design approval, it records the workflow rule-set version and the
-gates already passed.
-
-### Log format
-
-Four sections are opened with the log:
-
-- **Initial request** — verbatim, written once.
-- **Decision Log** — append-only. Each entry is at most 4 lines: the
-  decision, why, and the alternatives rejected. Each entry MUST be
-  self-sufficient in one sentence; optional evidence citations go in
-  as deep links.
-- **Surprises & Discoveries**
-- **Open Questions**
-
-Three more named sections join as the corresponding material appears:
-
-- **Planned changes** — contains the high-level design when it
-  converges; the applicable design-review and adversarial-review
-  verdict lines are appended at its end.
-- **Suggestions** — one standalone entry per suggestion. Each entry
-  states what the suggestion is, where it applies, why it matters,
-  and what a fix needs. It MUST be readable without the review that
-  produced it.
-- **Track table** — added when the orchestrator splits the change into
-  tracks (constraints in § Track table). With publishing enabled the
-  table also lives in the PR description as pr-publishing.md directs.
-
-### Persistence
-
-During the change the log lives as an untracked file
-`research-log.md` at the repo root. The log is RETAINED until delivery
-with `workflow.draftPRs` either enabled or disabled. Post-design and
-implementation decisions keep appending to its Decision Log.
-pr-publishing.md owns how the log content reaches the pull request
-description when publishing is enabled.
-
-### Delivery
-
-A change is DELIVERED when its final squashed commit lands on the
-repository's default development branch, or when the user explicitly
-abandons it. With publishing disabled for a medium, complex, or risky
-change, the agent folds the log into the delivery commit's message body
-— the motivation, Planned changes, and the applicable verdict lines:
-the same content that would have become the PR description — and strips
-the track table (track numbers are ephemeral branch-life identifiers and
-would dangle in history). For a trivial change, the initial request
-supplies the motivation, and the confirmed class proposal plus
-implemented result supply Planned changes. If that trivial change has a
-log, also fold in its relevant decisions and Open Questions. In either
-case, resolve or explicitly hand any remaining Open Questions to the
-user, then delete any log file. With publishing enabled,
-pr-publishing.md owns delivery of the log content. When the user reports
-the merge or a later session detects it, the agent deletes the retained
-local log. In both modes the retained local log is deleted only at
-delivery. On abandonment the agent deletes the log file after offering
-its content to the user for archiving.
-
-The delivery commit body carries a one-line index of every suggestion:
-identifier, location, and one-line summary. The standalone suggestion
-text lives in the final report to the user, or in a tracker issue when
-the project enables that prompt.
-
-Aim to keep the final delivery commit body at or below 16,384 UTF-8
-bytes, excluding the subject. This is a target, not a gate. Measure
-the exact body text as UTF-8 without adding a newline: count the byte
-sequence after the subject separator in `git cat-file commit <sha>`.
-Do not use a formatted `git log` value such as `%b`, which adds an
-output newline. For a proposed commit, apply the same rule to the
-exact body text before committing.
-
-If the body is larger, first remove repetition and merge overlapping
-material. Then add a `Size exception` paragraph to the delivery commit
-body carrying measurements, not assurances: the overrun, by the
-canonical method above; every top-level section's byte count by that
-same method, largest first; and, for each section that was condensed,
-its byte count before condensing. A section with no before-count is
-visibly untouched, so the user weighs any claim that nothing could be
-removed against the counts beside it, and can refuse the exception. Do
-not remove decisions, risks, verdicts, or evidence needed to
-understand or review the change only to meet the target. Immediately
-before presenting the final delivery commit to the user, measure it by
-that method and obtain the user's approval of the body and of any size
-exception; repeat both steps if the body changes before it lands.
-
-By this canonical measurement, the most recent accepted delivery body
-from the publishing-enabled path was 20,957 bytes, 27.9% above the
-target. That precedent establishes only that a justified overrun can
-pass in that path. Publishing-enabled descriptions can carry material
-that this path does not, so the figure is neither a direct measurement
-nor an exercised exception for publishing-disabled delivery.
-
-### Under-trigger guardrail
-
-For a trivial change shaped without a log, state this explicitly (for
-example, "no log kept — one trivial decision, no surprises") so the
-user can override and request one. This guardrail applies only to the
-trivial class.
-
-## High-level design and user review
-
-The **high-level design** is the workflow's single design artifact. It
-is required for medium, complex, and risky changes. It contains only the
-goal, approach, key decisions, rejected alternatives, risks, scope
-boundary, and open questions. Implementation detail belongs to code
-review, not to the high-level design.
-
-For complex and risky changes, present the high-level design twice: once
-before the adversarial review, and once before implementation. For
-medium changes, present it once before implementation. For trivial
-changes, there is no high-level design and no consent gate. When the
-project sets `writing.check` to true, the high-level design follows the
-project's writing convention.
-
-At each presentation, the orchestrator loops on user feedback and
-revises the high-level design and log until the user explicitly
-approves. For a complex or risky change, append this verdict line after
-the first approval:
-
-```
-Design review (pre-adversarial): user-approved — YYYY-MM-DD
+```bash
+node <package>/extension/size-grade.mjs --base <ref> --head <ref>
 ```
 
-For every change with a high-level design, append this second verdict
-line after the approval immediately before implementation:
+Record both counts and the grade. A measured higher band halts work and returns
+to § Confirmation gate. A lower band does not lower the grade. The canonical
+counting and exclusion list lives only in [blast-radius.md](blast-radius.md)
+§ Canonical counting and exclusion rules.
 
-```
-Design review (pre-implementation): user-approved — YYYY-MM-DD
-```
+The orchestrator predicts focus from the request, repository evidence, likely
+files, and uncertainty. Uncertainty engages an area.
 
-The Planned changes section of the retained log is the durable home
-for the high-level design and both lines. If adversarial triage changes
-the high-level design, the second presentation shows every change
-before the user gives the pre-implementation approval.
+<!-- focus-area-table:begin -->
+| # | focus area | the gate it adds | where the gate runs |
+| --- | --- | --- | --- |
+| 1 | concurrency | one area reviewer for concurrency | every track that engages the area |
+| 2 | durability | one area reviewer for durability and recovery | every track that engages the area |
+| 3 | security | one area reviewer for security | every track that engages the area |
+| 4 | core behaviour or algorithms | one area reviewer for behavioural correctness | every track that engages the area |
+| 5 | performance | one area reviewer for performance | every track that engages the area |
+| 6 | design uncertainty | the change-level adversarial design review, and no track reviewer | once, at the design loop |
+| 7 | public interface or contract | one contract reviewer | every track that engages the area |
+| 8 | silent failure mode | one area reviewer that must state how each failure would be detected | every track that engages the area |
+| 9 | project test artifact | one test-quality and structure reviewer | every track that engages the area |
+| 10 | user-facing or licensing-adjacent prose | one prose and licensing reviewer | every track that engages the area |
+<!-- focus-area-table:end -->
 
-## Adversarial review of the high-level design
+[blast-radius.md](blast-radius.md) defines each area and owns the canonical
+copy of this table.
 
-Adversarial review runs only for complex and risky changes. It runs
-after the user approves the high-level design for review and before its
-pre-implementation presentation. The reviewer judges the HIGH-LEVEL DESIGN.
-Implementation detail and style are out of bounds. The reviewer must
-be a fresh context that did not author the decisions.
+## Confirmation gate
 
-The adversary attacks the log and its cited evidence. Licensed null
-verdict: "no substantive findings" is an acceptable, respected outcome
-— the review prompt MUST say so.
+The orchestrator presents one proposal before implementation. It states the
+predicted grade, expected counts, basis, uncertainty, change-level focus set,
+per-track focus sets, split, and gates. The user confirms the grade and focus
+set together. No file-modifying dispatch starts before confirmation and every
+required pre-implementation gate.
 
-### Finding triage
+New evidence can only raise the grade or add focus. Either change halts work,
+updates the coverage register, and requires user re-confirmation. Newly required
+gates run over all affected completed work before work resumes.
 
-The orchestrator triages every finding itself with one of three
-outcomes:
+## Focus touchpoints
 
-- **Strengthen** — enrich the alternatives-rejected rationale of the
-  attacked decision.
-- **Reverse** — change the decision now, while it is still cheap.
-- **Accept-as-risk** — record it in Open Questions / Risks.
+Focus has four mandatory touchpoints.
 
-Every reversal and every accepted risk appears in the high-level design
-that the user approves before implementation. A design-stage finding is
-triaged at design time whatever its severity. review-rules.md §5 governs
-implementation-stage suggestions, not design-stage findings.
+1. **PREDICT.** The orchestrator predicts the change-level and per-track sets
+   before confirmation.
+2. **DECLARE.** The implementer declares every area actually engaged by each
+   changed file. Use one line per area and file:
 
-One round runs by default. A second round runs only after a reversal.
-Append a verdict line to the log:
+   `focus: <area name> | file: <path> | reason: <one short clause>`
 
-```
-Adversarial review: passed, N accepted risks — YYYY-MM-DD
-```
+3. **CONFIRM.** The orchestrator compares the declaration with the prediction
+   before review. A new area fires the halt in § Confirmation gate.
+4. **BACKSTOP.** Every reviewer checks for missed areas. A missed area blocks,
+   fires the same halt, and receives all retroactive gates.
 
-### Escape hatch during implementation
+A missing declaration blocks the track. Retry the implementer once. Escalate
+a second failure under [user-notes.md](user-notes.md) § Mandatory escalation
+set.
 
-review-rules.md in this directory defines a separate escape-hatch
-adversarial review. It runs during implementation when a fix is stuck.
-It is separate from this pre-implementation gate. Its output is
-evidence and never a verdict.
+## Fast path
 
-## Track loop
+A SMALL single-track change may use the fast path only when every item passes.
 
-A track is one unit in a stacked series: it builds on the tracks
-before it, stands alone as an independently reviewable diff, and
-carries as much of the change as one reviewable diff holds.
+1. The outcome is mechanical and has one clear implementation.
+2. No design uncertainty exists.
+3. No existing consumer-reachable rule changes.
+4. No sensitive configuration changes.
+5. No silent failure requires new detection reasoning.
+6. No focus area is engaged.
+7. No project test artifact changes.
+8. No verification, gate, coverage, packaging, release, or workflow machinery changes.
+9. The change remains within the declared file list.
+10. One mechanical validation can establish the result.
 
-Sizing (soft bounds): a track of ≤~12 in-scope files folds into a
-neighbor; >~20–25 in-scope files is a split candidate. Size determines
-the split and whether marker commits are needed. It does not determine
-the change class or any gate.
+Any project test artifact voids the fast path. Any verification or gate
+machinery also voids it. Carved-out SMALL verification work receives Reviewer I.
+Other SMALL work still receives every engaged-area reviewer.
 
-The orchestrator owns the track split. No user approval gate applies
-to the split.
+## Short packet shape
 
-All development is linear on the single working branch; each track is
-a contiguous commit range. Track numbering is append-only: completed
-tracks never renumber, a replanned remainder gets new numbers, and
-abandoned planned tracks are struck through in the track table — their
-numbers are never reused.
+A SMALL packet has exactly five fields:
 
-Every review dispatch carries a track intention block with four
-fields: target, scope boundary, deferred work, and acceptance
-condition.
+1. target and confirmed grade.
+2. commit range and changed files.
+3. focus declaration and any focus change.
+4. concise result.
+5. **verification outcome**, combining the mechanical checklist, test and check
+   evidence, and machine-review outcome.
 
-Per-track sequence:
+The packet is non-blocking. It does not certify user approval. Final change
+acceptance remains blocking.
 
-1. Implement the track, following the project's own engineering
-   guidelines for commit/test/push discipline. An implementation
-   commit body states what had to be implemented, then how the result
-   differs and why. It never restates the diff.
-2. MANDATORY agent code review of the cumulative track diff
-   `git diff <prev-marker>..HEAD` — correctness, test coverage, style,
-   API surface, documentation sync — composed per review-rules.md in
-   this directory. Skip this step only when the WHOLE change is
-   trivial. No track inside a medium or higher change is trivial.
-3. Fix findings and handle suggestions under review-rules.md §5. Record
-   each suggestion as a standalone entry in the log's Suggestions
-   section.
-4. MANDATORY user review: present the track summary and the track diff
-   to the user, then loop on user feedback — landing fixes as normal
-   commits — until the user explicitly approves. The agent waits for
-   that approval; the marker commit certifies a fully user-reviewed
-   track.
-5. Land the marker commit when the change has more than one track.
-6. Update the track's row in the track table (status, scope drift);
-   revise the high-level design only if reality diverged from it.
+## Track intention block and focus declaration
 
-### Internal review loops and escalations
+Every implementation and review dispatch carries these fields:
 
-The adversarial and agent code review loops are internal to the
-orchestrator. The orchestrator asks the user only for a decision it
-cannot make. review-rules.md §6 owns the escalation list.
+- target.
+- scope boundary.
+- deferred work.
+- acceptance condition.
+- declared file list.
 
-### Track table
+The implementer returns the fixed focus declaration lines from § Focus
+touchpoints. Implementation commit titles use `Track <n>: <intent title>`.
+Commit bodies use the intent and deviation-delta discipline in
+[blast-radius.md](blast-radius.md) § Commit discipline for drift and boundaries.
 
-This section owns the track-table constraints. The table is a
-display-only index of the split: track names, one-line scopes,
-statuses — never commit SHAs, and never the source of truth for track
-boundaries (marker commits are, see § Marker commits). It lives in the
-umbrella PR description when publishing is enabled and in the workflow
-log's Track table section in both modes.
+Tracks are contiguous and execute through one sequential writer. Independent
+research and reviews may run in parallel. File-writing implementation does not.
+A later track builds on the accepted boundary before it.
 
-## Marker commits (source of truth for track boundaries)
+## Session handoff and the research log
 
-Format — an empty commit with a zero-padded two-digit track number:
+MEDIUM and LARGE changes always use `research-log.md` at the repository root.
+A SMALL change opens it when any retained trigger fires.
+
+| trigger | SMALL | MEDIUM and LARGE |
+| --- | --- | --- |
+| second non-obvious decision | opens the log | already open |
+| surprise about repository behaviour | opens the log | already open |
+| any focus area engages | opens the log | already open |
+| session boundary | opens the log | already open |
+| multiple tracks | opens the log | already open |
+| plan-changing ruling | opens the log | already open |
+| user request | opens the log | already open |
+| unresolved question needed later | opens the log | already open |
+
+Open these sections: Initial request, Decision Log, Surprises and Discoveries,
+and Open Questions. Add Planned changes, Track table, coverage register,
+follow-up ledger, override log, and escalation records when needed. Do not use
+an observations section. Worker observation files are review evidence, not
+user feedback.
+
+At MEDIUM and LARGE, every retained entry is typed as `decision`, `evidence`,
+`ruling`, `risk`, `question`, `focus`, `verification`, or `handoff`. Append an
+entry immediately after its event. Keep each entry self-contained.
+
+Do not copy secrets, credentials, private user data, or unnecessary personal
+data into the log. Record a privacy exception as a typed ruling. State what was
+omitted and why.
+
+Use a safe write method. Create the file without following a symlink. Append
+through a temporary file and atomic rename when replacement is needed. Keep the
+log untracked. Never overwrite it from a stale in-memory copy.
+
+Before a session handoff, append a state summary. It names the confirmed grade,
+focus sets, current track, last boundary marker, live registers, open findings,
+checks run, and next action. A context-budget handoff, user-requested handoff,
+or session end with unfinished work triggers this summary.
+
+## Resume order and reconciliation
+
+Resume in this fixed order:
+
+1. Read the initial request and latest state summary.
+2. Read decisions, rulings, risks, and open questions added since the prior
+   summary.
+3. Inspect marker commits and the current branch state.
+4. Reconcile the declared file list, track table, coverage register, focus sets,
+   and live diff.
+5. Re-run any stale precondition check.
+6. Continue only after answering: **What changed since the last state summary,
+   and does it change grade, focus, scope, or required gates?**
+
+A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
+history as boundary authority. The track table is display-only.
+
+## Closing review
+
+Every part of the combined diff must reach the review set required by the whole
+change. A coverage register records any track whose set falls below that set.
+User review never replaces machine review.
+
+Closing review runs for these combinations:
+
+- every LARGE change.
+- every multi-track change with a shared file or interface.
+- every change with cross-track focus that no single track engaged.
+- every change whose coverage register contributes a range.
+
+The closing set includes one `integration` reviewer. It also includes each
+missing change-level area reviewer for contributed ranges. Test-quality and
+structure, and prose and licensing, remain additional reviewers when engaged.
+Reviewer I does not replace integration.
+
+Reviewer composition follows [review-rules.md](review-rules.md) § Reviewer
+sets, merge rule and charters. The coverage invariant is satisfied only when
+every changed part reaches all required perspectives. Cap production area
+reviewers at four per review action. Split review actions when more are needed.
+Reviewer I, test-quality and structure, prose and licensing, and integration do
+not count against that cap.
+
+A closing review has two fix rounds. A round that clears nothing stops and
+escalates. At budget exhaustion, the user may waive the remainder, extend the
+budget, or split the range. The change cannot reach final acceptance with an
+open blocker or an unverified addressed finding.
+
+<!-- safety-floor:begin -->
+- concurrency and ordering guarantees.
+- durability, recovery, and transactional semantics.
+- security, authorization, secrets, and user-data exposure.
+- consumer-reachable public interfaces and behavioural contracts.
+- silent failures without a reliable detection path.
+- missing or ineffective tests for changed behaviour, branches, or failure paths.
+- verification and gate machinery that can report success without establishing its claim.
+<!-- safety-floor:end -->
+
+## Delivery and termination
+
+Track packets are non-blocking. The orchestrator may start the next confirmed
+track after packet delivery and a valid boundary marker. Final change-level
+acceptance is blocking at every grade.
+
+Done means all required reviews and gates passed. No blockers remain. Every
+addressed finding is verified. Every major finding is fixed or has a recorded
+user waiver.
+
+The note queue is drained. Every escalation has a disposition. The coverage
+invariant holds. The user accepts the final change.
+
+A multi-track boundary uses an empty marker commit:
 
 ```bash
 git commit --allow-empty -m "Track NN complete: <short name>"
-# e.g.  Track 03 complete: cache-refactor
 ```
 
-List all boundaries offline:
+Marker commits are the boundary authority. Track N is the range after marker
+N-1 through marker N. A single-track change has no marker. Rebases move markers
+with history. Any layered process that pins marker refs must re-pin after a
+rebase.
 
-```bash
-git log --oneline --grep '^Track [0-9]* complete:'
-```
+The track table lists names, one-line scopes, and status. It contains no commit
+identifier. Track numbers are append-only. Abandoned tracks are struck through.
+Numbers are never reused.
 
-Track N's diff is `marker(N-1)..marker(N)`; track 01's base is the
-merge-base with the repository's default development branch.
+Delivery is the final squashed commit on the default development branch, or an
+explicit abandonment. Resolve or hand every open question to the user. Follow
+[user-notes.md](user-notes.md) for final accounting. Delete the retained local
+log only at delivery. On abandonment, offer its content for archival first.
 
-Properties:
+Aim for a delivery body at or below 16,384 UTF-8 bytes. Measure exact bytes from
+the commit object. If larger, remove repetition first. Then record a measured
+size exception and obtain user approval. Never remove needed decisions, risks,
+verdicts, or evidence merely to meet the target.
 
-- **Rebase-resilient** — markers are in the history being rebased, so
-  they move with it.
-- **Zero cleanup** — delivering the change as a single squashed unit
-  erases them.
-- The track table is never an alternative source of truth for
-  boundaries (constraints owned by § Track table).
-
-A change with one track lands no marker — the whole branch diff is the
-track.
-
-## Rebase note
-
-After any rebase of the working branch the markers move with the
-rebased history — nothing to fix in this baseline. Any layered process
-that pins refs to marker commits must re-pin them after a rebase.
-
-## Peer review (project-layered)
-
-This baseline contains no peer-review process. Projects may layer one
-— e.g. per-track satellite review PRs for separate peer reviewers —
-via a doctrine extension (the `doctrineExtraPath` key in the project's
-`slate.json`). A layered peer review supplements, never replaces, the
-mandatory per-track user review.
+No release occurs in this workflow. Packaging, publication, version changes,
+tags, and registry release require a separate explicit user request and the
+project release runbook.
 
 ## Migration
 
-A change whose high-level design was approved under the previous rules finishes
-under those rules. The new rules apply to a change started after the
-upgrade. When the previous document text is no longer installed, the
-log's recorded rule-set version and gate list are the authority.
+A change whose design was approved under an earlier workflow finishes under
+that recorded workflow. New work uses this size-grade and focus-area workflow.
+Historical records may name earlier gates only to identify the governing rule
+set.
 
 ## Layering richer workflows on top
 
-Richer internal planning and execution machinery — whatever agent
-tooling is in use — may be layered on top of this baseline, provided
-it satisfies the mandatory gates for the confirmed class: a
-high-level design for medium and above; high-level design presentation
-before adversarial review for complex and risky; high-level design
-presentation before implementation for medium and above; adversarial
-review of the high-level design
-for complex and risky; a research log for medium and above; agent code
-review for every track unless the whole change is trivial; mandatory
-user review of every track diff; marker commits at multi-track
-boundaries; and, when draft-PR publishing is enabled, the obligations
-of pr-publishing.md. This document defines the baseline that applies
-regardless of the tooling.
+A project may add doctrine through `doctrineExtraPath`. Added rules may enrich
+planning, peer review, or delivery. A layered peer review supplements machine
+review and user acceptance. It never replaces either. Complete or obtain a user
+waiver for every pending layered review before a draft pull request becomes
+ready for review.
+
+Added rules may not replace confirmation, design and validation gates, focus
+coverage, fresh machine review, marker authority, blocking final acceptance,
+or draft-pull-request safeguards.

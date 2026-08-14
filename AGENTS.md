@@ -2,7 +2,9 @@
 
 ## Overview
 
-This repo is a [pi package](https://pi.dev/docs/latest/packages) providing the **slate** extension: thread-weaving orchestration for pi (orchestrator dispatches bounded actions to persistent worker threads; results come back as compressed episodes; a shipped doctrine enforces a class-scaled research/design-review/adversarial-review/track-review workflow, with optional draft-PR publishing).
+This repo is a [pi package](https://pi.dev/docs/latest/packages). It provides the **slate** extension for thread-weaving orchestration in pi. The orchestrator dispatches bounded actions to persistent worker threads. Results return as compressed episodes.
+
+The shipped doctrine uses SMALL, MEDIUM and LARGE size grades. Ten focus areas select additional gates. Draft pull request publishing is optional.
 
 Dispatch also carries **action-level model routing**: `router.models` in the project's `slate.json` names a CLOSED candidate list, resolved once per session, from which each action's model and effort are chosen and guarded. It is off by default: an empty list adds no candidate-routing policy, base seed, context-window substitution, billing notice, or routing doctrine rule. Per-action arguments and pre-existing live failover holds remain active. Reference: `docs/model-routing.md`, which the doctrine cites at runtime alongside the workflow/review/design docs.
 
@@ -39,7 +41,7 @@ This repo runs slate on itself:
      The session JSONL holds no doctrine text. Its entries are `session`, `message`, `custom`, `model_change` and `thinking_level_change`, and the system prompt is not one of them. To verify the CONTENT of the doctrine, ask the model to repeat it, and do not grep the transcript. This gap is a smoke-test gap, and it is not a coverage gap. The `doctrine-*` checks cover the rendering, and the router checks cover the resolution. Only a live session proves that the wiring runs.
   4. **Run by hand every net that CI leaves out.** The hand-run set is:
      - the verification ladder (§ Verification ladder below).
-     - the package-content check (§ Package-content check).
+     - the package-content check and its `--self-test` (§ Package-content check).
      - the writing checker's correctness suite.
      - the writing checker's scaling gate (§ Writing-checker nets).
      - the writing-reminder integration check (§ Writing-reminder integration check).
@@ -181,6 +183,7 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 
 - `extension/worker-extensions.ts` — the worker-extension resolver (candidate filtering, load-unit selection, barriers, matching, memoization) and the doctrine rule it feeds in `extension/mode.ts`;
 - `extension/mode.ts`'s **action-routing doctrine rule** (`doctrine-*`, driven through `registerSlateMode`'s `before_agent_start` handler with a fabricated resolution): that a router-OFF session gets byte-identically nothing, that an UNTRUSTED project gets no routing rule even with `router.models` fully configured (SE3's trust re-gate — defence in depth, so its removal has no visible symptom), that the conditional tail rules are numbered by position, its **injection safety** — the rule deliberately bypasses `sanitizeForDoctrine` (that sanitizer strips `|`, which would destroy the table), so the narrow `cell()` is the entire defence and the checks attack it structurally — that no research trace tag or `nonPreferred` reason leaks into the prompt, and a **size budget**, because this text is injected into every session's system prompt and paid for on every turn. The group is voided by `profiles-load`: one of its checks renders the real shipped table;
+- the shipped workflow contracts. These cover exact equality of marked blocks and the widened project-test-artifact condition. They also cover SMALL fast-path exclusions, both composite-review sections, retired-role absence, and every named section target.
 - `extension/model-router.ts` — the model router: the `router` config sanitizer, candidate resolution (drops, ordering by preference/tier-sourcing/tier/price, the `nonPreferred`-aware base-model pick, the W1/W3/failover-coverage warnings, dedup, memoization) and the dispatch-side effort predicate;
 - `extension/route.ts` — the route planner (`route-*`): the SAFETY CORE of action-level routing, i.e. the argument check the code numbers guard 0 (effort vocabulary) and the seven dispatch guards 1–7 (list membership on both router states, per-model ladder validity, evidence gap, API-rejected level, the never-blocking context-window substitution, long-context billing, and the failover carve-out) plus the base-effort seed. It was extracted from `threads.ts` into a pure module for exactly this harness, because a guard that silently stops guarding still "works": the dispatch runs and an episode is written;
 - `extension/state.ts` — the canonical model-spec vocabulary (`spec-*`: `isModelSpec` / `splitModelSpec` / `describeSpecDefect` / `describeConfusables`), which `failover.ts`, `episodes.ts`, `worker.ts` and the router all share, plus the single-spec config-key sanitizer (`sanitizeEpisodeModel`) — AND the **snapshot record sanitizers** (`state-*`: `sanitizeThreadRecord` / `sanitizeEpisodeRecord`, BG26), which are re-run over the user's whole thread and episode history at every session restore and are now pinned: a MISSED repair throws out of the `thread` tool, a FALSE one silently destroys a thread the user still needs;
@@ -203,7 +206,7 @@ Everything runs against fake offline providers in a throwaway agent directory, s
 
   Doctrine rendering is an injection surface and per-turn cost that only this suite watches. A `route.ts` guard change is the highest-stakes case. Re-read `threads.ts` when a guard input changes because the harness fabricates those inputs. Changes to shared `state.ts` helpers also need the ladder. Router errors can remain invisible while dispatch still works, so a smoke test proves nothing. `verification/README.md` records the checks and mutation method.
 - It imports `extension/worker.ts` for the preamble builder and reads the prompt/config plumbing in that module and `extension/threads.ts`; nothing else in either module is covered. The worker-session load path — the allowlist-mode extension load, the `excludeTools` deny list that keeps slate's dispatch tools out of a worker, and the post-load collision re-check — is out of its scope. Exercise those with the isolated-load smoke test (`pi --no-extensions -e .`) above after changing `extension/worker.ts`, and the ladder's `WK1` rung for that module's settings isolation. It likewise stops at the PURE boundary: it proves what the planner DECIDES, not what `threads.ts` does with a verdict (applying the switch, raising a tool error, aborting without an episode, remembering the long-context notice). Those are separate mechanisms; the ladder's `WK1` rung covers one slice of the first.
-- **Doctrine size figures are install-path dependent, so compare portable counts.** The doctrine embeds three to six absolute docs paths. Each docs-directory character therefore costs three to six rendered characters. `doctrine-budget` removes each docs-directory occurrence while keeping filenames. Two terms prove that normalization still changes the measurement. `docs/context-budget.md` defines the same convention, and `docs/model-routing.md` defers to it. Rows using the same fixture and basis MUST agree across `docs/context-budget.md` and `verification/README.md`. A different basis must be named explicitly. Deliberate wording, roster, cap or fixture changes require fresh renders. Update resolver exact expectations and every published figure in the same commit.
+- **Doctrine size figures are install-path dependent, so compare portable counts.** The doctrine embeds four to seven absolute docs paths. Each docs-directory character therefore costs four to seven rendered characters. `doctrine-budget` removes each docs-directory occurrence while keeping filenames. Exact checks pin each fixture's occurrence count. `docs/context-budget.md` defines the same convention, and `docs/model-routing.md` defers to it. Rows using the same fixture and basis MUST agree across `docs/context-budget.md` and `verification/README.md`. A different basis must be named explicitly. Deliberate wording, roster, cap or fixture changes require fresh renders. Update resolver exact expectations and every published figure in the same commit.
 
 ### Writing-reminder integration check
 
@@ -260,11 +263,18 @@ changes.
 
 ### Package-content check (package-resolved runtime files)
 
-`node verification/package-content-check.mjs --repo .` runs `npm pack --dry-run --json --ignore-scripts` and checks the publish file set. It derives the checker filename and every exported docs path from `extension/paths.ts`, then reports each missing runtime file by its exported path name. It also parses `extension/mode.ts` and validates its path imports, but those imports do not limit the document roster. It does not create a tarball, run package scripts, or use the network; it normally takes under 1 second.
+Run both package-content commands:
 
-- **Re-run it after any change to `package.json`'s `files` whitelist, `extension/paths.ts`'s package-resolved files, or path imports in `extension/mode.ts`**, and before release.
-- The check covers package presence only. The resolver suite still covers doctrine rendering and checker behavior.
-- **It overlaps the CI packaging guards.** The overlap is not yet consolidated. Both read the file list from `npm pack --dry-run`. Both demand that the doctrine docs ship. They derive that demand from different places. This check reads the exported constants of `extension/paths.ts` and names a missing file by its export. `pack-doctrine-docs` in `verification/packaging-checks.mjs` scans every `extension/*.ts` for `join(<docs dir>, "<name>.md")`. This check is also the only one that requires the shipped **checker** (`extension/writing-check.mjs`) itself. The guards only permit its file kind. Merging the two is a reasonable future change. Until then, run both.
+- `node verification/package-content-check.mjs --repo .`
+- `node verification/package-content-check.mjs --repo . --self-test`
+
+The normal check runs `npm pack --dry-run --json --ignore-scripts`. It derives every exported extension command and document path from `extension/paths.ts`. It independently enumerates extension runtime commands and every Markdown file under `docs/`. Each file needs exactly one export, and every exported runtime path must appear in the publish set. It also validates the named path imports in `extension/mode.ts`.
+
+The self-test uses fabricated rosters outside the checkout state. It proves detection of a missing command export, missing document export, and missing packed runtime file. Exit 0 means all checks passed. Exit 1 means a real roster mismatch, missing packed runtime file, or escaped mutation. Exit 2 means a bad invocation, unavailable tool, parse failure, or failed precondition.
+
+- **Re-run both commands after adding, moving or deleting a Markdown file under `docs/`.** The same rule covers extension runtime commands and runtime path exports. Run both after a `package.json` `files`-whitelist change. Run both after a path import change in `extension/mode.ts`, and before release.
+- The check covers package presence and roster completeness only. The resolver suite still covers doctrine content and rendering.
+- **It overlaps the CI packaging guards.** The overlap is not yet consolidated. Both read the file list from `npm pack --dry-run`. Both require doctrine documents to ship. The package-content check derives the complete Markdown and command rosters independently, then requires matching exports. `pack-doctrine-docs` scans `extension/*.ts` for document joins instead. The package-content check is also the only net that requires each shipped runtime command by roster. Merging the nets is reasonable future work. Until then, run both and both self-tests.
 
 ### Writing-checker nets (correctness suite + scaling gate)
 
@@ -329,7 +339,7 @@ The writing checker is diagnostic everywhere and authoritative nowhere. A match 
 
 The pack policy answers that risk. It permits a small set of file kinds, and it rejects junk and secrets. It also requires every doctrine doc that the extension references. `verification/README.md` gives the details.
 
-**The permitted kinds include `extension/**/*.mjs`, and that is deliberate.** The shipped writing checker (`extension/writing-check.mjs`) is dependency-free plain JavaScript, because it runs as a command and inside a hot turn hook without a transpiler. It is a runtime file of the package, so the pack policy must permit it. `verification/package-content-check.mjs` is what asserts that the file really ships.
+**The permitted kinds include `extension/**/*.mjs`, and that is deliberate.** The shipped writing checker is dependency-free plain JavaScript. It runs as a command and inside a hot turn hook without a transpiler. The size-grade command is also plain JavaScript. The pack policy must permit both runtime commands. `verification/package-content-check.mjs` enumerates them independently. It proves that each has one exported path and packed file.
 
 ## Release & versioning
 
@@ -338,6 +348,6 @@ keeps the release pin, the package version, the exact merge, the package
 contents and the registry artifact in agreement. This repository dogfoods
 the exact package version that it publishes, because `.pi/settings.json`
 pins `npm:ytdb-slate@<version>`. Bump the four SDK devDependency pins with
-any targeted pi release and refresh `package-lock.json`. Run all four CI
-checks before publication. Update the dogfood pin only after the package is
+any targeted pi release and refresh `package-lock.json`. Run all five CI
+checks and both package-content commands before publication. Update the dogfood pin only after the package is
 available.
