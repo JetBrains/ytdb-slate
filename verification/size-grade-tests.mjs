@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const DEFAULT_SCRIPT = fileURLToPath(new URL("../extension/size-grade.mjs", import.meta.url));
 const SCRIPT = process.env.SIZE_GRADE_SCRIPT || DEFAULT_SCRIPT;
 const {
+  DEFAULT_DECLARATIONS,
   MAX_INPUT_BYTES,
   classifyPath,
   compileDeclarations,
@@ -118,6 +119,14 @@ test("CLI measures every grade boundary and an empty diff", () => withLab((paths
   }
 }));
 
+test("CLI adds inserted and deleted source lines", () => withLab((paths) => {
+  const output = jsonResult(runCli(paths, "3\t4\tchange.mjs\0"));
+  assert.equal(output.changedProductionLogicLines, 7);
+  assert.equal(output.files[0].added, 3);
+  assert.equal(output.files[0].deleted, 4);
+  assert.equal(output.files[0].changedLines, 7);
+}));
+
 test("CLI raises a 26-file change and keeps a 25-file change SMALL", () => withLab((paths) => {
   assert.equal(jsonResult(runCli(paths, records(25))).sizeGrade, "SMALL");
   assert.equal(jsonResult(runCli(paths, records(26))).sizeGrade, "MEDIUM");
@@ -128,6 +137,40 @@ test("Node module source extensions include mjs cjs mts and cts", () => {
   for (const extension of [".mjs", ".cjs", ".mts", ".cts"]) {
     assert.equal(classifyPath(`extension/file${extension}`, declarations).kind, "source", extension);
   }
+});
+
+test("default classifier excludes test documentation build configuration and other files", () => {
+  const declarations = compileDeclarations(DEFAULT_DECLARATIONS);
+  const fixtures = [
+    ["tests/unit.mjs", "test"],
+    ["docs/guide.mjs", "documentation"],
+    ["ci/check.mjs", "build"],
+    [".pi/settings.mjs", "configuration"],
+    ["assets/logo.bin", "other"],
+  ];
+  for (const [path, expected] of fixtures) {
+    const classification = classifyPath(path, declarations);
+    assert.equal(classification.kind, expected, path);
+    assert.notEqual(classification.kind, "source", path);
+  }
+});
+
+test("CLI text format reports counts and per-file decisions", () => withLab((paths) => {
+  const result = runCli(paths, "2\t3\tchange.mjs\0", ["--format", "text"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  assert.match(result.stdout, /^Size grade: SMALL$/m);
+  assert.match(result.stdout, /^Changed production-logic lines: 5$/m);
+  assert.match(result.stdout, /^Changed files: 1$/m);
+  assert.match(result.stdout, /^INCLUDED change\.mjs — production logic; 5 changed lines$/m);
+}));
+
+test("CLI help reports usage and exits successfully", () => {
+  const result = spawnSync(process.execPath, [SCRIPT, "--help"], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  assert.match(result.stdout, /^Usage: node size-grade\.mjs --base <ref> --head <ref> \[--format json\|text\]$/m);
+  assert.match(result.stdout, /\.pi\/size-grade\.json may override testPaths and generatedMarkers/);
 });
 
 test("configuration resolves from the repository root during a nested invocation", () => withLab((paths) => {
@@ -277,8 +320,12 @@ const EXPECTED = [
   "line boundaries are SMALL at 50, MEDIUM at 51 and 1000, and LARGE at 1001",
   "file boundary raises at 26 but not 25 and never raises past LARGE",
   "CLI measures every grade boundary and an empty diff",
+  "CLI adds inserted and deleted source lines",
   "CLI raises a 26-file change and keeps a 25-file change SMALL",
   "Node module source extensions include mjs cjs mts and cts",
+  "default classifier excludes test documentation build configuration and other files",
+  "CLI text format reports counts and per-file decisions",
+  "CLI help reports usage and exits successfully",
   "configuration resolves from the repository root during a nested invocation",
   "present null declarations are rejected instead of defaulted",
   "declaration helpers reject unknown keys, wrong values, and broken patterns",
