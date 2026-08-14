@@ -192,9 +192,10 @@ escalation threshold, not a hard track cap.
 ## Focus areas and their gates
 
 A focus area is one named area of risk that a change engages. A focus area
-engaged anywhere belongs to the change-level set. A focus area engaged on one
-track adds its reviewer to that track alone. An area that two tracks engage
-together, and neither engages alone, reaches the closing review.
+engaged anywhere belongs to the change-level set. A focus area whose canonical
+gate runs per track adds its reviewer to each track that engages it. A
+change-level-only gate does not add a track reviewer. An area that two tracks
+engage together, and neither engages alone, reaches the closing review.
 
 <!-- focus-area-table:begin -->
 | # | focus area | the gate it adds | where the gate runs |
@@ -246,9 +247,12 @@ by development tooling is not sensitive configuration.
 
 ### 4. Core behaviour or algorithms
 
-Core behaviour or algorithms covers logic central to the product function
-that has substantial invariants or state machines. Its frequency is not a
-reason to disengage it.
+Core behaviour or algorithms covers every change to production behaviour,
+branch meaning, state transition, error path or algorithm that is not purely
+mechanical and behaviour-preserving. A change engages this area even when the
+changed behaviour is small or has no substantial state machine. A formatting,
+renaming or other mechanical edit engages it only when the edit changes
+production behaviour.
 
 ### 5. Performance
 

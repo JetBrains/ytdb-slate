@@ -37,13 +37,14 @@ contract consistency, and effective evidence.
 
 | size grade | required track set |
 | --- | --- |
-| SMALL | no Reviewer I by grade, plus one reviewer for every engaged area |
-| MEDIUM | Reviewer I plus one reviewer for every engaged area |
-| LARGE | Reviewer I plus one reviewer for every engaged area |
+| SMALL | no Reviewer I by grade, plus one reviewer for every engaged area whose canonical gate runs per track |
+| MEDIUM | Reviewer I plus one reviewer for every engaged area whose canonical gate runs per track |
+| LARGE | Reviewer I plus one reviewer for every engaged area whose canonical gate runs per track |
 
 Verification or gate machinery is carved out of the SMALL fast path. That work
-receives Reviewer I even at SMALL. Every engaged area still adds its reviewer
-at every grade.
+receives Reviewer I even at SMALL. Every engaged area whose canonical gate runs
+per track adds its reviewer at every grade. A change-level-only gate does not
+add a track reviewer.
 
 Reviewer I never counts against the production area-reviewer cap. The cap is
 four production area reviewers per review action. Split the action when more

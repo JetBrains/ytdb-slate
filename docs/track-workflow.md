@@ -72,7 +72,7 @@ never falls after implementation starts.
 | pre-implementation | final design approval | after required design work | required after validation and any adversarial review | required after validation and any adversarial review |
 | lifecycle | research log | when any trigger fires | always | always |
 | per-track | Reviewer I | no by grade, except carved-out verification work | every track | every track |
-| per-track | engaged-area reviewers | every engaged area | every engaged area | every engaged area |
+| per-track | engaged-area reviewers | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track |
 | final | final change acceptance | blocking | blocking | blocking |
 
 The package-resolved command does not measure absent work. At the first track

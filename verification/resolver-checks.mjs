@@ -3240,13 +3240,21 @@ evidence.`);
 			const fastPath = workflow.match(/^## Fast path\n([\s\S]*?)(?=^## Short packet shape)/m)?.[1] ?? "";
 			const checklist = [...fastPath.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
 			const fastSequence = "prediction → confirmation → implementation → mechanical validation → focus declaration → committed-boundary size measurement → mechanical checklist → short packet → blocking final acceptance → delivery";
+			const expectedFastGrant = normalizeText("When all ten conditions pass, the fast path omits the high-level design, adversarial design review, machine reviewer, research log, and closing review. Another rule can still require any omitted gate or artifact.");
+			const fastGrant = normalizeText(fastPath.match(/^When all ten conditions pass,[\s\S]*?^Another rule can still require any omitted gate or artifact\.$/m)?.[0] ?? "");
+			const fastSequenceMatch = fastPath.match(/^The fast-path sequence is ([\s\S]*?)\nAfter boundary/m);
+			const fastSequenceParagraph = normalizeText(fastSequenceMatch?.[1] ?? "").replace(/\.$/, "");
+			const widenedFastGrant = `${expectedFastGrant} A widened fast path may also omit the track reviewer.`;
+			const widenedFastSequence = `${fastSequence} → undocumented shortcut`;
 			checkAll("contract-fast-path-artifact", "the SMALL fast path pins its ten-item checklist, omitted gates, retained sequence, and fallback to ordinary SMALL", [
 				["enumerated checklist", checklist.length === 10, checklist],
 				["condition 6 is any focus area", checklist[5] === "No focus area is engaged.", checklist[5]],
 				["condition 7 is any project test artifact", checklist[6] === "No project test artifact changes.", checklist[6]],
 				["verification machinery voids", /No verification, gate, coverage, packaging, release, or workflow machinery changes\./.test(checklist[7] ?? ""), checklist[7]],
-				["grant omits exactly the optional floor", /omits the high-level design,\s+adversarial design review, machine reviewer, research log, and closing review/.test(fastPath), fastPath],
-				["retained sequence is exact", normalizeText(fastPath).includes(fastSequence), normalizeText(fastPath)],
+				["grant is exact", fastGrant === expectedFastGrant, fastGrant],
+				["widened grant fails exact comparison", widenedFastGrant !== expectedFastGrant, widenedFastGrant],
+				["sequence is exact", fastSequenceParagraph === fastSequence, fastSequenceParagraph],
+				["widened sequence fails exact comparison", widenedFastSequence !== fastSequence, widenedFastSequence],
 				["failed checklist returns to ordinary SMALL", /If any item fails, return to the ordinary SMALL workflow before packet delivery\./.test(normalizeText(fastPath)), normalizeText(fastPath)],
 			]);
 
