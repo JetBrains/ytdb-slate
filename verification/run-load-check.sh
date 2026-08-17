@@ -79,6 +79,7 @@
 # EVERY exit-2 message says "refused to start" in exactly those words, so that
 # phrase is greppable in a CI log.
 # =============================================================================
+# END LOAD-CHECK HELP
 set -uo pipefail
 
 exec 8>&2
@@ -86,6 +87,14 @@ exec 8>&2
 # the message says so too rather than leaving the reader to infer it from the
 # status (WC2). Callers pass the reason only.
 die() { echo "verification: refused to start — $*" >&8; exit 2; }
+
+# The explicit marker closes the reader-facing header. Unlike a line range, it
+# remains correct when that header grows or shrinks. Refuse a missing marker
+# rather than printing implementation lines as help.
+print_help() {
+	grep -Fxq '# END LOAD-CHECK HELP' "$0" || die "the help-block end marker is missing from $0"
+	awk 'NR == 1 { next } $0 == "# END LOAD-CHECK HELP" { exit } { print }' "$0"
+}
 
 ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3 T4 T5 T6"
 
@@ -96,7 +105,7 @@ while [ $# -gt 0 ]; do
 		--repo) [ "$#" -ge 2 ] || die "option '--repo' requires a value"; REPO="$2"; shift 2 ;;
 		--only) [ "$#" -ge 2 ] || die "option '--only' requires a value"; ONLY="$2"; shift 2 ;;
 		--list-checks) printf '%s\n' $ALL_CHECKS; exit 0 ;;
-		-h|--help) sed -n '2,79p' "$0"; exit 0 ;;
+		-h|--help) print_help; exit 0 ;;
 		*) die "unknown argument '$1' (try --help)" ;;
 	esac
 done
@@ -430,7 +439,7 @@ function sourceOf(entry) {
 }
 function safeSource(source) {
   const clean = source.replace(/[\x00-\x1f\x7f]/g, "?");
-  return clean.replace(/^([a-z][a-z+.-]*:\/\/)[^/@\s]+@/i, "$1<redacted>@");
+  return clean.replace(/([a-z][a-z+.-]*:\/{1,2})[^/@\s]+@/gi, "$1<redacted>@");
 }
 function npmName(source) {
   if (!source.startsWith("npm:")) return "";
@@ -469,8 +478,8 @@ for (const u of user) {
     if (u.identity === p.identity || seen.has(key)) continue;
     seen.add(key);
     notes.push("NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — user " + userFile + ": " +
-      u.source + " => " + u.identity + ". Project " + projectFile + ": " +
-      p.source + " => " + p.identity +
+      u.source + " => " + safeSource(u.identity) + ". Project " + projectFile + ": " +
+      p.source + " => " + safeSource(p.identity) +
       ". A real session loads two copies and exits 1 with a tool conflict.");
   }
 }

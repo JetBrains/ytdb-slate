@@ -2388,9 +2388,11 @@ other package entries in the tracked settings file, because its scratch settings
 contain only slate. Neither check executes a dispatch tool or validates TUI
 presentation.
 
-Re-run the load check after a change to `.pi/settings.json`, `package.json`, or
-its `pi.extensions` entry list. Re-run it after a change to `T5`, `T6`, or their
-fixture and identity-note helpers in `run-load-check.sh`.
+Re-run the load check after a change to `.pi/settings.json`, `package.json`,
+`verification/ci-canary.ts`, or any file under `extension/` or `docs/`. These are
+the tracked inputs that T5 or T6 reads, validates, loads, or copies. Re-run it
+after a change to T5, T6, the help block, or their fixture and identity-note
+helpers in `run-load-check.sh`.
 
 One gap remains, and this document states it plainly. `T2` and `T4` together
 cover the syntax of the file, its top-level shape, and the *shapes* of three
