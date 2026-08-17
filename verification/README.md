@@ -2370,24 +2370,21 @@ rejects a registry slate entry and a missing literal extension entry. `T6` then
 proves the literal `"../"` spelling through pi itself. Both checks report FAIL
 rather than NOT RUN for a defect.
 
-When a comparable user-scope slate identity differs from a comparable
-project-scope identity, the harness prints a `NOTE` after the context block.
-Both string and object package forms participate. Multiple entries can produce
-multiple notes. The comparison mirrors the pi rules that the harness can express
-without another parser: registry packages compare by package name, and explicit
-local packages compare by resolved real path. The output is narrower than the
-decision. A registry projection contains only the stable package name. A local
-projection is the fixed label `local package path`; it omits even the resolved
-path because paths are user-controlled. The note names both settings locations
-in fixed words rather than rendering either file path.
+When the user-scope settings file may name this package, the harness prints one
+fixed `NOTE` after the context block. It reads at most the first 1 MiB as raw text
+and performs a case-insensitive package-name substring test. A raw read covers
+string entries, object entries, bare names, file URLs and Git URLs without
+parsing their shapes. Missing, unreadable, invalid, directory-shaped, binary and
+enormous files remain fail-soft. The note never changes the verdict.
 
-Git and other external sources are not comparable here. Pi normalizes Git
-identities through its own URL parser, which this harness does not reimplement.
-When the source text may name `ytdb-slate`, a separate informational `NOTE` says
-that the external kind cannot be compared. The boolean match drives that message,
-but no source text reaches it. Neither note renders query strings, fragments,
-credentials, object fields, or settings paths. Both remain observations that
-never change the verdict. A missing or invalid user settings file remains quiet.
+The note contains zero variable content. It prints no settings path, package
+name, source text, identity, count, query, fragment, credential or object field.
+Fixed wording tells the reader to inspect the settings file inside the agent
+directory currently in effect. The substring test can fire when pi would dedupe
+the entries or when no real conflict exists. This false positive is deliberate.
+Three attempts to mirror pi package identity rules diverged from pi in both
+directions. The harness therefore reports a possibility instead of making a
+second identity verdict.
 
 The canary tool list comes from pi's name-keyed tool map. That map cannot expose
 a duplicate registration count. `T6` therefore uses the tool list only to prove

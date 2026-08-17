@@ -423,94 +423,35 @@ echo "repo  = $REPO ($(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo
 echo "pi    = $PI ($PIVER, pinned $PIN)"
 echo "lab   = $WORK"
 
-# This observation cannot be a gate. CI has no user settings, while a developer
-# may have another slate identity there that combines with the project package.
+# This observation cannot be a gate. Three attempts to mirror pi package identity
+# rules diverged in both directions. User-controlled text may drive this boolean
+# decision, but none of that text reaches output. The bounded raw read covers all
+# package entry shapes without parsing or allocating for an enormous file.
 USER_SETTINGS="${PI_CODING_AGENT_DIR:-${HOME:-}/.pi/agent}/settings.json"
-IDENTITY_NOTE="$(node -e '
+USER_SCOPE_MAY_NAME="$(node -e '
 const fs = require("node:fs");
-const path = require("node:path");
-const [projectFile, userFile, expected] = process.argv.slice(1);
-function read(file) {
-  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; }
-}
-function sourceOf(entry) {
-  if (typeof entry === "string") return entry;
-  if (entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.source === "string") return entry.source;
-  return "";
-}
-function npmName(source) {
-  if (!source.startsWith("npm:")) return "";
-  const spec = source.slice(4);
-  if (spec.startsWith("@")) {
-    const slash = spec.indexOf("/");
-    const at = spec.indexOf("@", slash + 1);
-    return at < 0 ? spec : spec.slice(0, at);
-  }
-  const at = spec.indexOf("@");
-  return at < 0 ? spec : spec.slice(0, at);
-}
-function identity(entry, settingsFile) {
-  const source = sourceOf(entry);
-  if (npmName(source) === expected) return { comparable: true, identity: "npm:" + expected, kind: "registry", stable: expected };
-  if (!source || source.startsWith("npm:")) return null;
-  const explicitLocal = path.isAbsolute(source) || source === "." || source === ".." || source.startsWith("./") || source.startsWith("../");
-  if (!explicitLocal) {
-    return source.toLowerCase().includes(expected.toLowerCase())
-      ? { comparable: false, kind: "external", stable: expected }
-      : null;
-  }
-  const target = path.resolve(path.dirname(settingsFile), source);
+const [userFile, projectManifestFile] = process.argv.slice(1);
+const LIMIT = 1024 * 1024;
+try {
+  const expected = JSON.parse(fs.readFileSync(projectManifestFile, "utf8")).name;
+  if (typeof expected !== "string" || expected.length === 0) process.exit(0);
+  const fd = fs.openSync(userFile, "r");
   try {
-    const manifest = JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf8"));
-    if (!manifest || manifest.name !== expected) return null;
-    const real = fs.realpathSync(target);
-    return { comparable: true, identity: "local:" + real, kind: "local", stable: real };
-  } catch {}
-  return null;
-}
-function projection(item) {
-  if (item.kind === "local") return "local package path";
-  return "registry package=" + item.stable;
-}
-function slateEntries(file) {
-  const parsed = read(file);
-  if (!parsed || !Array.isArray(parsed.packages)) return [];
-  return parsed.packages.map((entry) => identity(entry, file)).filter(Boolean);
-}
-const project = slateEntries(projectFile);
-const user = slateEntries(userFile);
-const notes = [];
-const seen = new Set();
-// Pi compares registry packages by name and local packages by resolved path.
-// Mirror only those rules. Pi normalizes Git through its own URL parser, so this
-// harness never reimplements that parser or claims an external-source conflict.
-// A change to pi package identity rules requires the same change here.
-for (const u of user) {
-  if (!u.comparable) {
-    const key = "unknown:" + u.kind;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    notes.push("NOTE   USER-SCOPE SLATE IDENTITY NOT COMPARABLE — a user-scope external entry may name " +
-      expected + ". The harness cannot compare this kind with normalized pi identities. " +
-      "Locate the user-scope settings file inside the agent directory currently in effect. " +
-      "If its identity differs from project scope, a real session loads two copies and exits 1 with a tool conflict.");
-    continue;
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) process.exit(0);
+    const buffer = Buffer.alloc(Math.min(stat.size, LIMIT));
+    const bytes = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    if (buffer.subarray(0, bytes).toString("utf8").toLowerCase().includes(expected.toLowerCase())) {
+      process.stdout.write("yes");
+    }
+  } finally {
+    fs.closeSync(fd);
   }
-  for (const p of project) {
-    if (!p.comparable) continue;
-    const key = [u.identity, p.identity].join("\0");
-    if (u.identity === p.identity || seen.has(key)) continue;
-    seen.add(key);
-    notes.push("NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — user scope: " + projection(u) +
-      ". Project scope: " + projection(p) +
-      ". Locate the user-scope settings file inside the agent directory currently in effect. " +
-      "Locate the project-scope settings file inside the repository under test. " +
-      "A real session loads two copies and exits 1 with a tool conflict.");
-  }
-}
-process.stdout.write(notes.join("\n"));
-' "$REPO/.pi/settings.json" "$USER_SETTINGS" "$(node -p 'require(process.argv[1]).name' "$REPO/package.json")")"
-[ -n "$IDENTITY_NOTE" ] && echo "$IDENTITY_NOTE"
+} catch {}
+' "$USER_SETTINGS" "$REPO/package.json")"
+if [ "$USER_SCOPE_MAY_NAME" = yes ]; then
+	echo "NOTE   USER-SCOPE SLATE MAY ALSO BE CONFIGURED — a user-scope settings file may also name this package. Two copies make a session exit 1 with a tool conflict. Check the settings file inside the agent directory currently in effect."
+fi
 echo
 
 # =============================================================================
