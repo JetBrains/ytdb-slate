@@ -309,7 +309,7 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | writing rule characters | 1,070 | 1,150 | 80 |
 | writing rule lines | 23 | 25 | 2 |
 
-Track 2 replaced the four-class prompt with size grades and focus areas. The
+Slate replaced the four-class prompt with size grades and focus areas. The
 fixed rules grew by 207 portable characters and two lines. The writing-plus-
 router fixture requires `6,563 × 1.05 = 6,891.15`. Ceiling gives 6,892, and the
 next-hundred rule sets 6,900. The all-tail fixture requires

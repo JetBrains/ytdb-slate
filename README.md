@@ -58,18 +58,8 @@ The workflow follows these steps:
 1. **Predict and confirm** — the orchestrator predicts size and focus before implementation. The user confirms both together.
 2. **Design** — MEDIUM and LARGE need a high-level design. Design uncertainty adds adversarial review. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
 3. **Implement tracks** — each track declares its files and focus areas. Track reviews are non-blocking. Final change acceptance remains blocking.
-4. **Measure** — the package-resolved size command verifies the committed range at the first track boundary.
+4. **Measure** — the size command shipped with Slate checks the committed range at the first track boundary.
 5. **Review and deliver** — grade and focus select fresh machine reviewers. The user gives final acceptance and performs any squash merge.
-
-Run the shipped size command with the refs that bound the committed change:
-
-```bash
-node <package>/extension/size-grade.mjs --base <ref> --head <ref>
-```
-
-`<package>` is the absolute root of the installed `ytdb-slate` package. Slate
-supplies absolute installed document paths. Their `docs` directory has the
-package root as its parent.
 
 SMALL has a mechanical fast path. Any focus area, project test artifact, or
 verification machinery voids it. Umbrella draft-PR publishing activates only
