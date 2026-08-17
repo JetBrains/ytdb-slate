@@ -2215,7 +2215,7 @@ because a person who sets it can also edit the script.
 ## Running it
 
 ```sh
-bash verification/run-load-check.sh --repo .              # ~2 s; --repo defaults to "."
+bash verification/run-load-check.sh --repo .              # ~4 s; --repo defaults to "."
 bash verification/run-load-check.sh --repo . --only L4,L6
 bash verification/run-load-check.sh --list-checks
 bash verification/run-load-check.sh --help
@@ -2234,8 +2234,8 @@ CHECK L4                               PASS — the canary observed all three di
 CHECK L6                               PASS — /slate is registered and attributed to /home/you/src/ytdb-slate/extension/index.ts — inside the checkout under test, so this run exercised the working tree and not an installed release
 CHECK T2                               PASS — slate's config sanitizers emitted no warning for the checkout's own .pi/slate.json (they cover the shape of modelFailover, contextBudget and workerExtensions only — not the file's syntax, which is T4, nor any other key)
 CHECK T4                               PASS — /home/you/src/ytdb-slate/.pi/slate.json parses as a JSON object, 5 top-level key(s): orchestratorModeDefault, workflow, modelFailover, router, workerExtensions
-CHECK T5                               PASS — project settings contain one local ytdb-slate entry: ../ resolves from /home/you/src/ytdb-slate/.pi to /home/you/src/ytdb-slate, with 1 existing pi extension entry file(s)
-CHECK T6                               PASS — trusted scratch project loaded one local slate package through "../" from /tmp/slate-loadcheck.Qw69p0/local-package/extension/index.ts, with thread, threads and episode registered once and no conflict
+CHECK T5                               PASS — project settings contain one local ytdb-slate entry: ../ resolves from /home/you/src/ytdb-slate/.pi to this repository, with 1 existing pi extension entry file(s)
+CHECK T6                               PASS — trusted scratch project loaded slate through "../" from /tmp/slate-loadcheck.Qw69p0/local-package/extension/index.ts, registered thread, threads and episode, and exited without a duplicate-load conflict
 
 == summary: 14 pass, 0 fail ==
 ```
@@ -2246,7 +2246,8 @@ harness refused to start.
 
 One exit-2 case reports a **real defect through another mechanism**. A deleted
 `extension/index.ts`, or a deleted `verification/ci-canary.ts`, makes the sentinel
-`die` in the driver refuse the run instead of a FAIL report. pi drops the
+`die` in the driver refuse the run instead of a FAIL report. A missing `docs/`
+instead makes `T6` fail, so an earlier verdict and the summary remain visible. pi drops the
 nonexistent entry from `pi.extensions` in silence and starts normally. Every
 check would otherwise pass on an empty session, and no failure report could
 appear. The other exit-2 cases come from the environment: a missing tool, a bad
@@ -2300,8 +2301,10 @@ The output has a bound, so a pathological run cannot flood the log. The harness
 cuts each stream at **20000 bytes** (`STREAM_CAP`). It cuts at the last line
 boundary when that boundary lies past half of the cap. The header of a section
 that lost bytes states the real size, the size after the cut, and the cap, so
-nobody reads a cut stream as a whole one. Six sections therefore cost about
-120 KB at most.
+nobody reads a cut stream as a whole one. Each stream body contributes at most 20,000 bytes. Each fixed section header,
+truncation note, and footer fits within 512 bytes. Six retained sections therefore
+contribute at most `6 × (20,000 + 512) = 123,072` bytes. The introductory lines
+and final artifact path sit outside that stream-section bound.
 
 A stream of 0 bytes gives one header with `— 0 bytes (empty)` and no body, and a
 stream that the harness cannot read gives `unavailable` with the reason. The
@@ -2345,8 +2348,8 @@ but still runs the version probe that resolves the CLI.
 | `T2` | slate's config sanitizers emitted **no warning** for the tracked `.pi/slate.json` of this checkout. That result is the whole claim: sanitizers warn for three keys only (`modelFailover`, `contextBudget` and `workerExtensions`), so a clean `T2` excludes a warning and nothing else |
 | `T3` | the trusted run also left `.pi/npm` unchanged, so `PI_OFFLINE` held where `-a` would otherwise install |
 | `T4` | the project config file **parses as JSON and holds a plain object at the top level**. node reads the file directly from disk. The check PASSES when the file is absent, because a project config is optional for a consumer |
-| `T5` | the tracked `.pi/settings.json` contains exactly one local slate package entry. The path resolves relative to `.pi`, reaches a manifest named `ytdb-slate`, and every literal `pi.extensions` entry exists |
-| `T6` | a trusted scratch project loads a reduced slate package through an entry spelled `"../"`, registers each slate tool once, exposes one `/slate` command from that package, and reports no conflict |
+| `T5` | the tracked `.pi/settings.json` contains exactly one package entry that resolves to this repository and identifies its `ytdb-slate` manifest. String and object forms are accepted. Unrelated packages are ignored. Every literal `pi.extensions` entry exists |
+| `T6` | a trusted scratch project loads a reduced slate package through an entry spelled `"../"`, registers all three slate tools, exposes one `/slate` command from that package, and exits without a duplicate-load conflict |
 
 `T4` exists because `T2` cannot cover the syntax of the file. slate's
 `loadConfig()` wraps the read and the `JSON.parse` in a `try`/`catch`, and it
@@ -2359,21 +2362,35 @@ the only way to see that state, and it needs no pi, no session and no trust.
 
 `T5` applies the same direct-read rule to `.pi/settings.json`. A missing or
 unparseable file is a FAIL, because this checkout requires its tracked dogfood
-entry. `T5` also rejects a registry slate entry, a path that does not resolve, a
-manifest with another package name, and a missing literal extension entry. `T6`
-then proves the literal `"../"` spelling through pi itself. Both checks report
-FAIL rather than NOT RUN for a defect.
+entry. `T5` accepts a string source or an object with a string `source` field.
+It resolves local entries and identifies slate by repository location or manifest
+name. An unrelated local package does not become a slate candidate. The selected
+target must have the same real path as the repository under test. `T5` also
+rejects a registry slate entry and a missing literal extension entry. `T6` then
+proves the literal `"../"` spelling through pi itself. Both checks report FAIL
+rather than NOT RUN for a defect.
 
-When the user-scope settings file contains another slate identity, the harness
-prints a `NOTE` after the context block. The note names both settings files,
-entries, and identities. It also states that a real session loads two copies and
-exits 1 with a tool conflict. The observation never changes the verdict, because
-continuous integration has no user-scope settings file.
+When any user-scope slate identity differs from any project-scope slate identity,
+the harness prints a `NOTE` after the context block. Both string and object package
+forms participate. Multiple entries can produce multiple notes. Each note prints
+only the package source and normalized identity, not other object fields. It also
+states that a real session loads two copies and exits 1 with a tool conflict. The
+observation never changes the verdict, because continuous integration has no
+user-scope settings file.
+
+The canary tool list comes from pi's name-keyed tool map. That map cannot expose
+a duplicate registration count. `T6` therefore uses the tool list only to prove
+that all three names exist. Pi rejects a duplicate slate load with a tool conflict
+and exits 1. The exit-code and conflict assertions cover that failure.
 
 `T5` cannot prove that pi loads or registers the package. `T6` cannot validate
 other package entries in the tracked settings file, because its scratch settings
 contain only slate. Neither check executes a dispatch tool or validates TUI
 presentation.
+
+Re-run the load check after a change to `.pi/settings.json`, `package.json`, or
+its `pi.extensions` entry list. Re-run it after a change to `T5`, `T6`, or their
+fixture and identity-note helpers in `run-load-check.sh`.
 
 One gap remains, and this document states it plainly. `T2` and `T4` together
 cover the syntax of the file, its top-level shape, and the *shapes* of three

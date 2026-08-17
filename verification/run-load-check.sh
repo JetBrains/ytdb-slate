@@ -36,7 +36,7 @@
 #   RUN 2  trusted explicit load path: puts the tracked project config through
 #          slate's config sanitizers
 #   RUN 3  trusted project-package path: loads a reduced package copy through a
-#          settings entry spelled "../" and checks that exactly one slate loads
+#          settings entry spelled "../" and checks pi accepts it without conflict
 # Plus two checks that launch nothing at all. T4 requires the project config to
 # be parseable JSON and a JSON object. RUN 2 cannot cover that — slate's config
 # loader try/catches a malformed file and falls back to defaults in silence, so
@@ -423,9 +423,18 @@ const [projectFile, userFile, expected] = process.argv.slice(1);
 function read(file) {
   try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; }
 }
-function npmName(entry) {
-  if (!entry.startsWith("npm:")) return "";
-  const spec = entry.slice(4);
+function sourceOf(entry) {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.source === "string") return entry.source;
+  return "";
+}
+function safeSource(source) {
+  const clean = source.replace(/[\x00-\x1f\x7f]/g, "?");
+  return clean.replace(/^([a-z][a-z+.-]*:\/\/)[^/@\s]+@/i, "$1<redacted>@");
+}
+function npmName(source) {
+  if (!source.startsWith("npm:")) return "";
+  const spec = source.slice(4);
   if (spec.startsWith("@")) {
     const slash = spec.indexOf("/");
     const at = spec.indexOf("@", slash + 1);
@@ -435,30 +444,37 @@ function npmName(entry) {
   return at < 0 ? spec : spec.slice(0, at);
 }
 function identity(entry, settingsFile) {
-  if (npmName(entry) === expected) return "npm:" + expected;
-  if (typeof entry !== "string" || entry.startsWith("npm:")) return "";
-  const target = path.resolve(path.dirname(settingsFile), entry);
+  const source = sourceOf(entry);
+  if (npmName(source) === expected) return { source: safeSource(source), identity: "npm:" + expected };
+  if (!source || source.startsWith("npm:")) return null;
+  const target = path.resolve(path.dirname(settingsFile), source);
   try {
     const manifest = JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf8"));
-    if (manifest && manifest.name === expected) return "local:" + fs.realpathSync(target);
+    if (manifest && manifest.name === expected) return { source: safeSource(source), identity: "local:" + fs.realpathSync(target) };
   } catch {}
-  return "";
+  return null;
 }
 function slateEntries(file) {
   const parsed = read(file);
   if (!parsed || !Array.isArray(parsed.packages)) return [];
-  return parsed.packages.filter((entry) => typeof entry === "string")
-    .map((entry) => ({ entry, identity: identity(entry, file) }))
-    .filter((item) => item.identity);
+  return parsed.packages.map((entry) => identity(entry, file)).filter(Boolean);
 }
 const project = slateEntries(projectFile);
 const user = slateEntries(userFile);
-if (project.length === 1 && user.length === 1 && project[0].identity !== user[0].identity) {
-  process.stdout.write("NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — user " + userFile + ": " +
-    user[0].entry + " => " + user[0].identity + ". Project " + projectFile + ": " +
-    project[0].entry + " => " + project[0].identity +
-    ". A real session loads two copies and exits 1 with a tool conflict.");
+const notes = [];
+const seen = new Set();
+for (const u of user) {
+  for (const p of project) {
+    const key = [u.source, u.identity, p.source, p.identity].join("\0");
+    if (u.identity === p.identity || seen.has(key)) continue;
+    seen.add(key);
+    notes.push("NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — user " + userFile + ": " +
+      u.source + " => " + u.identity + ". Project " + projectFile + ": " +
+      p.source + " => " + p.identity +
+      ". A real session loads two copies and exits 1 with a tool conflict.");
+  }
 }
+process.stdout.write(notes.join("\n"));
 ' "$REPO/.pi/settings.json" "$USER_SETTINGS" "$(node -p 'require(process.argv[1]).name' "$REPO/package.json")")"
 [ -n "$IDENTITY_NOTE" ] && echo "$IDENTITY_NOTE"
 echo
@@ -682,14 +698,21 @@ try { parsed = JSON.parse(text); }
 catch (e) { fail(settings + " is not parseable JSON (" + (e && e.message ? e.message : String(e)) + ") — pi drops invalid project settings without reporting the lost package entry"); }
 const kind = parsed === null ? "null" : Array.isArray(parsed) ? "an array" : typeof parsed === "object" ? "an object" : "a " + typeof parsed;
 if (kind !== "an object") fail(settings + " parses, but its top-level value is " + kind + ", not a JSON object");
-if (!Array.isArray(parsed.packages) || parsed.packages.some((entry) => typeof entry !== "string")) fail(settings + " has no packages string array");
+function sourceOf(entry) {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.source === "string" && entry.source.length > 0) return entry.source;
+  return "";
+}
+if (!Array.isArray(parsed.packages) || parsed.packages.some((entry) => !sourceOf(entry))) fail(settings + " has no packages source array");
 let projectManifest;
 try { projectManifest = JSON.parse(fs.readFileSync(projectManifestFile, "utf8")); }
 catch (e) { fail("cannot read the checkout manifest " + projectManifestFile + ": " + (e && e.message ? e.message : String(e))); }
 const expected = projectManifest && projectManifest.name;
-function npmName(entry) {
-  if (!entry.startsWith("npm:")) return "";
-  const spec = entry.slice(4);
+const repo = fs.realpathSync(process.argv[3]);
+const settingsDirectory = path.dirname(settings);
+function npmName(source) {
+  if (!source.startsWith("npm:")) return "";
+  const spec = source.slice(4);
   if (spec.startsWith("@")) {
     const slash = spec.indexOf("/");
     const at = spec.indexOf("@", slash + 1);
@@ -698,23 +721,34 @@ function npmName(entry) {
   const at = spec.indexOf("@");
   return at < 0 ? spec : spec.slice(0, at);
 }
-const local = (entry) => path.isAbsolute(entry) || entry === "." || entry === ".." || entry.startsWith("./") || entry.startsWith("../");
-const candidates = parsed.packages.filter((entry) => npmName(entry) === expected || !entry.startsWith("npm:"));
-if (candidates.length !== 1) fail("expected exactly one " + expected + " package entry in " + settings + ", found " + candidates.length + ": " + JSON.stringify(candidates));
-const entry = candidates[0];
-if (entry.startsWith("npm:")) fail("the " + expected + " entry is still an npm specifier: " + entry + " — track 02 requires a local package path");
-if (!local(entry)) fail("the " + expected + " entry is not a local filesystem path: " + entry);
-const settingsDirectory = path.dirname(settings);
-const target = path.resolve(settingsDirectory, entry);
+const local = (source) => path.isAbsolute(source) || source === "." || source === ".." || source.startsWith("./") || source.startsWith("../");
+const records = parsed.packages.map((entry) => {
+  const source = sourceOf(entry);
+  if (npmName(source) === expected) return { entry, source, registry: true };
+  if (!local(source)) return null;
+  const target = path.resolve(settingsDirectory, source);
+  let real = "";
+  let manifestName = "";
+  try { real = fs.realpathSync(target); } catch {}
+  try { manifestName = JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf8")).name; } catch {}
+  return real === repo || manifestName === expected ? { entry, source, target, real, registry: false } : null;
+}).filter(Boolean);
+if (records.length !== 1) fail("expected exactly one " + expected + " package entry in " + settings + ", found " + records.length + ": " + JSON.stringify(records.map((item) => item.source)));
+const record = records[0];
+const source = record.source;
+if (record.registry) fail("the " + expected + " entry is still an npm specifier: " + source + " — track 02 requires a local package path");
+const target = record.target;
 let targetIsDirectory = false;
 try { targetIsDirectory = fs.statSync(target).isDirectory(); } catch {}
-if (!targetIsDirectory) fail("the " + expected + " entry " + entry + " resolves relative to " + settingsDirectory + " as " + target + ", which is not a directory");
+if (!targetIsDirectory) fail("the " + expected + " entry " + source + " resolves relative to " + settingsDirectory + " as " + target + ", which is not a directory");
 const manifestFile = path.join(target, "package.json");
 if (!fs.existsSync(manifestFile)) fail("the local slate package has no manifest at " + manifestFile);
 let manifest;
 try { manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")); }
 catch (e) { fail("the local slate manifest " + manifestFile + " is not parseable JSON (" + (e && e.message ? e.message : String(e)) + ")"); }
 if (!manifest || manifest.name !== expected) fail("the local slate manifest name is " + JSON.stringify(manifest && manifest.name) + ", expected " + expected);
+const realTarget = fs.realpathSync(target);
+if (realTarget !== repo) fail("the local slate target resolves to " + realTarget + ", but the repository under test resolves to " + repo);
 const extensions = manifest.pi && manifest.pi.extensions;
 if (!Array.isArray(extensions) || extensions.length === 0 || extensions.some((item) => typeof item !== "string" || item.length === 0)) fail("the local slate manifest has no non-empty pi.extensions string array");
 for (const manifestEntry of extensions) {
@@ -723,8 +757,8 @@ for (const manifestEntry of extensions) {
   try { isFile = fs.statSync(entryFile).isFile(); } catch {}
   if (!isFile) fail("the local slate entry file is missing: " + entryFile + " from pi.extensions entry " + manifestEntry + " — pi drops that entry silently");
 }
-say("OK project settings contain one local " + expected + " entry: " + entry + " resolves from " + settingsDirectory + " to " + target + ", with " + extensions.length + " existing pi extension entry file(s)");
-' "$PACKAGE_SETTINGS" "$REPO/package.json")"
+say("OK project settings contain one local " + expected + " entry: " + source + " resolves from " + settingsDirectory + " to this repository, with " + extensions.length + " existing pi extension entry file(s)");
+' "$PACKAGE_SETTINGS" "$REPO/package.json" "$REPO")"
 		case "$PACKAGE_RESULT" in
 			"OK "*) check T5 0 "${PACKAGE_RESULT#OK }" ;;
 			"BAD "*) check T5 1 "${PACKAGE_RESULT#BAD }" ;;
@@ -741,17 +775,28 @@ fi
 if run_wanted T6; then
 	want T6 && {
 		PACKAGE_ROOT="$WORK/local-package"
-		mkdir -p "$PACKAGE_ROOT/.pi" || die "cannot create the trusted scratch project '$PACKAGE_ROOT'"
-		node -e '
+		FIXTURE_RESULT="$(node -e '
 const fs = require("node:fs");
 const [source, target] = process.argv.slice(1);
-fs.copyFileSync(source + "/package.json", target + "/package.json");
-fs.cpSync(source + "/extension", target + "/extension", { recursive: true });
-fs.cpSync(source + "/docs", target + "/docs", { recursive: true });
-fs.writeFileSync(target + "/.pi/settings.json", JSON.stringify({ packages: ["../"] }, null, 2) + "\n");
-' "$REPO" "$PACKAGE_ROOT" || die "cannot build the reduced slate package in '$PACKAGE_ROOT'"
-		printf '%s\n' '{"id":"1","type":"get_commands"}' > "$WORK/run3.in" || die "cannot write the local-package rpc request file"
-		pirun_package run3 "$WORK/run3.in" "$PACKAGE_ROOT"
+try {
+  for (const input of ["package.json", "extension", "docs"]) {
+    if (!fs.existsSync(source + "/" + input)) throw new Error("required fixture input is missing: " + source + "/" + input);
+  }
+  fs.mkdirSync(target + "/.pi", { recursive: true });
+  fs.copyFileSync(source + "/package.json", target + "/package.json");
+  fs.cpSync(source + "/extension", target + "/extension", { recursive: true });
+  fs.cpSync(source + "/docs", target + "/docs", { recursive: true });
+  fs.writeFileSync(target + "/.pi/settings.json", JSON.stringify({ packages: ["../"] }, null, 2) + "\n");
+  process.stdout.write("OK");
+} catch (error) {
+  process.stdout.write("BAD " + (error && error.message ? error.message : String(error)));
+}
+' "$REPO" "$PACKAGE_ROOT")"
+		if [ "$FIXTURE_RESULT" != OK ]; then
+			check T6 1 "cannot build the trusted local-package fixture — ${FIXTURE_RESULT#BAD }"
+		else
+			printf '%s\n' '{"id":"1","type":"get_commands"}' > "$WORK/run3.in" || die "cannot write the local-package rpc request file"
+			pirun_package run3 "$WORK/run3.in" "$PACKAGE_ROOT"
 		RC3=$RC
 		OUT3="$WORK/run3.out"; ERR3="$WORK/run3.err"
 		DIAG3="$(first_stderr_line "$ERR3")"
@@ -765,25 +810,28 @@ fs.writeFileSync(target + "/.pi/settings.json", JSON.stringify({ packages: ["../
 		CMD_COUNT3="$(rpcq cmd-count "$OUT3")"
 		CMD_PATH3="$(rpcq cmd-path "$OUT3")"
 		EXPECTED_PATH3="$PACKAGE_ROOT/extension/index.ts"
-		TOOL_COUNTS3="$(node -e '
-const tools = process.argv[1].split(/\s+/).filter(Boolean);
-process.stdout.write(["thread", "threads", "episode"].map((name) => name + "=" + tools.filter((tool) => tool === name).length).join(" "));
-' "$TOOLS3")"
-		if [ "$RC3" != 0 ]; then check T6 1 "pi exited $RC3 loading the trusted \"../\" package entry — first diagnostic: ${DIAG3:-<none>}"
+		# getAllTools() is a name-keyed map, so it proves presence but cannot count
+		# duplicate registrations. Pi rejects the duplicate before startup completes.
+		MISSING3=""
+		for tool in thread threads episode; do
+			case " $TOOLS3 " in *" $tool "*) ;; *) MISSING3="$MISSING3 $tool" ;; esac
+		done
+		if [ -n "$CONFLICT3" ]; then check T6 1 "trusted \"../\" load reported a tool conflict: $CONFLICT3"
+		elif [ "$RC3" != 0 ]; then check T6 1 "pi exited $RC3 loading the trusted \"../\" package entry — first diagnostic: ${DIAG3:-<none>}"
 		elif [ -n "$MARKER3" ]; then check T6 1 "trusted \"../\" load reported an extension-load failure marker: $MARKER3"
-		elif [ -n "$CONFLICT3" ]; then check T6 1 "trusted \"../\" load reported a tool conflict: $CONFLICT3"
 		elif [ "$U3" != 0 ]; then check T6 1 "$U3 line(s) of local-package stdout look like JSON but do not parse, so the rpc assertions are not trustworthy"
 		elif [ "$E3" != 0 ]; then check T6 1 "trusted \"../\" load emitted $E3 extension_error event(s): $(rpcq ext-error-detail "$OUT3")"
 		elif [ "$C3" != 1 ]; then check T6 1 "expected exactly one canary line from the trusted local-package run, observed $C3"
 		elif [ "$TR3" != true ]; then check T6 1 "the canary reported trusted=${TR3:-<no canary line>}, so project settings were not authoritative"
-		elif [ "$TOOL_COUNTS3" != "thread=1 threads=1 episode=1" ]; then check T6 1 "expected thread, threads and episode exactly once, observed [$TOOLS3] ($TOOL_COUNTS3)"
-		elif [ "$CMD_COUNT3" != 1 ]; then check T6 1 "expected exactly one /slate command, observed $CMD_COUNT3: $(rpcq cmd-names "$OUT3")"
+		elif [ -n "$MISSING3" ]; then check T6 1 "dispatch tool(s) not registered:$MISSING3 — the canary observed [$TOOLS3]"
+		elif [ "$CMD_COUNT3" != 1 ]; then check T6 1 "expected one /slate command, observed $CMD_COUNT3: $(rpcq cmd-names "$OUT3")"
 		elif [ "$CMD_PATH3" != "$EXPECTED_PATH3" ]; then check T6 1 "/slate was attributed to ${CMD_PATH3:-<no path>}, expected $EXPECTED_PATH3"
 		else
 			case "$CMD_PATH3" in
-				"$PACKAGE_ROOT/extension/"*) check T6 0 "trusted scratch project loaded one local slate package through \"../\" from $CMD_PATH3, with thread, threads and episode registered once and no conflict" ;;
+				"$PACKAGE_ROOT/extension/"*) check T6 0 "trusted scratch project loaded slate through \"../\" from $CMD_PATH3, registered thread, threads and episode, and exited without a duplicate-load conflict" ;;
 				*) check T6 1 "/slate was attributed to $CMD_PATH3, which is outside the trusted scratch project $PACKAGE_ROOT" ;;
 			esac
+		fi
 		fi
 	}
 fi
