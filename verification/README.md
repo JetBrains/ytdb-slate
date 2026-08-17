@@ -2159,16 +2159,25 @@ the extension in the checkout under test, its `session_start` hook runs, and pi
 registers the dispatch tools and the `/slate` command. It proves this for THIS
 checkout, and not for an installed copy.
 
-The harness is cheap. It starts two pi processes, each for about one second, and
-both of them run offline and without a credential. One further check starts no pi
-at all (`T4`, below). Each pi process gets a fresh and **empty**
+The harness is cheap. It starts three pi processes, each for about one second,
+and all run offline without a credential. Two further checks start no pi at all
+(`T4` and `T5`, below). Each pi process gets a fresh and **empty**
 `PI_CODING_AGENT_DIR` from `mktemp`, with no `models.json` and no `auth.json`, so
-no provider exists for a call. Each process also gets `PI_OFFLINE=1`,
-`--no-extensions`, and non-model rpc requests from a file, so stdin reaches EOF
-at once. The harness removes every inherited credential and every pi session
-variable from the environment of the child process.
+no provider exists for a call. Each process also gets `PI_OFFLINE=1` and
+non-model rpc requests from a file, so stdin reaches EOF at once. The first two
+runs use `--no-extensions` and load the checkout explicitly. The third run keeps
+project packages enabled and loads slate only through a local package entry. The
+harness removes every inherited credential and every pi session variable from
+the environment of the child process.
 
-`PI_OFFLINE=1` is mandatory for both runs, and the trusted run needs it most:
+The third run builds a reduced scratch project containing `package.json`,
+`extension/`, `docs/`, and `.pi/settings.json`. The settings file contains only
+`{"packages":["../"]}`. The copy contains no `node_modules`; pi must resolve the
+relative path from `.pi` and use its bundled peer packages. The run is trusted
+with `-a`, loads the canary by absolute path, and never passes slate through
+`-e`.
+
+`PI_OFFLINE=1` is mandatory for all three runs, and the trusted runs need it most:
 `-a` makes pi read `.pi/settings.json`, and pi then npm-installs every package in
 that file. One such run hung for 60 seconds and wrote a `.pi/npm` directory
 **into the checkout under test**. `L8` and `T3` therefore assert that the
@@ -2219,13 +2228,16 @@ summary:
 repo  = /home/you/src/ytdb-slate (7d4c479)
 pi    = /home/you/src/ytdb-slate/node_modules/.bin/pi (0.83.0, pinned 0.83.0)
 lab   = /tmp/slate-loadcheck.Qw69p0
+NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — user /home/you/.pi/agent/settings.json: npm:ytdb-slate@0.10.0 => npm:ytdb-slate. Project /home/you/src/ytdb-slate/.pi/settings.json: ../ => local:/home/you/src/ytdb-slate. A real session loads two copies and exits 1 with a tool conflict.
 
 CHECK L4                               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
 CHECK L6                               PASS — /slate is registered and attributed to /home/you/src/ytdb-slate/extension/index.ts — inside the checkout under test, so this run exercised the working tree and not an installed release
 CHECK T2                               PASS — slate's config sanitizers emitted no warning for the checkout's own .pi/slate.json (they cover the shape of modelFailover, contextBudget and workerExtensions only — not the file's syntax, which is T4, nor any other key)
 CHECK T4                               PASS — /home/you/src/ytdb-slate/.pi/slate.json parses as a JSON object, 5 top-level key(s): orchestratorModeDefault, workflow, modelFailover, router, workerExtensions
+CHECK T5                               PASS — project settings contain one local ytdb-slate entry: ../ resolves from /home/you/src/ytdb-slate/.pi to /home/you/src/ytdb-slate, with 1 existing pi extension entry file(s)
+CHECK T6                               PASS — trusted scratch project loaded one local slate package through "../" from /tmp/slate-loadcheck.Qw69p0/local-package/extension/index.ts, with thread, threads and episode registered once and no conflict
 
-== summary: 12 pass, 0 fail ==
+== summary: 14 pass, 0 fail ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed, or `--only` matched
@@ -2253,18 +2265,19 @@ meaning of an exit code of 2.
 The artifacts are the raw rpc stdout and stderr streams of the pi runs. They live
 under the scratch directory, which the header names `lab`. The harness removes
 that directory after a clean run. It **keeps** the directory, and prints the
-path, when a check failed **and** a pi run happened. A failure of `T4` alone
-keeps nothing, because the directory holds nothing; a run whose pi wrote nothing
-still keeps the directory, because the gate is the pi run and not its output. The
-scratch directory must sit outside the checkout: when `TMPDIR` points into the
-checkout, the harness refuses the run, because pi must write nothing there.
+path, when a check failed **and** a pi run happened. A static-only failure of
+`T4` or `T5` keeps nothing, because the directory holds no relevant stream. A
+run whose pi wrote nothing still keeps the directory, because the gate is the pi
+run and not its output. The scratch directory must sit outside the checkout:
+when `TMPDIR` points into the checkout, the harness refuses the run, because pi
+must write nothing there.
 
 A failing run also **prints those streams to its own stdout**, because a CI job
 deletes its scratch directory and the path then names a directory that nobody can
 open. The same two conditions gate the output: a check failed, and a pi run
-happened. A clean run therefore prints nothing extra, and a failure of `T4` alone
-prints no empty section. The harness prints one delimited section for each
-stream of each run that started. It prints stderr before stdout, because pi's
+happened. A clean run therefore prints nothing extra, and a static-only failure prints no
+empty section. The harness prints one delimited section for each stream of each
+run that started. It prints stderr before stdout, because pi's
 diagnostics and the canary line go to stderr. Each section names its
 run, and the `artifacts:` pointer still follows for a local run:
 
@@ -2277,6 +2290,9 @@ CI-CANARY {"tools":[…],"cwd":"…","trusted":true}
 ---- run2 (the trusted config run, -a) stdout — 982 bytes ----
 {"type":"extension_ui_request",…,"method":"notify","message":"slate: ignoring …"}
 ---- end run2 (the trusted config run, -a) stdout ----
+---- run3 (the trusted local-package run, -a) stderr — 136 bytes ----
+CI-CANARY {"tools":[…],"cwd":"…","trusted":true}
+---- end run3 (the trusted local-package run, -a) stderr ----
 artifacts: /tmp/slate-loadcheck.5eHaps (raw rpc streams, kept because a check failed)
 ```
 
@@ -2284,8 +2300,8 @@ The output has a bound, so a pathological run cannot flood the log. The harness
 cuts each stream at **20000 bytes** (`STREAM_CAP`). It cuts at the last line
 boundary when that boundary lies past half of the cap. The header of a section
 that lost bytes states the real size, the size after the cut, and the cap, so
-nobody reads a cut stream as a whole one. Four sections therefore cost about
-80 KB at most.
+nobody reads a cut stream as a whole one. Six sections therefore cost about
+120 KB at most.
 
 A stream of 0 bytes gives one header with `— 0 bytes (empty)` and no body, and a
 stream that the harness cannot read gives `unavailable` with the reason. The
@@ -2310,9 +2326,10 @@ a dogfooding session, before any cleanup runs.
 
 ## What it covers
 
-The harness runs 12 checks. `L1`–`L8` cover the untrusted load path, `T1`–`T3`
-cover the trusted path (`-a`), and `T4` needs no pi at all: `--only T4` starts no
-session, and it runs the version probe that resolves the CLI only.
+The harness runs 14 checks. `L1`–`L8` cover the untrusted load path, `T1`–`T3`
+cover the trusted config path, and `T6` covers the trusted local-package path.
+`T4` and `T5` need no pi process: either static-only selection starts no session,
+but still runs the version probe that resolves the CLI.
 
 | id | what it proves |
 | --- | --- |
@@ -2328,6 +2345,8 @@ session, and it runs the version probe that resolves the CLI only.
 | `T2` | slate's config sanitizers emitted **no warning** for the tracked `.pi/slate.json` of this checkout. That result is the whole claim: sanitizers warn for three keys only (`modelFailover`, `contextBudget` and `workerExtensions`), so a clean `T2` excludes a warning and nothing else |
 | `T3` | the trusted run also left `.pi/npm` unchanged, so `PI_OFFLINE` held where `-a` would otherwise install |
 | `T4` | the project config file **parses as JSON and holds a plain object at the top level**. node reads the file directly from disk. The check PASSES when the file is absent, because a project config is optional for a consumer |
+| `T5` | the tracked `.pi/settings.json` contains exactly one local slate package entry. The path resolves relative to `.pi`, reaches a manifest named `ytdb-slate`, and every literal `pi.extensions` entry exists |
+| `T6` | a trusted scratch project loads a reduced slate package through an entry spelled `"../"`, registers each slate tool once, exposes one `/slate` command from that package, and reports no conflict |
 
 `T4` exists because `T2` cannot cover the syntax of the file. slate's
 `loadConfig()` wraps the read and the `JSON.parse` in a `try`/`catch`, and it
@@ -2338,6 +2357,24 @@ looks healthy to every check that reads pi's output, while slate drops every
 setting in the file, `workflow.draftPRs` included. A direct read of the file is
 the only way to see that state, and it needs no pi, no session and no trust.
 
+`T5` applies the same direct-read rule to `.pi/settings.json`. A missing or
+unparseable file is a FAIL, because this checkout requires its tracked dogfood
+entry. `T5` also rejects a registry slate entry, a path that does not resolve, a
+manifest with another package name, and a missing literal extension entry. `T6`
+then proves the literal `"../"` spelling through pi itself. Both checks report
+FAIL rather than NOT RUN for a defect.
+
+When the user-scope settings file contains another slate identity, the harness
+prints a `NOTE` after the context block. The note names both settings files,
+entries, and identities. It also states that a real session loads two copies and
+exits 1 with a tool conflict. The observation never changes the verdict, because
+continuous integration has no user-scope settings file.
+
+`T5` cannot prove that pi loads or registers the package. `T6` cannot validate
+other package entries in the tracked settings file, because its scratch settings
+contain only slate. Neither check executes a dispatch tool or validates TUI
+presentation.
+
 One gap remains, and this document states it plainly. `T2` and `T4` together
 cover the syntax of the file, its top-level shape, and the *shapes* of three
 keys. **An unknown key, and a wrong-typed value under a key without a sanitizer,
@@ -2346,11 +2383,11 @@ gives a pass for `T4` and a pass for `T2`. No check in CI validates the
 content of the config, and the reader of `README.md` § Configuration still
 carries that duty.
 
-The harness proves no behaviour. No check here executes a tool, starts a worker
-session, or exercises failover or handoff: the harness performs a load, a
-registration check, one command round trip and one file read. It is also no
+The harness proves no dispatch behaviour. No check here executes a tool, starts
+a worker session, or exercises failover or handoff. The harness performs loads,
+registration checks, one command round trip, and two direct file reads. It is also no
 typecheck; `npm run typecheck` is that check, because jiti transpiles each module
-and erases the types, so a type error loads correctly. Both pi runs use rpc mode,
+and erases the types, so a type error loads correctly. All three pi runs use rpc mode,
 so no result here describes the TUI. Those subjects need the ladder, the resolver
 checks, or the manual isolated-load smoke test (`pi --no-extensions -e .`, see
 `AGENTS.md`).
@@ -2359,7 +2396,7 @@ checks, or the manual isolated-load smoke test (`pi --no-extensions -e .`, see
 
 | file | role |
 | --- | --- |
-| `run-load-check.sh` | the driver: it resolves the pi CLI, matches the pin, runs the scrubbed offline rpc runs, parses the rpc streams, reads the config file, and holds every assertion |
+| `run-load-check.sh` | the driver: it resolves the pi CLI, matches the pin, runs the scrubbed offline rpc runs, parses the streams, reads both tracked settings files, observes user-scope identity conflicts, builds the reduced package copy, and holds every assertion |
 | `ci-canary.ts` | the positive control: a `session_start` hook that prints the registered tool set, the cwd and the trust state to stderr, and asserts nothing |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`

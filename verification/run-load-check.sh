@@ -25,25 +25,27 @@
 # (`npm run typecheck` is that): jiti transpiles per module and erases types, so
 # a type error loads perfectly well.
 #
-# Two pi runs, both fully offline and both without credentials of any kind: a
-# throwaway PI_CODING_AGENT_DIR (mktemp'd and EMPTY — no models.json, no
-# auth.json), PI_OFFLINE=1, --no-extensions, and non-model rpc requests fed from
-# a file so stdin closes at EOF. No provider is ever contacted, so no API key is
-# needed — and none is passed: inherited credentials and pi session variables are
-# scrubbed out of the child environment.
-#   RUN 1  untrusted load path: the loader, session_start, the registrations, and
-#          a /slate on round-trip through the command handler
-#   RUN 2  trusted (-a) path: trust is what makes slate read the checkout's own
-#          .pi/slate.json, so this run puts the tracked project config through
+# Three pi runs, all fully offline and without credentials of any kind. Each gets
+# a throwaway PI_CODING_AGENT_DIR (mktemp'd and EMPTY — no models.json, no
+# auth.json), PI_OFFLINE=1, and non-model rpc requests fed from a file so stdin
+# closes at EOF. No provider is ever contacted, so no API key is needed — and
+# none is passed: inherited credentials and pi session variables are scrubbed out
+# of the child environment.
+#   RUN 1  untrusted explicit load path: the loader, session_start, registrations,
+#          and a /slate on round-trip through the command handler
+#   RUN 2  trusted explicit load path: puts the tracked project config through
 #          slate's config sanitizers
-# Plus one check that launches nothing at all (T4): the project config file must
+#   RUN 3  trusted project-package path: loads a reduced package copy through a
+#          settings entry spelled "../" and checks that exactly one slate loads
+# Plus two checks that launch nothing at all. T4 requires the project config to
 # be parseable JSON and a JSON object. RUN 2 cannot cover that — slate's config
 # loader try/catches a malformed file and falls back to defaults in silence, so
 # the sanitizers it feeds are never reached and pi emits nothing. Without T4 a
 # checkout whose .pi/slate.json is `{{{` looks perfectly healthy here while every
-# setting in it, workflow.draftPRs included, is being dropped.
-# PI_OFFLINE=1 is MANDATORY on BOTH runs, and on RUN 2 above all: -a makes pi
-# read .pi/settings.json, and without PI_OFFLINE it npm-installs every package
+# setting in it, workflow.draftPRs included, is being dropped. T5 reads project
+# package settings and verifies the local package and each manifest entry.
+# PI_OFFLINE=1 is MANDATORY on ALL runs, and on trusted runs above all: -a makes
+# pi read .pi/settings.json, and without PI_OFFLINE it npm-installs every package
 # listed there — observed hanging for 60 s and writing a .pi/npm directory INTO
 # the checkout under test.
 #
@@ -85,7 +87,7 @@ exec 8>&2
 # status (WC2). Callers pass the reason only.
 die() { echo "verification: refused to start — $*" >&8; exit 2; }
 
-ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3 T4"
+ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3 T4 T5 T6"
 
 REPO="."
 ONLY=""
@@ -251,6 +253,20 @@ pirun() { # $1 label, $2 requests file, rest = extra pi args
 	RC=$?
 }
 
+# RUN 3 differs deliberately. Extensions stay enabled, and slate is not passed
+# with -e. The project package entry is the only route by which slate may load.
+pirun_package() { # $1 label, $2 requests file, $3 scratch project
+	local label="$1" reqs="$2" project="$3"
+	PI_RAN=1
+	PI_RUNS+=("$label")
+	local agent="$WORK/agent-$label"
+	mkdir -p "$agent" || die "cannot create the throwaway agent dir '$agent'"
+	( cd "$project" && env "${SCRUB[@]}" PI_CODING_AGENT_DIR="$agent" PI_OFFLINE=1 \
+		${TMO[@]+"${TMO[@]}"} "$PI" -e "$CANARY" --mode rpc -a < "$reqs" \
+	) > "$WORK/$label.out" 2> "$WORK/$label.err"
+	RC=$?
+}
+
 # Reads one fact out of a captured rpc stream. Every shape this script depends on
 # (get_commands responses, extension_ui_request events, extension_error events,
 # the canary line) is parsed here and nowhere else. Paths go in as ARGV, never
@@ -292,6 +308,7 @@ else if (q === "canary-tools") say(last && Array.isArray(last.tools) ? last.tool
 else if (q === "canary-where") say(last ? [last.cwd, "trusted=" + last.trusted].join(" ") : "");
 else if (q === "canary-trusted") say(last ? String(last.trusted) : "");
 else if (q === "cmd-path") { const c = commands().find((x) => x && x.name === "slate"); say(c && c.sourceInfo ? String(c.sourceInfo.path) : ""); }
+else if (q === "cmd-count") say(commands().filter((c) => c && c.name === "slate").length);
 else if (q === "cmd-names") say(commands().map((c) => c && c.name).join(","));
 else if (q === "ext-errors") say(objs.filter((o) => o && o.type === "extension_error").length);
 else if (q === "ext-error-detail") say(objs.filter((o) => o && o.type === "extension_error").map((o) => [o.extensionPath, o.event, o.error].join(" @ ")).join(" | "));
@@ -395,6 +412,55 @@ other_stderr_lines() { grep -cv "$CANARY_RX" "$1" 2>/dev/null | tr -d '[:space:]
 echo "repo  = $REPO ($(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo 'not a git checkout'))"
 echo "pi    = $PI ($PIVER, pinned $PIN)"
 echo "lab   = $WORK"
+
+# This observation cannot be a gate. CI has no user settings, while a developer
+# may have another slate identity there that combines with the project package.
+USER_SETTINGS="${PI_CODING_AGENT_DIR:-${HOME:-}/.pi/agent}/settings.json"
+IDENTITY_NOTE="$(node -e '
+const fs = require("node:fs");
+const path = require("node:path");
+const [projectFile, userFile, expected] = process.argv.slice(1);
+function read(file) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; }
+}
+function npmName(entry) {
+  if (!entry.startsWith("npm:")) return "";
+  const spec = entry.slice(4);
+  if (spec.startsWith("@")) {
+    const slash = spec.indexOf("/");
+    const at = spec.indexOf("@", slash + 1);
+    return at < 0 ? spec : spec.slice(0, at);
+  }
+  const at = spec.indexOf("@");
+  return at < 0 ? spec : spec.slice(0, at);
+}
+function identity(entry, settingsFile) {
+  if (npmName(entry) === expected) return "npm:" + expected;
+  if (typeof entry !== "string" || entry.startsWith("npm:")) return "";
+  const target = path.resolve(path.dirname(settingsFile), entry);
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf8"));
+    if (manifest && manifest.name === expected) return "local:" + fs.realpathSync(target);
+  } catch {}
+  return "";
+}
+function slateEntries(file) {
+  const parsed = read(file);
+  if (!parsed || !Array.isArray(parsed.packages)) return [];
+  return parsed.packages.filter((entry) => typeof entry === "string")
+    .map((entry) => ({ entry, identity: identity(entry, file) }))
+    .filter((item) => item.identity);
+}
+const project = slateEntries(projectFile);
+const user = slateEntries(userFile);
+if (project.length === 1 && user.length === 1 && project[0].identity !== user[0].identity) {
+  process.stdout.write("NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — user " + userFile + ": " +
+    user[0].entry + " => " + user[0].identity + ". Project " + projectFile + ": " +
+    project[0].entry + " => " + project[0].identity +
+    ". A real session loads two copies and exits 1 with a tool conflict.");
+}
+' "$REPO/.pi/settings.json" "$USER_SETTINGS" "$(node -p 'require(process.argv[1]).name' "$REPO/package.json")")"
+[ -n "$IDENTITY_NOTE" ] && echo "$IDENTITY_NOTE"
 echo
 
 # =============================================================================
@@ -592,6 +658,136 @@ say("OK " + f + " parses as a JSON object, " + keys.length + " top-level key(s):
 	}
 fi
 
+# =============================================================================
+# PROJECT PACKAGE SETTINGS — read straight off disk, no pi involved
+# =============================================================================
+# Pi silently drops malformed settings and extension entries that resolve
+# nowhere. T5 reads the tracked package configuration rather than inferring its
+# health from a session that may have ignored it.
+if run_wanted T5; then
+	want T5 && {
+		PACKAGE_SETTINGS="$REPO/.pi/settings.json"
+		PACKAGE_RESULT="$(node -e '
+const fs = require("node:fs");
+const path = require("node:path");
+const [settings, projectManifestFile] = process.argv.slice(1);
+const say = (value) => process.stdout.write(value);
+const fail = (detail) => { say("BAD " + detail); process.exit(0); };
+if (!fs.existsSync(settings)) fail("project package settings are missing: " + settings + " — this checkout requires a tracked slate package entry");
+let text;
+try { text = fs.readFileSync(settings, "utf8"); }
+catch (e) { fail("cannot read project package settings " + settings + ": " + (e && e.message ? e.message : String(e))); }
+let parsed;
+try { parsed = JSON.parse(text); }
+catch (e) { fail(settings + " is not parseable JSON (" + (e && e.message ? e.message : String(e)) + ") — pi drops invalid project settings without reporting the lost package entry"); }
+const kind = parsed === null ? "null" : Array.isArray(parsed) ? "an array" : typeof parsed === "object" ? "an object" : "a " + typeof parsed;
+if (kind !== "an object") fail(settings + " parses, but its top-level value is " + kind + ", not a JSON object");
+if (!Array.isArray(parsed.packages) || parsed.packages.some((entry) => typeof entry !== "string")) fail(settings + " has no packages string array");
+let projectManifest;
+try { projectManifest = JSON.parse(fs.readFileSync(projectManifestFile, "utf8")); }
+catch (e) { fail("cannot read the checkout manifest " + projectManifestFile + ": " + (e && e.message ? e.message : String(e))); }
+const expected = projectManifest && projectManifest.name;
+function npmName(entry) {
+  if (!entry.startsWith("npm:")) return "";
+  const spec = entry.slice(4);
+  if (spec.startsWith("@")) {
+    const slash = spec.indexOf("/");
+    const at = spec.indexOf("@", slash + 1);
+    return at < 0 ? spec : spec.slice(0, at);
+  }
+  const at = spec.indexOf("@");
+  return at < 0 ? spec : spec.slice(0, at);
+}
+const local = (entry) => path.isAbsolute(entry) || entry === "." || entry === ".." || entry.startsWith("./") || entry.startsWith("../");
+const candidates = parsed.packages.filter((entry) => npmName(entry) === expected || !entry.startsWith("npm:"));
+if (candidates.length !== 1) fail("expected exactly one " + expected + " package entry in " + settings + ", found " + candidates.length + ": " + JSON.stringify(candidates));
+const entry = candidates[0];
+if (entry.startsWith("npm:")) fail("the " + expected + " entry is still an npm specifier: " + entry + " — track 02 requires a local package path");
+if (!local(entry)) fail("the " + expected + " entry is not a local filesystem path: " + entry);
+const settingsDirectory = path.dirname(settings);
+const target = path.resolve(settingsDirectory, entry);
+let targetIsDirectory = false;
+try { targetIsDirectory = fs.statSync(target).isDirectory(); } catch {}
+if (!targetIsDirectory) fail("the " + expected + " entry " + entry + " resolves relative to " + settingsDirectory + " as " + target + ", which is not a directory");
+const manifestFile = path.join(target, "package.json");
+if (!fs.existsSync(manifestFile)) fail("the local slate package has no manifest at " + manifestFile);
+let manifest;
+try { manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")); }
+catch (e) { fail("the local slate manifest " + manifestFile + " is not parseable JSON (" + (e && e.message ? e.message : String(e)) + ")"); }
+if (!manifest || manifest.name !== expected) fail("the local slate manifest name is " + JSON.stringify(manifest && manifest.name) + ", expected " + expected);
+const extensions = manifest.pi && manifest.pi.extensions;
+if (!Array.isArray(extensions) || extensions.length === 0 || extensions.some((item) => typeof item !== "string" || item.length === 0)) fail("the local slate manifest has no non-empty pi.extensions string array");
+for (const manifestEntry of extensions) {
+  const entryFile = path.resolve(target, manifestEntry);
+  let isFile = false;
+  try { isFile = fs.statSync(entryFile).isFile(); } catch {}
+  if (!isFile) fail("the local slate entry file is missing: " + entryFile + " from pi.extensions entry " + manifestEntry + " — pi drops that entry silently");
+}
+say("OK project settings contain one local " + expected + " entry: " + entry + " resolves from " + settingsDirectory + " to " + target + ", with " + extensions.length + " existing pi extension entry file(s)");
+' "$PACKAGE_SETTINGS" "$REPO/package.json")"
+		case "$PACKAGE_RESULT" in
+			"OK "*) check T5 0 "${PACKAGE_RESULT#OK }" ;;
+			"BAD "*) check T5 1 "${PACKAGE_RESULT#BAD }" ;;
+			*) check T5 1 "could not classify $PACKAGE_SETTINGS — the reader printed ${PACKAGE_RESULT:-<nothing>}" ;;
+		esac
+	}
+fi
+
+# =============================================================================
+# RUN 3 — trusted local project-package path
+# =============================================================================
+# The package copy excludes node_modules. Pi must resolve the literal "../" from
+# its .pi directory and alias slate peer imports to its own bundled SDK copies.
+if run_wanted T6; then
+	want T6 && {
+		PACKAGE_ROOT="$WORK/local-package"
+		mkdir -p "$PACKAGE_ROOT/.pi" || die "cannot create the trusted scratch project '$PACKAGE_ROOT'"
+		node -e '
+const fs = require("node:fs");
+const [source, target] = process.argv.slice(1);
+fs.copyFileSync(source + "/package.json", target + "/package.json");
+fs.cpSync(source + "/extension", target + "/extension", { recursive: true });
+fs.cpSync(source + "/docs", target + "/docs", { recursive: true });
+fs.writeFileSync(target + "/.pi/settings.json", JSON.stringify({ packages: ["../"] }, null, 2) + "\n");
+' "$REPO" "$PACKAGE_ROOT" || die "cannot build the reduced slate package in '$PACKAGE_ROOT'"
+		printf '%s\n' '{"id":"1","type":"get_commands"}' > "$WORK/run3.in" || die "cannot write the local-package rpc request file"
+		pirun_package run3 "$WORK/run3.in" "$PACKAGE_ROOT"
+		RC3=$RC
+		OUT3="$WORK/run3.out"; ERR3="$WORK/run3.err"
+		DIAG3="$(first_stderr_line "$ERR3")"
+		MARKER3="$(grep -F -m1 -e 'Failed to load extension' -e 'Extension error (' "$ERR3" "$OUT3" 2>/dev/null | head -1)"
+		CONFLICT3="$(grep -F -m1 'conflicts with' "$ERR3" "$OUT3" 2>/dev/null | head -1)"
+		U3="$(rpcq unparseable "$OUT3")"
+		E3="$(rpcq ext-errors "$OUT3")"
+		C3="$(rpcq canary-count "$ERR3")"
+		TR3="$(rpcq canary-trusted "$ERR3")"
+		TOOLS3="$(rpcq canary-tools "$ERR3")"
+		CMD_COUNT3="$(rpcq cmd-count "$OUT3")"
+		CMD_PATH3="$(rpcq cmd-path "$OUT3")"
+		EXPECTED_PATH3="$PACKAGE_ROOT/extension/index.ts"
+		TOOL_COUNTS3="$(node -e '
+const tools = process.argv[1].split(/\s+/).filter(Boolean);
+process.stdout.write(["thread", "threads", "episode"].map((name) => name + "=" + tools.filter((tool) => tool === name).length).join(" "));
+' "$TOOLS3")"
+		if [ "$RC3" != 0 ]; then check T6 1 "pi exited $RC3 loading the trusted \"../\" package entry — first diagnostic: ${DIAG3:-<none>}"
+		elif [ -n "$MARKER3" ]; then check T6 1 "trusted \"../\" load reported an extension-load failure marker: $MARKER3"
+		elif [ -n "$CONFLICT3" ]; then check T6 1 "trusted \"../\" load reported a tool conflict: $CONFLICT3"
+		elif [ "$U3" != 0 ]; then check T6 1 "$U3 line(s) of local-package stdout look like JSON but do not parse, so the rpc assertions are not trustworthy"
+		elif [ "$E3" != 0 ]; then check T6 1 "trusted \"../\" load emitted $E3 extension_error event(s): $(rpcq ext-error-detail "$OUT3")"
+		elif [ "$C3" != 1 ]; then check T6 1 "expected exactly one canary line from the trusted local-package run, observed $C3"
+		elif [ "$TR3" != true ]; then check T6 1 "the canary reported trusted=${TR3:-<no canary line>}, so project settings were not authoritative"
+		elif [ "$TOOL_COUNTS3" != "thread=1 threads=1 episode=1" ]; then check T6 1 "expected thread, threads and episode exactly once, observed [$TOOLS3] ($TOOL_COUNTS3)"
+		elif [ "$CMD_COUNT3" != 1 ]; then check T6 1 "expected exactly one /slate command, observed $CMD_COUNT3: $(rpcq cmd-names "$OUT3")"
+		elif [ "$CMD_PATH3" != "$EXPECTED_PATH3" ]; then check T6 1 "/slate was attributed to ${CMD_PATH3:-<no path>}, expected $EXPECTED_PATH3"
+		else
+			case "$CMD_PATH3" in
+				"$PACKAGE_ROOT/extension/"*) check T6 0 "trusted scratch project loaded one local slate package through \"../\" from $CMD_PATH3, with thread, threads and episode registered once and no conflict" ;;
+				*) check T6 1 "/slate was attributed to $CMD_PATH3, which is outside the trusted scratch project $PACKAGE_ROOT" ;;
+			esac
+		fi
+	}
+fi
+
 echo
 if [ "$RAN" -eq 0 ]; then
 	echo "verification: NO CHECK RAN. --only='$ONLY' matched nothing, so this run proves nothing." >&8
@@ -600,8 +796,8 @@ fi
 echo "== summary: $PASS pass, $FAIL fail =="
 
 # Only when something failed, and only when a pi run actually produced streams:
-# T4 needs no pi, so a T4-only failure has nothing to show and must not print
-# empty sections (nor keep an empty directory).
+# T4 and T5 need no pi, so a static-only failure has nothing to show and must
+# not print empty sections or keep an empty directory.
 if [ "$FAIL" -ne 0 ] && [ "$PI_RAN" = 1 ]; then
 	KEEP=1
 	echo
@@ -611,6 +807,7 @@ if [ "$FAIL" -ne 0 ] && [ "$PI_RAN" = 1 ]; then
 		case "$label" in
 			run1) title="run1 (the untrusted load run)" ;;
 			run2) title="run2 (the trusted config run, -a)" ;;
+			run3) title="run3 (the trusted local-package run, -a)" ;;
 			*) title="$label" ;;
 		esac
 		# stderr first: pi puts its own diagnostics and the canary line there.
