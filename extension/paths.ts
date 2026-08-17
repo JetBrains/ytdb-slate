@@ -14,6 +14,7 @@ const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = join(EXTENSION_DIR, "..", "docs");
 
 export const WRITING_CHECKER = join(EXTENSION_DIR, "writing-check.mjs");
+export const SIZE_GRADE_SCRIPT = join(EXTENSION_DIR, "size-grade.mjs");
 // Dynamic import specifiers must be file URLs: raw paths break on Windows and
 // treat `#` or `?` in an install directory as URL syntax.
 export const WRITING_CHECKER_URL = pathToFileURL(WRITING_CHECKER).href;
@@ -24,3 +25,7 @@ export const DESIGN_PRINCIPLES_DOC = join(DOCS_DIR, "design-principles.md");
 export const MODEL_ROUTING_DOC = join(DOCS_DIR, "model-routing.md");
 export const THREAD_CACHE_COST_DOC = join(DOCS_DIR, "thread-cache-cost.md");
 export const WRITING_GUIDANCE_DOC = join(DOCS_DIR, "writing-guidance.md");
+export const CONTEXT_BUDGET_DOC = join(DOCS_DIR, "context-budget.md");
+export const MODEL_FAILOVER_DOC = join(DOCS_DIR, "model-failover.md");
+export const BLAST_RADIUS_DOC = join(DOCS_DIR, "blast-radius.md");
+export const USER_NOTES_DOC = join(DOCS_DIR, "user-notes.md");

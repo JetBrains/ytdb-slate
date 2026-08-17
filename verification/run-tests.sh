@@ -24,6 +24,9 @@ while [ $# -gt 0 ]; do
 done
 command -v node >/dev/null 2>&1 || fail "node is required"
 command -v git >/dev/null 2>&1 || fail "git is required"
+[ -f "$repo/verification/size-grade-tests.mjs" ] || fail "missing size-grade regression suite at $repo/verification/size-grade-tests.mjs"
+printf 'run-tests: size-grade regression suite\n'
+node "$repo/verification/size-grade-tests.mjs"
 if [ -z "$base" ]; then
   if git -C "$repo" show-ref --verify --quiet refs/heads/main; then main_ref=main
   elif git -C "$repo" show-ref --verify --quiet refs/remotes/origin/main; then main_ref=origin/main

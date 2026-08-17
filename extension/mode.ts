@@ -453,12 +453,12 @@ function buildDoctrine(
 	router: ModelRouterResolution,
 ): string {
 	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
-	// one of the gates; otherwise durable records live in the workflow log.
+	// one of the gates; otherwise durable records live in the research log.
 	const rule8Tail =
 		config.workflow?.draftPRs === true
 			? `An umbrella draft PR is part of the pre-implementation gates; PR
    publishing mechanics are in ${PR_PUBLISHING_DOC}.`
-			: `Durable workflow records anchor in the retained repo-root workflow
+			: `Durable workflow records anchor in the retained repo-root research
    log per the workflow doc.`;
 	const followUpTail = trusted && config.workflow?.followUpIssues === true
 		? "\n   After review, ask the user which review suggestions become tracker issues."
@@ -497,16 +497,18 @@ threads execute. Rules:
 6. After every episode, update your strategy. Episodes marked STATUS: FAILED
    require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.
-8. Scale change gates by class: trivial, medium, complex, or risky. The
-   orchestrator owns the track split. For repository changes, read
-   ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context). Above trivial, keep a research log. Every track diff requires
-   user review. Before the first file-modifying dispatch, confirm the user confirmed
-   the class and all required pre-implementation gates ran. Medium and above require
-   user-approved design. Complex and risky then require adversarial design review,
-   then final user approval.
+8. Scale change gates by size grade: SMALL, MEDIUM, or LARGE. Predict focus
+   areas separately. The orchestrator owns the track split. For repository changes,
+   read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).
+   MEDIUM and LARGE always keep a research log; SMALL opens one on a listed trigger.
+   Track packets are non-blocking, but final change acceptance is blocking. Before
+   the first file-modifying dispatch, confirm the user confirmed the predicted grade
+   and focus set, and every required pre-implementation gate ran. Validate each
+   required design before adversarial design review, then obtain final user approval.
    ${rule8Tail}
-9. Every non-trivial change gets reviewed before it is declared done.
-   Before dispatching review threads, read
+9. Review every track with the set required by its grade and engaged focus areas.
+   Verification or gate machinery receives the general implementation reviewer even
+   at SMALL. Before dispatching review threads, read
    ${REVIEW_RULES_DOC}
    (skip the read if it is already in your context) and follow it.${rule9Tail}${followUpTail}
 10. The design principles behind this architecture are documented in

@@ -4,7 +4,9 @@
 
 Slate is a thread-weaving orchestration extension for the [pi coding agent](https://pi.dev).
 
-The orchestrator (your main pi session) dispatches **bounded actions** to persistent **worker threads**. Each completed action is compressed by an LLM into an **episode** — a durable, structured record (intent, actions, findings, artifacts, open issues, handoff notes) that the orchestrator composes into further dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its design and review gates scale with the confirmed change class. Optional umbrella **draft-PR publishing** covers tracks.
+The orchestrator is your main pi session. It dispatches **bounded actions** to persistent **worker threads**. A large language model compresses each completed action into an **episode**. The episode retains intent, actions, findings, artifacts, open issues, and handoff notes.
+
+The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use a confirmed size grade and the focus areas the change engages. Optional umbrella **draft-PR publishing** covers tracks.
 
 An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative. A second opt-in, **action-level model routing**, gives each dispatched action a model and an effort level chosen to be up to the task and no more, so cost is bounded per action instead of per session.
 
@@ -40,27 +42,28 @@ Full rationale: [`docs/design-principles.md`](docs/design-principles.md), shippe
 
 In orchestrator mode, Slate injects a mandatory track-based development workflow. Project configuration can extend it through `doctrineExtraPath`. Configuration cannot replace it.
 
-Slate uses four change classes. Evaluate these tests in order. The first match
-sets the class:
+Slate uses three workload grades. SMALL covers up to 50 predicted changed
+production-logic lines. MEDIUM covers 51 through 1,000. LARGE covers more than
+1,000. More than 25 changed files raises SMALL or MEDIUM by one grade.
 
-1. **Risky:** The change touches concurrency, durability, recovery,
-   transactional semantics, security, or user data. This class also covers a
-   public API or behavioral change, or a silent failure mode.
-2. **Complex:** The shape is unclear, several parts interact, or a live design
-   alternative exists.
-3. **Trivial:** The change is an obvious fix with no behavioral change, and one
-   reviewer pass covers it.
-4. **Medium:** Otherwise.
+Focus is separate from size. Ten focus areas add design or review gates. They
+cover concurrency, durability, security, core behavior, performance, design
+uncertainty, contracts, silent failures, project test artifacts, and
+user-facing or licensing-adjacent prose. Every project test artifact gets a
+separate test-quality and structure reviewer. That reviewer checks behavioral
+effectiveness and test isolation.
 
-After classification, follow these workflow steps:
+The workflow follows these steps:
 
-1. **Classification and research** — the orchestrator proposes the change class, and the user confirms it. A research log is required for medium changes and above.
-2. **Design gates** — medium changes need high-level design approval before implementation. Complex and risky changes add an adversarial review between two user approvals.
-3. **Track split** — the orchestrator owns the split. Size determines tracks and marker commits, not workflow gates.
-4. **Per-track loop** — each track gets implementation, fixes, and mandatory user review. Agent code review is skipped only when the whole change is trivial.
-5. **Delivery** — the user performs the squash merge when draft publishing is enabled. Otherwise, the squashed commit carries the workflow log's key content.
+1. **Predict and confirm** — the orchestrator predicts size and focus before implementation. The user confirms both together.
+2. **Design** — MEDIUM and LARGE need a high-level design. Design uncertainty adds adversarial review. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
+3. **Implement tracks** — each track declares its files and focus areas. Track reviews are non-blocking. Final change acceptance remains blocking.
+4. **Measure** — the size command shipped with Slate checks the committed range at the first track boundary.
+5. **Review and deliver** — grade and focus select fresh machine reviewers. The user gives final acceptance and performs any squash merge.
 
-Trivial changes have no high-level design gate. Every change keeps mandatory user review of its track diff. Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
+SMALL has a mechanical fast path. Any focus area, project test artifact, or
+verification machinery voids it. Umbrella draft-PR publishing activates only
+when `workflow.draftPRs` is `true`.
 
 This summary is orientation only; the shipped docs listed below are normative.
 
@@ -186,9 +189,9 @@ Slate reads project configuration (`.pi/slate.json`) and injects project files (
 
 In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths are also why the block's character count depends on your install location; [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
 
-- `docs/track-workflow.md` — the class-scaled workflow for research, high-level design, adversarial review, and track review
+- `docs/track-workflow.md` — the size-grade and focus-area lifecycle for research, design, implementation, review, and delivery
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
-- `docs/review-rules.md` — review discipline and finding rules
+- `docs/review-rules.md` — reviewer composition, the composite test-quality role, evidence standards, findings, and fix gates
 - `docs/design-principles.md` — Slate's own design rationale
 - `docs/model-failover.md` — the opt-in `modelFailover` map (**reference documentation** — unlike the entries above it is not workflow doctrine and is not cited by the doctrine)
 - `docs/context-budget.md` — the orchestrator `contextBudget`: defaults, per-model overrides, the window clamp, and the pricing rationale (also **reference documentation**, not cited by the doctrine)

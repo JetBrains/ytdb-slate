@@ -515,6 +515,7 @@ test("run-tests preserves a gate WARN as its final verdict (WH23)", (t) => {
   mkdirSync(join(repo, "verification"), { recursive: true });
   mkdirSync(join(repo, "test"), { recursive: true });
   cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
+  writeFileSync(join(repo, "verification/size-grade-tests.mjs"), "process.exit(0);\n");
   writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
   writeFileSync(join(repo, "verification/coverage-gate.mjs"), "console.log('VERDICT: WARN — fixture requires manual review');\n");
   writeFileSync(join(repo, "test/smoke.test.ts"), "import test from 'node:test'; test('smoke', () => {});\n");
@@ -528,6 +529,7 @@ for arg in "$@"; do
   esac
 done
 case " $* " in
+  *size-grade-tests.mjs*) exit 0 ;;
   *' --test '*) printf 'TN:\\n' > "$destination"; printf 'fixture node:test PASS\\n'; exit 0 ;;
 esac
 printf 'VERDICT: WARN — fixture requires manual review\\n'
@@ -542,6 +544,17 @@ printf 'VERDICT: WARN — fixture requires manual review\\n'
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /RUN VERDICT: WARN —/);
   assert.doesNotMatch(result.stdout, /RUN VERDICT: PASS/);
+});
+
+test("run-tests refuses a missing size-grade suite before running tests", (t) => {
+  const repo = mkdtempSync(join(tmpdir(), "slate-missing-size-suite-test-"));
+  t.after(() => rmSync(repo, { recursive: true, force: true }));
+  mkdirSync(join(repo, "verification"), { recursive: true });
+  cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
+  const result = command(repo, "bash", ["verification/run-tests.sh"]);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /run-tests: missing size-grade regression suite at /);
+  assert.doesNotMatch(result.stdout, /TEST VERDICT: PASS/);
 });
 
 test("missing LCOV is an infrastructure error and the runner labels it (WH41)", (t) => {
@@ -559,6 +572,7 @@ test("missing LCOV is an infrastructure error and the runner labels it (WH41)", 
   mkdirSync(join(runnerRepo, "verification"), { recursive: true });
   mkdirSync(join(runnerRepo, "test"), { recursive: true });
   cpSync(RUNNER, join(runnerRepo, "verification/run-tests.sh"));
+  writeFileSync(join(runnerRepo, "verification/size-grade-tests.mjs"), "process.exit(0);\n");
   writeFileSync(join(runnerRepo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
   writeFileSync(join(runnerRepo, "verification/coverage-gate.mjs"), "process.exitCode = 2;\n");
   writeFileSync(join(runnerRepo, "test/smoke.test.ts"), "// fixture\n");
@@ -567,7 +581,10 @@ test("missing LCOV is an infrastructure error and the runner labels it (WH41)", 
   const fakeNode = join(bin, "node");
   writeFileSync(fakeNode, `#!/bin/sh
 for arg in "$@"; do case "$arg" in --test-reporter-destination=*) destination="\${arg#*=}" ;; esac; done
-case " $* " in *' --test '*) printf 'TN:\\n' > "$destination"; exit 0 ;; esac
+case " $* " in
+  *size-grade-tests.mjs*) exit 0 ;;
+  *' --test '*) printf 'TN:\\n' > "$destination"; exit 0 ;;
+esac
 exit 2
 `);
   chmodSync(fakeNode, 0o755);

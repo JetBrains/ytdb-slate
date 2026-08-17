@@ -1,5 +1,11 @@
 # Verification ladder — global model-default restore
 
+## Size-grade regression suite
+
+`node verification/size-grade-tests.mjs` checks the shipped `extension/size-grade.mjs` command. The suite covers grade boundaries, all declared source extensions, binary numstat zero-line handling, configuration safety, Git failures, and output formats. It runs first through `verification/run-tests.sh`, so `npm test` and `npm run test:coverage` include it before the TypeScript tests and coverage gate. Use `npm run test:size-grade` for the focused package script. `run-tests.sh` refuses to start with exit 2 when the suite file is absent, so CI cannot silently skip this net.
+
+Run the focused suite after any change to `extension/size-grade.mjs` or `verification/size-grade-tests.mjs`. Run `npm test -- --base <ref>` after changes to those files, `verification/run-tests.sh`, `package.json`, or any covered TypeScript source. The wrapper preserves forwarded `--base`, `--no-gate`, and threshold arguments.
+
 A manual regression net for the mechanism in `extension/model-default.ts` and its
 two callers, `extension/failover.ts` (orchestrator failover) and
 `extension/handoff.ts` (handoff adoption) — plus one rung (`WK1`) for the other
@@ -718,8 +724,20 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately bounds the routing rule, writing rule, worker rule, model rows and representative combinations. Its stable maximum uses all nine profiles, draft PRs, writing, two capped worker units and four capped tools. The draft-enabled fixture measures **7,722 of 8,200** portable characters. A separate draft-disabled pin measures **7,703**. Every upper bound must exceed its measurement by at least five percent. Required character raises round up to the next hundred. Writing plus routing measures **6,356 of 6,700**. The capped worker rule measures **1,347 of 1,600** characters. An **8,670-character** positive control adds one capped tool and four maximum-growth model rows. It exceeds the maximal bound by 470 and proves the guard can fail. These are verification budgets, not runtime limits. Arbitrary extension rosters can exceed them. |
-| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` measures **7,800 of 8,200** portable characters. It shares the stable maximal basis and bound, keeps 400 characters of reserve, and proves the conditional sentence is charged to the budget. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It reads no project config. The draft-enabled maximum is **7,929 of 8,500** portable characters. The draft-disabled pin is **7,910**. Writing plus routing is **6,563 of 6,900**. All tails are **6,818 of 7,200**. The capped worker rule is **1,347 of 1,600**. An **8,877-character** positive control exceeds the maximal bound by 377. These are verification budgets, not runtime limits. |
+| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,007 of 8,500** portable characters and 105 lines. It is the largest maximal-family fixture and keeps 493 characters of reserve. |
+
+The doctrine contract checks read the shipped workflow documents directly:
+
+| id | what it proves |
+| --- | --- |
+| `contract-safety-floor-sync` | the two marked safety-floor blocks occur once, remain equal, and match the fixed seven-item content |
+| `contract-focus-table-sync` | both marked focus tables occur once, remain equal, and match the complete fixed ten-row table |
+| `contract-area9-artifact` | the unique marked area-9 definition and dual-purpose tie-break match canonical normalized text. A negated counterfactual must differ |
+| `contract-fast-path-artifact` | the ten-item SMALL checklist, omitted gates, retained sequence, and fallback to ordinary SMALL remain present |
+| `contract-test-composite` | the composite charter requires both behavioral effectiveness and structure and isolation sections |
+| `contract-no-test-structure` | the retired standalone test-structure role does not return or merge into another reviewer |
+| `contract-section-targets` | every named level-two target across the five workflow documents occurs exactly once. Regex metacharacters are escaped, and a duplicated Fast path counterfactual fails uniqueness |
 
 The **writing checker command** (`extension/writing-check.mjs`) is covered both by
 direct import and by spawned command tests. This is the checker's smallest net:
@@ -784,7 +802,7 @@ The **worker preamble** (`extension/worker.ts`):
 | id | what it proves |
 | --- | --- |
 | `worker-load` / `worker-preamble` | the module loads; feature-off keeps the exact historical bounded-action preamble; writing and reviewer guidance compose independently; only their explicit gates add them; and `ThreadManager` passes the sanitized writing switch and review-thread decision into the worker system prompt |
-| `reviewer-charter-sync` | the non-empty marked charter block in `docs/review-rules.md` matches the shipped `REVIEWER_CHARTER` after whitespace normalization |
+| `reviewer-charter-sync` | the non-empty marked generic charter block in `docs/review-rules.md` matches the shipped `REVIEWER_CHARTER` after whitespace normalization. The role-specific composite test charter remains in the document and is not injected into every review worker |
 
 The worker check was mutation-verified three ways: weaken the literal-true gate to a
 truthiness gate, replace `ThreadManager`'s config value with `false`, and change one
@@ -888,16 +906,16 @@ owns these stable verification fixtures:
 | routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
 | writing rule | 1 | **1,070** | 23 | 1,150 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| router-off doctrine | 4 | **2,701** | 46 | — |
-| router-on doctrine | 5 | **5,286** | 70 | 6,500 |
-| writing-only doctrine | 5 | **3,771** | 68 | 5,600 |
-| writing plus router | 6 | **6,356** | 92 | 6,700 |
-| writing plus extensions | 5 | **4,026** | 74 | 6,000 |
-| writing plus router and extensions | 6 | **6,611** | 98 | 7,000 |
-| maximal doctrine with draft PRs enabled | 7 | **7,722** | 102 | 8,200 |
-| maximal doctrine with draft PRs disabled | 6 | **7,703** | 102 | 8,200 |
-| maximal doctrine with follow-up issues enabled | 7 | **7,800** | 103 | 8,200 |
-| positive control, one extra capped tool plus four maximum-growth model rows | 7 | **8,670** | 107 | must exceed 8,200 |
+| router-off doctrine | 4 | **2,908** | 48 | — |
+| router-on doctrine | 5 | **5,493** | 72 | 6,500 |
+| writing-only doctrine | 5 | **3,978** | 70 | 5,600 |
+| writing plus router | 6 | **6,563** | 94 | 6,900 |
+| writing plus extensions | 5 | **4,233** | 76 | 6,000 |
+| writing plus router and extensions | 6 | **6,818** | 100 | 7,200 |
+| maximal doctrine with draft PRs enabled | 7 | **7,929** | 104 | 8,500 |
+| maximal doctrine with draft PRs disabled | 6 | **7,910** | 104 | 8,500 |
+| maximal doctrine with follow-up issues enabled | 7 | **8,007** | 105 | 8,500 |
+| positive control, one extra capped tool plus four maximum-growth model rows | 7 | **8,877** | 109 | must exceed 8,500 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
 maximal pins cover draft pull requests enabled, draft pull requests disabled,
@@ -908,11 +926,19 @@ Required character raises round up to the next hundred, while line bounds use
 the next whole line.
 
 A doctrine change updates its exact literal. A bound changes only when this
-reserve policy requires it. Writing plus routing keeps 344 portable characters.
-Writing plus router and extensions keeps 389. The enabled maximal doctrine keeps
-478 characters. The disabled one keeps 497. The follow-up-issues maximum keeps
-400. The largest model-row growth is 184 characters. The capped tool-line growth
-is 212 characters. The positive control exceeds the maximal bound by 470.
+reserve policy requires it. Writing plus routing uses
+`6,563 × 1.05 = 6,891.15`. Ceiling gives 6,892. Next-hundred rounding gives
+6,900.
+
+All tails use `6,818 × 1.05 = 7,158.9`. Ceiling gives 7,159. Next-hundred
+rounding gives 7,200.
+
+The largest maximal fixture uses `8,007 × 1.05 = 8,407.35`. Ceiling gives
+8,408. Next-hundred rounding gives 8,500. The enabled, disabled, and follow-up
+maximal reserves are 571, 590, and 493.
+
+The largest model-row growth is 184 characters. The capped tool-line growth is
+212 characters. The positive control exceeds the maximal bound by 377.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
@@ -2095,13 +2121,16 @@ with wrong content packs correctly.
 
 This harness and the package-content check below **overlap, and the overlap is
 not yet consolidated**. Both read the file list from `npm pack --dry-run`, and
-both require the doctrine docs to ship. They derive that requirement from
-different places: `pack-doctrine-docs` scans every `extension/*.ts` for a `*.md`
-literal joined onto the docs directory, while the package-content check reads the
-exported constants of `extension/paths.ts` and names a missing file by its export
-(`REVIEW_RULES_DOC`, `WRITING_CHECKER`). Only the package-content check requires
-the shipped **checker** itself; `pack-allowed` above only permits its file kind.
-Merging the two is a reasonable future change. Until then, run both.
+both require doctrine documents to ship. They derive that requirement from
+different places. `pack-doctrine-docs` scans `extension/*.ts` for Markdown joins.
+The package-content side is separate:
+
+- It independently enumerates every Markdown file.
+- It recursively enumerates each `.mjs` entry whose first line is
+  `#!/usr/bin/env node`.
+- It requires one exported runtime path and one packed file for each roster item.
+- Merging the two nets is reasonable future work.
+- Until then, run both normal checks and both self-tests.
 
 This harness guards **packaging**, so it says nothing about behaviour. It never
 loads `extension/index.ts`, and it starts no session. It cannot tell you whether
@@ -2345,34 +2374,49 @@ cannot test. Run it from any checkout:
 
 ```sh
 node verification/package-content-check.mjs --repo .
+node verification/package-content-check.mjs --repo . --self-test
 ```
 
-It runs `npm pack --dry-run --json --ignore-scripts`, then checks the resulting
-publish file list. It derives `WRITING_CHECKER` and every exported docs path from
-`extension/paths.ts`, whether or not a current module imports that path. It also
-parses `extension/mode.ts` and validates its named path imports, but those imports
-do not limit the document roster. A missing file fails by its exported name, such
-as `WRITING_CHECKER` or `REVIEW_RULES_DOC`, rather than as one aggregate packaging
-failure. It creates no tarball, runs no package scripts, uses no network, and
-normally takes under 1 second.
+The normal check runs `npm pack --dry-run --json --ignore-scripts`. It derives
+every exported extension command and document path from `extension/paths.ts`.
+It recursively enumerates every Markdown file under `docs/`. It also recursively
+enumerates `.mjs` files under `extension/` whose first line is exactly
+`#!/usr/bin/env node`. That shebang is the objective runtime-command criterion.
 
-Run it after a change to `package.json`'s `files` whitelist, a package-resolved
-path in `extension/paths.ts`, or a path import in `extension/mode.ts`. Run it
-before release too. Its scope is package presence; the resolver checks cover
-doctrine rendering and checker behavior.
+A helper `.mjs` file without it needs no command export. Each document and
+command must have exactly one export. Every exported runtime path must also
+appear in the publish file list. The check still parses `extension/mode.ts` and
+validates its named path imports.
+
+The self-test uses temporary fixtures outside the checkout. It proves recursive
+discovery of a nested shebang command and exclusion of a non-command helper. It
+also proves missing command export, missing document export, and missing packed
+runtime file findings. Two isolated subprocesses prove that `--help` works
+without TypeScript and real analysis refuses a missing TypeScript dependency
+with exit 2.
+
+Exit 0 means all checks passed. Exit 1 means a roster mismatch, a missing packed
+file, or an escaped self-test mutation. Exit 2 means a bad invocation, missing
+tool, parse failure, or failed precondition. Argument help is parsed before the
+optional TypeScript analyzer loads.
+
+Run both commands after adding, moving, or deleting a Markdown file under
+`docs/`, a shebang-bearing `.mjs` command anywhere under `extension/`, or a
+runtime path export. Run them after
+a `files` whitelist change or a path import change in `extension/mode.ts`. Run
+them before release. The resolver checks still cover doctrine content and
+rendering.
 
 It **overlaps the packaging guards above**, and the overlap is not yet
 consolidated. That harness derives its doctrine-doc set by scanning every
 `extension/*.ts` for a `*.md` literal joined onto the docs directory; this check
-reads the exported constants of `extension/paths.ts` instead, so it also covers an
-export that no module currently imports, and it names a missing file by its export
-rather than by its path. It is also the only check that requires the shipped
-**checker** (`extension/writing-check.mjs`) to be in the publish set; the guards
-above only permit its `.mjs` kind. Run both until one absorbs the other.
+reads the exported constants of `extension/paths.ts` instead. It also covers an
+export that no module currently imports. Its recursive shebang roster requires
+both shipped commands, while the guards only permit their `.mjs` file kind. Run
+both until one absorbs the other.
 
-Mutation verification uses scratch checkouts under `/tmp`: removing `docs` from
-the `files` whitelist must fail every cited document by name, and removing the
-checker must fail `WRITING_CHECKER`. The production checkout must pass unchanged.
+The package-content self-test is separate from the packaging guard self-test.
+Run both because they derive different rosters and detect different omissions.
 
 # The writing checker — `extension/writing-check.mjs`
 
