@@ -2370,16 +2370,24 @@ rejects a registry slate entry and a missing literal extension entry. `T6` then
 proves the literal `"../"` spelling through pi itself. Both checks report FAIL
 rather than NOT RUN for a defect.
 
-When any user-scope slate identity differs from any project-scope slate identity,
-the harness prints a `NOTE` after the context block. Both string and object package
-forms participate. Multiple entries can produce multiple notes. Each note uses a
-safe projection instead of the package source. A registry projection contains
-only the package name. A local projection contains its resolved path. Any other
-projection contains only its kind and the stable package name. Query strings,
-fragments, credentials, and other object fields never render. The note also
-states that a real session loads two copies and exits 1 with a tool conflict. The
-observation never changes the verdict, because continuous integration has no
-user-scope settings file.
+When a comparable user-scope slate identity differs from a comparable
+project-scope identity, the harness prints a `NOTE` after the context block.
+Both string and object package forms participate. Multiple entries can produce
+multiple notes. The comparison mirrors the pi rules that the harness can express
+without another parser: registry packages compare by package name, and explicit
+local packages compare by resolved real path. The output is narrower than the
+decision. A registry projection contains only the stable package name. A local
+projection is the fixed label `local package path`; it omits even the resolved
+path because paths are user-controlled. The note names both settings locations
+in fixed words rather than rendering either file path.
+
+Git and other external sources are not comparable here. Pi normalizes Git
+identities through its own URL parser, which this harness does not reimplement.
+When the source text may name `ytdb-slate`, a separate informational `NOTE` says
+that the external kind cannot be compared. The boolean match drives that message,
+but no source text reaches it. Neither note renders query strings, fragments,
+credentials, object fields, or settings paths. Both remain observations that
+never change the verdict. A missing or invalid user settings file remains quiet.
 
 The canary tool list comes from pi's name-keyed tool map. That map cannot expose
 a duplicate registration count. `T6` therefore uses the tool list only to prove

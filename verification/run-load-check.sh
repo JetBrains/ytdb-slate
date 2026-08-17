@@ -451,22 +451,26 @@ function npmName(source) {
 }
 function identity(entry, settingsFile) {
   const source = sourceOf(entry);
-  if (npmName(source) === expected) return { identity: "npm:" + expected, kind: "registry", stable: expected };
+  if (npmName(source) === expected) return { comparable: true, identity: "npm:" + expected, kind: "registry", stable: expected };
   if (!source || source.startsWith("npm:")) return null;
+  const explicitLocal = path.isAbsolute(source) || source === "." || source === ".." || source.startsWith("./") || source.startsWith("../");
+  if (!explicitLocal) {
+    return source.toLowerCase().includes(expected.toLowerCase())
+      ? { comparable: false, kind: "external", stable: expected }
+      : null;
+  }
   const target = path.resolve(path.dirname(settingsFile), source);
   try {
     const manifest = JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf8"));
     if (!manifest || manifest.name !== expected) return null;
-    if (/^[a-z][a-z+.-]*:/i.test(source)) return { identity: "external:" + source, kind: "external", stable: expected };
     const real = fs.realpathSync(target);
-    return { identity: "local:" + real, kind: "local", stable: real };
+    return { comparable: true, identity: "local:" + real, kind: "local", stable: real };
   } catch {}
   return null;
 }
 function projection(item) {
-  if (item.kind === "local") return "local path=" + item.stable;
-  if (item.kind === "registry") return "registry package=" + item.stable;
-  return "external package=" + item.stable;
+  if (item.kind === "local") return "local package path";
+  return "registry package=" + item.stable;
 }
 function slateEntries(file) {
   const parsed = read(file);
@@ -477,14 +481,31 @@ const project = slateEntries(projectFile);
 const user = slateEntries(userFile);
 const notes = [];
 const seen = new Set();
+// Pi compares registry packages by name and local packages by resolved path.
+// Mirror only those rules. Pi normalizes Git through its own URL parser, so this
+// harness never reimplements that parser or claims an external-source conflict.
+// A change to pi package identity rules requires the same change here.
 for (const u of user) {
+  if (!u.comparable) {
+    const key = "unknown:" + u.kind;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    notes.push("NOTE   USER-SCOPE SLATE IDENTITY NOT COMPARABLE — a user-scope external entry may name " +
+      expected + ". The harness cannot compare this kind with normalized pi identities. " +
+      "Locate the user-scope settings file inside the agent directory currently in effect. " +
+      "If its identity differs from project scope, a real session loads two copies and exits 1 with a tool conflict.");
+    continue;
+  }
   for (const p of project) {
+    if (!p.comparable) continue;
     const key = [u.identity, p.identity].join("\0");
     if (u.identity === p.identity || seen.has(key)) continue;
     seen.add(key);
-    notes.push("NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — user " + userFile + ": " +
-      projection(u) + ". Project " + projectFile + ": " + projection(p) +
-      ". A real session loads two copies and exits 1 with a tool conflict.");
+    notes.push("NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — user scope: " + projection(u) +
+      ". Project scope: " + projection(p) +
+      ". Locate the user-scope settings file inside the agent directory currently in effect. " +
+      "Locate the project-scope settings file inside the repository under test. " +
+      "A real session loads two copies and exits 1 with a tool conflict.");
   }
 }
 process.stdout.write(notes.join("\n"));
