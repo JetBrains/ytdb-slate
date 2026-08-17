@@ -32,9 +32,11 @@
  *    pattern can never punch through them:
  *      · Self-exclusion (AD24): slate's package root and source directory are
  *        computed ONCE from THIS module's own location. A unit is withheld when
- *        its path or an entry identifies this copy, or its package name identifies
- *        any slate copy. The former subtree rule was wrong for checkout loads,
- *        because the checkout-local package store also lies below the package root.
+ *        its path or an entry identifies this copy. A readable matching package
+ *        name also identifies any slate copy. Direct local-file package sources
+ *        expose no package-root manifest. The collision barrier still withholds
+ *        those copies through slate's reserved tool names. The former subtree rule
+ *        was wrong because checkout-local packages also lie below the package root.
  *      · Name collision (AD44/RG2): a unit that registers a tool named like a
  *        slate tool or a pi built-in is withheld — pi's final tool registry
  *        lets an extension-registered tool OVERWRITE a same-named built-in, so
@@ -143,9 +145,13 @@ function pathContains(parent: string, child: string): boolean {
 /**
  * AD24 self-load barrier. The old package-root subtree rule also rejected
  * checkout-local packages under .pi/npm/node_modules. The precise rule rejects
- * this package root, entries in this source directory, ancestors that could load
- * slate as a descendant, and every package carrying slate's package name.
+ * this package root and entries in this source directory. It also rejects
+ * ancestors that could load slate and packages carrying slate's name.
  */
+export function isSlateSelfPath(candidate: string, packageRoot: string, sourceDirectory: string): boolean {
+	return candidate === packageRoot || pathContains(sourceDirectory, candidate) || pathContains(candidate, packageRoot);
+}
+
 export function isSlateSelfLoad(
 	unitPath: string,
 	toolPaths: readonly string[],
@@ -154,10 +160,7 @@ export function isSlateSelfLoad(
 	if (packageNames.includes(SLATE_PACKAGE_NAME)) return true;
 	const packageRoot = comparisonPath(SLATE_PACKAGE_ROOT);
 	const sourceDirectory = comparisonPath(SLATE_SOURCE_DIRECTORY);
-	return [unitPath, ...toolPaths].some((path) => {
-		const candidate = comparisonPath(path);
-		return candidate === packageRoot || pathContains(sourceDirectory, candidate) || pathContains(candidate, packageRoot);
-	});
+	return [unitPath, ...toolPaths].some((path) => isSlateSelfPath(comparisonPath(path), packageRoot, sourceDirectory));
 }
 
 /** Loose views of the getAllTools() shape — tolerated defensively (state.ts pattern). */
@@ -183,7 +186,7 @@ interface Candidate {
 	packageName?: string; // package.json name read from the candidate's package root
 }
 
-/** Working unit accumulated during grouping; tool paths also feed the self-load barrier. */
+/** Working unit accumulated during grouping. Tool paths also feed the self-load barrier. */
 interface WorkingUnit {
 	path: string;
 	source: string;
@@ -202,10 +205,10 @@ type ManifestValue = PackageManifest | undefined;
 type ManifestEntries = string[] | undefined;
 
 /**
- * Read and parse <baseDir>/package.json, returning its `pi.extensions` array.
- * CACHED per directory for the whole resolution (CQ21 — the manifest was
- * previously re-read and re-parsed once per candidate tool). undefined when the
- * file is missing, unreadable, invalid JSON, or lacks a `pi.extensions` array.
+ * Read and parse <baseDir>/package.json, returning the whole manifest object.
+ * Cache each directory for the whole resolution (CQ21). Earlier code read and
+ * parsed the same manifest once per candidate tool. Return undefined when the
+ * file is missing, unreadable, invalid JSON, or not an object.
  */
 function readPackageManifest(baseDir: string, cache: Map<string, ManifestValue>): ManifestValue {
 	if (cache.has(baseDir)) return cache.get(baseDir);
@@ -223,11 +226,13 @@ function readPackageManifest(baseDir: string, cache: Map<string, ManifestValue>)
 	return parsed;
 }
 
+/** Return the manifest's `pi.extensions` array when it has that exact shape. */
 function readPackageExtensions(baseDir: string, cache: Map<string, ManifestValue>): ManifestEntries {
 	const ext = readPackageManifest(baseDir, cache)?.pi?.extensions;
 	return Array.isArray(ext) ? ext as string[] : undefined;
 }
 
+/** Return the package-root manifest name when pi supplies a readable package root. */
 function readPackageName(info: LooseSourceInfo, cache: Map<string, ManifestValue>): string | undefined {
 	if (info.origin !== "package" || typeof info.baseDir !== "string" || info.baseDir === "") return undefined;
 	const name = readPackageManifest(info.baseDir, cache)?.name;
@@ -389,8 +394,8 @@ export function resolveWorkerExtensions(
 	// 4. BARRIERS — applied to EVERY unit before matching, regardless of patterns.
 	const surviving: WorkingUnit[] = [];
 	for (const unit of units) {
-		// (a) Self-exclusion (AD24): use precise path and package-identity rules.
-		// A package-root subtree rule is invalid when slate itself loads from a checkout.
+		// (a) Self-exclusion (AD24) uses precise path and package-identity rules.
+		// A subtree rule is invalid when slate itself loads from a checkout.
 		if (isSlateSelfLoad(unit.path, unit.toolPaths, unit.packageNames)) continue;
 		// (b) Name collision (AD44/RG2): checked across the WHOLE unit, not just a
 		// matched tool — any collision withholds the unit and warns.

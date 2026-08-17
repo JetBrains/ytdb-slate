@@ -553,7 +553,7 @@ try {
 			],
 		};
 		const set = we.resolveWorkerExtensions(pi, [".*"]);
-		check("bar-self-exclude", !set.toolNames.includes("inside_tool") && set.toolNames.includes("outside_tool"), "a unit under slate's own package root is dropped even with a .* pattern", set.toolNames);
+		check("bar-self-exclude", !set.toolNames.includes("inside_tool") && set.toolNames.includes("outside_tool"), "an entry inside slate's own source directory is dropped while an unrelated entry survives", set.toolNames);
 
 		const checkout = join(WORK, "slate-checkout");
 		const checkoutSource = join(checkout, "extension");
@@ -595,9 +595,16 @@ try {
 			["root without separator", we.isSlateSelfLoad(REPO, []) === true],
 			["root with separator", we.isSlateSelfLoad(REPO + sep, []) === true],
 		]);
-		const casedRoot = REPO.replace(/[a-z]/, (letter) => letter.toUpperCase());
-		const casedThroughMissingPath = join(casedRoot, "resolver-case-path-must-not-exist", "..");
-		check("bar-self-case", we.isSlateSelfLoad(casedThroughMissingPath, []) === false, "a fabricated path differing from slate's root only by letter case remains accepted", casedThroughMissingPath);
+		const missingSourceEntry = join(REPO, "extension", "resolver-fallback-path-must-not-exist");
+		checkAll("bar-self-fallback", "a missing source entry forces realpath failure and remains classified through plain resolution", [
+			["fixture is missing", !existsSync(missingSourceEntry), missingSourceEntry],
+			["source entry rejected", we.isSlateSelfLoad(missingSourceEntry, []) === true],
+		]);
+		const caseParent = join(WORK, "case-fixture");
+		const lowerRoot = join(caseParent, "slate-checkout");
+		const lowerSource = join(lowerRoot, "extension");
+		const upperRoot = join(caseParent, "SLATE-CHECKOUT");
+		check("bar-self-case", we.isSlateSelfPath(upperRoot, lowerRoot, lowerSource) === false, "a known case-only path difference remains accepted without consulting the filesystem", { upperRoot, lowerRoot });
 
 		const named = mkpkg(we.SLATE_PACKAGE_NAME, ["index.ts"], ["index.ts"]);
 		const namedSet = we.resolveWorkerExtensions({
@@ -7164,7 +7171,7 @@ production behaviour.`);
 		...DOCTRINE_CONTRACT_IDS,
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",
-		"bar-self-exclude", "bar-self-nested", "bar-self-second-entry", "bar-self-symlink", "bar-self-escape", "bar-self-trailing", "bar-self-case", "bar-self-name", "bar-collision",
+		"bar-self-exclude", "bar-self-nested", "bar-self-second-entry", "bar-self-symlink", "bar-self-escape", "bar-self-trailing", "bar-self-fallback", "bar-self-case", "bar-self-name", "bar-collision",
 		"match-source", "match-path", "match-toolpath", "match-none", "match-invalid-regex",
 		"inject-safety", "memoization",
 		"router-load", "profiles-load", "state-load",

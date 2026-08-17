@@ -1,24 +1,26 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, parse, sep } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	isSlateSelfLoad,
+	isSlateSelfPath,
 	resolveWorkerExtensions,
 	SLATE_PACKAGE_NAME,
 	SLATE_PACKAGE_ROOT,
 	SLATE_SOURCE_DIRECTORY,
+	SLATE_TOOL_NAMES,
 } from "../extension/worker-extensions.ts";
 
-function fakePi(path: string, baseDir: string): ExtensionAPI {
+function fakePi(path: string, baseDir?: string, names: readonly string[] = ["fixture_tool"]): ExtensionAPI {
 	return {
-		getAllTools: () => [{
-			name: "fixture_tool",
+		getAllTools: () => names.map((name) => ({
+			name,
 			description: "fixture",
 			sourceInfo: { source: "npm:fixture", origin: "package", path, baseDir },
-		}],
+		})),
 	} as unknown as ExtensionAPI;
 }
 
@@ -50,8 +52,9 @@ test("realpath rejects a symlink into slate's source directory", () => {
 });
 
 test("missing paths use resolved-path fallback", () => {
-	const missingThenParent = join(SLATE_PACKAGE_ROOT, "missing-self-load-fixture", "..");
-	assert.equal(isSlateSelfLoad(missingThenParent, []), true, "plain resolution must still identify the package root");
+	const missingSourceEntry = join(SLATE_SOURCE_DIRECTORY, `missing-self-load-fixture-${process.pid}`);
+	assert.equal(existsSync(missingSourceEntry), false, "the fixture must force realpathSync to throw");
+	assert.equal(isSlateSelfLoad(missingSourceEntry, []), true, "plain resolution must retain source-directory containment");
 });
 
 test("trailing separators do not change classification", () => {
@@ -86,6 +89,41 @@ test("non-slate manifest shapes remain worker-loadable", () => {
 	} finally {
 		rmSync(lab, { recursive: true, force: true });
 	}
+});
+
+test("a package candidate without baseDir remains loadable", () => {
+	const root = mkdtempSync(join(tmpdir(), "slate-worker-extension-no-base."));
+	try {
+		const entry = join(root, "index.ts");
+		writeFileSync(entry, "// fixture\n");
+		const resolved = resolveWorkerExtensions(fakePi(entry), [".*"]);
+		assert.deepEqual(resolved.toolNames, ["fixture_tool"]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("reserved tools protect a local-file slate copy without a manifest", () => {
+	const root = mkdtempSync(join(tmpdir(), "slate-worker-extension-local-copy."));
+	try {
+		const entry = join(root, "index.ts");
+		writeFileSync(entry, "// fixture\n");
+		assert.equal(existsSync(join(root, "package.json")), false, "the local-file baseDir must expose no manifest");
+		const warnings: string[] = [];
+		const resolved = resolveWorkerExtensions(fakePi(entry, root, SLATE_TOOL_NAMES), [".*"], (message) => warnings.push(message));
+		assert.deepEqual(resolved.units, [], "reserved slate tool names must withhold the local-file copy");
+		assert.equal(warnings.length, 1);
+		for (const name of SLATE_TOOL_NAMES) assert.match(warnings[0] ?? "", new RegExp(`"${name}"`));
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("case-sensitive path classification is independent from the filesystem", () => {
+	const lowerRoot = join(parse(SLATE_PACKAGE_ROOT).root, "case-fixture", "slate-checkout");
+	const source = join(lowerRoot, "extension");
+	const upperRoot = join(parse(SLATE_PACKAGE_ROOT).root, "case-fixture", "SLATE-CHECKOUT");
+	assert.equal(isSlateSelfPath(upperRoot, lowerRoot, source), false);
 });
 
 test("the resolver reads a candidate package name from its package root", () => {
