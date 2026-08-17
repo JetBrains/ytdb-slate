@@ -57,7 +57,7 @@ The workflow follows these steps:
 
 1. **Predict and confirm** — the orchestrator predicts size and focus before implementation. The user confirms both together.
 2. **Design** — MEDIUM and LARGE need a high-level design. Design uncertainty adds adversarial review. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
-3. **Implement tracks** — each track declares its files and focus areas. Packets are non-blocking, while final change acceptance remains blocking.
+3. **Implement tracks** — each track declares its files and focus areas. Track reviews are non-blocking. Final change acceptance remains blocking.
 4. **Measure** — the package-resolved size command verifies the committed range at the first track boundary.
 5. **Review and deliver** — grade and focus select fresh machine reviewers. The user gives final acceptance and performs any squash merge.
 
