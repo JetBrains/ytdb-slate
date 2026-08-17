@@ -92,6 +92,7 @@ die() { echo "verification: refused to start — $*" >&8; exit 2; }
 # remains correct when that header grows or shrinks. Refuse a missing marker
 # rather than printing implementation lines as help.
 print_help() {
+	for tool in grep awk; do command -v "$tool" >/dev/null 2>&1 || die "missing required tool: $tool"; done
 	grep -Fxq '# END LOAD-CHECK HELP' "$0" || die "the help-block end marker is missing from $0"
 	awk 'NR == 1 { next } $0 == "# END LOAD-CHECK HELP" { exit } { print }' "$0"
 }
@@ -437,10 +438,6 @@ function sourceOf(entry) {
   if (entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.source === "string") return entry.source;
   return "";
 }
-function safeSource(source) {
-  const clean = source.replace(/[\x00-\x1f\x7f]/g, "?");
-  return clean.replace(/([a-z][a-z+.-]*:\/{1,2})[^/@\s]+@/gi, "$1<redacted>@");
-}
 function npmName(source) {
   if (!source.startsWith("npm:")) return "";
   const spec = source.slice(4);
@@ -454,14 +451,22 @@ function npmName(source) {
 }
 function identity(entry, settingsFile) {
   const source = sourceOf(entry);
-  if (npmName(source) === expected) return { source: safeSource(source), identity: "npm:" + expected };
+  if (npmName(source) === expected) return { identity: "npm:" + expected, kind: "registry", stable: expected };
   if (!source || source.startsWith("npm:")) return null;
   const target = path.resolve(path.dirname(settingsFile), source);
   try {
     const manifest = JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf8"));
-    if (manifest && manifest.name === expected) return { source: safeSource(source), identity: "local:" + fs.realpathSync(target) };
+    if (!manifest || manifest.name !== expected) return null;
+    if (/^[a-z][a-z+.-]*:/i.test(source)) return { identity: "external:" + source, kind: "external", stable: expected };
+    const real = fs.realpathSync(target);
+    return { identity: "local:" + real, kind: "local", stable: real };
   } catch {}
   return null;
+}
+function projection(item) {
+  if (item.kind === "local") return "local path=" + item.stable;
+  if (item.kind === "registry") return "registry package=" + item.stable;
+  return "external package=" + item.stable;
 }
 function slateEntries(file) {
   const parsed = read(file);
@@ -474,12 +479,11 @@ const notes = [];
 const seen = new Set();
 for (const u of user) {
   for (const p of project) {
-    const key = [u.source, u.identity, p.source, p.identity].join("\0");
+    const key = [u.identity, p.identity].join("\0");
     if (u.identity === p.identity || seen.has(key)) continue;
     seen.add(key);
     notes.push("NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — user " + userFile + ": " +
-      u.source + " => " + safeSource(u.identity) + ". Project " + projectFile + ": " +
-      p.source + " => " + safeSource(p.identity) +
+      projection(u) + ". Project " + projectFile + ": " + projection(p) +
       ". A real session loads two copies and exits 1 with a tool conflict.");
   }
 }
