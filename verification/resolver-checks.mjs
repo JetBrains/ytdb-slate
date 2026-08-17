@@ -24,9 +24,9 @@
 // piped output): 1 if anything failed, or if a NOT RUN happened under --strict.
 // See verification/README.md.
 // =============================================================================
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const [, , REPO, JITI, WORK, STRICT_ARG] = process.argv;
@@ -259,7 +259,7 @@ async function writingTurn(fixture, message = { role: "assistant", content: "Ope
 function mkpkg(name, entries, files) {
 	const dir = join(WORK, name);
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, "package.json"), JSON.stringify({ pi: { extensions: entries } }));
+	writeFileSync(join(dir, "package.json"), JSON.stringify({ name, pi: { extensions: entries } }));
 	const paths = {};
 	for (const f of files) paths[f] = file(join(name, f));
 	return { dir, paths };
@@ -554,6 +554,56 @@ try {
 		};
 		const set = we.resolveWorkerExtensions(pi, [".*"]);
 		check("bar-self-exclude", !set.toolNames.includes("inside_tool") && set.toolNames.includes("outside_tool"), "a unit under slate's own package root is dropped even with a .* pattern", set.toolNames);
+
+		const checkout = join(WORK, "slate-checkout");
+		const checkoutSource = join(checkout, "extension");
+		mkdirSync(checkoutSource, { recursive: true });
+		copyFileSync(join(REPO, "extension", "worker-extensions.ts"), join(checkoutSource, "worker-extensions.ts"));
+		copyFileSync(join(REPO, "extension", "notify.ts"), join(checkoutSource, "notify.ts"));
+		const nestedDir = join(checkout, ".pi", "npm", "node_modules", "nested-package");
+		const nestedPath = join(nestedDir, "extension", "index.ts");
+		mkdirSync(dirname(nestedPath), { recursive: true });
+		writeFileSync(nestedPath, "// nested extension fixture\n");
+		writeFileSync(join(nestedDir, "package.json"), JSON.stringify({ name: "nested-package", pi: { extensions: ["extension/index.ts"] } }));
+		const checkoutResolver = await jiti.import(join(checkoutSource, "worker-extensions.ts"));
+		const nested = checkoutResolver.resolveWorkerExtensions({
+			getAllTools: () => [tool("nested_tool", { source: "npm:nested-package", baseDir: nestedDir, path: nestedPath })],
+		}, [".*"]);
+		check("bar-self-nested", nested.units.length === 1 && nested.units[0].path === nestedDir && nested.toolNames[0] === "nested_tool", "a package installed under <slate root>/.pi/npm/node_modules resolves to a unit", nested);
+
+		const second = mkpkg("bar-second-entry", ["first.ts", "second.ts"], ["first.ts"]);
+		const secondPath = join(second.dir, "second.ts");
+		symlinkSync(insideRepo, secondPath);
+		const secondSet = we.resolveWorkerExtensions({
+			getAllTools: () => [
+				tool("first_entry", { source: "npm:bar-second-entry", baseDir: second.dir, path: second.paths["first.ts"] }),
+				tool("second_entry", { source: "npm:bar-second-entry", baseDir: second.dir, path: secondPath }),
+			],
+		}, [".*"]);
+		check("bar-self-second-entry", secondSet.units.length === 0, "a second unit entry resolving inside slate's source directory withholds the whole unit", secondSet);
+
+		const symlinkPath = join(WORK, "bar", "source-link.ts");
+		mkdirSync(dirname(symlinkPath), { recursive: true });
+		symlinkSync(insideRepo, symlinkPath);
+		const symlinkSet = we.resolveWorkerExtensions({
+			getAllTools: () => [tool("symlink_tool", { source: "local", origin: "top-level", path: symlinkPath })],
+		}, [".*"]);
+		check("bar-self-symlink", symlinkSet.units.length === 0, "a symlink targeting slate's source directory is rejected after realpath resolution", symlinkSet);
+
+		check("bar-self-escape", we.isSlateSelfLoad(dirname(REPO), []) === true, "a candidate ancestor of slate's package root is rejected", dirname(REPO));
+		checkAll("bar-self-trailing", "trailing separators do not change self-load classification", [
+			["root without separator", we.isSlateSelfLoad(REPO, []) === true],
+			["root with separator", we.isSlateSelfLoad(REPO + sep, []) === true],
+		]);
+		const casedRoot = REPO.replace(/[a-z]/, (letter) => letter.toUpperCase());
+		const casedThroughMissingPath = join(casedRoot, "resolver-case-path-must-not-exist", "..");
+		check("bar-self-case", we.isSlateSelfLoad(casedThroughMissingPath, []) === false, "a fabricated path differing from slate's root only by letter case remains accepted", casedThroughMissingPath);
+
+		const named = mkpkg(we.SLATE_PACKAGE_NAME, ["index.ts"], ["index.ts"]);
+		const namedSet = we.resolveWorkerExtensions({
+			getAllTools: () => [tool("duplicate_tool", { source: "npm:duplicate", baseDir: named.dir, path: named.paths["index.ts"] })],
+		}, [".*"]);
+		check("bar-self-name", namedSet.units.length === 0, "a package carrying slate's name is rejected outside slate's package root", namedSet);
 
 		const warned = [];
 		const piColl = {
@@ -7114,7 +7164,7 @@ production behaviour.`);
 		...DOCTRINE_CONTRACT_IDS,
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",
-		"bar-self-exclude", "bar-collision",
+		"bar-self-exclude", "bar-self-nested", "bar-self-second-entry", "bar-self-symlink", "bar-self-escape", "bar-self-trailing", "bar-self-case", "bar-self-name", "bar-collision",
 		"match-source", "match-path", "match-toolpath", "match-none", "match-invalid-regex",
 		"inject-safety", "memoization",
 		"router-load", "profiles-load", "state-load",
