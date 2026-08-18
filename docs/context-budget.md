@@ -251,11 +251,11 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 7 | 6,943 | 101 | ≈1,736 |
+| current `.pi/slate.json` project config | 6 | configured-package 2 units / 4 tools | 7 | 6,943 | 101 | ≈1,736 |
 | stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,929 | 104 | ≈1,982 |
 | follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,007 | 105 | ≈2,002 |
 
-The dogfood row uses `workflow.draftPRs: true`, `writing.check: true`, and the
+The project-config row uses `workflow.draftPRs: true`, `writing.check: true`, and the
 six models in `.pi/slate.json`. Its extension basis is
 `pi-smart-fetch@0.3.12` plus `pi-web-search@1.3.1`. Those packages resolve to two
 units and four tools. Their worker-extension rule is 916 portable characters /
@@ -333,7 +333,7 @@ unless the fixture design itself changes.
 Against a 256,000-token context budget, these blocks remain small. The rough
 estimate divides each measured portable-character render by four and rounds to
 the nearest whole token. The shipped-rule table ranges from about 727 tokens to
-about 1,646 tokens. The current dogfood basis is about 1,736 tokens. The stable
+about 1,646 tokens. The current project basis is about 1,736 tokens. The stable
 representative maximum is about 1,982 tokens. The follow-up-issues maximum is
 about 2,002 tokens, or 0.78 percent of the default budget.
 

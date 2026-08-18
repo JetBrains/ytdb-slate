@@ -453,8 +453,8 @@ redirected into an artifact file) is still visible.
    Treat every pi process sharing the real agent directory as a possible
    concurrent writer.
 
-   An isolated-load smoke test, an interactive session or a dogfooding session
-   can rewrite the file concurrently. The resulting `SAFE FAIL` has an IDENTICAL
+   An isolated-load smoke test, an interactive session or the live main-worktree
+   session can rewrite the file concurrently. The resulting `SAFE FAIL` has an IDENTICAL
    recorded hash and size, with only the mtime moved. That shape means a concurrent
    writer rather than an escaped invocation. The run still fails because the
    sentinel can no longer speak for the rungs above it. Stop the other pi processes
@@ -944,7 +944,7 @@ These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
 prose. The bounds are not runtime limits. A larger extension roster can exceed
 every representative figure. `docs/context-budget.md` records the same stable fixture and a distinct
-real dogfood basis. Matching fixture rows must agree exactly, while different
+real project basis. Matching fixture rows must agree exactly, while different
 bases must be named.
 
 The exact equalities are maintenance tripwires. A deliberate wording,
@@ -2228,7 +2228,7 @@ summary:
 repo  = /home/you/src/ytdb-slate (7d4c479)
 pi    = /home/you/src/ytdb-slate/node_modules/.bin/pi (0.83.0, pinned 0.83.0)
 lab   = /tmp/slate-loadcheck.Qw69p0
-NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — user /home/you/.pi/agent/settings.json: npm:ytdb-slate@0.10.0 => npm:ytdb-slate. Project /home/you/src/ytdb-slate/.pi/settings.json: ../ => local:/home/you/src/ytdb-slate. A real session loads two copies and exits 1 with a tool conflict.
+NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — historical pre-migration example: user /home/you/.pi/agent/settings.json: npm:ytdb-slate@0.10.0 => npm:ytdb-slate. Project /home/you/src/ytdb-slate/.pi/settings.json: ../ => local:/home/you/src/ytdb-slate. A real session loads two copies and exits 1 with a tool conflict.
 
 CHECK L4                               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
 CHECK L6                               PASS — /slate is registered and attributed to /home/you/src/ytdb-slate/extension/index.ts — inside the checkout under test, so this run exercised the working tree and not an installed release
@@ -2325,7 +2325,7 @@ no extension does the same. The harness removes the lock at the end of a run onl
 when the lock was absent at the start, because a lock from the start belongs to
 another live session, and a removal would corrupt the write of that session.
 `.gitignore` covers `.pi/*.lock` for the case where a signal kills the harness, or
-a dogfooding session, before any cleanup runs.
+the live main-worktree session, before any cleanup runs.
 
 ## What it covers
 
@@ -2361,8 +2361,8 @@ setting in the file, `workflow.draftPRs` included. A direct read of the file is
 the only way to see that state, and it needs no pi, no session and no trust.
 
 `T5` applies the same direct-read rule to `.pi/settings.json`. A missing or
-unparseable file is a FAIL, because this checkout requires its tracked dogfood
-entry. `T5` accepts a string source or an object with a string `source` field.
+unparseable file is a FAIL, because this checkout requires its tracked local
+package entry. `T5` accepts a string source or an object with a string `source` field.
 It resolves local entries and identifies slate by repository location or manifest
 name. An unrelated local package does not become a slate candidate. The selected
 target must have the same real path as the repository under test. `T5` also
