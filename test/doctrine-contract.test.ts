@@ -54,6 +54,7 @@ function extensionContext(cwd: string, warnings: string[] = [], trusted = true):
       getBranch: () => [],
       getEntries: () => [],
       getSessionId: () => "doctrine-test-session",
+      getSessionFile: () => join(cwd, "doctrine-test-session.jsonl"),
     },
     ui: {
       notify: (message: string) => warnings.push(message),

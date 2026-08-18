@@ -33,7 +33,8 @@
  * the orchestrator's base model, unlike a failover fallback.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
 	CONFIG_DIR_NAME,
@@ -47,6 +48,7 @@ import { currentModelSpec, readLiveEffort, type BaseModelTracker } from "./base-
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
+	createOwnerSessionDigest,
 	orchestratorCostUsd,
 	type ContextBudgetObject,
 	type ContextBudgetOverride,
@@ -476,20 +478,23 @@ export function registerSlateHandoff(
 	pi.on("session_start", async (_event, ctx) => {
 		if (store.threads.size > 0 || store.orchestratorMode) return; // state already restored on this branch
 		const file = pendingFile(ctx.cwd);
+		let claim: string | undefined;
+		let adoptionCompleted = false;
 		try {
 			if (!existsSync(file)) return;
-			const pending = JSON.parse(readFileSync(file, "utf8")) as PendingHandoff;
+			// The rename is the atomic claim. A racing successor loses with ENOENT
+			// and continues through the later identity handler as an ordinary session.
+			// The in-process regression test simulates racing successors. It does not
+			// exercise two real operating-system processes.
+			claim = `${file}.claim-${randomBytes(8).toString("hex")}`;
+			renameSync(file, claim);
+			const pending = JSON.parse(readFileSync(claim, "utf8")) as PendingHandoff;
 			const age = Date.now() - (pending.createdAt ?? 0);
-			// STALE reap runs regardless of trust: it deletes an abandoned runtime
-			// file without injecting any content into prompts or state, and keeps
-			// the file from lingering forever in a never-trusted project.
-			// Out-of-range timestamps are stale too: a future createdAt (negative
-			// age) or a non-numeric one (NaN age) would otherwise dodge the reap
-			// forever — a real in-flight handoff is at most minutes old.
-			if (!(age >= 0 && age < PENDING_MAX_AGE_MS)) {
-				rmSync(file, { force: true });
-				return;
-			}
+			// Reject stale claims regardless of trust without injecting their content.
+			// The finally block restores the original pending name for every outcome
+			// except completed adoption. Out-of-range timestamps are stale too: a
+			// future createdAt gives negative age, and a non-numeric value gives NaN.
+			if (!(age >= 0 && age < PENDING_MAX_AGE_MS)) return;
 			// Trust gate (ADOPTION only): the pending file is project-local state a
 			// cloned repo could ship pre-seeded. Never adopt its content in an
 			// untrusted project — but leave a FRESH file untouched: the user may
@@ -498,15 +503,30 @@ export function registerSlateHandoff(
 			// Never adopt into an unrelated session.
 			const matches = !!pending.parentSession && pending.parentSession === ctx.sessionManager.getHeader()?.parentSession;
 			if (!matches) return;
+			const owner = createOwnerSessionDigest(
+				ctx.sessionManager.getSessionId(),
+				ctx.sessionManager.getSessionFile(),
+			);
 			store.adoptSnapshot(pending.snapshot, ctx);
-			// Explicit adoption transfers ownership without adding another failure point
-			// inside this handler's broad startup-safety catch.
-			if (store.slateSessionId !== undefined) store.ownerPiSessionId = ctx.sessionManager.getSessionId();
+			// The digest was computed before adoption, so ownership transfer remains
+			// one pure field assignment inside the broad startup-safety catch.
+			if (store.slateSessionId !== undefined) store.ownerSessionDigest = owner;
 			store.writingReminder.forceNext = true;
 			store.writingReminder.adoptedThisSessionStart = true;
 			store.paused = false;
 			store.save();
-			rmSync(file, { force: true });
+			adoptionCompleted = true;
+			try {
+				rmSync(claim, { force: true });
+				claim = undefined;
+			} catch (error) {
+				reportFailure(
+					ctx,
+					`slate: handoff adoption completed, but Slate could not remove claim ${claim} — ${sanitizeForNotify(
+						error instanceof Error ? error.message : String(error),
+					)}. Remove that exact claim file manually.`,
+				);
+			}
 			if (ctx.hasUI) {
 				const t = store.threads.size;
 				const e = store.episodes.size;
@@ -641,6 +661,21 @@ export function registerSlateHandoff(
 			}
 		} catch {
 			/* a broken pending file must never break session start */
+		} finally {
+			if (claim !== undefined && !adoptionCompleted) {
+				const strandedClaim = claim;
+				try {
+					renameSync(strandedClaim, file);
+					claim = undefined;
+				} catch (error) {
+					reportFailure(
+						ctx,
+						`slate: could not release pending handoff claim ${strandedClaim} — ${sanitizeForNotify(
+							error instanceof Error ? error.message : String(error),
+						)}. The pending handoff remains at that exact claim path.`,
+					);
+				}
+			}
 		}
 	});
 

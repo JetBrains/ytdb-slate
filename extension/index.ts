@@ -71,6 +71,7 @@ import {
 	type RouterWarningClass,
 } from "./model-router.ts";
 import {
+	createOwnerSessionDigest,
 	sanitizeCacheKeyEnabled,
 	sanitizeCacheKeyShards,
 	sanitizeEpisodeModel,
@@ -286,7 +287,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		const report = (message: string) => (ctx.hasUI ? ctx.ui.notify(message, "warning") : console.warn(message));
-		if (store.resolveSessionIdentity(ctx.sessionManager.getSessionId(), report)) store.save();
+		const owner = createOwnerSessionDigest(
+			ctx.sessionManager.getSessionId(),
+			ctx.sessionManager.getSessionFile(),
+		);
+		store.resolveSessionIdentity(owner, report);
 	});
 
 	// Orchestrator model failover (turn_end/agent_settled/input) — not

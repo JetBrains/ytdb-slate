@@ -1028,7 +1028,13 @@ try {
 			const handoffCtx = {
 				cwd: handoffCwd, mode: "tui", hasUI: false, model: undefined,
 				isProjectTrusted: () => true,
-				sessionManager: { getHeader: () => ({ parentSession: "parent-session" }), getEntries: () => [], getBranch: () => [] },
+				sessionManager: {
+					getHeader: () => ({ parentSession: "parent-session" }),
+					getEntries: () => [],
+					getBranch: () => [],
+					getSessionId: () => "writing-handoff-successor",
+					getSessionFile: () => join(handoffCwd, "successor.jsonl"),
+				},
 				ui: { setStatus() {}, setWidget() {}, notify() {} },
 			};
 			for (const handler of handoffHandlers.session_start ?? []) await handler({}, handoffCtx);
@@ -5797,21 +5803,21 @@ production behaviour.`);
 				return { out: state.sanitizeSnapshotIdentity(raw, repairs), repairs };
 			};
 			const base = { threads: [], episodes: [], orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
-			const id = "20260818T101112Z-0123abcd";
-			const owner = "0198bb31-b16f-7acd-9000-123456789abc";
-			const valid = sane({ ...base, slateSessionId: id, ownerPiSessionId: owner });
+			const id = "20260818T101112Z-0123abcd0123abcd";
+			const owner = "a".repeat(64);
+			const valid = sane({ ...base, slateSessionId: id, ownerSessionDigest: owner });
 			const absent = sane(base);
 			const noSnapshot = sane(undefined);
-			const badIdentities = ["20260818T101112Z-0123ABCd", "2026-08-18T10:11:12Z-0123abcd", "20260818T101112Z-0123abc/", 7, null]
-				.map((slateSessionId) => sane({ ...base, slateSessionId, ownerPiSessionId: owner }));
-			const badOwners = ["", "-owner", "owner-", "owner/path", "owner session", 7, null]
-				.map((ownerPiSessionId) => sane({ ...base, slateSessionId: id, ownerPiSessionId }));
+			const badIdentities = ["20260818T101112Z-0123ABCD0123abcd", "2026-08-18T10:11:12Z-0123abcd0123abcd", "20260818T101112Z-0123abcd0123abc/", 7, null]
+				.map((slateSessionId) => sane({ ...base, slateSessionId, ownerSessionDigest: owner }));
+			const badOwners = ["", "a".repeat(63), "a".repeat(65), "A".repeat(64), "owner/path", 7, null]
+				.map((ownerSessionDigest) => sane({ ...base, slateSessionId: id, ownerSessionDigest }));
 			checkAll("state-snapshot-identity", "snapshot lineage identity fields are validated independently at adoption: exact values round-trip, absence stays distinct and silent, malformed values are removed with one field-naming repair, and an absent snapshot remains distinguishable from a legacy snapshot", [
-				["both valid fields round-trip exactly and silently", valid.out.slateSessionId === id && valid.out.ownerPiSessionId === owner && valid.repairs.length === 0, valid],
-				["a legacy snapshot has neither field and stays silent", absent.out.snapshotPresent === true && absent.out.slateSessionIdPresent === false && absent.out.ownerPiSessionIdPresent === false && absent.repairs.length === 0, absent],
+				["both valid fields round-trip exactly and silently", valid.out.slateSessionId === id && valid.out.ownerSessionDigest === owner && valid.repairs.length === 0, valid],
+				["a legacy snapshot has neither field and stays silent", absent.out.snapshotPresent === true && absent.out.slateSessionIdPresent === false && absent.out.ownerSessionDigestPresent === false && absent.repairs.length === 0, absent],
 				["no snapshot remains distinguishable from a legacy snapshot", noSnapshot.out.snapshotPresent === false && noSnapshot.repairs.length === 0, noSnapshot],
 				["every malformed identity is removed and reported once by field name", badIdentities.every((r) => r.out.slateSessionId === undefined && r.out.slateSessionIdPresent === true && r.repairs.length === 1 && /slateSessionId/.test(r.repairs[0])), badIdentities],
-				["every malformed owner is removed and reported once by field name", badOwners.every((r) => r.out.ownerPiSessionId === undefined && r.out.ownerPiSessionIdPresent === true && r.repairs.length === 1 && /ownerPiSessionId/.test(r.repairs[0])), badOwners],
+				["every malformed owner digest is removed and reported once by field name", badOwners.every((r) => r.out.ownerSessionDigest === undefined && r.out.ownerSessionDigestPresent === true && r.repairs.length === 1 && /ownerSessionDigest/.test(r.repairs[0])), badOwners],
 			]);
 		});
 
