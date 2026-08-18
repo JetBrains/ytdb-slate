@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { BaseModelTracker } from "../extension/base-model.ts";
@@ -22,6 +24,8 @@ const ID = "20260818T101112Z-0123abcd0123abcd";
 const FRESH_ID = "20260818T111213Z-deadbeefdeadbeef";
 const OWNER = "a".repeat(64);
 const FOREIGN_OWNER = "b".repeat(64);
+const HANDOFF_SOURCE = fileURLToPath(new URL("../extension/handoff.ts", import.meta.url));
+const PROCESS_CHILD = fileURLToPath(new URL("./fixtures/handoff-process-child.ts", import.meta.url));
 
 function snapshot(overrides: Record<string, unknown> = {}): SlateSnapshot {
   return {
@@ -232,10 +236,11 @@ test("failed mint persistence leaves no in-memory identity, notifies, and does n
 
 type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown>;
 
-function handoffHarness(options: { failSave?: boolean } = {}) {
+function handoffHarness(options: { failSave?: boolean; beforeSave?: () => void } = {}) {
   const appended: Array<Record<string, unknown>> = [];
   const store = new SlateStore({
     appendEntry(_type: string, data: Record<string, unknown>) {
+      options.beforeSave?.();
       if (options.failSave) throw new Error("forced adoption save failure");
       appended.push(data);
     },
@@ -269,34 +274,73 @@ function handoffContext(cwd: string, sessionId: string, sessionFile: string): Ex
   } as unknown as ExtensionContext;
 }
 
-function writePendingHandoff(cwd: string): string {
-  const file = join(cwd, CONFIG_DIR_NAME, "slate", "pending-handoff.json");
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify({
+function pendingHandoffContent(slateSessionId = ID, brief = ""): string {
+  return JSON.stringify({
     parentSession: "/tmp/parent.jsonl",
     createdAt: Date.now(),
-    brief: "",
+    brief,
     snapshot: snapshot({
-      slateSessionId: ID,
+      slateSessionId,
       ownerSessionDigest: FOREIGN_OWNER,
       orchestratorMode: true,
     }),
-  }));
+  });
+}
+
+function writePendingHandoff(cwd: string, content = pendingHandoffContent()): string {
+  const file = join(cwd, CONFIG_DIR_NAME, "slate", "pending-handoff.json");
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, content);
   return file;
 }
 
-function claimFiles(file: string): string[] {
-  return readdirSync(dirname(file)).filter((name) => name.includes(".claim-"));
+function claimMarker(file: string): string {
+  return `${file}.claim`;
 }
 
-test("failed adoption releases its claim and a following session can adopt", { timeout: 1000 }, async (t) => {
+function claimFiles(file: string): string[] {
+  return readdirSync(dirname(file)).filter((name) => name.endsWith("pending-handoff.json.claim"));
+}
+
+async function waitForFile(file: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!existsSync(file)) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${file}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+function spawnHandoffChild(
+  mode: "race" | "hold",
+  cwd: string,
+  resultFile: string,
+  readyFile: string,
+  goFile: string,
+  sessionId: string,
+): { child: ChildProcess; completed: Promise<{ code: number | null; stderr: string }> } {
+  const child = spawn(
+    process.execPath,
+    ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", PROCESS_CHILD, mode, cwd, resultFile, readyFile, goFile, sessionId],
+    { cwd: dirname(dirname(PROCESS_CHILD)), stdio: ["ignore", "ignore", "pipe"] },
+  );
+  let stderr = "";
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk: string) => { stderr += chunk; });
+  const completed = new Promise<{ code: number | null; stderr: string }>((resolve) => {
+    child.on("exit", (code) => resolve({ code, stderr }));
+  });
+  return { child, completed };
+}
+
+test("failed adoption preserves pending content and a following session adopts it", { timeout: 1000 }, async (t) => {
   const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-recovery-test-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const file = writePendingHandoff(cwd);
+  const original = pendingHandoffContent();
+  const file = writePendingHandoff(cwd, original);
   const failing = handoffHarness({ failSave: true });
   await failing.handler({}, handoffContext(cwd, "failed-successor", join(cwd, "failed.jsonl")));
 
-  assert.equal(existsSync(file), true);
+  assert.equal(readFileSync(file, "utf8"), original);
   assert.deepEqual(claimFiles(file), []);
 
   const following = handoffHarness();
@@ -307,7 +351,27 @@ test("failed adoption releases its claim and a following session can adopt", { t
   assert.deepEqual(claimFiles(file), []);
 });
 
-test("successful adoption removes the claimed pending handoff", { timeout: 1000 }, async (t) => {
+test("failed adoption never overwrites a newer pending handoff", { timeout: 1000 }, async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-newer-test-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const file = writePendingHandoff(cwd);
+  const newer = pendingHandoffContent(FRESH_ID, "newer-pending-handoff");
+  const failing = handoffHarness({
+    failSave: true,
+    beforeSave: () => writeFileSync(file, newer),
+  });
+  await failing.handler({}, handoffContext(cwd, "failed-successor", join(cwd, "failed.jsonl")));
+
+  assert.equal(readFileSync(file, "utf8"), newer);
+  assert.deepEqual(claimFiles(file), []);
+
+  const following = handoffHarness();
+  await following.handler({}, handoffContext(cwd, "following-successor", join(cwd, "following.jsonl")));
+  assert.equal(following.store.slateSessionId, FRESH_ID);
+  assert.equal(existsSync(file), false);
+});
+
+test("successful adoption removes both pending handoff and claim marker", { timeout: 1000 }, async (t) => {
   const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-success-test-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   const file = writePendingHandoff(cwd);
@@ -319,32 +383,68 @@ test("successful adoption removes the claimed pending handoff", { timeout: 1000 
   assert.deepEqual(claimFiles(file), []);
 });
 
-test("atomic pending-handoff claim lets exactly one racing successor adopt and re-stamp", { timeout: 1000 }, async (t) => {
+test("exclusive pending-handoff marker lets exactly one operating-system process adopt", { timeout: 10_000 }, async (t) => {
   const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-race-test-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const first = handoffHarness();
-  const second = handoffHarness();
   const file = writePendingHandoff(cwd);
-  const firstContext = handoffContext(cwd, "successor-one", join(cwd, "one.jsonl"));
-  const secondContext = handoffContext(cwd, "successor-two", join(cwd, "two.jsonl"));
-  await Promise.all([
-    first.handler({}, firstContext),
-    second.handler({}, secondContext),
-  ]);
+  const goFile = join(cwd, "go");
+  const firstResult = join(cwd, "first-result.json");
+  const secondResult = join(cwd, "second-result.json");
+  const firstReady = join(cwd, "first-ready");
+  const secondReady = join(cwd, "second-ready");
+  const first = spawnHandoffChild("race", cwd, firstResult, firstReady, goFile, "successor-one");
+  const second = spawnHandoffChild("race", cwd, secondResult, secondReady, goFile, "successor-two");
+  t.after(() => { first.child.kill("SIGKILL"); second.child.kill("SIGKILL"); });
 
-  const winners = [first, second].filter((entry) => entry.appended.length === 1);
-  assert.equal(winners.length, 1);
-  const winner = winners[0];
+  await Promise.all([waitForFile(firstReady), waitForFile(secondReady)]);
+  writeFileSync(goFile, "go");
+  const [firstExit, secondExit] = await Promise.all([first.completed, second.completed]);
+  assert.equal(firstExit.code, 0, firstExit.stderr);
+  assert.equal(secondExit.code, 0, secondExit.stderr);
+  const results = [firstResult, secondResult].map((path) => JSON.parse(readFileSync(path, "utf8")) as {
+    adoptions: number;
+    slateSessionId?: string;
+    ownerSessionDigest?: string;
+  });
+  assert.equal(results.reduce((sum, result) => sum + result.adoptions, 0), 1);
+  const winner = results.find((result) => result.adoptions === 1);
   assert.ok(winner);
-  assert.equal(winner.store.slateSessionId, ID);
-  const expectedOwners = [
-    createOwnerSessionDigest("successor-one", join(cwd, "one.jsonl")),
-    createOwnerSessionDigest("successor-two", join(cwd, "two.jsonl")),
-  ];
-  assert.ok(expectedOwners.includes(winner.store.ownerSessionDigest ?? ""));
-  assert.equal(winner.appended[0]?.ownerSessionDigest, winner.store.ownerSessionDigest);
+  assert.equal(winner.slateSessionId, ID);
+  assert.match(winner.ownerSessionDigest ?? "", OWNER_SESSION_DIGEST_PATTERN);
   assert.equal(existsSync(file), false);
   assert.deepEqual(claimFiles(file), []);
+
+  const source = readFileSync(HANDOFF_SOURCE, "utf8");
+  assert.match(source, /openSync\(marker, "wx"\)/, "the marker claim must use exclusive creation");
+  assert.doesNotMatch(source, /if \(existsSync\(marker\)\) return false;/, "an existence check is not an atomic claim");
+});
+
+test("terminated claimant leaves pending data for adoption after marker ages out", { timeout: 10_000 }, async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-abandoned-test-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const original = pendingHandoffContent();
+  const file = writePendingHandoff(cwd, original);
+  const marker = claimMarker(file);
+  const resultFile = join(cwd, "held-result.json");
+  const readyFile = join(cwd, "held-ready");
+  const holder = spawnHandoffChild("hold", cwd, resultFile, readyFile, join(cwd, "unused-go"), "terminated-successor");
+  t.after(() => holder.child.kill("SIGKILL"));
+
+  await waitForFile(readyFile);
+  assert.equal(readFileSync(file, "utf8"), original);
+  assert.equal(existsSync(marker), true);
+  holder.child.kill("SIGKILL");
+  const holderExit = await holder.completed;
+  assert.equal(holderExit.code, null);
+
+  const abandonedAt = new Date(Date.now() - 16 * 60 * 1000);
+  utimesSync(marker, abandonedAt, abandonedAt);
+  const following = handoffHarness();
+  await following.handler({}, handoffContext(cwd, "following-successor", join(cwd, "following.jsonl")));
+  assert.equal(following.appended.length, 1);
+  assert.equal(following.store.slateSessionId, ID);
+  assert.equal(existsSync(file), false);
+  assert.equal(existsSync(marker), false);
 });
 
 class EntryExtensionApi {

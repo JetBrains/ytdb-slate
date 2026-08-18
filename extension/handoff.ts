@@ -23,7 +23,7 @@
  * slate-state entries for restore() to find (they live in the parent's file).
  * The pending file bridges the gap: the NEW instance's session_start handler
  * adopts the snapshot when the fresh session's parentSession header matches
- * (trusted projects only; stale files are reaped regardless of trust), and
+ * (trusted projects only; stale files are rejected regardless of trust), and
  * then restores the captured model/thinking level — the fresh session does
  * not inherit them: startup CLI flags (-m/--thinking) are re-applied to the
  * replacement runtime, enabledModels scoping picks its first entry, and a
@@ -33,8 +33,8 @@
  * the orchestrator's base model, unlike a failover fallback.
  */
 
-import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import assert from "node:assert/strict";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
 	CONFIG_DIR_NAME,
@@ -73,7 +73,7 @@ const ANTHROPIC_MODEL_RE = /^anthropic\/.*/;
 const BRIEF_HEADROOM_TOKENS = 32_768;
 /** Used when the merged settings cannot be read (mirrors pi's own default). */
 const FALLBACK_RESERVE_TOKENS = 16_384;
-/** A pending-handoff file older than this cannot belong to an in-flight handoff. */
+/** A pending handoff or claim marker older than this cannot belong to an in-flight handoff. */
 const PENDING_MAX_AGE_MS = 15 * 60 * 1000;
 const BRIEF_MAX_CHARS = 6000;
 
@@ -99,6 +99,38 @@ export interface SlateHandoffHooks {
 
 function pendingFile(cwd: string): string {
 	return join(cwd, CONFIG_DIR_NAME, "slate", "pending-handoff.json");
+}
+
+function claimMarker(file: string): string {
+	return `${file}.claim`;
+}
+
+function removeClaimMarker(file: string, marker: string): void {
+	// The pending file is durable handoff data. Marker cleanup must never target it.
+	assert.notEqual(marker, file, "pending handoff marker must differ from the pending file");
+	rmSync(marker, { force: true });
+}
+
+function acquirePendingClaim(file: string, marker: string): boolean {
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		try {
+			const descriptor = openSync(marker, "wx");
+			closeSync(descriptor);
+			return true;
+		} catch (error) {
+			if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+			if (attempt > 0) return false;
+			try {
+				const age = Date.now() - statSync(marker).mtimeMs;
+				if (!(age >= PENDING_MAX_AGE_MS)) return false;
+				removeClaimMarker(file, marker);
+			} catch (staleError) {
+				if (staleError instanceof Error && "code" in staleError && staleError.code === "ENOENT") continue;
+				throw staleError;
+			}
+		}
+	}
+	return false;
 }
 
 // Console-first reporting for the model-adoption block below, and for FAILURES
@@ -478,22 +510,21 @@ export function registerSlateHandoff(
 	pi.on("session_start", async (_event, ctx) => {
 		if (store.threads.size > 0 || store.orchestratorMode) return; // state already restored on this branch
 		const file = pendingFile(ctx.cwd);
-		let claim: string | undefined;
+		const marker = claimMarker(file);
+		let claimHeld = false;
 		let adoptionCompleted = false;
 		try {
 			if (!existsSync(file)) return;
-			// The rename is the atomic claim. A racing successor loses with ENOENT
-			// and continues through the later identity handler as an ordinary session.
-			// The in-process regression test simulates racing successors. It does not
-			// exercise two real operating-system processes.
-			claim = `${file}.claim-${randomBytes(8).toString("hex")}`;
-			renameSync(file, claim);
-			const pending = JSON.parse(readFileSync(claim, "utf8")) as PendingHandoff;
+			// Exclusive marker creation is the claim. The pending file never moves:
+			// it remains the durable handoff data through every failure path.
+			claimHeld = acquirePendingClaim(file, marker);
+			if (!claimHeld) return;
+			const pending = JSON.parse(readFileSync(file, "utf8")) as PendingHandoff;
 			const age = Date.now() - (pending.createdAt ?? 0);
 			// Reject stale claims regardless of trust without injecting their content.
-			// The finally block restores the original pending name for every outcome
-			// except completed adoption. Out-of-range timestamps are stale too: a
-			// future createdAt gives negative age, and a non-numeric value gives NaN.
+			// Every non-completed outcome removes only the marker. Out-of-range
+			// timestamps are stale too: a future createdAt gives negative age, and a
+			// non-numeric value gives NaN.
 			if (!(age >= 0 && age < PENDING_MAX_AGE_MS)) return;
 			// Trust gate (ADOPTION only): the pending file is project-local state a
 			// cloned repo could ship pre-seeded. Never adopt its content in an
@@ -517,14 +548,25 @@ export function registerSlateHandoff(
 			store.save();
 			adoptionCompleted = true;
 			try {
-				rmSync(claim, { force: true });
-				claim = undefined;
+				// Completed adoption consumes durable data before releasing its marker.
+				rmSync(file, { force: true });
 			} catch (error) {
 				reportFailure(
 					ctx,
-					`slate: handoff adoption completed, but Slate could not remove claim ${claim} — ${sanitizeForNotify(
+					`slate: handoff adoption completed, but Slate could not remove pending handoff ${file} — ${sanitizeForNotify(
 						error instanceof Error ? error.message : String(error),
-					)}. Remove that exact claim file manually.`,
+					)}. Remove that exact pending file manually.`,
+				);
+			}
+			try {
+				removeClaimMarker(file, marker);
+				claimHeld = false;
+			} catch (error) {
+				reportFailure(
+					ctx,
+					`slate: handoff adoption completed, but Slate could not remove marker ${marker} — ${sanitizeForNotify(
+						error instanceof Error ? error.message : String(error),
+					)}. Remove that exact marker file manually.`,
 				);
 			}
 			if (ctx.hasUI) {
@@ -662,17 +704,16 @@ export function registerSlateHandoff(
 		} catch {
 			/* a broken pending file must never break session start */
 		} finally {
-			if (claim !== undefined && !adoptionCompleted) {
-				const strandedClaim = claim;
+			if (claimHeld && !adoptionCompleted) {
 				try {
-					renameSync(strandedClaim, file);
-					claim = undefined;
+					removeClaimMarker(file, marker);
+					claimHeld = false;
 				} catch (error) {
 					reportFailure(
 						ctx,
-						`slate: could not release pending handoff claim ${strandedClaim} — ${sanitizeForNotify(
+						`slate: could not release pending handoff marker ${marker} — ${sanitizeForNotify(
 							error instanceof Error ? error.message : String(error),
-						)}. The pending handoff remains at that exact claim path.`,
+						)}. The pending handoff remains untouched at ${file}.`,
 					);
 				}
 			}
