@@ -20,7 +20,7 @@ Every command block enables fail-closed shell behavior. Do not continue after a 
 
 Have all of this before step 0. Steps 5 and 7 act in public, and a missing tool or a missing permission is cheap to fix now and expensive to find after publication.
 
-- **Tools on `PATH`:** bash 4 or newer (the blocks use `mapfile`, arrays and `[[ ]]`), git, GNU coreutils, `gh`, `node`, `npm`, `pi`, `tar`, `cmp`, `awk`, `sed`, `grep`, `diff`.
+- **Tools on `PATH`:** bash 4 or newer (the blocks use `mapfile`, arrays and `[[ ]]`), git, GNU coreutils, `gh`, `node`, `npm`, `pi`, `python3`, `tar`, `cmp`, `awk`, `sed`, `grep`, `diff`.
 - **GitHub:** `gh auth status` reports you as logged in, against the host that serves this repository, with write access to it. Step 7 pushes a tag and creates a release.
 - **npm:** the user who runs step 5 has an account that may publish `ytdb-slate` and can answer its two-factor prompt. The agent never needs npm credentials; it only reads the registry.
 - **The step 1 verification set:** run it as a normal user, not as root. The ladder needs GNU coreutils. The resolver checks need `pi` and `node`. The writing-reminder integration harness needs its checked command set, including GNU `timeout` with `--kill-after`.
@@ -69,7 +69,6 @@ These have never run. Treat any of them as a hypothesis and read the commands be
 
 - The integrity-mismatch halt in step 6.
 - The inconclusive branch and escalation in step 6.
-- The registry-load validation in step 6.
 - Every restart state in step 7 except "nothing exists yet".
 - Teardown after a failure in step 8.
 
@@ -666,9 +665,23 @@ Use the matching branch:
 
 ### Registry-load validation
 
-**Untested.** This validation is mandatory after the integrity result is `verified`. It proves that pi loads the published package, not merely that npm serves the expected bytes. It uses a throwaway trusted project, a separate agent directory and a project settings file that names only `npm:$PACKAGE@$VERSION`.
+This validation is mandatory after the integrity result is `verified`. It proves
+that pi loads the published package, not merely that npm serves the expected
+bytes. Each block creates its own trusted project, agent directory and settings
+file. The settings file names only `npm:$PACKAGE@$VERSION`. Each block also
+installs that package explicitly before asking `pi list` for its installed path.
 
-The headless run asserts explicit project trust, one loaded `/slate` path inside the installed package, and registration of `thread`, `threads` and `episode`. The canary is the checked-in observer used by the load-check harness; it does not ship in the package.
+The first block asserts explicit project trust, one loaded `/slate` path inside
+the installed package, and registration of `thread`, `threads` and `episode`. It
+also rejects both stderr failure markers and every RPC `extension_error` event.
+The last check is load-bearing: pi can exit zero after a lifecycle hook throws.
+The canary is the checked-in observer used by the load-check harness; it does not
+ship in the package.
+
+The complete validation was rehearsed against `ytdb-slate@0.10.0` with pi
+0.84.2. Both blocks passed from fresh probe directories. A second headless run
+injected a throwing `session_start` hook into the installed copy; the
+`extension_error` gate rejected it. Both rehearsals removed their probe roots.
 
 ```bash
 set -euo pipefail
@@ -677,17 +690,80 @@ RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/curr
 STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION WORKTREE REGISTRY_VERIFIED_AT)
 eval "$STATE"
 
-PROBE_ROOT="$RELEASE_DIR/registry-load-probe"
+unset PROBE_BASE PROBE_ROOT
+PROBE_BASE=""
+PROBE_ROOT=""
+cleanup_alert() {
+  printf '\n%s\n%s\n' '!!! PROBE CLEANUP INCOMPLETE !!!' "$1" >&2
+}
+cleanup_probe() {
+  local base=${PROBE_BASE:-} target=${PROBE_ROOT:-} cleanup_failed=0 leftovers=0
+  if [[ -z "$base" || -z "$target" ]]; then
+    cleanup_alert 'Probe cleanup has an unset path. Inspect the release scratch area and remove leftovers by hand.'
+    return 1
+  fi
+  case "$base:$target" in /*:/*) ;; *)
+    cleanup_alert "Probe paths are not absolute: $base : $target. Remove any leftovers by hand."
+    return 1
+  esac
+  case "$target" in "$base"/*) ;; *)
+    cleanup_alert "Probe root is outside its block-created base: $target. Remove it by hand."
+    return 1
+  esac
+  if [[ -d "$target" ]]; then
+    if ! rm -rf -- "$target"; then
+      cleanup_alert "Automatic removal failed. REMOVE THIS PATH BY HAND: $target"
+      cleanup_failed=1
+    fi
+  else
+    cleanup_alert "Expected probe root is not a directory: $target. Inspect the paths below and remove leftovers by hand."
+    cleanup_failed=1
+  fi
+  if [[ -e "$target" || -L "$target" ]]; then
+    cleanup_alert "REMOVE THIS PATH BY HAND: $target"
+    cleanup_failed=1
+  fi
+  if [[ -d "$base" ]]; then
+    while IFS= read -r -d '' leftover; do
+      cleanup_alert "REMOVE THIS PATH BY HAND: $leftover"
+      leftovers=$((leftovers + 1))
+      cleanup_failed=1
+    done < <(find "$base" -mindepth 1 -maxdepth 1 -print0)
+    if (( leftovers == 0 )) && ! rmdir "$base"; then
+      cleanup_alert "Automatic removal failed. REMOVE THIS PATH BY HAND: $base"
+      cleanup_failed=1
+    fi
+  elif [[ -e "$base" || -L "$base" ]]; then
+    cleanup_alert "Probe base is not a directory. REMOVE THIS PATH BY HAND: $base"
+    cleanup_failed=1
+  fi
+  return "$cleanup_failed"
+}
+trap cleanup_probe EXIT
+trap 'exit 130' INT TERM
+mkdir -p "$RELEASE_DIR/evidence"
+PROBE_BASE=$(mktemp -d "$RELEASE_DIR/registry-load-headless.XXXXXX")
+PROBE_ROOT=$(mktemp -d "$PROBE_BASE/probe.XXXXXX")
 PROBE_PROJECT="$PROBE_ROOT/project"
 PROBE_AGENT="$PROBE_ROOT/agent"
-rm -rf "$PROBE_ROOT"
-mkdir -p "$PROBE_PROJECT/.pi" "$PROBE_AGENT" "$RELEASE_DIR/evidence"
+mkdir -p "$PROBE_PROJECT/.pi" "$PROBE_AGENT"
 printf '{}\n' >"$PROBE_AGENT/settings.json"
 node - "$PROBE_PROJECT/.pi/settings.json" "$PACKAGE" "$VERSION" <<'NODE'
 const fs = require("node:fs");
-const [path, packageName, version] = process.argv.slice(2);
-fs.writeFileSync(path, `${JSON.stringify({ packages: [`npm:${packageName}@${version}`] }, null, 2)}\n`);
+const [settingsPath, packageName, version] = process.argv.slice(2);
+fs.writeFileSync(settingsPath, `${JSON.stringify({ packages: [`npm:${packageName}@${version}`] }, null, 2)}\n`);
 NODE
+
+INSTALL_OUT="$RELEASE_DIR/evidence/registry-load-install.out"
+INSTALL_ERR="$RELEASE_DIR/evidence/registry-load-install.err"
+if ! (cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" \
+  pi install -l --approve "npm:$PACKAGE@$VERSION") >"$INSTALL_OUT" 2>"$INSTALL_ERR"; then
+  cat "$INSTALL_ERR" >&2
+  cat "$INSTALL_OUT" >&2
+  exit 1
+fi
+cat "$INSTALL_OUT"
+cat "$INSTALL_ERR" >&2
 
 PACKAGE_LIST="$RELEASE_DIR/evidence/registry-load-package-list.txt"
 (cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" NO_COLOR=1 pi list -a) >"$PACKAGE_LIST"
@@ -695,15 +771,31 @@ INSTALLED_DIR=$(awk -v spec="  npm:$PACKAGE@$VERSION" '
   $0 == "Project packages:" { project = 1; next }
   project && $0 == spec { getline; sub(/^[[:space:]]+/, ""); print; exit }
 ' "$PACKAGE_LIST")
-[[ -n "$INSTALLED_DIR" && -f "$INSTALLED_DIR/package.json" ]]
+if [[ -z "$INSTALLED_DIR" || ! -f "$INSTALLED_DIR/package.json" ]]; then
+  printf 'Cannot locate the installed package after explicit installation. pi list output:\n' >&2
+  cat "$PACKAGE_LIST" >&2
+  exit 1
+fi
 
 RPC_IN="$RELEASE_DIR/evidence/registry-load.in"
 RPC_OUT="$RELEASE_DIR/evidence/registry-load.out"
 RPC_ERR="$RELEASE_DIR/evidence/registry-load.err"
 printf '%s\n' '{"id":"1","type":"get_commands"}' >"$RPC_IN"
+RPC_STATUS=0
 (cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" pi \
   -e "$WORKTREE/verification/ci-canary.ts" --mode rpc -a <"$RPC_IN") \
-  >"$RPC_OUT" 2>"$RPC_ERR"
+  >"$RPC_OUT" 2>"$RPC_ERR" || RPC_STATUS=$?
+if (( RPC_STATUS != 0 )); then
+  printf 'Registry-load RPC exited %s.\n' "$RPC_STATUS" >&2
+  cat "$RPC_ERR" >&2
+  cat "$RPC_OUT" >&2
+  exit 1
+fi
+if grep -Fq -e 'Failed to load extension' -e 'Extension error (' "$RPC_ERR"; then
+  printf 'Registry-load stderr contains an extension failure marker.\n' >&2
+  cat "$RPC_ERR" >&2
+  exit 1
+fi
 
 node - "$RPC_OUT" "$RPC_ERR" "$INSTALLED_DIR" "$PROBE_PROJECT" "$PACKAGE" "$VERSION" <<'NODE'
 const fs = require("node:fs");
@@ -713,7 +805,8 @@ const manifest = JSON.parse(fs.readFileSync(path.join(installedDir, "package.jso
 if (manifest.name !== packageName || manifest.version !== version) {
   throw new Error(`installed package is ${manifest.name}@${manifest.version}`);
 }
-const canaryLines = fs.readFileSync(stderrPath, "utf8").split("\n").filter(line => line.startsWith("CI-CANARY "));
+const canaryLines = fs.readFileSync(stderrPath, "utf8").split("\n")
+  .map(line => line.trim()).filter(line => line.startsWith("CI-CANARY "));
 if (canaryLines.length !== 1) throw new Error(`expected one canary line, found ${canaryLines.length}`);
 const canary = JSON.parse(canaryLines[0].slice("CI-CANARY ".length));
 if (canary.trusted !== true) throw new Error(`probe project is not trusted: ${JSON.stringify(canary)}`);
@@ -721,7 +814,14 @@ if (fs.realpathSync(canary.cwd) !== fs.realpathSync(projectDir)) throw new Error
 for (const tool of ["thread", "threads", "episode"]) {
   if (!Array.isArray(canary.tools) || !canary.tools.includes(tool)) throw new Error(`missing registered tool ${tool}`);
 }
-const objects = fs.readFileSync(stdoutPath, "utf8").split("\n").filter(line => line.trim().startsWith("{")).map(line => JSON.parse(line));
+const objects = [];
+for (const [index, line] of fs.readFileSync(stdoutPath, "utf8").split("\n").entries()) {
+  if (!line.trim()) continue;
+  try { objects.push(JSON.parse(line)); }
+  catch (error) { throw new Error(`RPC stdout line ${index + 1} is not JSON: ${error.message}`); }
+}
+const extensionErrors = objects.filter(value => value?.type === "extension_error");
+if (extensionErrors.length !== 0) throw new Error(`extension_error event(s): ${JSON.stringify(extensionErrors)}`);
 const response = objects.find(value => value?.type === "response" && value?.command === "get_commands");
 const slate = response?.data?.commands?.filter(value => value?.name === "slate") ?? [];
 if (slate.length !== 1) throw new Error(`expected one /slate command, found ${slate.length}`);
@@ -729,28 +829,304 @@ const loadedPath = slate[0]?.sourceInfo?.path;
 if (typeof loadedPath !== "string") throw new Error("/slate has no loaded source path");
 const installedReal = fs.realpathSync(installedDir);
 const loadedReal = fs.realpathSync(loadedPath);
-if (loadedReal !== installedReal && !loadedReal.startsWith(installedReal + path.sep)) {
+if (!loadedReal.startsWith(installedReal + path.sep)) {
   throw new Error(`slate loaded from ${loadedReal}, outside installed package ${installedReal}`);
 }
-process.stdout.write(`trusted registry package loaded from ${loadedReal}; thread, threads and episode are registered\n`);
+const entries = manifest.pi?.extensions;
+if (!Array.isArray(entries) || !entries.some(entry =>
+  typeof entry === "string" && fs.realpathSync(path.resolve(installedReal, entry)) === loadedReal)) {
+  throw new Error(`loaded path ${loadedReal} is not a declared extension entry`);
+}
+process.stdout.write(`trusted registry package loaded from ${loadedReal}; thread, threads and episode are registered; no extension failure was reported\n`);
 NODE
 ```
 
-Now start an interactive session against the same project and agent directory:
+The second block starts a real TUI session through a pseudo-terminal. It uses an
+offline fake provider loaded beside the published package. The provider receives
+the final system prompt after every `before_agent_start` handler, so it can check
+the doctrine without trusting a model recitation. The check requires the Slate
+heading and the four unconditional documentation paths exactly once. A headless
+run never builds the doctrine, so the TUI phase is mandatory.
 
 ```bash
-(cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" pi -a)
+set -euo pipefail
+: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
+RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
+STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION REGISTRY_VERIFIED_AT)
+eval "$STATE"
+
+unset PROBE_BASE PROBE_ROOT
+PROBE_BASE=""
+PROBE_ROOT=""
+cleanup_alert() {
+  printf '\n%s\n%s\n' '!!! PROBE CLEANUP INCOMPLETE !!!' "$1" >&2
+}
+cleanup_probe() {
+  local base=${PROBE_BASE:-} target=${PROBE_ROOT:-} cleanup_failed=0 leftovers=0
+  if [[ -z "$base" || -z "$target" ]]; then
+    cleanup_alert 'Probe cleanup has an unset path. Inspect the release scratch area and remove leftovers by hand.'
+    return 1
+  fi
+  case "$base:$target" in /*:/*) ;; *)
+    cleanup_alert "Probe paths are not absolute: $base : $target. Remove any leftovers by hand."
+    return 1
+  esac
+  case "$target" in "$base"/*) ;; *)
+    cleanup_alert "Probe root is outside its block-created base: $target. Remove it by hand."
+    return 1
+  esac
+  if [[ -d "$target" ]]; then
+    if ! rm -rf -- "$target"; then
+      cleanup_alert "Automatic removal failed. REMOVE THIS PATH BY HAND: $target"
+      cleanup_failed=1
+    fi
+  else
+    cleanup_alert "Expected probe root is not a directory: $target. Inspect the paths below and remove leftovers by hand."
+    cleanup_failed=1
+  fi
+  if [[ -e "$target" || -L "$target" ]]; then
+    cleanup_alert "REMOVE THIS PATH BY HAND: $target"
+    cleanup_failed=1
+  fi
+  if [[ -d "$base" ]]; then
+    while IFS= read -r -d '' leftover; do
+      cleanup_alert "REMOVE THIS PATH BY HAND: $leftover"
+      leftovers=$((leftovers + 1))
+      cleanup_failed=1
+    done < <(find "$base" -mindepth 1 -maxdepth 1 -print0)
+    if (( leftovers == 0 )) && ! rmdir "$base"; then
+      cleanup_alert "Automatic removal failed. REMOVE THIS PATH BY HAND: $base"
+      cleanup_failed=1
+    fi
+  elif [[ -e "$base" || -L "$base" ]]; then
+    cleanup_alert "Probe base is not a directory. REMOVE THIS PATH BY HAND: $base"
+    cleanup_failed=1
+  fi
+  return "$cleanup_failed"
+}
+trap cleanup_probe EXIT
+trap 'exit 130' INT TERM
+mkdir -p "$RELEASE_DIR/evidence"
+PROBE_BASE=$(mktemp -d "$RELEASE_DIR/registry-load-doctrine.XXXXXX")
+PROBE_ROOT=$(mktemp -d "$PROBE_BASE/probe.XXXXXX")
+PROBE_PROJECT="$PROBE_ROOT/project"
+PROBE_AGENT="$PROBE_ROOT/agent"
+PROBE_HOME="$PROBE_ROOT/home"
+PROBE_TMP="$PROBE_ROOT/tmp"
+mkdir -p "$PROBE_PROJECT/.pi" "$PROBE_AGENT" "$PROBE_HOME" "$PROBE_TMP"
+printf '{}\n' >"$PROBE_AGENT/settings.json"
+node - "$PROBE_PROJECT/.pi/settings.json" "$PACKAGE" "$VERSION" <<'NODE'
+const fs = require("node:fs");
+const [settingsPath, packageName, version] = process.argv.slice(2);
+fs.writeFileSync(settingsPath, `${JSON.stringify({ packages: [`npm:${packageName}@${version}`] }, null, 2)}\n`);
+NODE
+
+INSTALL_OUT="$RELEASE_DIR/evidence/registry-doctrine-install.out"
+INSTALL_ERR="$RELEASE_DIR/evidence/registry-doctrine-install.err"
+if ! (cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" \
+  pi install -l --approve "npm:$PACKAGE@$VERSION") >"$INSTALL_OUT" 2>"$INSTALL_ERR"; then
+  cat "$INSTALL_ERR" >&2
+  cat "$INSTALL_OUT" >&2
+  exit 1
+fi
+cat "$INSTALL_OUT"
+cat "$INSTALL_ERR" >&2
+
+PACKAGE_LIST="$RELEASE_DIR/evidence/registry-doctrine-package-list.txt"
+(cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" NO_COLOR=1 pi list -a) >"$PACKAGE_LIST"
+INSTALLED_DIR=$(awk -v spec="  npm:$PACKAGE@$VERSION" '
+  $0 == "Project packages:" { project = 1; next }
+  project && $0 == spec { getline; sub(/^[[:space:]]+/, ""); print; exit }
+' "$PACKAGE_LIST")
+if [[ -z "$INSTALLED_DIR" || ! -f "$INSTALLED_DIR/package.json" ]]; then
+  printf 'Cannot locate the installed package after explicit installation. pi list output:\n' >&2
+  cat "$PACKAGE_LIST" >&2
+  exit 1
+fi
+
+DOCTRINE_EVIDENCE="$RELEASE_DIR/evidence/registry-doctrine.json"
+DOCTRINE_TRANSCRIPT="$RELEASE_DIR/evidence/registry-doctrine-tui.raw"
+DOCTRINE_CANARY="$PROBE_ROOT/doctrine-canary.mjs"
+cat >"$DOCTRINE_CANARY" <<'MJS'
+import { writeFileSync } from "node:fs";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+
+const evidencePath = process.env.SLATE_DOCTRINE_EVIDENCE;
+const packageRoot = process.env.SLATE_DOCTRINE_PACKAGE_ROOT;
+let trusted = false;
+
+function message(model, text) {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text }],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  };
+}
+
+function completedStream(output) {
+  const stream = createAssistantMessageEventStream();
+  queueMicrotask(() => {
+    stream.push({ type: "start", partial: { ...output, stopReason: "pending" } });
+    stream.push({ type: "done", reason: "stop", message: output });
+    stream.end();
+  });
+  return stream;
+}
+
+export default function doctrineCanary(pi) {
+  pi.on("session_start", (_event, ctx) => { trusted = ctx.isProjectTrusted(); });
+  pi.registerProvider("slate-doctrine-fake", {
+    name: "Slate doctrine offline canary",
+    baseUrl: "http://127.0.0.1:9/v1",
+    apiKey: "offline-canary-key",
+    api: "openai-completions",
+    models: [{
+      id: "doctrine-model",
+      name: "Doctrine model",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1_000_000,
+      maxTokens: 1_024,
+    }],
+    streamSimple(model, context) {
+      const systemPrompt = context.systemPrompt ?? "";
+      const required = [
+        "# Slate orchestrator mode",
+        `${packageRoot}/docs/thread-cache-cost.md`,
+        `${packageRoot}/docs/track-workflow.md`,
+        `${packageRoot}/docs/review-rules.md`,
+        `${packageRoot}/docs/design-principles.md`,
+      ];
+      const counts = Object.fromEntries(required.map(value =>
+        [value, systemPrompt.split(value).length - 1]));
+      const result = {
+        trusted,
+        required,
+        counts,
+        exact: trusted && required.every(value => counts[value] === 1),
+      };
+      writeFileSync(evidencePath, `${JSON.stringify(result, null, 2)}\n`);
+      const text = result.exact ? "SLATE_DOCTRINE_CANARY_COMPLETE" : "SLATE_DOCTRINE_CANARY_FAILED";
+      return completedStream(message(model, text));
+    },
+  });
+}
+MJS
+
+PTY_RUNNER="$PROBE_ROOT/run-tui.py"
+cat >"$PTY_RUNNER" <<'PY'
+import os
+import pty
+import select
+import signal
+import sys
+import time
+
+pi_bin, project, agent, home, tmp, canary, evidence, package_root, transcript = sys.argv[1:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.chdir(project)
+    env = {
+        "HOME": home,
+        "PATH": os.environ["PATH"],
+        "PI_CODING_AGENT_DIR": agent,
+        "SLATE_DOCTRINE_EVIDENCE": evidence,
+        "SLATE_DOCTRINE_PACKAGE_ROOT": package_root,
+        "TERM": "xterm-256color",
+        "TMPDIR": tmp,
+    }
+    os.execvpe(pi_bin, [pi_bin, "-e", canary, "-a", "--provider",
+        "slate-doctrine-fake", "--model", "doctrine-model"], env)
+
+start = time.monotonic()
+deadline = start + 120
+sent_mode = False
+sent_prompt = False
+requested_exit = False
+saw_provider_result = False
+output = bytearray()
+status = None
+with open(transcript, "wb") as transcript_file:
+    while time.monotonic() < deadline:
+        done, child_status = os.waitpid(pid, os.WNOHANG)
+        if done:
+            status = child_status
+            break
+        readable, _, _ = select.select([fd], [], [], 0.2)
+        if readable:
+            try:
+                data = os.read(fd, 65536)
+            except OSError:
+                data = b""
+            if data:
+                output.extend(data)
+                transcript_file.write(data)
+                transcript_file.flush()
+        elapsed = time.monotonic() - start
+        if not sent_mode and elapsed >= 2:
+            os.write(fd, b"/slate on\r")
+            sent_mode = True
+        if sent_mode and not sent_prompt and elapsed >= 4:
+            os.write(fd, b"Run the doctrine validation.\r")
+            sent_prompt = True
+        if sent_prompt and os.path.exists(evidence):
+            saw_provider_result = (b"SLATE_DOCTRINE_CANARY_COMPLETE" in output or
+                b"SLATE_DOCTRINE_CANARY_FAILED" in output)
+        if saw_provider_result and not requested_exit:
+            os.write(fd, b"\x04")
+            requested_exit = True
+        if requested_exit and elapsed >= 15:
+            break
+
+if status is None:
+    os.kill(pid, signal.SIGTERM)
+    _, status = os.waitpid(pid, 0)
+    print("TUI did not exit cleanly after the doctrine result", file=sys.stderr)
+    sys.exit(1)
+exit_code = os.waitstatus_to_exitcode(status)
+print(f"TUI exit={exit_code}; doctrine provider reached={saw_provider_result}")
+if exit_code != 0 or not saw_provider_result:
+    sys.exit(1)
+PY
+
+PI_BIN=$(command -v pi)
+python3 "$PTY_RUNNER" "$PI_BIN" "$PROBE_PROJECT" "$PROBE_AGENT" "$PROBE_HOME" \
+  "$PROBE_TMP" "$DOCTRINE_CANARY" "$DOCTRINE_EVIDENCE" "$INSTALLED_DIR" \
+  "$DOCTRINE_TRANSCRIPT"
+if grep -aFq -e 'Failed to load extension' -e 'Extension error (' "$DOCTRINE_TRANSCRIPT"; then
+  printf 'Interactive doctrine transcript contains an extension failure marker.\n' >&2
+  exit 1
+fi
+node - "$DOCTRINE_EVIDENCE" <<'NODE'
+const fs = require("node:fs");
+const evidence = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (evidence.trusted !== true) throw new Error("interactive project was not trusted");
+if (evidence.exact !== true) throw new Error(`doctrine markers were not exact: ${JSON.stringify(evidence)}`);
+if (!Array.isArray(evidence.required) || evidence.required.length !== 5) {
+  throw new Error(`unexpected doctrine marker roster: ${JSON.stringify(evidence.required)}`);
+}
+process.stdout.write(`interactive doctrine check passed: ${evidence.required.join(" | ")}\n`);
+NODE
 ```
 
-Configure model access inside the throwaway agent directory if pi requests it. Turn slate on, then ask the model to repeat the Slate doctrine and every absolute documentation path it received. Confirm that the response contains the doctrine and paths under `$INSTALLED_DIR/docs/`. A headless run never builds the doctrine, so the preceding RPC proof cannot replace this interactive step. Do not continue until the interactive response proves that the doctrine was reached.
+Both blocks remove their project and agent directory on success, failure, or
+interruption. Each block ignores inherited probe variables and removes only the
+root it created under its own temporary base. The evidence remains under
+`$RELEASE_DIR/evidence/`.
 
-After the interactive check succeeds, remove the throwaway project and agent directory. Keep the evidence files.
-
-```bash
-rm -rf "$PROBE_ROOT"
-```
-
-Continue to step 7 only after both the headless assertions and the interactive doctrine check pass.
+The probe runs the package being released. In-probe subversion of cleanup is out
+of scope. Any leftover directory under the release scratch area is reported with
+its exact path for manual removal rather than treated as a security boundary.
+Continue to step 7 only after both blocks pass.
 
 ## Step 7 — the agent tags and creates the release
 
