@@ -357,7 +357,7 @@ const ROUTER_IDS = [
 ];
 const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-price-values", "profiles-price-dates", "profiles-price-identity", "profiles-price-long-context", "profiles-meta"];
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
-const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
+const STATE_IDS = ["spec-invisible", "spec-config-key", "state-snapshot-identity", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
 const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-follow-up", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite"];
 const WORKER_IDS = ["worker-preamble", "reviewer-charter-sync"];
@@ -5791,6 +5791,30 @@ production behaviour.`);
 			]);
 		});
 
+		await section("state-snapshot-identity", async () => {
+			const sane = (raw) => {
+				const repairs = [];
+				return { out: state.sanitizeSnapshotIdentity(raw, repairs), repairs };
+			};
+			const base = { threads: [], episodes: [], orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
+			const id = "20260818T101112Z-0123abcd";
+			const owner = "0198bb31-b16f-7acd-9000-123456789abc";
+			const valid = sane({ ...base, slateSessionId: id, ownerPiSessionId: owner });
+			const absent = sane(base);
+			const noSnapshot = sane(undefined);
+			const badIdentities = ["20260818T101112Z-0123ABCd", "2026-08-18T10:11:12Z-0123abcd", "20260818T101112Z-0123abc/", 7, null]
+				.map((slateSessionId) => sane({ ...base, slateSessionId, ownerPiSessionId: owner }));
+			const badOwners = ["", "-owner", "owner-", "owner/path", "owner session", 7, null]
+				.map((ownerPiSessionId) => sane({ ...base, slateSessionId: id, ownerPiSessionId }));
+			checkAll("state-snapshot-identity", "snapshot lineage identity fields are validated independently at adoption: exact values round-trip, absence stays distinct and silent, malformed values are removed with one field-naming repair, and an absent snapshot remains distinguishable from a legacy snapshot", [
+				["both valid fields round-trip exactly and silently", valid.out.slateSessionId === id && valid.out.ownerPiSessionId === owner && valid.repairs.length === 0, valid],
+				["a legacy snapshot has neither field and stays silent", absent.out.snapshotPresent === true && absent.out.slateSessionIdPresent === false && absent.out.ownerPiSessionIdPresent === false && absent.repairs.length === 0, absent],
+				["no snapshot remains distinguishable from a legacy snapshot", noSnapshot.out.snapshotPresent === false && noSnapshot.repairs.length === 0, noSnapshot],
+				["every malformed identity is removed and reported once by field name", badIdentities.every((r) => r.out.slateSessionId === undefined && r.out.slateSessionIdPresent === true && r.repairs.length === 1 && /slateSessionId/.test(r.repairs[0])), badIdentities],
+				["every malformed owner is removed and reported once by field name", badOwners.every((r) => r.out.ownerPiSessionId === undefined && r.out.ownerPiSessionIdPresent === true && r.repairs.length === 1 && /ownerPiSessionId/.test(r.repairs[0])), badOwners],
+			]);
+		});
+
 		await section("state-thread-record", async () => {
 			// BG26. Every thread record is re-validated FIELD BY FIELD on the session-restore
 			// path, because nothing downstream re-checks it: a snapshot that was hand-edited,
@@ -7197,7 +7221,7 @@ production behaviour.`);
 		"route-failover", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
 		"choice-load", "choice-order", "choice-refusals", "choice-new-stream", "choice-warmth", "choice-effort-cold", "choice-short-work",
 		"choice-abstentions", "choice-token-buckets", "choice-long-context", "choice-rediscovery", "choice-final-verdict", "choice-verdict-shape", "choice-hostile",
-		"wiring", "spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record",
+		"wiring", "spec-invisible", "spec-config-key", "state-snapshot-identity", "state-thread-record", "state-episode-record",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
 		"episode-load", "episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header",

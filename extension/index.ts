@@ -279,10 +279,15 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// session_start ordering (registration order): restore → adopt pending
-	// handoff → re-apply mode tools. registerSlateHandoff must therefore sit
-	// between the restore handler above and registerSlateMode below.
+	// handoff → resolve slate identity → re-apply mode tools. Handoff adoption
+	// must precede identity resolution so a valid successor is re-stamped first.
 	// getConfig reads the CURRENT `manager` (reassigned on session_start).
 	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel);
+
+	pi.on("session_start", async (_event, ctx) => {
+		const report = (message: string) => (ctx.hasUI ? ctx.ui.notify(message, "warning") : console.warn(message));
+		if (store.resolveSessionIdentity(ctx.sessionManager.getSessionId(), report)) store.save();
+	});
 
 	// Orchestrator model failover (turn_end/agent_settled/input) — not
 	// order-critical relative to the handlers above (different trigger events).

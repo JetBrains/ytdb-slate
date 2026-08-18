@@ -9,6 +9,7 @@
  * on restore.
  */
 
+import { randomBytes } from "node:crypto";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -220,10 +221,109 @@ export interface SlateSnapshot {
 	episodes: EpisodeRecord[];
 	/** Highest allocated generated thread ordinal. Absent snapshots derive it from records. */
 	threadSeq?: number;
+	/** Stable identity of this slate session lineage. Absent means a legacy lineage. */
+	slateSessionId?: string;
+	/** Pi session that currently owns slateSessionId. Re-stamped only by explicit handoff adoption. */
+	ownerPiSessionId?: string;
 	orchestratorMode: boolean;
 	paused: boolean;
 	workerCostUsd: number;
 	carriedCostUsd: number; // orchestrator spend banked from ancestor sessions at handoff
+}
+
+export const SLATE_SESSION_ID_PATTERN = /^\d{8}T\d{6}Z-[0-9a-f]{8}$/;
+const PI_SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+
+export interface SanitizedSnapshotIdentity {
+	snapshotPresent: boolean;
+	slateSessionIdPresent: boolean;
+	ownerPiSessionIdPresent: boolean;
+	slateSessionId?: string;
+	ownerPiSessionId?: string;
+}
+
+export interface SlateSessionIdentityResolution {
+	slateSessionId?: string;
+	ownerPiSessionId?: string;
+	minted: boolean;
+	report?: string;
+}
+
+/** Mint a sortable, filename-safe slate session identity. */
+export function mintSlateSessionId(now = new Date()): string {
+	const timestamp = `${now.toISOString().slice(0, 19).replace(/[-:]/g, "")}Z`;
+	return `${timestamp}-${randomBytes(4).toString("hex")}`;
+}
+
+/** Validate the two optional identity fields at the snapshot adoption boundary. */
+export function sanitizeSnapshotIdentity(
+	raw: SlateSnapshot | undefined,
+	repairs: string[],
+): SanitizedSnapshotIdentity {
+	if (raw === undefined) {
+		return { snapshotPresent: false, slateSessionIdPresent: false, ownerPiSessionIdPresent: false };
+	}
+	const slateSessionIdPresent = raw.slateSessionId !== undefined;
+	const ownerPiSessionIdPresent = raw.ownerPiSessionId !== undefined;
+	const slateSessionId =
+		typeof raw.slateSessionId === "string" && SLATE_SESSION_ID_PATTERN.test(raw.slateSessionId)
+			? raw.slateSessionId
+			: undefined;
+	const ownerPiSessionId =
+		typeof raw.ownerPiSessionId === "string" && PI_SESSION_ID_PATTERN.test(raw.ownerPiSessionId)
+			? raw.ownerPiSessionId
+			: undefined;
+	if (slateSessionIdPresent && slateSessionId === undefined) {
+		repairs.push(`snapshot: ignoring slateSessionId (${typeof raw.slateSessionId === "object" ? "object" : typeof raw.slateSessionId})`);
+	}
+	if (ownerPiSessionIdPresent && ownerPiSessionId === undefined) {
+		repairs.push(`snapshot: ignoring ownerPiSessionId (${typeof raw.ownerPiSessionId === "object" ? "object" : typeof raw.ownerPiSessionId})`);
+	}
+	return {
+		snapshotPresent: true,
+		slateSessionIdPresent,
+		ownerPiSessionIdPresent,
+		...(slateSessionId !== undefined ? { slateSessionId } : {}),
+		...(ownerPiSessionId !== undefined ? { ownerPiSessionId } : {}),
+	};
+}
+
+/** Apply the restore, legacy, ownership and malformed-value identity rules without I/O. */
+export function resolveSlateSessionIdentity(
+	restored: SanitizedSnapshotIdentity,
+	currentPiSessionId: string,
+	mint: () => string = mintSlateSessionId,
+): SlateSessionIdentityResolution {
+	if (!restored.snapshotPresent) {
+		return { slateSessionId: mint(), ownerPiSessionId: currentPiSessionId, minted: true };
+	}
+	if (!restored.slateSessionIdPresent) return { minted: false };
+	if (restored.slateSessionId === undefined) {
+		return {
+			slateSessionId: mint(),
+			ownerPiSessionId: currentPiSessionId,
+			minted: true,
+			report: "slate: the restored snapshot has a malformed slateSessionId. Slate minted a fresh session identity.",
+		};
+	}
+	if (restored.ownerPiSessionId === currentPiSessionId) {
+		return {
+			slateSessionId: restored.slateSessionId,
+			ownerPiSessionId: currentPiSessionId,
+			minted: false,
+		};
+	}
+	const ownerReason = !restored.ownerPiSessionIdPresent
+		? "no ownerPiSessionId"
+		: restored.ownerPiSessionId === undefined
+			? "a malformed ownerPiSessionId"
+			: "a different ownerPiSessionId";
+	return {
+		slateSessionId: mint(),
+		ownerPiSessionId: currentPiSessionId,
+		minted: true,
+		report: `slate: the restored session identity has ${ownerReason}. Slate minted a fresh session identity.`,
+	};
 }
 
 /**
@@ -926,6 +1026,9 @@ export class SlateStore {
 	threads = new Map<string, ThreadRecord>();
 	episodes = new Map<string, EpisodeRecord>();
 	private threadSeq = 0;
+	private restoredIdentity = sanitizeSnapshotIdentity(undefined, []);
+	slateSessionId: string | undefined;
+	ownerPiSessionId: string | undefined;
 	orchestratorMode = false;
 	/** When true (context budget exceeded) ThreadManager rejects NEW dispatches. */
 	paused = false;
@@ -963,11 +1066,40 @@ export class SlateStore {
 		return id;
 	}
 
+	resolveSessionIdentity(
+		currentPiSessionId: string,
+		report: (message: string) => void,
+		mint: () => string = mintSlateSessionId,
+	): boolean {
+		// Public fields may have been re-stamped by explicit handoff adoption.
+		const restored: SanitizedSnapshotIdentity = {
+			...this.restoredIdentity,
+			...(this.slateSessionId !== undefined ? { slateSessionIdPresent: true, slateSessionId: this.slateSessionId } : {}),
+			...(this.ownerPiSessionId !== undefined
+				? { ownerPiSessionIdPresent: true, ownerPiSessionId: this.ownerPiSessionId }
+				: {}),
+		};
+		const resolved = resolveSlateSessionIdentity(restored, currentPiSessionId, mint);
+		this.slateSessionId = resolved.slateSessionId;
+		this.ownerPiSessionId = resolved.ownerPiSessionId;
+		this.restoredIdentity = {
+			snapshotPresent: true,
+			slateSessionIdPresent: resolved.slateSessionId !== undefined,
+			ownerPiSessionIdPresent: resolved.ownerPiSessionId !== undefined,
+			...(resolved.slateSessionId !== undefined ? { slateSessionId: resolved.slateSessionId } : {}),
+			...(resolved.ownerPiSessionId !== undefined ? { ownerPiSessionId: resolved.ownerPiSessionId } : {}),
+		};
+		if (resolved.report !== undefined) report(resolved.report);
+		return resolved.minted;
+	}
+
 	snapshot(): SlateSnapshot {
 		return {
 			threads: [...this.threads.values()].map((t) => ({ ...t, status: "idle" as const })),
 			episodes: [...this.episodes.values()],
 			threadSeq: this.threadSeq,
+			...(this.slateSessionId !== undefined ? { slateSessionId: this.slateSessionId } : {}),
+			...(this.ownerPiSessionId !== undefined ? { ownerPiSessionId: this.ownerPiSessionId } : {}),
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
 			workerCostUsd: this.workerCostUsd,
@@ -1015,6 +1147,9 @@ export class SlateStore {
 		this.threads.clear();
 		this.episodes.clear();
 		this.threadSeq = 0;
+		this.restoredIdentity = sanitizeSnapshotIdentity(undefined, []);
+		this.slateSessionId = undefined;
+		this.ownerPiSessionId = undefined;
 		this.orchestratorMode = false;
 		this.paused = false;
 		this.workerCostUsd = 0;
@@ -1028,6 +1163,9 @@ export class SlateStore {
 		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
 		this.threadSeq = counter(latest.threadSeq) ?? 0;
 		const dropped: string[] = [];
+		this.restoredIdentity = sanitizeSnapshotIdentity(latest, dropped);
+		this.slateSessionId = this.restoredIdentity.slateSessionId;
+		this.ownerPiSessionId = this.restoredIdentity.ownerPiSessionId;
 		// EVERY record is validated field by field on the way in (BG26) — see
 		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
 		// that has been hand-edited, truncated or written by another version must be made

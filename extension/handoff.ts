@@ -499,6 +499,9 @@ export function registerSlateHandoff(
 			const matches = !!pending.parentSession && pending.parentSession === ctx.sessionManager.getHeader()?.parentSession;
 			if (!matches) return;
 			store.adoptSnapshot(pending.snapshot, ctx);
+			// Explicit adoption transfers ownership without adding another failure point
+			// inside this handler's broad startup-safety catch.
+			if (store.slateSessionId !== undefined) store.ownerPiSessionId = ctx.sessionManager.getSessionId();
 			store.writingReminder.forceNext = true;
 			store.writingReminder.adoptedThisSessionStart = true;
 			store.paused = false;

@@ -53,6 +53,7 @@ function extensionContext(cwd: string, warnings: string[] = [], trusted = true):
     sessionManager: {
       getBranch: () => [],
       getEntries: () => [],
+      getSessionId: () => "doctrine-test-session",
     },
     ui: {
       notify: (message: string) => warnings.push(message),
