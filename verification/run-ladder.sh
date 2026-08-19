@@ -24,10 +24,10 @@
 #   --strict            treat any NOT RUN as fatal (use this in automation)
 #   --list-rungs        print the rung ids and exit
 #
-# Exit status: 0 all good · 1 a rung failed, no rung ran, the real settings file
-# changed, or --strict was given and a rung reported NOT RUN · 2 refused to start
-# (a safety guard or a usage error) · 3 the scratch directory disappeared
-# mid-run, so the results are void.
+# Exit status: 0 all good · 1 a rung failed, no rung ran, SAFE CORPUS failed,
+# the real settings file changed, or --strict was given and a check reported
+# NOT RUN · 2 refused to start (a safety guard or a usage error) · 3 the scratch
+# directory disappeared mid-run, so the results are void.
 #
 # Requirements (all checked up front): pi, node, python3, and GNU coreutils
 # (sha256sum, stat -c, timeout, cmp, mkfifo, awk, sed, grep). strace is optional
@@ -244,6 +244,17 @@ SETTINGS="$AGENT/settings.json"
 [ "$AGENT" = "$REAL_AGENT_CANON" ] && \
 	die "refusing to run: the throwaway agent dir resolves to the REAL agent dir '$AGENT'"
 
+# The positive corpus assertion needs evidence from THIS run. A caller may reuse
+# --lab for retained artifacts, but a pre-existing corpus could satisfy the final
+# predicate after every current child missed the redirect. Refuse that state and
+# clear the non-evidence marker before any child can run.
+SCRATCH_CORPUS="$AGENT/ytdb-slate/projects"
+if [ -e "$SCRATCH_CORPUS" ] || [ -L "$SCRATCH_CORPUS" ]; then
+	die "refusing to reuse a scratch agent directory whose slate corpus already exists: $SCRATCH_CORPUS"
+fi
+[ ! -d "$OUT/slate-child-ran" ] || die "refusing a scratch artifact marker that is a directory: $OUT/slate-child-ran"
+rm -f "$OUT/slate-child-ran" || die "cannot clear the prior-run slate child marker"
+
 # Guard 4: fingerprint the real settings file now, re-check it at the end. The
 # tools it needs were required up front (guard 0b), and a fingerprint that
 # cannot be taken aborts rather than degrading to a vacuous pass (WH3).
@@ -318,6 +329,7 @@ declare -a LINES=()
 pass()   { PASS=$((PASS+1)); LINES+=("RUNG $1 PASS — $2"); printf 'RUNG %-6s PASS    — %s\n' "$1" "$2"; }
 fail()   { FAIL=$((FAIL+1)); LINES+=("RUNG $1 FAIL — $2"); printf 'RUNG %-6s FAIL    — %s\n' "$1" "$2"; }
 skip()   { SKIP=$((SKIP+1)); LINES+=("RUNG $1 NOT RUN — $2"); printf 'RUNG %-6s NOT RUN — %s\n' "$1" "$2"; }
+corpus_skip() { SKIP=$((SKIP+1)); LINES+=("SAFE CORPUS NOT RUN — $1"); printf 'SAFE   %-6s NOT RUN — %s\n' "CORPUS" "$1"; }
 # Every rung asks want() first, so this is also where a vanished scratch
 # directory is caught. Without it, an outside process removing <lab> mid-run
 # (a stray `rm -rf /tmp/<something>*` from a neighbouring job, say) produces a
@@ -378,10 +390,25 @@ piexec() { assert_redirect_safe "$AGENT"
 		-u PI_MODEL -u PI_REASONING_LEVEL PI_CODING_AGENT_DIR="$AGENT" "$@"; }
 mark_slate_child_ran() { : > "$OUT/slate-child-ran"; }
 scratch_corpus_has_session() {
-	local corpus="$AGENT/ytdb-slate/projects"
+	local ag="${1:-$AGENT}" corpus
+	assert_agent_dir "$ag" "inspect scratch corpus evidence"
+	corpus="$ag/ytdb-slate/projects"
 	[ -d "$corpus" ] || return 1
 	find "$corpus" -mindepth 3 -maxdepth 3 -type f -name session.json -print -quit | grep -q .
 }
+# Across several marked children, this proves at least one current-run child
+# published a scratch corpus session. It does not prove that every child did.
+PRED_TEETH_AGENT="$LAB/corpus-predicate-teeth-agent"
+PRED_TEETH_SESSION="$PRED_TEETH_AGENT/ytdb-slate/projects/project/session"
+rm -rf "$PRED_TEETH_AGENT"
+mkdir -p "$PRED_TEETH_SESSION" || die "cannot create corpus predicate teeth fixture"
+printf 'wrong name\n' > "$PRED_TEETH_SESSION/not-session.json"
+if scratch_corpus_has_session "$PRED_TEETH_AGENT"; then
+	die "corpus predicate teeth accepted a depth-three file not named session.json"
+fi
+printf '{}\n' > "$PRED_TEETH_SESSION/session.json"
+scratch_corpus_has_session "$PRED_TEETH_AGENT" || die "corpus predicate teeth rejected a depth-three session.json"
+rm -rf "$PRED_TEETH_AGENT"
 
 seed() { assert_agent_dir "$AGENT" "write the settings fixture"; printf '%s' "$1" > "$SETTINGS"; }
 # WH8: on failure the sentinel must be UNIQUE, or two failed reads compare equal
@@ -1010,7 +1037,7 @@ if want R6; then
 	seed "$CANON_XHIGH"; snapshot "R6-before.json"
 	rm -f "$LAB/r6.in"; mkfifo "$LAB/r6.in"
 	piexec timeout 120 pi --no-extensions -e "$REPO" --mode rpc < "$LAB/r6.in" > "$OUT/R6.out" 2> "$OUT/R6.err" &
-	R6PID=$!; mark_slate_child_ran; exec 9>"$LAB/r6.in"; sleep 1
+	R6PID=$!; exec 9>"$LAB/r6.in"; sleep 1
 	echo '{"id":"1","type":"prompt","message":"say ok"}' >&9
 	for _ in $(seq 1 100); do grep -q '"provider":"probe-c"' "$OUT/R6.out" 2>/dev/null && break; sleep 0.1; done
 	sleep 1
@@ -1025,6 +1052,7 @@ if want R6; then
 }' > "$SETTINGS"
 	cp -f "$SETTINGS" "$OUT/R6-thirdparty.json"; sleep 1
 	exec 9>&-; wait $R6PID; R6EXIT=$?
+	mark_slate_child_ran
 	snapshot "R6-after.json"
 	# Assert the switch from the SESSION RECORD (same structural check as R1), not
 	# from the RPC event stream — the stdout scan above is only a poll heuristic.
@@ -1463,13 +1491,28 @@ if scratch_gone; then
 	echo "verification: the scratch directory disappeared mid-run ($LAB) - the results above are VOID." >&2
 	FAIL=$((FAIL+1))
 fi
+# The aggregate corpus assertion is load-bearing only after a full-slate child
+# completed. A subset with no such child reports NOT RUN instead of disappearing.
+if [ -f "$OUT/slate-child-ran" ]; then
+	if scratch_corpus_has_session; then
+		printf 'SAFE   %-6s PASS    — %s\n' "CORPUS" "at least one current-run slate child published a scratch corpus session"
+		LINES+=("SAFE CORPUS PASS — at least one current-run slate child published a scratch corpus session")
+	else
+		FAIL=$((FAIL+1))
+		printf 'SAFE   %-6s FAIL    — %s\n' "CORPUS" "SCRATCH CORPUS HAS NO SESSION DIRECTORY AFTER A SLATE CHILD RAN"
+		LINES+=("SAFE CORPUS FAIL — scratch corpus has no session directory after a slate child ran")
+		echo "verification: the PI_CODING_AGENT_DIR redirect has no positive scratch-corpus evidence. Investigate before trusting any rung above." >&2
+	fi
+else
+	corpus_skip "no full-slate child completed, so scratch corpus evidence is unavailable"
+fi
 # WH7, second half: a run that executed no rung at all must never look like
 # success. Reaching here with RAN=0 means --only selected nothing runnable.
-# --strict: a NOT RUN is a rung that could not be made meaningful. A human
+# --strict: a NOT RUN is a check that could not be made meaningful. A human
 # without strace should not be blocked by that; an automated runner must be, or
 # a ladder that quietly skipped half its teeth reads as success.
 if [ "$STRICT" = 1 ] && [ "$SKIP" -gt 0 ]; then
-	echo "verification: --strict: $SKIP rung(s) reported NOT RUN, which is fatal in strict mode." >&8
+	echo "verification: --strict: $SKIP check(s) reported NOT RUN, which is fatal in strict mode." >&8
 	printf '%s\n' "${LINES[@]}" | grep 'NOT RUN' | sed 's/^/       /' >&8
 	FAIL=$((FAIL+1))
 fi
@@ -1477,17 +1520,6 @@ if [ "$RAN" -eq 0 ]; then
 	echo "verification: NO RUNG RAN. --only='${ONLY}' matched nothing runnable, so this run proves nothing." >&2
 	echo "       Use --list-rungs to see the ids, or --setup-only to exercise the guards alone." >&2
 	FAIL=$((FAIL+1))
-fi
-if [ -f "$OUT/slate-child-ran" ]; then
-	if scratch_corpus_has_session; then
-		printf 'SAFE   %-6s PASS    — %s\n' "CORPUS" "scratch corpus contains a session directory after a slate child ran"
-		LINES+=("SAFE CORPUS PASS — scratch corpus contains a session directory after a slate child ran")
-	else
-		FAIL=$((FAIL+1))
-		printf 'SAFE   %-6s FAIL    — %s\n' "CORPUS" "SCRATCH CORPUS HAS NO SESSION DIRECTORY AFTER A SLATE CHILD RAN"
-		LINES+=("SAFE CORPUS FAIL — scratch corpus has no session directory after a slate child ran")
-		echo "verification: the PI_CODING_AGENT_DIR redirect has no positive scratch-corpus evidence. Investigate before trusting any rung above." >&2
-	fi
 fi
 if [ "$REAL_BEFORE" != "$REAL_AFTER" ]; then
 	FAIL=$((FAIL+1))

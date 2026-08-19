@@ -65,14 +65,14 @@ from a complete run on a machine with `strace`:
 ```
 RUNG R1     PASS    — failover probe-a/alpha-1⇒probe-b/beta-1 fired (model_change in session), settings byte-identical …
 RUNG P6     NOT RUN — strace not available
-SAFE   CORPUS PASS    — scratch corpus contains a session directory after a slate child ran
+SAFE   CORPUS PASS    — at least one current-run slate child published a scratch corpus session
 SAFE          PASS    — real settings unchanged
 == summary: 26 pass, 0 fail, 0 not run ==
 ```
 
-Exit status: **0** all good; **1** a rung failed, **no rung ran**, the real
-settings file changed, or `--strict` was given and a rung reported NOT RUN;
-**2** refused to start — a safety guard or a usage error;
+Exit status: **0** all good; **1** a rung failed, **no rung ran**, `SAFE CORPUS`
+failed, the real settings file changed, or `--strict` was given and a check
+reported NOT RUN; **2** refused to start — a safety guard or a usage error;
 **3** the scratch directory disappeared mid-run, so every result printed is void
 — re-run with an explicit `--lab` under a path nothing else touches. (That last
 one is real: a neighbouring job doing `rm -rf /tmp/<prefix>*` will eat the
@@ -465,11 +465,24 @@ redirected into an artifact file) is still visible.
    `node os.homedir()`, which still works when `HOME` is unset — or from
    `SLATE_LADDER_REAL_AGENT_DIR`. If neither can be determined, the script aborts
    rather than watch nothing.
-6. **Slate child runs must populate the scratch corpus.** Every child that loads
-   slate is recorded. After the rungs finish, the harness requires at least one
-   project/session directory under `<lab>/agent/ytdb-slate/projects`. Absence is
-   `SAFE CORPUS FAIL` and a non-zero exit. This positive assertion is the
-   authoritative evidence that corpus creation followed `PI_CODING_AGENT_DIR`.
+6. **Slate child runs must populate the scratch corpus.** A marker is written
+   only after a child that loads the full slate extension completes. Before any
+   child runs, the harness refuses a reused `--lab` whose agent directory already
+   contains `ytdb-slate/projects`, and it clears any prior-run marker. Therefore
+   only a corpus publication from the current run can satisfy the predicate.
+
+   After the rungs finish, the harness requires a depth-three `session.json`
+   under `<lab>/agent/ytdb-slate/projects`. The predicate re-validates the agent
+   directory before reading it. Absence is `SAFE CORPUS FAIL` and a non-zero
+   exit. If no full-slate child completed, the check reports `SAFE CORPUS NOT RUN`.
+   `--strict` makes that NOT RUN fatal through the shared skip counter.
+
+   Across several marked children, the aggregate assertion proves that at least
+   one current-run child published a scratch corpus session. It does not prove
+   that every marked child did. A no-pi teeth fixture first rejects a depth-three
+   file with the wrong name, then accepts `session.json`; this makes both an
+   always-success predicate and removal of the filename constraint fatal during
+   setup.
 
    The real corpus is still content-fingerprinted before and after the run, but a
    change now emits only a NOTE. A concurrent session is the likely cause, so the
