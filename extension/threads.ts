@@ -166,6 +166,13 @@ export function workerPromptCacheKey(cwd: string, shard: number): string {
 
 export const MAX_FRESH_CONTEXT_EPISODES = 32;
 export const MAX_FORK_SOURCE_BYTES = 64 * 1024 * 1024;
+/**
+ * A hang and memory bound for inspecting a transcript slate ALREADY owns. It is not
+ * D133's fork bound, which governs what may be COPIED: a live fork legitimately grows,
+ * and refusing to inspect one would strand its thread. A source that keeps growing under
+ * the read still terminates against this bound (SE95).
+ */
+const MAX_INSPECT_BYTES = 1024 * 1024 * 1024;
 const TRANSCRIPT_READ_BYTES = 64 * 1024;
 
 export function forkSourceSizeAllowed(bytes: number): boolean {
@@ -224,13 +231,40 @@ interface TranscriptInspection {
 	bytes: number;
 }
 
-function inspectTranscript(fd: number, path: string): TranscriptInspection {
-	const held = fstatSync(fd);
-	if (!held.isFile()) throw new Error("transcript is not a regular file");
+/**
+ * A transcript that carries no usable conversation at all. This is the ONE condition
+ * D121 and D132 permit slate to answer by discarding a copy and re-forking, so it is a
+ * separate type: every other inspection failure is reported instead, because replacing a
+ * transcript nobody proved damaged is how a thread loses its history.
+ */
+class DamagedTranscript extends Error {}
+
+/**
+ * Count the entries of one JSONL transcript through a descriptor the CALLER pinned.
+ *
+ * TOLERANCE follows pi's own loader (`loadEntriesFromFile` in the SDK): an unparseable
+ * line is SKIPPED. A crash leaves a partial final line, the loader reads such a file
+ * happily, and refusing it made one truncated line condemn a whole transcript and refuse
+ * its source forever (BG2, BG5). Counting such a line would also make this count
+ * disagree with what `SessionManager.forkFrom` copies, so tolerance is what makes the
+ * comparison below meaningful.
+ *
+ * STRICTNESS stays where the design puts verification: the first parsed entry must be a
+ * session header, a file with no parseable entry is damaged (D121's zero-length
+ * reinitialization), and the caller compares counts exactly.
+ *
+ * The read is POSITIONAL, so one descriptor can be inspected twice, which is how the
+ * source is compared against itself after the copy (CN111). `limit` is enforced WHILE
+ * reading rather than from one leading fstat, so a source that grows under the read can
+ * neither exceed it nor postpone the end of file (SE95).
+ */
+function inspectTranscript(fd: number, path: string, limit: number): TranscriptInspection {
+	if (!fstatSync(fd).isFile()) throw new Error("transcript is not a regular file");
 	const decoder = new StringDecoder("utf8");
 	const buffer = Buffer.allocUnsafe(TRANSCRIPT_READ_BYTES);
 	let pending = "";
 	let entries = 0;
+	let bytes = 0;
 	let first: unknown;
 	const accept = (line: string) => {
 		if (line.trim() === "") return;
@@ -238,14 +272,16 @@ function inspectTranscript(fd: number, path: string): TranscriptInspection {
 		try {
 			entry = JSON.parse(line);
 		} catch {
-			throw new Error("transcript contains an unparseable JSONL entry");
+			return; // a partial or corrupt line, exactly as pi's loader treats it
 		}
 		if (entries === 0) first = entry;
 		entries++;
 	};
 	for (;;) {
-		const read = readSync(fd, buffer, 0, buffer.length, null);
+		const read = readSync(fd, buffer, 0, buffer.length, bytes);
 		if (read === 0) break;
+		bytes += read;
+		if (bytes > limit) throw new Error(`transcript exceeds the ${limit} byte inspection bound`);
 		pending += decoder.write(buffer.subarray(0, read));
 		let newline = pending.indexOf("\n");
 		while (newline !== -1) {
@@ -256,24 +292,32 @@ function inspectTranscript(fd: number, path: string): TranscriptInspection {
 	}
 	pending += decoder.end();
 	accept(pending);
-	if (entries === 0) throw new Error("transcript is empty");
+	if (entries === 0) throw new DamagedTranscript("transcript holds no parseable entry");
 	if (typeof first !== "object" || first === null || (first as { type?: unknown }).type !== "session" ||
 		typeof (first as { id?: unknown }).id !== "string") {
-		throw new Error("transcript has no valid session header");
+		throw new DamagedTranscript("transcript has no valid session header");
 	}
-	return { path, entries, bytes: held.size };
+	return { path, entries, bytes };
 }
 
-function inspectTranscriptPath(cwd: string, path: string, projectDirectory: string | undefined): TranscriptInspection {
-	const inspected = withContainedThreadFile(cwd, path, projectDirectory, (fd, canonical) => inspectTranscript(fd, canonical));
+/**
+ * The contained form of the inspection above, and the verification primitive of the whole
+ * fork path. `limit` is a PARAMETER rather than a constant so the byte bound can be
+ * exercised without a 64 MiB fixture (SE95), and so a transcript slate already owns is
+ * not judged by D133's copy bound.
+ */
+export function inspectTranscriptPath(cwd: string, path: string, projectDirectory: string | undefined, limit: number): TranscriptInspection {
+	const inspected = withContainedThreadFile(cwd, path, projectDirectory, (fd, canonical) => inspectTranscript(fd, canonical, limit));
 	if (inspected === undefined) throw new Error("transcript is missing, linked, changing, or outside approved thread storage");
 	return inspected;
 }
 
 function inspectForkSource(fd: number, path: string): TranscriptInspection {
+	// The leading size refuses an oversized source without reading a byte of it (D133).
+	// The same bound applies while reading, because a source can grow after this fstat.
 	const bytes = fstatSync(fd).size;
 	if (!forkSourceSizeAllowed(bytes)) throw new Error(`source exceeds the 64 MiB fork limit (${bytes} bytes)`);
-	return inspectTranscript(fd, path);
+	return inspectTranscript(fd, path, MAX_FORK_SOURCE_BYTES);
 }
 
 export interface UsageStats {
@@ -1213,13 +1257,19 @@ export class ThreadManager {
 		return typeof store.artifactSessionName === "function" ? store.artifactSessionName() : store.slateSessionName;
 	}
 
+	/** D134: name the thread, the retained source and the reason, so a user can act. */
 	private forkFailure(thread: ThreadRecord, source: string, reason: unknown, report: (message: string) => void): never {
 		const detail = sanitizeForNotify(reason instanceof Error ? reason.message : String(reason), 240);
 		const message =
 			`slate: transcript fork failed for thread ${sanitizeForNotify(thread.id, 80)}. ` +
-			`The retained source is ${sanitizeForNotify(source, 320)}. Reason: ${detail}`;
+			`The retained source is ${sanitizeForNotify(source, 320)}. Reason: ${detail}. ` +
+			"Nothing ran and no episode was recorded.";
 		report(message);
-		throw new Error(message);
+		// CQ38: a plain Error reached the dispatch's generic catch, which manufactured a FAILED
+		// episode and paid for a compressor call for an action that never started. This refusal
+		// happens BEFORE the first prompt, so it is a DispatchAbort like every other pre-prompt
+		// refusal in this module.
+		throw new DispatchAbort(message);
 	}
 
 	private assignSessionFile(thread: ThreadRecord, candidate: string, rewriteSource?: string): boolean {
@@ -1247,26 +1297,38 @@ export class ThreadManager {
 			args.source,
 			args.projectDirectory,
 			(sourceFd, sourcePath) => {
-				const source = inspectForkSource(sourceFd, sourcePath);
+				const before = inspectForkSource(sourceFd, sourcePath);
 				const stagingDirectory = join(args.threadsDirectory, `.fork-staging-${randomUUID()}`);
 				mkdirSync(stagingDirectory, { mode: 0o700 });
-				let stagingFile: string | undefined;
 				try {
-					const fork = SessionManager.forkFrom(source.path, args.ctx.cwd, stagingDirectory);
-					stagingFile = fork.getSessionFile();
+					const fork = SessionManager.forkFrom(sourcePath, args.ctx.cwd, stagingDirectory);
+					const stagingFile = fork.getSessionFile();
 					if (stagingFile === undefined) throw new Error("the SDK fork returned no session file");
 					const finalFile = join(args.threadsDirectory, basename(stagingFile));
-					publishStagedFile(stagingFile, finalFile, (file) => {
-						const staged = inspectTranscriptPath(args.ctx.cwd, file, args.projectDirectory);
-						if (staged.entries !== source.entries) {
-							throw new Error(`staged entry count ${staged.entries} does not match source entry count ${source.entries}`);
+					publishStagedFile(stagingFile, finalFile, (stagedFd, stagedPath) => {
+						// CN111. The SDK re-opens the source BY PATHNAME and copies what IT read, so a
+						// count taken before the copy proves nothing about the copy. Re-read the source
+						// through the descriptor this call PINNED: a source that changed under the fork is
+						// refused, and the source itself stays untouched and usable.
+						const after = inspectTranscript(sourceFd, sourcePath, MAX_FORK_SOURCE_BYTES);
+						if (after.bytes !== before.bytes || after.entries !== before.entries) {
+							throw new Error(
+								`the source changed while the fork was copied (${before.entries} entries in ${before.bytes} bytes became ` +
+									`${after.entries} entries in ${after.bytes} bytes)`,
+							);
+						}
+						const staged = inspectTranscript(stagedFd, stagedPath, MAX_INSPECT_BYTES);
+						if (staged.entries !== after.entries) {
+							throw new Error(`staged entry count ${staged.entries} does not match source entry count ${after.entries}`);
 						}
 					});
-					stagingFile = undefined;
-					return { file: finalFile, source: source.path, sourceEntries: source.entries };
+					return { file: finalFile, source: sourcePath, sourceEntries: before.entries };
 				} finally {
-					if (stagingFile !== undefined) rmSync(stagingFile, { force: true });
-					try { rmSync(stagingDirectory); } catch { /* remove only this attempt's empty staging directory */ }
+					// CN113: remove the whole attempt directory rather than a path the SDK returned.
+					// forkFrom can throw AFTER creating its staged file, and then no name is known here.
+					// This directory name belongs to this attempt alone, so a recursive removal can
+					// reach nothing else, and a published fork already left it empty.
+					rmSync(stagingDirectory, { recursive: true, force: true });
 				}
 			},
 		);
@@ -1274,6 +1336,63 @@ export class ThreadManager {
 		return result;
 	}
 
+	/**
+	 * Copy one transcript into THIS session's threads directory, verify the published copy
+	 * BEFORE any open (D132), and only then persist the rewritten path (D107) — never
+	 * before verification succeeds (D124). D121's single re-fork is the one retry here, and
+	 * a second failure refuses. A discarded copy is DEREFERENCED and never unlinked, so no
+	 * deletion of a transcript has to be argued safe.
+	 */
+	private forkTranscriptInto(args: {
+		thread: ThreadRecord;
+		ctx: ExtensionContext;
+		source: string;
+		directory: string;
+		projectDirectory: string;
+	}): string {
+		// Seeded rather than left undefined: the loop always replaces it, and a seed keeps the
+		// final throw free of a fallback nothing can reach.
+		let failure: unknown = new Error("the published fork could not be verified");
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const forked = this.createTranscriptFork({
+				ctx: args.ctx,
+				source: args.source,
+				threadsDirectory: args.directory,
+				projectDirectory: args.projectDirectory,
+			});
+			try {
+				const verified = inspectTranscriptPath(args.ctx.cwd, forked.file, args.projectDirectory, MAX_INSPECT_BYTES);
+				if (verified.entries !== forked.sourceEntries) {
+					throw new Error(`published entry count ${verified.entries} does not match source entry count ${forked.sourceEntries}`);
+				}
+			} catch (error) {
+				failure = error;
+				continue;
+			}
+			if (!this.assignSessionFile(args.thread, forked.file, forked.source)) {
+				throw new Error("the session-file rewrite guard refused the forked path");
+			}
+			try {
+				this.store.save();
+			} catch (error) {
+				throw new Error(`the verified fork could not be persisted: ${error instanceof Error ? error.message : String(error)}`);
+			}
+			return forked.file;
+		}
+		throw failure;
+	}
+
+	/**
+	 * The transcript this dispatch may open, forking an inherited or legacy one FIRST
+	 * (D90, D135).
+	 *
+	 * THE FORK SOURCE IS THE THREAD'S OWN NEWEST TRANSCRIPT. An earlier version preferred
+	 * the retained `forkedFrom` whenever it was present, which made a successor of a
+	 * successor copy the ORIGINAL transcript and then DELETE the newer one it inherited
+	 * (BG1), and let a record pairing two unrelated transcripts name one of them for
+	 * deletion (SE94). `forkedFrom` is a RECOVERY source only, and this method deletes
+	 * nothing: D121's "discarded" copy is one slate stops referencing.
+	 */
 	private prepareTranscriptForOpen(args: {
 		thread: ThreadRecord;
 		ctx: ExtensionContext;
@@ -1289,76 +1408,27 @@ export class ThreadManager {
 			}
 			const directory = realpathSync(threadsDir(args.ctx.cwd, sessionName, projectDirectory));
 			const current = resolveContainedThreadFile(args.ctx.cwd, args.thread.sessionFile, projectDirectory);
-			if (current === undefined) throw new Error("current transcript is unsafe or missing");
-			if (args.thread.forkedFrom === undefined && insideRoot(directory, current)) return current;
-
-			const sourcePath = args.thread.forkedFrom ?? current;
-			let sourceEntries: number | undefined;
-			let currentHealthy = false;
-			if (args.thread.forkedFrom !== undefined) {
-				const source = withContainedThreadFile(
-					args.ctx.cwd,
-					sourcePath,
-					projectDirectory,
-					(fd, canonical) => inspectForkSource(fd, canonical),
-				);
-				if (source === undefined) throw new Error("retained source is unsafe or missing");
-				sourceEntries = source.entries;
-				if (insideRoot(directory, current)) {
-					try {
-						const copy = inspectTranscriptPath(args.ctx.cwd, current, projectDirectory);
-						currentHealthy = copy.entries >= source.entries;
-					} catch {
-						currentHealthy = false;
-					}
-				}
-				if (currentHealthy) return current;
-			}
-
-			const previous = args.thread.forkedFrom === undefined ? undefined : current;
-			const persistFork = (forked: { file: string; source: string; sourceEntries: number }) => {
-				if (!this.assignSessionFile(args.thread, forked.file, forked.source)) {
-					throw new Error("the session-file rewrite guard refused the forked path");
-				}
+			const fork = (source: string) =>
+				this.forkTranscriptInto({ thread: args.thread, ctx: args.ctx, source, directory, projectDirectory });
+			if (current !== undefined && insideRoot(directory, current)) {
+				// This session's own transcript: forked once already, so open it in place.
 				try {
-					this.store.save();
+					inspectTranscriptPath(args.ctx.cwd, current, projectDirectory, MAX_INSPECT_BYTES);
+					return current;
 				} catch (error) {
-					throw new Error(`the verified fork could not be persisted: ${error instanceof Error ? error.message : String(error)}`);
+					// Only D121's own discard trigger permits a re-fork. Every other failure — an
+					// unreadable file, a changed path, the inspection bound — is reported, because a
+					// re-fork would replace a transcript nobody proved damaged with an older copy.
+					if (!(error instanceof DamagedTranscript) || args.thread.forkedFrom === undefined) throw error;
+					return fork(args.thread.forkedFrom);
 				}
-			};
-			const verifyPublished = (forked: { file: string; sourceEntries: number }) => {
-				const verified = inspectTranscriptPath(args.ctx.cwd, forked.file, projectDirectory);
-				const expected = sourceEntries ?? forked.sourceEntries;
-				if (verified.entries < expected) {
-					throw new Error(`published entry count ${verified.entries} is shorter than source entry count ${expected}`);
-				}
-			};
-			let forked = this.createTranscriptFork({
-				ctx: args.ctx,
-				source: sourcePath,
-				threadsDirectory: directory,
-				projectDirectory,
-			});
-			persistFork(forked);
-			try {
-				verifyPublished(forked);
-			} catch (error) {
-				if (previous !== undefined) throw error;
-				const damaged = forked.file;
-				forked = this.createTranscriptFork({
-					ctx: args.ctx,
-					source: forked.source,
-					threadsDirectory: directory,
-					projectDirectory,
-				});
-				persistFork(forked);
-				verifyPublished(forked);
-				try { rmSync(damaged); } catch { /* the replacement is already durable */ }
 			}
-			if (previous !== undefined && previous !== forked.file) {
-				try { rmSync(previous); } catch { /* the retained source still permits later recovery */ }
-			}
-			return forked.file;
+			// An inherited or legacy transcript. It stays on disk, unread by any later append.
+			if (current !== undefined) return fork(current);
+			// The recorded transcript is gone or unsafe. The retained source is the only
+			// remaining continuation, and BG3's alternative was a permanently dead thread.
+			if (args.thread.forkedFrom !== undefined) return fork(args.thread.forkedFrom);
+			throw new Error("the recorded transcript is missing, linked, changing, or outside approved thread storage");
 		} catch (error) {
 			this.forkFailure(args.thread, sourceForReport, error, args.report);
 		}

@@ -827,7 +827,11 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		id,
 		name: keep("name", t.name, str(t.name)) ?? id,
 		sessionFile: keep("sessionFile", t.sessionFile, str(t.sessionFile)) ?? "",
-		...(keep("forkedFrom", t.forkedFrom, str(t.forkedFrom)) !== undefined ? { forkedFrom: str(t.forkedFrom) } : {}),
+		// BG4: an EMPTY retained source is an ABSENT one. It used to survive as a present
+		// field, and adoption then dropped the whole thread over a path that named nothing.
+		...(keep("forkedFrom", t.forkedFrom, str(t.forkedFrom) === "" ? undefined : str(t.forkedFrom)) !== undefined
+			? { forkedFrom: str(t.forkedFrom) }
+			: {}),
 		status: "idle",
 		// Vocabulary is resolved only at the point of use. Adoption follows the
 		// model/base-effort precedent and rejects only a non-string value.
@@ -1307,11 +1311,18 @@ export class SlateStore {
 			}
 			if (t.forkedFrom !== undefined) {
 				const safeSource = resolveContainedThreadFile(ctx.cwd, t.forkedFrom, this.corpusProject?.directory);
+				// BG3/BG4: the retained source is a RECOVERY hint, never a requirement. Dropping the
+				// record over it threw away the thread AND every episode of it while the thread's own
+				// transcript was still present and healthy. An unusable hint is removed instead, with
+				// one visible repair, and `sessionFile` above remains the load-bearing path.
 				if (safeSource === undefined || t.sessionFile === "" || safeSource === t.sessionFile) {
-					dropped.push(`thread ${t.id} (${t.name}): fork source is missing, linked, outside slate thread storage, or inconsistent`);
-					continue;
+					dropped.push(
+						`thread ${t.id} (${t.name}): ignoring forkedFrom because that fork source is missing, linked, outside slate thread storage, or the session file itself`,
+					);
+					delete t.forkedFrom;
+				} else {
+					t.forkedFrom = safeSource;
 				}
-				t.forkedFrom = safeSource;
 			}
 			this.threads.set(t.id, t);
 			// Old snapshots have no persisted counter. Derive its floor from every
