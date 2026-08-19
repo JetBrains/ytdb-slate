@@ -25,6 +25,7 @@ import {
 	createCorpusSession,
 	removeCorpusSession,
 	resolveContainedFile,
+	resolveContainedThreadFile,
 	resolveCorpusProject,
 	scanCorpusSessionsByIdentity,
 	validateCorpusSession,
@@ -131,6 +132,8 @@ export interface ThreadRecord {
 	id: string; // "t1", "t2", ...
 	name: string;
 	sessionFile: string; // absolute path to worker .jsonl ("" until first dispatch completes session creation)
+	/** Validated inherited transcript retained as the recovery source for a corpus fork. */
+	forkedFrom?: string;
 	status: "idle" | "running";
 	/** Immutable thread type. Absent means an older thread; resolve it with effectiveThreadType. */
 	type?: ThreadType;
@@ -695,6 +698,7 @@ export const ADOPTED_THREAD_FIELDS = {
 	id: true,
 	name: true,
 	sessionFile: true,
+	forkedFrom: true,
 	status: true,
 	type: true,
 	restartOf: true,
@@ -823,6 +827,7 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		id,
 		name: keep("name", t.name, str(t.name)) ?? id,
 		sessionFile: keep("sessionFile", t.sessionFile, str(t.sessionFile)) ?? "",
+		...(keep("forkedFrom", t.forkedFrom, str(t.forkedFrom)) !== undefined ? { forkedFrom: str(t.forkedFrom) } : {}),
 		status: "idle",
 		// Vocabulary is resolved only at the point of use. Adoption follows the
 		// model/base-effort precedent and rejects only a non-string value.
@@ -1293,12 +1298,20 @@ export class SlateStore {
 				continue;
 			}
 			if (t.sessionFile) {
-				const safeSessionFile = resolveContainedFile(ctx.cwd, t.sessionFile, this.corpusProject?.directory);
+				const safeSessionFile = resolveContainedThreadFile(ctx.cwd, t.sessionFile, this.corpusProject?.directory);
 				if (safeSessionFile === undefined) {
-					dropped.push(`thread ${t.id} (${t.name}): session file is missing, linked, or outside slate storage`);
+					dropped.push(`thread ${t.id} (${t.name}): session file is missing, linked, or outside slate thread storage`);
 					continue;
 				}
 				t.sessionFile = safeSessionFile;
+			}
+			if (t.forkedFrom !== undefined) {
+				const safeSource = resolveContainedThreadFile(ctx.cwd, t.forkedFrom, this.corpusProject?.directory);
+				if (safeSource === undefined || t.sessionFile === "" || safeSource === t.sessionFile) {
+					dropped.push(`thread ${t.id} (${t.name}): fork source is missing, linked, outside slate thread storage, or inconsistent`);
+					continue;
+				}
+				t.forkedFrom = safeSource;
 			}
 			this.threads.set(t.id, t);
 			// Old snapshots have no persisted counter. Derive its floor from every

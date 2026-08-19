@@ -40,7 +40,7 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
-import { withContainedFile } from "./corpus.ts";
+import { withContainedThreadFile } from "./corpus.ts";
 import { isSlateSessionName } from "./session-names.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
@@ -336,7 +336,7 @@ export async function openWorkerSession(opts: {
 	const model = opts.model ? resolveModel(ctx, opts.model) : ctx.model;
 
 	const sessionManager = opts.sessionFile
-		? withContainedFile(ctx.cwd, opts.sessionFile, opts.projectDirectory, (_fd, path) => SessionManager.open(path))
+		? withContainedThreadFile(ctx.cwd, opts.sessionFile, opts.projectDirectory, (_fd, path) => SessionManager.open(path))
 		: SessionManager.create(ctx.cwd, dir);
 	if (sessionManager === undefined) throw new Error("slate refused an unsafe worker session file");
 

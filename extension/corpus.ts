@@ -339,20 +339,17 @@ function rootsFor(cwd: string, projectDirectory?: string): string[] {
 	return [...(projectDirectory === undefined ? [] : [projectDirectory]), ...["episodes", "observations", "threads"].map((kind) => join(legacy, kind))];
 }
 
-function insideRoot(root: string, file: string): boolean {
+export function insideRoot(root: string, file: string): boolean {
 	const rel = relative(root, file);
 	return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
-export function withContainedFile<T>(
-	cwd: string,
+function withContainedRoots<T>(
 	value: unknown,
-	projectDirectory: string | undefined,
+	roots: string[],
 	use: (fd: number, path: string) => T,
 ): T | undefined {
 	if (typeof value !== "string" || value === "" || !isAbsolute(value)) return undefined;
-	let roots: string[];
-	try { roots = rootsFor(cwd, projectDirectory); } catch { return undefined; }
 	for (const expected of roots) {
 		let root: string;
 		try {
@@ -392,10 +389,73 @@ export function withContainedFile<T>(
 	return undefined;
 }
 
+export function withContainedFile<T>(
+	cwd: string,
+	value: unknown,
+	projectDirectory: string | undefined,
+	use: (fd: number, path: string) => T,
+): T | undefined {
+	let roots: string[];
+	try { roots = rootsFor(cwd, projectDirectory); } catch { return undefined; }
+	return withContainedRoots(value, roots, use);
+}
+
+export function withContainedThreadFile<T>(
+	cwd: string,
+	value: unknown,
+	projectDirectory: string | undefined,
+	use: (fd: number, path: string) => T,
+): T | undefined {
+	let roots: string[];
+	try {
+		const legacy = join(realpathSync(cwd), CONFIG_DIR_NAME, "slate", "threads");
+		roots = [...(projectDirectory === undefined ? [] : [projectDirectory]), legacy];
+	} catch {
+		return undefined;
+	}
+	return withContainedRoots(value, roots, use);
+}
+
 export function readContainedFile(cwd: string, value: unknown, projectDirectory?: string): Buffer | undefined {
 	return withContainedFile(cwd, value, projectDirectory, (fd) => readFileSync(fd));
 }
 
 export function resolveContainedFile(cwd: string, value: unknown, projectDirectory?: string): string | undefined {
 	return withContainedFile(cwd, value, projectDirectory, (_fd, path) => path);
+}
+
+export function resolveContainedThreadFile(cwd: string, value: unknown, projectDirectory?: string): string | undefined {
+	return withContainedThreadFile(cwd, value, projectDirectory, (_fd, path) => path);
+}
+
+function bestEffortFsyncFile(file: string): void {
+	let fd: number | undefined;
+	try {
+		fd = openSync(file, constants.O_RDONLY | NO_FOLLOW);
+		fsyncSync(fd);
+	} catch (error) {
+		const code = (error as { code?: string }).code;
+		if (code !== "EINVAL" && code !== "ENOTSUP" && code !== "EPERM") throw error;
+	} finally {
+		if (fd !== undefined) closeSync(fd);
+	}
+}
+
+/** Verify and publish one staged file without exposing a partial destination. */
+export function publishStagedFile(stagingFile: string, finalFile: string, verify: (file: string) => void): void {
+	const stagingDirectory = dirname(stagingFile);
+	const finalDirectory = dirname(finalFile);
+	const staging = lstatSync(stagingFile, { throwIfNoEntry: false });
+	if (!staging?.isFile() || staging.isSymbolicLink()) refuse("slate refused a missing or linked staged file");
+	if (lstatSync(finalFile, { throwIfNoEntry: false }) !== undefined) refuse("slate refused to replace an existing published file");
+	if (realpathSync(stagingDirectory) !== stagingDirectory || realpathSync(finalDirectory) !== finalDirectory) {
+		refuse("slate refused a staging directory because its path changed");
+	}
+	if (resolveProspectivePath(finalFile) !== finalFile) refuse("slate refused a destination because its path changed");
+	verify(stagingFile);
+	bestEffortFsyncFile(stagingFile);
+	fsyncDirectory(stagingDirectory);
+	renameSync(stagingFile, finalFile);
+	fsyncDirectory(stagingDirectory);
+	fsyncDirectory(finalDirectory);
 }

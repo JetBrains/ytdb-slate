@@ -91,11 +91,14 @@
  * it can load route.ts.
  */
 
-import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, fstatSync, mkdirSync, readSync, realpathSync, rmSync } from "node:fs";
+import { basename, join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import {
 	DEFAULT_COMPACTION_SETTINGS,
 	getAgentDir,
+	SessionManager,
 	SettingsManager,
 	shouldCompact,
 	estimateTokens,
@@ -107,7 +110,13 @@ import {
 // switch is not an orchestrator switch, so it must not be announced as one).
 import type { BaseModelTracker } from "./base-model.ts";
 import { compressEpisode, EpisodePersistenceError } from "./episodes.ts";
-import { readContainedFile } from "./corpus.ts";
+import {
+	insideRoot,
+	publishStagedFile,
+	readContainedFile,
+	resolveContainedThreadFile,
+	withContainedThreadFile,
+} from "./corpus.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 import { findProfile, type ThinkingLevel } from "./model-profiles.ts";
 import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture, type ObservationRecord } from "./observations.ts";
@@ -144,7 +153,7 @@ import {
 	type ThreadType,
 } from "./state.ts";
 import { planThreadChoice, type ThreadChoiceVerdict } from "./thread-choice.ts";
-import { DEFAULT_WORKER_TOOLS, isJudgementThreadType, openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
+import { DEFAULT_WORKER_TOOLS, isJudgementThreadType, openWorkerSession, resolveModel, threadsDir, type WorkerSession } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 
 export function workerPromptCacheKey(cwd: string, shard: number): string {
@@ -156,6 +165,12 @@ export function workerPromptCacheKey(cwd: string, shard: number): string {
 }
 
 export const MAX_FRESH_CONTEXT_EPISODES = 32;
+export const MAX_FORK_SOURCE_BYTES = 64 * 1024 * 1024;
+const TRANSCRIPT_READ_BYTES = 64 * 1024;
+
+export function forkSourceSizeAllowed(bytes: number): boolean {
+	return bytes <= MAX_FORK_SOURCE_BYTES;
+}
 const FRESH_CONTEXT_REQUIRED_ERROR =
 	`Continuations with threadChoice.act=true require freshContext: pass [] to refuse a restart or up to ${MAX_FRESH_CONTEXT_EPISODES} episode ids to permit one.`;
 
@@ -202,6 +217,64 @@ export interface DispatchOptions {
  * compressor call — nothing was billed, so nothing should be recorded as work.
  */
 class DispatchAbort extends Error {}
+
+interface TranscriptInspection {
+	path: string;
+	entries: number;
+	bytes: number;
+}
+
+function inspectTranscript(fd: number, path: string): TranscriptInspection {
+	const held = fstatSync(fd);
+	if (!held.isFile()) throw new Error("transcript is not a regular file");
+	const decoder = new StringDecoder("utf8");
+	const buffer = Buffer.allocUnsafe(TRANSCRIPT_READ_BYTES);
+	let pending = "";
+	let entries = 0;
+	let first: unknown;
+	const accept = (line: string) => {
+		if (line.trim() === "") return;
+		let entry: unknown;
+		try {
+			entry = JSON.parse(line);
+		} catch {
+			throw new Error("transcript contains an unparseable JSONL entry");
+		}
+		if (entries === 0) first = entry;
+		entries++;
+	};
+	for (;;) {
+		const read = readSync(fd, buffer, 0, buffer.length, null);
+		if (read === 0) break;
+		pending += decoder.write(buffer.subarray(0, read));
+		let newline = pending.indexOf("\n");
+		while (newline !== -1) {
+			accept(pending.slice(0, newline));
+			pending = pending.slice(newline + 1);
+			newline = pending.indexOf("\n");
+		}
+	}
+	pending += decoder.end();
+	accept(pending);
+	if (entries === 0) throw new Error("transcript is empty");
+	if (typeof first !== "object" || first === null || (first as { type?: unknown }).type !== "session" ||
+		typeof (first as { id?: unknown }).id !== "string") {
+		throw new Error("transcript has no valid session header");
+	}
+	return { path, entries, bytes: held.size };
+}
+
+function inspectTranscriptPath(cwd: string, path: string, projectDirectory: string | undefined): TranscriptInspection {
+	const inspected = withContainedThreadFile(cwd, path, projectDirectory, (fd, canonical) => inspectTranscript(fd, canonical));
+	if (inspected === undefined) throw new Error("transcript is missing, linked, changing, or outside approved thread storage");
+	return inspected;
+}
+
+function inspectForkSource(fd: number, path: string): TranscriptInspection {
+	const bytes = fstatSync(fd).size;
+	if (!forkSourceSizeAllowed(bytes)) throw new Error(`source exceeds the 64 MiB fork limit (${bytes} bytes)`);
+	return inspectTranscript(fd, path);
+}
 
 export interface UsageStats {
 	turns: number;
@@ -1140,6 +1213,157 @@ export class ThreadManager {
 		return typeof store.artifactSessionName === "function" ? store.artifactSessionName() : store.slateSessionName;
 	}
 
+	private forkFailure(thread: ThreadRecord, source: string, reason: unknown, report: (message: string) => void): never {
+		const detail = sanitizeForNotify(reason instanceof Error ? reason.message : String(reason), 240);
+		const message =
+			`slate: transcript fork failed for thread ${sanitizeForNotify(thread.id, 80)}. ` +
+			`The retained source is ${sanitizeForNotify(source, 320)}. Reason: ${detail}`;
+		report(message);
+		throw new Error(message);
+	}
+
+	private assignSessionFile(thread: ThreadRecord, candidate: string, rewriteSource?: string): boolean {
+		if (thread.sessionFile === "") {
+			thread.sessionFile = candidate;
+			return true;
+		}
+		if (rewriteSource !== undefined &&
+			(thread.sessionFile === rewriteSource || thread.forkedFrom === rewriteSource)) {
+			thread.sessionFile = candidate;
+			thread.forkedFrom = rewriteSource;
+			return true;
+		}
+		return thread.sessionFile === candidate;
+	}
+
+	private createTranscriptFork(args: {
+		ctx: ExtensionContext;
+		source: string;
+		threadsDirectory: string;
+		projectDirectory: string;
+	}): { file: string; source: string; sourceEntries: number } {
+		const result = withContainedThreadFile(
+			args.ctx.cwd,
+			args.source,
+			args.projectDirectory,
+			(sourceFd, sourcePath) => {
+				const source = inspectForkSource(sourceFd, sourcePath);
+				const stagingDirectory = join(args.threadsDirectory, `.fork-staging-${randomUUID()}`);
+				mkdirSync(stagingDirectory, { mode: 0o700 });
+				let stagingFile: string | undefined;
+				try {
+					const fork = SessionManager.forkFrom(source.path, args.ctx.cwd, stagingDirectory);
+					stagingFile = fork.getSessionFile();
+					if (stagingFile === undefined) throw new Error("the SDK fork returned no session file");
+					const finalFile = join(args.threadsDirectory, basename(stagingFile));
+					publishStagedFile(stagingFile, finalFile, (file) => {
+						const staged = inspectTranscriptPath(args.ctx.cwd, file, args.projectDirectory);
+						if (staged.entries !== source.entries) {
+							throw new Error(`staged entry count ${staged.entries} does not match source entry count ${source.entries}`);
+						}
+					});
+					stagingFile = undefined;
+					return { file: finalFile, source: source.path, sourceEntries: source.entries };
+				} finally {
+					if (stagingFile !== undefined) rmSync(stagingFile, { force: true });
+					try { rmSync(stagingDirectory); } catch { /* remove only this attempt's empty staging directory */ }
+				}
+			},
+		);
+		if (result === undefined) throw new Error("source is missing, linked, changing, or outside approved thread storage");
+		return result;
+	}
+
+	private prepareTranscriptForOpen(args: {
+		thread: ThreadRecord;
+		ctx: ExtensionContext;
+		report: (message: string) => void;
+	}): string | undefined {
+		if (args.thread.sessionFile === "") return undefined;
+		const sourceForReport = args.thread.forkedFrom ?? args.thread.sessionFile;
+		try {
+			const sessionName = this.artifactSessionName();
+			const projectDirectory = this.store.corpusProject?.directory;
+			if (sessionName === undefined || projectDirectory === undefined) {
+				throw new Error("the current corpus session namespace is unavailable");
+			}
+			const directory = realpathSync(threadsDir(args.ctx.cwd, sessionName, projectDirectory));
+			const current = resolveContainedThreadFile(args.ctx.cwd, args.thread.sessionFile, projectDirectory);
+			if (current === undefined) throw new Error("current transcript is unsafe or missing");
+			if (args.thread.forkedFrom === undefined && insideRoot(directory, current)) return current;
+
+			const sourcePath = args.thread.forkedFrom ?? current;
+			let sourceEntries: number | undefined;
+			let currentHealthy = false;
+			if (args.thread.forkedFrom !== undefined) {
+				const source = withContainedThreadFile(
+					args.ctx.cwd,
+					sourcePath,
+					projectDirectory,
+					(fd, canonical) => inspectForkSource(fd, canonical),
+				);
+				if (source === undefined) throw new Error("retained source is unsafe or missing");
+				sourceEntries = source.entries;
+				if (insideRoot(directory, current)) {
+					try {
+						const copy = inspectTranscriptPath(args.ctx.cwd, current, projectDirectory);
+						currentHealthy = copy.entries >= source.entries;
+					} catch {
+						currentHealthy = false;
+					}
+				}
+				if (currentHealthy) return current;
+			}
+
+			const previous = args.thread.forkedFrom === undefined ? undefined : current;
+			const persistFork = (forked: { file: string; source: string; sourceEntries: number }) => {
+				if (!this.assignSessionFile(args.thread, forked.file, forked.source)) {
+					throw new Error("the session-file rewrite guard refused the forked path");
+				}
+				try {
+					this.store.save();
+				} catch (error) {
+					throw new Error(`the verified fork could not be persisted: ${error instanceof Error ? error.message : String(error)}`);
+				}
+			};
+			const verifyPublished = (forked: { file: string; sourceEntries: number }) => {
+				const verified = inspectTranscriptPath(args.ctx.cwd, forked.file, projectDirectory);
+				const expected = sourceEntries ?? forked.sourceEntries;
+				if (verified.entries < expected) {
+					throw new Error(`published entry count ${verified.entries} is shorter than source entry count ${expected}`);
+				}
+			};
+			let forked = this.createTranscriptFork({
+				ctx: args.ctx,
+				source: sourcePath,
+				threadsDirectory: directory,
+				projectDirectory,
+			});
+			persistFork(forked);
+			try {
+				verifyPublished(forked);
+			} catch (error) {
+				if (previous !== undefined) throw error;
+				const damaged = forked.file;
+				forked = this.createTranscriptFork({
+					ctx: args.ctx,
+					source: forked.source,
+					threadsDirectory: directory,
+					projectDirectory,
+				});
+				persistFork(forked);
+				verifyPublished(forked);
+				try { rmSync(damaged); } catch { /* the replacement is already durable */ }
+			}
+			if (previous !== undefined && previous !== forked.file) {
+				try { rmSync(previous); } catch { /* the retained source still permits later recovery */ }
+			}
+			return forked.file;
+		} catch (error) {
+			this.forkFailure(args.thread, sourceForReport, error, args.report);
+		}
+	}
+
 	/**
 	 * OPEN a worker session for a thread and capture what it opened on.
 	 *
@@ -1165,11 +1389,12 @@ export class ThreadManager {
 		report: (message: string) => void;
 	}): Promise<{ session: WorkerSession; baseline: SessionBaseline }> {
 		const type = effectiveThreadType(args.thread, args.report);
+		const sessionFile = this.prepareTranscriptForOpen(args);
 		const session = await openWorkerSession({
 			ctx: args.ctx,
 			sessionName: this.artifactSessionName(),
 			projectDirectory: this.store.corpusProject?.directory,
-			sessionFile: args.thread.sessionFile || undefined,
+			sessionFile,
 			model: args.open.model,
 			tools: args.tools,
 			promptDocs: this.config.workerPromptDocs,
@@ -1855,8 +2080,8 @@ export class ThreadManager {
 			// timestamp identities delete a later live file. writeFreshFile replaces the
 			// canonical name only while storing the new artifact. Detached cleanup cannot
 			// prove ownership and must not delete that name.
-			if (!thread.sessionFile && session?.sessionFile && existsSync(session.sessionFile)) {
-				thread.sessionFile = session.sessionFile;
+			if (session?.sessionFile && existsSync(session.sessionFile)) {
+				this.assignSessionFile(thread, session.sessionFile);
 			}
 			this.store.workerCostUsd +=
 				usage.cost +
@@ -1903,8 +2128,8 @@ export class ThreadManager {
 		// when the file is really there keeps the next restore from dropping this thread as
 		// stale; an action that never got that far simply leaves the thread without a
 		// session file, which is what a fresh thread looks like anyway.
-		if (!thread.sessionFile && session?.sessionFile && existsSync(session.sessionFile)) {
-			thread.sessionFile = session.sessionFile;
+		if (session?.sessionFile && existsSync(session.sessionFile)) {
+			this.assignSessionFile(thread, session.sessionFile);
 		}
 		this.store.episodes.set(episodeId, episode);
 		thread.episodeIds.push(episodeId);

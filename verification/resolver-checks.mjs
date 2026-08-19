@@ -5840,6 +5840,7 @@ production behaviour.`);
 				id: "t2",
 				name: "impl",
 				sessionFile: "/tmp/x.jsonl",
+				forkedFrom: "/tmp/source.jsonl",
 				status: "idle",
 				type: "reviewer",
 				restartOf: "t1",
