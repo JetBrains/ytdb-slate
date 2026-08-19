@@ -32,6 +32,8 @@ import {
 	WRITING_GUIDANCE_DOC,
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import { sanitizeForNotify } from "./notify.ts";
+import { isSlateSessionName } from "./session-names.ts";
 import { THINKING_LEVELS } from "./route.ts";
 import {
 	displayThreadType,
@@ -597,9 +599,10 @@ export function registerSlateMode(
 
 	const updateWidget = () => {
 		if (!uiCtx?.hasUI) return;
+		const sessionLabel = !isSlateSessionName(store.slateSessionName) ? "" : `slate ${sanitizeForNotify(store.slateSessionName, 48)} ⋅ `;
 		if (!store.orchestratorMode) {
 			uiCtx.ui.setWidget("slate", undefined);
-			uiCtx.ui.setStatus("slate", undefined);
+			uiCtx.ui.setStatus("slate", sessionLabel === "" ? undefined : sessionLabel.slice(0, -3));
 			return;
 		}
 		// Orchestrator's own spend: summed over ALL entries (billed reality —
@@ -618,7 +621,7 @@ export function registerSlateMode(
 						? " ⋅ writing unavailable"
 						: " ⋅ writing 0/0"
 			: "";
-		uiCtx.ui.setStatus("slate", `slate: orchestrator ⋅ ${costLine}${writingLine}`);
+		uiCtx.ui.setStatus("slate", `${sessionLabel}orchestrator ⋅ ${costLine}${writingLine}`);
 		const threads = [...store.threads.values()];
 		const lines = [
 			`slate ⋅ orchestrator mode ⋅ ${threads.length} thread${threads.length === 1 ? "" : "s"}`,

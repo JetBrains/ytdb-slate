@@ -641,7 +641,7 @@ export class ThreadManager {
 		for (const id of contextIds) {
 			const episode = this.store.episodes.get(id);
 			if (!episode) throw new Error(`Unknown episode "${id}". Known: ${[...this.store.episodes.keys()].join(", ") || "none"}`);
-			const file = resolveEpisodeFile(cwd, episode.file);
+			const file = resolveEpisodeFile(cwd, episode.file, this.store.corpusName);
 			if (file === undefined) throw new Error(`Episode "${id}" is no longer a safe readable slate episode file.`);
 			parts.push(readFileSync(file, "utf8").trim(), "");
 		}
@@ -775,7 +775,7 @@ export class ThreadManager {
 			for (const id of opts.freshContext ?? []) {
 				const episode = this.store.episodes.get(id);
 				if (episode === undefined) throw new Error("episode disappeared after validation");
-				const file = resolveEpisodeFile(cwd, episode.file);
+				const file = resolveEpisodeFile(cwd, episode.file, this.store.corpusName);
 				if (file === undefined) throw new Error("episode file became unsafe after validation");
 				episodeTokens += this.estimatedTokens(readFileSync(file, "utf8"));
 			}
@@ -1135,6 +1135,11 @@ export class ThreadManager {
 		}
 	}
 
+	private artifactSessionName(): string | undefined {
+		const store = this.store as SlateStore & { artifactSessionName?: () => string | undefined };
+		return typeof store.artifactSessionName === "function" ? store.artifactSessionName() : store.slateSessionName;
+	}
+
 	/**
 	 * OPEN a worker session for a thread and capture what it opened on.
 	 *
@@ -1162,6 +1167,8 @@ export class ThreadManager {
 		const type = effectiveThreadType(args.thread, args.report);
 		const session = await openWorkerSession({
 			ctx: args.ctx,
+			sessionName: this.artifactSessionName(),
+			corpusName: this.store.corpusName,
 			sessionFile: args.thread.sessionFile || undefined,
 			model: args.open.model,
 			tools: args.tools,
@@ -1743,7 +1750,10 @@ export class ThreadManager {
 		};
 		try {
 			const finalMessage = lastAssistantMessage(actionMessages);
-			observation = captureObservation(ctx.cwd, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined);
+			const sessionName = this.artifactSessionName();
+			observation = sessionName === undefined
+				? captureObservation(ctx.cwd, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined)
+				: captureObservation(ctx.cwd, sessionName, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined, this.store.corpusName);
 			const warningsBeforeObservation = warnings.length;
 			if (!observation.stored && observation.reason === "write-failed" && "warning" in observation) routeWarn(observation.warning);
 			const judgementType = isJudgementThreadType(thread.type);
@@ -1796,6 +1806,8 @@ export class ThreadManager {
 		try {
 			compressed = await compressEpisode({
 				ctx,
+				sessionName: this.artifactSessionName(),
+				corpusName: this.store.corpusName,
 				episodeId,
 				threadId: thread.id,
 				threadName: thread.name,

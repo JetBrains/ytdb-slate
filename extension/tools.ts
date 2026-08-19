@@ -347,7 +347,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const known = [...store.episodes.keys()].join(", ") || "none";
 				throw new Error(`Unknown episode "${params.id}". Known episodes: ${known}`);
 			}
-			const file = resolveEpisodeFile(ctx.cwd, episode.file);
+			const file = resolveEpisodeFile(ctx.cwd, episode.file, store.corpusName);
 			if (file === undefined) throw new Error(`Episode "${params.id}" is no longer a safe readable slate episode file.`);
 			return {
 				content: [{ type: "text", text: readFileSync(file, "utf8") }],

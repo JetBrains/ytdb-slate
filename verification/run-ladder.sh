@@ -105,7 +105,7 @@ fi
 # missing GNU flag halfway through a run is just a confusing failure.
 MISSING=""
 for t in pi node python3 sha256sum stat timeout cmp mkfifo awk sed grep chmod \
-         cat cp cut date dirname head ls rm sort tail wc mktemp; do
+         cat cp cut date dirname find head ls rm sort tail wc mktemp; do
 	command -v "$t" >/dev/null 2>&1 || MISSING="$MISSING $t"
 done
 [ -n "$MISSING" ] && die "missing required tool(s):$MISSING"
@@ -168,6 +168,7 @@ else
 	REAL_AGENT_DIR="$PI_HOME_DIR/agent"
 fi
 REAL_SETTINGS="$REAL_AGENT_DIR/settings.json"
+REAL_CORPUS="$REAL_AGENT_DIR/ytdb-slate/projects"
 PI_HOME_CANON=$(resolve "$PI_HOME_DIR")
 REAL_AGENT_CANON=$(resolve "$REAL_AGENT_DIR")
 [ -n "$PI_HOME_CANON" ] || die "could not resolve the pi home directory"
@@ -255,8 +256,20 @@ real_fingerprint() {
 		printf '%s %s' "$h" "$z"
 	else printf 'absent'; fi
 }
+real_corpus_fingerprint() {
+	if [ ! -e "$REAL_CORPUS" ]; then printf 'absent'; return; fi
+	[ -d "$REAL_CORPUS" ] || die "the real corpus root exists but is not a directory: $REAL_CORPUS"
+	(
+		while IFS= read -r -d '' path; do
+			stat -c '%n:%F:%s:%Y' "$path" || exit 1
+			if [ -f "$path" ]; then sha256sum "$path" || exit 1; fi
+		done < <(find "$REAL_CORPUS" -xdev -print0 | sort -z)
+	) | sha256sum | cut -d' ' -f1
+}
 REAL_BEFORE=$(real_fingerprint)
+REAL_CORPUS_BEFORE=$(real_corpus_fingerprint)
 [ -n "$REAL_BEFORE" ] || die "the real-settings fingerprint came back empty — refusing to run"
+[ -n "$REAL_CORPUS_BEFORE" ] || die "the real-corpus fingerprint came back empty — refusing to run"
 
 # Cleanup on interrupt as well as on exit: leave the artifacts (they are the
 # evidence) but never leave a settings file read-only, a lock directory held, or
@@ -1419,6 +1432,7 @@ fi
 
 # Guard 4, second half: the real settings file must be bit-for-bit what it was.
 REAL_AFTER=$(real_fingerprint)
+REAL_CORPUS_AFTER=$(real_corpus_fingerprint)
 echo
 if scratch_gone; then
 	echo "verification: the scratch directory disappeared mid-run ($LAB) - the results above are VOID." >&2
@@ -1439,13 +1453,13 @@ if [ "$RAN" -eq 0 ]; then
 	echo "       Use --list-rungs to see the ids, or --setup-only to exercise the guards alone." >&2
 	FAIL=$((FAIL+1))
 fi
-if [ "$REAL_BEFORE" = "$REAL_AFTER" ]; then
-	printf 'SAFE   %-6s PASS    — %s\n' "" "real $REAL_SETTINGS unchanged ($REAL_BEFORE)"
-	LINES+=("SAFE PASS — real settings unchanged: $REAL_BEFORE")
+if [ "$REAL_BEFORE" = "$REAL_AFTER" ] && [ "$REAL_CORPUS_BEFORE" = "$REAL_CORPUS_AFTER" ]; then
+	printf 'SAFE   %-6s PASS    — %s\n' "" "real settings and corpus unchanged (settings $REAL_BEFORE, corpus $REAL_CORPUS_BEFORE)"
+	LINES+=("SAFE PASS — real settings and corpus unchanged: settings $REAL_BEFORE corpus $REAL_CORPUS_BEFORE")
 else
 	FAIL=$((FAIL+1))
-	printf 'SAFE   %-6s FAIL    — %s\n' "" "REAL SETTINGS FILE CHANGED — before: $REAL_BEFORE  after: $REAL_AFTER"
-	LINES+=("SAFE FAIL — real settings CHANGED: before $REAL_BEFORE after $REAL_AFTER")
+	printf 'SAFE   %-6s FAIL    — %s\n' "" "REAL PI STATE CHANGED — settings before: $REAL_BEFORE after: $REAL_AFTER; corpus before: $REAL_CORPUS_BEFORE after: $REAL_CORPUS_AFTER"
+	LINES+=("SAFE FAIL — real pi state CHANGED: settings $REAL_BEFORE/$REAL_AFTER corpus $REAL_CORPUS_BEFORE/$REAL_CORPUS_AFTER")
 	echo "verification: a pi invocation escaped the PI_CODING_AGENT_DIR redirect. Investigate before trusting any rung above." >&2
 fi
 

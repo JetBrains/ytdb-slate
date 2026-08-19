@@ -30,7 +30,7 @@
  * projects run on built-in defaults with no project file injection:
  *   { "episodeModel": "provider/id", "workerTools": [...],
  *     "workerExtensions": ["regex", ...], "cacheKeyEnabled": true,
- *     "cacheKeyShards": 2,
+ *     "cacheKeyShards": 2, "corpusName": "project-label",
  *     "maxConcurrent": 4,
  *     "contextBudget": 256000, "orchestratorModeDefault": true,
  *     "orchestratorPromptDocs": ["docs/orchestrator-guidelines.md"],
@@ -156,6 +156,7 @@ export default function (pi: ExtensionAPI) {
 		// Trust gate: project config steers prompts, models, and tool lists, so
 		// it is honored only for trusted projects; untrusted → built-in defaults.
 		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
+		store.corpusName = config.corpusName;
 		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
 		// modelFailover, contextBudget and workerExtensions are validated eagerly:
 		// a malformed value would otherwise fail silently mid-dispatch / exactly
@@ -291,7 +292,11 @@ export default function (pi: ExtensionAPI) {
 			ctx.sessionManager.getSessionId(),
 			ctx.sessionManager.getSessionFile(),
 		);
-		store.resolveSessionIdentity(owner, report);
+		store.resolveSessionIdentity(owner, report, undefined, {
+			cwd: ctx.cwd,
+			corpusName: store.corpusName,
+			piSessionName: (pi as ExtensionAPI & { getSessionName?: () => string | undefined }).getSessionName?.(),
+		});
 	});
 
 	// Orchestrator model failover (turn_end/agent_settled/input) — not

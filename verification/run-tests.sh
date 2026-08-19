@@ -37,6 +37,8 @@ fi
 
 bash "$repo/verification/link-peers.sh"
 work="$(mktemp -d "${TMPDIR:-/tmp}/slate-node-test.XXXXXX")" || fail "cannot create temporary directory"
+mkdir -p "$work/agent" || fail "cannot create temporary agent directory"
+export PI_CODING_AGENT_DIR="$work/agent"
 cleanup() {
   status=$?
   if [ "$status" -eq 0 ]; then

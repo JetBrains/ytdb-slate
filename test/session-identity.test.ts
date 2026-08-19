@@ -71,12 +71,13 @@ test("owner digests are bounded and separate duplicate pi identifiers by resolve
 });
 
 test("snapshot identity sanitization accepts both valid fields and leaves absent fields silent", () => {
-  const accepted = sanitize(snapshot({ slateSessionId: ID, ownerSessionDigest: OWNER }));
+  const accepted = sanitize(snapshot({ slateSessionId: ID, slateSessionName: "calm-otter-7f3a", ownerSessionDigest: OWNER }));
   assert.deepEqual(accepted.value, {
     snapshotPresent: true,
     slateSessionIdPresent: true,
     ownerSessionDigestPresent: true,
     slateSessionId: ID,
+    slateSessionName: "calm-otter-7f3a",
     ownerSessionDigest: OWNER,
   });
   assert.deepEqual(accepted.repairs, []);
@@ -105,6 +106,13 @@ test("snapshot identity sanitization rejects malformed identity and owner digest
     assert.equal(result.value.slateSessionIdPresent, true, String(slateSessionId));
     assert.equal(result.repairs.length, 1, String(slateSessionId));
     assert.match(result.repairs[0] ?? "", /slateSessionId/);
+  }
+
+  for (const slateSessionName of ["bad/name-7f3a", "calm-otter-7F3A", 7, null]) {
+    const result = sanitize(snapshot({ slateSessionId: ID, slateSessionName, ownerSessionDigest: OWNER }));
+    assert.equal(result.value.slateSessionName, undefined);
+    assert.equal(result.repairs.length, 1);
+    assert.match(result.repairs[0] ?? "", /slateSessionName/);
   }
 
   const badOwners: unknown[] = ["", "a".repeat(63), "a".repeat(65), "A".repeat(64), "owner/path", 7, null];
@@ -526,10 +534,11 @@ test("entry-point session-start wiring mints fresh and resolves only after hando
   slateExtension(adoptedApi as unknown as ExtensionAPI);
   const adoptedFile = join(root, "adopted-session.jsonl");
   await startEntry(adoptedApi, entryContext(adoptedCwd, "successor", adoptedFile));
-  assert.equal(adoptedApi.appended.length, 1);
-  assert.equal(adoptedApi.appended[0]?.slateSessionId, ID);
+  assert.equal(adoptedApi.appended.length, 2);
+  assert.equal(adoptedApi.appended[1]?.slateSessionId, ID);
+  assert.match(String(adoptedApi.appended[1]?.slateSessionName), /^[a-z][a-z0-9-]*-[0-9a-f]{4}$/);
   assert.equal(
-    adoptedApi.appended[0]?.ownerSessionDigest,
+    adoptedApi.appended[1]?.ownerSessionDigest,
     createOwnerSessionDigest("successor", adoptedFile),
   );
 });

@@ -23,9 +23,12 @@ import { join } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import {
 	isSlateArtifactId,
+	isSlateArtifactReference,
 	slateArtifactReference,
 	type SlateArtifactKind,
 } from "./artifact-names.ts";
+import { resolveCorpusProject, SlateWriteRefused } from "./corpus.ts";
+export { SlateWriteRefused } from "./corpus.ts";
 export {
 	isSafeThreadId,
 	isSlateArtifactId,
@@ -49,37 +52,36 @@ const ARTIFACT_FILE_MODE = 0o666;
 const WRITE_ATTEMPTS = 16;
 const NO_FOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 const OPEN_FLAGS = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW;
-/** A deterministic refusal by slate's rules rather than an unclassified platform error. */
-export class SlateWriteRefused extends Error {}
-
 function refuse(message: string): never {
 	throw new SlateWriteRefused(message);
 }
 
-/** Verify one component, creating it when absent. */
-function ensureRealDirectory(path: string): void {
-	let entry = lstatSync(path, { throwIfNoEntry: false });
-	if (entry === undefined) {
-		try {
-			mkdirSync(path);
-		} catch (error) {
-			if ((error as { code?: string }).code !== "EEXIST") throw error;
-		}
-		entry = lstatSync(path, { throwIfNoEntry: false });
-	}
-	if (entry?.isSymbolicLink()) refuse(`slate refused an artifact directory because that path is a symbolic link`);
-	if (!entry?.isDirectory()) refuse(`slate refused an artifact directory because that path is not a directory`);
-}
-
-/** Create and verify every artifact parent component. */
-function ensureArtifactDirectory(cwd: string, kind: SlateArtifactKind): string {
-	const root = realpathSync(cwd);
-	let dir = root;
+function ensureLegacyArtifactDirectory(cwd: string, kind: SlateArtifactKind): string {
+	let dir = realpathSync(cwd);
 	for (const component of [CONFIG_DIR_NAME, "slate", kind]) {
 		dir = join(dir, component);
-		ensureRealDirectory(dir);
+		let entry = lstatSync(dir, { throwIfNoEntry: false });
+		if (entry === undefined) {
+			try { mkdirSync(dir); } catch (error) { if ((error as { code?: string }).code !== "EEXIST") throw error; }
+			entry = lstatSync(dir, { throwIfNoEntry: false });
+		}
+		if (entry?.isSymbolicLink()) refuse(`slate refused an artifact directory because that path is a symbolic link`);
+		if (!entry?.isDirectory()) refuse(`slate refused an artifact directory because that path is not a directory`);
 	}
-	if (realpathSync(dir) !== dir) refuse(`slate refused an artifact directory because its path changed`);
+	return dir;
+}
+
+/** Verify the already minted session category without following links. */
+function ensureArtifactDirectory(cwd: string, sessionName: string, kind: SlateArtifactKind, corpusName?: unknown): string {
+	const project = resolveCorpusProject(cwd, corpusName);
+	const session = join(project.directory, sessionName);
+	const dir = join(session, kind);
+	for (const path of [project.directory, session, dir]) {
+		const entry = lstatSync(path, { throwIfNoEntry: false });
+		if (entry?.isSymbolicLink()) refuse(`slate refused an artifact directory because that path is a symbolic link`);
+		if (!entry?.isDirectory()) refuse(`slate refused an artifact directory because that path is not a directory`);
+		if (realpathSync(path) !== path) refuse(`slate refused an artifact directory because its path changed`);
+	}
 	return dir;
 }
 
@@ -160,13 +162,20 @@ function writeFreshFile(dir: string, file: string, content: Buffer): void {
 
 export function writeSlateArtifact(opts: {
 	cwd: string;
+	sessionName?: string;
+	corpusName?: unknown;
 	kind: SlateArtifactKind;
 	id: string;
 	content: string | Buffer;
 }): SlateArtifactLocation {
 	if (!isSlateArtifactId(opts.id)) refuse(`slate refused an invalid artifact id`);
-	const reference = slateArtifactReference(opts.kind, opts.id);
-	const dir = ensureArtifactDirectory(opts.cwd, opts.kind);
+	const reference = opts.sessionName === undefined
+		? slateArtifactReference(opts.kind, opts.id)
+		: slateArtifactReference(opts.sessionName, opts.kind, opts.id);
+	if (!isSlateArtifactReference(reference, opts.kind, opts.id)) refuse(`slate refused an oversized artifact reference`);
+	const dir = opts.sessionName === undefined
+		? ensureLegacyArtifactDirectory(opts.cwd, opts.kind)
+		: ensureArtifactDirectory(opts.cwd, opts.sessionName, opts.kind, opts.corpusName);
 	const absolutePath = join(dir, `${opts.id}.md`);
 	writeFreshFile(dir, absolutePath, typeof opts.content === "string" ? Buffer.from(opts.content, "utf8") : opts.content);
 	return { absolutePath, reference };

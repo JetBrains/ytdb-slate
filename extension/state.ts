@@ -5,14 +5,13 @@
  * custom session entry ("slate-state") via pi.appendEntry. On session_start the
  * store rebuilds from the LAST such entry on the current branch, so state
  * follows pi's session tree across restart/resume/fork. Thread session files
- * and episode files live on disk under <config dir>/slate/ and are validated
- * on restore.
+ * and episode files live in the project corpus. Legacy flat project artifacts
+ * remain readable and are validated on restore.
  */
 
-import { createHash, randomBytes } from "node:crypto";
-import { existsSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
+import { resolve } from "node:path";
+import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 // TYPE-ONLY: the effort vocabulary is defined once, in the profile table
 // (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
 // union. The import is erased at load time. State restoration therefore keeps
@@ -22,6 +21,8 @@ import type { ObservationRecord } from "./observations.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import { isSafeThreadId, isSlateArtifactReference } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
+import { createCorpusSession, findCorpusSessionByIdentity, resolveContainedFile, resolveCorpusProject } from "./corpus.ts";
+import { drawSlateMint, isSlateSessionName } from "./session-names.ts";
 
 /**
  * ADDITIVE TOLERANCE (the persistence model has no migration hook): the
@@ -223,6 +224,8 @@ export interface SlateSnapshot {
 	threadSeq?: number;
 	/** Stable identity of this slate session lineage. Absent means a legacy lineage. */
 	slateSessionId?: string;
+	/** Human-readable name of this slate session. Absent on older snapshots. */
+	slateSessionName?: string;
 	/** Digest identifying the pi session file that currently owns slateSessionId. */
 	ownerSessionDigest?: string;
 	orchestratorMode: boolean;
@@ -239,20 +242,31 @@ export interface SanitizedSnapshotIdentity {
 	slateSessionIdPresent: boolean;
 	ownerSessionDigestPresent: boolean;
 	slateSessionId?: string;
+	slateSessionName?: string;
 	ownerSessionDigest?: string;
 }
 
 export interface SlateSessionIdentityResolution {
 	slateSessionId?: string;
 	ownerSessionDigest?: string;
+	slateSessionName?: string;
 	minted: boolean;
 	report?: string;
 }
 
-/** Mint a sortable, filename-safe slate session identity. */
-export function mintSlateSessionId(now = new Date()): string {
+function identityFromBytes(now: Date, bytes: Uint8Array): string {
 	const timestamp = `${now.toISOString().slice(0, 19).replace(/[-:]/g, "")}Z`;
-	return `${timestamp}-${randomBytes(8).toString("hex")}`;
+	return `${timestamp}-${Buffer.from(bytes).toString("hex")}`;
+}
+
+/** Mint a sortable identity and first name candidate from one twelve-byte draw. */
+export function mintSlateSession(now = new Date()): { identity: string; nameBytes: Buffer } {
+	const drawn = drawSlateMint(12);
+	return { identity: identityFromBytes(now, drawn.identityBytes), nameBytes: drawn.nameBytes };
+}
+
+export function mintSlateSessionId(now = new Date()): string {
+	return mintSlateSession(now).identity;
 }
 
 /**
@@ -277,6 +291,7 @@ export function sanitizeSnapshotIdentity(
 	}
 	const slateSessionIdPresent = raw.slateSessionId !== undefined;
 	const ownerSessionDigestPresent = raw.ownerSessionDigest !== undefined;
+	const slateSessionName = isSlateSessionName(raw.slateSessionName) ? raw.slateSessionName : undefined;
 	const slateSessionId =
 		typeof raw.slateSessionId === "string" && SLATE_SESSION_ID_PATTERN.test(raw.slateSessionId)
 			? raw.slateSessionId
@@ -288,6 +303,9 @@ export function sanitizeSnapshotIdentity(
 	if (slateSessionIdPresent && slateSessionId === undefined) {
 		repairs.push(`snapshot: ignoring slateSessionId (${typeof raw.slateSessionId === "object" ? "object" : typeof raw.slateSessionId})`);
 	}
+	if (raw.slateSessionName !== undefined && slateSessionName === undefined) {
+		repairs.push(`snapshot: ignoring slateSessionName (${typeof raw.slateSessionName === "object" ? "object" : typeof raw.slateSessionName})`);
+	}
 	if (ownerSessionDigestPresent && ownerSessionDigest === undefined) {
 		repairs.push(`snapshot: ignoring ownerSessionDigest (${typeof raw.ownerSessionDigest === "object" ? "object" : typeof raw.ownerSessionDigest})`);
 	}
@@ -296,6 +314,7 @@ export function sanitizeSnapshotIdentity(
 		slateSessionIdPresent,
 		ownerSessionDigestPresent,
 		...(slateSessionId !== undefined ? { slateSessionId } : {}),
+		...(slateSessionName !== undefined ? { slateSessionName } : {}),
 		...(ownerSessionDigest !== undefined ? { ownerSessionDigest } : {}),
 	};
 }
@@ -321,6 +340,7 @@ export function resolveSlateSessionIdentity(
 	if (restored.ownerSessionDigest === currentOwnerSessionDigest) {
 		return {
 			slateSessionId: restored.slateSessionId,
+			...(restored.slateSessionName !== undefined ? { slateSessionName: restored.slateSessionName } : {}),
 			ownerSessionDigest: currentOwnerSessionDigest,
 			minted: false,
 		};
@@ -612,23 +632,9 @@ function moneyAmount(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
-/** Resolve a regular episode file only when its real path stays inside slate's episode directory. */
-export function resolveEpisodeFile(cwd: string, value: unknown): string | undefined {
-	if (typeof value !== "string" || value === "") return undefined;
-	try {
-		const expectedRoot = join(realpathSync(cwd), CONFIG_DIR_NAME, "slate", "episodes");
-		const root = realpathSync(expectedRoot);
-		if (root !== expectedRoot || !statSync(root).isDirectory()) return undefined;
-		const file = realpathSync(value);
-		if (!statSync(file).isFile()) return undefined;
-		const inside = relative(root, file);
-		if (inside === "" || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
-			return undefined;
-		}
-		return file;
-	} catch {
-		return undefined;
-	}
+/** Resolve a regular followed file within the corpus project or legacy flat layout. */
+export function resolveEpisodeFile(cwd: string, value: unknown, corpusName?: unknown): string | undefined {
+	return resolveContainedFile(cwd, value, corpusName);
 }
 
 /** Validate the complete observation record, including its exact canonical reference. */
@@ -1031,6 +1037,7 @@ export interface SlateConfig {
 	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
 	router?: RouterConfig; // action-level model router: the closed model list + the evidence-gap policy (default: off) — see model-router.ts
 	threadChoice?: ThreadChoiceConfig; // verdict reporting defaults on; automatic action defaults off
+	corpusName?: string; // optional readable corpus-project label; the digest remains authoritative
 	writing?: WritingConfig; // writing guidance for orchestrator output (default: off) — see writing.ts
 }
 
@@ -1040,7 +1047,10 @@ export class SlateStore {
 	private threadSeq = 0;
 	private restoredIdentity = sanitizeSnapshotIdentity(undefined, []);
 	slateSessionId: string | undefined;
+	slateSessionName: string | undefined;
 	ownerSessionDigest: string | undefined;
+	corpusName: unknown;
+	private sessionNamespaceRequired = false;
 	orchestratorMode = false;
 	/** When true (context budget exceeded) ThreadManager rejects NEW dispatches. */
 	paused = false;
@@ -1078,55 +1088,82 @@ export class SlateStore {
 		return id;
 	}
 
+	artifactSessionName(): string | undefined {
+		if (this.slateSessionName === undefined && this.sessionNamespaceRequired) {
+			throw new Error("slate session namespace is unavailable");
+		}
+		return this.slateSessionName;
+	}
+
 	resolveSessionIdentity(
 		currentOwnerSessionDigest: string,
 		report: (message: string) => void,
-		mint: () => string = mintSlateSessionId,
+		mint?: () => string,
+		session?: { cwd: string; corpusName?: unknown; piSessionName?: string },
 	): boolean {
-		// Public fields may have been re-stamped by explicit handoff adoption.
+		if (session !== undefined) this.sessionNamespaceRequired = true;
+		let firstNameBytes: Buffer | undefined;
+		const identityMint = mint ?? (() => {
+			const pair = mintSlateSession();
+			firstNameBytes = pair.nameBytes;
+			return pair.identity;
+		});
 		const restored: SanitizedSnapshotIdentity = {
 			...this.restoredIdentity,
 			...(this.slateSessionId !== undefined ? { slateSessionIdPresent: true, slateSessionId: this.slateSessionId } : {}),
-			...(this.ownerSessionDigest !== undefined
-				? { ownerSessionDigestPresent: true, ownerSessionDigest: this.ownerSessionDigest }
-				: {}),
+			...(this.slateSessionName !== undefined ? { slateSessionName: this.slateSessionName } : {}),
+			...(this.ownerSessionDigest !== undefined ? { ownerSessionDigestPresent: true, ownerSessionDigest: this.ownerSessionDigest } : {}),
 		};
-		const resolved = resolveSlateSessionIdentity(restored, currentOwnerSessionDigest, mint);
-		if (resolved.minted) {
+		const resolved = resolveSlateSessionIdentity(restored, currentOwnerSessionDigest, identityMint);
+		let name = resolved.slateSessionName;
+		let nameMinted = false;
+		if (session !== undefined && name === undefined) {
+			const project = resolveCorpusProject(session.cwd, session.corpusName);
+			const found = resolved.slateSessionId === undefined ? undefined : findCorpusSessionByIdentity(project, resolved.slateSessionId);
+			if (found !== undefined) name = found.name;
+			else {
+				const created = createCorpusSession({
+					cwd: session.cwd,
+					corpusName: session.corpusName,
+					identity: resolved.slateSessionId ?? "",
+					initialNameBytes: firstNameBytes ?? drawSlateMint(4).nameBytes,
+					piSessionName: session.piSessionName,
+				});
+				name = created.name;
+				nameMinted = true;
+			}
+		}
+		if (resolved.minted || nameMinted) {
 			const candidate = {
 				...this.snapshot(),
 				slateSessionId: resolved.slateSessionId,
+				...(name !== undefined ? { slateSessionName: name } : {}),
 				ownerSessionDigest: resolved.ownerSessionDigest,
 			};
 			try {
 				this.pi.appendEntry("slate-state", candidate as unknown as Record<string, unknown>);
 			} catch (error) {
 				this.slateSessionId = undefined;
+				this.slateSessionName = undefined;
 				this.ownerSessionDigest = undefined;
-				this.restoredIdentity = {
-					snapshotPresent: true,
-					slateSessionIdPresent: false,
-					ownerSessionDigestPresent: false,
-				};
-				report(
-					`slate: could not persist a fresh session identity — ${sanitizeForNotify(
-						error instanceof Error ? error.message : String(error),
-					)}. This session will use legacy paths without an identity.`,
-				);
+				this.restoredIdentity = { snapshotPresent: true, slateSessionIdPresent: false, ownerSessionDigestPresent: false };
+				report(`slate: could not persist a fresh session identity — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}. This session will use legacy paths without an identity.`);
 				this.onDidChange?.();
 				return false;
 			}
 		}
 		this.slateSessionId = resolved.slateSessionId;
+		this.slateSessionName = name;
 		this.ownerSessionDigest = resolved.ownerSessionDigest;
 		this.restoredIdentity = {
 			snapshotPresent: true,
 			slateSessionIdPresent: resolved.slateSessionId !== undefined,
 			ownerSessionDigestPresent: resolved.ownerSessionDigest !== undefined,
 			...(resolved.slateSessionId !== undefined ? { slateSessionId: resolved.slateSessionId } : {}),
+			...(name !== undefined ? { slateSessionName: name } : {}),
 			...(resolved.ownerSessionDigest !== undefined ? { ownerSessionDigest: resolved.ownerSessionDigest } : {}),
 		};
-		if (resolved.minted) this.onDidChange?.();
+		if (resolved.minted || nameMinted) this.onDidChange?.();
 		if (resolved.report !== undefined) report(resolved.report);
 		return resolved.minted;
 	}
@@ -1137,6 +1174,7 @@ export class SlateStore {
 			episodes: [...this.episodes.values()],
 			threadSeq: this.threadSeq,
 			...(this.slateSessionId !== undefined ? { slateSessionId: this.slateSessionId } : {}),
+			...(this.slateSessionName !== undefined ? { slateSessionName: this.slateSessionName } : {}),
 			...(this.ownerSessionDigest !== undefined ? { ownerSessionDigest: this.ownerSessionDigest } : {}),
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
@@ -1187,6 +1225,7 @@ export class SlateStore {
 		this.threadSeq = 0;
 		this.restoredIdentity = sanitizeSnapshotIdentity(undefined, []);
 		this.slateSessionId = undefined;
+		this.slateSessionName = undefined;
 		this.ownerSessionDigest = undefined;
 		this.orchestratorMode = false;
 		this.paused = false;
@@ -1203,6 +1242,7 @@ export class SlateStore {
 		const dropped: string[] = [];
 		this.restoredIdentity = sanitizeSnapshotIdentity(latest, dropped);
 		this.slateSessionId = this.restoredIdentity.slateSessionId;
+		this.slateSessionName = this.restoredIdentity.slateSessionName;
 		this.ownerSessionDigest = this.restoredIdentity.ownerSessionDigest;
 		// EVERY record is validated field by field on the way in (BG26) — see
 		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
@@ -1219,9 +1259,13 @@ export class SlateStore {
 				}
 				continue;
 			}
-			if (t.sessionFile && !existsSync(t.sessionFile)) {
-				dropped.push(`thread ${t.id} (${t.name}): missing ${t.sessionFile}`);
-				continue;
+			if (t.sessionFile) {
+				const safeSessionFile = resolveContainedFile(ctx.cwd, t.sessionFile, this.corpusName);
+				if (safeSessionFile === undefined) {
+					dropped.push(`thread ${t.id} (${t.name}): session file is missing, linked, or outside slate storage`);
+					continue;
+				}
+				t.sessionFile = safeSessionFile;
 			}
 			this.threads.set(t.id, t);
 			// Old snapshots have no persisted counter. Derive its floor from every
@@ -1244,7 +1288,7 @@ export class SlateStore {
 				dropped.push(`episode record without a usable id, thread id or file: ${typeof raw === "object" ? "ignored" : typeof raw}`);
 				continue;
 			}
-			const safeFile = resolveEpisodeFile(ctx.cwd, e.file);
+			const safeFile = resolveEpisodeFile(ctx.cwd, e.file, this.corpusName);
 			if (safeFile === undefined) {
 				dropped.push(`episode ${e.id}: file is missing, non-regular, or outside slate's episode directory`);
 				continue;
