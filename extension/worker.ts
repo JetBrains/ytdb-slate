@@ -48,6 +48,9 @@ import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts"
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 
+/** A pre-prompt transcript refusal that ThreadManager must route to its unbilled exit. */
+export class WorkerTranscriptOpenRefused extends Error {}
+
 export const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
 /** Thread types that receive the reviewer charter and require findings structure. */
@@ -348,7 +351,7 @@ export async function openWorkerSession(opts: {
 				(fd) => fstatSync(fd).nlink > 1,
 			) === true;
 		if (multiplyLinked) {
-			throw new Error(
+			throw new WorkerTranscriptOpenRefused(
 				"slate refused the worker transcript because it has more than one name on disk. " +
 					"A hardlink backup probably created the extra name. Restore a single-linked copy to proceed.",
 			);

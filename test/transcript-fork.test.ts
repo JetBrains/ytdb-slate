@@ -501,6 +501,27 @@ test("CQ38: a fork failure aborts the dispatch with no episode and no compressor
   assert.deepEqual(forkedFiles(h), []);
 });
 
+test("RG272: a hardlinked transcript aborts before work with no episode or compressor cost", { timeout: 10000 }, async (t) => {
+  const h = harness(t);
+  t.after(() => h.manager.disposeAll());
+  const outside = join(h.workspace.root, "outside-worker.jsonl");
+  const linked = join(h.threads, "worker.jsonl");
+  writeFileSync(outside, transcript());
+  linkSync(outside, linked);
+  const record = thread(linked);
+  h.store.threads.set(record.id, record);
+
+  await assert.rejects(
+    h.manager.dispatch({ threadId: record.id, task: "continue safely" }, h.ctx, undefined),
+    /more than one name on disk.*hardlink backup.*Restore a single-linked copy to proceed/s,
+  );
+  assert.equal(h.store.episodes.size, 0);
+  assert.equal(record.episodeSeq, 0);
+  assert.deepEqual(record.episodeIds, []);
+  assert.equal(record.status, "idle");
+  assert.equal(h.store.workerCostUsd, 0, "no compressor call may be billed");
+});
+
 test("CN111: a source appended to during the copy is refused, publishes nothing and stays untouched", (t) => {
   const h = harness(t);
   const source = corpusSource(h.workspace, "kelpy-raven-0010", 3);
@@ -557,6 +578,31 @@ test("SE91: a FIFO under an approved root is refused promptly instead of blockin
   assert.equal(answer, "undefined", "containment must refuse a FIFO rather than open it");
   assert.equal(resolveContainedThreadFile(h.workspace.cwd, fifo, h.workspace.projectDirectory), undefined);
   assert.throws(() => h.prepare(thread(fifo)), /missing, linked, changing, or outside approved thread storage/);
+});
+
+test("BG9: repeated validation failures after open do not leak file descriptors", (t) => {
+  const h = harness(t);
+  const procDescriptors = "/proc/self/fd";
+  if (!existsSync(procDescriptors)) {
+    t.skip("/proc/self/fd is unavailable");
+    return;
+  }
+  const owned = join(h.threads, "owned.jsonl");
+  writeFileSync(owned, transcript());
+  const before = readdirSync(procDescriptors).length;
+  let callbacks = 0;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const result = withContainedThreadFile(
+      h.workspace.cwd,
+      owned,
+      h.workspace.projectDirectory,
+      () => { callbacks++; return "unexpected"; },
+      () => { throw new Error("forced validation failure after open"); },
+    );
+    assert.equal(result, undefined);
+  }
+  assert.equal(callbacks, 0, "validation failures occur before callback ownership");
+  assert.equal(readdirSync(procDescriptors).length, before, "every acquired descriptor must be closed");
 });
 
 test("SE92: a hardlinked fork source is refused while ordinary contained reads remain available", (t) => {
@@ -651,6 +697,38 @@ test("RG271: hardlink-based corpus snapshots restore threads and episodes withou
   assert.deepEqual(h.store.threads.get("t7")?.episodeIds, ["t7.e1"]);
   h.store.slateSessionName = SESSION_NAME; // adoptSnapshot resets identity before normal resolution restores it
   assert.equal(h.prepare(h.store.threads.get("t7")!), owned, "restore and planning retain the hardlinked transcript record");
+});
+
+async function openAndDispose(t: TestContext, h: Session, file: string): Promise<void> {
+  const opened = await openWorkerSession({
+    ctx: h.ctx,
+    sessionName: SESSION_NAME,
+    projectDirectory: h.workspace.projectDirectory,
+    sessionFile: file,
+  });
+  t.after(() => opened.dispose());
+  assert.equal(opened.sessionFile, file);
+}
+
+test("TQ9: a normal single-linked resumed transcript opens through the strict branch", { timeout: 10000 }, async (t) => {
+  const h = harness(t);
+  const owned = join(h.threads, "owned.jsonl");
+  writeFileSync(owned, transcript());
+  await openAndDispose(t, h, owned);
+});
+
+test("TQ9: a single-linked inherited transcript forks and its fresh copy opens", { timeout: 10000 }, async (t) => {
+  const h = harness(t);
+  const source = corpusSource(h.workspace);
+  const forked = assertForked(h, thread(source), source);
+  await openAndDispose(t, h, forked);
+});
+
+test("TQ9: a legacy flat transcript forks and its corpus copy opens", { timeout: 10000 }, async (t) => {
+  const h = harness(t);
+  const source = legacySource(h.workspace);
+  const forked = assertForked(h, thread(source), source);
+  await openAndDispose(t, h, forked);
 });
 
 test("TQ8: an ordinary episode read accepts a hardlinked corpus file", (t) => {

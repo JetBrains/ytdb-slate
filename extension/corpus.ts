@@ -370,6 +370,7 @@ function withContainedRoots<T>(
 	roots: string[],
 	use: (fd: number, path: string) => T,
 	requireSingleName = false,
+	afterOpen?: (fd: number) => void,
 ): T | undefined {
 	if (typeof value !== "string" || value === "" || !isAbsolute(value)) return undefined;
 	const acceptable = requireSingleName ? singleNamedFile : regularFile;
@@ -384,32 +385,31 @@ function withContainedRoots<T>(
 		} catch {
 			continue;
 		}
-		let fd: number;
-		let held: ReturnType<typeof fstatSync>;
-		let canonical: string;
+		let fd: number | undefined;
+		let opened: { fd: number; held: ReturnType<typeof fstatSync>; canonical: string } | undefined;
 		try {
 			fd = openSync(value, constants.O_RDONLY | NO_FOLLOW | NON_BLOCK);
-			held = fstatSync(fd);
+			afterOpen?.(fd);
+			const held = fstatSync(fd);
 			const current = lstatSync(value, { throwIfNoEntry: false });
-			if (!acceptable(held) || !acceptable(current ?? undefined) || !sameFile(held, current!)) {
-				closeSync(fd);
-				return undefined;
-			}
-			canonical = realpathSync(value);
-			if (canonical !== value || !insideRoot(root, canonical)) {
-				closeSync(fd);
-				return undefined;
-			}
+			if (!acceptable(held) || !acceptable(current ?? undefined) || !sameFile(held, current!)) return undefined;
+			const canonical = realpathSync(value);
+			if (canonical !== value || !insideRoot(root, canonical)) return undefined;
+			opened = { fd, held, canonical };
 		} catch {
 			return undefined;
+		} finally {
+			// BG9. Every return or throw after open and before callback ownership closes here.
+			// All public containment helpers delegate to this acquisition path.
+			if (opened === undefined && fd !== undefined) closeSync(fd);
 		}
 		try {
-			const result = use(fd, canonical);
+			const result = use(opened.fd, opened.canonical);
 			const after = lstatSync(value, { throwIfNoEntry: false });
-			if (!acceptable(after ?? undefined) || !sameFile(held, after!)) return undefined;
+			if (!acceptable(after ?? undefined) || !sameFile(opened.held, after!)) return undefined;
 			return result;
 		} finally {
-			closeSync(fd);
+			closeSync(opened.fd);
 		}
 	}
 	return undefined;
@@ -440,9 +440,10 @@ export function withContainedThreadFile<T>(
 	value: unknown,
 	projectDirectory: string | undefined,
 	use: (fd: number, path: string) => T,
+	afterOpen?: (fd: number) => void,
 ): T | undefined {
 	const roots = threadRoots(cwd, projectDirectory);
-	return roots === undefined ? undefined : withContainedRoots(value, roots, use);
+	return roots === undefined ? undefined : withContainedRoots(value, roots, use, false, afterOpen);
 }
 
 /** Strict source boundary for bytes that SessionManager.forkFrom copies (SE92, RG271). */

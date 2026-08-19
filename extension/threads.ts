@@ -154,7 +154,15 @@ import {
 	type ThreadType,
 } from "./state.ts";
 import { planThreadChoice, type ThreadChoiceVerdict } from "./thread-choice.ts";
-import { DEFAULT_WORKER_TOOLS, isJudgementThreadType, openWorkerSession, resolveModel, threadsDir, type WorkerSession } from "./worker.ts";
+import {
+	DEFAULT_WORKER_TOOLS,
+	isJudgementThreadType,
+	openWorkerSession,
+	resolveModel,
+	threadsDir,
+	WorkerTranscriptOpenRefused,
+	type WorkerSession,
+} from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 
 export function workerPromptCacheKey(cwd: string, shard: number): string {
@@ -1480,22 +1488,31 @@ export class ThreadManager {
 	}): Promise<{ session: WorkerSession; baseline: SessionBaseline }> {
 		const type = effectiveThreadType(args.thread, args.report);
 		const sessionFile = this.prepareTranscriptForOpen(args);
-		const session = await openWorkerSession({
-			ctx: args.ctx,
-			sessionName: this.artifactSessionName(),
-			projectDirectory: this.store.corpusProject?.directory,
-			sessionFile,
-			model: args.open.model,
-			tools: args.tools,
-			promptDocs: this.config.workerPromptDocs,
-			extensionPaths: this.resolveExtensions().paths,
-			writingCheck: this.config.writing?.check === true,
-			reviewerCharter: isJudgementThreadType(type),
-			promptCacheKey:
-				this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
-					? undefined
-					: workerPromptCacheKey(args.ctx.cwd, args.thread.cacheKeyShard),
-		});
+		let session: WorkerSession;
+		try {
+			session = await openWorkerSession({
+				ctx: args.ctx,
+				sessionName: this.artifactSessionName(),
+				projectDirectory: this.store.corpusProject?.directory,
+				sessionFile,
+				model: args.open.model,
+				tools: args.tools,
+				promptDocs: this.config.workerPromptDocs,
+				extensionPaths: this.resolveExtensions().paths,
+				writingCheck: this.config.writing?.check === true,
+				reviewerCharter: isJudgementThreadType(type),
+				promptCacheKey:
+					this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
+						? undefined
+						: workerPromptCacheKey(args.ctx.cwd, args.thread.cacheKeyShard),
+			});
+		} catch (error) {
+			// RG272 mirrors CQ38. This named refusal happens before a prompt, so route it
+			// through the existing DispatchAbort exit. Other open failures keep their
+			// historical FAILED-episode behavior.
+			if (error instanceof WorkerTranscriptOpenRefused) throw new DispatchAbort(error.message);
+			throw error;
+		}
 		this.live.set(args.thread.id, session);
 		// A freshly opened session starts on its configured model — drop any stale
 		// failover marker (possible if a previous live session was disposed mid-dispatch
