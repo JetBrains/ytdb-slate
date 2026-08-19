@@ -33,14 +33,19 @@ const NO_FOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLO
 // for a regular file, which is the only thing this module ever accepts.
 const NON_BLOCK = typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOCK : 0;
 
+function regularFile(entry: { isFile(): boolean; isSymbolicLink(): boolean } | undefined): boolean {
+	return entry?.isFile() === true && !entry.isSymbolicLink();
+}
+
 /**
- * One contained file must be the ONLY name of its inode (SE92). Every path check in this
- * module compares NAMES, and a hardlink gives an outside file a second name inside an
- * approved root, so every one of those checks passes while the bytes come from outside.
- * A link count of one is what makes the root boundary a claim about the FILE.
+ * A FORK SOURCE must be the only name of its inode (SE92). That rule does not govern
+ * ordinary corpus reads: a hardlink snapshot such as `cp -al` gives an episode or an
+ * owned transcript a second safe name, and refusing every such read made restore erase
+ * the records (RG271). The caller below selects this stronger predicate only where bytes
+ * cross into a new writable transcript.
  */
 function singleNamedFile(entry: { isFile(): boolean; isSymbolicLink(): boolean; nlink: number } | undefined): boolean {
-	return entry?.isFile() === true && !entry.isSymbolicLink() && entry.nlink === 1;
+	return regularFile(entry) && entry!.nlink === 1;
 }
 
 function refuse(message: string, cause?: unknown): never {
@@ -364,11 +369,13 @@ function withContainedRoots<T>(
 	value: unknown,
 	roots: string[],
 	use: (fd: number, path: string) => T,
+	requireSingleName = false,
 ): T | undefined {
 	if (typeof value !== "string" || value === "" || !isAbsolute(value)) return undefined;
-	// BEFORE any open: reject every candidate that is not a single-named regular file
-	// (SE91, SE92). lstat follows nothing and blocks on nothing.
-	if (!singleNamedFile(lstatSync(value, { throwIfNoEntry: false }) ?? undefined)) return undefined;
+	const acceptable = requireSingleName ? singleNamedFile : regularFile;
+	// BEFORE any open: reject FIFOs, devices and links. lstat follows nothing and blocks
+	// on nothing (SE91). Fork sources additionally reject hardlinks (SE92).
+	if (!acceptable(lstatSync(value, { throwIfNoEntry: false }) ?? undefined)) return undefined;
 	for (const expected of roots) {
 		let root: string;
 		try {
@@ -384,7 +391,7 @@ function withContainedRoots<T>(
 			fd = openSync(value, constants.O_RDONLY | NO_FOLLOW | NON_BLOCK);
 			held = fstatSync(fd);
 			const current = lstatSync(value, { throwIfNoEntry: false });
-			if (!singleNamedFile(held) || !singleNamedFile(current ?? undefined) || !sameFile(held, current!)) {
+			if (!acceptable(held) || !acceptable(current ?? undefined) || !sameFile(held, current!)) {
 				closeSync(fd);
 				return undefined;
 			}
@@ -399,7 +406,7 @@ function withContainedRoots<T>(
 		try {
 			const result = use(fd, canonical);
 			const after = lstatSync(value, { throwIfNoEntry: false });
-			if (!singleNamedFile(after ?? undefined) || !sameFile(held, after!)) return undefined;
+			if (!acceptable(after ?? undefined) || !sameFile(held, after!)) return undefined;
 			return result;
 		} finally {
 			closeSync(fd);
@@ -419,20 +426,34 @@ export function withContainedFile<T>(
 	return withContainedRoots(value, roots, use);
 }
 
+function threadRoots(cwd: string, projectDirectory: string | undefined): string[] | undefined {
+	try {
+		const legacy = join(realpathSync(cwd), CONFIG_DIR_NAME, "slate", "threads");
+		return [...(projectDirectory === undefined ? [] : [projectDirectory]), legacy];
+	} catch {
+		return undefined;
+	}
+}
+
 export function withContainedThreadFile<T>(
 	cwd: string,
 	value: unknown,
 	projectDirectory: string | undefined,
 	use: (fd: number, path: string) => T,
 ): T | undefined {
-	let roots: string[];
-	try {
-		const legacy = join(realpathSync(cwd), CONFIG_DIR_NAME, "slate", "threads");
-		roots = [...(projectDirectory === undefined ? [] : [projectDirectory]), legacy];
-	} catch {
-		return undefined;
-	}
-	return withContainedRoots(value, roots, use);
+	const roots = threadRoots(cwd, projectDirectory);
+	return roots === undefined ? undefined : withContainedRoots(value, roots, use);
+}
+
+/** Strict source boundary for bytes that SessionManager.forkFrom copies (SE92, RG271). */
+export function withContainedForkSource<T>(
+	cwd: string,
+	value: unknown,
+	projectDirectory: string | undefined,
+	use: (fd: number, path: string) => T,
+): T | undefined {
+	const roots = threadRoots(cwd, projectDirectory);
+	return roots === undefined ? undefined : withContainedRoots(value, roots, use, true);
 }
 
 export function readContainedFile(cwd: string, value: unknown, projectDirectory?: string): Buffer | undefined {

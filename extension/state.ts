@@ -1304,10 +1304,15 @@ export class SlateStore {
 			if (t.sessionFile) {
 				const safeSessionFile = resolveContainedThreadFile(ctx.cwd, t.sessionFile, this.corpusProject?.directory);
 				if (safeSessionFile === undefined) {
-					dropped.push(`thread ${t.id} (${t.name}): session file is missing, linked, or outside slate thread storage`);
-					continue;
+					// RG271. Restore is not an operation on this file. Keep the user's record and
+					// refuse only a later OPEN through the same containment gate. Dropping it here
+					// made the next unrelated save persist history loss after a transient refusal.
+					dropped.push(
+						`thread ${t.id} (${t.name}): retaining sessionFile, but refusing its use while it is missing, linked, or outside slate thread storage`,
+					);
+				} else {
+					t.sessionFile = safeSessionFile;
 				}
-				t.sessionFile = safeSessionFile;
 			}
 			if (t.forkedFrom !== undefined) {
 				const safeSource = resolveContainedThreadFile(ctx.cwd, t.forkedFrom, this.corpusProject?.directory);
@@ -1347,11 +1352,13 @@ export class SlateStore {
 			}
 			const safeFile = resolveEpisodeFile(ctx.cwd, e.file, this.corpusProject?.directory);
 			if (safeFile === undefined) {
-				dropped.push(`episode ${e.id}: file is missing, non-regular, or outside slate's episode directory`);
-				continue;
+				// Preserve evidence metadata for the same reason as a thread above. Every reader
+				// re-applies containment and can refuse that one read without erasing history.
+				dropped.push(`episode ${e.id}: retaining file, but refusing its use while it is missing, non-regular, or outside slate storage`);
+			} else {
+				e.file = safeFile;
 			}
 			if (!this.threads.has(e.threadId)) continue;
-			e.file = safeFile;
 			this.episodes.set(e.id, e);
 		}
 		// Prune episode ids that did not survive.

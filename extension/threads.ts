@@ -115,6 +115,7 @@ import {
 	publishStagedFile,
 	readContainedFile,
 	resolveContainedThreadFile,
+	withContainedForkSource,
 	withContainedThreadFile,
 } from "./corpus.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
@@ -237,7 +238,14 @@ interface TranscriptInspection {
  * separate type: every other inspection failure is reported instead, because replacing a
  * transcript nobody proved damaged is how a thread loses its history.
  */
-class DamagedTranscript extends Error {}
+class DamagedTranscript extends Error {
+	kind: "empty" | "invalid";
+
+	constructor(message: string, kind: "empty" | "invalid") {
+		super(message);
+		this.kind = kind;
+	}
+}
 
 /**
  * Count the entries of one JSONL transcript through a descriptor the CALLER pinned.
@@ -292,10 +300,12 @@ function inspectTranscript(fd: number, path: string, limit: number): TranscriptI
 	}
 	pending += decoder.end();
 	accept(pending);
-	if (entries === 0) throw new DamagedTranscript("transcript holds no parseable entry");
+	if (entries === 0) {
+		throw new DamagedTranscript("transcript holds no parseable entry", bytes === 0 ? "empty" : "invalid");
+	}
 	if (typeof first !== "object" || first === null || (first as { type?: unknown }).type !== "session" ||
 		typeof (first as { id?: unknown }).id !== "string") {
-		throw new DamagedTranscript("transcript has no valid session header");
+		throw new DamagedTranscript("transcript has no valid session header", "invalid");
 	}
 	return { path, entries, bytes };
 }
@@ -1292,7 +1302,7 @@ export class ThreadManager {
 		threadsDirectory: string;
 		projectDirectory: string;
 	}): { file: string; source: string; sourceEntries: number } {
-		const result = withContainedThreadFile(
+		const result = withContainedForkSource(
 			args.ctx.cwd,
 			args.source,
 			args.projectDirectory,
@@ -1382,6 +1392,11 @@ export class ThreadManager {
 		throw failure;
 	}
 
+	/** The wrapper lets TQ7 inject a non-damage inspection failure. */
+	private inspectOwnedTranscript(cwd: string, path: string, projectDirectory: string): void {
+		inspectTranscriptPath(cwd, path, projectDirectory, MAX_INSPECT_BYTES);
+	}
+
 	/**
 	 * The transcript this dispatch may open, forking an inherited or legacy one FIRST
 	 * (D90, D135).
@@ -1413,14 +1428,19 @@ export class ThreadManager {
 			if (current !== undefined && insideRoot(directory, current)) {
 				// This session's own transcript: forked once already, so open it in place.
 				try {
-					inspectTranscriptPath(args.ctx.cwd, current, projectDirectory, MAX_INSPECT_BYTES);
+					this.inspectOwnedTranscript(args.ctx.cwd, current, projectDirectory);
 					return current;
 				} catch (error) {
 					// Only D121's own discard trigger permits a re-fork. Every other failure — an
 					// unreadable file, a changed path, the inspection bound — is reported, because a
 					// re-fork would replace a transcript nobody proved damaged with an older copy.
-					if (!(error instanceof DamagedTranscript) || args.thread.forkedFrom === undefined) throw error;
-					return fork(args.thread.forkedFrom);
+					if (!(error instanceof DamagedTranscript)) throw error;
+					if (args.thread.forkedFrom !== undefined) return fork(args.thread.forkedFrom);
+					// BG6. pi itself recovers an EXACTLY zero-length owned transcript by opening and
+					// reinitializing that SAME path. Returning it here reaches that SDK behavior. A
+					// non-empty invalid file remains refused because pi refuses it without modifying it.
+					if (error.kind === "empty") return current;
+					throw error;
 				}
 			}
 			// An inherited or legacy transcript. It stays on disk, unread by any later append.

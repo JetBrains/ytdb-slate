@@ -331,16 +331,26 @@ test("D121: an owned fork holding no parseable entry is re-forked from the retai
   assert.equal(readFileSync(source, "utf8"), transcript(3));
 });
 
-test("D121: an empty transcript and a headerless transcript are refused as damaged", (t) => {
+test("BG6: a zero-length owned transcript without a retained source reaches pi's in-place recovery", (t) => {
   const h = harness(t);
   const empty = join(h.threads, "empty.jsonl");
-  const headerless = join(h.threads, "headerless.jsonl");
   writeFileSync(empty, "");
+  const record = thread(empty);
+
+  assert.equal(h.prepare(record), empty, "slate must return the same path for SessionManager.open to reinitialize");
+  const recovered = SessionManager.open(empty);
+  assert.equal(recovered.getSessionFile(), empty);
+  assert.equal(readFileSync(empty, "utf8").length > 0, true, "pi writes a fresh session header in place");
+  assert.equal(record.sessionFile, empty);
+  assert.equal(record.forkedFrom, undefined);
+});
+
+test("D121: a non-empty headerless owned transcript remains refused as damaged", (t) => {
+  const h = harness(t);
+  const headerless = join(h.threads, "headerless.jsonl");
   writeFileSync(headerless, `${transcript().split("\n")[1]}\n`);
 
-  assert.throws(() => h.prepare(thread(empty)), /holds no parseable entry/);
   assert.throws(() => h.prepare(thread(headerless)), /no valid session header/);
-  assert.equal(existsSync(empty), true);
   assert.equal(existsSync(headerless), true);
 });
 
@@ -547,16 +557,23 @@ test("SE91: a FIFO under an approved root is refused promptly instead of blockin
   assert.throws(() => h.prepare(thread(fifo)), /missing, linked, changing, or outside approved thread storage/);
 });
 
-test("SE92: a hardlink under an approved root is refused", (t) => {
+test("SE92: a hardlinked fork source is refused while ordinary contained reads remain available", (t) => {
   const h = harness(t);
   const outside = join(h.workspace.root, "outside.jsonl");
   writeFileSync(outside, transcript());
-  const inside = join(h.threads, "hardlink.jsonl");
+  const inheritedDirectory = join(h.workspace.projectDirectory, "hardlink-source-0014", "threads");
+  mkdirSync(inheritedDirectory, { recursive: true });
+  const inside = join(inheritedDirectory, "hardlink.jsonl");
   linkSync(outside, inside);
 
-  assert.equal(resolveContainedThreadFile(h.workspace.cwd, inside, h.workspace.projectDirectory), undefined);
-  assert.throws(() => h.prepare(thread(inside)), /missing, linked, changing, or outside approved thread storage/);
+  assert.equal(
+    resolveContainedThreadFile(h.workspace.cwd, inside, h.workspace.projectDirectory),
+    inside,
+    "ordinary containment may read a hardlink snapshot",
+  );
+  assert.throws(() => h.prepare(thread(inside)), /source is missing, linked, changing, or outside approved thread storage/);
   assert.equal(readFileSync(outside, "utf8"), transcript());
+  assert.deepEqual(forkedFiles(h), []);
 });
 
 test("thread containment rejects direct links, outside files, and linked parents", (t) => {
@@ -581,21 +598,63 @@ test("thread containment rejects direct links, outside files, and linked parents
   assert.equal(readFileSync(outside, "utf8"), transcript());
 });
 
-test("an unsafe session file drops its thread while a valid one survives restore", (t) => {
+test("RG271: restore retains refused thread and episode records, and a later save preserves them", (t) => {
   const h = harness(t);
-  const outside = join(h.workspace.root, "outside.jsonl");
-  writeFileSync(outside, transcript());
+  const outsideThread = join(h.workspace.root, "outside-thread.jsonl");
+  const outsideEpisode = join(h.workspace.root, "outside-episode.md");
+  writeFileSync(outsideThread, transcript());
+  writeFileSync(outsideEpisode, "episode");
   const notices: string[] = [];
-  const ctx = {
+  const appended: SlateSnapshot[] = [];
+  const store = new SlateStore({ appendEntry(_type: string, data: SlateSnapshot) { appended.push(data); } } as unknown as ExtensionAPI);
+  store.corpusProject = h.workspace.project;
+  const record = thread(outsideThread, { episodeIds: ["t7.e1"], episodeSeq: 1 });
+  const episode: EpisodeRecord = {
+    id: "t7.e1", threadId: "t7", task: "work", status: "ok", file: outsideEpisode, createdAt: 2,
+  };
+  store.adoptSnapshot(snapshotOf([record], [episode]), {
     cwd: h.workspace.cwd,
     hasUI: true,
     ui: { notify: (message: string) => notices.push(message) },
-  } as unknown as ExtensionContext;
+  } as unknown as ExtensionContext);
 
-  h.store.adoptSnapshot(snapshotOf([thread(outside, { forkedFrom: corpusSource(h.workspace) })]), ctx);
-  assert.equal(h.store.threads.size, 0, "the session file remains the load-bearing path");
-  assert.match(notices.join("\n"), /session file is missing, linked, or outside slate thread storage/);
+  assert.equal(store.threads.size, 1, "a containment refusal may not erase thread history");
+  assert.equal(store.episodes.size, 1, "a containment refusal may not erase episode history");
+  assert.deepEqual(store.threads.get("t7")?.episodeIds, ["t7.e1"]);
+  store.save();
+  assert.equal(appended.at(-1)?.threads.length, 1, "the next save must preserve the refused thread");
+  assert.equal(appended.at(-1)?.episodes.length, 1, "the next save must preserve the refused episode");
+  assert.match(notices.join("\n"), /retaining sessionFile/);
+  assert.match(notices.join("\n"), /retaining file/);
+});
 
+test("RG271: hardlink-based corpus snapshots restore threads and episodes without record loss", (t) => {
+  const h = harness(t);
+  const owned = join(h.threads, "owned.jsonl");
+  const episodeDirectory = join(h.workspace.projectDirectory, SESSION_NAME, "episodes");
+  mkdirSync(episodeDirectory, { recursive: true });
+  const episodeFile = join(episodeDirectory, "t7.e1.md");
+  writeFileSync(owned, transcript());
+  writeFileSync(episodeFile, "episode");
+  linkSync(owned, join(h.workspace.root, "snapshot-worker.jsonl"));
+  linkSync(episodeFile, join(h.workspace.root, "snapshot-episode.md"));
+  const record = thread(owned, { episodeIds: ["t7.e1"], episodeSeq: 1 });
+  const episode: EpisodeRecord = {
+    id: "t7.e1", threadId: "t7", task: "work", status: "ok", file: episodeFile, createdAt: 2,
+  };
+
+  h.store.adoptSnapshot(snapshotOf([record], [episode]), { cwd: h.workspace.cwd, hasUI: false } as unknown as ExtensionContext);
+  assert.equal(h.store.threads.size, 1);
+  assert.equal(h.store.episodes.size, 1);
+  assert.deepEqual(h.store.threads.get("t7")?.episodeIds, ["t7.e1"]);
+  h.store.slateSessionName = SESSION_NAME; // adoptSnapshot resets identity before normal resolution restores it
+  assert.equal(h.prepare(h.store.threads.get("t7")!), owned, "an owned hardlinked transcript remains readable in place");
+});
+
+test("a malformed forkedFrom type is sanitized without affecting its thread", (t) => {
+  const h = harness(t);
+  const outside = join(h.workspace.root, "outside.jsonl");
+  writeFileSync(outside, transcript());
   const repairs: string[] = [];
   const malformed = sanitizeThreadRecord(thread(outside, { forkedFrom: 42 as unknown as string }), repairs);
   assert.equal(malformed?.forkedFrom, undefined);
@@ -713,11 +772,16 @@ test("publishStagedFile refuses a missing staged file and rethrows a reservation
   writeFileSync(staging, transcript());
   const readOnly = join(h.workspace.projectDirectory, SESSION_NAME, "read-only");
   mkdirSync(readOnly, { recursive: true });
-  t.after(() => restorePermissions(readOnly));
   chmodSync(readOnly, 0o500);
-  assert.throws(() => publishStagedFile(staging, join(readOnly, "final.jsonl"), () => {}), /EACCES|EPERM/);
-  assert.equal(existsSync(staging), true, "the staged file survives a refused reservation");
-  assert.deepEqual(readdirSync(readOnly), [], "no placeholder may be left behind");
+  try {
+    assert.throws(() => publishStagedFile(staging, join(readOnly, "final.jsonl"), () => {}), /EACCES|EPERM/);
+    assert.equal(existsSync(staging), true, "the staged file survives a refused reservation");
+    assert.deepEqual(readdirSync(readOnly), [], "no placeholder may be left behind");
+  } finally {
+    // TS1. This runs even when an assertion above fails, before workspace cleanup tries to
+    // descend into the directory. A later after-hook was too late because hooks run FIFO.
+    restorePermissions(readOnly);
+  }
 });
 
 test("publishStagedFile retires its own reservation when the rename fails", (t) => {
@@ -727,12 +791,14 @@ test("publishStagedFile retires its own reservation when the rename fails", (t) 
   const staging = join(stagingDirectory, "staged.jsonl");
   const final = join(h.threads, "final.jsonl");
   writeFileSync(staging, transcript());
-  t.after(() => restorePermissions(stagingDirectory));
   chmodSync(stagingDirectory, 0o500); // a rename must unlink the staged name, so it fails here
-
-  assert.throws(() => publishStagedFile(staging, final, () => {}), /could not publish the staged file/);
-  assert.equal(existsSync(final), false, "the reserved destination must be retired again");
-  chmodSync(stagingDirectory, 0o700);
+  try {
+    assert.throws(() => publishStagedFile(staging, final, () => {}), /could not publish the staged file/);
+    assert.equal(existsSync(final), false, "the reserved destination must be retired again");
+  } finally {
+    // TS1. Restore before any assertion after this point and before workspace cleanup.
+    restorePermissions(stagingDirectory);
+  }
   assert.equal(parsedCount(staging), 2, "the staged file still holds the only copy");
 });
 
@@ -772,8 +838,8 @@ test("an unsafe recorded transcript recovers from the retained source instead of
   const source = corpusSource(h.workspace, "nimble-shrew-0013", 3);
   const outside = join(h.workspace.root, "outside.jsonl");
   writeFileSync(outside, transcript());
-  const unsafe = join(h.threads, "hardlinked.jsonl");
-  linkSync(outside, unsafe); // containment refuses this, so the recorded path is unusable
+  const unsafe = join(h.threads, "linked.jsonl");
+  symlinkSync(outside, unsafe); // ordinary containment refuses a symbolic link
   const record = thread(unsafe, { forkedFrom: source });
 
   const recovered = h.prepare(record);
@@ -783,6 +849,26 @@ test("an unsafe recorded transcript recovers from the retained source instead of
   assert.equal(record.sessionFile, recovered);
   assert.equal(record.forkedFrom, source);
   assert.equal(existsSync(unsafe), true, "the unusable path is left exactly as it was");
+});
+
+test("TQ7: a non-DamagedTranscript inspection error never authorizes a re-fork", (t) => {
+  const h = harness(t);
+  const owned = join(h.threads, "owned.jsonl");
+  const source = corpusSource(h.workspace, "steady-yak-0015", 3);
+  writeFileSync(owned, transcript(4));
+  const record = thread(owned, { forkedFrom: source });
+  let forks = 0;
+  const view = h.manager as unknown as {
+    inspectOwnedTranscript(): void;
+    createTranscriptFork(): never;
+  };
+  view.inspectOwnedTranscript = () => { throw new Error("inspection infrastructure failed"); };
+  view.createTranscriptFork = () => { forks++; throw new Error("must not fork"); };
+
+  assert.throws(() => h.prepare(record), /inspection infrastructure failed/);
+  assert.equal(forks, 0, "only DamagedTranscript may authorize recovery from an older source");
+  assert.equal(record.sessionFile, owned);
+  assert.equal(readFileSync(owned, "utf8"), transcript(4));
 });
 
 test("SE95: the inspection byte bound is enforced while reading", (t) => {
