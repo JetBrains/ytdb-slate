@@ -428,9 +428,10 @@ redirected into an artifact file) is still visible.
    Existing removal-path directories receive the same ownership and mode check.
 
    One atomic `mkdir` acquires `<lab>/.slate-ladder.lock` before setup. The lock
-   remains through final safety reporting and the cleanup trap releases it. An
-   existing lock refuses the run immediately and names the manual stale-lock
-   remedy; the harness never waits or guesses whether another run is alive.
+   remains through final safety reporting. Cleanup releases it, or prints the
+   lock path and manual remedy when release fails. A failed release changes an
+   otherwise successful exit to non-zero. An existing lock refuses the run
+   immediately; the harness never waits or guesses whether another run is alive.
 3. **Every directory the harness writes to is validated, not just one.**
    `agent/`, `work/`, `out/` and `weak/` are each created with a *checked*
    `mkdir`, canonicalised, required to be non-empty, absolute, an actual
@@ -519,10 +520,11 @@ belongs to the current run. The positive scratch-corpus assertion above covers
 slate corpus redirection.
 
 An `EXIT`/`INT`/`TERM` trap restores permissions on any settings file the rungs
-made read-only, removes any lock directory left held, and kills background
-helpers — for lab paths containing spaces too, and skipping anything that is no
-longer a real directory inside the lab. Artifacts are deliberately **not**
-removed — they are the evidence.
+made read-only, releases its lab lock, and kills background helpers — for lab
+paths containing spaces too, and skipping anything that is no longer a real
+directory inside the lab. A failed lock release is reported and forces a
+non-zero exit. Artifacts are deliberately **not** removed — they are the
+evidence.
 
 ### What the guards do NOT cover
 

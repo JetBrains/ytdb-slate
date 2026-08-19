@@ -225,14 +225,27 @@ assert_private_owned_dir "$LAB" "the scratch root"
 # guessing whether another process still owns this lab.
 LAB_LOCK="$LAB/.slate-ladder.lock"
 LAB_LOCK_HELD=0
+LAB_LOCK_RELEASE_REPORTED=0
 release_lab_lock() {
-	if [ "$LAB_LOCK_HELD" = 1 ]; then
-		rmdir "$LAB_LOCK" 2>/dev/null || true
+	[ "$LAB_LOCK_HELD" = 1 ] || return 0
+	if rmdir "$LAB_LOCK" 2>/dev/null; then
 		LAB_LOCK_HELD=0
+		return 0
 	fi
+	if [ "$LAB_LOCK_RELEASE_REPORTED" = 0 ]; then
+		LAB_LOCK_RELEASE_REPORTED=1
+		echo "verification: could not release lab lock '$LAB_LOCK'. The lock still exists. Remove its contents, then remove the lock after confirming no ladder uses this lab." >&8
+	fi
+	return 1
 }
-early_signal() { release_lab_lock; exit 130; }
-trap release_lab_lock EXIT
+early_finish() {
+	local status="$1"
+	trap - EXIT
+	if ! release_lab_lock; then [ "$status" -ne 0 ] || status=1; fi
+	exit "$status"
+}
+early_signal() { trap - EXIT; release_lab_lock || true; exit 130; }
+trap 'early_finish $?' EXIT
 trap early_signal INT TERM
 if ! mkdir "$LAB_LOCK" 2>/dev/null; then
 	die "refusing to use lab '$LAB': lock '$LAB_LOCK' already exists. Confirm no ladder uses this lab, then remove the stale lock and retry."
@@ -342,8 +355,20 @@ cleanup() {
 	jobs -p 2>/dev/null | while read -r j; do kill "$j" 2>/dev/null; done
 	release_lab_lock
 }
-on_signal() { cleanup; echo >&8; echo "verification: interrupted — artifacts kept in $OUT" >&8; exit 130; }
-trap cleanup EXIT
+finish_cleanup() {
+	local status="$1"
+	trap - EXIT
+	if ! cleanup; then [ "$status" -ne 0 ] || status=1; fi
+	exit "$status"
+}
+on_signal() {
+	trap - EXIT
+	cleanup || true
+	echo >&8
+	echo "verification: interrupted — artifacts kept in $OUT" >&8
+	exit 130
+}
+trap 'finish_cleanup $?' EXIT
 trap on_signal INT TERM
 
 # ---------------------------------------------------------------- bookkeeping
@@ -970,6 +995,7 @@ echo
 # without launching pi at all — previously people used an unknown --only id for
 # that, which is now (correctly) a hard error.
 if [ "$SETUP_ONLY" = 1 ]; then
+	release_lab_lock || exit 1
 	echo "SETUP OK — guards passed, fixtures and generated copies built; no rungs run by request (--setup-only)."
 	echo "artifacts: $OUT"
 	exit 0
