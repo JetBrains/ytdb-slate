@@ -89,6 +89,7 @@ import {
 } from "./worker-extensions.ts";
 import { sanitizeWritingConfig } from "./writing.ts";
 import { resolveCorpusProject } from "./corpus.ts";
+import { sanitizeForNotify } from "./notify.ts";
 
 function loadConfig(cwd: string): SlateConfig {
 	const file = join(cwd, CONFIG_DIR_NAME, "slate.json");
@@ -157,8 +158,16 @@ export default function (pi: ExtensionAPI) {
 		// Trust gate: project config steers prompts, models, and tool lists, so
 		// it is honored only for trusted projects; untrusted → built-in defaults.
 		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
-		store.corpusProject = resolveCorpusProject(ctx.cwd, config.corpusName);
 		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
+		try {
+			store.corpusProject = resolveCorpusProject(ctx.cwd, config.corpusName);
+		} catch (error) {
+			store.corpusProject = undefined;
+			warn(
+				`slate: could not resolve the corpus project — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}. ` +
+					"Slate will refuse artifact writes in this session.",
+			);
+		}
 		// modelFailover, contextBudget and workerExtensions are validated eagerly:
 		// a malformed value would otherwise fail silently mid-dispatch / exactly
 		// when the auto-pause was supposed to save the orchestrator's context.
@@ -295,6 +304,7 @@ export default function (pi: ExtensionAPI) {
 		);
 		store.resolveSessionIdentity(owner, report, undefined, {
 			cwd: ctx.cwd,
+			project: store.corpusProject,
 			piSessionName: (pi as ExtensionAPI & { getSessionName?: () => string | undefined }).getSessionName?.(),
 		});
 	});

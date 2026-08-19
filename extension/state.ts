@@ -1107,7 +1107,7 @@ export class SlateStore {
 		currentOwnerSessionDigest: string,
 		report: (message: string) => void,
 		mint?: () => string,
-		session?: { cwd: string; corpusName?: unknown; piSessionName?: string },
+		session?: { cwd: string; corpusName?: unknown; piSessionName?: string; project?: CorpusProject },
 	): boolean {
 		if (session !== undefined) this.sessionNamespaceRequired = true;
 		let firstNameBytes: Buffer | undefined;
@@ -1127,7 +1127,10 @@ export class SlateStore {
 		let nameChanged = resolved.slateSessionName === undefined && restored.slateSessionName !== undefined;
 		let createdSession: { project: CorpusProject; identity: string; name: string } | undefined;
 		if (session !== undefined) {
-			const project = this.corpusProject ?? resolveCorpusProject(session.cwd, session.corpusName);
+			const project = "project" in session
+				? session.project
+				: this.corpusProject ?? resolveCorpusProject(session.cwd, session.corpusName);
+			if (project === undefined) return false;
 			this.corpusProject = project;
 			if (name !== undefined && !validateCorpusSession(project, name, resolved.slateSessionId)) {
 				report(`slate: session directory ${sanitizeForNotify(name, 48)} is missing or does not match its metadata. Slate is recovering the namespace.`);

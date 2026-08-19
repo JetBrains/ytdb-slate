@@ -635,6 +635,31 @@ async function startEntry(api: EntryExtensionApi, ctx: ExtensionContext): Promis
   for (const handler of handlers) await handler({}, ctx);
 }
 
+test("entry-point session start survives an unavailable working directory", { timeout: 1000 }, async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "slate-identity-missing-cwd-test-"));
+  const oldAgent = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(root, "agent");
+  mkdirSync(process.env.PI_CODING_AGENT_DIR);
+  t.after(() => {
+    if (oldAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = oldAgent;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const cwd = join(root, "deleted-project");
+  mkdirSync(cwd);
+  const api = new EntryExtensionApi();
+  slateExtension(api as unknown as ExtensionAPI);
+  const ctx = entryContext(cwd, "missing-cwd", join(root, "missing-cwd.jsonl"));
+  rmSync(cwd, { recursive: true });
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
+
+  await assert.doesNotReject(startEntry(api, ctx));
+  assert.match(warnings.join("\n"), /could not resolve the corpus project.*refuse artifact writes/);
+  assert.equal(api.appended.length, 0);
+});
+
 test("entry-point session-start wiring mints fresh name and resolves only after handoff adoption", { timeout: 1000 }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "slate-identity-entry-test-"));
   const oldAgent = process.env.PI_CODING_AGENT_DIR;
