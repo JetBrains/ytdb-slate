@@ -88,6 +88,7 @@ import {
 	type WorkerExtensionSet,
 } from "./worker-extensions.ts";
 import { sanitizeWritingConfig } from "./writing.ts";
+import { resolveCorpusProject } from "./corpus.ts";
 
 function loadConfig(cwd: string): SlateConfig {
 	const file = join(cwd, CONFIG_DIR_NAME, "slate.json");
@@ -156,7 +157,7 @@ export default function (pi: ExtensionAPI) {
 		// Trust gate: project config steers prompts, models, and tool lists, so
 		// it is honored only for trusted projects; untrusted → built-in defaults.
 		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
-		store.corpusName = config.corpusName;
+		store.corpusProject = resolveCorpusProject(ctx.cwd, config.corpusName);
 		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
 		// modelFailover, contextBudget and workerExtensions are validated eagerly:
 		// a malformed value would otherwise fail silently mid-dispatch / exactly
@@ -294,7 +295,6 @@ export default function (pi: ExtensionAPI) {
 		);
 		store.resolveSessionIdentity(owner, report, undefined, {
 			cwd: ctx.cwd,
-			corpusName: store.corpusName,
 			piSessionName: (pi as ExtensionAPI & { getSessionName?: () => string | undefined }).getSessionName?.(),
 		});
 	});

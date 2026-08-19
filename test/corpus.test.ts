@@ -12,7 +12,6 @@ import {
   resolveContainedFile,
   resolveCorpusProject,
   sanitizeCorpusLabel,
-  selectCorpusProjectForIdentity,
   SlateWriteRefused,
   validateCorpusSession,
   withContainedFile,
@@ -107,19 +106,14 @@ test("project derivation reuses an existing digest directory after its label cha
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
 });
 
-test("identity evidence selects the matching directory when one digest has several labels", () => {
+test("project derivation refuses several directories with one digest", () => {
   const paths = workspace();
   try {
     withAgent(paths.agent, () => {
       const project = resolveCorpusProject(paths.project, "first-label");
-      const first = join(project.root, `first-label-${project.digest}`);
-      const second = join(project.root, `second-label-${project.digest}`);
-      const name = "calm-otter-7f3a";
-      mkdirSync(join(first, name), { recursive: true });
-      writeFileSync(join(first, name, "session.json"), JSON.stringify({ identity: "wanted", name }));
-      mkdirSync(second);
-      const resolved = resolveCorpusProject(paths.project, "second-label");
-      assert.equal(selectCorpusProjectForIdentity(resolved, "wanted").directory, first);
+      mkdirSync(join(project.root, `first-label-${project.digest}`), { recursive: true });
+      mkdirSync(join(project.root, `second-label-${project.digest}`));
+      assert.throws(() => resolveCorpusProject(paths.project, "second-label"), /several corpus project directories.*first-label.*second-label/);
     });
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
 });
@@ -147,7 +141,6 @@ test("exclusive session creation retries a collision with fresh four-byte input"
       for (const category of ["episodes", "observations", "threads"]) {
         assert.equal(statSync(join(second.directory, category)).mode & 0o777, 0o700);
       }
-      assert.equal(createCorpusSession({ cwd: paths.project, identity: "id-two", initialNameBytes: Uint8Array.from([9, 9, 9, 9]) }).name, second.name);
     });
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
 });
@@ -240,11 +233,12 @@ test("new artifact writes use the corpus session namespace and logical session r
   try {
     withAgent(paths.agent, () => {
       const session = createCorpusSession({ cwd: paths.project, identity: "id", initialNameBytes: Uint8Array.from([3, 3, 0, 2]) });
-      const written = writeSlateArtifact({ cwd: paths.project, sessionName: session.name, kind: "episodes", id: "t1.e1", content: "episode" });
+      mkdirSync(join(session.project.root, `other-${session.project.digest}`));
+      const written = writeSlateArtifact({ cwd: paths.project, sessionName: session.name, projectDirectory: session.project.directory, kind: "episodes", id: "t1.e1", content: "episode" });
       assert.equal(written.absolutePath, join(session.directory, "episodes", "t1.e1.md"));
       assert.equal(written.reference, `.pi/slate/sessions/${session.name}/episodes/t1.e1.md`);
       assert.equal(readFileSync(written.absolutePath, "utf8"), "episode");
-      const captured = captureObservation(paths.project, session.name, "t1.e2", "exact output");
+      const captured = captureObservation(paths.project, session.name, "t1.e2", "exact output", session.project.directory);
       assert.equal(captured.stored, true);
       if (captured.stored) assert.equal(captured.path, `.pi/slate/sessions/${session.name}/observations/t1.e2.md`);
       const absent = captureObservation(paths.project, session.name, "t1.e3", undefined);
@@ -263,6 +257,8 @@ test("legacy containment works while the corpus and sibling roots are absent", (
       writeFileSync(legacy, "legacy");
       assert.equal(resolveContainedFile(paths.project, legacy), legacy);
       assert.equal(readContainedFile(paths.project, legacy)?.toString("utf8"), "legacy");
+      rmSync(paths.project, { recursive: true, force: true });
+      assert.equal(resolveContainedFile(paths.project, legacy), undefined);
     });
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
 });
@@ -277,6 +273,10 @@ test("contained reads reject a pathname replaced during use", () => {
       const outside = join(paths.root, "outside.md");
       writeFileSync(file, "safe");
       writeFileSync(outside, "outside");
+      assert.throws(
+        () => withContainedFile(paths.project, file, undefined, () => { throw new Error("parse failure"); }),
+        /parse failure/,
+      );
       const result = withContainedFile(paths.project, file, undefined, (fd) => {
         assert.equal(readFileSync(fd, "utf8"), "safe");
         rmSync(file);
@@ -295,7 +295,7 @@ test("followed paths accept both roots and reject outside files and symlinks", (
       const session = createCorpusSession({ cwd: paths.project, identity: "id", initialNameBytes: Uint8Array.from([2, 2, 0, 1]) });
       const corpusFile = join(session.directory, "episodes", "t1.e1.md");
       writeFileSync(corpusFile, "episode");
-      assert.equal(resolveContainedFile(paths.project, corpusFile), corpusFile);
+      assert.equal(resolveContainedFile(paths.project, corpusFile, session.project.directory), corpusFile);
 
       const legacyDir = join(paths.project, ".pi", "slate", "episodes");
       mkdirSync(legacyDir, { recursive: true });
@@ -310,10 +310,10 @@ test("followed paths accept both roots and reject outside files and symlinks", (
       assert.equal(resolveContainedFile(paths.project, outside), undefined);
       const link = join(session.directory, "episodes", "linked.md");
       symlinkSync(outside, link);
-      assert.equal(resolveContainedFile(paths.project, link), undefined);
-      assert.equal(readContainedFile(paths.project, join(session.directory, "episodes")), undefined);
+      assert.equal(resolveContainedFile(paths.project, link, session.project.directory), undefined);
+      assert.equal(readContainedFile(paths.project, join(session.directory, "episodes"), session.project.directory), undefined);
       const noncanonical = `${session.directory}/episodes/../episodes/t1.e1.md`;
-      assert.equal(readContainedFile(paths.project, noncanonical), undefined);
+      assert.equal(readContainedFile(paths.project, noncanonical, session.project.directory), undefined);
       chmodSync(session.directory, 0o700);
       assert.equal(readdirSync(session.project.directory).some((name) => name.startsWith(".creating-")), false);
     });

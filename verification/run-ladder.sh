@@ -256,11 +256,9 @@ real_fingerprint() {
 		printf '%s %s' "$h" "$z"
 	else printf 'absent'; fi
 }
-corpus_fingerprint() { # $1 corpus root, $2 watched agent root
-	local corpus="$1" watched="$2"
+corpus_fingerprint() { # $1 corpus root
+	local corpus="$1"
 	(
-		if [ -e "$watched" ]; then stat -c 'watch:%n:%F:%s:%y' "$watched" || exit 1
-		else printf 'watch:absent:%s\n' "$watched"; fi
 		if [ ! -e "$corpus" ]; then printf 'corpus:absent:%s\n' "$corpus"; exit 0; fi
 		[ -d "$corpus" ] || exit 1
 		while IFS= read -r -d '' path; do
@@ -269,27 +267,34 @@ corpus_fingerprint() { # $1 corpus root, $2 watched agent root
 		done < <(find "$corpus" -xdev -print0 | sort -z)
 	) | sha256sum | cut -d' ' -f1
 }
+agent_marker() { # $1 watched agent root
+	if [ -e "$1" ]; then stat -c '%n:%F:%s:%y' "$1"
+	else printf 'absent:%s' "$1"; fi
+}
 real_corpus_fingerprint() {
-	corpus_fingerprint "$REAL_CORPUS" "$REAL_AGENT_DIR" || die "cannot fingerprint the real corpus root"
+	corpus_fingerprint "$REAL_CORPUS" || die "cannot fingerprint the real corpus root"
 }
 # Teeth test: prove both a live mutation and a transient create-delete change
 # the fingerprint. The fixture stays inside the validated ladder scratch root.
 FP_TEETH_AGENT="$LAB/corpus-fingerprint-teeth-agent"
 FP_TEETH_CORPUS="$FP_TEETH_AGENT/ytdb-slate/projects"
 mkdir -p "$FP_TEETH_AGENT" || die "cannot create corpus fingerprint teeth fixture"
-FP_TEETH_BEFORE=$(corpus_fingerprint "$FP_TEETH_CORPUS" "$FP_TEETH_AGENT")
+FP_TEETH_BEFORE=$(corpus_fingerprint "$FP_TEETH_CORPUS")
+FP_TEETH_MARKER_BEFORE=$(agent_marker "$FP_TEETH_AGENT")
 mkdir -p "$FP_TEETH_CORPUS" || die "cannot mutate corpus fingerprint teeth fixture"
 printf 'teeth\n' > "$FP_TEETH_CORPUS/canary"
-FP_TEETH_DURING=$(corpus_fingerprint "$FP_TEETH_CORPUS" "$FP_TEETH_AGENT")
+FP_TEETH_DURING=$(corpus_fingerprint "$FP_TEETH_CORPUS")
 rm -rf "$FP_TEETH_CORPUS"
-FP_TEETH_AFTER=$(corpus_fingerprint "$FP_TEETH_CORPUS" "$FP_TEETH_AGENT")
+FP_TEETH_MARKER_AFTER=$(agent_marker "$FP_TEETH_AGENT")
 [ "$FP_TEETH_BEFORE" != "$FP_TEETH_DURING" ] || die "corpus fingerprint teeth did not detect a live mutation"
-[ "$FP_TEETH_BEFORE" != "$FP_TEETH_AFTER" ] || die "corpus fingerprint teeth did not detect a transient create-delete"
+[ "$FP_TEETH_MARKER_BEFORE" != "$FP_TEETH_MARKER_AFTER" ] || die "agent marker teeth did not detect a transient create-delete"
 rm -rf "$FP_TEETH_AGENT"
 REAL_BEFORE=$(real_fingerprint)
 REAL_CORPUS_BEFORE=$(real_corpus_fingerprint)
+REAL_AGENT_MARKER_BEFORE=$(agent_marker "$REAL_AGENT_DIR")
 [ -n "$REAL_BEFORE" ] || die "the real-settings fingerprint came back empty — refusing to run"
 [ -n "$REAL_CORPUS_BEFORE" ] || die "the real-corpus fingerprint came back empty — refusing to run"
+[ -n "$REAL_AGENT_MARKER_BEFORE" ] || die "the real-agent marker came back empty — refusing to run"
 
 # Cleanup on interrupt as well as on exit: leave the artifacts (they are the
 # evidence) but never leave a settings file read-only, a lock directory held, or
@@ -1453,6 +1458,7 @@ fi
 # Guard 4, second half: the real settings file must be bit-for-bit what it was.
 REAL_AFTER=$(real_fingerprint)
 REAL_CORPUS_AFTER=$(real_corpus_fingerprint)
+REAL_AGENT_MARKER_AFTER=$(agent_marker "$REAL_AGENT_DIR")
 echo
 if scratch_gone; then
 	echo "verification: the scratch directory disappeared mid-run ($LAB) - the results above are VOID." >&2
@@ -1473,14 +1479,24 @@ if [ "$RAN" -eq 0 ]; then
 	echo "       Use --list-rungs to see the ids, or --setup-only to exercise the guards alone." >&2
 	FAIL=$((FAIL+1))
 fi
-if [ "$REAL_BEFORE" = "$REAL_AFTER" ] && [ "$REAL_CORPUS_BEFORE" = "$REAL_CORPUS_AFTER" ]; then
-	printf 'SAFE   %-6s PASS    — %s\n' "" "real settings and corpus unchanged (settings $REAL_BEFORE, corpus $REAL_CORPUS_BEFORE)"
-	LINES+=("SAFE PASS — real settings and corpus unchanged: settings $REAL_BEFORE corpus $REAL_CORPUS_BEFORE")
-else
+if [ "$REAL_BEFORE" != "$REAL_AFTER" ]; then
 	FAIL=$((FAIL+1))
-	printf 'SAFE   %-6s FAIL    — %s\n' "" "REAL PI STATE CHANGED — settings before: $REAL_BEFORE after: $REAL_AFTER; corpus before: $REAL_CORPUS_BEFORE after: $REAL_CORPUS_AFTER"
-	LINES+=("SAFE FAIL — real pi state CHANGED: settings $REAL_BEFORE/$REAL_AFTER corpus $REAL_CORPUS_BEFORE/$REAL_CORPUS_AFTER")
+	printf 'SAFE   %-6s FAIL    — %s\n' "" "REAL SETTINGS FILE CHANGED — before: $REAL_BEFORE after: $REAL_AFTER"
+	LINES+=("SAFE FAIL — real settings changed: before $REAL_BEFORE after $REAL_AFTER")
 	echo "verification: a pi invocation escaped the PI_CODING_AGENT_DIR redirect. Investigate before trusting any rung above." >&2
+elif [ "$REAL_CORPUS_BEFORE" != "$REAL_CORPUS_AFTER" ]; then
+	FAIL=$((FAIL+1))
+	printf 'SAFE   %-6s FAIL    — %s\n' "" "REAL CORPUS CONTENT CHANGED — before: $REAL_CORPUS_BEFORE after: $REAL_CORPUS_AFTER"
+	LINES+=("SAFE FAIL — real corpus content changed: before $REAL_CORPUS_BEFORE after $REAL_CORPUS_AFTER")
+	echo "verification: slate corpus content escaped the throwaway agent directory. Investigate before trusting any rung above." >&2
+elif [ "$REAL_AGENT_MARKER_BEFORE" != "$REAL_AGENT_MARKER_AFTER" ]; then
+	FAIL=$((FAIL+1))
+	printf 'SAFE   %-6s FAIL    — %s\n' "" "REAL AGENT DIRECTORY MTIME CHANGED — likely concurrent pi activity outside the corpus"
+	LINES+=("SAFE FAIL — real agent directory mtime changed: likely concurrent pi activity outside the corpus")
+	echo "verification: stop other pi activity that shares the real agent directory, then rerun the ladder." >&2
+else
+	printf 'SAFE   %-6s PASS    — %s\n' "" "real settings and corpus unchanged"
+	LINES+=("SAFE PASS — real settings and corpus unchanged")
 fi
 
 echo "== summary: $PASS pass, $FAIL fail, $SKIP not run =="

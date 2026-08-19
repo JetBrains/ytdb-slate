@@ -27,8 +27,8 @@ import {
 	resolveContainedFile,
 	resolveCorpusProject,
 	scanCorpusSessionsByIdentity,
-	selectCorpusProjectForIdentity,
 	validateCorpusSession,
+	type CorpusProject,
 } from "./corpus.ts";
 import { drawSlateMint, isSlateSessionName } from "./session-names.ts";
 
@@ -641,8 +641,8 @@ function moneyAmount(value: unknown): number | undefined {
 }
 
 /** Resolve a regular followed file within the corpus project or legacy flat layout. */
-export function resolveEpisodeFile(cwd: string, value: unknown, corpusName?: unknown): string | undefined {
-	return resolveContainedFile(cwd, value, corpusName);
+export function resolveEpisodeFile(cwd: string, value: unknown, projectDirectory?: string): string | undefined {
+	return resolveContainedFile(cwd, value, projectDirectory);
 }
 
 /** Validate the complete observation record, including its exact canonical reference. */
@@ -1057,9 +1057,8 @@ export class SlateStore {
 	slateSessionId: string | undefined;
 	slateSessionName: string | undefined;
 	ownerSessionDigest: string | undefined;
-	corpusName: unknown;
+	corpusProject: CorpusProject | undefined;
 	private sessionNamespaceRequired = false;
-	private mustMintSessionName = false;
 	orchestratorMode = false;
 	/** When true (context budget exceeded) ThreadManager rejects NEW dispatches. */
 	paused = false;
@@ -1124,23 +1123,18 @@ export class SlateStore {
 			...(this.ownerSessionDigest !== undefined ? { ownerSessionDigestPresent: true, ownerSessionDigest: this.ownerSessionDigest } : {}),
 		};
 		const resolved = resolveSlateSessionIdentity(restored, currentOwnerSessionDigest, identityMint);
-		let name = resolved.slateSessionName;
-		let nameChanged = false;
-		let createdSession: { project: ReturnType<typeof resolveCorpusProject>; identity: string; name: string } | undefined;
+		let name = resolved.slateSessionName ?? restored.slateSessionName;
+		let nameChanged = resolved.slateSessionName === undefined && restored.slateSessionName !== undefined;
+		let createdSession: { project: CorpusProject; identity: string; name: string } | undefined;
 		if (session !== undefined) {
-			const project = selectCorpusProjectForIdentity(
-				resolveCorpusProject(session.cwd, session.corpusName),
-				resolved.slateSessionId,
-			);
-			if (project.matchingDirectories.length > 1) {
-				report(`slate: several corpus project directories share digest ${project.digest}: ${project.matchingDirectories.map((item) => sanitizeForNotify(item)).join(", ")}. Slate selected ${sanitizeForNotify(project.directory)}.`);
-			}
+			const project = this.corpusProject ?? resolveCorpusProject(session.cwd, session.corpusName);
+			this.corpusProject = project;
 			if (name !== undefined && !validateCorpusSession(project, name, resolved.slateSessionId)) {
 				report(`slate: session directory ${sanitizeForNotify(name, 48)} is missing or does not match its metadata. Slate is recovering the namespace.`);
 				name = undefined;
 				nameChanged = true;
 			}
-			if (name === undefined && resolved.slateSessionId !== undefined && !this.mustMintSessionName) {
+			if (name === undefined && resolved.slateSessionId !== undefined) {
 				const scan = scanCorpusSessionsByIdentity(project, resolved.slateSessionId);
 				if (scan.duplicates.length > 1) {
 					report(`slate: duplicate session directories claim identity ${sanitizeForNotify(resolved.slateSessionId)}: ${scan.duplicates.join(", ")}. Slate refused to select one.`);
@@ -1153,18 +1147,16 @@ export class SlateStore {
 				const identity = resolved.slateSessionId ?? "";
 				const created = createCorpusSession({
 					cwd: session.cwd,
-					corpusName: session.corpusName,
+					project,
 					identity,
 					initialNameBytes: firstNameBytes ?? drawSlateMint(4).nameBytes,
 					piSessionName: session.piSessionName,
-					claimIdentity: !this.mustMintSessionName,
 				});
 				name = created.name;
 				nameChanged = true;
-				createdSession = { project: created.project, identity, name };
+				if (created.created) createdSession = { project: created.project, identity, name };
 			}
 		}
-		this.mustMintSessionName = false;
 		if (resolved.minted || nameChanged) {
 			const candidate = {
 				...this.snapshot(),
@@ -1254,12 +1246,11 @@ export class SlateStore {
 	 * whose files vanished. Shared by restore() and the cross-session handoff
 	 * adoption in handoff.ts.
 	 */
-	adoptSnapshot(latest: SlateSnapshot | undefined, ctx: ExtensionContext, options: { foreignSessionName?: boolean } = {}): void {
+	adoptSnapshot(latest: SlateSnapshot | undefined, ctx: ExtensionContext, options: { foreignSessionIdentity?: boolean } = {}): void {
 		this.threads.clear();
 		this.episodes.clear();
 		this.threadSeq = 0;
 		this.restoredIdentity = sanitizeSnapshotIdentity(undefined, []);
-		this.mustMintSessionName = options.foreignSessionName === true;
 		this.slateSessionId = undefined;
 		this.slateSessionName = undefined;
 		this.ownerSessionDigest = undefined;
@@ -1276,10 +1267,12 @@ export class SlateStore {
 		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
 		this.threadSeq = counter(latest.threadSeq) ?? 0;
 		const dropped: string[] = [];
-		this.restoredIdentity = sanitizeSnapshotIdentity(latest, dropped);
+		const sanitizedIdentity = sanitizeSnapshotIdentity(latest, dropped);
+		this.restoredIdentity = options.foreignSessionIdentity === true
+			? sanitizeSnapshotIdentity(undefined, [])
+			: sanitizedIdentity;
 		this.slateSessionId = this.restoredIdentity.slateSessionId;
-		this.slateSessionName = options.foreignSessionName === true ? undefined : this.restoredIdentity.slateSessionName;
-		if (options.foreignSessionName === true) delete this.restoredIdentity.slateSessionName;
+		this.slateSessionName = this.restoredIdentity.slateSessionName;
 		this.ownerSessionDigest = this.restoredIdentity.ownerSessionDigest;
 		// EVERY record is validated field by field on the way in (BG26) — see
 		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
@@ -1297,7 +1290,7 @@ export class SlateStore {
 				continue;
 			}
 			if (t.sessionFile) {
-				const safeSessionFile = resolveContainedFile(ctx.cwd, t.sessionFile, this.corpusName);
+				const safeSessionFile = resolveContainedFile(ctx.cwd, t.sessionFile, this.corpusProject?.directory);
 				if (safeSessionFile === undefined) {
 					dropped.push(`thread ${t.id} (${t.name}): session file is missing, linked, or outside slate storage`);
 					continue;
@@ -1325,7 +1318,7 @@ export class SlateStore {
 				dropped.push(`episode record without a usable id, thread id or file: ${typeof raw === "object" ? "ignored" : typeof raw}`);
 				continue;
 			}
-			const safeFile = resolveEpisodeFile(ctx.cwd, e.file, this.corpusName);
+			const safeFile = resolveEpisodeFile(ctx.cwd, e.file, this.corpusProject?.directory);
 			if (safeFile === undefined) {
 				dropped.push(`episode ${e.id}: file is missing, non-regular, or outside slate's episode directory`);
 				continue;

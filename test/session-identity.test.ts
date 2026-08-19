@@ -365,6 +365,31 @@ test("a snapshot without a name recovers durable session metadata and persists t
   }
 });
 
+test("an identity-less snapshot reuses its persisted valid session name", () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-legacy-name-recovery-test-"));
+  const project = join(root, "project");
+  const agent = join(root, "agent");
+  mkdirSync(project);
+  mkdirSync(agent);
+  const oldAgent = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agent;
+  try {
+    const created = createCorpusSession({ cwd: project, identity: "", initialNameBytes: Uint8Array.from([3, 4, 5, 6]) });
+    const appended: Array<Record<string, unknown>> = [];
+    const store = new SlateStore({ appendEntry(_type: string, data: Record<string, unknown>) { appended.push(data); } } as unknown as ExtensionAPI);
+    store.adoptSnapshot(snapshot({ slateSessionName: created.name }), { cwd: project, hasUI: false } as unknown as ExtensionContext);
+    store.resolveSessionIdentity(OWNER, () => {}, undefined, { cwd: project });
+    assert.equal(store.slateSessionId, undefined);
+    assert.equal(store.slateSessionName, created.name);
+    assert.equal(appended.at(-1)?.slateSessionName, created.name);
+    assert.equal(readdirSync(created.project.directory).filter(isSlateSessionName).length, 1);
+  } finally {
+    if (oldAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = oldAgent;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a missing named session directory is replaced and reported", () => {
   const root = mkdtempSync(join(tmpdir(), "slate-name-missing-test-"));
   const project = join(root, "project");
@@ -398,8 +423,8 @@ test("duplicate durable identity claims are reported and refused", () => {
   const oldAgent = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agent;
   try {
-    createCorpusSession({ cwd: project, identity: ID, initialNameBytes: Uint8Array.from([1, 1, 0, 1]), claimIdentity: false });
-    createCorpusSession({ cwd: project, identity: ID, initialNameBytes: Uint8Array.from([2, 2, 0, 2]), claimIdentity: false });
+    createCorpusSession({ cwd: project, identity: ID, initialNameBytes: Uint8Array.from([1, 1, 0, 1]) });
+    createCorpusSession({ cwd: project, identity: ID, initialNameBytes: Uint8Array.from([2, 2, 0, 2]) });
     const reports: string[] = [];
     const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
     store.adoptSnapshot(snapshot({ slateSessionId: ID, ownerSessionDigest: OWNER }), { cwd: project, hasUI: false } as unknown as ExtensionContext);
@@ -435,16 +460,18 @@ test("runtime persistence failure removes its new namespace and refuses later wr
   }
 });
 
-test("foreign snapshot adoption drops only the predecessor session name", () => {
+test("foreign snapshot adoption drops predecessor identity, owner, and name", () => {
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
   store.adoptSnapshot(
     snapshot({ slateSessionId: ID, slateSessionName: "calm-otter-7f3a", ownerSessionDigest: OWNER }),
     { cwd: process.cwd(), hasUI: false } as unknown as ExtensionContext,
-    { foreignSessionName: true },
+    { foreignSessionIdentity: true },
   );
-  assert.equal(store.slateSessionId, ID);
-  assert.equal(store.ownerSessionDigest, OWNER);
+  assert.equal(store.slateSessionId, undefined);
+  assert.equal(store.ownerSessionDigest, undefined);
   assert.equal(store.slateSessionName, undefined);
+  assert.equal(store.snapshot().slateSessionId, undefined);
+  assert.equal(store.snapshot().ownerSessionDigest, undefined);
   assert.equal(store.snapshot().slateSessionName, undefined);
 });
 
@@ -462,7 +489,7 @@ test("failed adoption preserves pending content and a following session adopts i
   const following = handoffHarness();
   await following.handler({}, handoffContext(cwd, "following-successor", join(cwd, "following.jsonl")));
   assert.equal(following.appended.length, 1);
-  assert.equal(following.store.slateSessionId, ID);
+  assert.equal(following.store.slateSessionId, undefined);
   assert.equal(existsSync(file), false);
   assert.deepEqual(claimFiles(file), []);
 });
@@ -483,7 +510,7 @@ test("failed adoption never overwrites a newer pending handoff", { timeout: 1000
 
   const following = handoffHarness();
   await following.handler({}, handoffContext(cwd, "following-successor", join(cwd, "following.jsonl")));
-  assert.equal(following.store.slateSessionId, FRESH_ID);
+  assert.equal(following.store.slateSessionId, undefined);
   assert.equal(existsSync(file), false);
 });
 
@@ -525,8 +552,8 @@ test("exclusive pending-handoff marker lets exactly one operating-system process
   assert.equal(results.reduce((sum, result) => sum + result.adoptions, 0), 1);
   const winner = results.find((result) => result.adoptions === 1);
   assert.ok(winner);
-  assert.equal(winner.slateSessionId, ID);
-  assert.match(winner.ownerSessionDigest ?? "", OWNER_SESSION_DIGEST_PATTERN);
+  assert.equal(winner.slateSessionId, undefined);
+  assert.equal(winner.ownerSessionDigest, undefined);
   assert.equal(existsSync(file), false);
   assert.deepEqual(claimFiles(file), []);
 
@@ -558,7 +585,7 @@ test("terminated claimant leaves pending data for adoption after marker ages out
   const following = handoffHarness();
   await following.handler({}, handoffContext(cwd, "following-successor", join(cwd, "following.jsonl")));
   assert.equal(following.appended.length, 1);
-  assert.equal(following.store.slateSessionId, ID);
+  assert.equal(following.store.slateSessionId, undefined);
   assert.equal(existsSync(file), false);
   assert.equal(existsSync(marker), false);
 });
@@ -653,7 +680,8 @@ test("entry-point session-start wiring mints fresh name and resolves only after 
   await startEntry(adoptedApi, entryContext(adoptedCwd, "successor", adoptedFile));
   assert.equal(adoptedApi.appended.length, 2);
   const adoptedState = adoptedApi.appended.at(-1);
-  assert.equal(adoptedState?.slateSessionId, ID);
+  assert.match(String(adoptedState?.slateSessionId), SLATE_SESSION_ID_PATTERN);
+  assert.notEqual(adoptedState?.slateSessionId, ID);
   assert.match(String(adoptedState?.slateSessionName), /^[a-z][a-z0-9-]*-[0-9a-f]{4}$/);
   assert.notEqual(adoptedState?.slateSessionName, "calm-otter-7f3a");
   assert.equal(

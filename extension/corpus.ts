@@ -14,7 +14,6 @@ import {
 	renameSync,
 	rmSync,
 	statSync,
-	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
@@ -163,11 +162,10 @@ export function resolveCorpusProject(cwd: string, corpusName?: unknown): CorpusP
 	const digest = createHash("sha256").update(key).digest("hex").slice(0, 12);
 	const preferred = join(root, `${label}-${digest}`);
 	const matchingDirectories = existingDigestDirectories(root, digest);
-	const newest = [...matchingDirectories].sort((a, b) => {
-		const byTime = statSync(b).mtimeMs - statSync(a).mtimeMs;
-		return byTime === 0 ? a.localeCompare(b) : byTime;
-	})[0];
-	return { root, key, label, digest, directory: newest ?? preferred, matchingDirectories };
+	if (matchingDirectories.length > 1) {
+		refuse(`slate found several corpus project directories for digest ${digest}: ${matchingDirectories.join(", ")}`);
+	}
+	return { root, key, label, digest, directory: matchingDirectories[0] ?? preferred, matchingDirectories };
 }
 
 function ensureProjectDirectory(project: CorpusProject): void {
@@ -255,57 +253,17 @@ export function scanCorpusSessionsByIdentity(project: CorpusProject, identity: s
 	matches.sort((a, b) => a.name.localeCompare(b.name));
 	return matches.length === 1
 		? { match: matches[0], duplicates: [] }
-		: { duplicates: matches.map((item) => item.name) };
+		: { duplicates: matches.map((item) => item.directory) };
 }
 
 export function findCorpusSessionByIdentity(project: CorpusProject, identity: string): { name: string; directory: string } | undefined {
 	return scanCorpusSessionsByIdentity(project, identity).match;
 }
 
-export function selectCorpusProjectForIdentity(project: CorpusProject, identity: string | undefined): CorpusProject {
-	if (project.matchingDirectories.length < 2 || identity === undefined) return project;
-	const containing = project.matchingDirectories.filter((directory) =>
-		scanCorpusSessionsByIdentity({ ...project, directory }, identity).match !== undefined,
-	);
-	if (containing.length === 0) return project;
-	const directory = [...containing].sort((a, b) => {
-		const byTime = statSync(b).mtimeMs - statSync(a).mtimeMs;
-		return byTime === 0 ? a.localeCompare(b) : byTime;
-	})[0]!;
-	return { ...project, directory };
-}
-
 function nameCandidate(bytes: Uint8Array): string {
 	const name = sessionNameFromBytes(bytes);
 	if (!isSlateSessionName(name)) refuse("slate refused an invalid generated session name");
 	return name;
-}
-
-function identityIndexFile(project: CorpusProject, identity: string): string {
-	return join(project.directory, ".identities", `${createHash("sha256").update(identity).digest("hex")}.json`);
-}
-
-function claimIdentityName(project: CorpusProject, identity: string, proposed: string): { name: string; owned: boolean; file?: string } {
-	if (identity === "") return { name: proposed, owned: true };
-	const indexDir = join(project.directory, ".identities");
-	ensureRealDirectory(indexDir);
-	const file = identityIndexFile(project, identity);
-	try {
-		durableJson(file, { identity, name: proposed });
-		return { name: proposed, owned: true, file };
-	} catch (error) {
-		if ((error as { code?: string }).code !== "EEXIST") throw error;
-		const raw = readJsonNoFollow(file);
-		if (typeof raw !== "object" || raw === null || Array.isArray(raw)) refuse("slate refused a malformed session identity claim");
-		const claim = raw as { identity?: unknown; name?: unknown };
-		if (claim.identity !== identity || !isSlateSessionName(claim.name)) refuse("slate refused a mismatched session identity claim");
-		return { name: claim.name, owned: false, file };
-	}
-}
-
-function removeIdentityClaim(file: string): void {
-	unlinkSync(file);
-	fsyncDirectory(dirname(file));
 }
 
 function publishSessionDirectory(directory: string, metadata: SessionMetadata, attempt: number): boolean {
@@ -333,49 +291,33 @@ function publishSessionDirectory(directory: string, metadata: SessionMetadata, a
 
 export function createCorpusSession(opts: {
 	cwd: string;
+	project?: CorpusProject;
 	corpusName?: unknown;
 	identity: string;
 	initialNameBytes?: Uint8Array;
 	piSessionName?: string;
 	now?: Date;
 	drawRetry?: () => Uint8Array;
-	claimIdentity?: boolean;
-}): { project: CorpusProject; name: string; directory: string } {
-	const project = resolveCorpusProject(opts.cwd, opts.corpusName);
+}): { project: CorpusProject; name: string; directory: string; created: true } {
+	const project = opts.project ?? resolveCorpusProject(opts.cwd, opts.corpusName);
 	try {
 		ensureProjectDirectory(project);
-		let claimedName: string | undefined;
 		for (let attempt = 0; attempt < 8; attempt++) {
-			const proposed = claimedName ?? nameCandidate(
+			const name = nameCandidate(
 				attempt === 0 && opts.initialNameBytes !== undefined
 					? opts.initialNameBytes
 					: opts.drawRetry?.() ?? drawSlateMint(4).nameBytes,
 			);
-			const claim = opts.claimIdentity === false ? { name: proposed, owned: true } : claimIdentityName(project, opts.identity, proposed);
-			claimedName = claim.name;
-			const directory = join(project.directory, claim.name);
-			const existing = metadataAt(directory, claim.name);
-			if (existing !== undefined) {
-				if (existing.identity === opts.identity) return { project, name: claim.name, directory };
-				if (!claim.owned) refuse("slate found a session identity claim whose name belongs to another identity");
-				if (claim.file !== undefined) removeIdentityClaim(claim.file);
-				claimedName = undefined;
-				continue;
-			}
+			const directory = join(project.directory, name);
 			const metadata: SessionMetadata = {
 				identity: opts.identity,
-				name: claim.name,
+				name,
 				createdAt: (opts.now ?? new Date()).toISOString(),
 				worktreePath: realpathSync(opts.cwd),
 				branchLabel: currentBranchLabel(opts.cwd),
 				...(opts.piSessionName === undefined ? {} : { piSessionName: opts.piSessionName }),
 			};
-			if (publishSessionDirectory(directory, metadata, attempt)) return { project, name: claim.name, directory };
-			const winner = metadataAt(directory, claim.name);
-			if (winner?.identity === opts.identity) return { project, name: claim.name, directory };
-			if (!claim.owned) continue;
-			if (claim.file !== undefined) removeIdentityClaim(claim.file);
-			claimedName = undefined;
+			if (publishSessionDirectory(directory, metadata, attempt)) return { project, name, directory, created: true };
 		}
 		refuse("slate could not mint a unique session name after eight attempts");
 	} catch (error) {
@@ -389,16 +331,12 @@ export function removeCorpusSession(project: CorpusProject, identity: string, na
 	const metadata = metadataAt(directory, name);
 	if (metadata?.identity !== identity) return;
 	rmSync(directory, { recursive: true, force: true });
-	if (identity !== "") {
-		try { removeIdentityClaim(identityIndexFile(project, identity)); } catch (error) { if ((error as { code?: string }).code !== "ENOENT") throw error; }
-	}
 	fsyncDirectory(project.directory);
 }
 
-function rootsFor(cwd: string, corpusName?: unknown): string[] {
-	const project = resolveCorpusProject(cwd, corpusName);
+function rootsFor(cwd: string, projectDirectory?: string): string[] {
 	const legacy = join(realpathSync(cwd), CONFIG_DIR_NAME, "slate");
-	return [project.directory, ...["episodes", "observations", "threads"].map((kind) => join(legacy, kind))];
+	return [...(projectDirectory === undefined ? [] : [projectDirectory]), ...["episodes", "observations", "threads"].map((kind) => join(legacy, kind))];
 }
 
 function insideRoot(root: string, file: string): boolean {
@@ -409,11 +347,13 @@ function insideRoot(root: string, file: string): boolean {
 export function withContainedFile<T>(
 	cwd: string,
 	value: unknown,
-	corpusName: unknown,
+	projectDirectory: string | undefined,
 	use: (fd: number, path: string) => T,
 ): T | undefined {
 	if (typeof value !== "string" || value === "" || !isAbsolute(value)) return undefined;
-	for (const expected of rootsFor(cwd, corpusName)) {
+	let roots: string[];
+	try { roots = rootsFor(cwd, projectDirectory); } catch { return undefined; }
+	for (const expected of roots) {
 		let root: string;
 		try {
 			root = realpathSync(expected);
@@ -421,31 +361,41 @@ export function withContainedFile<T>(
 		} catch {
 			continue;
 		}
-		let fd: number | undefined;
+		let fd: number;
+		let held: ReturnType<typeof fstatSync>;
+		let canonical: string;
 		try {
 			fd = openSync(value, constants.O_RDONLY | NO_FOLLOW);
-			const held = fstatSync(fd);
+			held = fstatSync(fd);
 			const current = lstatSync(value, { throwIfNoEntry: false });
-			if (!held.isFile() || !current?.isFile() || current.isSymbolicLink() || !sameFile(held, current)) return undefined;
-			const canonical = realpathSync(value);
-			if (canonical !== value || !insideRoot(root, canonical)) return undefined;
+			if (!held.isFile() || !current?.isFile() || current.isSymbolicLink() || !sameFile(held, current)) {
+				closeSync(fd);
+				return undefined;
+			}
+			canonical = realpathSync(value);
+			if (canonical !== value || !insideRoot(root, canonical)) {
+				closeSync(fd);
+				return undefined;
+			}
+		} catch {
+			return undefined;
+		}
+		try {
 			const result = use(fd, canonical);
 			const after = lstatSync(value, { throwIfNoEntry: false });
 			if (!after?.isFile() || after.isSymbolicLink() || !sameFile(held, after)) return undefined;
 			return result;
-		} catch {
-			return undefined;
 		} finally {
-			if (fd !== undefined) closeSync(fd);
+			closeSync(fd);
 		}
 	}
 	return undefined;
 }
 
-export function readContainedFile(cwd: string, value: unknown, corpusName?: unknown): Buffer | undefined {
-	return withContainedFile(cwd, value, corpusName, (fd) => readFileSync(fd));
+export function readContainedFile(cwd: string, value: unknown, projectDirectory?: string): Buffer | undefined {
+	return withContainedFile(cwd, value, projectDirectory, (fd) => readFileSync(fd));
 }
 
-export function resolveContainedFile(cwd: string, value: unknown, corpusName?: unknown): string | undefined {
-	return withContainedFile(cwd, value, corpusName, (_fd, path) => path);
+export function resolveContainedFile(cwd: string, value: unknown, projectDirectory?: string): string | undefined {
+	return withContainedFile(cwd, value, projectDirectory, (_fd, path) => path);
 }

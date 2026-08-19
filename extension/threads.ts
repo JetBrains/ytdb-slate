@@ -641,7 +641,7 @@ export class ThreadManager {
 		for (const id of contextIds) {
 			const episode = this.store.episodes.get(id);
 			if (!episode) throw new Error(`Unknown episode "${id}". Known: ${[...this.store.episodes.keys()].join(", ") || "none"}`);
-			const content = readContainedFile(cwd, episode.file, this.store.corpusName);
+			const content = readContainedFile(cwd, episode.file, this.store.corpusProject?.directory);
 			if (content === undefined) throw new Error(`Episode "${id}" is no longer a safe readable slate episode file.`);
 			parts.push(content.toString("utf8").trim(), "");
 		}
@@ -775,7 +775,7 @@ export class ThreadManager {
 			for (const id of opts.freshContext ?? []) {
 				const episode = this.store.episodes.get(id);
 				if (episode === undefined) throw new Error("episode disappeared after validation");
-				const content = readContainedFile(cwd, episode.file, this.store.corpusName);
+				const content = readContainedFile(cwd, episode.file, this.store.corpusProject?.directory);
 				if (content === undefined) throw new Error("episode file became unsafe after validation");
 				episodeTokens += this.estimatedTokens(content.toString("utf8"));
 			}
@@ -1168,7 +1168,7 @@ export class ThreadManager {
 		const session = await openWorkerSession({
 			ctx: args.ctx,
 			sessionName: this.artifactSessionName(),
-			corpusName: this.store.corpusName,
+			projectDirectory: this.store.corpusProject?.directory,
 			sessionFile: args.thread.sessionFile || undefined,
 			model: args.open.model,
 			tools: args.tools,
@@ -1753,7 +1753,7 @@ export class ThreadManager {
 			const sessionName = this.artifactSessionName();
 			observation = sessionName === undefined
 				? captureObservation(ctx.cwd, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined)
-				: captureObservation(ctx.cwd, sessionName, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined, this.store.corpusName);
+				: captureObservation(ctx.cwd, sessionName, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined, this.store.corpusProject?.directory);
 			const warningsBeforeObservation = warnings.length;
 			if (!observation.stored && observation.reason === "write-failed" && "warning" in observation) routeWarn(observation.warning);
 			const judgementType = isJudgementThreadType(thread.type);
@@ -1807,7 +1807,7 @@ export class ThreadManager {
 			compressed = await compressEpisode({
 				ctx,
 				sessionName: this.artifactSessionName(),
-				corpusName: this.store.corpusName,
+				projectDirectory: this.store.corpusProject?.directory,
 				episodeId,
 				threadId: thread.id,
 				threadName: thread.name,

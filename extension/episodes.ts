@@ -386,7 +386,7 @@ function hasAssistantMessage(messages: unknown[]): boolean {
 export interface CompressEpisodeOptions {
 	ctx: ExtensionContext;
 	sessionName?: string;
-	corpusName?: unknown;
+	projectDirectory?: string;
 	episodeId: string;
 	threadId: string;
 	threadName: string;
@@ -683,7 +683,7 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	// Nothing reads it in between, and the write itself keeps its historical
 	// failure policy: a refusal or an fs error throws out of this function.
 	try {
-		const written = writeSlateArtifact({ cwd: ctx.cwd, sessionName: opts.sessionName, corpusName: opts.corpusName, kind: "episodes", id: opts.episodeId, content: text });
+		const written = writeSlateArtifact({ cwd: ctx.cwd, sessionName: opts.sessionName, projectDirectory: opts.projectDirectory, kind: "episodes", id: opts.episodeId, content: text });
 		return {
 			text,
 			file: written.absolutePath,

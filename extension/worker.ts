@@ -40,7 +40,7 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
-import { resolveCorpusProject, withContainedFile } from "./corpus.ts";
+import { withContainedFile } from "./corpus.ts";
 import { isSlateSessionName } from "./session-names.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
@@ -122,11 +122,11 @@ export function workerPreamble(writingCheck: boolean, reviewerCharter: boolean):
 	return reviewerCharter === true ? `${prose}\n${REVIEWER_CHARTER}` : prose;
 }
 
-export function threadsDir(cwd: string, sessionName?: string, corpusName?: unknown): string {
-	if (sessionName !== undefined && !isSlateSessionName(sessionName)) throw new Error("slate refused an invalid session name");
-	return sessionName === undefined
-		? resolve(cwd, CONFIG_DIR_NAME, "slate", "threads")
-		: resolve(resolveCorpusProject(cwd, corpusName).directory, sessionName, "threads");
+export function threadsDir(cwd: string, sessionName?: string, projectDirectory?: string): string {
+	if (sessionName === undefined) return resolve(cwd, CONFIG_DIR_NAME, "slate", "threads");
+	if (!isSlateSessionName(sessionName)) throw new Error("slate refused an invalid session name");
+	if (projectDirectory === undefined) throw new Error("slate corpus project is unavailable");
+	return resolve(projectDirectory, sessionName, "threads");
 }
 
 function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string): void {
@@ -191,7 +191,7 @@ export function resolveModel(ctx: ExtensionContext, spec: string) {
 export async function openWorkerSession(opts: {
 	ctx: ExtensionContext;
 	sessionName?: string;
-	corpusName?: unknown;
+	projectDirectory?: string;
 	sessionFile?: string; // resume when provided, else create new under <config dir>/slate/threads/
 	// Episode and observation paths do not belong here. Their shared artifact writer owns persistence.
 	model?: string; // "provider/id"
@@ -203,7 +203,7 @@ export async function openWorkerSession(opts: {
 	promptCacheKey?: string; // optional OpenAI Responses cache-routing key
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
-	const dir = threadsDir(ctx.cwd, opts.sessionName, opts.corpusName);
+	const dir = threadsDir(ctx.cwd, opts.sessionName, opts.projectDirectory);
 	if (opts.sessionName === undefined) mkdirSync(dir, { recursive: true });
 
 	const agentDir = getAgentDir();
@@ -336,7 +336,7 @@ export async function openWorkerSession(opts: {
 	const model = opts.model ? resolveModel(ctx, opts.model) : ctx.model;
 
 	const sessionManager = opts.sessionFile
-		? withContainedFile(ctx.cwd, opts.sessionFile, opts.corpusName, (_fd, path) => SessionManager.open(path))
+		? withContainedFile(ctx.cwd, opts.sessionFile, opts.projectDirectory, (_fd, path) => SessionManager.open(path))
 		: SessionManager.create(ctx.cwd, dir);
 	if (sessionManager === undefined) throw new Error("slate refused an unsafe worker session file");
 

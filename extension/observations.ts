@@ -122,8 +122,8 @@ function boundedObservation(text: string): { content: Buffer; truncated: boolean
  * can act on differently.
  */
 export function captureObservation(cwd: string, episodeId: string, text: string | undefined): ObservationCapture;
-export function captureObservation(cwd: string, sessionName: string, episodeId: string, text: string | undefined, corpusName?: unknown): ObservationCapture;
-export function captureObservation(cwd: string, first: string, second: string | undefined, third?: string, corpusName?: unknown): ObservationCapture {
+export function captureObservation(cwd: string, sessionName: string, episodeId: string, text: string | undefined, projectDirectory?: string): ObservationCapture;
+export function captureObservation(cwd: string, first: string, second: string | undefined, third?: string, projectDirectory?: string): ObservationCapture {
 	const legacy = arguments.length === 3;
 	const sessionName = legacy ? undefined : first;
 	const episodeId = legacy ? first : (second as string);
@@ -138,7 +138,7 @@ export function captureObservation(cwd: string, first: string, second: string | 
 	const grammar = findingsGrammar(boundedText);
 	const zeroFindings = hasZeroFindings(boundedText);
 	try {
-		const written = writeSlateArtifact({ cwd, sessionName, corpusName, kind: "observations", id: episodeId, content: bounded.content });
+		const written = writeSlateArtifact({ cwd, sessionName, projectDirectory, kind: "observations", id: episodeId, content: bounded.content });
 		return {
 			stored: true,
 			path: written.reference,

@@ -27,7 +27,7 @@ import {
 	slateArtifactReference,
 	type SlateArtifactKind,
 } from "./artifact-names.ts";
-import { resolveCorpusProject, SlateWriteRefused } from "./corpus.ts";
+import { SlateWriteRefused } from "./corpus.ts";
 export { SlateWriteRefused } from "./corpus.ts";
 export {
 	isSafeThreadId,
@@ -72,11 +72,10 @@ function ensureLegacyArtifactDirectory(cwd: string, kind: SlateArtifactKind): st
 }
 
 /** Verify the already minted session category without following links. */
-function ensureArtifactDirectory(cwd: string, sessionName: string, kind: SlateArtifactKind, corpusName?: unknown): string {
-	const project = resolveCorpusProject(cwd, corpusName);
-	const session = join(project.directory, sessionName);
+function ensureArtifactDirectory(projectDirectory: string, sessionName: string, kind: SlateArtifactKind): string {
+	const session = join(projectDirectory, sessionName);
 	const dir = join(session, kind);
-	for (const path of [project.directory, session, dir]) {
+	for (const path of [projectDirectory, session, dir]) {
 		const entry = lstatSync(path, { throwIfNoEntry: false });
 		if (entry?.isSymbolicLink()) refuse(`slate refused an artifact directory because that path is a symbolic link`);
 		if (!entry?.isDirectory()) refuse(`slate refused an artifact directory because that path is not a directory`);
@@ -163,7 +162,7 @@ function writeFreshFile(dir: string, file: string, content: Buffer): void {
 export function writeSlateArtifact(opts: {
 	cwd: string;
 	sessionName?: string;
-	corpusName?: unknown;
+	projectDirectory?: string;
 	kind: SlateArtifactKind;
 	id: string;
 	content: string | Buffer;
@@ -175,7 +174,9 @@ export function writeSlateArtifact(opts: {
 	if (!isSlateArtifactReference(reference, opts.kind, opts.id)) refuse(`slate refused an oversized artifact reference`);
 	const dir = opts.sessionName === undefined
 		? ensureLegacyArtifactDirectory(opts.cwd, opts.kind)
-		: ensureArtifactDirectory(opts.cwd, opts.sessionName, opts.kind, opts.corpusName);
+		: opts.projectDirectory === undefined
+			? refuse(`slate refused an artifact because its corpus project is unavailable`)
+			: ensureArtifactDirectory(opts.projectDirectory, opts.sessionName, opts.kind);
 	const absolutePath = join(dir, `${opts.id}.md`);
 	writeFreshFile(dir, absolutePath, typeof opts.content === "string" ? Buffer.from(opts.content, "utf8") : opts.content);
 	return { absolutePath, reference };
