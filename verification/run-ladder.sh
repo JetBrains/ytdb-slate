@@ -244,17 +244,6 @@ SETTINGS="$AGENT/settings.json"
 [ "$AGENT" = "$REAL_AGENT_CANON" ] && \
 	die "refusing to run: the throwaway agent dir resolves to the REAL agent dir '$AGENT'"
 
-# The positive corpus assertion needs evidence from THIS run. A caller may reuse
-# --lab for retained artifacts, but a pre-existing corpus could satisfy the final
-# predicate after every current child missed the redirect. Refuse that state and
-# clear the non-evidence marker before any child can run.
-SCRATCH_CORPUS="$AGENT/ytdb-slate/projects"
-if [ -e "$SCRATCH_CORPUS" ] || [ -L "$SCRATCH_CORPUS" ]; then
-	die "refusing to reuse a scratch agent directory whose slate corpus already exists: $SCRATCH_CORPUS"
-fi
-[ ! -d "$OUT/slate-child-ran" ] || die "refusing a scratch artifact marker that is a directory: $OUT/slate-child-ran"
-rm -f "$OUT/slate-child-ran" || die "cannot clear the prior-run slate child marker"
-
 # Guard 4: fingerprint the real settings file now, re-check it at the end. The
 # tools it needs were required up front (guard 0b), and a fingerprint that
 # cannot be taken aborts rather than degrading to a vacuous pass (WH3).
@@ -385,6 +374,24 @@ assert_agent_dir() { # $1 dir, $2 what we were about to do
 	return 0
 }
 assert_redirect_safe() { assert_agent_dir "${1:-}" "launch pi"; }
+# Reused --lab directories retain diagnostics, but corpus evidence must belong to
+# this run. Validate the fixed parent first, refuse a linked target, then clear
+# only that parent's corpus child. This preserves reusable output artifacts.
+reset_scratch_corpus() {
+	local corpus="$AGENT/ytdb-slate/projects" resolved
+	assert_agent_dir "$AGENT" "clear prior scratch corpus evidence"
+	[ ! -L "$corpus" ] || die "refusing to clear a symlinked scratch corpus path: $corpus"
+	if [ -e "$corpus" ]; then
+		assert_agent_dir "$corpus" "clear the prior scratch corpus"
+		resolved=$(canon "$corpus") || die "cannot resolve the prior scratch corpus: $corpus"
+		under "$resolved" "$AGENT" || die "refusing to clear a scratch corpus outside the validated agent directory: $resolved"
+		rm -rf -- "$corpus" || die "could not clear the prior scratch corpus: $corpus"
+		echo "NOTE   CORPUS         — cleared the prior scratch corpus before this run: $corpus"
+	fi
+	[ ! -d "$OUT/slate-child-ran" ] || die "refusing a scratch artifact marker that is a directory: $OUT/slate-child-ran"
+	rm -f "$OUT/slate-child-ran" || die "cannot clear the prior-run slate child marker"
+}
+reset_scratch_corpus
 piexec() { assert_redirect_safe "$AGENT"
 	env -u PI_CODING_AGENT -u PI_SESSION_FILE -u PI_SESSION_ID -u PI_PROVIDER \
 		-u PI_MODEL -u PI_REASONING_LEVEL PI_CODING_AGENT_DIR="$AGENT" "$@"; }
@@ -399,13 +406,26 @@ scratch_corpus_has_session() {
 # Across several marked children, this proves at least one current-run child
 # published a scratch corpus session. It does not prove that every child did.
 PRED_TEETH_AGENT="$LAB/corpus-predicate-teeth-agent"
-PRED_TEETH_SESSION="$PRED_TEETH_AGENT/ytdb-slate/projects/project/session"
+PRED_TEETH_CORPUS="$PRED_TEETH_AGENT/ytdb-slate/projects"
+PRED_TEETH_SESSION="$PRED_TEETH_CORPUS/project/session"
 rm -rf "$PRED_TEETH_AGENT"
 mkdir -p "$PRED_TEETH_SESSION" || die "cannot create corpus predicate teeth fixture"
 printf 'wrong name\n' > "$PRED_TEETH_SESSION/not-session.json"
 if scratch_corpus_has_session "$PRED_TEETH_AGENT"; then
 	die "corpus predicate teeth accepted a depth-three file not named session.json"
 fi
+rm -f "$PRED_TEETH_SESSION/not-session.json"
+printf '{}\n' > "$PRED_TEETH_CORPUS/project/session.json"
+if scratch_corpus_has_session "$PRED_TEETH_AGENT"; then
+	die "corpus predicate teeth accepted a too-shallow session.json"
+fi
+rm -f "$PRED_TEETH_CORPUS/project/session.json"
+mkdir -p "$PRED_TEETH_SESSION/extra" || die "cannot create the deep corpus predicate teeth fixture"
+printf '{}\n' > "$PRED_TEETH_SESSION/extra/session.json"
+if scratch_corpus_has_session "$PRED_TEETH_AGENT"; then
+	die "corpus predicate teeth accepted a too-deep session.json"
+fi
+rm -rf "$PRED_TEETH_SESSION/extra"
 printf '{}\n' > "$PRED_TEETH_SESSION/session.json"
 scratch_corpus_has_session "$PRED_TEETH_AGENT" || die "corpus predicate teeth rejected a depth-three session.json"
 rm -rf "$PRED_TEETH_AGENT"

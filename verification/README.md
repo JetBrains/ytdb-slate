@@ -467,9 +467,11 @@ redirected into an artifact file) is still visible.
    rather than watch nothing.
 6. **Slate child runs must populate the scratch corpus.** A marker is written
    only after a child that loads the full slate extension completes. Before any
-   child runs, the harness refuses a reused `--lab` whose agent directory already
-   contains `ytdb-slate/projects`, and it clears any prior-run marker. Therefore
-   only a corpus publication from the current run can satisfy the predicate.
+   child runs, the harness validates the scratch agent directory and refuses a
+   symlinked corpus path. It then removes only `agent/ytdb-slate/projects` and the
+   prior-run marker. A reused `--lab` therefore proceeds while retaining its
+   diagnostic artifacts, and only a current-run publication can satisfy the
+   predicate. The reset prints a NOTE when it removes a prior corpus.
 
    After the rungs finish, the harness requires a depth-three `session.json`
    under `<lab>/agent/ytdb-slate/projects`. The predicate re-validates the agent
@@ -479,10 +481,11 @@ redirected into an artifact file) is still visible.
 
    Across several marked children, the aggregate assertion proves that at least
    one current-run child published a scratch corpus session. It does not prove
-   that every marked child did. A no-pi teeth fixture first rejects a depth-three
-   file with the wrong name, then accepts `session.json`; this makes both an
-   always-success predicate and removal of the filename constraint fatal during
-   setup.
+   that every marked child did. A no-pi teeth fixture rejects a wrong filename,
+   a too-shallow `session.json`, and a too-deep `session.json`. It then accepts an
+   exact depth-three `session.json`. An always-success predicate, removal of the
+   filename constraint, and removal or weakening of the depth constraint are
+   therefore fatal during setup.
 
    The real corpus is still content-fingerprinted before and after the run, but a
    change now emits only a NOTE. A concurrent session is the likely cause, so the
@@ -518,8 +521,9 @@ removed — they are the evidence.
   `out/`, `weak/`, `work/` — are not: a symlink swapped underneath one of those
   mid-run would redirect artifact or fixture writes. They hold no user state, and
   the attack needs same-user access to a `0700` scratch directory.
-* Nothing here defends against a `pi` binary that ignores
-  `PI_CODING_AGENT_DIR`; the fingerprint is what would notice after the fact.
+* A marked slate child whose `pi` binary ignores `PI_CODING_AGENT_DIR` leaves no
+  current-run scratch corpus and triggers `SAFE CORPUS FAIL`. A run with no
+  full-slate child reports that check as NOT RUN instead.
 
 Nothing the harness writes lands inside the repository: the repo is only read —
 the module under test and `probe.ts` are read, and every weakened copy is
@@ -550,7 +554,9 @@ Also expected, and not a harness problem:
 - `mkdir: cannot create directory …: File exists` immediately before a
   `verification: cannot create …` abort — that is a guard doing its job.
 - The default scratch directory is **kept**, not cleaned up, and so is a reused
-  `--lab`. Old `out/` artifacts survive; see § Requirements and hard constraints.
+  `--lab`. Old `out/` artifacts survive. The scratch corpus and child marker are
+  reset at the next run so they cannot become evidence; see § Requirements and
+  hard constraints.
 
 # Pure-resolver checks — `run-resolver-checks.sh`
 
