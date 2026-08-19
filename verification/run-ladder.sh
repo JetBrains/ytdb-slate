@@ -96,7 +96,8 @@ fi
 
 # Guard 0a: refuse root. Every failure injection in this ladder is a chmod, and
 # root ignores those, so rungs would report on behaviour that never happened.
-[ "$(id -u)" = 0 ] && die "refusing to run as root: the failure injections are permission-based
+CALLER_UID=$(id -u)
+[ "$CALLER_UID" = 0 ] && die "refusing to run as root: the failure injections are permission-based
        (chmod 444 on the settings file) and root writes straight through them, so
        R7, G2, P6 and P11 would measure nothing. Re-run as a normal user."
 
@@ -105,12 +106,13 @@ fi
 # missing GNU flag halfway through a run is just a confusing failure.
 MISSING=""
 for t in pi node python3 sha256sum stat timeout cmp mkfifo awk sed grep chmod \
-         cat cp cut date dirname find head ls rm sort tail wc mktemp; do
+         cat cp cut date dirname find head ls rm rmdir sort tail wc mktemp; do
 	command -v "$t" >/dev/null 2>&1 || MISSING="$MISSING $t"
 done
 [ -n "$MISSING" ] && die "missing required tool(s):$MISSING"
 sha256sum --version >/dev/null 2>&1 || die "sha256sum is not the GNU one; the real-settings fingerprint (guard 4) could not run"
 stat -c '%s' "$0" >/dev/null 2>&1 || die "stat does not support -c (GNU coreutils required); the real-settings fingerprint (guard 4) could not run"
+rm --help 2>/dev/null | grep -q -- '--one-file-system' || die "rm does not support --one-file-system; safe scratch-state clearing is unavailable"
 
 # Guard 1: refuse an inherited PI_CODING_AGENT_DIR. The whole harness rests on
 # that variable pointing at a directory THIS script created; silently inheriting
@@ -178,6 +180,16 @@ under() { # $1 child, $2 parent — true when child == parent or is inside it
 	[ -n "$2" ] || return 1
 	case "$1" in "$2") return 0 ;; "$2"/*) return 0 ;; *) return 1 ;; esac
 }
+assert_private_owned_dir() { # $1 path, $2 label
+	local path="$1" label="$2" owner mode permissions
+	[ ! -L "$path" ] || die "refusing to use $label '$path': it is a symlink. Replace it with a private directory."
+	[ -d "$path" ] || die "refusing to use $label '$path': it is not a directory. Create a private directory there."
+	owner=$(stat -c '%u' "$path") || die "cannot read the owner of $label '$path'"
+	[ "$owner" = "$CALLER_UID" ] || die "refusing to use $label '$path': uid $owner owns it, not caller uid $CALLER_UID. Choose a caller-owned path."
+	mode=$(stat -c '%a' "$path") || die "cannot read the mode of $label '$path'"
+	permissions=$((8#$mode))
+	[ $((permissions & 0022)) -eq 0 ] || die "refusing to use $label '$path': mode $mode permits group or other writes. Run chmod go-w '$path' and retry."
+}
 check_free_of_real_state() { # $1 path, $2 label
 	[ -n "$1" ] || die "refusing to run: $2 resolved to an empty path"
 	case "$1" in /*) ;; *) die "refusing to run: $2 '$1' is not absolute" ;; esac
@@ -206,6 +218,26 @@ else
 	check_free_of_real_state "$LAB" "scratch dir"
 fi
 LAB_CANON="$LAB"
+assert_private_owned_dir "$LAB" "the scratch root"
+
+# One atomic lab lock spans setup, every rung, and final safety reporting. A
+# crash may leave it behind deliberately: the next run refuses rather than
+# guessing whether another process still owns this lab.
+LAB_LOCK="$LAB/.slate-ladder.lock"
+LAB_LOCK_HELD=0
+release_lab_lock() {
+	if [ "$LAB_LOCK_HELD" = 1 ]; then
+		rmdir "$LAB_LOCK" 2>/dev/null || true
+		LAB_LOCK_HELD=0
+	fi
+}
+early_signal() { release_lab_lock; exit 130; }
+trap release_lab_lock EXIT
+trap early_signal INT TERM
+if ! mkdir "$LAB_LOCK" 2>/dev/null; then
+	die "refusing to use lab '$LAB': lock '$LAB_LOCK' already exists. Confirm no ladder uses this lab, then remove the stale lock and retry."
+fi
+LAB_LOCK_HELD=1
 
 # WH1 + WH2: every directory the harness writes to is created with a CHECKED
 # mkdir, canonicalised, required to be non-empty and absolute, required to sit
@@ -243,6 +275,7 @@ SETTINGS="$AGENT/settings.json"
 # Guard 3: belt and braces on the redirect target itself.
 [ "$AGENT" = "$REAL_AGENT_CANON" ] && \
 	die "refusing to run: the throwaway agent dir resolves to the REAL agent dir '$AGENT'"
+assert_private_owned_dir "$AGENT" "the throwaway agent directory"
 
 # Guard 4: fingerprint the real settings file now, re-check it at the end. The
 # tools it needs were required up front (guard 0b), and a fingerprint that
@@ -307,6 +340,7 @@ cleanup() {
 		rm -rf "$d/settings.json.lock" 2>/dev/null
 	done
 	jobs -p 2>/dev/null | while read -r j; do kill "$j" 2>/dev/null; done
+	release_lab_lock
 }
 on_signal() { cleanup; echo >&8; echo "verification: interrupted — artifacts kept in $OUT" >&8; exit 130; }
 trap cleanup EXIT
@@ -374,24 +408,53 @@ assert_agent_dir() { # $1 dir, $2 what we were about to do
 	return 0
 }
 assert_redirect_safe() { assert_agent_dir "${1:-}" "launch pi"; }
-# Reused --lab directories retain diagnostics, but corpus evidence must belong to
-# this run. Validate the fixed parent first, refuse a linked target, then clear
-# only that parent's corpus child. This preserves reusable output artifacts.
-reset_scratch_corpus() {
-	local corpus="$AGENT/ytdb-slate/projects" resolved
-	assert_agent_dir "$AGENT" "clear prior scratch corpus evidence"
-	[ ! -L "$corpus" ] || die "refusing to clear a symlinked scratch corpus path: $corpus"
-	if [ -e "$corpus" ]; then
-		assert_agent_dir "$corpus" "clear the prior scratch corpus"
-		resolved=$(canon "$corpus") || die "cannot resolve the prior scratch corpus: $corpus"
-		under "$resolved" "$AGENT" || die "refusing to clear a scratch corpus outside the validated agent directory: $resolved"
-		rm -rf -- "$corpus" || die "could not clear the prior scratch corpus: $corpus"
-		echo "NOTE   CORPUS         — cleared the prior scratch corpus before this run: $corpus"
+# Reused --lab directories retain work/, out/ and weak/. Corpus evidence, pi
+# session transcripts and the slate-child marker must belong to this run.
+# CLEAR_TARGET is assigned in the current shell so a die cannot be hidden by a
+# command-substitution subshell.
+CLEAR_TARGET=""
+validate_clear_target() { # $1 target, $2 label, $3 optional fixed ancestor
+	local target="$1" label="$2" ancestor="${3:-}" resolved agent_device target_device
+	CLEAR_TARGET=""
+	assert_private_owned_dir "$LAB" "the scratch root"
+	assert_agent_dir "$AGENT" "validate scratch state before clearing"
+	assert_private_owned_dir "$AGENT" "the throwaway agent directory"
+	if [ -n "$ancestor" ] && { [ -e "$ancestor" ] || [ -L "$ancestor" ]; }; then
+		assert_agent_dir "$ancestor" "validate the $label parent before clearing"
+		assert_private_owned_dir "$ancestor" "the $label parent"
 	fi
+	[ ! -L "$target" ] || die "refusing to clear $label '$target': it is a symlink. Replace it with a private directory."
+	[ -e "$target" ] || return 0
+	assert_agent_dir "$target" "clear $label"
+	assert_private_owned_dir "$target" "$label"
+	resolved=$(canon "$target") || die "cannot resolve $label '$target'"
+	under "$resolved" "$AGENT" || die "refusing to clear $label '$resolved': it is outside the validated agent directory '$AGENT'."
+	agent_device=$(stat -c '%d' "$AGENT") || die "cannot read the device of the validated agent directory '$AGENT'"
+	target_device=$(stat -c '%d' "$resolved") || die "cannot read the device of $label '$resolved'"
+	[ "$target_device" = "$agent_device" ] || die "refusing to clear $label '$resolved': device $target_device differs from agent device $agent_device. Remove the mount and retry."
+	CLEAR_TARGET="$resolved"
+}
+clear_scratch_tree() { # $1 target, $2 label, $3 optional fixed ancestor, $4 note tag
+	local target="$1" label="$2" ancestor="${3:-}" tag="$4" first
+	validate_clear_target "$target" "$label" "$ancestor"
+	first="$CLEAR_TARGET"
+	[ -n "$first" ] || return 0
+	# Repeat every ownership, mode, containment and device check immediately before
+	# removal. The resolved path avoids re-walking the caller-facing path string.
+	validate_clear_target "$target" "$label" "$ancestor"
+	[ "$CLEAR_TARGET" = "$first" ] || die "refusing to clear $label '$target': its resolved path changed during validation. Retry in a private lab."
+	rm -rf --one-file-system -- "$CLEAR_TARGET" || die "could not clear $label '$CLEAR_TARGET'"
+	echo "NOTE   $tag         — cleared $label before this run: $CLEAR_TARGET"
+}
+reset_scratch_state() {
+	local slate_root="$AGENT/ytdb-slate"
+	clear_scratch_tree "$slate_root/projects" "the prior scratch corpus" "$slate_root" "CORPUS"
+	clear_scratch_tree "$AGENT/sessions" "prior pi session transcripts" "" "SESSIONS"
+	assert_private_owned_dir "$OUT" "the artifact directory"
 	[ ! -d "$OUT/slate-child-ran" ] || die "refusing a scratch artifact marker that is a directory: $OUT/slate-child-ran"
 	rm -f "$OUT/slate-child-ran" || die "cannot clear the prior-run slate child marker"
 }
-reset_scratch_corpus
+reset_scratch_state
 piexec() { assert_redirect_safe "$AGENT"
 	env -u PI_CODING_AGENT -u PI_SESSION_FILE -u PI_SESSION_ID -u PI_PROVIDER \
 		-u PI_MODEL -u PI_REASONING_LEVEL PI_CODING_AGENT_DIR="$AGENT" "$@"; }

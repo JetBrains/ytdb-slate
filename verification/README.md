@@ -87,7 +87,7 @@ Options:
 | option | meaning |
 | --- | --- |
 | `--repo <dir>` | checkout under test; `--repo .` from the repository root |
-| `--lab <dir>` | scratch dir for `agent/`, `work/`, `out/`, `weak/` (default: fresh `mktemp`, kept) |
+| `--lab <dir>` | scratch dir for `agent/`, `work/`, `out/`, `weak/` (default: fresh `mktemp`, kept). The caller must own it, group and other users must not have write access, and one run holds its atomic `.slate-ladder.lock` |
 | `--only <ids>` | comma-separated rung ids, e.g. `--only R5a,R5b,R5c`. An **unknown id is a hard error** (exit 2), and a run that ends up executing no rung at all exits **1** — a mistyped id must never look like success |
 | `--old-module <file>` | supply the pre-fix `model-default.ts` for the P5a/P5b teeth proof yourself; by default it is derived from the current module at run time |
 | `--strict` | any NOT RUN becomes a failure (exit 1). **Automation should always pass this** — otherwise a ladder that skipped rungs, because `strace` was missing or a teeth derivation broke, reads as a clean pass. Off by default so a human without the optional tracing tool is not blocked |
@@ -115,10 +115,11 @@ contributes to pass/fail.
 
 * `pi`, `node`, `python3`, and **GNU** coreutils — `sha256sum`, `stat -c`,
   `timeout`, `cmp`, `mkfifo`, `awk`, `sed`, `grep`, `cat`, `cp`, `cut`, `date`,
-  `dirname`, `head`, `ls`, `rm`, `sort`, `tail`, `wc`, `mktemp`. All are checked
-  up front and a missing one aborts — a half-run ladder proves nothing. BSD/macOS
-  `stat` and `shasum` are **not** supported: the script aborts rather than
-  silently skipping the safety fingerprint.
+  `dirname`, `head`, `ls`, `rm`, `rmdir`, `sort`, `tail`, `wc`, `mktemp`. All are
+  checked up front and a missing one aborts — a half-run ladder proves nothing.
+  GNU `rm --one-file-system` is also required for scratch-state clearing.
+  BSD/macOS `stat` and `shasum` are **not** supported: the script aborts rather
+  than silently skipping the safety fingerprint.
 * **`strace` is optional**; `P6` reports NOT RUN without it. It also needs
   permission to trace — in a container, `--cap-add=SYS_PTRACE` or an unrestricted
   `/proc/sys/kernel/yama/ptrace_scope`; without that `P6` reports NOT RUN too.
@@ -422,7 +423,14 @@ redirected into an artifact file) is still visible.
 2. **No scratch directory over real state.** `--lab` *and* the default location
    (which follows `TMPDIR`) are resolved through symlinks **before anything is
    created**, and rejected if they land inside the pi home tree, the real agent
-   directory, or the repository working tree.
+   directory, or the repository working tree. The caller must own the resolved
+   lab and agent directories, and neither may permit group or other writes.
+   Existing removal-path directories receive the same ownership and mode check.
+
+   One atomic `mkdir` acquires `<lab>/.slate-ladder.lock` before setup. The lock
+   remains through final safety reporting and the cleanup trap releases it. An
+   existing lock refuses the run immediately and names the manual stale-lock
+   remedy; the harness never waits or guesses whether another run is alive.
 3. **Every directory the harness writes to is validated, not just one.**
    `agent/`, `work/`, `out/` and `weak/` are each created with a *checked*
    `mkdir`, canonicalised, required to be non-empty, absolute, an actual
@@ -439,7 +447,11 @@ redirected into an artifact file) is still visible.
    blocker upstream of it — and applied at *writes*, not only launches, because a
    launch-time-only check is not enough: a same-user racer replacing
    `<lab>/agent` with a symlink mid-run once let harness fixture data land in the
-   symlink's target while only the launch was refused.
+   symlink's target while only the launch was refused. The recursive corpus and
+   session reset inherits this same residual race. It validates ownership, mode,
+   containment and device twice, removes the resolved path with
+   `--one-file-system`, and performs the second check immediately before removal.
+   A same-user swap after that final check remains outside the guarantee.
 5. **The real settings file is fingerprinted.** sha256, size and mtime are
    recorded before the run and re-checked after. A change is a failed run
    (`SAFE FAIL`, non-zero exit) saying a pi invocation escaped the redirect.
@@ -467,11 +479,13 @@ redirected into an artifact file) is still visible.
    rather than watch nothing.
 6. **Slate child runs must populate the scratch corpus.** A marker is written
    only after a child that loads the full slate extension completes. Before any
-   child runs, the harness validates the scratch agent directory and refuses a
-   symlinked corpus path. It then removes only `agent/ytdb-slate/projects` and the
-   prior-run marker. A reused `--lab` therefore proceeds while retaining its
-   diagnostic artifacts, and only a current-run publication can satisfy the
-   predicate. The reset prints a NOTE when it removes a prior corpus.
+   child runs, the harness validates the scratch agent directory and every
+   existing removal-path directory. It clears `agent/ytdb-slate/projects`,
+   `agent/sessions`, and the prior-run marker. Each recursive removal uses a
+   resolved contained path, requires the agent device, and stays on one
+   filesystem. A reused `--lab` therefore retains `work/`, `out/`, and `weak/`,
+   while only current-run corpus and session records can satisfy assertions. The
+   reset prints a NOTE for each prior state tree it removes.
 
    After the rungs finish, the harness requires a depth-three `session.json`
    under `<lab>/agent/ytdb-slate/projects`. The predicate re-validates the agent
@@ -499,9 +513,10 @@ On top of that, every pi invocation goes through one helper that sets
 `PI_SESSION_FILE`, `PI_SESSION_ID`, `PI_PROVIDER`, `PI_MODEL` and
 `PI_REASONING_LEVEL`, so a run launched from inside a pi session cannot pick up
 the caller's session or model. `getAgentDir()` in pi honours that variable for
-settings, auth, model catalogue and sessions alike. The session JSONL files under
-`<lab>/agent/sessions/` provide separate evidence for pi session redirection. The
-positive scratch-corpus assertion above covers slate corpus redirection.
+settings, auth, model catalogue and sessions alike. The reset removes prior
+`<lab>/agent/sessions/` before any child starts, so session JSONL evidence also
+belongs to the current run. The positive scratch-corpus assertion above covers
+slate corpus redirection.
 
 An `EXIT`/`INT`/`TERM` trap restores permissions on any settings file the rungs
 made read-only, removes any lock directory left held, and kills background
@@ -519,8 +534,10 @@ removed — they are the evidence.
 * Guard 2/3 canonicalise **at startup**. The *agent* directory is re-checked
   before every launch and every write (guard 4), but the other lab directories —
   `out/`, `weak/`, `work/` — are not: a symlink swapped underneath one of those
-  mid-run would redirect artifact or fixture writes. They hold no user state, and
-  the attack needs same-user access to a `0700` scratch directory.
+  mid-run would redirect artifact or fixture writes. They hold no user state.
+  Lab ownership and mode checks exclude another local user from the intended
+  threat model. A same-user swap remains possible, including in the narrow
+  interval between the reset's final validation and recursive removal.
 * A marked slate child whose `pi` binary ignores `PI_CODING_AGENT_DIR` leaves no
   current-run scratch corpus and triggers `SAFE CORPUS FAIL`. A run with no
   full-slate child reports that check as NOT RUN instead.
@@ -554,9 +571,9 @@ Also expected, and not a harness problem:
 - `mkdir: cannot create directory …: File exists` immediately before a
   `verification: cannot create …` abort — that is a guard doing its job.
 - The default scratch directory is **kept**, not cleaned up, and so is a reused
-  `--lab`. Old `out/` artifacts survive. The scratch corpus and child marker are
-  reset at the next run so they cannot become evidence; see § Requirements and
-  hard constraints.
+  `--lab`. Old `work/`, `out/`, and `weak/` artifacts survive. The scratch corpus,
+  pi session transcripts, and child marker are reset at the next run so they
+  cannot become prior-run evidence; see § Requirements and hard constraints.
 
 # Pure-resolver checks — `run-resolver-checks.sh`
 
