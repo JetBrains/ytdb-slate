@@ -20,6 +20,7 @@ import test, { after, type TestContext } from "node:test";
 import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   publishStagedFile,
+  readContainedFile,
   resolveContainedThreadFile,
   withContainedThreadFile,
   type CorpusProject,
@@ -30,6 +31,7 @@ import {
   MAX_FORK_SOURCE_BYTES,
   ThreadManager,
 } from "../extension/threads.ts";
+import { openWorkerSession } from "../extension/worker.ts";
 import {
   sanitizeThreadRecord,
   SlateStore,
@@ -648,7 +650,41 @@ test("RG271: hardlink-based corpus snapshots restore threads and episodes withou
   assert.equal(h.store.episodes.size, 1);
   assert.deepEqual(h.store.threads.get("t7")?.episodeIds, ["t7.e1"]);
   h.store.slateSessionName = SESSION_NAME; // adoptSnapshot resets identity before normal resolution restores it
-  assert.equal(h.prepare(h.store.threads.get("t7")!), owned, "an owned hardlinked transcript remains readable in place");
+  assert.equal(h.prepare(h.store.threads.get("t7")!), owned, "restore and planning retain the hardlinked transcript record");
+});
+
+test("TQ8: an ordinary episode read accepts a hardlinked corpus file", (t) => {
+  const h = harness(t);
+  const episodes = join(h.workspace.projectDirectory, SESSION_NAME, "episodes");
+  mkdirSync(episodes, { recursive: true });
+  const episode = join(episodes, "t7.e1.md");
+  writeFileSync(episode, "durable evidence");
+  linkSync(episode, join(h.workspace.root, "hardlink-backup.md"));
+
+  assert.equal(
+    readContainedFile(h.workspace.cwd, episode, h.workspace.projectDirectory)?.toString("utf8"),
+    "durable evidence",
+  );
+});
+
+test("TQ8 SE96 BG8: transcript open refuses a hardlink backup with a clear remedy", { timeout: 10000 }, async (t) => {
+  const h = harness(t);
+  const outside = join(h.workspace.root, "outside-worker.jsonl");
+  const linked = join(h.threads, "worker.jsonl");
+  writeFileSync(outside, transcript());
+  linkSync(outside, linked);
+  const before = readFileSync(outside);
+
+  await assert.rejects(
+    openWorkerSession({
+      ctx: h.ctx,
+      sessionName: SESSION_NAME,
+      projectDirectory: h.workspace.projectDirectory,
+      sessionFile: linked,
+    }),
+    /more than one name on disk.*hardlink backup.*Restore a single-linked copy to proceed/s,
+  );
+  assert.deepEqual(readFileSync(outside), before, "the outside name must receive no append");
 });
 
 test("a malformed forkedFrom type is sanitized without affecting its thread", (t) => {

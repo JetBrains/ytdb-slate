@@ -1254,9 +1254,9 @@ export class SlateStore {
 	}
 
 	/**
-	 * Replace all state with a snapshot (undefined clears), dropping records
-	 * whose files vanished. Shared by restore() and the cross-session handoff
-	 * adoption in handoff.ts.
+	 * Replace all state with a snapshot. Undefined clears the state. Records whose files
+	 * cannot currently be followed are retained, and each later file use rechecks
+	 * containment. Shared by restore() and cross-session handoff adoption.
 	 */
 	adoptSnapshot(latest: SlateSnapshot | undefined, ctx: ExtensionContext, options: { foreignSessionIdentity?: boolean } = {}): void {
 		this.threads.clear();
@@ -1366,7 +1366,7 @@ export class SlateStore {
 			t.episodeIds = t.episodeIds.filter((id) => this.episodes.has(id));
 		}
 		if (dropped.length > 0 && ctx.hasUI) {
-			ctx.ui.notify(`slate: dropped or repaired stale records:\n${dropped.join("\n")}`, "warning");
+			ctx.ui.notify(`slate: stale record notices:\n${dropped.join("\n")}`, "warning");
 		}
 		this.onDidChange?.();
 	}
