@@ -129,5 +129,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/slate-resolver.XXXXXX")" || die "could not cr
 trap 'rm -rf "$WORK"' EXIT
 trap 'rm -rf "$WORK"; exit 130' INT
 trap 'rm -rf "$WORK"; exit 143' TERM
+mkdir -p "$WORK/agent" || die "could not create the scratch agent directory"
+export PI_CODING_AGENT_DIR="$WORK/agent"
 
 node --no-warnings "$(dirname "$0")/resolver-checks.mjs" "$REPO" "$JITI" "$WORK" "$STRICT"

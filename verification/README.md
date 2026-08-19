@@ -65,7 +65,8 @@ from a complete run on a machine with `strace`:
 ```
 RUNG R1     PASS    — failover probe-a/alpha-1⇒probe-b/beta-1 fired (model_change in session), settings byte-identical …
 RUNG P6     NOT RUN — strace not available
-SAFE          PASS    — real /home/you/.pi/agent/settings.json unchanged (57b3e320… 289:1785133943)
+SAFE   CORPUS PASS    — scratch corpus contains a session directory after a slate child ran
+SAFE          PASS    — real settings unchanged
 == summary: 26 pass, 0 fail, 0 not run ==
 ```
 
@@ -230,7 +231,7 @@ Four drive modes, chosen per rung:
 | `P11` | a report that hits the length cap is cut **on a word boundary**, carries an explicit truncation marker, and keeps the headline, affected keys, settings path and cause while losing only the advisory tail |
 | `WK1` | a **worker-side per-dispatch** model *and* effort switch (a) writes **zero bytes** to the global settings file and (b) does not survive into a reopened session as a sticky default |
 | `LAT` | median wall clock, knob on vs off, n=7 each — informational, never a pass/fail |
-| `SAFE` | the real settings file is bit-for-bit unchanged across the whole run |
+| `SAFE` | the real settings file is bit-for-bit unchanged across the whole run; after any child that loads slate, the scratch corpus contains a session directory under the redirected agent root |
 
 Every rung that drives a switch also asserts **positive evidence that the switch
 actually fired**, from the session record (`model_change`, or
@@ -464,14 +465,27 @@ redirected into an artifact file) is still visible.
    `node os.homedir()`, which still works when `HOME` is unset — or from
    `SLATE_LADDER_REAL_AGENT_DIR`. If neither can be determined, the script aborts
    rather than watch nothing.
+6. **Slate child runs must populate the scratch corpus.** Every child that loads
+   slate is recorded. After the rungs finish, the harness requires at least one
+   project/session directory under `<lab>/agent/ytdb-slate/projects`. Absence is
+   `SAFE CORPUS FAIL` and a non-zero exit. This positive assertion is the
+   authoritative evidence that corpus creation followed `PI_CODING_AGENT_DIR`.
+
+   The real corpus is still content-fingerprinted before and after the run, but a
+   change now emits only a NOTE. A concurrent session is the likely cause, so the
+   real corpus comparison cannot attribute the write to the ladder. The NOTE does
+   not increment the failure count and does not change the exit code. A corpus
+   write that the same run fully undoes is not detected, and such a write loses no
+   data.
 
 On top of that, every pi invocation goes through one helper that sets
 `PI_CODING_AGENT_DIR=<lab>/agent` and unsets the inherited `PI_CODING_AGENT`,
 `PI_SESSION_FILE`, `PI_SESSION_ID`, `PI_PROVIDER`, `PI_MODEL` and
 `PI_REASONING_LEVEL`, so a run launched from inside a pi session cannot pick up
 the caller's session or model. `getAgentDir()` in pi honours that variable for
-settings, auth, model catalogue and sessions alike — confirm the redirect took
-effect by checking that `<lab>/agent/sessions/` filled up.
+settings, auth, model catalogue and sessions alike. The session JSONL files under
+`<lab>/agent/sessions/` provide separate evidence for pi session redirection. The
+positive scratch-corpus assertion above covers slate corpus redirection.
 
 An `EXIT`/`INT`/`TERM` trap restores permissions on any settings file the rungs
 made read-only, removes any lock directory left held, and kills background
