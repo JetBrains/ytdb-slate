@@ -21,7 +21,15 @@ import type { ObservationRecord } from "./observations.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import { isSafeThreadId, isSlateArtifactReference } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
-import { createCorpusSession, findCorpusSessionByIdentity, resolveContainedFile, resolveCorpusProject } from "./corpus.ts";
+import {
+	createCorpusSession,
+	removeCorpusSession,
+	resolveContainedFile,
+	resolveCorpusProject,
+	scanCorpusSessionsByIdentity,
+	selectCorpusProjectForIdentity,
+	validateCorpusSession,
+} from "./corpus.ts";
 import { drawSlateMint, isSlateSessionName } from "./session-names.ts";
 
 /**
@@ -1051,6 +1059,7 @@ export class SlateStore {
 	ownerSessionDigest: string | undefined;
 	corpusName: unknown;
 	private sessionNamespaceRequired = false;
+	private mustMintSessionName = false;
 	orchestratorMode = false;
 	/** When true (context budget exceeded) ThreadManager rejects NEW dispatches. */
 	paused = false;
@@ -1116,24 +1125,47 @@ export class SlateStore {
 		};
 		const resolved = resolveSlateSessionIdentity(restored, currentOwnerSessionDigest, identityMint);
 		let name = resolved.slateSessionName;
-		let nameMinted = false;
-		if (session !== undefined && name === undefined) {
-			const project = resolveCorpusProject(session.cwd, session.corpusName);
-			const found = resolved.slateSessionId === undefined ? undefined : findCorpusSessionByIdentity(project, resolved.slateSessionId);
-			if (found !== undefined) name = found.name;
-			else {
+		let nameChanged = false;
+		let createdSession: { project: ReturnType<typeof resolveCorpusProject>; identity: string; name: string } | undefined;
+		if (session !== undefined) {
+			const project = selectCorpusProjectForIdentity(
+				resolveCorpusProject(session.cwd, session.corpusName),
+				resolved.slateSessionId,
+			);
+			if (project.matchingDirectories.length > 1) {
+				report(`slate: several corpus project directories share digest ${project.digest}: ${project.matchingDirectories.map((item) => sanitizeForNotify(item)).join(", ")}. Slate selected ${sanitizeForNotify(project.directory)}.`);
+			}
+			if (name !== undefined && !validateCorpusSession(project, name, resolved.slateSessionId)) {
+				report(`slate: session directory ${sanitizeForNotify(name, 48)} is missing or does not match its metadata. Slate is recovering the namespace.`);
+				name = undefined;
+				nameChanged = true;
+			}
+			if (name === undefined && resolved.slateSessionId !== undefined && !this.mustMintSessionName) {
+				const scan = scanCorpusSessionsByIdentity(project, resolved.slateSessionId);
+				if (scan.duplicates.length > 1) {
+					report(`slate: duplicate session directories claim identity ${sanitizeForNotify(resolved.slateSessionId)}: ${scan.duplicates.join(", ")}. Slate refused to select one.`);
+					throw new Error("slate refused duplicate session identity claims");
+				}
+				name = scan.match?.name;
+				if (name !== undefined) nameChanged = true;
+			}
+			if (name === undefined) {
+				const identity = resolved.slateSessionId ?? "";
 				const created = createCorpusSession({
 					cwd: session.cwd,
 					corpusName: session.corpusName,
-					identity: resolved.slateSessionId ?? "",
+					identity,
 					initialNameBytes: firstNameBytes ?? drawSlateMint(4).nameBytes,
 					piSessionName: session.piSessionName,
+					claimIdentity: !this.mustMintSessionName,
 				});
 				name = created.name;
-				nameMinted = true;
+				nameChanged = true;
+				createdSession = { project: created.project, identity, name };
 			}
 		}
-		if (resolved.minted || nameMinted) {
+		this.mustMintSessionName = false;
+		if (resolved.minted || nameChanged) {
 			const candidate = {
 				...this.snapshot(),
 				slateSessionId: resolved.slateSessionId,
@@ -1143,11 +1175,14 @@ export class SlateStore {
 			try {
 				this.pi.appendEntry("slate-state", candidate as unknown as Record<string, unknown>);
 			} catch (error) {
+				if (createdSession !== undefined) {
+					try { removeCorpusSession(createdSession.project, createdSession.identity, createdSession.name); } catch { /* preserve the persistence failure */ }
+				}
 				this.slateSessionId = undefined;
 				this.slateSessionName = undefined;
 				this.ownerSessionDigest = undefined;
 				this.restoredIdentity = { snapshotPresent: true, slateSessionIdPresent: false, ownerSessionDigestPresent: false };
-				report(`slate: could not persist a fresh session identity — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}. This session will use legacy paths without an identity.`);
+				report(`slate: could not persist a fresh session identity — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}. Slate will refuse artifact writes in this session.`);
 				this.onDidChange?.();
 				return false;
 			}
@@ -1163,7 +1198,7 @@ export class SlateStore {
 			...(name !== undefined ? { slateSessionName: name } : {}),
 			...(resolved.ownerSessionDigest !== undefined ? { ownerSessionDigest: resolved.ownerSessionDigest } : {}),
 		};
-		if (resolved.minted || nameMinted) this.onDidChange?.();
+		if (resolved.minted || nameChanged) this.onDidChange?.();
 		if (resolved.report !== undefined) report(resolved.report);
 		return resolved.minted;
 	}
@@ -1219,11 +1254,12 @@ export class SlateStore {
 	 * whose files vanished. Shared by restore() and the cross-session handoff
 	 * adoption in handoff.ts.
 	 */
-	adoptSnapshot(latest: SlateSnapshot | undefined, ctx: ExtensionContext): void {
+	adoptSnapshot(latest: SlateSnapshot | undefined, ctx: ExtensionContext, options: { foreignSessionName?: boolean } = {}): void {
 		this.threads.clear();
 		this.episodes.clear();
 		this.threadSeq = 0;
 		this.restoredIdentity = sanitizeSnapshotIdentity(undefined, []);
+		this.mustMintSessionName = options.foreignSessionName === true;
 		this.slateSessionId = undefined;
 		this.slateSessionName = undefined;
 		this.ownerSessionDigest = undefined;
@@ -1242,7 +1278,8 @@ export class SlateStore {
 		const dropped: string[] = [];
 		this.restoredIdentity = sanitizeSnapshotIdentity(latest, dropped);
 		this.slateSessionId = this.restoredIdentity.slateSessionId;
-		this.slateSessionName = this.restoredIdentity.slateSessionName;
+		this.slateSessionName = options.foreignSessionName === true ? undefined : this.restoredIdentity.slateSessionName;
+		if (options.foreignSessionName === true) delete this.restoredIdentity.slateSessionName;
 		this.ownerSessionDigest = this.restoredIdentity.ownerSessionDigest;
 		// EVERY record is validated field by field on the way in (BG26) — see
 		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot

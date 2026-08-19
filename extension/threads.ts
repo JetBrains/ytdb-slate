@@ -92,7 +92,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import {
 	DEFAULT_COMPACTION_SETTINGS,
 	getAgentDir,
@@ -107,6 +107,7 @@ import {
 // switch is not an orchestrator switch, so it must not be announced as one).
 import type { BaseModelTracker } from "./base-model.ts";
 import { compressEpisode, EpisodePersistenceError } from "./episodes.ts";
+import { readContainedFile } from "./corpus.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 import { findProfile, type ThinkingLevel } from "./model-profiles.ts";
 import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture, type ObservationRecord } from "./observations.ts";
@@ -133,7 +134,6 @@ import {
 	isModelSpec,
 	isThreadType,
 	parseThreadType,
-	resolveEpisodeFile,
 	sanitizeThreadChoiceConfig,
 	splitModelSpec,
 	type EpisodeRecord,
@@ -641,9 +641,9 @@ export class ThreadManager {
 		for (const id of contextIds) {
 			const episode = this.store.episodes.get(id);
 			if (!episode) throw new Error(`Unknown episode "${id}". Known: ${[...this.store.episodes.keys()].join(", ") || "none"}`);
-			const file = resolveEpisodeFile(cwd, episode.file, this.store.corpusName);
-			if (file === undefined) throw new Error(`Episode "${id}" is no longer a safe readable slate episode file.`);
-			parts.push(readFileSync(file, "utf8").trim(), "");
+			const content = readContainedFile(cwd, episode.file, this.store.corpusName);
+			if (content === undefined) throw new Error(`Episode "${id}" is no longer a safe readable slate episode file.`);
+			parts.push(content.toString("utf8").trim(), "");
 		}
 		parts.push("## Action", "", opts.task);
 		return parts.join("\n");
@@ -775,9 +775,9 @@ export class ThreadManager {
 			for (const id of opts.freshContext ?? []) {
 				const episode = this.store.episodes.get(id);
 				if (episode === undefined) throw new Error("episode disappeared after validation");
-				const file = resolveEpisodeFile(cwd, episode.file, this.store.corpusName);
-				if (file === undefined) throw new Error("episode file became unsafe after validation");
-				episodeTokens += this.estimatedTokens(readFileSync(file, "utf8"));
+				const content = readContainedFile(cwd, episode.file, this.store.corpusName);
+				if (content === undefined) throw new Error("episode file became unsafe after validation");
+				episodeTokens += this.estimatedTokens(content.toString("utf8"));
 			}
 		} catch {
 			episodeTokens = undefined;

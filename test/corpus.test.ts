@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,10 +7,15 @@ import {
   createCorpusSession,
   ensureCorpusRoot,
   findCorpusSessionByIdentity,
+  readContainedFile,
+  removeCorpusSession,
   resolveContainedFile,
   resolveCorpusProject,
   sanitizeCorpusLabel,
+  selectCorpusProjectForIdentity,
   SlateWriteRefused,
+  validateCorpusSession,
+  withContainedFile,
 } from "../extension/corpus.ts";
 import { isSlateArtifactReference, slateArtifactReference } from "../extension/artifact-names.ts";
 import { isSlateSessionName, SESSION_ADJECTIVES, SESSION_NOUNS } from "../extension/session-names.ts";
@@ -89,6 +94,36 @@ test("project derivation uses a sanitized label and stable twelve-hex digest", (
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
 });
 
+test("project derivation reuses an existing digest directory after its label changes", () => {
+  const paths = workspace();
+  try {
+    withAgent(paths.agent, () => {
+      const original = resolveCorpusProject(paths.project, "first-label");
+      mkdirSync(original.directory, { recursive: true });
+      const renamed = resolveCorpusProject(paths.project, "second-label");
+      assert.equal(renamed.directory, original.directory);
+      assert.deepEqual(renamed.matchingDirectories, [original.directory]);
+    });
+  } finally { rmSync(paths.root, { recursive: true, force: true }); }
+});
+
+test("identity evidence selects the matching directory when one digest has several labels", () => {
+  const paths = workspace();
+  try {
+    withAgent(paths.agent, () => {
+      const project = resolveCorpusProject(paths.project, "first-label");
+      const first = join(project.root, `first-label-${project.digest}`);
+      const second = join(project.root, `second-label-${project.digest}`);
+      const name = "calm-otter-7f3a";
+      mkdirSync(join(first, name), { recursive: true });
+      writeFileSync(join(first, name, "session.json"), JSON.stringify({ identity: "wanted", name }));
+      mkdirSync(second);
+      const resolved = resolveCorpusProject(paths.project, "second-label");
+      assert.equal(selectCorpusProjectForIdentity(resolved, "wanted").directory, first);
+    });
+  } finally { rmSync(paths.root, { recursive: true, force: true }); }
+});
+
 test("exclusive session creation retries a collision with fresh four-byte input", () => {
   const paths = workspace();
   try {
@@ -108,6 +143,11 @@ test("exclusive session creation retries a collision with fresh four-byte input"
       assert.equal(metadata.identity, "id-two");
       assert.equal(metadata.name, second.name);
       assert.equal(metadata.worktreePath, paths.project);
+      assert.equal(statSync(second.directory).mode & 0o777, 0o700);
+      for (const category of ["episodes", "observations", "threads"]) {
+        assert.equal(statSync(join(second.directory, category)).mode & 0o777, 0o700);
+      }
+      assert.equal(createCorpusSession({ cwd: paths.project, identity: "id-two", initialNameBytes: Uint8Array.from([9, 9, 9, 9]) }).name, second.name);
     });
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
 });
@@ -136,10 +176,54 @@ test("session metadata lookup ignores unrelated entries and recovers the matchin
     withAgent(paths.agent, () => {
       const session = createCorpusSession({ cwd: paths.project, identity: "wanted", initialNameBytes: Uint8Array.from([5, 5, 0, 3]) });
       mkdirSync(join(session.project.directory, "not-a-session"));
+      const malformedName = "amber-badger-0000";
+      mkdirSync(join(session.project.directory, malformedName));
+      writeFileSync(join(session.project.directory, malformedName, "session.json"), "not json");
+      const linkedName = "brisk-bison-0001";
+      mkdirSync(join(session.project.directory, linkedName));
+      const foreign = join(paths.root, "foreign-session.json");
+      writeFileSync(foreign, JSON.stringify({ identity: "wanted", name: linkedName }));
+      symlinkSync(foreign, join(session.project.directory, linkedName, "session.json"));
       assert.deepEqual(findCorpusSessionByIdentity(session.project, "wanted"), { name: session.name, directory: session.directory });
+      const arrayName = "calm-cedar-0002";
+      mkdirSync(join(session.project.directory, arrayName));
+      writeFileSync(join(session.project.directory, arrayName, "session.json"), "[]");
       assert.equal(findCorpusSessionByIdentity(session.project, "missing"), undefined);
+      assert.equal(validateCorpusSession(session.project, "bad/name", undefined), false);
+      assert.equal(validateCorpusSession(session.project, session.name, undefined), true);
+      removeCorpusSession(session.project, "wrong identity", session.name);
+      assert.equal(validateCorpusSession(session.project, session.name, "wanted"), true);
     });
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
+});
+
+test("a symlinked agent path resolves before corpus children are created", () => {
+  const paths = workspace();
+  const target = join(paths.root, "real-agent");
+  const linked = join(paths.root, "linked-agent");
+  mkdirSync(target);
+  symlinkSync(target, linked);
+  try {
+    withAgent(linked, () => {
+      const root = ensureCorpusRoot();
+      assert.equal(root, join(target, "ytdb-slate", "projects"));
+      assert.equal(statSync(root).isDirectory(), true);
+    });
+  } finally { rmSync(paths.root, { recursive: true, force: true }); }
+});
+
+test("corpus creation rejects linked and non-directory child components", () => {
+  for (const kind of ["link", "file"] as const) {
+    const paths = workspace();
+    const child = join(paths.agent, "ytdb-slate");
+    const outside = join(paths.root, "outside");
+    mkdirSync(outside);
+    if (kind === "link") symlinkSync(outside, child);
+    else writeFileSync(child, "not a directory");
+    try {
+      withAgent(paths.agent, () => assert.throws(() => ensureCorpusRoot(), SlateWriteRefused));
+    } finally { rmSync(paths.root, { recursive: true, force: true }); }
+  }
 });
 
 test("corpus creation refuses loudly when the agent path cannot be a directory", () => {
@@ -169,6 +253,41 @@ test("new artifact writes use the corpus session namespace and logical session r
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
 });
 
+test("legacy containment works while the corpus and sibling roots are absent", () => {
+  const paths = workspace();
+  try {
+    withAgent(paths.agent, () => {
+      const legacyDir = join(paths.project, ".pi", "slate", "threads");
+      mkdirSync(legacyDir, { recursive: true });
+      const legacy = join(legacyDir, "worker.jsonl");
+      writeFileSync(legacy, "legacy");
+      assert.equal(resolveContainedFile(paths.project, legacy), legacy);
+      assert.equal(readContainedFile(paths.project, legacy)?.toString("utf8"), "legacy");
+    });
+  } finally { rmSync(paths.root, { recursive: true, force: true }); }
+});
+
+test("contained reads reject a pathname replaced during use", () => {
+  const paths = workspace();
+  try {
+    withAgent(paths.agent, () => {
+      const legacyDir = join(paths.project, ".pi", "slate", "episodes");
+      mkdirSync(legacyDir, { recursive: true });
+      const file = join(legacyDir, "t1.e1.md");
+      const outside = join(paths.root, "outside.md");
+      writeFileSync(file, "safe");
+      writeFileSync(outside, "outside");
+      const result = withContainedFile(paths.project, file, undefined, (fd) => {
+        assert.equal(readFileSync(fd, "utf8"), "safe");
+        rmSync(file);
+        symlinkSync(outside, file);
+        return "used";
+      });
+      assert.equal(result, undefined);
+    });
+  } finally { rmSync(paths.root, { recursive: true, force: true }); }
+});
+
 test("followed paths accept both roots and reject outside files and symlinks", () => {
   const paths = workspace();
   try {
@@ -192,6 +311,11 @@ test("followed paths accept both roots and reject outside files and symlinks", (
       const link = join(session.directory, "episodes", "linked.md");
       symlinkSync(outside, link);
       assert.equal(resolveContainedFile(paths.project, link), undefined);
+      assert.equal(readContainedFile(paths.project, join(session.directory, "episodes")), undefined);
+      const noncanonical = `${session.directory}/episodes/../episodes/t1.e1.md`;
+      assert.equal(readContainedFile(paths.project, noncanonical), undefined);
+      chmodSync(session.directory, 0o700);
+      assert.equal(readdirSync(session.project.directory).some((name) => name.startsWith(".creating-")), false);
     });
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
 });

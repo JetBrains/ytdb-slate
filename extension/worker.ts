@@ -31,6 +31,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+	CONFIG_DIR_NAME,
 	createAgentSession,
 	DefaultResourceLoader,
 	getAgentDir,
@@ -39,7 +40,7 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
-import { resolveCorpusProject } from "./corpus.ts";
+import { resolveCorpusProject, withContainedFile } from "./corpus.ts";
 import { isSlateSessionName } from "./session-names.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
@@ -124,7 +125,7 @@ export function workerPreamble(writingCheck: boolean, reviewerCharter: boolean):
 export function threadsDir(cwd: string, sessionName?: string, corpusName?: unknown): string {
 	if (sessionName !== undefined && !isSlateSessionName(sessionName)) throw new Error("slate refused an invalid session name");
 	return sessionName === undefined
-		? resolve(cwd, ".pi", "slate", "threads")
+		? resolve(cwd, CONFIG_DIR_NAME, "slate", "threads")
 		: resolve(resolveCorpusProject(cwd, corpusName).directory, sessionName, "threads");
 }
 
@@ -335,8 +336,9 @@ export async function openWorkerSession(opts: {
 	const model = opts.model ? resolveModel(ctx, opts.model) : ctx.model;
 
 	const sessionManager = opts.sessionFile
-		? SessionManager.open(opts.sessionFile)
+		? withContainedFile(ctx.cwd, opts.sessionFile, opts.corpusName, (_fd, path) => SessionManager.open(path))
 		: SessionManager.create(ctx.cwd, dir);
+	if (sessionManager === undefined) throw new Error("slate refused an unsafe worker session file");
 
 	// No modelRuntime passed: createAgentSession (pi >= 0.80.8) defaults to a
 	// ModelRuntime replacing the AuthStorage + ModelRegistry setup this code

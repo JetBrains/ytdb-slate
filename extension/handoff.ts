@@ -538,7 +538,7 @@ export function registerSlateHandoff(
 				ctx.sessionManager.getSessionId(),
 				ctx.sessionManager.getSessionFile(),
 			);
-			store.adoptSnapshot(pending.snapshot, ctx);
+			store.adoptSnapshot(pending.snapshot, ctx, { foreignSessionName: true });
 			// The digest was computed before adoption, so ownership transfer remains
 			// one pure field assignment inside the broad startup-safety catch.
 			if (store.slateSessionId !== undefined) store.ownerSessionDigest = owner;

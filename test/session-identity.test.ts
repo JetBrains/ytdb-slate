@@ -8,6 +8,8 @@ import test from "node:test";
 import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { BaseModelTracker } from "../extension/base-model.ts";
 import { registerSlateHandoff } from "../extension/handoff.ts";
+import { createCorpusSession, resolveCorpusProject } from "../extension/corpus.ts";
+import { isSlateSessionName } from "../extension/session-names.ts";
 import slateExtension from "../extension/index.ts";
 import {
   createOwnerSessionDigest,
@@ -235,7 +237,7 @@ test("failed mint persistence leaves no in-memory identity, notifies, and does n
   assert.equal(store.snapshot().ownerSessionDigest, undefined);
   assert.equal(mintCalls, 1);
   assert.equal(changes, 1);
-  assert.match(reports.join("\n"), /could not persist.*disk full.*legacy paths/);
+  assert.match(reports.join("\n"), /could not persist.*disk full.*refuse artifact writes/);
 
   assert.equal(store.resolveSessionIdentity(OWNER, (message) => reports.push(message), mint), false);
   assert.equal(mintCalls, 1);
@@ -339,6 +341,112 @@ function spawnHandoffChild(
   });
   return { child, completed };
 }
+
+test("a snapshot without a name recovers durable session metadata and persists the name", () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-name-recovery-test-"));
+  const project = join(root, "project");
+  const agent = join(root, "agent");
+  mkdirSync(project);
+  mkdirSync(agent);
+  const oldAgent = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agent;
+  try {
+    const created = createCorpusSession({ cwd: project, identity: ID, initialNameBytes: Uint8Array.from([1, 2, 3, 4]) });
+    const appended: Array<Record<string, unknown>> = [];
+    const store = new SlateStore({ appendEntry(_type: string, data: Record<string, unknown>) { appended.push(data); } } as unknown as ExtensionAPI);
+    store.adoptSnapshot(snapshot({ slateSessionId: ID, ownerSessionDigest: OWNER }), { cwd: project, hasUI: false } as unknown as ExtensionContext);
+    assert.equal(store.resolveSessionIdentity(OWNER, () => {}, undefined, { cwd: project }), false);
+    assert.equal(store.slateSessionName, created.name);
+    assert.equal(appended.at(-1)?.slateSessionName, created.name);
+  } finally {
+    if (oldAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = oldAgent;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a missing named session directory is replaced and reported", () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-name-missing-test-"));
+  const project = join(root, "project");
+  const agent = join(root, "agent");
+  mkdirSync(project);
+  mkdirSync(agent);
+  const oldAgent = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agent;
+  try {
+    const appended: Array<Record<string, unknown>> = [];
+    const reports: string[] = [];
+    const store = new SlateStore({ appendEntry(_type: string, data: Record<string, unknown>) { appended.push(data); } } as unknown as ExtensionAPI);
+    store.adoptSnapshot(snapshot({ slateSessionId: ID, slateSessionName: "calm-otter-7f3a", ownerSessionDigest: OWNER }), { cwd: project, hasUI: false } as unknown as ExtensionContext);
+    store.resolveSessionIdentity(OWNER, (message) => reports.push(message), undefined, { cwd: project });
+    assert.notEqual(store.slateSessionName, "calm-otter-7f3a");
+    assert.match(reports.join("\n"), /missing or does not match/);
+    assert.equal(appended.at(-1)?.slateSessionName, store.slateSessionName);
+  } finally {
+    if (oldAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = oldAgent;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("duplicate durable identity claims are reported and refused", () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-name-duplicate-test-"));
+  const project = join(root, "project");
+  const agent = join(root, "agent");
+  mkdirSync(project);
+  mkdirSync(agent);
+  const oldAgent = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agent;
+  try {
+    createCorpusSession({ cwd: project, identity: ID, initialNameBytes: Uint8Array.from([1, 1, 0, 1]), claimIdentity: false });
+    createCorpusSession({ cwd: project, identity: ID, initialNameBytes: Uint8Array.from([2, 2, 0, 2]), claimIdentity: false });
+    const reports: string[] = [];
+    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    store.adoptSnapshot(snapshot({ slateSessionId: ID, ownerSessionDigest: OWNER }), { cwd: project, hasUI: false } as unknown as ExtensionContext);
+    assert.throws(() => store.resolveSessionIdentity(OWNER, (message) => reports.push(message), undefined, { cwd: project }), /duplicate session identity/);
+    assert.match(reports.join("\n"), /duplicate session directories/);
+  } finally {
+    if (oldAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = oldAgent;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runtime persistence failure removes its new namespace and refuses later writes", () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-name-persist-fail-test-"));
+  const project = join(root, "project");
+  const agent = join(root, "agent");
+  mkdirSync(project);
+  mkdirSync(agent);
+  const oldAgent = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agent;
+  try {
+    const reports: string[] = [];
+    const store = new SlateStore({ appendEntry() { throw new Error("disk full"); } } as unknown as ExtensionAPI);
+    store.resolveSessionIdentity(OWNER, (message) => reports.push(message), undefined, { cwd: project });
+    assert.throws(() => store.artifactSessionName(), /namespace is unavailable/);
+    assert.match(reports.join("\n"), /refuse artifact writes/);
+    const directory = resolveCorpusProject(project).directory;
+    assert.equal(readdirSync(directory).filter(isSlateSessionName).length, 0);
+  } finally {
+    if (oldAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = oldAgent;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("foreign snapshot adoption drops only the predecessor session name", () => {
+  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  store.adoptSnapshot(
+    snapshot({ slateSessionId: ID, slateSessionName: "calm-otter-7f3a", ownerSessionDigest: OWNER }),
+    { cwd: process.cwd(), hasUI: false } as unknown as ExtensionContext,
+    { foreignSessionName: true },
+  );
+  assert.equal(store.slateSessionId, ID);
+  assert.equal(store.ownerSessionDigest, OWNER);
+  assert.equal(store.slateSessionName, undefined);
+  assert.equal(store.snapshot().slateSessionName, undefined);
+});
 
 test("failed adoption preserves pending content and a following session adopts it", { timeout: 1000 }, async (t) => {
   const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-recovery-test-"));
@@ -500,9 +608,16 @@ async function startEntry(api: EntryExtensionApi, ctx: ExtensionContext): Promis
   for (const handler of handlers) await handler({}, ctx);
 }
 
-test("entry-point session-start wiring mints fresh and resolves only after handoff adoption", { timeout: 1000 }, async (t) => {
+test("entry-point session-start wiring mints fresh name and resolves only after handoff adoption", { timeout: 1000 }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "slate-identity-entry-test-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const oldAgent = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(root, "agent");
+  mkdirSync(process.env.PI_CODING_AGENT_DIR);
+  t.after(() => {
+    if (oldAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = oldAgent;
+    rmSync(root, { recursive: true, force: true });
+  });
 
   const freshCwd = join(root, "fresh");
   mkdirSync(freshCwd, { recursive: true });
@@ -512,6 +627,7 @@ test("entry-point session-start wiring mints fresh and resolves only after hando
   await startEntry(freshApi, entryContext(freshCwd, "../../hostile", freshFile));
   assert.equal(freshApi.appended.length, 1);
   assert.match(String(freshApi.appended[0]?.slateSessionId), SLATE_SESSION_ID_PATTERN);
+  assert.match(String(freshApi.appended[0]?.slateSessionName), /^[a-z][a-z0-9-]*-[0-9a-f]{4}$/);
   assert.equal(
     freshApi.appended[0]?.ownerSessionDigest,
     createOwnerSessionDigest("../../hostile", freshFile),
@@ -526,6 +642,7 @@ test("entry-point session-start wiring mints fresh and resolves only after hando
     brief: "",
     snapshot: snapshot({
       slateSessionId: ID,
+      slateSessionName: "calm-otter-7f3a",
       ownerSessionDigest: FOREIGN_OWNER,
       orchestratorMode: true,
     }),
@@ -535,10 +652,12 @@ test("entry-point session-start wiring mints fresh and resolves only after hando
   const adoptedFile = join(root, "adopted-session.jsonl");
   await startEntry(adoptedApi, entryContext(adoptedCwd, "successor", adoptedFile));
   assert.equal(adoptedApi.appended.length, 2);
-  assert.equal(adoptedApi.appended[1]?.slateSessionId, ID);
-  assert.match(String(adoptedApi.appended[1]?.slateSessionName), /^[a-z][a-z0-9-]*-[0-9a-f]{4}$/);
+  const adoptedState = adoptedApi.appended.at(-1);
+  assert.equal(adoptedState?.slateSessionId, ID);
+  assert.match(String(adoptedState?.slateSessionName), /^[a-z][a-z0-9-]*-[0-9a-f]{4}$/);
+  assert.notEqual(adoptedState?.slateSessionName, "calm-otter-7f3a");
   assert.equal(
-    adoptedApi.appended[1]?.ownerSessionDigest,
+    adoptedState?.ownerSessionDigest,
     createOwnerSessionDigest("successor", adoptedFile),
   );
 });

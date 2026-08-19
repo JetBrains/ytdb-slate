@@ -256,16 +256,36 @@ real_fingerprint() {
 		printf '%s %s' "$h" "$z"
 	else printf 'absent'; fi
 }
-real_corpus_fingerprint() {
-	if [ ! -e "$REAL_CORPUS" ]; then printf 'absent'; return; fi
-	[ -d "$REAL_CORPUS" ] || die "the real corpus root exists but is not a directory: $REAL_CORPUS"
+corpus_fingerprint() { # $1 corpus root, $2 watched agent root
+	local corpus="$1" watched="$2"
 	(
+		if [ -e "$watched" ]; then stat -c 'watch:%n:%F:%s:%y' "$watched" || exit 1
+		else printf 'watch:absent:%s\n' "$watched"; fi
+		if [ ! -e "$corpus" ]; then printf 'corpus:absent:%s\n' "$corpus"; exit 0; fi
+		[ -d "$corpus" ] || exit 1
 		while IFS= read -r -d '' path; do
-			stat -c '%n:%F:%s:%Y' "$path" || exit 1
+			stat -c '%n:%F:%s:%y' "$path" || exit 1
 			if [ -f "$path" ]; then sha256sum "$path" || exit 1; fi
-		done < <(find "$REAL_CORPUS" -xdev -print0 | sort -z)
+		done < <(find "$corpus" -xdev -print0 | sort -z)
 	) | sha256sum | cut -d' ' -f1
 }
+real_corpus_fingerprint() {
+	corpus_fingerprint "$REAL_CORPUS" "$REAL_AGENT_DIR" || die "cannot fingerprint the real corpus root"
+}
+# Teeth test: prove both a live mutation and a transient create-delete change
+# the fingerprint. The fixture stays inside the validated ladder scratch root.
+FP_TEETH_AGENT="$LAB/corpus-fingerprint-teeth-agent"
+FP_TEETH_CORPUS="$FP_TEETH_AGENT/ytdb-slate/projects"
+mkdir -p "$FP_TEETH_AGENT" || die "cannot create corpus fingerprint teeth fixture"
+FP_TEETH_BEFORE=$(corpus_fingerprint "$FP_TEETH_CORPUS" "$FP_TEETH_AGENT")
+mkdir -p "$FP_TEETH_CORPUS" || die "cannot mutate corpus fingerprint teeth fixture"
+printf 'teeth\n' > "$FP_TEETH_CORPUS/canary"
+FP_TEETH_DURING=$(corpus_fingerprint "$FP_TEETH_CORPUS" "$FP_TEETH_AGENT")
+rm -rf "$FP_TEETH_CORPUS"
+FP_TEETH_AFTER=$(corpus_fingerprint "$FP_TEETH_CORPUS" "$FP_TEETH_AGENT")
+[ "$FP_TEETH_BEFORE" != "$FP_TEETH_DURING" ] || die "corpus fingerprint teeth did not detect a live mutation"
+[ "$FP_TEETH_BEFORE" != "$FP_TEETH_AFTER" ] || die "corpus fingerprint teeth did not detect a transient create-delete"
+rm -rf "$FP_TEETH_AGENT"
 REAL_BEFORE=$(real_fingerprint)
 REAL_CORPUS_BEFORE=$(real_corpus_fingerprint)
 [ -n "$REAL_BEFORE" ] || die "the real-settings fingerprint came back empty — refusing to run"

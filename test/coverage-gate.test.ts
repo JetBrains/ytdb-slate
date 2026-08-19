@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -555,6 +555,28 @@ test("run-tests refuses a missing size-grade suite before running tests", (t) =>
   assert.equal(result.status, 2);
   assert.match(result.stderr, /run-tests: missing size-grade regression suite at /);
   assert.doesNotMatch(result.stdout, /TEST VERDICT: PASS/);
+});
+
+test("run-tests refuses and removes a scratch directory inside home", (t) => {
+  const repo = mkdtempSync(join(tmpdir(), "slate-runner-home-test-"));
+  t.after(() => rmSync(repo, { recursive: true, force: true }));
+  mkdirSync(join(repo, "verification"), { recursive: true });
+  mkdirSync(join(repo, "test"), { recursive: true });
+  cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
+  writeFileSync(join(repo, "verification/size-grade-tests.mjs"), "process.exit(0);\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "test/smoke.test.ts"), "// unreachable fixture\n");
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "config", "user.email", "gate@example.invalid");
+  git(repo, "config", "user.name", "Gate Test");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "fixture");
+  const home = join(repo, "home");
+  mkdirSync(home);
+  const result = command(repo, "bash", ["verification/run-tests.sh", "--no-gate"], { HOME: home, TMPDIR: home });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /temporary directory is inside the real home directory/);
+  assert.deepEqual(readdirSync(home), []);
 });
 
 test("missing LCOV is an infrastructure error and the runner labels it (WH41)", (t) => {

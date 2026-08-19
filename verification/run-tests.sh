@@ -37,6 +37,12 @@ fi
 
 bash "$repo/verification/link-peers.sh"
 work="$(mktemp -d "${TMPDIR:-/tmp}/slate-node-test.XXXXXX")" || fail "cannot create temporary directory"
+work="$(cd "$work" && pwd -P)" || fail "cannot resolve temporary directory"
+home="$(node -e 'const os=require("os");process.stdout.write(os.homedir())')" || home=""
+[ -d "$home" ] || home="${HOME:-}"
+[ -n "$home" ] && [ -d "$home" ] || { rm -rf "$work"; fail "cannot resolve home directory"; }
+home="$(cd "$home" && pwd -P)" || { rm -rf "$work"; fail "cannot canonicalize home directory"; }
+case "$work" in "$home"|"$home"/*) rm -rf "$work"; fail "temporary directory is inside the real home directory" ;; esac
 mkdir -p "$work/agent" || fail "cannot create temporary agent directory"
 export PI_CODING_AGENT_DIR="$work/agent"
 cleanup() {
