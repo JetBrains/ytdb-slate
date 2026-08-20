@@ -385,7 +385,7 @@ function holdDirectory(path: string): HeldDirectory {
 	return held;
 }
 
-function fsyncHeldDirectory(held: HeldDirectory): void {
+export function fsyncHeldDirectory(held: HeldDirectory): void {
 	try { fsyncSync(held.fd); }
 	catch (error) {
 		const code = (error as { code?: string }).code;
@@ -393,21 +393,18 @@ function fsyncHeldDirectory(held: HeldDirectory): void {
 	}
 }
 
+export interface HandoffDurabilityOperations {
+	fsyncFile: typeof fsyncSync;
+	fsyncDirectory: typeof fsyncHeldDirectory;
+}
+
+export const DEFAULT_HANDOFF_DURABILITY_OPERATIONS: Readonly<HandoffDurabilityOperations> = Object.freeze({
+	fsyncFile: fsyncSync,
+	fsyncDirectory: fsyncHeldDirectory,
+});
+
 interface HandoffWriteHooks {
 	afterPendingOpen?: () => void;
-	afterPendingDirectoryFsync?: () => void;
-	afterStagingFileFsync?: (file: string) => void;
-	afterStagingDirectoryFsync?: (file: string) => void;
-}
-
-function fsyncStagedFile(fd: number, file: string, hooks: HandoffWriteHooks): void {
-	fsyncSync(fd);
-	hooks.afterStagingFileFsync?.(file);
-}
-
-function fsyncStagingBeforeRename(directory: HeldDirectory, file: string, hooks: HandoffWriteHooks): void {
-	fsyncHeldDirectory(directory);
-	hooks.afterStagingDirectoryFsync?.(file);
 }
 
 function validLineage(record: CorpusHandoffRecord): boolean {
@@ -602,6 +599,7 @@ export function writeCorpusHandoffRecord(
 	project: CorpusProject,
 	record: CorpusHandoffRecord,
 	hooks: HandoffWriteHooks = {},
+	durability: HandoffDurabilityOperations = DEFAULT_HANDOFF_DURABILITY_OPERATIONS,
 ): string {
 	const validated = validateRecord(record);
 	if (validated === undefined) throw new Error("slate refused to write an invalid handoff record");
@@ -624,10 +622,7 @@ export function writeCorpusHandoffRecord(
 			catch (error) { if ((error as { code?: string }).code !== "EEXIST") throw error; }
 		}
 		if (!directoryMatches(projectHeld)) throw new Error("slate refused a changing corpus project directory");
-		if (createdDirectory) {
-			fsyncHeldDirectory(projectHeld);
-			hooks.afterPendingDirectoryFsync?.();
-		}
+		if (createdDirectory) durability.fsyncDirectory(projectHeld);
 	} finally {
 		closeSync(projectHeld.fd);
 	}
@@ -662,8 +657,8 @@ export function writeCorpusHandoffRecord(
 			throw new Error("slate refused a linked or changing staged handoff record");
 		}
 		writeFileSync(fd, content, "utf8");
-		fsyncStagedFile(fd, staging, hooks);
-		fsyncStagingBeforeRename(stagingDirectoryHeld, staging, hooks);
+		durability.fsyncFile(fd);
+		durability.fsyncDirectory(stagingDirectoryHeld);
 		const beforeRename = lstatSync(staging, { throwIfNoEntry: false });
 		if (!beforeRename?.isFile() || !sameFile(stagingHeld, beforeRename)
 			|| !directoryMatches(stagingDirectoryHeld) || !directoryMatches(pendingHeld)) {
@@ -677,8 +672,8 @@ export function writeCorpusHandoffRecord(
 			|| !directoryMatches(stagingDirectoryHeld) || !directoryMatches(pendingHeld)) {
 			throw new Error("slate refused a handoff record or directory modified during publication");
 		}
-		fsyncHeldDirectory(stagingDirectoryHeld);
-		fsyncHeldDirectory(pendingHeld);
+		durability.fsyncDirectory(stagingDirectoryHeld);
+		durability.fsyncDirectory(pendingHeld);
 		if (!directoryMatches(stagingDirectoryHeld) || !directoryMatches(pendingHeld)) {
 			throw new Error("slate refused a handoff directory modified after publication");
 		}

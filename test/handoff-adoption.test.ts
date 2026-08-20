@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, fsyncSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,6 +8,8 @@ import type { BaseModelTracker } from "../extension/base-model.ts";
 import { createCorpusSession, currentBranchLabel } from "../extension/corpus.ts";
 import {
   corpusHandoffFile,
+  DEFAULT_HANDOFF_DURABILITY_OPERATIONS,
+  fsyncHeldDirectory,
   handoffTreeWithinDepth,
   listCorpusHandoffCandidates,
   readCorpusHandoffRecord,
@@ -830,6 +832,12 @@ test("missing artifact paths survive while links and outside paths fail every ca
   }
 });
 
+test("production handoff durability defaults are the real frozen fsync operations", () => {
+  assert.equal(Object.isFrozen(DEFAULT_HANDOFF_DURABILITY_OPERATIONS), true);
+  assert.equal(DEFAULT_HANDOFF_DURABILITY_OPERATIONS.fsyncFile, fsyncSync);
+  assert.equal(DEFAULT_HANDOFF_DURABILITY_OPERATIONS.fsyncDirectory, fsyncHeldDirectory);
+});
+
 test("read and write reject one-way pending-directory replacement and sync first publication", (t) => {
   const readBox = sandbox();
   t.after(() => readBox.restore());
@@ -851,27 +859,50 @@ test("read and write reject one-way pending-directory replacement and sync first
   t.after(() => writeBox.restore());
   const writePending = join(writeBox.source.project.directory, "pending");
   rmSync(writePending, { recursive: true });
-  let parentSynced = 0;
-  writeCorpusHandoffRecord(writeBox.source.project, writeBox.record, {
-    afterPendingDirectoryFsync() { parentSynced += 1; },
-  });
-  assert.equal(parentSynced, 1);
   const stagingDirectory = join(writeBox.source.project.directory, "handoff-staging");
+  const syncEvents: string[] = [];
+  writeCorpusHandoffRecord(writeBox.source.project, writeBox.record, {}, {
+    fsyncFile(fd) {
+      DEFAULT_HANDOFF_DURABILITY_OPERATIONS.fsyncFile(fd);
+      syncEvents.push("file");
+    },
+    fsyncDirectory(directory) {
+      DEFAULT_HANDOFF_DURABILITY_OPERATIONS.fsyncDirectory(directory);
+      if (directory.path === writeBox.source.project.directory) syncEvents.push("project");
+      else if (directory.path === stagingDirectory) syncEvents.push("staging");
+      else {
+        assert.equal(directory.path, writePending);
+        syncEvents.push("pending");
+      }
+    },
+  });
+  assert.deepEqual(syncEvents, ["project", "file", "staging", "staging", "pending"]);
   assert.deepEqual(readdirSync(stagingDirectory), []);
   for (let index = 0; index < 65; index++) writeFileSync(join(stagingDirectory, `residue-${index}`), "x");
   assert.throws(() => writeCorpusHandoffRecord(writeBox.source.project, writeBox.record), /more than 64 staged handoff files/);
   for (const entry of readdirSync(stagingDirectory)) rmSync(join(stagingDirectory, entry));
 
-  const syncEvents: string[] = [];
+  const failureSyncEvents: string[] = [];
   let failedStaging = "";
   assert.throws(
-    () => writeCorpusHandoffRecord(writeBox.source.project, writeBox.record, {
-      afterStagingFileFsync(file) { failedStaging = file; syncEvents.push("file"); },
-      afterStagingDirectoryFsync(file) { assert.equal(file, failedStaging); syncEvents.push("directory"); throw new Error("forced post-fsync failure"); },
+    () => writeCorpusHandoffRecord(writeBox.source.project, writeBox.record, {}, {
+      fsyncFile(fd) {
+        DEFAULT_HANDOFF_DURABILITY_OPERATIONS.fsyncFile(fd);
+        const entries = readdirSync(stagingDirectory);
+        assert.equal(entries.length, 1);
+        failedStaging = join(stagingDirectory, entries[0]!);
+        failureSyncEvents.push("file");
+      },
+      fsyncDirectory(directory) {
+        DEFAULT_HANDOFF_DURABILITY_OPERATIONS.fsyncDirectory(directory);
+        assert.equal(directory.path, stagingDirectory);
+        failureSyncEvents.push("staging");
+        throw new Error("forced post-fsync failure");
+      },
     }),
     /forced post-fsync failure/,
   );
-  assert.deepEqual(syncEvents, ["file", "directory"]);
+  assert.deepEqual(failureSyncEvents, ["file", "staging"]);
   assert.notEqual(failedStaging, "");
   assert.equal(existsSync(failedStaging), false);
   assert.deepEqual(readdirSync(stagingDirectory), []);
