@@ -95,7 +95,7 @@ Options:
 | `--old-module <file>` | supply the pre-fix `model-default.ts` for the P5a/P5b teeth proof yourself; by default it is derived from the current module at run time |
 | `--strict` | any NOT RUN becomes a failure (exit 1). **Automation should always pass this** — otherwise a ladder that skipped rungs, because `strace` was missing or a teeth derivation broke, reads as a clean pass. Off by default so a human without the optional tracing tool is not blocked |
 | `--setup-only` | run every guard and build every fixture and generated copy, then stop without launching pi. The supported way to exercise setup safety |
-| `--self-test` | run deterministic hermetic-launcher tests for environment closure, invalid roots, redirect loss, nested children, alternate agents, outer guard, source audit and concurrent fabricated writes |
+| `--self-test` | run deterministic hermetic-launcher tests for environment closure, invalid roots, redirect loss, nested children, alternate agents, the runtime violation sentinel, outer guard, source audit and concurrent fabricated writes |
 | `--list-rungs` | print the rung ids and exit |
 
 ### Rung selection semantics and interdependencies
@@ -237,7 +237,7 @@ Four drive modes, chosen per rung:
 | `P11` | a report that hits the length cap is cut **on a word boundary**, carries an explicit truncation marker, and keeps the headline, affected keys, settings path and cause while losing only the advisory tail |
 | `WK1` | a **worker-side per-dispatch** model *and* effort switch (a) writes **zero bytes** to the global settings file and (b) does not survive into a reopened session as a sticky default |
 | `LAT` | median wall clock, knob on vs off, n=7 each — informational, never a pass/fail |
-| `SAFE` | corpus evidence exists, every agent root durably recorded by the runtime pi shim is validated, the throwaway-HOME fallback stayed untouched, and the read-only repository fingerprint is unchanged. A focused rung whose guarded launcher starts no pi child reports a positive not-applicable PASS |
+| `SAFE` | the runtime pi shim recorded no unauthorized PATH-based invocation, corpus evidence exists, every recorded agent root is validated, the throwaway-HOME fallback stayed untouched, and the read-only repository fingerprint is unchanged. A focused rung whose guarded launcher starts no pi child reports a positive not-applicable PASS |
 
 Every rung that drives a switch also asserts **positive evidence that the switch
 actually fired**, from the session record (`model_change`, or
@@ -465,8 +465,9 @@ redirected into an artifact file) is still visible.
    tools resolve, the parent PATH also removes that directory and puts the
    refusing shim first. A generated token-guarded `pi` shim is therefore the
    only PATH-visible pi command. It records the selected agent root in a durable
-   ledger on every actual pi start. The generated guard requires exact environment-key equality
-   before it starts the requested command. `NODE_OPTIONS`, credentials, proxies,
+   ledger on every actual pi start. The script unsets its real pi path variable
+   after generating the shim. The generated guard requires exact environment-key
+   equality before it starts the requested command. `NODE_OPTIONS`, credentials, proxies,
    stale pi variables and `PI_CODING_AGENT_SESSION_DIR` are absent. A marker
    written from the child process `spawn` event makes every launch positive.
    P11 and alternate-agent launches use this same path.
@@ -474,13 +475,22 @@ redirected into an artifact file) is still visible.
    `HOME`, `TMPDIR` and each selected agent root are checked before every launch.
    Each must be non-empty, absolute, a real non-symlink directory and inside the
    lab. The inherited `PI_CODING_AGENT_DIR` refusal remains an outer fatal guard.
+   A refused invocation with an invalid token or ledger atomically creates a
+   per-run violation sentinel. The sentinel is the authoritative runtime control.
+   Every hermetic launch and the final `SAFE PI` report fail when it exists. This
+   remains true when command substitution, process substitution or missing
+   `set -e` hides the shim exit status. The sentinel resets only at controlled
+   self-test boundaries.
+
    `--self-test` exercises poisoned parents, absent and empty roots, redirect-loss
-   teeth, nested inheritance, runtime alternate-agent ledger registration, shim
-   refusal outside the launcher, literal parent-shell resolution and structural
-   source auditing. Its mutation set covers literal, variable, resolved,
-   absolute-multiline, no-flag and semicolon-decoy forms. It also covers aliases,
-   alias chains and command substitutions. The remaining tests cover the outer
-   guard and concurrent fabricated settings writes.
+   teeth, nested inheritance, runtime alternate-agent ledger registration and
+   shim refusal outside the launcher. Reachable mutations cover `command pi`,
+   input and output process substitution, backticks, `$()`, bare `pi`, `xargs`
+   and a shell wrapper. A harmless `echo pi` must not create the sentinel.
+   Structural source auditing remains defense in depth for direct real-path and
+   exposed alias references. It deliberately does not parse all shell grammar.
+   The remaining tests cover the outer guard and concurrent fabricated settings
+   writes.
 
    The real settings content hash is now a NOTE only. A concurrent real session
    may change it without changing the verdict. Redirect evidence instead comes
@@ -536,9 +546,9 @@ evidence.
   dependency using a hardcoded absolute real-home path remains outside the
   portable guarantee. The launcher blocks accidental and ordinary PATH-based
   bypasses. It does not defend against a deliberately malicious same-user child.
-  Such a child can read the shim token or forge a ledger entry. It can also
-  discover and invoke an absolute binary. Those attacks require operating-system
-  isolation.
+  Such a child can read the shim or its token and forge writable evidence. It
+  can also reconstruct and invoke an absolute binary. Those attacks require
+  operating-system isolation.
 * The real settings hash is diagnostic and nonfatal. Selected-agent, fallback-
   agent, session, corpus and repository evidence determine the safety verdict.
 * Guard 2/3 canonicalise **at startup**. The *agent* directory is re-checked

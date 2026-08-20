@@ -183,9 +183,11 @@ pi **stays silent** for each failure below: it exits 0, and it prints neither ma
 
 Every child starts through one `env -i` launcher. The launcher validates throwaway `HOME`, `TMPDIR` and `PI_CODING_AGENT_DIR`. It uses a guarded tool path, enables offline mode and enforces an exact environment allowlist. The launcher requires a positive start marker. Corpus evidence and shim-recorded agent roots prove the redirect. An untouched throwaway-HOME fallback agent provides separate evidence.
 
-The shim records roots from actual pi starts, independently of rung call sites. The parent and child paths expose only that shim as `pi`. Source auditing rejects direct, aliased and command-substitution launches outside the wrapper. A focused rung with no pi child records a positive not-applicable session PASS. The real settings content hash is a nonfatal concurrency note, not a verdict.
+The shim records roots from actual pi starts, independently of rung call sites. The parent and child paths expose only that shim as `pi`. A refused PATH-based invocation atomically creates a per-run violation sentinel. The sentinel is the authoritative runtime control, even when shell syntax swallows the shim exit status. Every launcher path and the final safety report reject the sentinel.
 
-This environment-isolation harness is not an operating-system sandbox. A deliberately malicious same-user child remains outside the guarantee. Such a child can read process data, discover an absolute binary, or forge writable evidence.
+Source auditing remains defense in depth for exposed real-path variables and aliases. It does not parse all shell grammar. A focused rung with no pi child records a positive not-applicable session PASS. The real settings content hash is a nonfatal concurrency note, not a verdict.
+
+This environment-isolation harness is not an operating-system sandbox. A deliberately malicious same-user child remains outside the guarantee. Such a child can read process data, discover an absolute binary, read the generated shim, or forge writable evidence.
 
 Concurrent pi sessions are permitted only when they cannot write this checkout. A fatal read-only before-and-after repository fingerprint covers HEAD, index entries, tracked files, relevant untracked files and their metadata. It does not call `git write-tree` or create objects. A same-checkout writer remains prohibited. Same-user edit-and-restore is the documented residual boundary because no portable userspace fingerprint can observe it after the fact. The inherited `PI_CODING_AGENT_DIR` guard remains fatal because the ladder must choose every child redirect itself.
 
