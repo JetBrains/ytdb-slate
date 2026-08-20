@@ -103,6 +103,7 @@ async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfi
     store,
     {
       startHandoff: async () => {},
+      adoptHandoff: async () => false,
       effectiveContextBudget: () => undefined,
     } as any,
     () => config,

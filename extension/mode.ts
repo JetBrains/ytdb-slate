@@ -632,9 +632,9 @@ export function registerSlateMode(
 		uiCtx.ui.setWidget("slate", lines);
 	};
 
-	const setMode = (on: boolean, persist: boolean) => {
-		if (on && !store.orchestratorMode) {
-			savedTools = pi.getActiveTools();
+	const setMode = (on: boolean, persist: boolean, forceEntry = false) => {
+		if (on && (!store.orchestratorMode || forceEntry)) {
+			savedTools ??= pi.getActiveTools();
 			pi.setActiveTools(ORCHESTRATOR_TOOLS);
 		} else if (!on && store.orchestratorMode) {
 			pi.setActiveTools(savedTools ?? [...pi.getAllTools().map((t) => t.name)]);
@@ -650,7 +650,7 @@ export function registerSlateMode(
 	store.onDidChange = updateWidget;
 
 	pi.registerCommand("slate", {
-		description: "Slate orchestrator mode: on | off | handoff [focus] | resume (no arg toggles)",
+		description: "Slate orchestrator mode: on | off | handoff [focus] | adopt <name> | resume (no arg toggles)",
 		handler: async (args, ctx) => {
 			uiCtx = ctx;
 			const trimmed = args?.trim() ?? "";
@@ -662,6 +662,16 @@ export function registerSlateMode(
 					return;
 				}
 				await hooks.startHandoff(ctx, rest.join(" ") || undefined);
+				return;
+			}
+			if (arg === "adopt") {
+				if (rest.length > 1) {
+					const message = "slate: adoption takes exactly one session name. Run /slate adopt without a name to list candidates.";
+					console.warn(message);
+					if (ctx.hasUI) ctx.ui.notify(message, "warning");
+					return;
+				}
+				await hooks.adoptHandoff(ctx, rest[0], () => setMode(true, false, true));
 				return;
 			}
 			if (arg === "resume") {

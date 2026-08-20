@@ -60,6 +60,8 @@ const stateLoad = await tryImport("extension/state.ts");
 const writingLoad = await tryImport("extension/writing.ts");
 const reminderLoad = await tryImport("extension/writing-reminder.ts");
 const handoffLoad = await tryImport("extension/handoff.ts");
+const handoffRecordLoad = await tryImport("extension/handoff-record.ts");
+const corpusLoad = await tryImport("extension/corpus.ts");
 const workerLoad = await tryImport("extension/worker.ts");
 // The base-model tracker is a PURE reducer over model-selection events (its own
 // module header says so), so it belongs here rather than in the ladder: it
@@ -78,6 +80,8 @@ const state = stateLoad.module;
 const writing = writingLoad.module;
 const reminder = reminderLoad.module;
 const handoff = handoffLoad.module;
+const handoffRecord = handoffRecordLoad.module;
+const corpus = corpusLoad.module;
 const worker = workerLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
@@ -980,76 +984,85 @@ try {
 			]);
 
 			const handoffCwd = join(WORK, "real handoff order");
-			mkdirSync(join(handoffCwd, ".pi", "slate"), { recursive: true });
+			mkdirSync(handoffCwd, { recursive: true });
 			const events = [];
 			let forceValue = false;
-			const runtime = {
-				markTokens: 91_000,
-				sentThisRound: true,
-				deliverySequence: 7,
-				adoptedThisSessionStart: false,
-				pending: { deliveryId: 7, nextMarkTokens: 92_000, consumeForce: true },
+			const sourceIdentity = "20260820T010203Z-0123456789abcdef";
+			const adopterIdentity = "20260820T020304Z-fedcba9876543210";
+			const source = corpus.createCorpusSession({
+				cwd: handoffCwd,
+				identity: sourceIdentity,
+				initialNameBytes: Uint8Array.from([1, 2, 3, 4]),
+			});
+			const record = {
+				version: 1,
+				author: { identity: sourceIdentity, name: source.name },
+				authorSessionDirectory: source.directory,
+				createdAt: Date.now(),
+				worktreePath: handoffCwd,
+				branchLabel: "resolver",
+				parentChain: [],
+				brief: "continue",
+				snapshot: {
+					threads: [], episodes: [], orchestratorMode: true, paused: false,
+					workerCostUsd: 0, carriedCostUsd: 0,
+					slateSessionId: sourceIdentity, slateSessionName: source.name,
+					ownerSessionDigest: "a".repeat(64),
+				},
 			};
+			handoffRecord.writeCorpusHandoffRecord(source.project, record);
+			const appended = [];
+			const adoptedStore = new state.SlateStore({ appendEntry: (_type, data) => appended.push(data) });
+			adoptedStore.corpusProject = source.project;
+			adoptedStore.slateSessionId = adopterIdentity;
+			adoptedStore.slateSessionName = "brisk-bison-abcd";
+			adoptedStore.ownerSessionDigest = "b".repeat(64);
+			const runtime = adoptedStore.writingReminder;
 			Object.defineProperty(runtime, "forceNext", {
 				enumerable: true,
+				configurable: true,
 				get: () => forceValue,
 				set: (value) => { forceValue = value; if (value) events.push("force"); },
 			});
-			const adoptedStore = {
-				orchestratorMode: false,
-				paused: false,
-				threads: new Map(),
-				episodes: new Map(),
-				workerCostUsd: 0,
-				carriedCostUsd: 0,
-				writingReminder: runtime,
-				adoptSnapshot(snapshot) {
-					events.push("adopt");
-					this.writingReminder.forceNext = false;
-					this.writingReminder.adoptedThisSessionStart = false;
-					this.orchestratorMode = snapshot.orchestratorMode;
-				},
-				save() {},
-				set onDidChange(_value) {},
-			};
+			const originalAdopt = adoptedStore.adoptSnapshot.bind(adoptedStore);
+			adoptedStore.adoptSnapshot = (...args) => { events.push("adopt"); return originalAdopt(...args); };
 			const handoffHandlers = {};
+			const commands = {};
+			const sent = [];
 			const handoffPi = {
 				on: (event, handler) => { (handoffHandlers[event] ??= []).push(handler); },
-				sendMessage() {}, registerCommand() {}, getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [],
+				sendMessage: (message) => sent.push(message),
+				registerCommand: (name, command) => { commands[name] = command.handler; },
+				getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [], getThinkingLevel: () => undefined,
 			};
 			const realHooks = handoff.registerSlateHandoff(handoffPi, adoptedStore, () => ({ writing: { check: true, remind: true } }), () => ({}));
 			mode.registerSlateMode(handoffPi, adoptedStore, realHooks, () => ({ writing: { check: true, remind: true } }), () => ({ units: [] }));
-			writeFileSync(join(handoffCwd, ".pi", "slate", "pending-handoff.json"), JSON.stringify({
-				parentSession: "parent-session",
-				createdAt: Date.now(),
-				brief: "",
-				snapshot: { threads: [], episodes: [], orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 },
-			}));
 			const handoffCtx = {
 				cwd: handoffCwd, mode: "tui", hasUI: false, model: undefined,
 				isProjectTrusted: () => true,
-				sessionManager: {
-					getHeader: () => ({ parentSession: "parent-session" }),
-					getEntries: () => [],
-					getBranch: () => [],
-					getSessionId: () => "writing-handoff-successor",
-					getSessionFile: () => join(handoffCwd, "successor.jsonl"),
-				},
+				sessionManager: { getEntries: () => [], getBranch: () => [] },
 				ui: { setStatus() {}, setWidget() {}, notify() {} },
 			};
+			const successLines = [];
+			const originalWarn = console.warn;
+			console.warn = (message) => successLines.push(String(message));
+			try {
+				await commands.slate(`adopt ${source.name}`, handoffCtx);
+			} finally {
+				console.warn = originalWarn;
+			}
+			const afterAdoption = { ...adoptedStore.writingReminder };
 			for (const handler of handoffHandlers.session_start ?? []) await handler({}, handoffCtx);
-			const afterAdoptionCycle = { ...adoptedStore.writingReminder };
-			for (const handler of handoffHandlers.session_start ?? []) await handler({}, handoffCtx);
-			const afterGenericCycle = { ...adoptedStore.writingReminder };
-			const stale = writingStatusFixture({ writingConfig: { check: true, remind: true } });
-			Object.assign(stale.store.writingReminder, { forceNext: true, adoptedThisSessionStart: false, deliverySequence: 12 });
-			await writingSession(stale);
-			checkAll("writing-reminder-handoff-order", "real registration order preserves force only during the adoption cycle, then consecutive and generic starts clear stale force", [
-				["handoff forces after adoption", events[0] === "adopt" && events[1] === "force", events],
-				["first mode start preserves once", afterAdoptionCycle.forceNext && afterAdoptionCycle.markTokens === 0 && !afterAdoptionCycle.sentThisRound && afterAdoptionCycle.pending === undefined && !afterAdoptionCycle.adoptedThisSessionStart && afterAdoptionCycle.deliverySequence === 7, afterAdoptionCycle],
-				["second start clears force", !afterGenericCycle.forceNext && !afterGenericCycle.adoptedThisSessionStart && afterGenericCycle.deliverySequence === 7, afterGenericCycle],
-				["generic start clears stale force", !stale.store.writingReminder.forceNext && stale.store.writingReminder.deliverySequence === 12, stale.store.writingReminder],
+			const afterNextStart = { ...adoptedStore.writingReminder };
+			checkAll("writing-reminder-handoff-order", "explicit adoption sets force only after state adoption, emits a success marker, and the next generic start clears it", [
+				["adoption precedes force", events[0] === "adopt" && events[1] === "force", events],
+				["force survives the adoption command", afterAdoption.forceNext === true, afterAdoption],
+				["adoption persisted", appended.length === 1, appended.length],
+				["kickoff queued after success", sent.length === 1 && sent[0]?.customType === "slate-kickoff", sent],
+				["positive success marker is non-vacuous", successLines.some((line) => line.includes("adopted successfully")), successLines],
+				["next generic start clears force", !afterNextStart.forceNext, afterNextStart],
 			]);
+
 		}
 	});
 

@@ -1,13 +1,10 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import test from "node:test";
-import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { BaseModelTracker } from "../extension/base-model.ts";
-import { registerSlateHandoff } from "../extension/handoff.ts";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { writeCorpusHandoffRecord } from "../extension/handoff-record.ts";
 import { createCorpusSession, resolveCorpusProject } from "../extension/corpus.ts";
 import { isSlateSessionName } from "../extension/session-names.ts";
 import slateExtension from "../extension/index.ts";
@@ -26,8 +23,6 @@ const ID = "20260818T101112Z-0123abcd0123abcd";
 const FRESH_ID = "20260818T111213Z-deadbeefdeadbeef";
 const OWNER = "a".repeat(64);
 const FOREIGN_OWNER = "b".repeat(64);
-const HANDOFF_SOURCE = fileURLToPath(new URL("../extension/handoff.ts", import.meta.url));
-const PROCESS_CHILD = fileURLToPath(new URL("./fixtures/handoff-process-child.ts", import.meta.url));
 
 function snapshot(overrides: Record<string, unknown> = {}): SlateSnapshot {
   return {
@@ -246,102 +241,6 @@ test("failed mint persistence leaves no in-memory identity, notifies, and does n
 
 type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown>;
 
-function handoffHarness(options: { failSave?: boolean; beforeSave?: () => void } = {}) {
-  const appended: Array<Record<string, unknown>> = [];
-  const store = new SlateStore({
-    appendEntry(_type: string, data: Record<string, unknown>) {
-      options.beforeSave?.();
-      if (options.failSave) throw new Error("forced adoption save failure");
-      appended.push(data);
-    },
-  } as unknown as ExtensionAPI);
-  const handlers = new Map<string, Handler[]>();
-  const pi = {
-    on(event: string, handler: Handler) {
-      const list = handlers.get(event) ?? [];
-      list.push(handler);
-      handlers.set(event, list);
-    },
-    sendMessage() {},
-  } as unknown as ExtensionAPI;
-  registerSlateHandoff(pi, store, () => ({}), () => ({} as BaseModelTracker));
-  const handler = handlers.get("session_start")?.[0];
-  assert.ok(handler);
-  return { appended, store, handler };
-}
-
-function handoffContext(cwd: string, sessionId: string, sessionFile: string): ExtensionContext {
-  return {
-    cwd,
-    hasUI: false,
-    model: undefined,
-    isProjectTrusted: () => true,
-    sessionManager: {
-      getHeader: () => ({ parentSession: "/tmp/parent.jsonl" }),
-      getSessionId: () => sessionId,
-      getSessionFile: () => sessionFile,
-    },
-  } as unknown as ExtensionContext;
-}
-
-function pendingHandoffContent(slateSessionId = ID, brief = ""): string {
-  return JSON.stringify({
-    parentSession: "/tmp/parent.jsonl",
-    createdAt: Date.now(),
-    brief,
-    snapshot: snapshot({
-      slateSessionId,
-      ownerSessionDigest: FOREIGN_OWNER,
-      orchestratorMode: true,
-    }),
-  });
-}
-
-function writePendingHandoff(cwd: string, content = pendingHandoffContent()): string {
-  const file = join(cwd, CONFIG_DIR_NAME, "slate", "pending-handoff.json");
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, content);
-  return file;
-}
-
-function claimMarker(file: string): string {
-  return `${file}.claim`;
-}
-
-function claimFiles(file: string): string[] {
-  return readdirSync(dirname(file)).filter((name) => name.endsWith("pending-handoff.json.claim"));
-}
-
-async function waitForFile(file: string): Promise<void> {
-  const deadline = Date.now() + 5000;
-  while (!existsSync(file)) {
-    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${file}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-
-function spawnHandoffChild(
-  mode: "race" | "hold",
-  cwd: string,
-  resultFile: string,
-  readyFile: string,
-  goFile: string,
-  sessionId: string,
-): { child: ChildProcess; completed: Promise<{ code: number | null; stderr: string }> } {
-  const child = spawn(
-    process.execPath,
-    ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", PROCESS_CHILD, mode, cwd, resultFile, readyFile, goFile, sessionId],
-    { cwd: dirname(dirname(PROCESS_CHILD)), stdio: ["ignore", "ignore", "pipe"] },
-  );
-  let stderr = "";
-  child.stderr?.setEncoding("utf8");
-  child.stderr?.on("data", (chunk: string) => { stderr += chunk; });
-  const completed = new Promise<{ code: number | null; stderr: string }>((resolve) => {
-    child.on("exit", (code) => resolve({ code, stderr }));
-  });
-  return { child, completed };
-}
-
 test("a snapshot without a name recovers durable session metadata and persists the name", () => {
   const root = mkdtempSync(join(tmpdir(), "slate-name-recovery-test-"));
   const project = join(root, "project");
@@ -460,139 +359,30 @@ test("runtime persistence failure removes its new namespace and refuses later wr
   }
 });
 
-test("foreign snapshot adoption drops predecessor identity, owner, and name", () => {
+test("foreign snapshot adoption keeps adopter identity and records predecessor lineage", () => {
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  store.slateSessionId = FRESH_ID;
+  store.slateSessionName = "brisk-bison-abcd";
+  store.ownerSessionDigest = FOREIGN_OWNER;
   store.adoptSnapshot(
     snapshot({ slateSessionId: ID, slateSessionName: "calm-otter-7f3a", ownerSessionDigest: OWNER }),
     { cwd: process.cwd(), hasUI: false } as unknown as ExtensionContext,
     { foreignSessionIdentity: true },
   );
-  assert.equal(store.slateSessionId, undefined);
-  assert.equal(store.ownerSessionDigest, undefined);
-  assert.equal(store.slateSessionName, undefined);
-  assert.equal(store.snapshot().slateSessionId, undefined);
-  assert.equal(store.snapshot().ownerSessionDigest, undefined);
-  assert.equal(store.snapshot().slateSessionName, undefined);
-});
-
-test("failed adoption preserves pending content and a following session adopts it", { timeout: 1000 }, async (t) => {
-  const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-recovery-test-"));
-  t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const original = pendingHandoffContent();
-  const file = writePendingHandoff(cwd, original);
-  const failing = handoffHarness({ failSave: true });
-  await failing.handler({}, handoffContext(cwd, "failed-successor", join(cwd, "failed.jsonl")));
-
-  assert.equal(readFileSync(file, "utf8"), original);
-  assert.deepEqual(claimFiles(file), []);
-
-  const following = handoffHarness();
-  await following.handler({}, handoffContext(cwd, "following-successor", join(cwd, "following.jsonl")));
-  assert.equal(following.appended.length, 1);
-  assert.equal(following.store.slateSessionId, undefined);
-  assert.equal(existsSync(file), false);
-  assert.deepEqual(claimFiles(file), []);
-});
-
-test("failed adoption never overwrites a newer pending handoff", { timeout: 1000 }, async (t) => {
-  const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-newer-test-"));
-  t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const file = writePendingHandoff(cwd);
-  const newer = pendingHandoffContent(FRESH_ID, "newer-pending-handoff");
-  const failing = handoffHarness({
-    failSave: true,
-    beforeSave: () => writeFileSync(file, newer),
-  });
-  await failing.handler({}, handoffContext(cwd, "failed-successor", join(cwd, "failed.jsonl")));
-
-  assert.equal(readFileSync(file, "utf8"), newer);
-  assert.deepEqual(claimFiles(file), []);
-
-  const following = handoffHarness();
-  await following.handler({}, handoffContext(cwd, "following-successor", join(cwd, "following.jsonl")));
-  assert.equal(following.store.slateSessionId, undefined);
-  assert.equal(existsSync(file), false);
-});
-
-test("successful adoption removes both pending handoff and claim marker", { timeout: 1000 }, async (t) => {
-  const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-success-test-"));
-  t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const file = writePendingHandoff(cwd);
-  const successor = handoffHarness();
-  await successor.handler({}, handoffContext(cwd, "successor", join(cwd, "successor.jsonl")));
-
-  assert.equal(successor.appended.length, 1);
-  assert.equal(existsSync(file), false);
-  assert.deepEqual(claimFiles(file), []);
-});
-
-test("exclusive pending-handoff marker lets exactly one operating-system process adopt", { timeout: 10_000 }, async (t) => {
-  const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-race-test-"));
-  t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const file = writePendingHandoff(cwd);
-  const goFile = join(cwd, "go");
-  const firstResult = join(cwd, "first-result.json");
-  const secondResult = join(cwd, "second-result.json");
-  const firstReady = join(cwd, "first-ready");
-  const secondReady = join(cwd, "second-ready");
-  const first = spawnHandoffChild("race", cwd, firstResult, firstReady, goFile, "successor-one");
-  const second = spawnHandoffChild("race", cwd, secondResult, secondReady, goFile, "successor-two");
-  t.after(() => { first.child.kill("SIGKILL"); second.child.kill("SIGKILL"); });
-
-  await Promise.all([waitForFile(firstReady), waitForFile(secondReady)]);
-  writeFileSync(goFile, "go");
-  const [firstExit, secondExit] = await Promise.all([first.completed, second.completed]);
-  assert.equal(firstExit.code, 0, firstExit.stderr);
-  assert.equal(secondExit.code, 0, secondExit.stderr);
-  const results = [firstResult, secondResult].map((path) => JSON.parse(readFileSync(path, "utf8")) as {
-    adoptions: number;
-    slateSessionId?: string;
-    ownerSessionDigest?: string;
-  });
-  assert.equal(results.reduce((sum, result) => sum + result.adoptions, 0), 1);
-  const winner = results.find((result) => result.adoptions === 1);
-  assert.ok(winner);
-  assert.equal(winner.slateSessionId, undefined);
-  assert.equal(winner.ownerSessionDigest, undefined);
-  assert.equal(existsSync(file), false);
-  assert.deepEqual(claimFiles(file), []);
-
-  const source = readFileSync(HANDOFF_SOURCE, "utf8");
-  assert.match(source, /openSync\(marker, "wx"\)/, "the marker claim must use exclusive creation");
-  assert.doesNotMatch(source, /if \(existsSync\(marker\)\) return false;/, "an existence check is not an atomic claim");
-});
-
-test("terminated claimant leaves pending data for adoption after marker ages out", { timeout: 10_000 }, async (t) => {
-  const cwd = mkdtempSync(join(tmpdir(), "slate-identity-handoff-abandoned-test-"));
-  t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const original = pendingHandoffContent();
-  const file = writePendingHandoff(cwd, original);
-  const marker = claimMarker(file);
-  const resultFile = join(cwd, "held-result.json");
-  const readyFile = join(cwd, "held-ready");
-  const holder = spawnHandoffChild("hold", cwd, resultFile, readyFile, join(cwd, "unused-go"), "terminated-successor");
-  t.after(() => holder.child.kill("SIGKILL"));
-
-  await waitForFile(readyFile);
-  assert.equal(readFileSync(file, "utf8"), original);
-  assert.equal(existsSync(marker), true);
-  holder.child.kill("SIGKILL");
-  const holderExit = await holder.completed;
-  assert.equal(holderExit.code, null);
-
-  const abandonedAt = new Date(Date.now() - 16 * 60 * 1000);
-  utimesSync(marker, abandonedAt, abandonedAt);
-  const following = handoffHarness();
-  await following.handler({}, handoffContext(cwd, "following-successor", join(cwd, "following.jsonl")));
-  assert.equal(following.appended.length, 1);
-  assert.equal(following.store.slateSessionId, undefined);
-  assert.equal(existsSync(file), false);
-  assert.equal(existsSync(marker), false);
+  assert.equal(store.slateSessionId, FRESH_ID);
+  assert.equal(store.ownerSessionDigest, FOREIGN_OWNER);
+  assert.equal(store.slateSessionName, "brisk-bison-abcd");
+  assert.deepEqual(store.slateSessionParentChain, [{ identity: ID, name: "calm-otter-7f3a" }]);
+  assert.equal(store.snapshot().slateSessionId, FRESH_ID);
+  assert.equal(store.snapshot().ownerSessionDigest, FOREIGN_OWNER);
+  assert.equal(store.snapshot().slateSessionName, "brisk-bison-abcd");
 });
 
 class EntryExtensionApi {
   readonly handlers = new Map<string, Handler[]>();
+  readonly commands = new Map<string, (args: string, ctx: ExtensionContext) => Promise<void>>();
   readonly appended: Array<Record<string, unknown>> = [];
+  readonly sent: Array<{ customType?: string }> = [];
   private activeTools: string[] = [];
 
   on(event: string, handler: Handler): void {
@@ -601,13 +391,15 @@ class EntryExtensionApi {
     this.handlers.set(event, handlers);
   }
 
-  registerCommand(): void {}
+  registerCommand(name: string, command: { handler(args: string, ctx: ExtensionContext): Promise<void> }): void {
+    this.commands.set(name, command.handler);
+  }
   registerTool(): void {}
   getActiveTools(): string[] { return [...this.activeTools]; }
   setActiveTools(tools: string[]): void { this.activeTools = [...tools]; }
   getAllTools(): Array<{ name: string }> { return []; }
   appendEntry(_type: string, data: Record<string, unknown>): void { this.appended.push(data); }
-  sendMessage(): void {}
+  sendMessage(message: { customType?: string }): void { this.sent.push(message); }
   getThinkingLevel(): undefined { return undefined; }
 }
 
@@ -660,7 +452,7 @@ test("entry-point session start survives an unavailable working directory", { ti
   assert.equal(api.appended.length, 0);
 });
 
-test("entry-point session-start wiring mints fresh name and resolves only after handoff adoption", { timeout: 1000 }, async (t) => {
+test("entry-point wiring leaves records untouched until explicit adopt", { timeout: 1000 }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "slate-identity-entry-test-"));
   const oldAgent = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = join(root, "agent");
@@ -671,46 +463,47 @@ test("entry-point session-start wiring mints fresh name and resolves only after 
     rmSync(root, { recursive: true, force: true });
   });
 
-  const freshCwd = join(root, "fresh");
-  mkdirSync(freshCwd, { recursive: true });
-  const freshApi = new EntryExtensionApi();
-  slateExtension(freshApi as unknown as ExtensionAPI);
-  const freshFile = join(root, "fresh-session.jsonl");
-  await startEntry(freshApi, entryContext(freshCwd, "../../hostile", freshFile));
-  assert.equal(freshApi.appended.length, 1);
-  assert.match(String(freshApi.appended[0]?.slateSessionId), SLATE_SESSION_ID_PATTERN);
-  assert.match(String(freshApi.appended[0]?.slateSessionName), /^[a-z][a-z0-9-]*-[0-9a-f]{4}$/);
-  assert.equal(
-    freshApi.appended[0]?.ownerSessionDigest,
-    createOwnerSessionDigest("../../hostile", freshFile),
-  );
-
-  const adoptedCwd = join(root, "adopted");
-  const pending = join(adoptedCwd, CONFIG_DIR_NAME, "slate", "pending-handoff.json");
-  mkdirSync(dirname(pending), { recursive: true });
-  writeFileSync(pending, JSON.stringify({
-    parentSession: "/tmp/parent.jsonl",
+  const cwd = join(root, "project");
+  mkdirSync(cwd);
+  const source = createCorpusSession({ cwd, identity: ID, initialNameBytes: Uint8Array.from([1, 2, 3, 4]) });
+  const sourceSnapshot = snapshot({
+    slateSessionId: ID,
+    slateSessionName: source.name,
+    ownerSessionDigest: FOREIGN_OWNER,
+    orchestratorMode: true,
+  });
+  const pending = writeCorpusHandoffRecord(source.project, {
+    version: 1,
+    author: { identity: ID, name: source.name },
+    authorSessionDirectory: source.directory,
     createdAt: Date.now(),
-    brief: "",
-    snapshot: snapshot({
-      slateSessionId: ID,
-      slateSessionName: "calm-otter-7f3a",
-      ownerSessionDigest: FOREIGN_OWNER,
-      orchestratorMode: true,
-    }),
-  }));
-  const adoptedApi = new EntryExtensionApi();
-  slateExtension(adoptedApi as unknown as ExtensionAPI);
-  const adoptedFile = join(root, "adopted-session.jsonl");
-  await startEntry(adoptedApi, entryContext(adoptedCwd, "successor", adoptedFile));
-  assert.equal(adoptedApi.appended.length, 2);
-  const adoptedState = adoptedApi.appended.at(-1);
-  assert.match(String(adoptedState?.slateSessionId), SLATE_SESSION_ID_PATTERN);
-  assert.notEqual(adoptedState?.slateSessionId, ID);
-  assert.match(String(adoptedState?.slateSessionName), /^[a-z][a-z0-9-]*-[0-9a-f]{4}$/);
-  assert.notEqual(adoptedState?.slateSessionName, "calm-otter-7f3a");
-  assert.equal(
-    adoptedState?.ownerSessionDigest,
-    createOwnerSessionDigest("successor", adoptedFile),
-  );
+    worktreePath: cwd,
+    branchLabel: "test",
+    parentChain: [],
+    brief: "continue",
+    snapshot: sourceSnapshot,
+  });
+
+  const api = new EntryExtensionApi();
+  slateExtension(api as unknown as ExtensionAPI);
+  const successorFile = join(root, "successor.jsonl");
+  const ctx = entryContext(cwd, "successor", successorFile);
+  await startEntry(api, ctx);
+  assert.equal(api.appended.length, 1);
+  const ownId = api.appended[0]?.slateSessionId;
+  const ownName = api.appended[0]?.slateSessionName;
+  const ownOwner = api.appended[0]?.ownerSessionDigest;
+  assert.equal(existsSync(pending), true);
+  assert.equal(api.sent.length, 0);
+
+  const command = api.commands.get("slate");
+  assert.ok(command);
+  await command(`adopt ${source.name}`, ctx);
+  const adoptedState = api.appended.at(-1);
+  assert.equal(adoptedState?.slateSessionId, ownId);
+  assert.equal(adoptedState?.slateSessionName, ownName);
+  assert.equal(adoptedState?.ownerSessionDigest, ownOwner);
+  assert.deepEqual(adoptedState?.slateSessionParentChain, [{ identity: ID, name: source.name }]);
+  assert.equal(existsSync(pending), true);
+  assert.equal(api.sent.at(-1)?.customType, "slate-kickoff");
 });

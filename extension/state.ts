@@ -228,6 +228,11 @@ export interface EpisodeRecord {
 	createdAt: number;
 }
 
+export interface SlateSessionParent {
+	identity: string;
+	name: string;
+}
+
 export interface SlateSnapshot {
 	threads: ThreadRecord[];
 	episodes: EpisodeRecord[];
@@ -239,6 +244,8 @@ export interface SlateSnapshot {
 	slateSessionName?: string;
 	/** Digest identifying the pi session file that currently owns slateSessionId. */
 	ownerSessionDigest?: string;
+	/** Oldest-first predecessor chain. Identity and name never become this session's namespace. */
+	slateSessionParentChain?: SlateSessionParent[];
 	orchestratorMode: boolean;
 	paused: boolean;
 	workerCostUsd: number;
@@ -1066,6 +1073,7 @@ export class SlateStore {
 	slateSessionId: string | undefined;
 	slateSessionName: string | undefined;
 	ownerSessionDigest: string | undefined;
+	slateSessionParentChain: SlateSessionParent[] = [];
 	corpusProject: CorpusProject | undefined;
 	private sessionNamespaceRequired = false;
 	orchestratorMode = false;
@@ -1215,6 +1223,7 @@ export class SlateStore {
 			...(this.slateSessionId !== undefined ? { slateSessionId: this.slateSessionId } : {}),
 			...(this.slateSessionName !== undefined ? { slateSessionName: this.slateSessionName } : {}),
 			...(this.ownerSessionDigest !== undefined ? { ownerSessionDigest: this.ownerSessionDigest } : {}),
+			...(this.slateSessionParentChain.length > 0 ? { slateSessionParentChain: this.slateSessionParentChain.map((parent) => ({ ...parent })) } : {}),
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
 			workerCostUsd: this.workerCostUsd,
@@ -1259,6 +1268,14 @@ export class SlateStore {
 	 * containment. Shared by restore() and cross-session handoff adoption.
 	 */
 	adoptSnapshot(latest: SlateSnapshot | undefined, ctx: ExtensionContext, options: { foreignSessionIdentity?: boolean } = {}): void {
+		const ownIdentity = options.foreignSessionIdentity === true
+			? {
+				restoredIdentity: this.restoredIdentity,
+				slateSessionId: this.slateSessionId,
+				slateSessionName: this.slateSessionName,
+				ownerSessionDigest: this.ownerSessionDigest,
+			}
+			: undefined;
 		this.threads.clear();
 		this.episodes.clear();
 		this.threadSeq = 0;
@@ -1266,6 +1283,7 @@ export class SlateStore {
 		this.slateSessionId = undefined;
 		this.slateSessionName = undefined;
 		this.ownerSessionDigest = undefined;
+		this.slateSessionParentChain = [];
 		this.orchestratorMode = false;
 		this.paused = false;
 		this.workerCostUsd = 0;
@@ -1280,12 +1298,33 @@ export class SlateStore {
 		this.threadSeq = counter(latest.threadSeq) ?? 0;
 		const dropped: string[] = [];
 		const sanitizedIdentity = sanitizeSnapshotIdentity(latest, dropped);
-		this.restoredIdentity = options.foreignSessionIdentity === true
-			? sanitizeSnapshotIdentity(undefined, [])
-			: sanitizedIdentity;
-		this.slateSessionId = this.restoredIdentity.slateSessionId;
-		this.slateSessionName = this.restoredIdentity.slateSessionName;
-		this.ownerSessionDigest = this.restoredIdentity.ownerSessionDigest;
+		const rawParents = Array.isArray(latest.slateSessionParentChain) ? latest.slateSessionParentChain : [];
+		const parents = rawParents.filter((parent): parent is SlateSessionParent =>
+			typeof parent === "object" && parent !== null && !Array.isArray(parent)
+				&& typeof parent.identity === "string" && SLATE_SESSION_ID_PATTERN.test(parent.identity)
+				&& isSlateSessionName(parent.name),
+		);
+		if (latest.slateSessionParentChain !== undefined && parents.length !== rawParents.length) {
+			dropped.push("snapshot: ignoring malformed slate session parent entries");
+		}
+		if (options.foreignSessionIdentity === true) {
+			this.restoredIdentity = ownIdentity!.restoredIdentity;
+			this.slateSessionId = ownIdentity!.slateSessionId;
+			this.slateSessionName = ownIdentity!.slateSessionName;
+			this.ownerSessionDigest = ownIdentity!.ownerSessionDigest;
+			this.slateSessionParentChain = [
+				...parents,
+				...(sanitizedIdentity.slateSessionId !== undefined && sanitizedIdentity.slateSessionName !== undefined
+					? [{ identity: sanitizedIdentity.slateSessionId, name: sanitizedIdentity.slateSessionName }]
+					: []),
+			];
+		} else {
+			this.restoredIdentity = sanitizedIdentity;
+			this.slateSessionId = this.restoredIdentity.slateSessionId;
+			this.slateSessionName = this.restoredIdentity.slateSessionName;
+			this.ownerSessionDigest = this.restoredIdentity.ownerSessionDigest;
+			this.slateSessionParentChain = parents;
+		}
 		// EVERY record is validated field by field on the way in (BG26) — see
 		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
 		// that has been hand-edited, truncated or written by another version must be made
