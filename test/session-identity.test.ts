@@ -498,6 +498,14 @@ test("entry-point wiring leaves records untouched until explicit adopt", { timeo
 
   const command = api.commands.get("slate");
   assert.ok(command);
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
+  const appendsBeforeInvalidCommand = api.appended.length;
+  await command(`adopt ${source.name} unexpected`, ctx);
+  assert.equal(api.appended.length, appendsBeforeInvalidCommand);
+  assert.equal(api.sent.length, 0);
+  assert.match(warnings.join("\n"), /adoption takes exactly one session name/);
+
   await command(`adopt ${source.name}`, ctx);
   const adoptedState = api.appended.at(-1);
   assert.equal(adoptedState?.slateSessionId, ownId);

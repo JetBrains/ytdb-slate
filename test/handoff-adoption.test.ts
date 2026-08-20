@@ -95,9 +95,18 @@ function sandbox(): Sandbox {
   };
 }
 
-function adoptionHarness(box: Sandbox, options: { failSave?: boolean } = {}) {
+function adoptionHarness(box: Sandbox, options: {
+  failSave?: boolean;
+  currentModel?: { provider: string; id: string };
+  foundModel?: { provider: string; id: string };
+  failModelSwitch?: boolean;
+  failThinkingSwitch?: boolean;
+} = {}) {
   const messages: Array<{ customType?: string; content?: string }> = [];
   const appended: Array<Record<string, unknown>> = [];
+  const adoptedModels: Array<{ model: string; effort: unknown }> = [];
+  const modelSwitches: string[] = [];
+  const thinkingSwitches: string[] = [];
   const store = new SlateStore({
     appendEntry(_type: string, data: Record<string, unknown>) {
       if (options.failSave) throw new Error("forced persistence failure");
@@ -111,16 +120,35 @@ function adoptionHarness(box: Sandbox, options: { failSave?: boolean } = {}) {
   const pi = {
     on() {},
     sendMessage(message: { customType?: string; content?: string }) { messages.push(message); },
-    getThinkingLevel() { return undefined; },
+    getThinkingLevel() { return thinkingSwitches.at(-1); },
+    async setModel(model: { provider: string; id: string }) {
+      modelSwitches.push(`${model.provider}/${model.id}`);
+      if (options.failModelSwitch) throw new Error("forced model switch failure");
+      return true;
+    },
+    setThinkingLevel(level: string) {
+      thinkingSwitches.push(level);
+      if (options.failThinkingSwitch) throw new Error("forced thinking switch failure");
+    },
   } as unknown as ExtensionAPI;
-  const hooks = registerSlateHandoff(pi, store, () => ({}), () => ({} as BaseModelTracker));
+  const tracker = {
+    async ownSwitch<T>(_from: string | undefined, _to: string, perform: () => Promise<T>): Promise<T> { return perform(); },
+    adopt(model: string, effort: unknown) { adoptedModels.push({ model, effort }); },
+  } as unknown as BaseModelTracker;
+  const hooks = registerSlateHandoff(
+    pi,
+    store,
+    () => ({ preserveGlobalModelDefault: false }),
+    () => tracker,
+  );
   const ctx = {
     cwd: box.cwd,
     hasUI: false,
-    model: undefined,
+    model: options.currentModel,
+    modelRegistry: { find: () => options.foundModel },
     isProjectTrusted: () => true,
   } as unknown as ExtensionCommandContext;
-  return { appended, ctx, hooks, messages, store };
+  return { adoptedModels, appended, ctx, hooks, messages, modelSwitches, store, thinkingSwitches };
 }
 
 function overwriteRecord(box: Sandbox, value: unknown): string {
@@ -216,6 +244,124 @@ test("schema, unknown fields, and thread and episode count overflows are refused
   if (!episodeOverflow.ok) assert.match(episodeOverflow.reason, /schema or bounds/);
 });
 
+test("record validation rejects malformed fields and inconsistent graph references", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const validEpisode = {
+    id: "t1.e1",
+    threadId: "t1",
+    task: "verified task",
+    status: "ok" as const,
+    file: join(box.source.directory, "observations", "t1.e1.md"),
+    createdAt: 1,
+  };
+  const graph = () => ({
+    ...box.record,
+    snapshot: {
+      ...box.record.snapshot,
+      threads: [{ ...thread("t1"), episodeIds: [validEpisode.id], episodeSeq: 1 }],
+      episodes: [{ ...validEpisode }],
+    },
+  });
+  const cases: Array<[string, (record: CorpusHandoffRecord) => void]> = [
+    ["non-object author", (record) => { record.author = null as never; }],
+    ["author with an unknown field", (record) => { Object.assign(record.author, { extra: true }); }],
+    ["invalid author identity", (record) => { record.author.identity = "invalid"; }],
+    ["non-string source directory", (record) => { record.authorSessionDirectory = 3 as never; }],
+    ["non-string branch", (record) => { record.branchLabel = false as never; }],
+    ["non-string focus", (record) => { record.focus = 4 as never; }],
+    ["non-finite timestamp", (record) => { record.createdAt = Number.NaN; }],
+    ["invalid parent", (record) => { record.parentChain = [{ identity: "bad", name: box.source.name }]; }],
+    ["non-object model", (record) => { record.model = "bad" as never; }],
+    ["model with an unknown field", (record) => { record.model = { provider: "p", id: "m", extra: true } as never; }],
+    ["empty model provider", (record) => { record.model = { provider: "", id: "m" }; }],
+    ["empty model id", (record) => { record.model = { provider: "p", id: "" }; }],
+    ["non-string thinking level", (record) => { record.thinkingLevel = 7 as never; }],
+    ["non-object thread", (record) => { record.snapshot.threads = [null as never]; }],
+    ["thread with an unknown field", (record) => { record.snapshot.threads = [{ ...thread("t1"), extra: true } as never]; }],
+    ["invalid thread status", (record) => { record.snapshot.threads = [{ ...thread("t1"), status: "done" as never }]; }],
+    ["non-string thread episode id", (record) => { record.snapshot.threads = [{ ...thread("t1"), episodeIds: [4 as never] }]; }],
+    ["non-object episode", (record) => { record.snapshot.episodes = [null as never]; }],
+    ["episode with an unknown field", (record) => {
+      const value = graph();
+      value.snapshot.episodes = [{ ...validEpisode, extra: true } as never];
+      Object.assign(record, value);
+    }],
+    ["duplicate thread id", (record) => { record.snapshot.threads = [thread("t1"), thread("t1")]; }],
+    ["duplicate episode id", (record) => {
+      const value = graph();
+      value.snapshot.episodes.push({ ...validEpisode });
+      Object.assign(record, value);
+    }],
+    ["episode with no thread", (record) => { record.snapshot.episodes = [{ ...validEpisode }]; }],
+    ["duplicate episode reference", (record) => {
+      const value = graph();
+      value.snapshot.threads[0]!.episodeIds.push(validEpisode.id);
+      Object.assign(record, value);
+    }],
+    ["missing episode reference", (record) => {
+      const value = graph();
+      value.snapshot.threads[0]!.episodeIds = ["t1.e2"];
+      Object.assign(record, value);
+    }],
+    ["unlisted episode", (record) => {
+      const value = graph();
+      value.snapshot.threads[0]!.episodeIds = [];
+      Object.assign(record, value);
+    }],
+    ["non-boolean orchestrator mode", (record) => { record.snapshot.orchestratorMode = 1 as never; }],
+    ["non-boolean pause", (record) => { record.snapshot.paused = "no" as never; }],
+    ["negative worker cost", (record) => { record.snapshot.workerCostUsd = -1; }],
+    ["non-finite carried cost", (record) => { record.snapshot.carriedCostUsd = Number.NaN; }],
+    ["fractional thread sequence", (record) => { record.snapshot.threadSeq = 1.5; }],
+    ["invalid snapshot identity", (record) => { record.snapshot.slateSessionId = "bad"; }],
+    ["invalid snapshot name", (record) => { record.snapshot.slateSessionName = "BAD"; }],
+    ["invalid owner digest", (record) => { record.snapshot.ownerSessionDigest = "short"; }],
+    ["invalid snapshot parent", (record) => { record.snapshot.slateSessionParentChain = [{ identity: "bad", name: box.source.name }]; }],
+    ["author identity mismatch", (record) => { record.snapshot.slateSessionId = ADOPTER_ID; }],
+    ["author name mismatch", (record) => { record.snapshot.slateSessionName = box.adopter.name; }],
+    ["parent chain mismatch", (record) => {
+      record.parentChain = [{ identity: SOURCE_ID, name: box.source.name }];
+      record.snapshot.slateSessionParentChain = [];
+    }],
+    ["excessive nesting", (record) => { (record as unknown as Record<string, unknown>).extra = [[[[[[[[[true]]]]]]]]]; }],
+  ];
+
+  for (const [label, mutate] of cases) {
+    const candidate = structuredClone(box.record);
+    mutate(candidate);
+    overwriteRecord(box, candidate);
+    const result = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+    assert.equal(result.ok, false, label);
+    if (!result.ok) assert.match(result.reason, /schema or bounds/, label);
+  }
+});
+
+test("record reads reject malformed JSON, invalid names, and mismatched source metadata", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+
+  const invalidName = readCorpusHandoffRecord({ cwd: box.cwd, name: "../escape", isTrusted: () => true });
+  assert.equal(invalidName.ok, false);
+  if (!invalidName.ok) assert.match(invalidName.reason, /invalid handoff session name/);
+
+  overwriteRecord(box, "{broken");
+  const malformed = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(malformed.ok, false);
+  if (!malformed.ok) assert.match(malformed.reason, /malformed handoff JSON/);
+
+  overwriteRecord(box, { ...box.record, authorSessionDirectory: box.adopter.directory });
+  const unexpected = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(unexpected.ok, false);
+  if (!unexpected.ok) assert.match(unexpected.reason, /unexpected author session directory/);
+
+  rmSync(box.source.directory, { recursive: true });
+  overwriteRecord(box, box.record);
+  const missing = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(missing.ok, false);
+  if (!missing.ok) assert.match(missing.reason, /missing or linked author session directory/);
+});
+
 test("linked transcript paths fail containment validation", (t) => {
   const box = sandbox();
   t.after(() => box.restore());
@@ -230,6 +376,27 @@ test("linked transcript paths fail containment validation", (t) => {
   const result = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
   assert.equal(result.ok, false);
   if (!result.ok) assert.match(result.reason, /session file is missing, linked, or outside/);
+});
+
+test("candidate listing reports empty and unavailable records without adopting", async (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const harness = adoptionHarness(box);
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
+
+  rmSync(join(box.source.project.directory, "pending"), { recursive: true });
+  assert.equal(await harness.hooks.adoptHandoff(harness.ctx, undefined, () => assert.fail("must not enter mode")), false);
+  assert.match(warnings.join("\n"), /no handoff records are available/);
+
+  mkdirSync(join(box.source.project.directory, "pending"));
+  overwriteRecord(box, "{broken");
+  warnings.length = 0;
+  assert.equal(await harness.hooks.adoptHandoff(harness.ctx, undefined, () => assert.fail("must not enter mode")), false);
+  assert.match(warnings.join("\n"), new RegExp(`- ${box.source.name}: unavailable`));
+  assert.match(warnings.join("\n"), /malformed handoff JSON/);
+  assert.equal(harness.appended.length, 0);
+  assert.equal(harness.messages.length, 0);
 });
 
 test("candidate listing never silently selects one or several records", async (t) => {
@@ -276,6 +443,82 @@ test("adoption refuses any existing thread or episode", async (t) => {
   });
   assert.equal(await withEpisode.hooks.adoptHandoff(withEpisode.ctx, box.source.name, () => {}), false);
   assert.equal(withEpisode.messages.length, 0);
+});
+
+test("adoption rejects unreadable and future records but warns and accepts stale records", async (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
+
+  overwriteRecord(box, "{broken");
+  const malformed = adoptionHarness(box);
+  assert.equal(await malformed.hooks.adoptHandoff(malformed.ctx, box.source.name, () => {}), false);
+  assert.match(warnings.join("\n"), /malformed handoff JSON.*list candidates/);
+  assert.equal(malformed.messages.length, 0);
+
+  overwriteRecord(box, { ...box.record, createdAt: Date.now() + 60_000 });
+  warnings.length = 0;
+  const future = adoptionHarness(box);
+  assert.equal(await future.hooks.adoptHandoff(future.ctx, box.source.name, () => {}), false);
+  assert.match(warnings.join("\n"), /future creation time/);
+  assert.equal(future.messages.length, 0);
+
+  overwriteRecord(box, { ...box.record, createdAt: Date.now() - 16 * 60_000 });
+  warnings.length = 0;
+  const stale = adoptionHarness(box);
+  assert.equal(await stale.hooks.adoptHandoff(stale.ctx, box.source.name, () => {}), true);
+  assert.match(warnings.join("\n"), /older than 15 minutes.*adoption continues/);
+  assert.equal(stale.messages.at(-1)?.customType, "slate-kickoff");
+});
+
+test("adoption restores matching, discoverable, and failing model outcomes without blocking kickoff", async (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  overwriteRecord(box, {
+    ...box.record,
+    model: { provider: "provider", id: "target" },
+    thinkingLevel: "high",
+  });
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
+
+  const matching = adoptionHarness(box, { currentModel: { provider: "provider", id: "target" } });
+  assert.equal(await matching.hooks.adoptHandoff(matching.ctx, box.source.name, () => {}), true);
+  assert.deepEqual(matching.modelSwitches, []);
+  assert.deepEqual(matching.thinkingSwitches, ["high"]);
+  assert.deepEqual(matching.adoptedModels, [
+    { model: "provider/target", effort: undefined },
+    { model: "provider/target", effort: "high" },
+  ]);
+  assert.equal(matching.messages.at(-1)?.customType, "slate-kickoff");
+
+  warnings.length = 0;
+  const unavailable = adoptionHarness(box, { currentModel: { provider: "provider", id: "other" } });
+  assert.equal(await unavailable.hooks.adoptHandoff(unavailable.ctx, box.source.name, () => {}), true);
+  assert.match(warnings.join("\n"), /could not restore handoff model provider\/target/);
+  assert.deepEqual(unavailable.adoptedModels, []);
+  assert.equal(unavailable.messages.at(-1)?.customType, "slate-kickoff");
+
+  warnings.length = 0;
+  const throwing = adoptionHarness(box, {
+    currentModel: { provider: "provider", id: "other" },
+    foundModel: { provider: "provider", id: "target" },
+    failModelSwitch: true,
+  });
+  assert.equal(await throwing.hooks.adoptHandoff(throwing.ctx, box.source.name, () => {}), true);
+  assert.deepEqual(throwing.modelSwitches, ["provider/target"]);
+  assert.match(warnings.join("\n"), /could not restore handoff model provider\/target.*forced model switch failure/);
+  assert.equal(throwing.messages.at(-1)?.customType, "slate-kickoff");
+
+  warnings.length = 0;
+  const badThinking = adoptionHarness(box, {
+    currentModel: { provider: "provider", id: "target" },
+    failThinkingSwitch: true,
+  });
+  assert.equal(await badThinking.hooks.adoptHandoff(badThinking.ctx, box.source.name, () => {}), true);
+  assert.match(warnings.join("\n"), /could not restore thinking level high.*forced thinking switch failure/);
+  assert.equal(badThinking.messages.at(-1)?.customType, "slate-kickoff");
 });
 
 test("kickoff is sent only after persistence succeeds", async (t) => {
