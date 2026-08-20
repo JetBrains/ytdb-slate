@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { BaseModelTracker } from "../extension/base-model.ts";
 import { createCorpusSession } from "../extension/corpus.ts";
 import {
   corpusHandoffFile,
+  handoffTreeWithinDepth,
+  listCorpusHandoffCandidates,
   readCorpusHandoffRecord,
   writeCorpusHandoffRecord,
   type CorpusHandoffRecord,
@@ -43,6 +45,31 @@ function thread(id: string, sessionFile = ""): ThreadRecord {
     createdAt: 1,
     updatedAt: 1,
   };
+}
+
+function episodeRecord(box: Sandbox, overrides: Record<string, unknown> = {}) {
+  return {
+    id: "t1.e1",
+    threadId: "t1",
+    task: "verified task",
+    status: "ok" as const,
+    file: join(box.source.directory, "episodes", "t1.e1.md"),
+    createdAt: 1,
+    ...overrides,
+  };
+}
+
+function recordWithEpisode(box: Sandbox, overrides: Record<string, unknown> = {}): CorpusHandoffRecord {
+  const episode = episodeRecord(box, overrides);
+  return {
+    ...box.record,
+    snapshot: {
+      ...box.record.snapshot,
+      threadSeq: 1,
+      threads: [{ ...thread("t1"), episodeIds: ["t1.e1"], episodeSeq: 1 }],
+      episodes: [episode],
+    },
+  } as CorpusHandoffRecord;
 }
 
 interface Sandbox {
@@ -206,6 +233,47 @@ test("the 1 MiB boundary is checked before parsing", (t) => {
   if (!oversized.ok) assert.match(oversized.reason, /larger than 1 MiB/);
 });
 
+test("large task strings survive within the total record cap", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const record = recordWithEpisode(box, { task: "x".repeat(13_500) });
+  writeCorpusHandoffRecord(box.source.project, record);
+  const result = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.record.snapshot.episodes[0]?.task.length, 13_500);
+});
+
+test("compact serialization keeps a valid large record under the unchanged 1 MiB cap", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const count = 3000;
+  const episodes = Array.from({ length: count }, (_, index) => episodeRecord(box, {
+    id: `t1.e${index + 1}`,
+    task: "x".repeat(80),
+    file: join(box.source.directory, "episodes", `t1.e${index + 1}.md`),
+  }));
+  const record: CorpusHandoffRecord = {
+    ...box.record,
+    snapshot: {
+      ...box.record.snapshot,
+      threadSeq: 1,
+      threads: [{ ...thread("t1"), episodeIds: episodes.map((episode) => episode.id), episodeSeq: count }],
+      episodes,
+    },
+  };
+  assert.ok(Buffer.byteLength(JSON.stringify(record), "utf8") < 1024 * 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(record, null, 2), "utf8") > 1024 * 1024);
+  const file = writeCorpusHandoffRecord(box.source.project, record);
+  assert.ok(readFileSync(file).byteLength <= 1024 * 1024);
+  assert.equal(readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true }).ok, true);
+});
+
+test("tree-depth guard rejects depth nine while accepting depth eight", () => {
+  const nested = (depth: number): unknown => depth === 0 ? true : [nested(depth - 1)];
+  assert.equal(handoffTreeWithinDepth(nested(8)), true);
+  assert.equal(handoffTreeWithinDepth(nested(9)), false);
+});
+
 test("schema, unknown fields, and thread and episode count overflows are refused", (t) => {
   const box = sandbox();
   t.after(() => box.restore());
@@ -217,7 +285,7 @@ test("schema, unknown fields, and thread and episode count overflows are refused
   const threads = Array.from({ length: 513 }, (_, index) => thread(`t${index + 1}`));
   overwriteRecord(box, {
     ...box.record,
-    snapshot: { ...box.record.snapshot, threads },
+    snapshot: { ...box.record.snapshot, threads, threadSeq: threads.length },
   });
   const overflow = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
   assert.equal(overflow.ok, false);
@@ -237,6 +305,7 @@ test("schema, unknown fields, and thread and episode count overflows are refused
       ...box.record.snapshot,
       threads: [{ ...thread("t1"), episodeIds: episodes.map((episode) => episode.id), episodeSeq: episodes.length }],
       episodes,
+      threadSeq: 1,
     },
   });
   const episodeOverflow = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
@@ -261,6 +330,7 @@ test("record validation rejects malformed fields and inconsistent graph referenc
       ...box.record.snapshot,
       threads: [{ ...thread("t1"), episodeIds: [validEpisode.id], episodeSeq: 1 }],
       episodes: [{ ...validEpisode }],
+      threadSeq: 1,
     },
   });
   const cases: Array<[string, (record: CorpusHandoffRecord) => void]> = [
@@ -337,6 +407,94 @@ test("record validation rejects malformed fields and inconsistent graph referenc
   }
 });
 
+test("multi-generation lineage is metadata-backed, unique, and oldest-first", async (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const grandId = "20260819T010203Z-2222222222222222";
+  const parentId = "20260819T020304Z-3333333333333333";
+  const grand = createCorpusSession({ cwd: box.cwd, identity: grandId, initialNameBytes: Uint8Array.from([21, 22, 23, 24]) });
+  const parent = createCorpusSession({ cwd: box.cwd, identity: parentId, initialNameBytes: Uint8Array.from([25, 26, 27, 28]) });
+  const chain = [
+    { identity: grandId, name: grand.name },
+    { identity: parentId, name: parent.name },
+  ];
+  overwriteRecord(box, {
+    ...box.record,
+    parentChain: chain,
+    snapshot: { ...box.record.snapshot, slateSessionParentChain: chain },
+  });
+  const read = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(read.ok, true);
+  const harness = adoptionHarness(box);
+  assert.equal(await harness.hooks.adoptHandoff(harness.ctx, box.source.name, () => {}), true);
+  assert.deepEqual(harness.store.slateSessionParentChain, [
+    ...chain,
+    { identity: SOURCE_ID, name: box.source.name },
+  ]);
+
+  const cyclicAdopter = adoptionHarness(box);
+  cyclicAdopter.store.slateSessionId = grandId;
+  cyclicAdopter.store.slateSessionName = grand.name;
+  assert.equal(await cyclicAdopter.hooks.adoptHandoff(cyclicAdopter.ctx, box.source.name, () => {}), false);
+  assert.equal(cyclicAdopter.messages.length, 0);
+
+  for (const [label, invalid] of [
+    ["duplicate", [chain[0], chain[0]]],
+    ["author cycle", [...chain, { identity: SOURCE_ID, name: box.source.name }]],
+    ["missing metadata", [{ identity: "20260818T010203Z-4444444444444444", name: "calm-otter-4444" }]],
+  ] as const) {
+    overwriteRecord(box, {
+      ...box.record,
+      parentChain: invalid,
+      snapshot: { ...box.record.snapshot, slateSessionParentChain: invalid },
+    });
+    const refused = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+    assert.equal(refused.ok, false, label);
+    if (!refused.ok) assert.match(refused.reason, /parent lineage/, label);
+  }
+});
+
+test("thread counters and restart graph prevent identifier reuse", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const first = episodeRecord(box);
+  const base = {
+    ...box.record,
+    snapshot: {
+      ...box.record.snapshot,
+      threadSeq: 2,
+      threads: [
+        { ...thread("t1"), episodeIds: [first.id], episodeSeq: 1, supersededBy: "t2" },
+        { ...thread("t2"), restartOf: "t1", restartGeneration: 1 },
+      ],
+      episodes: [first],
+    },
+  } as CorpusHandoffRecord;
+  overwriteRecord(box, base);
+  assert.equal(readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true }).ok, true);
+
+  const cases: Array<[string, (record: CorpusHandoffRecord) => void]> = [
+    ["stale episode counter", (record) => { record.snapshot.threads[0]!.episodeSeq = 0; }],
+    ["foreign episode prefix", (record) => { record.snapshot.threads[0]!.episodeIds = ["t2.e1"]; record.snapshot.episodes[0]!.id = "t2.e1"; }],
+    ["stale thread counter", (record) => { record.snapshot.threadSeq = 1; }],
+    ["missing successor backlink", (record) => { delete record.snapshot.threads[0]!.supersededBy; }],
+    ["wrong restart generation", (record) => { record.snapshot.threads[1]!.restartGeneration = 2; }],
+    ["restart cycle", (record) => {
+      record.snapshot.threads[0]!.restartOf = "t2";
+      record.snapshot.threads[0]!.restartGeneration = 2;
+      record.snapshot.threads[1]!.supersededBy = "t1";
+    }],
+  ];
+  for (const [label, mutate] of cases) {
+    const record = structuredClone(base);
+    mutate(record);
+    overwriteRecord(box, record);
+    const result = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+    assert.equal(result.ok, false, label);
+    if (!result.ok) assert.match(result.reason, /schema or bounds/, label);
+  }
+});
+
 test("record reads reject malformed JSON, invalid names, and mismatched source metadata", (t) => {
   const box = sandbox();
   t.after(() => box.restore());
@@ -371,11 +529,139 @@ test("linked transcript paths fail containment validation", (t) => {
   symlinkSync(real, linked);
   overwriteRecord(box, {
     ...box.record,
-    snapshot: { ...box.record.snapshot, threads: [thread("t1", linked)] },
+    snapshot: { ...box.record.snapshot, threads: [thread("t1", linked)], threadSeq: 1 },
   });
   const result = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
   assert.equal(result.ok, false);
-  if (!result.ok) assert.match(result.reason, /session file is missing, linked, or outside/);
+  if (!result.ok) assert.match(result.reason, /session file is linked or outside/);
+});
+
+test("missing artifact paths survive while links and outside paths fail every category", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const missingSession = join(box.source.directory, "threads", "missing.jsonl");
+  const missingFork = join(box.source.directory, "threads", "missing-source.jsonl");
+  const missingEpisode = join(box.source.directory, "episodes", "t1.e1.md");
+  const observationReference = `${CONFIG_DIR_NAME}/slate/sessions/${box.source.name}/observations/t1.e1.md`;
+  const withMissing: CorpusHandoffRecord = {
+    ...recordWithEpisode(box, {
+      file: missingEpisode,
+      observations: { stored: true, path: observationReference, bytes: 10, truncated: false, grammar: "absent" },
+    }),
+    snapshot: {
+      ...recordWithEpisode(box).snapshot,
+      threadSeq: 1,
+      threads: [{ ...thread("t1", missingSession), forkedFrom: missingFork, episodeIds: ["t1.e1"], episodeSeq: 1 }],
+      episodes: [episodeRecord(box, {
+        file: missingEpisode,
+        observations: { stored: true, path: observationReference, bytes: 10, truncated: false, grammar: "absent" },
+      })],
+    },
+  };
+  overwriteRecord(box, withMissing);
+  assert.equal(readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true }).ok, true);
+
+  const victim = join(box.root, "outside.txt");
+  writeFileSync(victim, "outside");
+  const linkedCases: Array<[string, string, (record: CorpusHandoffRecord, linked: string) => void]> = [
+    ["session", join(box.source.directory, "threads", "linked-session.jsonl"), (record, linked) => { record.snapshot.threads[0]!.sessionFile = linked; }],
+    ["fork", join(box.source.directory, "threads", "linked-fork.jsonl"), (record, linked) => { record.snapshot.threads[0]!.forkedFrom = linked; }],
+    ["episode", join(box.source.directory, "episodes", "linked-episode.md"), (record, linked) => { record.snapshot.episodes[0]!.file = linked; }],
+    ["observation", join(box.source.directory, "observations", "t1.e1.md"), () => {}],
+  ];
+  for (const [label, linked, mutate] of linkedCases) {
+    rmSync(linked, { force: true });
+    symlinkSync(victim, linked);
+    const candidate = structuredClone(withMissing);
+    mutate(candidate, linked);
+    overwriteRecord(box, candidate);
+    const refused = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+    assert.equal(refused.ok, false, label);
+    if (!refused.ok) assert.match(refused.reason, /linked or outside/, label);
+    rmSync(linked, { force: true });
+  }
+
+  const outsideMissing = join(box.root, "outside-missing");
+  for (const [label, mutate] of [
+    ["session", (record: CorpusHandoffRecord) => { record.snapshot.threads[0]!.sessionFile = outsideMissing; }],
+    ["fork", (record: CorpusHandoffRecord) => { record.snapshot.threads[0]!.forkedFrom = outsideMissing; }],
+    ["episode", (record: CorpusHandoffRecord) => { record.snapshot.episodes[0]!.file = outsideMissing; }],
+  ] as const) {
+    const candidate = structuredClone(withMissing);
+    mutate(candidate);
+    overwriteRecord(box, candidate);
+    const refused = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+    assert.equal(refused.ok, false, label);
+    if (!refused.ok) assert.match(refused.reason, /linked or outside/, label);
+  }
+});
+
+test("read and write reject one-way pending-directory replacement and sync first publication", (t) => {
+  const readBox = sandbox();
+  t.after(() => readBox.restore());
+  const pending = join(readBox.source.project.directory, "pending");
+  const moved = join(readBox.source.project.directory, "pending-moved");
+  const read = readCorpusHandoffRecord({
+    cwd: readBox.cwd,
+    name: readBox.source.name,
+    isTrusted: () => true,
+    afterPendingOpen() {
+      renameSync(pending, moved);
+      mkdirSync(pending);
+    },
+  });
+  assert.equal(read.ok, false);
+  if (!read.ok) assert.match(read.reason, /changing handoff directory/);
+
+  const writeBox = sandbox();
+  t.after(() => writeBox.restore());
+  const writePending = join(writeBox.source.project.directory, "pending");
+  rmSync(writePending, { recursive: true });
+  let parentSynced = 0;
+  writeCorpusHandoffRecord(writeBox.source.project, writeBox.record, {
+    afterPendingDirectoryFsync() { parentSynced += 1; },
+  });
+  assert.equal(parentSynced, 1);
+
+  const writeMoved = join(writeBox.source.project.directory, "pending-moved");
+  assert.throws(
+    () => writeCorpusHandoffRecord(writeBox.source.project, writeBox.record, {
+      afterPendingOpen() {
+        renameSync(writePending, writeMoved);
+        mkdirSync(writePending);
+      },
+    }),
+    /changing handoff directory/,
+  );
+  assert.equal(readFileSync(join(writeMoved, `${writeBox.source.name}.json`), "utf8").length > 0, true);
+});
+
+test("candidate listing caps record count and aggregate bytes", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const pending = join(box.source.project.directory, "pending");
+  rmSync(pending, { recursive: true });
+  mkdirSync(pending);
+  const [adjective, noun] = box.source.name.split("-");
+  assert.ok(adjective && noun);
+  for (let index = 0; index < 65; index++) {
+    writeFileSync(join(pending, `${adjective}-${noun}-${index.toString(16).padStart(4, "0")}.json`), "{}");
+  }
+  const tooMany = listCorpusHandoffCandidates({ cwd: box.cwd, isTrusted: () => true });
+  assert.equal(tooMany.ok, false);
+  if (!tooMany.ok) assert.match(tooMany.reason, /more than 64/);
+
+  rmSync(pending, { recursive: true });
+  mkdirSync(pending);
+  for (let index = 0; index < 5; index++) {
+    writeFileSync(
+      join(pending, `${adjective}-${noun}-${index.toString(16).padStart(4, "0")}.json`),
+      " ".repeat(900_000),
+    );
+  }
+  const tooLarge = listCorpusHandoffCandidates({ cwd: box.cwd, isTrusted: () => true });
+  assert.equal(tooLarge.ok, false);
+  if (!tooLarge.ok) assert.match(tooLarge.reason, /exceed 4 MiB in aggregate/);
 });
 
 test("candidate listing reports empty and unavailable records without adopting", async (t) => {
@@ -519,6 +805,42 @@ test("adoption restores matching, discoverable, and failing model outcomes witho
   assert.equal(await badThinking.hooks.adoptHandoff(badThinking.ctx, box.source.name, () => {}), true);
   assert.match(warnings.join("\n"), /could not restore thinking level high.*forced thinking switch failure/);
   assert.equal(badThinking.messages.at(-1)?.customType, "slate-kickoff");
+});
+
+test("startHandoff writes a compact record and reports specific identity and size refusals", async (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const harness = adoptionHarness(box);
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
+  const ctx = {
+    ...harness.ctx,
+    waitForIdle: async () => {},
+    sessionManager: {
+      getBranch: () => [{ type: "message", message: { role: "assistant", content: "verified handoff brief" } }],
+      getEntries: () => [],
+    },
+  } as unknown as ExtensionCommandContext;
+  await harness.hooks.startHandoff(ctx, "next focus");
+  assert.match(warnings.join("\n"), /handoff record written/);
+  const written = readFileSync(corpusHandoffFile(box.source.project, box.adopter.name), "utf8");
+  assert.equal(written.includes("\n  \""), false);
+  const parsed = JSON.parse(written) as CorpusHandoffRecord;
+  assert.equal(parsed.brief, "verified handoff brief");
+  assert.equal(parsed.focus, "next focus");
+
+  warnings.length = 0;
+  harness.store.slateSessionId = undefined;
+  await harness.hooks.startHandoff(ctx);
+  assert.match(warnings.join("\n"), /not written because this session has no persisted corpus identity/);
+
+  harness.store.slateSessionId = ADOPTER_ID;
+  (harness.store as unknown as { threadSeq: number }).threadSeq = 1;
+  harness.store.threads.set("t1", { ...thread("t1"), episodeIds: ["t1.e1"], episodeSeq: 1 });
+  harness.store.episodes.set("t1.e1", episodeRecord(box, { task: "x".repeat(1024 * 1024) }));
+  warnings.length = 0;
+  await harness.hooks.startHandoff(ctx);
+  assert.match(warnings.join("\n"), /handoff record was not written.*larger than 1 MiB/);
 });
 
 test("kickoff is sent only after persistence succeeds", async (t) => {

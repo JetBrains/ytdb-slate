@@ -64,6 +64,7 @@ const BRIEF_HEADROOM_TOKENS = 32_768;
 /** Used when the merged settings cannot be read (mirrors pi's own default). */
 const FALLBACK_RESERVE_TOKENS = 16_384;
 const BRIEF_MAX_CHARS = 6000;
+const CANDIDATE_OUTPUT_MAX_CHARS = 16_384;
 
 export interface SlateHandoffHooks {
 	startHandoff(ctx: ExtensionCommandContext, focus?: string): Promise<void>;
@@ -511,7 +512,10 @@ export function registerSlateHandoff(
 			return false;
 		}
 		if (name === undefined) {
-			const message = describeCandidates(ctx).join("\n");
+			const rendered = describeCandidates(ctx).join("\n");
+			const message = rendered.length > CANDIDATE_OUTPUT_MAX_CHARS
+				? `${rendered.slice(0, CANDIDATE_OUTPUT_MAX_CHARS - 24)}\n[listing truncated]`
+				: rendered;
 			console.warn(message);
 			if (ctx.hasUI) ctx.ui.notify(message, "info");
 			return false;
@@ -523,6 +527,15 @@ export function registerSlateHandoff(
 		const read = readCorpusHandoffRecord({ cwd: ctx.cwd, name, isTrusted: () => ctx.isProjectTrusted() });
 		if (!read.ok) {
 			reportFailure(ctx, `${read.reason}. Run /slate adopt without a name to list candidates.`);
+			return false;
+		}
+		const ownIdentity = store.slateSessionId;
+		const ownName = store.slateSessionName;
+		if (
+			ownIdentity === read.record.author.identity || ownName === read.record.author.name
+			|| read.record.parentChain.some((parent) => parent.identity === ownIdentity || parent.name === ownName)
+		) {
+			reportFailure(ctx, "slate: adoption refused because this handoff lineage already contains the current session.");
 			return false;
 		}
 		const now = Date.now();
@@ -572,7 +585,8 @@ export function registerSlateHandoff(
 		const name = store.slateSessionName;
 		const project = store.corpusProject;
 		if (identity === undefined || name === undefined || project === undefined) {
-			throw new Error("slate cannot write a handoff record without its corpus session identity and name");
+			reportFailure(ctx, "slate: handoff record was not written because this session has no persisted corpus identity.");
+			return;
 		}
 		// ctx.model can be undefined. A thinking level has no meaning without its model.
 		const model = ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined;
@@ -594,7 +608,15 @@ export function registerSlateHandoff(
 				carriedCostUsd: store.carriedCostUsd + orchestratorCostUsd(ctx),
 			},
 		};
-		writeCorpusHandoffRecord(project, record);
+		try {
+			writeCorpusHandoffRecord(project, record);
+		} catch (error) {
+			reportFailure(
+				ctx,
+				`slate: handoff record was not written: ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 240)}`,
+			);
+			return;
+		}
 		const command = `/slate adopt ${name}`;
 		const message = `slate: handoff record written for ${name}. Start a fresh session and run ${command}.`;
 		console.warn(message);

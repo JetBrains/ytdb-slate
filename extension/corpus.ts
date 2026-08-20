@@ -426,6 +426,35 @@ export function withContainedFile<T>(
 	return withContainedRoots(value, roots, use);
 }
 
+/**
+ * Accept an absent artifact only when its prospective canonical path remains under an
+ * approved root. Existing artifacts still pass through the descriptor-backed reader.
+ */
+function containedOrMissing(value: unknown, roots: string[], resolveExisting: () => string | undefined): boolean {
+	if (typeof value !== "string" || value === "" || !isAbsolute(value)) return false;
+	if (lstatSync(value, { throwIfNoEntry: false }) !== undefined) return resolveExisting() !== undefined;
+	try {
+		const prospective = resolveProspectivePath(value);
+		if (prospective !== resolve(value)) return false;
+		return roots.some((expected) => {
+			try {
+				const root = realpathSync(expected);
+				return root === expected && statSync(root).isDirectory() && insideRoot(root, prospective);
+			} catch {
+				return false;
+			}
+		});
+	} catch {
+		return false;
+	}
+}
+
+export function isContainedOrMissingFile(cwd: string, value: unknown, projectDirectory?: string): boolean {
+	let roots: string[];
+	try { roots = rootsFor(cwd, projectDirectory); } catch { return false; }
+	return containedOrMissing(value, roots, () => resolveContainedFile(cwd, value, projectDirectory));
+}
+
 function threadRoots(cwd: string, projectDirectory: string | undefined): string[] | undefined {
 	try {
 		const legacy = join(realpathSync(cwd), CONFIG_DIR_NAME, "slate", "threads");
@@ -444,6 +473,11 @@ export function withContainedThreadFile<T>(
 ): T | undefined {
 	const roots = threadRoots(cwd, projectDirectory);
 	return roots === undefined ? undefined : withContainedRoots(value, roots, use, false, afterOpen);
+}
+
+export function isContainedOrMissingThreadFile(cwd: string, value: unknown, projectDirectory?: string): boolean {
+	const roots = threadRoots(cwd, projectDirectory);
+	return roots !== undefined && containedOrMissing(value, roots, () => resolveContainedThreadFile(cwd, value, projectDirectory));
 }
 
 /** Strict source boundary for bytes that SessionManager.forkFrom copies (SE92, RG271). */
