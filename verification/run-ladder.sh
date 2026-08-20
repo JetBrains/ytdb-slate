@@ -124,7 +124,9 @@ PI_COMMAND_DIR=${PI_COMMAND%/*}; [ -d "$PI_COMMAND_DIR" ] && [ ! -L "$PI_COMMAND
 # only through the guarded shim created inside the validated lab.
 CONTROLLED_PATH=""
 for t in node python3 sha256sum stat timeout cmp mkfifo awk sed grep chmod cat cp cut date dirname find head ls rm rmdir sort tail wc mktemp readlink env; do
-	p=$(tool_abs "$t"); d=${p%/*}; case ":$CONTROLLED_PATH:" in *":$d:"*) ;; *) CONTROLLED_PATH="${CONTROLLED_PATH:+$CONTROLLED_PATH:}$d" ;; esac
+	p=$(tool_abs "$t"); d=${p%/*}
+	[ "$d" = "$PI_COMMAND_DIR" ] && continue
+	case ":$CONTROLLED_PATH:" in *":$d:"*) ;; *) CONTROLLED_PATH="${CONTROLLED_PATH:+$CONTROLLED_PATH:}$d" ;; esac
 done
 [ -n "$CONTROLLED_PATH" ] || die "controlled child PATH is empty"
 
@@ -317,6 +319,17 @@ exec "$PI_BIN" "\$@"
 EOF
 chmod 700 "$PI_SHIM_DIR/pi" || die "cannot make guarded pi shim executable"
 CONTROLLED_PATH="$PI_SHIM_DIR${CONTROLLED_PATH:+:$CONTROLLED_PATH}"
+# Parent commands also resolve the refusing shim. All required parent tools were
+# resolved before this rewrite, and the directory that exposed real pi is gone.
+PARENT_PATH=""
+IFS=: read -r -a parent_path_parts <<< "$PATH"
+for d in "${parent_path_parts[@]}"; do
+	[ "$d" = "$PI_COMMAND_DIR" ] && continue
+	case ":$PARENT_PATH:" in *":$d:"*) ;; *) PARENT_PATH="${PARENT_PATH:+$PARENT_PATH:}$d" ;; esac
+done
+PATH="$PI_SHIM_DIR${PARENT_PATH:+:$PARENT_PATH}"
+export PATH
+[ "$(command -v pi)" = "$PI_SHIM_DIR/pi" ] || die "guarded pi shim is not first on the parent PATH"
 rm -f "$PI_LEDGER" || die "cannot clear guarded pi ledger"
 
 # Guard 3: belt and braces on the redirect target itself.
@@ -592,31 +605,69 @@ for number,line in lines:
     if line.rstrip().endswith("\\"): continue
     logical.append((start,pending)); pending=""
 if pending: logical.append((start,pending))
+tainted={"PI_BIN"}
+def variable(token):
+    match=re.fullmatch(r"\$([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}",token)
+    return (match.group(1) or match.group(2)) if match else None
 def is_pi(token):
     plain=token.strip('"\'')
-    return plain in {"pi","$PI_BIN","${PI_BIN}",real_pi} or plain.endswith("/pi")
-for number,command in logical:
+    name=variable(plain)
+    return plain in {"pi","$PI_BIN","${PI_BIN}",real_pi} or plain.endswith("/pi") or name in tainted
+def substitutions(text):
+    found=[]; index=0; quote=None
+    while index < len(text)-1:
+        char=text[index]
+        if char=="\\": index+=2; continue
+        if char=="'" and quote!='"': quote=None if quote=="'" else "'"; index+=1; continue
+        if char=='"' and quote!="'": quote=None if quote=='"' else '"'; index+=1; continue
+        if quote!="'" and text[index:index+2]=="$(":
+            start=index+2; depth=1; cursor=start; inner_quote=None
+            while cursor < len(text) and depth:
+                current=text[cursor]
+                if current=="\\": cursor+=2; continue
+                if current=="'" and inner_quote!='"': inner_quote=None if inner_quote=="'" else "'"; cursor+=1; continue
+                if current=='"' and inner_quote!="'": inner_quote=None if inner_quote=='"' else '"'; cursor+=1; continue
+                if inner_quote!="'" and text[cursor:cursor+2]=="$(": depth+=1; cursor+=2; continue
+                if inner_quote is None and current==")": depth-=1
+                cursor+=1
+            if depth: break
+            found.append(text[start:cursor-1]); index=cursor; continue
+        index+=1
+    return found
+def value_is_tainted(value):
+    if is_pi(value): return True
+    return any(name in tainted for name in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?",value))
+def audit(command,number):
+    for inner in substitutions(command): audit(inner,number)
     try:
         lexer=shlex.shlex(command,posix=True,punctuation_chars=";&|")
         lexer.whitespace_split=True
         tokens=list(lexer)
-    except ValueError: continue
+    except ValueError:
+        return
     segment=[]
     for token in tokens+[";"]:
         if token and all(ch in ";&|" for ch in token):
             launchers=[i for i,item in enumerate(segment) if item in {"piexec","piexec_at"}]
             for index,item in enumerate(segment):
+                assignment=re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)",item,re.S)
+                if assignment:
+                    name,value=assignment.groups()
+                    if value_is_tainted(value): tainted.add(name)
+                    else: tainted.discard(name)
+                    continue
                 if not is_pi(item): continue
                 if index+1>=len(segment) or not segment[index+1].startswith("-"): continue
                 if not any(launcher<index for launcher in launchers):
                     raise SystemExit(f"launcher bypass at logical command starting line {number}: {command.strip()}")
             segment=[]
         else: segment.append(token)
+for number,command in logical: audit(command,number)
 PY
 }
 run_launcher_self_tests() {
 	local passed=0 alt="$LAB/selftest-alt-agent" fabricated="$LAB/fabricated-settings.json" outer="$LAB/outer-guard.err"
-	local mutant="$LAB/launcher-mutant.sh" gitdir index before_index after_index before_objects after_objects before_repo after_repo shim_probe
+	local mutant="$LAB/launcher-mutant.sh" gitdir index before_index after_index before_objects after_objects before_repo after_repo shim_probe parent_err
 	NODE_OPTIONS='--require=/definitely/poisoned' AWS_ACCESS_KEY_ID=poison HTTP_PROXY=http://poison \
 		piexec node -e 'for(const k of ["NODE_OPTIONS","AWS_ACCESS_KEY_ID","HTTP_PROXY","PI_SESSION_ID","PI_CODING_AGENT_SESSION_DIR"])if(k in process.env)process.exit(1)' \
 		|| die "SELFTEST poisoned parent variables crossed the hermetic launcher"; passed=$((passed+1))
@@ -642,6 +693,11 @@ run_launcher_self_tests() {
 	shim_probe="$PI_SHIM_DIR/$(printf 'p%s' i)"
 	if "$shim_probe" --version >/dev/null 2>&1; then die "SELFTEST guarded pi shim accepted a parent-shell invocation"; fi
 	passed=$((passed+1))
+	parent_err="$LAB/parent-pi.err"
+	[ "$(command -v pi)" = "$shim_probe" ] || die "SELFTEST literal parent pi does not resolve to the guarded shim"
+	if bash -c 'pi --version' >/dev/null 2>"$parent_err"; then die "SELFTEST literal parent pi escaped the guarded shim"; fi
+	grep -q 'guarded pi shim refused an unlaunched invocation' "$parent_err" || die "SELFTEST literal parent pi failed for the wrong reason"
+	passed=$((passed+1))
 	rm -f "$PI_LEDGER"
 	piexec_at "$alt" pi --version >/dev/null || die "SELFTEST guarded alternate-agent pi launch failed"
 	grep -Fxq "$alt" "$PI_LEDGER" || die "SELFTEST actual guarded pi launch did not register alternate-agent evidence"
@@ -652,7 +708,7 @@ run_launcher_self_tests() {
 	grep -q 'PI_CODING_AGENT_DIR is already set' "$outer" || die "SELFTEST outer inherited-agent guard failed for the wrong reason"; passed=$((passed+1))
 	audit_launcher_source "$0" || die "SELFTEST launcher-bypass source audit rejected the real script"; passed=$((passed+1))
 	local bypass_flag; bypass_flag=$(printf -- '--no-%s' extensions)
-	for form in literal variable resolved absolute-multiline no-noextensions semicolon-decoy; do
+	for form in literal variable resolved absolute-multiline no-noextensions semicolon-decoy alias alias-chain command-substitution; do
 		cp "$0" "$mutant" || die "SELFTEST cannot create launcher mutation"
 		case "$form" in
 			literal) printf '\npi %s -p x\n' "$bypass_flag" >> "$mutant" ;;
@@ -661,6 +717,9 @@ run_launcher_self_tests() {
 			absolute-multiline) printf '\n/opt/fake/pi \\\n  %s -p x\n' "$bypass_flag" >> "$mutant" ;;
 			no-noextensions) printf '\npi -p x\n' >> "$mutant" ;;
 			semicolon-decoy) printf '\nprintf piexec >/dev/null; pi -p x\n' >> "$mutant" ;;
+			alias) printf '\nP="$PI_BIN"; "$P" -p x\n' >> "$mutant" ;;
+			alias-chain) printf '\nP="$PI_BIN"; Q="$P"; "$Q" -p x\n' >> "$mutant" ;;
+			command-substitution) printf '\npiexec echo "$(pi -p x)"\n' >> "$mutant" ;;
 		esac
 		if audit_launcher_source "$mutant" >/dev/null 2>&1; then die "SELFTEST launcher audit missed $form bypass"; fi
 		passed=$((passed+1))

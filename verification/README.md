@@ -461,9 +461,11 @@ redirected into an artifact file) is still visible.
 5. **Every child uses one hermetic launcher.** `env -i` supplies validated
    throwaway `HOME`, `TMPDIR` and the selected `PI_CODING_AGENT_DIR`, `PI_OFFLINE`,
    a PATH assembled from guarded absolute tool resolutions, and only explicit
-   rung canaries. The real pi directory is absent from that PATH. A generated
-   token-guarded `pi` shim is the only child-visible command and records the
-   selected agent root in a durable ledger on every actual pi start. The generated guard requires exact environment-key equality
+   rung canaries. The real pi directory is absent from that PATH. After parent
+   tools resolve, the parent PATH also removes that directory and puts the
+   refusing shim first. A generated token-guarded `pi` shim is therefore the
+   only PATH-visible pi command. It records the selected agent root in a durable
+   ledger on every actual pi start. The generated guard requires exact environment-key equality
    before it starts the requested command. `NODE_OPTIONS`, credentials, proxies,
    stale pi variables and `PI_CODING_AGENT_SESSION_DIR` are absent. A marker
    written from the child process `spawn` event makes every launch positive.
@@ -474,9 +476,11 @@ redirected into an artifact file) is still visible.
    lab. The inherited `PI_CODING_AGENT_DIR` refusal remains an outer fatal guard.
    `--self-test` exercises poisoned parents, absent and empty roots, redirect-loss
    teeth, nested inheritance, runtime alternate-agent ledger registration, shim
-   refusal outside the launcher, structural source auditing, literal, variable,
-   resolved, absolute-multiline, no-flag and semicolon-decoy bypass mutations,
-   the outer guard and concurrent fabricated settings writes.
+   refusal outside the launcher, literal parent-shell resolution and structural
+   source auditing. Its mutation set covers literal, variable, resolved,
+   absolute-multiline, no-flag and semicolon-decoy forms. It also covers aliases,
+   alias chains and command substitutions. The remaining tests cover the outer
+   guard and concurrent fabricated settings writes.
 
    The real settings content hash is now a NOTE only. A concurrent real session
    may change it without changing the verdict. Redirect evidence instead comes
@@ -530,7 +534,11 @@ evidence.
 
 * The hermetic environment is not an operating-system filesystem sandbox. A
   dependency using a hardcoded absolute real-home path remains outside the
-  portable guarantee.
+  portable guarantee. The launcher blocks accidental and ordinary PATH-based
+  bypasses. It does not defend against a deliberately malicious same-user child.
+  Such a child can read the shim token or forge a ledger entry. It can also
+  discover and invoke an absolute binary. Those attacks require operating-system
+  isolation.
 * The real settings hash is diagnostic and nonfatal. Selected-agent, fallback-
   agent, session, corpus and repository evidence determine the safety verdict.
 * Guard 2/3 canonicalise **at startup**. The *agent* directory is re-checked
