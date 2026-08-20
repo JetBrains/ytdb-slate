@@ -120,8 +120,10 @@ tool_abs() { local p; p=$(command -v "$1") || die "cannot resolve tool '$1'"; p=
 PI_BIN=$(tool_abs pi); NODE_BIN=$(tool_abs node); TIMEOUT_BIN=$(tool_abs timeout)
 PI_COMMAND=$(command -v pi); case "$PI_COMMAND" in /*) ;; *) die "pi command path is not absolute: $PI_COMMAND" ;; esac
 PI_COMMAND_DIR=${PI_COMMAND%/*}; [ -d "$PI_COMMAND_DIR" ] && [ ! -L "$PI_COMMAND_DIR" ] || die "pi command directory is not a real directory: $PI_COMMAND_DIR"
-CONTROLLED_PATH="$PI_COMMAND_DIR"
-for t in pi node python3 sha256sum stat timeout cmp mkfifo awk sed grep chmod cat cp cut date dirname find head ls rm rmdir sort tail wc mktemp readlink env; do
+# The real pi command directory is deliberately absent. Children resolve `pi`
+# only through the guarded shim created inside the validated lab.
+CONTROLLED_PATH=""
+for t in node python3 sha256sum stat timeout cmp mkfifo awk sed grep chmod cat cp cut date dirname find head ls rm rmdir sort tail wc mktemp readlink env; do
 	p=$(tool_abs "$t"); d=${p%/*}; case ":$CONTROLLED_PATH:" in *":$d:"*) ;; *) CONTROLLED_PATH="${CONTROLLED_PATH:+$CONTROLLED_PATH:}$d" ;; esac
 done
 [ -n "$CONTROLLED_PATH" ] || die "controlled child PATH is empty"
@@ -298,6 +300,24 @@ for v in AGENT CHILD_HOME CHILD_TMP WORK OUT WEAK; do
 	[ -n "$val" ] || die "internal: $v is empty after validation — refusing to continue"
 done
 SETTINGS="$AGENT/settings.json"
+PI_LEDGER="$OUT/pi-agent-ledger"
+PI_SHIM_DIR="$LAB/pi-shim"
+mkdir -p "$PI_SHIM_DIR" || die "cannot create guarded pi shim directory"
+PI_SHIM_DIR=$(canon "$PI_SHIM_DIR") || die "cannot resolve guarded pi shim directory"
+under "$PI_SHIM_DIR" "$LAB_CANON" || die "guarded pi shim escaped the lab"
+PI_LAUNCH_TOKEN=$(printf '%s:%s:%s' "$LAB" "$$" "$(date +%s%N)" | sha256sum | cut -d' ' -f1)
+[ -n "$PI_LAUNCH_TOKEN" ] || die "cannot derive guarded pi launch token"
+cat > "$PI_SHIM_DIR/pi" <<EOF || die "cannot write guarded pi shim"
+#!/usr/bin/env bash
+set -u
+[ "\${SLATE_PI_LAUNCH_TOKEN:-}" = "$PI_LAUNCH_TOKEN" ] || { echo "verification: guarded pi shim refused an unlaunched invocation" >&2; exit 96; }
+[ -n "\${SLATE_PI_LEDGER:-}" ] || { echo "verification: guarded pi shim has no ledger" >&2; exit 96; }
+printf '%s\n' "\${PI_CODING_AGENT_DIR:-}" >> "\$SLATE_PI_LEDGER" || exit 96
+exec "$PI_BIN" "\$@"
+EOF
+chmod 700 "$PI_SHIM_DIR/pi" || die "cannot make guarded pi shim executable"
+CONTROLLED_PATH="$PI_SHIM_DIR${CONTROLLED_PATH:+:$CONTROLLED_PATH}"
+rm -f "$PI_LEDGER" || die "cannot clear guarded pi ledger"
 
 # Guard 3: belt and braces on the redirect target itself.
 [ "$AGENT" = "$REAL_AGENT_CANON" ] && \
@@ -531,17 +551,18 @@ hermetic_exec() { # $1 selected agent, then NAME=VALUE canaries, then command
 	while [ $# -gt 0 ] && [[ "$1" == *=* ]]; do
 		pair="$1"; name=${pair%%=*}
 		[[ "$name" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "invalid child canary name '$name'"
-		case "$name" in HOME|TMPDIR|PATH|PI_CODING_AGENT_DIR|PI_OFFLINE|SLATE_CHILD_EXPECTED_KEYS|SLATE_CHILD_MARKER) die "child canary attempts to replace reserved key $name" ;; esac
+		case "$name" in HOME|TMPDIR|PATH|PI_CODING_AGENT_DIR|PI_OFFLINE|SLATE_CHILD_EXPECTED_KEYS|SLATE_CHILD_MARKER|SLATE_PI_LAUNCH_TOKEN|SLATE_PI_LEDGER) die "child canary attempts to replace reserved key $name" ;; esac
 		extra+=("$pair"); shift
 	done
 	[ $# -gt 0 ] || die "hermetic launcher received no command"
 	command=("$@")
 	marker=$(mktemp "$OUT/child-start.XXXXXX") || die "cannot allocate child-start marker"
 	rm -f "$marker" || die "cannot prepare child-start marker"
-	expected="HOME,TMPDIR,PATH,PI_CODING_AGENT_DIR,PI_OFFLINE,SLATE_CHILD_EXPECTED_KEYS,SLATE_CHILD_MARKER"
+	expected="HOME,TMPDIR,PATH,PI_CODING_AGENT_DIR,PI_OFFLINE,SLATE_CHILD_EXPECTED_KEYS,SLATE_CHILD_MARKER,SLATE_PI_LAUNCH_TOKEN,SLATE_PI_LEDGER"
 	for pair in "${extra[@]}"; do expected="$expected,${pair%%=*}"; done
 	env -i HOME="$CHILD_HOME" TMPDIR="$CHILD_TMP" PATH="$CONTROLLED_PATH" \
 		PI_CODING_AGENT_DIR="$ag" PI_OFFLINE=1 SLATE_CHILD_EXPECTED_KEYS="$expected" SLATE_CHILD_MARKER="$marker" \
+		SLATE_PI_LAUNCH_TOKEN="$PI_LAUNCH_TOKEN" SLATE_PI_LEDGER="$PI_LEDGER" \
 		"${extra[@]}" "$NODE_BIN" "$CHILD_GUARD" "${command[@]}"
 	rc=$?
 	[ -f "$marker" ] || die "hermetic child produced no positive start marker for '${command[0]}'"
@@ -550,10 +571,11 @@ hermetic_exec() { # $1 selected agent, then NAME=VALUE canaries, then command
 }
 piexec() { hermetic_exec "$AGENT" "$@"; }
 piexec_at() { local ag="$1"; shift; hermetic_exec "$ag" "$@"; }
-audit_launcher_source() { # $1 shell source; every logical pi command must name the common launcher
-	python3 - "$1" <<'PY'
-import re,sys
-raw=open(sys.argv[1]).read().splitlines(); lines=[]; heredoc=None
+audit_launcher_source() { # $1 shell source; structurally bind every pi command to the common launcher
+	python3 - "$1" "$PI_BIN" <<'PY'
+import os,re,shlex,sys
+source,real_pi=sys.argv[1:3]
+raw=open(source).read().splitlines(); lines=[]; heredoc=None
 for number,line in enumerate(raw,1):
     if heredoc is not None:
         if line.strip()==heredoc: heredoc=None
@@ -570,16 +592,31 @@ for number,line in lines:
     if line.rstrip().endswith("\\"): continue
     logical.append((start,pending)); pending=""
 if pending: logical.append((start,pending))
+def is_pi(token):
+    plain=token.strip('"\'')
+    return plain in {"pi","$PI_BIN","${PI_BIN}",real_pi} or plain.endswith("/pi")
 for number,command in logical:
-    if "--no-extensions" not in command: continue
-    before=command.split("--no-extensions",1)[0]
-    if not re.search(r"\bpiexec(?:_at)?\b",before):
-        raise SystemExit(f"launcher bypass at logical command starting line {number}: {command.strip()}")
+    try:
+        lexer=shlex.shlex(command,posix=True,punctuation_chars=";&|")
+        lexer.whitespace_split=True
+        tokens=list(lexer)
+    except ValueError: continue
+    segment=[]
+    for token in tokens+[";"]:
+        if token and all(ch in ";&|" for ch in token):
+            launchers=[i for i,item in enumerate(segment) if item in {"piexec","piexec_at"}]
+            for index,item in enumerate(segment):
+                if not is_pi(item): continue
+                if index+1>=len(segment) or not segment[index+1].startswith("-"): continue
+                if not any(launcher<index for launcher in launchers):
+                    raise SystemExit(f"launcher bypass at logical command starting line {number}: {command.strip()}")
+            segment=[]
+        else: segment.append(token)
 PY
 }
 run_launcher_self_tests() {
 	local passed=0 alt="$LAB/selftest-alt-agent" fabricated="$LAB/fabricated-settings.json" outer="$LAB/outer-guard.err"
-	local mutant="$LAB/launcher-mutant.sh" gitdir index before_index after_index before_objects after_objects before_repo after_repo
+	local mutant="$LAB/launcher-mutant.sh" gitdir index before_index after_index before_objects after_objects before_repo after_repo shim_probe
 	NODE_OPTIONS='--require=/definitely/poisoned' AWS_ACCESS_KEY_ID=poison HTTP_PROXY=http://poison \
 		piexec node -e 'for(const k of ["NODE_OPTIONS","AWS_ACCESS_KEY_ID","HTTP_PROXY","PI_SESSION_ID","PI_CODING_AGENT_SESSION_DIR"])if(k in process.env)process.exit(1)' \
 		|| die "SELFTEST poisoned parent variables crossed the hermetic launcher"; passed=$((passed+1))
@@ -591,8 +628,9 @@ run_launcher_self_tests() {
 	( assert_agent_dir "${SLATE_SELFTEST_ABSENT-}" "self-test absent redirect" ) >/dev/null 2>&1 && die "SELFTEST absent agent redirect was accepted"; passed=$((passed+1))
 	( assert_agent_dir "" "self-test empty redirect" ) >/dev/null 2>&1 && die "SELFTEST empty agent redirect was accepted"; passed=$((passed+1))
 	if env -i HOME="$CHILD_HOME" TMPDIR="$CHILD_TMP" PATH="$CONTROLLED_PATH" PI_OFFLINE=1 \
-		SLATE_CHILD_EXPECTED_KEYS='HOME,TMPDIR,PATH,PI_CODING_AGENT_DIR,PI_OFFLINE,SLATE_CHILD_EXPECTED_KEYS,SLATE_CHILD_MARKER' \
-		SLATE_CHILD_MARKER="$LAB/lost-marker" "$NODE_BIN" "$CHILD_GUARD" true >/dev/null 2>&1; then
+		SLATE_CHILD_EXPECTED_KEYS='HOME,TMPDIR,PATH,PI_CODING_AGENT_DIR,PI_OFFLINE,SLATE_CHILD_EXPECTED_KEYS,SLATE_CHILD_MARKER,SLATE_PI_LAUNCH_TOKEN,SLATE_PI_LEDGER' \
+		SLATE_CHILD_MARKER="$LAB/lost-marker" SLATE_PI_LAUNCH_TOKEN="$PI_LAUNCH_TOKEN" SLATE_PI_LEDGER="$PI_LEDGER" \
+		"$NODE_BIN" "$CHILD_GUARD" true >/dev/null 2>&1; then
 		die "SELFTEST redirect-loss teeth did not reject a missing PI_CODING_AGENT_DIR"
 	fi
 	passed=$((passed+1))
@@ -601,18 +639,28 @@ run_launcher_self_tests() {
 	mkdir -p "$alt" || die "SELFTEST cannot create alternate agent"
 	piexec_at "$alt" node -e 'if(process.env.PI_CODING_AGENT_DIR!==process.argv[1])process.exit(1)' "$alt" \
 		|| die "SELFTEST P11 alternate-agent route bypassed the common launcher"; passed=$((passed+1))
+	shim_probe="$PI_SHIM_DIR/$(printf 'p%s' i)"
+	if "$shim_probe" --version >/dev/null 2>&1; then die "SELFTEST guarded pi shim accepted a parent-shell invocation"; fi
+	passed=$((passed+1))
+	rm -f "$PI_LEDGER"
+	piexec_at "$alt" pi --version >/dev/null || die "SELFTEST guarded alternate-agent pi launch failed"
+	grep -Fxq "$alt" "$PI_LEDGER" || die "SELFTEST actual guarded pi launch did not register alternate-agent evidence"
+	passed=$((passed+1))
 	if PI_CODING_AGENT_DIR="$LAB/poison-agent" bash "$0" --repo "$REPO" --setup-only > /dev/null 2> "$outer"; then
 		die "SELFTEST outer inherited-agent guard accepted PI_CODING_AGENT_DIR"
 	fi
 	grep -q 'PI_CODING_AGENT_DIR is already set' "$outer" || die "SELFTEST outer inherited-agent guard failed for the wrong reason"; passed=$((passed+1))
 	audit_launcher_source "$0" || die "SELFTEST launcher-bypass source audit rejected the real script"; passed=$((passed+1))
 	local bypass_flag; bypass_flag=$(printf -- '--no-%s' extensions)
-	for form in literal variable absolute-multiline; do
+	for form in literal variable resolved absolute-multiline no-noextensions semicolon-decoy; do
 		cp "$0" "$mutant" || die "SELFTEST cannot create launcher mutation"
 		case "$form" in
 			literal) printf '\npi %s -p x\n' "$bypass_flag" >> "$mutant" ;;
 			variable) printf '\n"$PI_BIN" %s -p x\n' "$bypass_flag" >> "$mutant" ;;
+			resolved) printf '\n%s %s -p x\n' "$PI_BIN" "$bypass_flag" >> "$mutant" ;;
 			absolute-multiline) printf '\n/opt/fake/pi \\\n  %s -p x\n' "$bypass_flag" >> "$mutant" ;;
+			no-noextensions) printf '\npi -p x\n' >> "$mutant" ;;
+			semicolon-decoy) printf '\nprintf piexec >/dev/null; pi -p x\n' >> "$mutant" ;;
 		esac
 		if audit_launcher_source "$mutant" >/dev/null 2>&1; then die "SELFTEST launcher audit missed $form bypass"; fi
 		passed=$((passed+1))
@@ -635,14 +683,7 @@ run_launcher_self_tests() {
 	grep -q '^concurrent-' "$fabricated" || die "SELFTEST fabricated concurrent settings write did not occur"; passed=$((passed+1))
 	printf 'SELFTEST PASS — %s deterministic launcher checks passed\n' "$passed"
 }
-declare -a SESSION_EVIDENCE_AGENTS=()
-expect_session_evidence() { # $1 validated agent root
-	local ag="$1" seen
-	assert_agent_dir "$ag" "register expected session evidence"
-	for seen in "${SESSION_EVIDENCE_AGENTS[@]}"; do [ "$seen" = "$ag" ] && return 0; done
-	SESSION_EVIDENCE_AGENTS+=("$ag")
-}
-mark_slate_child_ran() { : > "$OUT/slate-child-ran"; expect_session_evidence "$AGENT"; }
+mark_slate_child_ran() { : > "$OUT/slate-child-ran"; }
 if [ "$SELF_TEST" = 1 ]; then
 	run_launcher_self_tests
 	exit 0
@@ -1086,7 +1127,6 @@ fi
 # probe runner: $1 label, $2 module, $3 target, $4 queue, $5 inject, rest = extra pi args
 runprobe() {
 	local label="$1" module="$2" target="$3" queue="$4" inject="$5"; shift 5
-	expect_session_evidence "$AGENT"
 	snapshot "$label-before.json"
 	piexec PROBE_MODULE="$module" PROBE_TARGET="$target" PROBE_QUEUE="$queue" PROBE_INJECT="$inject" \
 		PROBE_RESULT="$OUT/$label.json" timeout 180 pi --no-extensions -e "$PROBE" "$@" -p "x" \
@@ -1099,7 +1139,6 @@ runprobe() {
 # $1 agent dir, $2 label, $3 module, $4 inject, rest = extra pi args
 runprobe_at() {
 	local ag="$1" label="$2" module="$3" inject="$4"; shift 4
-	expect_session_evidence "$ag"
 	piexec_at "$ag" PROBE_MODULE="$module" PROBE_TARGET=probe-c/gamma-1 PROBE_QUEUE=0 PROBE_INJECT="$inject" \
 		PROBE_RESULT="$OUT/$label.json" timeout 180 pi --no-extensions -e "$PROBE" "$@" -p "x" \
 		> "$OUT/$label.out" 2> "$OUT/$label.err"
@@ -1522,7 +1561,6 @@ fi
 if want P6; then
 	if ! command -v strace >/dev/null 2>&1; then skip P6 "strace not available"
 	else
-		expect_session_evidence "$AGENT"
 		seed "$CANON_XHIGH"; snapshot "P6-before.json"
 		piexec PROBE_MODULE="$REPO/extension/model-default.ts" PROBE_TARGET=probe-c/gamma-1 PROBE_QUEUE=0 \
 			PROBE_INJECT=chmod PROBE_RESULT="$OUT/P6.json" \
@@ -1721,7 +1759,6 @@ fi
 if want WK1; then
 	wkrun() { # $1 label, $2 worker module, $3 phase, rest = extra pi args
 		local label="$1" module="$2" phase="$3"; shift 3
-		expect_session_evidence "$AGENT"
 		# PI_OFFLINE: createAgentSession may run a create-time catalogue refresh, and
 		# this harness has no network at all. (piexec re-verifies the redirect target.)
 		piexec WORKER_MODULE="$module" WORKER_PHASE="$phase" WORKER_RESULT="$OUT/$label.json" \
@@ -1838,16 +1875,19 @@ else
 	printf 'SAFE   %-6s PASS    — %s\n' "HOME" "throwaway HOME fallback agent remained untouched"
 	LINES+=("SAFE HOME PASS — throwaway HOME fallback agent untouched")
 fi
+declare -a SESSION_EVIDENCE_AGENTS=()
+if [ -f "$PI_LEDGER" ]; then mapfile -t SESSION_EVIDENCE_AGENTS < <(sort -u "$PI_LEDGER"); fi
 if [ "${#SESSION_EVIDENCE_AGENTS[@]}" -eq 0 ]; then
-	printf 'SAFE   %-6s PASS    — %s\n' "SESSION" "not applicable: selected rung launches no session-producing child"
-	LINES+=("SAFE SESSION PASS — not applicable: no session-producing child selected")
+	printf 'SAFE   %-6s PASS    — %s\n' "SESSION" "not applicable: guarded launcher started no pi child"
+	LINES+=("SAFE SESSION PASS — not applicable: guarded launcher started no pi child")
 else
 	for session_agent in "${SESSION_EVIDENCE_AGENTS[@]}"; do
+		assert_agent_dir "$session_agent" "validate runtime-recorded session evidence"
 		if [ -d "$session_agent/sessions" ] && find "$session_agent/sessions" -type f -name '*.jsonl' -print -quit | grep -q .; then
 			printf 'SAFE   %-6s PASS    — %s\n' "SESSION" "current-run session evidence exists under $session_agent"
 			LINES+=("SAFE SESSION PASS — evidence under $session_agent")
 		else
-			FAIL=$((FAIL+1)); printf 'SAFE   %-6s FAIL    — %s\n' "SESSION" "expected agent has no session evidence: $session_agent"
+			FAIL=$((FAIL+1)); printf 'SAFE   %-6s FAIL    — %s\n' "SESSION" "runtime-recorded agent has no session evidence: $session_agent"
 			LINES+=("SAFE SESSION FAIL — no evidence under $session_agent")
 		fi
 	done
