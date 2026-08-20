@@ -1000,7 +1000,7 @@ try {
 				authorSessionDirectory: source.directory,
 				createdAt: Date.now(),
 				worktreePath: handoffCwd,
-				branchLabel: "resolver",
+				branchLabel: corpus.currentBranchLabel(handoffCwd),
 				parentChain: [],
 				brief: "continue",
 				snapshot: {

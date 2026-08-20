@@ -29,7 +29,7 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { currentModelSpec, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
+import { readLiveEffort, type BaseModelTracker } from "./base-model.ts";
 import { currentBranchLabel } from "./corpus.ts";
 import {
 	listCorpusHandoffCandidates,
@@ -37,15 +37,17 @@ import {
 	writeCorpusHandoffRecord,
 	type CorpusHandoffRecord,
 } from "./handoff-record.ts";
-import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
 	orchestratorCostUsd,
 	type ContextBudgetObject,
 	type ContextBudgetOverride,
+	OWNER_SESSION_DIGEST_PATTERN,
+	SLATE_SESSION_ID_PATTERN,
 	type SlateConfig,
 	type SlateStore,
 } from "./state.ts";
+import { isSlateSessionName } from "./session-names.ts";
 
 /** Legacy percent mode only (DEPRECATED pauseThresholdPercent without contextBudget). */
 const DEFAULT_PAUSE_THRESHOLD_PERCENT = 40;
@@ -68,7 +70,7 @@ const CANDIDATE_OUTPUT_MAX_CHARS = 16_384;
 
 export interface SlateHandoffHooks {
 	startHandoff(ctx: ExtensionCommandContext, focus?: string): Promise<void>;
-	adoptHandoff(ctx: ExtensionCommandContext, name: string | undefined, enterOrchestratorMode: () => void): Promise<boolean>;
+	adoptHandoff(ctx: ExtensionCommandContext, name: string | undefined, enterOrchestratorMode: () => () => void): Promise<boolean>;
 	effectiveContextBudget(contextWindow: number, ctx: ExtensionContext): number | undefined;
 }
 
@@ -438,52 +440,26 @@ export function registerSlateHandoff(
 		if (spec === undefined) return;
 		const { provider, id } = spec;
 		const label = sanitizeForNotify(`${provider}/${id}`);
-		await withGlobalModelDefaultRestored(
-			pi,
-			ctx,
-			getConfig(),
-			spec,
-			async () => {
-				let calledSetter = false;
-				try {
-					let restored = ctx.model?.provider === provider && ctx.model?.id === id;
-					if (!restored) {
-						const model = ctx.modelRegistry.find(provider, id);
-						if (model !== undefined) {
-							calledSetter = true;
-							restored = await _getBaseModel().ownSwitch(currentModelSpec(ctx), `${provider}/${id}`, () => pi.setModel(model));
-						}
-					}
-					if (!restored) {
-						reportFailure(ctx, `slate: could not restore handoff model ${label}. The session keeps its current model.`);
-						return calledSetter;
-					}
-					_getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
-					if (typeof record.thinkingLevel === "string") {
-						calledSetter = true;
-						try {
-							pi.setThinkingLevel(record.thinkingLevel);
-							_getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
-						} catch (error) {
-							reportFailure(
-								ctx,
-								`slate: restored model ${label}, but could not restore thinking level ${sanitizeForNotify(record.thinkingLevel, 20)}: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`,
-							);
-						}
-					}
-				} catch (error) {
-					calledSetter = true;
-					reportFailure(ctx, `slate: could not restore handoff model ${label}: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`);
-				}
-				return calledSetter;
-			},
-			(calledSetter) => calledSetter,
-		);
+		if (ctx.model?.provider !== provider || ctx.model?.id !== id) {
+			reportFailure(
+				ctx,
+				`slate: skipped automatic handoff model restoration to ${label}. Select it manually to avoid changing the global default during overlapping sessions.`,
+			);
+			return;
+		}
+		const liveEffort = readLiveEffort(pi);
+		if (record.thinkingLevel !== undefined && liveEffort !== record.thinkingLevel) {
+			reportFailure(
+				ctx,
+				`slate: kept the current thinking level instead of restoring ${sanitizeForNotify(record.thinkingLevel, 20)}. Select it manually to avoid changing the global default during overlapping sessions.`,
+			);
+		}
+		_getBaseModel().adopt(`${provider}/${id}`, liveEffort);
 	};
 
 	const describeCandidates = (ctx: ExtensionCommandContext): string[] => {
 		const listed = listCorpusHandoffCandidates({ cwd: ctx.cwd, isTrusted: () => ctx.isProjectTrusted() });
-		if (!listed.ok) return [listed.reason];
+		if (!listed.ok) return [sanitizeForNotify(listed.reason, 360)];
 		if (listed.candidates.length === 0) return ["slate: no handoff records are available. Run /slate handoff in the source session first."];
 		const lines = listed.candidates.map(({ name, result }) => {
 			if (!result.ok) return `- ${name}: unavailable — ${sanitizeForNotify(result.reason, 240)}`;
@@ -504,7 +480,7 @@ export function registerSlateHandoff(
 	const adoptHandoff = async (
 		ctx: ExtensionCommandContext,
 		name: string | undefined,
-		enterOrchestratorMode: () => void,
+		enterOrchestratorMode: () => () => void,
 	): Promise<boolean> => {
 		// D104: this gate precedes candidate parsing and named-record parsing.
 		if (!ctx.isProjectTrusted()) {
@@ -520,17 +496,49 @@ export function registerSlateHandoff(
 			if (ctx.hasUI) ctx.ui.notify(message, "info");
 			return false;
 		}
+		const ownIdentity = store.slateSessionId;
+		const ownName = store.slateSessionName;
+		const ownOwner = store.ownerSessionDigest;
+		if (
+			ownIdentity === undefined || !SLATE_SESSION_ID_PATTERN.test(ownIdentity)
+			|| ownName === undefined || !isSlateSessionName(ownName)
+			|| ownOwner === undefined || !OWNER_SESSION_DIGEST_PATTERN.test(ownOwner)
+		) {
+			reportFailure(ctx, "slate: adoption requires this session's persisted identity, name, and owner digest. Start a fresh session, then retry.");
+			return false;
+		}
 		if (store.threads.size > 0 || store.episodes.size > 0) {
 			reportFailure(ctx, "slate: adoption refused because this session already has threads or episodes. Start a fresh session and run the command again.");
 			return false;
 		}
 		const read = readCorpusHandoffRecord({ cwd: ctx.cwd, name, isTrusted: () => ctx.isProjectTrusted() });
 		if (!read.ok) {
-			reportFailure(ctx, `${read.reason}. Run /slate adopt without a name to list candidates.`);
+			reportFailure(ctx, `${sanitizeForNotify(read.reason, 360)}. Run /slate adopt without a name to list candidates.`);
 			return false;
 		}
-		const ownIdentity = store.slateSessionId;
-		const ownName = store.slateSessionName;
+		let liveWorktree: string;
+		let liveBranch: string;
+		try {
+			liveWorktree = realpathSync(ctx.cwd);
+			liveBranch = currentBranchLabel(ctx.cwd);
+		} catch (error) {
+			reportFailure(ctx, `slate: adoption could not verify the current worktree and branch: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`);
+			return false;
+		}
+		if (read.record.worktreePath !== liveWorktree) {
+			reportFailure(
+				ctx,
+				`slate: adoption refused because the handoff belongs to worktree ${sanitizeForNotify(read.record.worktreePath, 160)}, not ${sanitizeForNotify(liveWorktree, 160)}.`,
+			);
+			return false;
+		}
+		if (read.record.branchLabel !== liveBranch) {
+			reportFailure(
+				ctx,
+				`slate: adoption refused because the handoff belongs to branch ${sanitizeForNotify(read.record.branchLabel || "(detached)", 80)}, not ${sanitizeForNotify(liveBranch || "(detached)", 80)}.`,
+			);
+			return false;
+		}
 		if (
 			ownIdentity === read.record.author.identity || ownName === read.record.author.name
 			|| read.record.parentChain.some((parent) => parent.identity === ownIdentity || parent.name === ownName)
@@ -551,24 +559,44 @@ export function registerSlateHandoff(
 		}
 		const expectedThreads = read.record.snapshot.threads.length;
 		const expectedEpisodes = read.record.snapshot.episodes.length;
-		store.adoptSnapshot(read.record.snapshot, ctx, { foreignSessionIdentity: true });
-		if (store.threads.size !== expectedThreads || store.episodes.size !== expectedEpisodes) {
-			reportFailure(ctx, `slate: adoption retained ${store.threads.size}/${expectedThreads} threads and ${store.episodes.size}/${expectedEpisodes} episodes after cross-record validation.`);
-		}
-		store.paused = false;
-		enterOrchestratorMode();
-		store.writingReminder.forceNext = true;
+		const priorSnapshot = store.snapshot();
+		const priorReminder = {
+			...store.writingReminder,
+			...(store.writingReminder.pending === undefined ? {} : { pending: { ...store.writingReminder.pending } }),
+		};
+		let undoMode = () => {};
 		try {
+			store.adoptSnapshot(read.record.snapshot, ctx, { foreignSessionIdentity: true });
+			if (store.threads.size !== expectedThreads || store.episodes.size !== expectedEpisodes) {
+				throw new Error(`adoption retained ${store.threads.size}/${expectedThreads} threads and ${store.episodes.size}/${expectedEpisodes} episodes`);
+			}
+			store.paused = false;
+			undoMode = enterOrchestratorMode();
+			store.writingReminder.forceNext = true;
 			store.save();
 		} catch (error) {
-			reportFailure(ctx, `slate: adoption could not persist its state: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}. No kickoff was sent.`);
+			let rollbackFailure: string | undefined;
+			try { store.adoptSnapshot(priorSnapshot, ctx); }
+			catch (rollbackError) { rollbackFailure = sanitizeForNotify(rollbackError instanceof Error ? rollbackError.message : String(rollbackError)); }
+			delete store.writingReminder.pending;
+			Object.assign(store.writingReminder, priorReminder);
+			try { undoMode(); }
+			catch (rollbackError) { rollbackFailure ??= sanitizeForNotify(rollbackError instanceof Error ? rollbackError.message : String(rollbackError)); }
+			try {
+				// pi appends custom state in memory before disk persistence. A rollback entry
+				// must therefore follow the failed adopted entry even when this write also throws.
+				store.save();
+			} catch (rollbackError) {
+				rollbackFailure ??= sanitizeForNotify(rollbackError instanceof Error ? rollbackError.message : String(rollbackError));
+			}
+			const rollbackClause = rollbackFailure === undefined ? "" : ` Rollback persistence also reported: ${rollbackFailure}.`;
+			reportFailure(
+				ctx,
+				`slate: adoption could not persist its state: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}. Runtime state was rolled back. No kickoff was sent.${rollbackClause}`,
+			);
 			return false;
 		}
-		try {
-			await restoreAdoptedModel(ctx, read.record);
-		} catch (error) {
-			reportFailure(ctx, `slate: adoption succeeded, but model-default restoration failed: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`);
-		}
+		await restoreAdoptedModel(ctx, read.record);
 		const kickoff = buildKickoff(ctx.cwd, true, read.record.brief, read.record.focus);
 		pi.sendMessage({ customType: "slate-kickoff", content: kickoff, display: true }, { deliverAs: "steer", triggerTurn: true });
 		const success = `slate: handoff ${sanitizeForNotify(name)} adopted successfully.`;

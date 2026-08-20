@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { BaseModelTracker } from "../extension/base-model.ts";
-import { createCorpusSession } from "../extension/corpus.ts";
+import { createCorpusSession, currentBranchLabel } from "../extension/corpus.ts";
 import {
   corpusHandoffFile,
   handoffTreeWithinDepth,
@@ -102,7 +102,7 @@ function sandbox(): Sandbox {
     authorSessionDirectory: source.directory,
     createdAt: Date.now(),
     worktreePath: cwd,
-    branchLabel: "test-branch",
+    branchLabel: currentBranchLabel(cwd),
     parentChain: [],
     brief: "Continue the verified work.",
     snapshot: sourceSnapshot,
@@ -128,6 +128,8 @@ function adoptionHarness(box: Sandbox, options: {
   foundModel?: { provider: string; id: string };
   failModelSwitch?: boolean;
   failThinkingSwitch?: boolean;
+  currentThinking?: string;
+  events?: string[];
 } = {}) {
   const messages: Array<{ customType?: string; content?: string }> = [];
   const appended: Array<Record<string, unknown>> = [];
@@ -136,8 +138,9 @@ function adoptionHarness(box: Sandbox, options: {
   const thinkingSwitches: string[] = [];
   const store = new SlateStore({
     appendEntry(_type: string, data: Record<string, unknown>) {
-      if (options.failSave) throw new Error("forced persistence failure");
+      options.events?.push("save");
       appended.push(data);
+      if (options.failSave && appended.length === 1) throw new Error("forced persistence failure");
     },
   } as unknown as ExtensionAPI);
   store.corpusProject = box.source.project;
@@ -146,8 +149,11 @@ function adoptionHarness(box: Sandbox, options: {
   store.ownerSessionDigest = ADOPTER_OWNER;
   const pi = {
     on() {},
-    sendMessage(message: { customType?: string; content?: string }) { messages.push(message); },
-    getThinkingLevel() { return thinkingSwitches.at(-1); },
+    sendMessage(message: { customType?: string; content?: string }) {
+      messages.push(message);
+      options.events?.push(message.customType === "slate-kickoff" ? "kickoff" : "message");
+    },
+    getThinkingLevel() { return thinkingSwitches.at(-1) ?? options.currentThinking; },
     async setModel(model: { provider: string; id: string }) {
       modelSwitches.push(`${model.provider}/${model.id}`);
       if (options.failModelSwitch) throw new Error("forced model switch failure");
@@ -160,7 +166,10 @@ function adoptionHarness(box: Sandbox, options: {
   } as unknown as ExtensionAPI;
   const tracker = {
     async ownSwitch<T>(_from: string | undefined, _to: string, perform: () => Promise<T>): Promise<T> { return perform(); },
-    adopt(model: string, effort: unknown) { adoptedModels.push({ model, effort }); },
+    adopt(model: string, effort: unknown) {
+      adoptedModels.push({ model, effort });
+      options.events?.push(`restore:${model}:${String(effort)}`);
+    },
   } as unknown as BaseModelTracker;
   const hooks = registerSlateHandoff(
     pi,
@@ -184,12 +193,17 @@ function overwriteRecord(box: Sandbox, value: unknown): string {
   return file;
 }
 
+const noModeChange = () => () => {};
+
 test("foreign adoption preserves the adopter namespace and appends predecessor lineage", async (t) => {
   const box = sandbox();
   t.after(() => box.restore());
   const harness = adoptionHarness(box);
   let entered = 0;
-  const adopted = await harness.hooks.adoptHandoff(harness.ctx, box.source.name, () => { entered += 1; });
+  const adopted = await harness.hooks.adoptHandoff(harness.ctx, box.source.name, () => {
+    entered += 1;
+    return () => { entered -= 1; };
+  });
 
   assert.equal(adopted, true);
   assert.equal(harness.store.slateSessionId, ADOPTER_ID);
@@ -211,10 +225,28 @@ test("untrusted adoption refuses before malformed JSON is parsed", async (t) => 
   const warnings: string[] = [];
   t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
 
-  assert.equal(await harness.hooks.adoptHandoff(untrusted, box.source.name, () => {}), false);
+  assert.equal(await harness.hooks.adoptHandoff(untrusted, box.source.name, noModeChange), false);
   assert.match(warnings.join("\n"), /requires a trusted project/);
   assert.doesNotMatch(warnings.join("\n"), /malformed/);
   assert.equal(harness.messages.length, 0);
+});
+
+test("adoption requires the complete persisted adopter identity before parsing", async (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  overwriteRecord(box, "{ malformed and must remain unread");
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
+
+  for (const field of ["slateSessionId", "slateSessionName", "ownerSessionDigest"] as const) {
+    const harness = adoptionHarness(box);
+    harness.store[field] = undefined;
+    warnings.length = 0;
+    assert.equal(await harness.hooks.adoptHandoff(harness.ctx, box.source.name, noModeChange), false, field);
+    assert.match(warnings.join("\n"), /requires this session's persisted identity, name, and owner digest/, field);
+    assert.doesNotMatch(warnings.join("\n"), /malformed/, field);
+    assert.equal(harness.messages.length, 0, field);
+  }
 });
 
 test("the 1 MiB boundary is checked before parsing", (t) => {
@@ -426,7 +458,7 @@ test("multi-generation lineage is metadata-backed, unique, and oldest-first", as
   const read = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
   assert.equal(read.ok, true);
   const harness = adoptionHarness(box);
-  assert.equal(await harness.hooks.adoptHandoff(harness.ctx, box.source.name, () => {}), true);
+  assert.equal(await harness.hooks.adoptHandoff(harness.ctx, box.source.name, noModeChange), true);
   assert.deepEqual(harness.store.slateSessionParentChain, [
     ...chain,
     { identity: SOURCE_ID, name: box.source.name },
@@ -435,7 +467,7 @@ test("multi-generation lineage is metadata-backed, unique, and oldest-first", as
   const cyclicAdopter = adoptionHarness(box);
   cyclicAdopter.store.slateSessionId = grandId;
   cyclicAdopter.store.slateSessionName = grand.name;
-  assert.equal(await cyclicAdopter.hooks.adoptHandoff(cyclicAdopter.ctx, box.source.name, () => {}), false);
+  assert.equal(await cyclicAdopter.hooks.adoptHandoff(cyclicAdopter.ctx, box.source.name, noModeChange), false);
   assert.equal(cyclicAdopter.messages.length, 0);
 
   for (const [label, invalid] of [
@@ -715,19 +747,41 @@ test("candidate listing never silently selects one or several records", async (t
   assert.match(warnings.join("\n"), new RegExp(second.name));
 });
 
+test("adoption refuses foreign worktrees and branches with sanitized diagnostics", async (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
+
+  overwriteRecord(box, { ...box.record, worktreePath: `${box.root}/foreign\u001b[31m` });
+  const foreignWorktree = adoptionHarness(box);
+  assert.equal(await foreignWorktree.hooks.adoptHandoff(foreignWorktree.ctx, box.source.name, noModeChange), false);
+  assert.match(warnings.join("\n"), /handoff belongs to worktree/);
+  assert.doesNotMatch(warnings.join("\n"), /\u001b/);
+  assert.equal(foreignWorktree.messages.length, 0);
+
+  warnings.length = 0;
+  overwriteRecord(box, { ...box.record, branchLabel: "foreign\u001b[31m" });
+  const foreignBranch = adoptionHarness(box);
+  assert.equal(await foreignBranch.hooks.adoptHandoff(foreignBranch.ctx, box.source.name, noModeChange), false);
+  assert.match(warnings.join("\n"), /handoff belongs to branch/);
+  assert.doesNotMatch(warnings.join("\n"), /\u001b/);
+  assert.equal(foreignBranch.messages.length, 0);
+});
+
 test("adoption refuses any existing thread or episode", async (t) => {
   const box = sandbox();
   t.after(() => box.restore());
   const withThread = adoptionHarness(box);
   withThread.store.threads.set("t1", thread("t1"));
-  assert.equal(await withThread.hooks.adoptHandoff(withThread.ctx, box.source.name, () => {}), false);
+  assert.equal(await withThread.hooks.adoptHandoff(withThread.ctx, box.source.name, noModeChange), false);
   assert.equal(withThread.messages.length, 0);
 
   const withEpisode = adoptionHarness(box);
   withEpisode.store.episodes.set("t1.e1", {
     id: "t1.e1", threadId: "t1", task: "x", status: "ok", file: "x", createdAt: 1,
   });
-  assert.equal(await withEpisode.hooks.adoptHandoff(withEpisode.ctx, box.source.name, () => {}), false);
+  assert.equal(await withEpisode.hooks.adoptHandoff(withEpisode.ctx, box.source.name, noModeChange), false);
   assert.equal(withEpisode.messages.length, 0);
 });
 
@@ -739,26 +793,26 @@ test("adoption rejects unreadable and future records but warns and accepts stale
 
   overwriteRecord(box, "{broken");
   const malformed = adoptionHarness(box);
-  assert.equal(await malformed.hooks.adoptHandoff(malformed.ctx, box.source.name, () => {}), false);
+  assert.equal(await malformed.hooks.adoptHandoff(malformed.ctx, box.source.name, noModeChange), false);
   assert.match(warnings.join("\n"), /malformed handoff JSON.*list candidates/);
   assert.equal(malformed.messages.length, 0);
 
   overwriteRecord(box, { ...box.record, createdAt: Date.now() + 60_000 });
   warnings.length = 0;
   const future = adoptionHarness(box);
-  assert.equal(await future.hooks.adoptHandoff(future.ctx, box.source.name, () => {}), false);
+  assert.equal(await future.hooks.adoptHandoff(future.ctx, box.source.name, noModeChange), false);
   assert.match(warnings.join("\n"), /future creation time/);
   assert.equal(future.messages.length, 0);
 
   overwriteRecord(box, { ...box.record, createdAt: Date.now() - 16 * 60_000 });
   warnings.length = 0;
   const stale = adoptionHarness(box);
-  assert.equal(await stale.hooks.adoptHandoff(stale.ctx, box.source.name, () => {}), true);
+  assert.equal(await stale.hooks.adoptHandoff(stale.ctx, box.source.name, noModeChange), true);
   assert.match(warnings.join("\n"), /older than 15 minutes.*adoption continues/);
   assert.equal(stale.messages.at(-1)?.customType, "slate-kickoff");
 });
 
-test("adoption restores matching, discoverable, and failing model outcomes without blocking kickoff", async (t) => {
+test("adoption restores only matching live model state and preserves transaction order", async (t) => {
   const box = sandbox();
   t.after(() => box.restore());
   overwriteRecord(box, {
@@ -769,42 +823,35 @@ test("adoption restores matching, discoverable, and failing model outcomes witho
   const warnings: string[] = [];
   t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
 
-  const matching = adoptionHarness(box, { currentModel: { provider: "provider", id: "target" } });
-  assert.equal(await matching.hooks.adoptHandoff(matching.ctx, box.source.name, () => {}), true);
-  assert.deepEqual(matching.modelSwitches, []);
-  assert.deepEqual(matching.thinkingSwitches, ["high"]);
-  assert.deepEqual(matching.adoptedModels, [
-    { model: "provider/target", effort: undefined },
-    { model: "provider/target", effort: "high" },
-  ]);
-  assert.equal(matching.messages.at(-1)?.customType, "slate-kickoff");
-
-  warnings.length = 0;
-  const unavailable = adoptionHarness(box, { currentModel: { provider: "provider", id: "other" } });
-  assert.equal(await unavailable.hooks.adoptHandoff(unavailable.ctx, box.source.name, () => {}), true);
-  assert.match(warnings.join("\n"), /could not restore handoff model provider\/target/);
-  assert.deepEqual(unavailable.adoptedModels, []);
-  assert.equal(unavailable.messages.at(-1)?.customType, "slate-kickoff");
-
-  warnings.length = 0;
-  const throwing = adoptionHarness(box, {
-    currentModel: { provider: "provider", id: "other" },
-    foundModel: { provider: "provider", id: "target" },
-    failModelSwitch: true,
-  });
-  assert.equal(await throwing.hooks.adoptHandoff(throwing.ctx, box.source.name, () => {}), true);
-  assert.deepEqual(throwing.modelSwitches, ["provider/target"]);
-  assert.match(warnings.join("\n"), /could not restore handoff model provider\/target.*forced model switch failure/);
-  assert.equal(throwing.messages.at(-1)?.customType, "slate-kickoff");
-
-  warnings.length = 0;
-  const badThinking = adoptionHarness(box, {
+  const events: string[] = [];
+  const matching = adoptionHarness(box, {
     currentModel: { provider: "provider", id: "target" },
-    failThinkingSwitch: true,
+    currentThinking: "high",
+    events,
   });
-  assert.equal(await badThinking.hooks.adoptHandoff(badThinking.ctx, box.source.name, () => {}), true);
-  assert.match(warnings.join("\n"), /could not restore thinking level high.*forced thinking switch failure/);
-  assert.equal(badThinking.messages.at(-1)?.customType, "slate-kickoff");
+  assert.equal(await matching.hooks.adoptHandoff(matching.ctx, box.source.name, noModeChange), true);
+  assert.deepEqual(matching.modelSwitches, []);
+  assert.deepEqual(matching.thinkingSwitches, []);
+  assert.deepEqual(matching.adoptedModels, [{ model: "provider/target", effort: "high" }]);
+  assert.deepEqual(events, ["save", "restore:provider/target:high", "kickoff"]);
+
+  warnings.length = 0;
+  const differentModel = adoptionHarness(box, { currentModel: { provider: "provider", id: "other" } });
+  assert.equal(await differentModel.hooks.adoptHandoff(differentModel.ctx, box.source.name, noModeChange), true);
+  assert.match(warnings.join("\n"), /skipped automatic handoff model restoration.*Select it manually/);
+  assert.deepEqual(differentModel.modelSwitches, []);
+  assert.deepEqual(differentModel.adoptedModels, []);
+  assert.equal(differentModel.messages.at(-1)?.customType, "slate-kickoff");
+
+  warnings.length = 0;
+  const differentThinking = adoptionHarness(box, {
+    currentModel: { provider: "provider", id: "target" },
+    currentThinking: "low",
+  });
+  assert.equal(await differentThinking.hooks.adoptHandoff(differentThinking.ctx, box.source.name, noModeChange), true);
+  assert.match(warnings.join("\n"), /kept the current thinking level.*Select it manually/);
+  assert.deepEqual(differentThinking.thinkingSwitches, []);
+  assert.deepEqual(differentThinking.adoptedModels, [{ model: "provider/target", effort: "low" }]);
 });
 
 test("startHandoff writes a compact record and reports specific identity and size refusals", async (t) => {
@@ -843,15 +890,39 @@ test("startHandoff writes a compact record and reports specific identity and siz
   assert.match(warnings.join("\n"), /handoff record was not written.*larger than 1 MiB/);
 });
 
-test("kickoff is sent only after persistence succeeds", async (t) => {
+test("persistence failure rolls back store, mode, reminder, tools contract, and durable branch state", async (t) => {
   const box = sandbox();
   t.after(() => box.restore());
-  const failing = adoptionHarness(box, { failSave: true });
+  const events: string[] = [];
+  const failing = adoptionHarness(box, { failSave: true, events });
+  failing.store.paused = true;
+  failing.store.writingReminder.markTokens = 42;
+  failing.store.writingReminder.sentThisRound = true;
+  failing.store.writingReminder.forceNext = false;
+  const before = failing.store.snapshot();
   const warnings: string[] = [];
+  let modeActive = false;
   t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
 
-  assert.equal(await failing.hooks.adoptHandoff(failing.ctx, box.source.name, () => {}), false);
+  const adopted = await failing.hooks.adoptHandoff(failing.ctx, box.source.name, () => {
+    modeActive = true;
+    events.push("mode-on");
+    return () => {
+      modeActive = false;
+      events.push("mode-undo");
+    };
+  });
+  assert.equal(adopted, false);
+  assert.equal(modeActive, false);
+  assert.deepEqual(failing.store.snapshot(), before);
+  assert.equal(failing.store.writingReminder.markTokens, 42);
+  assert.equal(failing.store.writingReminder.sentThisRound, true);
+  assert.equal(failing.store.writingReminder.forceNext, false);
   assert.equal(failing.messages.length, 0);
+  assert.equal(failing.appended.length, 2);
+  assert.notDeepEqual(failing.appended[0], before);
+  assert.deepEqual(failing.appended[1], before);
+  assert.deepEqual(events, ["mode-on", "save", "mode-undo", "save"]);
   assert.equal(readFileSync(corpusHandoffFile(box.source.project, box.source.name), "utf8").length > 0, true);
-  assert.match(warnings.join("\n"), /could not persist.*No kickoff was sent/);
+  assert.match(warnings.join("\n"), /could not persist.*Runtime state was rolled back.*No kickoff was sent/);
 });

@@ -646,6 +646,23 @@ export function registerSlateMode(
 		updateWidget();
 	};
 
+	const enterAdoptionMode = (): (() => void) => {
+		const activeBefore = [...pi.getActiveTools()];
+		const savedBefore = savedTools === undefined ? undefined : [...savedTools];
+		try {
+			setMode(true, false, true);
+		} catch (error) {
+			savedTools = savedBefore;
+			pi.setActiveTools(activeBefore);
+			throw error;
+		}
+		return () => {
+			savedTools = savedBefore;
+			pi.setActiveTools(activeBefore);
+			updateWidget();
+		};
+	};
+
 	// Widget refresh whenever slate state changes (dispatch start/end, new threads).
 	store.onDidChange = updateWidget;
 
@@ -671,7 +688,7 @@ export function registerSlateMode(
 					if (ctx.hasUI) ctx.ui.notify(message, "warning");
 					return;
 				}
-				await hooks.adoptHandoff(ctx, rest[0], () => setMode(true, false, true));
+				await hooks.adoptHandoff(ctx, rest[0], enterAdoptionMode);
 				return;
 			}
 			if (arg === "resume") {

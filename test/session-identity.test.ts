@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { writeCorpusHandoffRecord } from "../extension/handoff-record.ts";
-import { createCorpusSession, resolveCorpusProject } from "../extension/corpus.ts";
+import { createCorpusSession, currentBranchLabel, resolveCorpusProject } from "../extension/corpus.ts";
 import { isSlateSessionName } from "../extension/session-names.ts";
 import slateExtension from "../extension/index.ts";
 import {
@@ -383,6 +383,7 @@ class EntryExtensionApi {
   readonly commands = new Map<string, (args: string, ctx: ExtensionContext) => Promise<void>>();
   readonly appended: Array<Record<string, unknown>> = [];
   readonly sent: Array<{ customType?: string }> = [];
+  failNextAppend = false;
   private activeTools: string[] = [];
 
   on(event: string, handler: Handler): void {
@@ -398,7 +399,13 @@ class EntryExtensionApi {
   getActiveTools(): string[] { return [...this.activeTools]; }
   setActiveTools(tools: string[]): void { this.activeTools = [...tools]; }
   getAllTools(): Array<{ name: string }> { return []; }
-  appendEntry(_type: string, data: Record<string, unknown>): void { this.appended.push(data); }
+  appendEntry(_type: string, data: Record<string, unknown>): void {
+    this.appended.push(data);
+    if (this.failNextAppend) {
+      this.failNextAppend = false;
+      throw new Error("forced entry persistence failure");
+    }
+  }
   sendMessage(message: { customType?: string }): void { this.sent.push(message); }
   getThinkingLevel(): undefined { return undefined; }
 }
@@ -478,13 +485,14 @@ test("entry-point wiring leaves records untouched until explicit adopt", { timeo
     authorSessionDirectory: source.directory,
     createdAt: Date.now(),
     worktreePath: cwd,
-    branchLabel: "test",
+    branchLabel: currentBranchLabel(cwd),
     parentChain: [],
     brief: "continue",
     snapshot: sourceSnapshot,
   });
 
   const api = new EntryExtensionApi();
+  api.setActiveTools(["read", "bash"]);
   slateExtension(api as unknown as ExtensionAPI);
   const successorFile = join(root, "successor.jsonl");
   const ctx = entryContext(cwd, "successor", successorFile);
@@ -506,6 +514,19 @@ test("entry-point wiring leaves records untouched until explicit adopt", { timeo
   assert.equal(api.sent.length, 0);
   assert.match(warnings.join("\n"), /adoption takes exactly one session name/);
 
+  await command("on", ctx);
+  assert.notDeepEqual(api.getActiveTools(), ["read", "bash"]);
+  const toolsBeforeFailedAdoption = api.getActiveTools();
+  api.failNextAppend = true;
+  await command(`adopt ${source.name}`, ctx);
+  assert.deepEqual(api.getActiveTools(), toolsBeforeFailedAdoption);
+  assert.equal(api.sent.length, 0);
+  const rollbackState = api.appended.at(-1);
+  assert.equal(rollbackState?.slateSessionId, ownId);
+  assert.equal(rollbackState?.slateSessionName, ownName);
+  assert.deepEqual(rollbackState?.threads, []);
+  assert.match(warnings.join("\n"), /Runtime state was rolled back/);
+
   await command(`adopt ${source.name}`, ctx);
   const adoptedState = api.appended.at(-1);
   assert.equal(adoptedState?.slateSessionId, ownId);
@@ -514,4 +535,6 @@ test("entry-point wiring leaves records untouched until explicit adopt", { timeo
   assert.deepEqual(adoptedState?.slateSessionParentChain, [{ identity: ID, name: source.name }]);
   assert.equal(existsSync(pending), true);
   assert.equal(api.sent.at(-1)?.customType, "slate-kickoff");
+  await command("off", ctx);
+  assert.deepEqual(api.getActiveTools(), ["read", "bash"]);
 });
