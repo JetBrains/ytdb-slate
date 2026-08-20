@@ -476,21 +476,29 @@ redirected into an artifact file) is still visible.
    Each must be non-empty, absolute, a real non-symlink directory and inside the
    lab. The inherited `PI_CODING_AGENT_DIR` refusal remains an outer fatal guard.
    A refused invocation with an invalid token or ledger atomically creates a
-   per-run violation sentinel. The sentinel is the authoritative runtime control.
-   Every hermetic launch and the final `SAFE PI` report fail when it exists. This
-   remains true when command substitution, process substitution or missing
-   `set -e` hides the shim exit status. The sentinel resets only at controlled
-   self-test boundaries.
+   per-run violation sentinel. Every hermetic launch and the final `SAFE PI`
+   report fail when the sentinel exists. The runtime control catches PATH-based
+   forms when command substitution or missing `set -e` hides the shim status.
+   The sentinel resets only at controlled self-test boundaries.
+
+   Before any rung starts, the source audit checks the complete ladder script.
+   The audit recursively parses input and output process substitutions. Its
+   parser balances parentheses across nesting and lines while honoring shell
+   quotes and escapes. A pi launcher command inside either form is fatal.
+
+   This source control prevents detached output substitutions from racing the final
+   sentinel check in ordinary checked-in syntax. The audit also checks direct
+   real-path and exposed alias references. It does not claim to parse all shell
+   grammar or inspect deliberately generated shell code.
 
    `--self-test` exercises poisoned parents, absent and empty roots, redirect-loss
    teeth, nested inheritance, runtime alternate-agent ledger registration and
-   shim refusal outside the launcher. Reachable mutations cover `command pi`,
-   input and output process substitution, backticks, `$()`, bare `pi`, `xargs`
-   and a shell wrapper. A harmless `echo pi` must not create the sentinel.
-   Structural source auditing remains defense in depth for direct real-path and
-   exposed alias references. It deliberately does not parse all shell grammar.
-   The remaining tests cover the outer guard and concurrent fabricated settings
-   writes.
+   shim refusal outside the launcher. Source mutations cover input and output
+   process substitutions, including nested and multiline forms. Harmless
+   process redirections and `echo pi` remain accepted. Runtime mutations cover
+   `command pi`, both process substitutions, backticks, `$()`, bare `pi`,
+   `xargs` and a shell wrapper. The remaining tests cover the outer guard and
+   concurrent fabricated settings writes.
 
    The real settings content hash is now a NOTE only. A concurrent real session
    may change it without changing the verdict. Redirect evidence instead comes

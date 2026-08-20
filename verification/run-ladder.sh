@@ -613,15 +613,16 @@ source=sys.argv[1]
 raw=open(source).read().splitlines(); lines=[]; heredoc=None
 for number,line in enumerate(raw,1):
     if heredoc is not None:
+        lines.append((number,""))
         if line.strip()==heredoc: heredoc=None
         continue
-    lines.append((number,line))
+    stripped=line.lstrip()
+    lines.append((number,"" if not stripped or stripped.startswith("#") else line))
     match=re.search(r"<<-?['\"]?([A-Za-z0-9_]+)['\"]?",line)
     if match: heredoc=match.group(1)
 logical=[]; pending=""; start=0
 for number,line in lines:
-    stripped=line.lstrip()
-    if not pending and (not stripped or stripped.startswith("#")): continue
+    if not pending and not line: continue
     if not pending: start=number
     pending += line.rstrip()[:-1] + " " if line.rstrip().endswith("\\") else line
     if line.rstrip().endswith("\\"): continue
@@ -638,7 +639,7 @@ def is_exposed_pi(token):
 def value_is_tainted(value):
     if is_exposed_pi(value): return True
     return any(name in tainted for name in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?",value))
-def audit(command,number):
+def audit(command,number,pi_like=False):
     try:
         lexer=shlex.shlex(command,posix=True,punctuation_chars=";&|")
         lexer.whitespace_split=True
@@ -658,13 +659,83 @@ def audit(command,number):
                     continue
                 if command_index is None and item not in {"if","then","elif","else","do","while","until","!","time"}:
                     command_index=index
-            if command_index is not None and is_exposed_pi(segment[command_index]):
-                raise SystemExit(f"exposed real-pi reference at logical command starting line {number}: {command.strip()}")
+            if command_index is not None:
+                command_token=segment[command_index]
+                direct_pi=is_exposed_pi(command_token) or (pi_like and command_token=="pi")
+                command_pi=(pi_like and command_token=="command" and
+                            command_index+1<len(segment) and segment[command_index+1]=="pi")
+                if direct_pi or command_pi:
+                    raise SystemExit(f"pi launcher reference at logical command starting line {number}: {command.strip()}")
             segment=[]
         else: segment.append(token)
+def substitution_end(text,start):
+    i=start+2; depth=0; quote=None
+    while i<len(text):
+        char=text[i]
+        if quote=="single":
+            if char=="'": quote=None
+            i+=1; continue
+        if char=="double":
+            if char=="\\": i+=2; continue
+            if char=='"': quote=None; i+=1; continue
+            if text.startswith("$(",i):
+                end=substitution_end(text,i)
+                if end is None: return None
+                i=end+1; continue
+            i+=1; continue
+        if char=="\\": i+=2; continue
+        if char=="'": quote="single"; i+=1; continue
+        if char=='"': quote="double"; i+=1; continue
+        if char=="#" and (i==0 or text[i-1].isspace()):
+            newline=text.find("\n",i)
+            i=len(text) if newline<0 else newline+1
+            continue
+        if text.startswith(("$(","<(",">("),i):
+            end=substitution_end(text,i)
+            if end is None: return None
+            i=end+1; continue
+        if char=="(": depth+=1
+        elif char==")":
+            if depth==0: return i
+            depth-=1
+        i+=1
+    return None
+def audit_substitutions(text,base_line=1,pi_context=False):
+    i=0; quote=None
+    while i<len(text):
+        char=text[i]
+        if quote=="single":
+            if char=="'": quote=None
+            i+=1; continue
+        if quote=="double":
+            if char=="\\": i+=2; continue
+            if char=='"': quote=None; i+=1; continue
+            opener="$(" if text.startswith("$(",i) else None
+        else:
+            if char=="\\": i+=2; continue
+            if char=="'": quote="single"; i+=1; continue
+            if char=='"': quote="double"; i+=1; continue
+            if char=="#" and (i==0 or text[i-1].isspace()):
+                newline=text.find("\n",i)
+                i=len(text) if newline<0 else newline+1
+                continue
+            opener=next((item for item in ("$(","<(",">(") if text.startswith(item,i)),None)
+        if opener:
+            end=substitution_end(text,i)
+            if end is None: i+=2; continue
+            body=text[i+2:end]; number=base_line+text.count("\n",0,i)
+            nested_pi_context=pi_context or opener in {"<(",">("}
+            audit(body,number,pi_like=nested_pi_context)
+            audit_substitutions(body,number,nested_pi_context)
+            i=end+1; continue
+        i+=1
 for number,command in logical: audit(command,number)
+audit_substitutions("\n".join(line for _,line in lines))
 PY
 }
+# Audit the complete checked-in source before any rung can start. The runtime
+# sentinel remains a second control for launcher forms that execute through PATH.
+audit_launcher_source "$0" || die "launcher source audit rejected a pi invocation"
 run_launcher_self_tests() {
 	local passed=0 alt="$LAB/selftest-alt-agent" fabricated="$LAB/fabricated-settings.json" outer="$LAB/outer-guard.err"
 	local mutant="$LAB/launcher-mutant.sh" gitdir index before_index after_index before_objects after_objects before_repo after_repo shim_probe parent_err
@@ -715,7 +786,7 @@ run_launcher_self_tests() {
 		die "SELFTEST exposed-real-path source audit rejected the real script"
 	fi
 	passed=$((passed+1))
-	for form in variable resolved absolute-multiline alias alias-chain; do
+	for form in variable resolved absolute-multiline alias alias-chain process-input process-output process-input-nested process-output-nested process-input-multiline process-output-multiline; do
 		cp "$0" "$mutant" || die "SELFTEST cannot create source-audit mutation"
 		case "$form" in
 			variable) printf '\n"$PI_BIN" -p x\n' >> "$mutant" ;;
@@ -723,8 +794,20 @@ run_launcher_self_tests() {
 			absolute-multiline) printf '\n/opt/fake/pi \\\n  -p x\n' >> "$mutant" ;;
 			alias) printf '\nP="$PI_BIN"; "$P" -p x\n' >> "$mutant" ;;
 			alias-chain) printf '\nP="$PI_BIN"; Q="$P"; "$Q" -p x\n' >> "$mutant" ;;
+			process-input) printf '\ncat <(pi --version) >/dev/null\n' >> "$mutant" ;;
+			process-output) printf '\n: > >(pi --version)\n' >> "$mutant" ;;
+			process-input-nested) printf '\ncat <(cat <(pi --version)) >/dev/null\n' >> "$mutant" ;;
+			process-output-nested) printf '\n: > >(printf x > >(pi --version))\n' >> "$mutant" ;;
+			process-input-multiline) printf '\ncat <(\n  pi --version\n) >/dev/null\n' >> "$mutant" ;;
+			process-output-multiline) printf '\n: > >(\n  pi --version\n)\n' >> "$mutant" ;;
 		esac
-		if audit_launcher_source "$mutant" >/dev/null 2>&1; then die "SELFTEST source audit missed $form exposed-real-path reference"; fi
+		if audit_launcher_source "$mutant" >/dev/null 2>&1; then die "SELFTEST source audit missed $form launcher reference"; fi
+		passed=$((passed+1))
+	done
+	for harmless in 'echo pi >/dev/null' 'cat <(printf safe) >/dev/null' ': > >(cat >/dev/null)'; do
+		cp "$0" "$mutant" || die "SELFTEST cannot create harmless source-audit mutation"
+		printf '\n%s\n' "$harmless" >> "$mutant"
+		audit_launcher_source "$mutant" >/dev/null 2>&1 || die "SELFTEST source audit rejected harmless syntax: $harmless"
 		passed=$((passed+1))
 	done
 	for form in command-pi process-input process-output backtick dollar-substitution bare-pi xargs shell-wrapper; do
