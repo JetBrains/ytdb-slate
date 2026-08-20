@@ -1313,7 +1313,7 @@ export class SlateStore {
 			this.slateSessionName = ownIdentity!.slateSessionName;
 			this.ownerSessionDigest = ownIdentity!.ownerSessionDigest;
 			this.slateSessionParentChain = [
-				...parents,
+				...parents.slice(-255),
 				...(sanitizedIdentity.slateSessionId !== undefined && sanitizedIdentity.slateSessionName !== undefined
 					? [{ identity: sanitizedIdentity.slateSessionId, name: sanitizedIdentity.slateSessionName }]
 					: []),

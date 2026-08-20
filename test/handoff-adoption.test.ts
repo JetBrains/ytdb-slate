@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -278,6 +278,117 @@ test("large task strings survive within the total record cap", (t) => {
   if (result.ok) assert.equal(result.record.snapshot.episodes[0]?.task.length, 13_500);
 });
 
+test("wire v1 keeps long scalar compatibility while v2 chunks exact UTF-8 boundaries", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const v1 = recordWithEpisode(box, { task: `v1-${"x".repeat(9000)}` });
+  overwriteRecord(box, v1);
+  const legacy = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(legacy.ok, true);
+  if (legacy.ok) assert.equal(legacy.record.snapshot.episodes[0]?.task, v1.snapshot.episodes[0]?.task);
+
+  for (const [label, task, chunked] of [
+    ["8192", "x".repeat(8192), false],
+    ["8193", "x".repeat(8193), true],
+    ["multibyte", `${"é".repeat(4096)}z`, true],
+    ["lone-surrogate", `${"x".repeat(8191)}\ud800z`, true],
+  ] as const) {
+    const runtime = recordWithEpisode(box, { task });
+    const file = writeCorpusHandoffRecord(box.source.project, runtime);
+    const wire = JSON.parse(readFileSync(file, "utf8")) as { version: number; snapshot: { episodes: Array<{ task: unknown }> } };
+    assert.equal(wire.version, 2, label);
+    assert.equal(Array.isArray(wire.snapshot.episodes[0]?.task), chunked, label);
+    if (Array.isArray(wire.snapshot.episodes[0]?.task)) {
+      assert.ok(wire.snapshot.episodes[0]!.task.length >= 2, label);
+      assert.ok(wire.snapshot.episodes[0]!.task.every((part) => typeof part === "string" && part.length > 0 && Buffer.byteLength(part) <= 8192), label);
+    }
+    const reread = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+    assert.equal(reread.ok, true, label);
+    if (reread.ok) assert.equal(reread.record.snapshot.episodes[0]?.task, task, label);
+  }
+});
+
+test("version 2 preserves every flexible runtime string position", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const long = (label: string) => `${label}:${"λ".repeat(5000)}:\ud800`;
+  const episode = episodeRecord(box, { task: long("task"), model: long("episode-model"), effort: long("effort") });
+  const record: CorpusHandoffRecord = {
+    ...box.record,
+    brief: long("brief"),
+    focus: long("focus"),
+    branchLabel: long("branch"),
+    model: { provider: long("provider"), id: long("model-id") },
+    thinkingLevel: long("thinking") as never,
+    snapshot: {
+      ...box.record.snapshot,
+      threadSeq: 1,
+      threads: [{
+        ...thread("t1"),
+        name: long("thread-name"),
+        type: long("type") as never,
+        model: long("thread-model"),
+        baseModel: long("base-model"),
+        baseEffort: long("base-effort") as never,
+        tools: [long("tool")],
+        episodeIds: ["t1.e1"],
+        episodeSeq: 1,
+      }],
+      episodes: [episode],
+    },
+  };
+  writeCorpusHandoffRecord(box.source.project, record);
+  const reread = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(reread.ok, true);
+  if (reread.ok) {
+    assert.equal(reread.record.brief, record.brief);
+    assert.equal(reread.record.focus, record.focus);
+    assert.equal(reread.record.branchLabel, record.branchLabel);
+    assert.deepEqual(reread.record.model, record.model);
+    assert.equal(reread.record.thinkingLevel, record.thinkingLevel);
+    assert.deepEqual(reread.record.snapshot.threads, record.snapshot.threads);
+    assert.deepEqual(reread.record.snapshot.episodes, record.snapshot.episodes);
+  }
+});
+
+test("version 2 rejects invalid UTF-8, malformed chunks, unknown layers, and excessive depth", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const record = recordWithEpisode(box, {
+    observations: { stored: true, path: `${CONFIG_DIR_NAME}/slate/sessions/${box.source.name}/observations/t1.e1.md`, bytes: 1, truncated: false, grammar: "absent" },
+    compressorUsage: { input: 1 },
+  });
+  const file = writeCorpusHandoffRecord(box.source.project, record);
+  const original = JSON.parse(readFileSync(file, "utf8")) as Record<string, any>;
+
+  writeFileSync(file, Buffer.from([0xff, 0xfe, 0xfd]));
+  const invalidUtf8 = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(invalidUtf8.ok, false);
+  if (!invalidUtf8.ok) assert.match(invalidUtf8.reason, /not valid UTF-8/);
+
+  const mutations: Array<[string, (wire: Record<string, any>) => void]> = [
+    ["one chunk", (wire) => { wire.snapshot.episodes[0].task = ["only"]; }],
+    ["empty chunk", (wire) => { wire.snapshot.episodes[0].task = ["a", ""]; }],
+    ["nested chunk", (wire) => { wire.snapshot.episodes[0].task = ["a", ["b"]]; }],
+    ["non-string chunk", (wire) => { wire.snapshot.episodes[0].task = ["a", 2]; }],
+    ["oversized segment", (wire) => { wire.snapshot.episodes[0].task = ["x".repeat(8193), "z"]; }],
+    ["root unknown", (wire) => { wire.unknown = true; }],
+    ["thread unknown", (wire) => { wire.snapshot.threads[0].unknown = true; }],
+    ["episode unknown", (wire) => { wire.snapshot.episodes[0].unknown = true; }],
+    ["observation unknown", (wire) => { wire.snapshot.episodes[0].observations.unknown = true; }],
+    ["usage unknown", (wire) => { wire.snapshot.episodes[0].compressorUsage.unknown = 1; }],
+    ["depth", (wire) => { wire.snapshot.episodes[0].compressorUsage.input = [[[[[[[[[1]]]]]]]]]; }],
+  ];
+  for (const [label, mutate] of mutations) {
+    const wire = structuredClone(original);
+    mutate(wire);
+    writeFileSync(file, JSON.stringify(wire));
+    const result = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+    assert.equal(result.ok, false, label);
+    if (!result.ok) assert.match(result.reason, /version 2.*wire schema or bounds/, label);
+  }
+});
+
 test("compact serialization keeps a valid large record under the unchanged 1 MiB cap", (t) => {
   const box = sandbox();
   t.after(() => box.restore());
@@ -442,7 +553,7 @@ test("record validation rejects malformed fields and inconsistent graph referenc
   }
 });
 
-test("multi-generation lineage is metadata-backed, unique, and oldest-first", async (t) => {
+test("multi-generation lineage is non-authoritative, unique, and oldest-first", async (t) => {
   const box = sandbox();
   t.after(() => box.restore());
   const grandId = "20260819T010203Z-2222222222222222";
@@ -476,7 +587,6 @@ test("multi-generation lineage is metadata-backed, unique, and oldest-first", as
   for (const [label, invalid] of [
     ["duplicate", [chain[0], chain[0]]],
     ["author cycle", [...chain, { identity: SOURCE_ID, name: box.source.name }]],
-    ["missing metadata", [{ identity: "20260818T010203Z-4444444444444444", name: "calm-otter-4444" }]],
   ] as const) {
     overwriteRecord(box, {
       ...box.record,
@@ -487,6 +597,53 @@ test("multi-generation lineage is metadata-backed, unique, and oldest-first", as
     assert.equal(refused.ok, false, label);
     if (!refused.ok) assert.match(refused.reason, /parent lineage/, label);
   }
+
+  const historical = [{ identity: "20260818T010203Z-4444444444444444", name: "calm-otter-4444" }];
+  overwriteRecord(box, {
+    ...box.record,
+    parentChain: historical,
+    snapshot: { ...box.record.snapshot, slateSessionParentChain: historical },
+  });
+  assert.equal(readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true }).ok, true);
+  rmSync(grand.directory, { recursive: true });
+  rmSync(parent.directory, { recursive: true });
+  assert.equal(readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true }).ok, true);
+});
+
+test("lineage caps at 256 and foreign adoption keeps the newest 255 ancestors", async (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const [adjective, noun] = box.source.name.split("-");
+  assert.ok(adjective && noun);
+  const parents = Array.from({ length: 256 }, (_, index) => ({
+    identity: `20260819T010203Z-${index.toString(16).padStart(16, "0")}`,
+    name: `${adjective}-${noun}-${index.toString(16).padStart(4, "0")}`,
+  }));
+  const record: CorpusHandoffRecord = {
+    ...box.record,
+    parentChain: parents,
+    snapshot: { ...box.record.snapshot, slateSessionParentChain: parents },
+  };
+  writeCorpusHandoffRecord(box.source.project, record);
+  assert.equal(readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true }).ok, true);
+  const harness = adoptionHarness(box);
+  assert.equal(await harness.hooks.adoptHandoff(harness.ctx, box.source.name, noModeChange), true);
+  assert.equal(harness.store.slateSessionParentChain.length, 256);
+  assert.deepEqual(harness.store.slateSessionParentChain[0], parents[1]);
+  assert.deepEqual(harness.store.slateSessionParentChain.at(-1), { identity: SOURCE_ID, name: box.source.name });
+
+  const overflow = [...parents, {
+    identity: "20260819T010203Z-ffffffffffffffff",
+    name: `${adjective}-${noun}-ffff`,
+  }];
+  overwriteRecord(box, {
+    ...box.record,
+    parentChain: overflow,
+    snapshot: { ...box.record.snapshot, slateSessionParentChain: overflow },
+  });
+  const refused = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(refused.ok, false);
+  if (!refused.ok) assert.match(refused.reason, /schema or bounds/);
 });
 
 test("thread counters and restart graph prevent identifier reuse", (t) => {
@@ -657,6 +814,11 @@ test("read and write reject one-way pending-directory replacement and sync first
     afterPendingDirectoryFsync() { parentSynced += 1; },
   });
   assert.equal(parentSynced, 1);
+  const stagingDirectory = join(writeBox.source.project.directory, "handoff-staging");
+  assert.deepEqual(readdirSync(stagingDirectory), []);
+  for (let index = 0; index < 65; index++) writeFileSync(join(stagingDirectory, `residue-${index}`), "x");
+  assert.throws(() => writeCorpusHandoffRecord(writeBox.source.project, writeBox.record), /more than 64 staged handoff files/);
+  for (const entry of readdirSync(stagingDirectory)) rmSync(join(stagingDirectory, entry));
 
   const writeMoved = join(writeBox.source.project.directory, "pending-moved");
   assert.throws(
@@ -697,6 +859,28 @@ test("candidate listing caps record count and aggregate bytes", (t) => {
   const tooLarge = listCorpusHandoffCandidates({ cwd: box.cwd, isTrusted: () => true });
   assert.equal(tooLarge.ok, false);
   if (!tooLarge.ok) assert.match(tooLarge.reason, /exceed 4 MiB in aggregate/);
+});
+
+test("candidate scanning excludes legacy temp entries, caps junk work, and closes its directory", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const pending = join(box.source.project.directory, "pending");
+  for (let index = 0; index < 100; index++) {
+    writeFileSync(join(pending, `.${box.source.name}.${process.pid}.${index}.tmp`), "legacy");
+  }
+  const listed = listCorpusHandoffCandidates({ cwd: box.cwd, isTrusted: () => true });
+  assert.equal(listed.ok, true);
+  if (listed.ok) assert.deepEqual(listed.candidates.map((candidate) => candidate.name), [box.source.name]);
+
+  rmSync(pending, { recursive: true });
+  mkdirSync(pending);
+  for (let index = 0; index < 4097; index++) writeFileSync(join(pending, `junk-${index}`), "x");
+  const capped = listCorpusHandoffCandidates({ cwd: box.cwd, isTrusted: () => true });
+  assert.equal(capped.ok, false);
+  if (!capped.ok) assert.match(capped.reason, /more than 4096 directory entries/);
+  rmSync(pending, { recursive: true });
+  mkdirSync(pending);
+  assert.deepEqual(listCorpusHandoffCandidates({ cwd: box.cwd, isTrusted: () => true }), { ok: true, candidates: [] });
 });
 
 test("candidate listing reports empty and unavailable records without adopting", async (t) => {
