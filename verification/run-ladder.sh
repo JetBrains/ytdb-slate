@@ -328,7 +328,9 @@ import hashlib, os, stat, subprocess, sys
 repo=os.path.realpath(sys.argv[1]); h=hashlib.sha256()
 def add(x): h.update(x if isinstance(x,bytes) else x.encode()); h.update(b"\0")
 add(subprocess.check_output(["git","-C",repo,"rev-parse","HEAD"]))
-add(subprocess.check_output(["git","-C",repo,"write-tree"]))
+# Read index entries directly. `git write-tree` is forbidden here because it can
+# rewrite the index and create loose objects while taking the "before" digest.
+add(subprocess.check_output(["git","-C",repo,"ls-files","--stage","-z"]))
 paths=subprocess.check_output(["git","-C",repo,"ls-files","-co","--exclude-standard","-z"]).split(b"\0")
 for raw in sorted(p for p in paths if p):
     rel=os.fsdecode(raw); path=os.path.join(repo,rel); add(raw)
@@ -392,7 +394,6 @@ declare -a LINES=()
 pass()   { PASS=$((PASS+1)); LINES+=("RUNG $1 PASS — $2"); printf 'RUNG %-6s PASS    — %s\n' "$1" "$2"; }
 fail()   { FAIL=$((FAIL+1)); LINES+=("RUNG $1 FAIL — $2"); printf 'RUNG %-6s FAIL    — %s\n' "$1" "$2"; }
 skip()   { SKIP=$((SKIP+1)); LINES+=("RUNG $1 NOT RUN — $2"); printf 'RUNG %-6s NOT RUN — %s\n' "$1" "$2"; }
-corpus_skip() { SKIP=$((SKIP+1)); LINES+=("SAFE CORPUS NOT RUN — $1"); printf 'SAFE   %-6s NOT RUN — %s\n' "CORPUS" "$1"; }
 # Every rung asks want() first, so this is also where a vanished scratch
 # directory is caught. Without it, an outside process removing <lab> mid-run
 # (a stray `rm -rf /tmp/<something>*` from a neighbouring job, say) produces a
@@ -549,8 +550,36 @@ hermetic_exec() { # $1 selected agent, then NAME=VALUE canaries, then command
 }
 piexec() { hermetic_exec "$AGENT" "$@"; }
 piexec_at() { local ag="$1"; shift; hermetic_exec "$ag" "$@"; }
+audit_launcher_source() { # $1 shell source; every logical pi command must name the common launcher
+	python3 - "$1" <<'PY'
+import re,sys
+raw=open(sys.argv[1]).read().splitlines(); lines=[]; heredoc=None
+for number,line in enumerate(raw,1):
+    if heredoc is not None:
+        if line.strip()==heredoc: heredoc=None
+        continue
+    lines.append((number,line))
+    match=re.search(r"<<-?['\"]?([A-Za-z0-9_]+)['\"]?",line)
+    if match: heredoc=match.group(1)
+logical=[]; pending=""; start=0
+for number,line in lines:
+    stripped=line.lstrip()
+    if not pending and (not stripped or stripped.startswith("#")): continue
+    if not pending: start=number
+    pending += line.rstrip()[:-1] + " " if line.rstrip().endswith("\\") else line
+    if line.rstrip().endswith("\\"): continue
+    logical.append((start,pending)); pending=""
+if pending: logical.append((start,pending))
+for number,command in logical:
+    if "--no-extensions" not in command: continue
+    before=command.split("--no-extensions",1)[0]
+    if not re.search(r"\bpiexec(?:_at)?\b",before):
+        raise SystemExit(f"launcher bypass at logical command starting line {number}: {command.strip()}")
+PY
+}
 run_launcher_self_tests() {
 	local passed=0 alt="$LAB/selftest-alt-agent" fabricated="$LAB/fabricated-settings.json" outer="$LAB/outer-guard.err"
+	local mutant="$LAB/launcher-mutant.sh" gitdir index before_index after_index before_objects after_objects before_repo after_repo
 	NODE_OPTIONS='--require=/definitely/poisoned' AWS_ACCESS_KEY_ID=poison HTTP_PROXY=http://poison \
 		piexec node -e 'for(const k of ["NODE_OPTIONS","AWS_ACCESS_KEY_ID","HTTP_PROXY","PI_SESSION_ID","PI_CODING_AGENT_SESSION_DIR"])if(k in process.env)process.exit(1)' \
 		|| die "SELFTEST poisoned parent variables crossed the hermetic launcher"; passed=$((passed+1))
@@ -576,13 +605,28 @@ run_launcher_self_tests() {
 		die "SELFTEST outer inherited-agent guard accepted PI_CODING_AGENT_DIR"
 	fi
 	grep -q 'PI_CODING_AGENT_DIR is already set' "$outer" || die "SELFTEST outer inherited-agent guard failed for the wrong reason"; passed=$((passed+1))
-	python3 - "$0" <<'PY' || die "SELFTEST launcher-bypass source audit found a pi launch outside piexec/piexec_at"
-import re,sys
-lines=open(sys.argv[1]).read().splitlines()
-for i,line in enumerate(lines):
-    if re.search(r'\bpi\s+--no-extensions\b',line) and not any('piexec' in x for x in lines[max(0,i-3):i+1]):
-        raise SystemExit(f"line {i+1}: {line}")
-PY
+	audit_launcher_source "$0" || die "SELFTEST launcher-bypass source audit rejected the real script"; passed=$((passed+1))
+	local bypass_flag; bypass_flag=$(printf -- '--no-%s' extensions)
+	for form in literal variable absolute-multiline; do
+		cp "$0" "$mutant" || die "SELFTEST cannot create launcher mutation"
+		case "$form" in
+			literal) printf '\npi %s -p x\n' "$bypass_flag" >> "$mutant" ;;
+			variable) printf '\n"$PI_BIN" %s -p x\n' "$bypass_flag" >> "$mutant" ;;
+			absolute-multiline) printf '\n/opt/fake/pi \\\n  %s -p x\n' "$bypass_flag" >> "$mutant" ;;
+		esac
+		if audit_launcher_source "$mutant" >/dev/null 2>&1; then die "SELFTEST launcher audit missed $form bypass"; fi
+		passed=$((passed+1))
+	done
+	gitdir=$(git -C "$REPO" rev-parse --absolute-git-dir) || die "SELFTEST cannot resolve git directory"
+	index="$gitdir/index"
+	before_index=$(if [ -f "$index" ]; then sha256sum "$index"; stat -c '%s:%y:%a' "$index"; else echo absent; fi)
+	before_objects=$(tree_fingerprint "$gitdir/objects") || die "SELFTEST cannot fingerprint git objects"
+	before_repo=$(repo_fingerprint) || die "SELFTEST cannot fingerprint repository"
+	after_repo=$(repo_fingerprint) || die "SELFTEST cannot repeat repository fingerprint"
+	after_index=$(if [ -f "$index" ]; then sha256sum "$index"; stat -c '%s:%y:%a' "$index"; else echo absent; fi)
+	after_objects=$(tree_fingerprint "$gitdir/objects") || die "SELFTEST cannot repeat git-object fingerprint"
+	[ "$before_repo" = "$after_repo" ] && [ "$before_index" = "$after_index" ] && [ "$before_objects" = "$after_objects" ] \
+		|| die "SELFTEST repository fingerprint mutated worktree, index, or git objects"
 	passed=$((passed+1))
 	printf 'start\n' > "$fabricated"
 	( for i in 1 2 3 4 5; do printf 'concurrent-%s\n' "$i" > "$fabricated"; sleep 0.02; done ) & local writer=$!
@@ -591,7 +635,14 @@ PY
 	grep -q '^concurrent-' "$fabricated" || die "SELFTEST fabricated concurrent settings write did not occur"; passed=$((passed+1))
 	printf 'SELFTEST PASS — %s deterministic launcher checks passed\n' "$passed"
 }
-mark_slate_child_ran() { : > "$OUT/slate-child-ran"; }
+declare -a SESSION_EVIDENCE_AGENTS=()
+expect_session_evidence() { # $1 validated agent root
+	local ag="$1" seen
+	assert_agent_dir "$ag" "register expected session evidence"
+	for seen in "${SESSION_EVIDENCE_AGENTS[@]}"; do [ "$seen" = "$ag" ] && return 0; done
+	SESSION_EVIDENCE_AGENTS+=("$ag")
+}
+mark_slate_child_ran() { : > "$OUT/slate-child-ran"; expect_session_evidence "$AGENT"; }
 if [ "$SELF_TEST" = 1 ]; then
 	run_launcher_self_tests
 	exit 0
@@ -1035,6 +1086,7 @@ fi
 # probe runner: $1 label, $2 module, $3 target, $4 queue, $5 inject, rest = extra pi args
 runprobe() {
 	local label="$1" module="$2" target="$3" queue="$4" inject="$5"; shift 5
+	expect_session_evidence "$AGENT"
 	snapshot "$label-before.json"
 	piexec PROBE_MODULE="$module" PROBE_TARGET="$target" PROBE_QUEUE="$queue" PROBE_INJECT="$inject" \
 		PROBE_RESULT="$OUT/$label.json" timeout 180 pi --no-extensions -e "$PROBE" "$@" -p "x" \
@@ -1047,6 +1099,7 @@ runprobe() {
 # $1 agent dir, $2 label, $3 module, $4 inject, rest = extra pi args
 runprobe_at() {
 	local ag="$1" label="$2" module="$3" inject="$4"; shift 4
+	expect_session_evidence "$ag"
 	piexec_at "$ag" PROBE_MODULE="$module" PROBE_TARGET=probe-c/gamma-1 PROBE_QUEUE=0 PROBE_INJECT="$inject" \
 		PROBE_RESULT="$OUT/$label.json" timeout 180 pi --no-extensions -e "$PROBE" "$@" -p "x" \
 		> "$OUT/$label.out" 2> "$OUT/$label.err"
@@ -1469,6 +1522,7 @@ fi
 if want P6; then
 	if ! command -v strace >/dev/null 2>&1; then skip P6 "strace not available"
 	else
+		expect_session_evidence "$AGENT"
 		seed "$CANON_XHIGH"; snapshot "P6-before.json"
 		piexec PROBE_MODULE="$REPO/extension/model-default.ts" PROBE_TARGET=probe-c/gamma-1 PROBE_QUEUE=0 \
 			PROBE_INJECT=chmod PROBE_RESULT="$OUT/P6.json" \
@@ -1667,6 +1721,7 @@ fi
 if want WK1; then
 	wkrun() { # $1 label, $2 worker module, $3 phase, rest = extra pi args
 		local label="$1" module="$2" phase="$3"; shift 3
+		expect_session_evidence "$AGENT"
 		# PI_OFFLINE: createAgentSession may run a create-time catalogue refresh, and
 		# this harness has no network at all. (piexec re-verifies the redirect target.)
 		piexec WORKER_MODULE="$module" WORKER_PHASE="$phase" WORKER_RESULT="$OUT/$label.json" \
@@ -1757,7 +1812,8 @@ if [ -f "$OUT/slate-child-ran" ]; then
 		echo "verification: the PI_CODING_AGENT_DIR redirect has no positive scratch-corpus evidence. Investigate before trusting any rung above." >&2
 	fi
 else
-	corpus_skip "no full-slate child completed, so scratch corpus evidence is unavailable"
+	printf 'SAFE   %-6s PASS    — %s\n' "CORPUS" "not applicable: selected rung launches no full-slate child"
+	LINES+=("SAFE CORPUS PASS — not applicable: no full-slate child selected")
 fi
 # WH7, second half: a run that executed no rung at all must never look like
 # success. Reaching here with RAN=0 means --only selected nothing runnable.
@@ -1782,12 +1838,19 @@ else
 	printf 'SAFE   %-6s PASS    — %s\n' "HOME" "throwaway HOME fallback agent remained untouched"
 	LINES+=("SAFE HOME PASS — throwaway HOME fallback agent untouched")
 fi
-if [ -d "$AGENT/sessions" ] && find "$AGENT/sessions" -type f -name '*.jsonl' -print -quit | grep -q .; then
-	printf 'SAFE   %-6s PASS    — %s\n' "SESSION" "selected throwaway agent contains current-run session evidence"
-	LINES+=("SAFE SESSION PASS — selected agent contains session evidence")
+if [ "${#SESSION_EVIDENCE_AGENTS[@]}" -eq 0 ]; then
+	printf 'SAFE   %-6s PASS    — %s\n' "SESSION" "not applicable: selected rung launches no session-producing child"
+	LINES+=("SAFE SESSION PASS — not applicable: no session-producing child selected")
 else
-	FAIL=$((FAIL+1)); printf 'SAFE   %-6s FAIL    — %s\n' "SESSION" "selected throwaway agent has no session evidence"
-	LINES+=("SAFE SESSION FAIL — selected agent has no session evidence")
+	for session_agent in "${SESSION_EVIDENCE_AGENTS[@]}"; do
+		if [ -d "$session_agent/sessions" ] && find "$session_agent/sessions" -type f -name '*.jsonl' -print -quit | grep -q .; then
+			printf 'SAFE   %-6s PASS    — %s\n' "SESSION" "current-run session evidence exists under $session_agent"
+			LINES+=("SAFE SESSION PASS — evidence under $session_agent")
+		else
+			FAIL=$((FAIL+1)); printf 'SAFE   %-6s FAIL    — %s\n' "SESSION" "expected agent has no session evidence: $session_agent"
+			LINES+=("SAFE SESSION FAIL — no evidence under $session_agent")
+		fi
+	done
 fi
 if [ "$REPO_BEFORE" != "$REPO_AFTER" ]; then
 	FAIL=$((FAIL+1))

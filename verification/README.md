@@ -237,7 +237,7 @@ Four drive modes, chosen per rung:
 | `P11` | a report that hits the length cap is cut **on a word boundary**, carries an explicit truncation marker, and keeps the headline, affected keys, settings path and cause while losing only the advisory tail |
 | `WK1` | a **worker-side per-dispatch** model *and* effort switch (a) writes **zero bytes** to the global settings file and (b) does not survive into a reopened session as a sticky default |
 | `LAT` | median wall clock, knob on vs off, n=7 each — informational, never a pass/fail |
-| `SAFE` | selected-agent corpus and session evidence exist, the throwaway-HOME fallback agent stayed untouched, and the repository fingerprint is unchanged. The real settings hash is diagnostic only |
+| `SAFE` | corpus evidence exists, every agent root recorded in the session-evidence ledger is validated, the throwaway-HOME fallback stayed untouched, and the read-only repository fingerprint is unchanged. A no-session focused rung reports session evidence as a positive not-applicable PASS |
 
 Every rung that drives a switch also asserts **positive evidence that the switch
 actually fired**, from the session record (`model_change`, or
@@ -490,9 +490,9 @@ redirected into an artifact file) is still visible.
 
    After the rungs finish, the harness requires a depth-three `session.json`
    under `<lab>/agent/ytdb-slate/projects`. The predicate re-validates the agent
-   directory before reading it. Absence is `SAFE CORPUS FAIL` and a non-zero
-   exit. If no full-slate child completed, the check reports `SAFE CORPUS NOT RUN`.
-   `--strict` makes that NOT RUN fatal through the shared skip counter.
+   directory before reading it. Absence after a marked full-slate child is
+   `SAFE CORPUS FAIL` and a non-zero exit. A focused rung with no full-slate
+   child reports a positive not-applicable PASS.
 
    Across several marked children, the aggregate assertion proves that at least
    one current-run child published a scratch corpus session. It does not prove
@@ -502,9 +502,11 @@ redirected into an artifact file) is still visible.
    filename constraint, and removal or weakening of the depth constraint are
    therefore fatal during setup.
 
-7. **The checkout is fingerprinted before and after.** The fatal digest covers
-   HEAD, the index tree, tracked files, relevant untracked files, content and
-   metadata. Concurrent pi sessions are permitted only when they cannot write
+7. **The checkout is fingerprinted before and after.** The fatal read-only digest
+   covers HEAD, index entries from `git ls-files --stage`, tracked files, relevant
+   untracked files, content and metadata. It never calls `git write-tree`.
+   Self-tests prove the digest changes no index bytes or metadata, loose objects,
+   or worktree fingerprint. Concurrent pi sessions are permitted only when they cannot write
    this checkout. A same-checkout writer is prohibited. Same-user edit-and-restore
    remains the stated residual because a final userspace digest cannot observe it.
 
@@ -535,8 +537,8 @@ evidence.
   threat model. A same-user swap remains possible, including in the narrow
   interval between the reset's final validation and recursive removal.
 * A marked slate child whose `pi` binary ignores `PI_CODING_AGENT_DIR` leaves no
-  current-run scratch corpus and triggers `SAFE CORPUS FAIL`. A run with no
-  full-slate child reports that check as NOT RUN instead.
+  current-run scratch corpus and triggers `SAFE CORPUS FAIL`. A focused run with
+  no full-slate child reports a positive not-applicable PASS.
 * Same-user repository edit-and-restore can evade the final fingerprint. A
   concurrent process capable of writing this checkout remains prohibited.
 
