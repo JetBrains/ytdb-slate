@@ -615,7 +615,7 @@ def is_pi(token):
     return plain in {"pi","$PI_BIN","${PI_BIN}",real_pi} or plain.endswith("/pi") or name in tainted
 def substitutions(text):
     found=[]; index=0; quote=None
-    while index < len(text)-1:
+    while index < len(text):
         char=text[index]
         if char=="\\": index+=2; continue
         if char=="'" and quote!='"': quote=None if quote=="'" else "'"; index+=1; continue
@@ -632,6 +632,14 @@ def substitutions(text):
                 cursor+=1
             if depth: break
             found.append(text[start:cursor-1]); index=cursor; continue
+        if quote!="'" and char=="`":
+            start=index+1; cursor=start
+            while cursor < len(text):
+                if text[cursor]=="\\": cursor+=2; continue
+                if text[cursor]=="`": break
+                cursor+=1
+            if cursor>=len(text): break
+            found.append(text[start:cursor].replace(r"\`","`")); index=cursor+1; continue
         index+=1
     return found
 def value_is_tainted(value):
@@ -648,7 +656,7 @@ def audit(command,number):
     segment=[]
     for token in tokens+[";"]:
         if token and all(ch in ";&|" for ch in token):
-            launchers=[i for i,item in enumerate(segment) if item in {"piexec","piexec_at"}]
+            command_index=None
             for index,item in enumerate(segment):
                 assignment=re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)",item,re.S)
                 if assignment:
@@ -656,10 +664,10 @@ def audit(command,number):
                     if value_is_tainted(value): tainted.add(name)
                     else: tainted.discard(name)
                     continue
-                if not is_pi(item): continue
-                if index+1>=len(segment) or not segment[index+1].startswith("-"): continue
-                if not any(launcher<index for launcher in launchers):
-                    raise SystemExit(f"launcher bypass at logical command starting line {number}: {command.strip()}")
+                if command_index is None and item not in {"if","then","elif","else","do","while","until","!","time"}:
+                    command_index=index
+            if command_index is not None and is_pi(segment[command_index]):
+                raise SystemExit(f"launcher bypass at logical command starting line {number}: {command.strip()}")
             segment=[]
         else: segment.append(token)
 for number,command in logical: audit(command,number)
@@ -706,9 +714,12 @@ run_launcher_self_tests() {
 		die "SELFTEST outer inherited-agent guard accepted PI_CODING_AGENT_DIR"
 	fi
 	grep -q 'PI_CODING_AGENT_DIR is already set' "$outer" || die "SELFTEST outer inherited-agent guard failed for the wrong reason"; passed=$((passed+1))
-	audit_launcher_source "$0" || die "SELFTEST launcher-bypass source audit rejected the real script"; passed=$((passed+1))
+	if ! audit_launcher_source "$0"; then
+		die "SELFTEST launcher-bypass source audit rejected the real script"
+	fi
+	passed=$((passed+1))
 	local bypass_flag; bypass_flag=$(printf -- '--no-%s' extensions)
-	for form in literal variable resolved absolute-multiline no-noextensions semicolon-decoy alias alias-chain command-substitution; do
+	for form in literal variable resolved absolute-multiline no-noextensions semicolon-decoy alias alias-chain command-substitution bare backtick nested-substitution reachable-bare reachable-backtick; do
 		cp "$0" "$mutant" || die "SELFTEST cannot create launcher mutation"
 		case "$form" in
 			literal) printf '\npi %s -p x\n' "$bypass_flag" >> "$mutant" ;;
@@ -720,10 +731,19 @@ run_launcher_self_tests() {
 			alias) printf '\nP="$PI_BIN"; "$P" -p x\n' >> "$mutant" ;;
 			alias-chain) printf '\nP="$PI_BIN"; Q="$P"; "$Q" -p x\n' >> "$mutant" ;;
 			command-substitution) printf '\npiexec echo "$(pi -p x)"\n' >> "$mutant" ;;
+			bare) printf '\npi </dev/null\n' >> "$mutant" ;;
+			backtick) printf '\npiexec echo "`pi -p x`"\n' >> "$mutant" ;;
+			nested-substitution) printf '\npiexec echo "$(echo $(pi -p x))"\n' >> "$mutant" ;;
+			reachable-bare) sed -i '/^[[:space:]]*if ! audit_launcher_source "\$0"; then/i\\tpi </dev/null' "$mutant" ;;
+			reachable-backtick) sed -i '/^[[:space:]]*if ! audit_launcher_source "\$0"; then/i\\tpiexec echo "`pi -p x`"' "$mutant" ;;
 		esac
 		if audit_launcher_source "$mutant" >/dev/null 2>&1; then die "SELFTEST launcher audit missed $form bypass"; fi
 		passed=$((passed+1))
 	done
+	cp "$0" "$mutant" || die "SELFTEST cannot create harmless launcher mutation"
+	printf '\necho pi\n' >> "$mutant"
+	if ! audit_launcher_source "$mutant" >/dev/null 2>&1; then die "SELFTEST launcher audit rejected harmless echo data"; fi
+	passed=$((passed+1))
 	gitdir=$(git -C "$REPO" rev-parse --absolute-git-dir) || die "SELFTEST cannot resolve git directory"
 	index="$gitdir/index"
 	before_index=$(if [ -f "$index" ]; then sha256sum "$index"; stat -c '%s:%y:%a' "$index"; else echo absent; fi)
