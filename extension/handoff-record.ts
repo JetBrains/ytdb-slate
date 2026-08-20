@@ -393,6 +393,23 @@ function fsyncHeldDirectory(held: HeldDirectory): void {
 	}
 }
 
+interface HandoffWriteHooks {
+	afterPendingOpen?: () => void;
+	afterPendingDirectoryFsync?: () => void;
+	afterStagingFileFsync?: (file: string) => void;
+	afterStagingDirectoryFsync?: (file: string) => void;
+}
+
+function fsyncStagedFile(fd: number, file: string, hooks: HandoffWriteHooks): void {
+	fsyncSync(fd);
+	hooks.afterStagingFileFsync?.(file);
+}
+
+function fsyncStagingBeforeRename(directory: HeldDirectory, file: string, hooks: HandoffWriteHooks): void {
+	fsyncHeldDirectory(directory);
+	hooks.afterStagingDirectoryFsync?.(file);
+}
+
 function validLineage(record: CorpusHandoffRecord): boolean {
 	const identities = new Set<string>();
 	const names = new Set<string>();
@@ -519,6 +536,8 @@ export function listCorpusHandoffCandidates(options: {
 	cwd: string;
 	isTrusted: () => boolean;
 	project?: CorpusProject;
+	/** Deterministic close-observation seam. Production callers omit it. */
+	afterDirectoryClose?: (directory: ReturnType<typeof opendirSync>) => void;
 }): { ok: true; candidates: HandoffCandidate[] } | { ok: false; reason: string } {
 	if (!options.isTrusted()) return { ok: false, reason: "slate refused handoff listing because this project is not trusted" };
 	let pendingHeld: HeldDirectory | undefined;
@@ -568,15 +587,21 @@ export function listCorpusHandoffCandidates(options: {
 	} catch (error) {
 		return { ok: false, reason: `slate could not list handoff records: ${error instanceof Error ? error.message : String(error)}` };
 	} finally {
-		if (pendingDir !== undefined) pendingDir.closeSync();
-		if (pendingHeld !== undefined) closeSync(pendingHeld.fd);
+		try {
+			if (pendingDir !== undefined) {
+				pendingDir.closeSync();
+				options.afterDirectoryClose?.(pendingDir);
+			}
+		} finally {
+			if (pendingHeld !== undefined) closeSync(pendingHeld.fd);
+		}
 	}
 }
 
 export function writeCorpusHandoffRecord(
 	project: CorpusProject,
 	record: CorpusHandoffRecord,
-	hooks: { afterPendingOpen?: () => void; afterPendingDirectoryFsync?: () => void } = {},
+	hooks: HandoffWriteHooks = {},
 ): string {
 	const validated = validateRecord(record);
 	if (validated === undefined) throw new Error("slate refused to write an invalid handoff record");
@@ -637,8 +662,8 @@ export function writeCorpusHandoffRecord(
 			throw new Error("slate refused a linked or changing staged handoff record");
 		}
 		writeFileSync(fd, content, "utf8");
-		fsyncSync(fd);
-		fsyncHeldDirectory(stagingDirectoryHeld);
+		fsyncStagedFile(fd, staging, hooks);
+		fsyncStagingBeforeRename(stagingDirectoryHeld, staging, hooks);
 		const beforeRename = lstatSync(staging, { throwIfNoEntry: false });
 		if (!beforeRename?.isFile() || !sameFile(stagingHeld, beforeRename)
 			|| !directoryMatches(stagingDirectoryHeld) || !directoryMatches(pendingHeld)) {

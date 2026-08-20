@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -373,6 +373,7 @@ test("version 2 rejects invalid UTF-8, malformed chunks, unknown layers, and exc
     ["non-string chunk", (wire) => { wire.snapshot.episodes[0].task = ["a", 2]; }],
     ["oversized segment", (wire) => { wire.snapshot.episodes[0].task = ["x".repeat(8193), "z"]; }],
     ["root unknown", (wire) => { wire.unknown = true; }],
+    ["snapshot unknown", (wire) => { wire.snapshot.unknown = true; }],
     ["thread unknown", (wire) => { wire.snapshot.threads[0].unknown = true; }],
     ["episode unknown", (wire) => { wire.snapshot.episodes[0].unknown = true; }],
     ["observation unknown", (wire) => { wire.snapshot.episodes[0].observations.unknown = true; }],
@@ -712,6 +713,47 @@ test("record reads reject malformed JSON, invalid names, and mismatched source m
   if (!missing.ok) assert.match(missing.reason, /missing or linked author session directory/);
 });
 
+test("immediate metadata binds identity and name, while conflicting ancestors grant no authority", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const metadataFile = join(box.source.directory, "session.json");
+  const original = JSON.parse(readFileSync(metadataFile, "utf8")) as Record<string, unknown>;
+
+  writeFileSync(metadataFile, JSON.stringify({ ...original, identity: ADOPTER_ID }));
+  const wrongIdentity = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(wrongIdentity.ok, false);
+  if (!wrongIdentity.ok) assert.match(wrongIdentity.reason, /metadata that does not match/);
+
+  writeFileSync(metadataFile, JSON.stringify({ ...original, name: box.adopter.name }));
+  const wrongName = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(wrongName.ok, false);
+  if (!wrongName.ok) assert.match(wrongName.reason, /metadata that does not match/);
+  writeFileSync(metadataFile, JSON.stringify(original));
+
+  const ancestorId = "20260818T010203Z-5555555555555555";
+  const ancestor = createCorpusSession({ cwd: box.cwd, identity: ancestorId, initialNameBytes: Uint8Array.from([31, 32, 33, 34]) });
+  const chain = [{ identity: ancestorId, name: ancestor.name }];
+  const ancestorMetadataFile = join(ancestor.directory, "session.json");
+  const ancestorMetadata = JSON.parse(readFileSync(ancestorMetadataFile, "utf8")) as Record<string, unknown>;
+  writeFileSync(ancestorMetadataFile, JSON.stringify({ ...ancestorMetadata, identity: ADOPTER_ID, name: box.adopter.name }));
+  overwriteRecord(box, {
+    ...box.record,
+    parentChain: chain,
+    snapshot: { ...box.record.snapshot, slateSessionParentChain: chain },
+  });
+  assert.equal(readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true }).ok, true);
+
+  const outside = recordWithEpisode(box, { file: join(box.root, "ancestor-cannot-authorize.md") });
+  overwriteRecord(box, {
+    ...outside,
+    parentChain: chain,
+    snapshot: { ...outside.snapshot, slateSessionParentChain: chain },
+  });
+  const noAuthority = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
+  assert.equal(noAuthority.ok, false);
+  if (!noAuthority.ok) assert.match(noAuthority.reason, /linked or outside slate storage/);
+});
+
 test("linked transcript paths fail containment validation", (t) => {
   const box = sandbox();
   t.after(() => box.restore());
@@ -820,6 +862,20 @@ test("read and write reject one-way pending-directory replacement and sync first
   assert.throws(() => writeCorpusHandoffRecord(writeBox.source.project, writeBox.record), /more than 64 staged handoff files/);
   for (const entry of readdirSync(stagingDirectory)) rmSync(join(stagingDirectory, entry));
 
+  const syncEvents: string[] = [];
+  let failedStaging = "";
+  assert.throws(
+    () => writeCorpusHandoffRecord(writeBox.source.project, writeBox.record, {
+      afterStagingFileFsync(file) { failedStaging = file; syncEvents.push("file"); },
+      afterStagingDirectoryFsync(file) { assert.equal(file, failedStaging); syncEvents.push("directory"); throw new Error("forced post-fsync failure"); },
+    }),
+    /forced post-fsync failure/,
+  );
+  assert.deepEqual(syncEvents, ["file", "directory"]);
+  assert.notEqual(failedStaging, "");
+  assert.equal(existsSync(failedStaging), false);
+  assert.deepEqual(readdirSync(stagingDirectory), []);
+
   const writeMoved = join(writeBox.source.project.directory, "pending-moved");
   assert.throws(
     () => writeCorpusHandoffRecord(writeBox.source.project, writeBox.record, {
@@ -861,26 +917,39 @@ test("candidate listing caps record count and aggregate bytes", (t) => {
   if (!tooLarge.ok) assert.match(tooLarge.reason, /exceed 4 MiB in aggregate/);
 });
 
-test("candidate scanning excludes legacy temp entries, caps junk work, and closes its directory", (t) => {
+test("legacy temps avoid candidate budget but obey scan cap, and candidate Dir closes exactly once", (t) => {
   const box = sandbox();
   t.after(() => box.restore());
   const pending = join(box.source.project.directory, "pending");
-  for (let index = 0; index < 100; index++) {
+  for (let index = 0; index < 4095; index++) {
     writeFileSync(join(pending, `.${box.source.name}.${process.pid}.${index}.tmp`), "legacy");
   }
-  const listed = listCorpusHandoffCandidates({ cwd: box.cwd, isTrusted: () => true });
+  let closeObserved = false;
+  const listed = listCorpusHandoffCandidates({
+    cwd: box.cwd,
+    isTrusted: () => true,
+    afterDirectoryClose(directory) {
+      closeObserved = true;
+      assert.throws(() => directory.readSync(), /closed/i);
+    },
+  });
+  assert.equal(closeObserved, true);
   assert.equal(listed.ok, true);
   if (listed.ok) assert.deepEqual(listed.candidates.map((candidate) => candidate.name), [box.source.name]);
 
-  rmSync(pending, { recursive: true });
-  mkdirSync(pending);
-  for (let index = 0; index < 4097; index++) writeFileSync(join(pending, `junk-${index}`), "x");
+  writeFileSync(join(pending, `.${box.source.name}.${process.pid}.4095.tmp`), "legacy");
   const capped = listCorpusHandoffCandidates({ cwd: box.cwd, isTrusted: () => true });
   assert.equal(capped.ok, false);
   if (!capped.ok) assert.match(capped.reason, /more than 4096 directory entries/);
+
   rmSync(pending, { recursive: true });
   mkdirSync(pending);
-  assert.deepEqual(listCorpusHandoffCandidates({ cwd: box.cwd, isTrusted: () => true }), { ok: true, candidates: [] });
+  for (let index = 0; index < 65; index++) {
+    writeFileSync(join(pending, `.${box.source.name}.${process.pid}.${index}.tmp`), "legacy");
+  }
+  const noCandidateCost = listCorpusHandoffCandidates({ cwd: box.cwd, isTrusted: () => true });
+  assert.equal(noCandidateCost.ok, true);
+  if (noCandidateCost.ok) assert.deepEqual(noCandidateCost.candidates, []);
 });
 
 test("candidate listing reports empty and unavailable records without adopting", async (t) => {
