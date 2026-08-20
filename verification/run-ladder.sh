@@ -641,14 +641,14 @@ def value_is_tainted(value):
     return any(name in tainted for name in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?",value))
 def audit(command,number,pi_like=False):
     try:
-        lexer=shlex.shlex(command,posix=True,punctuation_chars=";&|")
+        lexer=shlex.shlex(command,posix=True,punctuation_chars=";&|()")
         lexer.whitespace_split=True
         tokens=list(lexer)
     except ValueError:
         return
     segment=[]
     for token in tokens+[";"]:
-        if token and all(ch in ";&|" for ch in token):
+        if token and all(ch in ";&|()" for ch in token):
             command_index=None
             for index,item in enumerate(segment):
                 assignment=re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)",item,re.S)
@@ -729,10 +729,31 @@ def audit_substitutions(text,base_line=1,pi_context=False):
             audit_substitutions(body,number,nested_pi_context)
             i=end+1; continue
         i+=1
-for number,command in logical: audit(command,number)
-audit_substitutions("\n".join(line for _,line in lines))
+for number,command in logical: audit(command,number,pi_like=True)
+audit_substitutions("\n".join(line for _,line in lines),pi_context=True)
 PY
 }
+drain_background_jobs() { # $1 optional poll count; $2 optional interval; $3 report flag
+	local polls="${1:-100}" interval="${2:-0.05}" report="${3:-1}" count
+	local -a running=()
+	for ((count=0; count<polls; count++)); do
+		mapfile -t running < <(jobs -pr)
+		if [ "${#running[@]}" -eq 0 ]; then
+			# Reap completed jobs too. No running job remains, so this cannot block.
+			wait 2>/dev/null || true
+			return 0
+		fi
+		sleep "$interval"
+	done
+	mapfile -t running < <(jobs -pr)
+	[ "${#running[@]}" -eq 0 ] && { wait 2>/dev/null || true; return 0; }
+	if [ "$report" -eq 1 ]; then
+		printf 'verification: background-job drain timed out with %s live job(s): %s\n' \
+			"${#running[@]}" "${running[*]}" >&8
+	fi
+	return 1
+}
+
 # Audit the complete checked-in source before any rung can start. The runtime
 # sentinel remains a second control for launcher forms that execute through PATH.
 audit_launcher_source "$0" || die "launcher source audit rejected a pi invocation"
@@ -786,7 +807,7 @@ run_launcher_self_tests() {
 		die "SELFTEST exposed-real-path source audit rejected the real script"
 	fi
 	passed=$((passed+1))
-	for form in variable resolved absolute-multiline alias alias-chain process-input process-output process-input-nested process-output-nested process-input-multiline process-output-multiline; do
+	for form in variable resolved absolute-multiline alias alias-chain background-pi subshell-background-pi command-background-pi background-command-substitution process-input process-output process-input-nested process-output-nested process-input-multiline process-output-multiline; do
 		cp "$0" "$mutant" || die "SELFTEST cannot create source-audit mutation"
 		case "$form" in
 			variable) printf '\n"$PI_BIN" -p x\n' >> "$mutant" ;;
@@ -794,6 +815,10 @@ run_launcher_self_tests() {
 			absolute-multiline) printf '\n/opt/fake/pi \\\n  -p x\n' >> "$mutant" ;;
 			alias) printf '\nP="$PI_BIN"; "$P" -p x\n' >> "$mutant" ;;
 			alias-chain) printf '\nP="$PI_BIN"; Q="$P"; "$Q" -p x\n' >> "$mutant" ;;
+			background-pi) printf '\npi --version >/dev/null 2>&1 &\n' >> "$mutant" ;;
+			subshell-background-pi) printf '\n( pi --version >/dev/null 2>&1 & )\n' >> "$mutant" ;;
+			command-background-pi) printf '\ncommand pi --version >/dev/null 2>&1 &\n' >> "$mutant" ;;
+			background-command-substitution) printf '\necho "$(pi --version)" >/dev/null &\n' >> "$mutant" ;;
 			process-input) printf '\ncat <(pi --version) >/dev/null\n' >> "$mutant" ;;
 			process-output) printf '\n: > >(pi --version)\n' >> "$mutant" ;;
 			process-input-nested) printf '\ncat <(cat <(pi --version)) >/dev/null\n' >> "$mutant" ;;
@@ -804,7 +829,7 @@ run_launcher_self_tests() {
 		if audit_launcher_source "$mutant" >/dev/null 2>&1; then die "SELFTEST source audit missed $form launcher reference"; fi
 		passed=$((passed+1))
 	done
-	for harmless in 'echo pi >/dev/null' 'cat <(printf safe) >/dev/null' ': > >(cat >/dev/null)'; do
+	for harmless in 'echo pi >/dev/null' 'printf safe >/dev/null &' '( printf safe >/dev/null & )' 'cat <(printf safe) >/dev/null' ': > >(cat >/dev/null)'; do
 		cp "$0" "$mutant" || die "SELFTEST cannot create harmless source-audit mutation"
 		printf '\n%s\n' "$harmless" >> "$mutant"
 		audit_launcher_source "$mutant" >/dev/null 2>&1 || die "SELFTEST source audit rejected harmless syntax: $harmless"
@@ -829,6 +854,15 @@ run_launcher_self_tests() {
 	printf '%s\n' 'echo pi >/dev/null' > "$mutant"
 	bash "$mutant" || die "SELFTEST harmless echo pi failed"
 	assert_no_pi_violation "harmless echo pi self-test"
+	passed=$((passed+1))
+	true &
+	drain_background_jobs 10 0.01 || die "SELFTEST background drain failed to reap an exiting job"
+	passed=$((passed+1))
+	sleep 2 & shim_probe=$!
+	if drain_background_jobs 1 0.01 0; then
+		die "SELFTEST bounded background drain accepted a live job"
+	fi
+	kill "$shim_probe" 2>/dev/null || true; wait "$shim_probe" 2>/dev/null || true
 	passed=$((passed+1))
 	gitdir=$(git -C "$REPO" rev-parse --absolute-git-dir) || die "SELFTEST cannot resolve git directory"
 	index="$gitdir/index"
@@ -1992,6 +2026,11 @@ if want LAT; then
 	LINES+=("LATENCY median on=${MON}ms off=${MOFF}ms delta=$((MON-MOFF))ms")
 fi
 
+# A final asynchronous child must settle before any safety evidence is sampled.
+# The sentinel check below therefore cannot race a checked-in background job.
+BACKGROUND_DRAIN_OK=1
+drain_background_jobs || BACKGROUND_DRAIN_OK=0
+
 # D217-D219 final evidence: sandbox fallback and repository are fatal. The real
 # settings content hash is a nonfatal concurrency note.
 REAL_AFTER=$(real_content_hash)
@@ -2035,11 +2074,15 @@ if [ "$RAN" -eq 0 ]; then
 fi
 if [ -e "$PI_VIOLATION" ]; then
 	FAIL=$((FAIL+1))
-	printf 'SAFE   %-6s FAIL    — %s\n' "PI" "guarded shim recorded an unauthorized PATH-based pi invocation"
-	LINES+=("SAFE PI FAIL — guarded shim recorded an unauthorized PATH-based invocation")
+	printf 'SAFE   %-6s FAIL    — %s\n' "PI" "guarded shim recorded an unauthorized PATH-based pi invocation after background-job drain"
+	LINES+=("SAFE PI FAIL — guarded shim recorded an unauthorized PATH-based invocation after background-job drain")
+elif [ "$BACKGROUND_DRAIN_OK" -ne 1 ]; then
+	FAIL=$((FAIL+1))
+	printf 'SAFE   %-6s FAIL    — %s\n' "PI" "live background jobs prevented an authoritative violation-sentinel check"
+	LINES+=("SAFE PI FAIL — live background jobs prevented an authoritative violation-sentinel check")
 else
-	printf 'SAFE   %-6s PASS    — %s\n' "PI" "guarded shim recorded no unauthorized PATH-based pi invocation"
-	LINES+=("SAFE PI PASS — no unauthorized PATH-based pi invocation")
+	printf 'SAFE   %-6s PASS    — %s\n' "PI" "guarded shim recorded no unauthorized PATH-based pi invocation after background-job drain"
+	LINES+=("SAFE PI PASS — no unauthorized PATH-based pi invocation after background-job drain")
 fi
 if [ "$FALLBACK_BEFORE" != "$FALLBACK_AFTER" ]; then
 	FAIL=$((FAIL+1))

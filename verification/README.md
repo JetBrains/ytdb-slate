@@ -476,27 +476,35 @@ redirected into an artifact file) is still visible.
    Each must be non-empty, absolute, a real non-symlink directory and inside the
    lab. The inherited `PI_CODING_AGENT_DIR` refusal remains an outer fatal guard.
    A refused invocation with an invalid token or ledger atomically creates a
-   per-run violation sentinel. Every hermetic launch and the final `SAFE PI`
-   report fail when the sentinel exists. The runtime control catches PATH-based
-   forms when command substitution or missing `set -e` hides the shim status.
-   The sentinel resets only at controlled self-test boundaries.
+   per-run violation sentinel. Every hermetic launch fails when the sentinel
+   exists. Before the final `SAFE PI` report, a bounded poll enumerates shell
+   jobs and reaps jobs that are already exiting. A live job after the bound
+   makes the report fail. The report checks the sentinel only after that drain.
+
+   The runtime control catches PATH-based forms when command substitution or
+   missing `set -e` hides the shim status. The sentinel resets only at controlled
+   self-test boundaries.
 
    Before any rung starts, the source audit checks the complete ladder script.
-   The audit recursively parses input and output process substitutions. Its
+   It rejects a literal or tainted pi-like command in foreground, background,
+   or subshell command position. `echo pi` remains harmless. The audit also
+   recursively parses command, input and output process substitutions. Its
    parser balances parentheses across nesting and lines while honoring shell
-   quotes and escapes. A pi launcher command inside either form is fatal.
+   quotes and escapes. A pi launcher command inside any parsed form is fatal.
 
-   This source control prevents detached output substitutions from racing the final
-   sentinel check in ordinary checked-in syntax. The audit also checks direct
-   real-path and exposed alias references. It does not claim to parse all shell
-   grammar or inspect deliberately generated shell code.
+   These controls prevent asynchronous checked-in syntax from racing the final
+   sentinel check. The audit also checks direct real-path and exposed alias
+   references. It does not claim to parse all shell grammar or inspect
+   deliberately generated shell code.
 
    `--self-test` exercises poisoned parents, absent and empty roots, redirect-loss
    teeth, nested inheritance, runtime alternate-agent ledger registration and
-   shim refusal outside the launcher. Source mutations cover input and output
-   process substitutions, including nested and multiline forms. Harmless
-   process redirections and `echo pi` remain accepted. Runtime mutations cover
-   `command pi`, both process substitutions, backticks, `$()`, bare `pi`,
+   shim refusal outside the launcher. Source mutations cover background commands,
+   subshells, command substitutions and input and output process substitutions.
+   Process-substitution cases include nested and multiline forms. Harmless
+   background jobs, process redirections and `echo pi` remain accepted. Drain
+   tests cover an exiting job and bounded refusal of a live job. Runtime mutations
+   cover `command pi`, both process substitutions, backticks, `$()`, bare `pi`,
    `xargs` and a shell wrapper. The remaining tests cover the outer guard and
    concurrent fabricated settings writes.
 
