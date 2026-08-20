@@ -66,13 +66,16 @@ from a complete run on a machine with `strace`:
 RUNG R1     PASS    — failover probe-a/alpha-1⇒probe-b/beta-1 fired (model_change in session), settings byte-identical …
 RUNG P6     NOT RUN — strace not available
 SAFE   CORPUS PASS    — at least one current-run slate child published a scratch corpus session
-SAFE          PASS    — real settings unchanged
+SAFE   HOME   PASS    — throwaway HOME fallback agent remained untouched
+SAFE   SESSION PASS   — selected throwaway agent contains current-run session evidence
+SAFE   REPO   PASS    — repository fingerprint unchanged …
+NOTE   REAL           — real settings content hash unchanged …; diagnostic only
 == summary: 26 pass, 0 fail, 0 not run ==
 ```
 
-Exit status: **0** all good; **1** a rung failed, **no rung ran**, `SAFE CORPUS`
-failed, the real settings file changed, or `--strict` was given and a check
-reported NOT RUN; **2** refused to start — a safety guard or a usage error;
+Exit status: **0** all good; **1** a rung failed, **no rung ran**, a sandbox
+safety check failed, the repository fingerprint changed, or `--strict` was given
+and a check reported NOT RUN; **2** refused to start — a safety guard or usage error;
 **3** the scratch directory disappeared mid-run, so every result printed is void
 — re-run with an explicit `--lab` under a path nothing else touches. (That last
 one is real: a neighbouring job doing `rm -rf /tmp/<prefix>*` will eat the
@@ -91,7 +94,8 @@ Options:
 | `--only <ids>` | comma-separated rung ids, e.g. `--only R5a,R5b,R5c`. An **unknown id is a hard error** (exit 2), and a run that ends up executing no rung at all exits **1** — a mistyped id must never look like success |
 | `--old-module <file>` | supply the pre-fix `model-default.ts` for the P5a/P5b teeth proof yourself; by default it is derived from the current module at run time |
 | `--strict` | any NOT RUN becomes a failure (exit 1). **Automation should always pass this** — otherwise a ladder that skipped rungs, because `strace` was missing or a teeth derivation broke, reads as a clean pass. Off by default so a human without the optional tracing tool is not blocked |
-| `--setup-only` | run every guard and build every fixture and generated copy, then stop without launching pi. The supported way to exercise the safety machinery |
+| `--setup-only` | run every guard and build every fixture and generated copy, then stop without launching pi. The supported way to exercise setup safety |
+| `--self-test` | run deterministic hermetic-launcher tests for environment closure, invalid roots, redirect loss, nested children, alternate agents, outer guard, source audit and concurrent fabricated writes |
 | `--list-rungs` | print the rung ids and exit |
 
 ### Rung selection semantics and interdependencies
@@ -105,7 +109,7 @@ prerequisite makes them report NOT RUN rather than guess:
 | --- | --- |
 | `P9b` | `R7` **and** `R8` in the same run (it compares their two report verbs) |
 | `P10` | `R5a` in the same run (to confirm failure reports still reach stderr) |
-| `R4a`,`R4b`,`R5a`,`R5b`,`R5c`,`G4b`,`P8`,`P9a` | a parent session, which they create on demand — no cross-rung dependency |
+| `R4a`,`R4b`,`R5a`,`R5b`,`R5c`,`G4b`,`P8`,`P9a` | a valid named corpus handoff record and source-session metadata, which they create on demand — no cross-rung dependency |
 | `WK1` | nothing: it launches its own two pi processes and opens its own worker sessions — no cross-rung dependency |
 
 `LAT` is informational: it prints a median wall-clock comparison and never
@@ -184,9 +188,10 @@ Four drive modes, chosen per rung:
    plus `pi -e <repo> -p "say ok"`. The switch is proven from the session record
    (`model_change` entry), never from a log line — the success notice is
    deliberately UI-only.
-2. **End-to-end handoff adoption** — a seeded
-   `<lab>/work/.pi/slate/pending-handoff.json` whose `parentSession` matches the
-   header `--fork` writes, plus `-a` for project trust.
+2. **End-to-end handoff adoption** — a valid named record under the throwaway
+   corpus, backed by source-session metadata, plus a real RPC request for
+   `/slate adopt <name>` in a fresh trusted session. The record must remain after
+   adoption, and stderr must carry the explicit positive success marker.
 3. **`probe.ts`** — imports the module under test by absolute path and calls the
    real `withGlobalModelDefaultRestored` with the real `pi` and `ctx` around a
    real `pi.setModel`. Only the *caller* differs from the two shipped switch
@@ -209,8 +214,8 @@ Four drive modes, chosen per rung:
 | `R2` | knob off ⇒ the leak reappears — the negative control that makes R1 non-vacuous |
 | `R3a` | a clamped thinking level (`xhigh`→`high`) is restored to the user's preference, not the clamp |
 | `R3b` | a thinking-level-**only** divergence through the failover site (pair already at the target) |
-| `R4a` | handoff adoption writing the thinking key **alone**, when its equality guard skips `setModel` |
-| `R4b` | handoff adoption writing model *and* thinking level |
+| `R4a` | explicit named handoff adoption writes the thinking key **alone**, skips `setModel`, emits a positive success marker, and retains its corpus record |
+| `R4b` | explicit named handoff adoption writes model *and* thinking level, emits a positive success marker, and retains its corpus record |
 | `R5a` | zero-byte settings file ⇒ warn, write nothing, never delete |
 | `R5b` | corrupt settings file ⇒ warn, write nothing, never delete |
 | `R5c` | settings lock held ⇒ warn, write nothing, never delete |
@@ -232,7 +237,7 @@ Four drive modes, chosen per rung:
 | `P11` | a report that hits the length cap is cut **on a word boundary**, carries an explicit truncation marker, and keeps the headline, affected keys, settings path and cause while losing only the advisory tail |
 | `WK1` | a **worker-side per-dispatch** model *and* effort switch (a) writes **zero bytes** to the global settings file and (b) does not survive into a reopened session as a sticky default |
 | `LAT` | median wall clock, knob on vs off, n=7 each — informational, never a pass/fail |
-| `SAFE` | the real settings file is bit-for-bit unchanged across the whole run; after any child that loads slate, the scratch corpus contains a session directory under the redirected agent root |
+| `SAFE` | selected-agent corpus and session evidence exist, the throwaway-HOME fallback agent stayed untouched, and the repository fingerprint is unchanged. The real settings hash is diagnostic only |
 
 Every rung that drives a switch also asserts **positive evidence that the switch
 actually fired**, from the session record (`model_change`, or
@@ -453,31 +458,26 @@ redirected into an artifact file) is still visible.
    containment and device twice, removes the resolved path with
    `--one-file-system`, and performs the second check immediately before removal.
    A same-user swap after that final check remains outside the guarantee.
-5. **The real settings file is fingerprinted.** sha256, size and mtime are
-   recorded before the run and re-checked after. A change is a failed run
-   (`SAFE FAIL`, non-zero exit) saying a pi invocation escaped the redirect.
-   Because mtime is part of the fingerprint, any pi process that writes the same
-   real `settings.json` trips it, regardless of its project or working tree. A
-   process with `PI_CODING_AGENT_DIR` set to another directory cannot trip this
-   fingerprint.
+5. **Every child uses one hermetic launcher.** `env -i` supplies validated
+   throwaway `HOME`, `TMPDIR` and the selected `PI_CODING_AGENT_DIR`, `PI_OFFLINE`,
+   a PATH assembled from guarded absolute tool resolutions, and only explicit
+   rung canaries. The generated guard requires exact environment-key equality
+   before it starts the requested command. `NODE_OPTIONS`, credentials, proxies,
+   stale pi variables and `PI_CODING_AGENT_SESSION_DIR` are absent. A marker
+   written from the child process `spawn` event makes every launch positive.
+   P11 and alternate-agent launches use this same path.
 
-   A pi process can write settings for many reasons. Model changes and effective
-   thinking-level changes are common examples, not an exhaustive list. The
-   harness cannot prove that an apparently idle session will remain read-only.
-   Treat every pi process sharing the real agent directory as a possible
-   concurrent writer.
+   `HOME`, `TMPDIR` and each selected agent root are checked before every launch.
+   Each must be non-empty, absolute, a real non-symlink directory and inside the
+   lab. The inherited `PI_CODING_AGENT_DIR` refusal remains an outer fatal guard.
+   `--self-test` exercises poisoned parents, absent and empty roots, redirect-loss
+   teeth, nested inheritance, alternate-agent routing, launcher source audit,
+   the outer guard and concurrent fabricated settings writes.
 
-   An isolated-load smoke test, an interactive session or the live main-worktree
-   session can rewrite the file concurrently. The resulting `SAFE FAIL` has an IDENTICAL
-   recorded hash and size, with only the mtime moved. That shape means a concurrent
-   writer rather than an escaped invocation. The run still fails because the
-   sentinel can no longer speak for the rungs above it. Stop the other pi processes
-   that share the real agent directory, then rerun the ladder alone.
-
-   The real agent directory is located **the way pi locates it** — via
-   `node os.homedir()`, which still works when `HOME` is unset — or from
-   `SLATE_LADDER_REAL_AGENT_DIR`. If neither can be determined, the script aborts
-   rather than watch nothing.
+   The real settings content hash is now a NOTE only. A concurrent real session
+   may change it without changing the verdict. Redirect evidence instead comes
+   from the selected agent's session and corpus, plus an untouched fallback agent
+   under the throwaway HOME.
 6. **Slate child runs must populate the scratch corpus.** A marker is written
    only after a child that loads the full slate extension completes. Before any
    child runs, the harness validates the scratch agent directory and every
@@ -502,22 +502,16 @@ redirected into an artifact file) is still visible.
    filename constraint, and removal or weakening of the depth constraint are
    therefore fatal during setup.
 
-   The real corpus is still content-fingerprinted before and after the run, but a
-   change now emits only a NOTE. A concurrent session is the likely cause, so the
-   real corpus comparison cannot attribute the write to the ladder. The NOTE does
-   not increment the failure count and does not change the exit code. A corpus
-   write that the same run fully undoes is not detected, and such a write loses no
-   data.
+7. **The checkout is fingerprinted before and after.** The fatal digest covers
+   HEAD, the index tree, tracked files, relevant untracked files, content and
+   metadata. Concurrent pi sessions are permitted only when they cannot write
+   this checkout. A same-checkout writer is prohibited. Same-user edit-and-restore
+   remains the stated residual because a final userspace digest cannot observe it.
 
-On top of that, every pi invocation goes through one helper that sets
-`PI_CODING_AGENT_DIR=<lab>/agent` and unsets the inherited `PI_CODING_AGENT`,
-`PI_SESSION_FILE`, `PI_SESSION_ID`, `PI_PROVIDER`, `PI_MODEL` and
-`PI_REASONING_LEVEL`, so a run launched from inside a pi session cannot pick up
-the caller's session or model. `getAgentDir()` in pi honours that variable for
-settings, auth, model catalogue and sessions alike. The reset removes prior
-`<lab>/agent/sessions/` before any child starts, so session JSONL evidence also
-belongs to the current run. The positive scratch-corpus assertion above covers
-slate corpus redirection.
+The reset removes prior selected-agent sessions and corpus state before children
+start. Session JSONL and depth-three corpus metadata therefore belong to this
+run. The fallback `$HOME/.pi/agent` fingerprint catches loss of the explicit
+agent redirect.
 
 An `EXIT`/`INT`/`TERM` trap restores permissions on any settings file the rungs
 made read-only, releases its lab lock, and kills background helpers — for lab
@@ -528,11 +522,11 @@ evidence.
 
 ### What the guards do NOT cover
 
-* They protect the **pi home tree, the real agent directory and the repository**.
-  A `--lab` elsewhere is accepted, so pointing it at another directory you care
-  about will let the harness write there.
-* The fingerprint watches **one file** — the real `settings.json`. Escapes that
-  touched only, say, the real session directory would not be caught by it.
+* The hermetic environment is not an operating-system filesystem sandbox. A
+  dependency using a hardcoded absolute real-home path remains outside the
+  portable guarantee.
+* The real settings hash is diagnostic and nonfatal. Selected-agent, fallback-
+  agent, session, corpus and repository evidence determine the safety verdict.
 * Guard 2/3 canonicalise **at startup**. The *agent* directory is re-checked
   before every launch and every write (guard 4), but the other lab directories —
   `out/`, `weak/`, `work/` — are not: a symlink swapped underneath one of those
@@ -543,10 +537,12 @@ evidence.
 * A marked slate child whose `pi` binary ignores `PI_CODING_AGENT_DIR` leaves no
   current-run scratch corpus and triggers `SAFE CORPUS FAIL`. A run with no
   full-slate child reports that check as NOT RUN instead.
+* Same-user repository edit-and-restore can evade the final fingerprint. A
+  concurrent process capable of writing this checkout remains prohibited.
 
-Nothing the harness writes lands inside the repository: the repo is only read —
-the module under test and `probe.ts` are read, and every weakened copy is
-generated into `<lab>/weak/`.
+Nothing the harness intentionally writes lands inside the repository. The final
+fingerprint makes an accidental or concurrent change fatal. Generated copies and
+all launcher artifacts remain under the lab.
 
 ## Environmental noise — not failures
 
