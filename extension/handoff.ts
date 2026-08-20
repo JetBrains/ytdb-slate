@@ -251,8 +251,8 @@ export function buildKickoff(cwd: string, trusted: boolean, brief: string, focus
 	let base: string | undefined;
 	if (trusted) {
 		// existsSync alone is not enough: the path may be a directory or
-		// unreadable, and a throw escaping here would strand the pending-handoff
-		// file startHandoff just wrote — fall back to the default kickoff text.
+		// unreadable, and a throw escaping here would leave the adopted record
+		// without kickoff text — fall back to the default kickoff text.
 		try {
 			if (existsSync(template)) base = readFileSync(template, "utf8").trim();
 		} catch {

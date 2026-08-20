@@ -58,7 +58,7 @@ test("ThreadManager preserves explicit constructor arguments and resolver defaul
       {} as ExtensionContext,
       undefined,
     ),
-    /Slate is paused for handoff/,
+    /Slate is paused for handoff[\s\S]*\/slate handoff \[focus\][\s\S]*\/slate adopt <name>/,
   );
   assert.strictEqual(fields.resolveExtensions(), extensions);
   assert.strictEqual(fields.resolveRouter(), router);

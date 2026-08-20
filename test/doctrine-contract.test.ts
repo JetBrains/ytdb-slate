@@ -94,10 +94,11 @@ function routedResolution(): ModelRouterResolution {
   };
 }
 
-async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}, trusted = true): Promise<string> {
+async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}, trusted = true, paused = false): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
+  store.paused = paused;
   registerSlateMode(
     api as unknown as ExtensionAPI,
     store,
@@ -116,6 +117,11 @@ async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfi
   assert.ok(result.systemPrompt.startsWith("BASE"));
   return result.systemPrompt.slice("BASE".length);
 }
+
+test("paused doctrine names both handoff steps", { timeout: 5000 }, async () => {
+  const doctrine = await renderDoctrine(undefined, {}, true, true);
+  assert.match(doctrine, /\/slate handoff \[optional focus\][\s\S]*\/slate adopt <name>/);
+});
 
 test("routing doctrine renders dated prices and truthful candidate ordering", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine(routedResolution());
