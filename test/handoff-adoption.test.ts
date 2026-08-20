@@ -132,8 +132,12 @@ function adoptionHarness(box: Sandbox, options: {
   failThinkingSwitch?: boolean;
   currentThinking?: string;
   events?: string[];
+  pauseThresholdPercent?: number;
+  contextBudget?: { tokens: number };
+  contextUsage?: { percent?: number; tokens?: number; contextWindow?: number };
 } = {}) {
   const messages: Array<{ customType?: string; content?: string }> = [];
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
   const appended: Array<Record<string, unknown>> = [];
   const adoptedModels: Array<{ model: string; effort: unknown }> = [];
   const modelSwitches: string[] = [];
@@ -149,8 +153,9 @@ function adoptionHarness(box: Sandbox, options: {
   store.slateSessionId = ADOPTER_ID;
   store.slateSessionName = box.adopter.name;
   store.ownerSessionDigest = ADOPTER_OWNER;
+  store.orchestratorMode = true;
   const pi = {
-    on() {},
+    on(event: string, handler: (event: unknown, ctx: unknown) => unknown) { handlers.set(event, handler); },
     sendMessage(message: { customType?: string; content?: string }) {
       messages.push(message);
       options.events?.push(message.customType === "slate-kickoff" ? "kickoff" : "message");
@@ -179,7 +184,11 @@ function adoptionHarness(box: Sandbox, options: {
   const hooks = registerSlateHandoff(
     pi,
     store,
-    () => ({ preserveGlobalModelDefault: false }),
+    () => ({
+      preserveGlobalModelDefault: false,
+      pauseThresholdPercent: options.pauseThresholdPercent,
+      contextBudget: options.contextBudget,
+    }),
     () => tracker,
   );
   const ctx = {
@@ -188,8 +197,9 @@ function adoptionHarness(box: Sandbox, options: {
     model: options.currentModel,
     modelRegistry: { find: () => options.foundModel },
     isProjectTrusted: () => true,
+    getContextUsage: () => options.contextUsage,
   } as unknown as ExtensionCommandContext;
-  return { adoptedModels, appended, ctx, hooks, messages, modelSwitches, store, thinkingSwitches };
+  return { adoptedModels, appended, ctx, handlers, hooks, messages, modelSwitches, store, thinkingSwitches };
 }
 
 function overwriteRecord(box: Sandbox, value: unknown): string {
@@ -199,6 +209,36 @@ function overwriteRecord(box: Sandbox, value: unknown): string {
 }
 
 const noModeChange = () => () => {};
+
+test("pause guidance names handoff writing and explicit adoption", async (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const percent = adoptionHarness(box, {
+    pauseThresholdPercent: 10,
+    contextUsage: { percent: 100 },
+  });
+  const turnEnd = percent.handlers.get("turn_end");
+  assert.ok(turnEnd);
+  await turnEnd?.({}, percent.ctx);
+  assert.match(String(percent.messages[0]?.content), /\/slate handoff \[optional focus\]/);
+  assert.match(String(percent.messages[0]?.content), /\/slate adopt <name>/);
+
+  const budget = adoptionHarness(box, {
+    contextBudget: { tokens: 10_000 },
+    contextUsage: { tokens: 20_000, contextWindow: 1_000_000 },
+    currentModel: { provider: "openai", id: "gpt-4o" },
+  });
+  const budgetEnd = budget.handlers.get("turn_end");
+  assert.ok(budgetEnd);
+  await budgetEnd?.({}, budget.ctx);
+  assert.match(String(budget.messages[0]?.content), /\/slate adopt <name>/);
+
+  const compact = adoptionHarness(box, { contextBudget: { tokens: 10_000 } });
+  const beforeCompact = compact.handlers.get("session_before_compact");
+  assert.ok(beforeCompact);
+  await beforeCompact?.({ reason: "threshold" }, compact.ctx);
+  assert.match(String(compact.messages[0]?.content), /\/slate adopt <name>/);
+});
 
 test("foreign adoption preserves the adopter namespace and appends predecessor lineage", async (t) => {
   const box = sandbox();

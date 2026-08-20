@@ -316,7 +316,8 @@ export function registerSlateHandoff(
 			headline,
 			"Finish nothing new. Reply to the user with:",
 			"(1) a concise HANDOFF BRIEF — overall goal, per-thread state with episode ids, immediate next actions;",
-			"(2) instructions: run /slate handoff [optional focus] to continue in a fresh session where all threads and episodes are restored automatically;",
+			"(2) instructions: run /slate handoff [optional focus] to write a handoff record, then run /slate adopt <name> in the successor session to restore the threads and episodes;",
+
 			`alternatively, start a new pi session manually, run /slate on, and have the new orchestrator read the episode files under ${CONFIG_DIR_NAME}/slate/episodes/.`,
 		].join("\n");
 
@@ -337,7 +338,7 @@ export function registerSlateHandoff(
 					: DEFAULT_PAUSE_THRESHOLD_PERCENT;
 			if (percent < threshold) return;
 			const pct = Math.round(percent);
-			notifyText = `slate: context at ${pct}% (budget ${threshold}%) — paused. Run /slate handoff [focus] to continue in a fresh session.`;
+			notifyText = `slate: context at ${pct}% (budget ${threshold}%) — paused. Run /slate handoff [focus], then run /slate adopt <name> in the successor session.`;
 			headline = `[slate] Context is at ${pct}% — over the ${threshold}% budget. Slate auto-paused: the thread tool now REJECTS new dispatches.`;
 		} else {
 			// BUDGET mode: absolute token budget resolved against the LIVE model.
@@ -370,7 +371,7 @@ export function registerSlateHandoff(
 				effective < configured
 					? ` (configured ${configured.toLocaleString("en-US")}, clamped for this model's context window)`
 					: "";
-			notifyText = `slate: context at ${used} tokens (budget ${cap}${clampNote}) — paused. Run /slate handoff [focus] to continue in a fresh session.`;
+			notifyText = `slate: context at ${used} tokens (budget ${cap}${clampNote}) — paused. Run /slate handoff [focus], then run /slate adopt <name> in the successor session.`;
 			headline = `[slate] Context is at ${used} tokens — over the ${cap}-token budget${clampNote}. Slate auto-paused: the thread tool now REJECTS new dispatches.`;
 		}
 
@@ -403,7 +404,7 @@ export function registerSlateHandoff(
 		store.save();
 		if (ctx.hasUI) {
 			ctx.ui.notify(
-				"slate: auto-compaction intercepted — paused instead. Run /slate handoff [focus] to continue in a fresh session.",
+				"slate: auto-compaction intercepted — paused instead. Run /slate handoff [focus], then run /slate adopt <name> in the successor session.",
 				"warning",
 			);
 		}

@@ -549,7 +549,7 @@ export class ThreadManager {
 			throw new Error(
 				"Slate is paused for handoff: the context budget was exceeded and new dispatches are rejected. " +
 					"Reply to the user with a handoff brief (overall goal, per-thread state with episode ids, immediate next actions) " +
-					"and ask them to run /slate handoff [focus] to continue in a fresh session.",
+					"and ask them to run /slate handoff [focus], then run /slate adopt <name> in the successor session.",
 			);
 		}
 		// EARLY route validation (see the header): the RESOLVED model/effort pair is

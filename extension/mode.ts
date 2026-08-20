@@ -11,8 +11,8 @@
  *     interactive sessions are seeded with the mode ON (unsaved until the
  *     first real state mutation).
  *
- * `/slate handoff [focus]` / `/slate resume` interact with the auto-pause
- * machinery in handoff.ts (context budget → paused → fresh-session handoff).
+ * `/slate handoff [focus]` writes a handoff record. A successor then runs
+ * `/slate adopt <name>` to restore it. `/slate resume` exits the paused state.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -562,8 +562,9 @@ const PAUSED_ADDENDUM = `
 
 Slate is paused for handoff: thread dispatches are REJECTED. Do not start new
 work. Reply with a concise handoff brief (overall goal, per-thread state with
-episode ids, immediate next actions) and direct the user to run
-/slate handoff [optional focus].`;
+episode ids, immediate next actions). Direct the user to run
+/slate handoff [optional focus], then run /slate adopt <name> in the successor
+session.`;
 
 export function renderThreadWidgetLine(thread: ThreadRecord): string {
 	const marker = threadTypeMarker(displayThreadType(thread.type));
@@ -842,15 +843,13 @@ export function registerSlateMode(
 		writingCheckerPromise = undefined;
 		writingStatus = "fresh";
 		Object.assign(store.writingReminder, resetWritingReminderSession(store.writingReminder));
-		// Preserve force only when the earlier handoff handler marked this cycle.
-		// The reset consumes that marker, so a later generic session_start clears
-		// stale force. Registration order remains index restore, handoff, then mode.
-		// Re-apply the persisted mode to the fresh runtime.
+		// The reset consumes any force marker from an explicit adoption cycle, so a
+		// later generic session_start clears stale force. Re-apply the persisted mode
+		// to the fresh runtime.
 		//
 		// Config-driven default: seed orchestrator mode ON for a genuinely FRESH
-		// interactive session. Running AFTER restore and handoff adoption means
-		// the seed can neither clobber persisted state nor trip the adoption
-		// guard. "Fresh" = no message entries and no recorded slate state on the
+		// interactive session. The seed can neither clobber persisted state nor trip
+		// the adoption guard. "Fresh" = no message entries and no recorded slate state on the
 		// branch: metadata-only entries (e.g., session naming) don't suppress the
 		// seed, while resumed/forked real sessions and explicit /slate off
 		// decisions stay untouched. Deliberately NOT saved — persisting would

@@ -879,7 +879,7 @@ The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`
 | `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, writing check, reminder switch, pause state and the one-send round slot close independently; force does not bypass policy gates; no UI gate exists |
 | `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-rearm` / `writing-reminder-mode-force` | claim queues a pending mark without consuming force; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; only assistant `message_end` re-arms the next round |
 | `writing-reminder-send-retry` / `writing-reminder-cleared-retry` | a synchronous `sendMessage` throw releases the claim for retry; an assistant response that arrives before delivery also clears the pending claim without consuming cadence or force |
-| `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters snapshots; the real handoff adoption handler sets force before mode reset; reset preserves that force while clearing mark, round and pending state |
+| `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters snapshots; the explicit `/slate adopt <name>` command sets force before mode reset; reset preserves that force while clearing mark, round and pending state |
 
 The family uses the real `registerSlateMode` handlers with fabricated contexts.
 It remains a pure harness with no pi session. The live hook and persistence path

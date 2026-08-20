@@ -264,9 +264,8 @@ export default function (pi: ExtensionAPI) {
 		};
 		// Fresh tracker per session, seeded from the session's OWN resolved model —
 		// undefined is legitimate (no model, or no auth for one) and stays silent.
-		// Same warn channel as the sanitizers above. A handoff adoption re-seeds it
-		// later, from registerSlateHandoff's session_start handler (registered below,
-		// so it runs after this one). Created BEFORE the ThreadManager below on
+		// Same warn channel as the sanitizers above. Explicit handoff adoption re-seeds
+		// it later from the adopt command. Created BEFORE the ThreadManager below on
 		// purpose: a consumer that binds it BY VALUE at construction (the CN20 rule the
 		// worker-extension resolver follows) must capture THIS session's tracker, not
 		// the previous session's.
@@ -290,10 +289,9 @@ export default function (pi: ExtensionAPI) {
 		manager.disposeAll();
 	});
 
-	// session_start ordering (registration order): restore → adopt pending
-	// handoff → resolve slate identity → re-apply mode tools. Handoff adoption
-	// must precede identity resolution so a valid successor is re-stamped first.
-	// getConfig reads the CURRENT `manager` (reassigned on session_start).
+	// The session_start hook restores slate state and resolves the current session
+	// identity. Handoff adoption runs later, only when the user invokes `/slate adopt
+	// <name>`. getConfig reads the CURRENT `manager` (reassigned on session_start).
 	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel);
 
 	pi.on("session_start", async (_event, ctx) => {
