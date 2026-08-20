@@ -155,12 +155,15 @@ function adoptionHarness(box: Sandbox, options: {
     },
     getThinkingLevel() { return thinkingSwitches.at(-1) ?? options.currentThinking; },
     async setModel(model: { provider: string; id: string }) {
-      modelSwitches.push(`${model.provider}/${model.id}`);
+      const spec = `${model.provider}/${model.id}`;
+      modelSwitches.push(spec);
+      options.events?.push(`model-switch:${spec}`);
       if (options.failModelSwitch) throw new Error("forced model switch failure");
       return true;
     },
     setThinkingLevel(level: string) {
       thinkingSwitches.push(level);
+      options.events?.push(`thinking-switch:${level}`);
       if (options.failThinkingSwitch) throw new Error("forced thinking switch failure");
     },
   } as unknown as ExtensionAPI;
@@ -812,7 +815,40 @@ test("adoption rejects unreadable and future records but warns and accepts stale
   assert.equal(stale.messages.at(-1)?.customType, "slate-kickoff");
 });
 
-test("adoption restores only matching live model state and preserves transaction order", async (t) => {
+test("successful persistence precedes model switch, thinking switch, and kickoff", async (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  overwriteRecord(box, {
+    ...box.record,
+    model: { provider: "provider", id: "target" },
+    thinkingLevel: "high",
+  });
+  const events: string[] = [];
+  const harness = adoptionHarness(box, {
+    currentModel: { provider: "provider", id: "other" },
+    currentThinking: "low",
+    foundModel: { provider: "provider", id: "target" },
+    events,
+  });
+
+  assert.equal(await harness.hooks.adoptHandoff(harness.ctx, box.source.name, noModeChange), true);
+  assert.deepEqual(harness.modelSwitches, ["provider/target"]);
+  assert.deepEqual(harness.thinkingSwitches, ["high"]);
+  assert.deepEqual(harness.adoptedModels, [
+    { model: "provider/target", effort: "low" },
+    { model: "provider/target", effort: "high" },
+  ]);
+  assert.deepEqual(events, [
+    "save",
+    "model-switch:provider/target",
+    "restore:provider/target:low",
+    "thinking-switch:high",
+    "restore:provider/target:high",
+    "kickoff",
+  ]);
+});
+
+test("model and thinking restoration failures are reported without blocking kickoff", async (t) => {
   const box = sandbox();
   t.after(() => box.restore());
   overwriteRecord(box, {
@@ -823,35 +859,26 @@ test("adoption restores only matching live model state and preserves transaction
   const warnings: string[] = [];
   t.mock.method(console, "warn", (message: unknown) => warnings.push(String(message)));
 
-  const events: string[] = [];
-  const matching = adoptionHarness(box, {
-    currentModel: { provider: "provider", id: "target" },
-    currentThinking: "high",
-    events,
+  const modelFailure = adoptionHarness(box, {
+    currentModel: { provider: "provider", id: "other" },
+    foundModel: { provider: "provider", id: "target" },
+    failModelSwitch: true,
   });
-  assert.equal(await matching.hooks.adoptHandoff(matching.ctx, box.source.name, noModeChange), true);
-  assert.deepEqual(matching.modelSwitches, []);
-  assert.deepEqual(matching.thinkingSwitches, []);
-  assert.deepEqual(matching.adoptedModels, [{ model: "provider/target", effort: "high" }]);
-  assert.deepEqual(events, ["save", "restore:provider/target:high", "kickoff"]);
+  assert.equal(await modelFailure.hooks.adoptHandoff(modelFailure.ctx, box.source.name, noModeChange), true);
+  assert.deepEqual(modelFailure.modelSwitches, ["provider/target"]);
+  assert.match(warnings.join("\n"), /could not restore handoff model provider\/target.*forced model switch failure/);
+  assert.equal(modelFailure.messages.at(-1)?.customType, "slate-kickoff");
 
   warnings.length = 0;
-  const differentModel = adoptionHarness(box, { currentModel: { provider: "provider", id: "other" } });
-  assert.equal(await differentModel.hooks.adoptHandoff(differentModel.ctx, box.source.name, noModeChange), true);
-  assert.match(warnings.join("\n"), /skipped automatic handoff model restoration.*Select it manually/);
-  assert.deepEqual(differentModel.modelSwitches, []);
-  assert.deepEqual(differentModel.adoptedModels, []);
-  assert.equal(differentModel.messages.at(-1)?.customType, "slate-kickoff");
-
-  warnings.length = 0;
-  const differentThinking = adoptionHarness(box, {
+  const thinkingFailure = adoptionHarness(box, {
     currentModel: { provider: "provider", id: "target" },
     currentThinking: "low",
+    failThinkingSwitch: true,
   });
-  assert.equal(await differentThinking.hooks.adoptHandoff(differentThinking.ctx, box.source.name, noModeChange), true);
-  assert.match(warnings.join("\n"), /kept the current thinking level.*Select it manually/);
-  assert.deepEqual(differentThinking.thinkingSwitches, []);
-  assert.deepEqual(differentThinking.adoptedModels, [{ model: "provider/target", effort: "low" }]);
+  assert.equal(await thinkingFailure.hooks.adoptHandoff(thinkingFailure.ctx, box.source.name, noModeChange), true);
+  assert.deepEqual(thinkingFailure.thinkingSwitches, ["high"]);
+  assert.match(warnings.join("\n"), /could not restore thinking level high.*forced thinking switch failure/);
+  assert.equal(thinkingFailure.messages.at(-1)?.customType, "slate-kickoff");
 });
 
 test("startHandoff writes a compact record and reports specific identity and size refusals", async (t) => {

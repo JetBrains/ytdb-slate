@@ -29,7 +29,7 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { readLiveEffort, type BaseModelTracker } from "./base-model.ts";
+import { currentModelSpec, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
 import { currentBranchLabel } from "./corpus.ts";
 import {
 	listCorpusHandoffCandidates,
@@ -37,6 +37,7 @@ import {
 	writeCorpusHandoffRecord,
 	type CorpusHandoffRecord,
 } from "./handoff-record.ts";
+import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
 	orchestratorCostUsd,
@@ -440,21 +441,47 @@ export function registerSlateHandoff(
 		if (spec === undefined) return;
 		const { provider, id } = spec;
 		const label = sanitizeForNotify(`${provider}/${id}`);
-		if (ctx.model?.provider !== provider || ctx.model?.id !== id) {
-			reportFailure(
-				ctx,
-				`slate: skipped automatic handoff model restoration to ${label}. Select it manually to avoid changing the global default during overlapping sessions.`,
-			);
-			return;
-		}
-		const liveEffort = readLiveEffort(pi);
-		if (record.thinkingLevel !== undefined && liveEffort !== record.thinkingLevel) {
-			reportFailure(
-				ctx,
-				`slate: kept the current thinking level instead of restoring ${sanitizeForNotify(record.thinkingLevel, 20)}. Select it manually to avoid changing the global default during overlapping sessions.`,
-			);
-		}
-		_getBaseModel().adopt(`${provider}/${id}`, liveEffort);
+		await withGlobalModelDefaultRestored(
+			pi,
+			ctx,
+			getConfig(),
+			spec,
+			async () => {
+				let calledSetter = false;
+				try {
+					let restored = ctx.model?.provider === provider && ctx.model?.id === id;
+					if (!restored) {
+						const model = ctx.modelRegistry.find(provider, id);
+						if (model !== undefined) {
+							calledSetter = true;
+							restored = await _getBaseModel().ownSwitch(currentModelSpec(ctx), `${provider}/${id}`, () => pi.setModel(model));
+						}
+					}
+					if (!restored) {
+						reportFailure(ctx, `slate: could not restore handoff model ${label}. The session keeps its current model.`);
+						return calledSetter;
+					}
+					_getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
+					if (typeof record.thinkingLevel === "string") {
+						calledSetter = true;
+						try {
+							pi.setThinkingLevel(record.thinkingLevel);
+							_getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
+						} catch (error) {
+							reportFailure(
+								ctx,
+								`slate: restored model ${label}, but could not restore thinking level ${sanitizeForNotify(record.thinkingLevel, 20)}: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`,
+							);
+						}
+					}
+				} catch (error) {
+					calledSetter = true;
+					reportFailure(ctx, `slate: could not restore handoff model ${label}: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`);
+				}
+				return calledSetter;
+			},
+			(calledSetter) => calledSetter,
+		);
 	};
 
 	const describeCandidates = (ctx: ExtensionCommandContext): string[] => {
