@@ -838,6 +838,29 @@ test("production handoff durability defaults are the real frozen fsync operation
   assert.equal(DEFAULT_HANDOFF_DURABILITY_OPERATIONS.fsyncDirectory, fsyncHeldDirectory);
 });
 
+test("write closes the pending directory when the staging directory hold fails", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const stagingDirectory = join(box.source.project.directory, "handoff-staging");
+  rmSync(stagingDirectory, { recursive: true });
+  writeFileSync(stagingDirectory, "not a directory");
+
+  const descriptorDirectory = "/proc/self/fd";
+  const descriptorCount = process.platform === "linux" && existsSync(descriptorDirectory)
+    ? () => readdirSync(descriptorDirectory).length
+    : undefined;
+  const descriptorsBefore = descriptorCount?.();
+  for (let attempt = 0; attempt < 32; attempt++) {
+    assert.throws(() => writeCorpusHandoffRecord(box.source.project, box.record));
+  }
+  if (descriptorCount !== undefined) assert.equal(descriptorCount(), descriptorsBefore);
+
+  rmSync(stagingDirectory);
+  mkdirSync(stagingDirectory);
+  const published = writeCorpusHandoffRecord(box.source.project, box.record);
+  assert.equal(existsSync(published), true);
+});
+
 test("read and write reject one-way pending-directory replacement and sync first publication", (t) => {
   const readBox = sandbox();
   t.after(() => readBox.restore());

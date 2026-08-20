@@ -385,6 +385,16 @@ function holdDirectory(path: string): HeldDirectory {
 	return held;
 }
 
+function holdDirectoryPair(firstPath: string, secondPath: string): [HeldDirectory, HeldDirectory] {
+	const first = holdDirectory(firstPath);
+	try {
+		return [first, holdDirectory(secondPath)];
+	} catch (error) {
+		closeSync(first.fd);
+		throw error;
+	}
+}
+
 export function fsyncHeldDirectory(held: HeldDirectory): void {
 	try { fsyncSync(held.fd); }
 	catch (error) {
@@ -626,8 +636,7 @@ export function writeCorpusHandoffRecord(
 	} finally {
 		closeSync(projectHeld.fd);
 	}
-	const pendingHeld = holdDirectory(pending);
-	const stagingDirectoryHeld = holdDirectory(stagingDirectory);
+	const [pendingHeld, stagingDirectoryHeld] = holdDirectoryPair(pending, stagingDirectory);
 	const file = corpusHandoffFile(project, record.author.name);
 	const staging = join(stagingDirectory, `.${record.author.name}.${process.pid}.${Date.now()}.tmp`);
 	let fd: number | undefined;
