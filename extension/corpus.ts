@@ -120,11 +120,16 @@ export function ensureCorpusRoot(): string {
 	}
 }
 
-function git(cwd: string, args: string[]): string | undefined {
+export function gitEnvironment(): NodeJS.ProcessEnv {
 	const env = { ...process.env };
 	delete env.GIT_DIR;
 	delete env.GIT_COMMON_DIR;
-	const result = spawnSync("git", args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+	delete env.GIT_WORK_TREE;
+	return env;
+}
+
+function git(cwd: string, args: string[]): string | undefined {
+	const result = spawnSync("git", args, { cwd, env: gitEnvironment(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
 	if (result.status !== 0) return undefined;
 	const output = result.stdout.replace(/\r?\n$/u, "");
 	return output === "" ? undefined : output;

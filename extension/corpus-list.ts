@@ -14,7 +14,7 @@ import { spawnSync } from "node:child_process";
 import { parseCorpusHandoffRecord } from "./handoff-record.ts";
 import { isSlateSessionName } from "./session-names.ts";
 import { SLATE_SESSION_ID_PATTERN } from "./state.ts";
-import type { CorpusProject } from "./corpus.ts";
+import { gitEnvironment, type CorpusProject } from "./corpus.ts";
 
 export const CORPUS_LIST_ROOT_ENTRIES = 4096;
 export const CORPUS_LIST_ROW_ENTRIES = 4096;
@@ -24,6 +24,7 @@ export const CORPUS_LIST_AGGREGATE_BYTES = 4 * 1024 * 1024;
 export const CORPUS_LIST_SESSION_ENTRIES = 64;
 export const CORPUS_LIST_CELL_CHARS = 240;
 
+const CORPUS_LIST_OUTPUT_CHARS = 16_384;
 const NO_FOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 const NON_BLOCK = typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOCK : 0;
 
@@ -230,7 +231,7 @@ function readRow(project: CorpusProject, name: string, worktreeRoot: string, lim
 function renderRow(row: DraftRow): string {
 	const markers = row.markers.length === 0 ? "none" : row.markers.map(corpusListCell).join(", ");
 	const notes = row.notes.length === 0 ? "none" : row.notes.map(corpusListCell).join(", ");
-	return `- ${corpusListCell(row.name)} | identity ${corpusListCell(row.identity) || "(invalid)"} | branch ${corpusListCell(row.branchLabel) || "(detached)"} | worktree ${corpusListCell(row.worktreePath) || "(invalid)"} | created ${corpusListCell(row.createdAt) || "(invalid)"} | pending ${corpusListCell(row.pending)} | marker ${corpusListCell(markers)} | defect ${corpusListCell(notes)}`;
+	return `- ${corpusListCell(row.name)} | identity ${corpusListCell(row.identity) || "(invalid)"} | branch ${corpusListCell(row.branchLabel) || "(unknown)"} | worktree ${corpusListCell(row.worktreePath) || "(invalid)"} | created ${corpusListCell(row.createdAt) || "(invalid)"} | pending ${corpusListCell(row.pending)} | marker ${corpusListCell(markers)} | defect ${corpusListCell(notes)}`;
 }
 
 /** Read and render the current project's corpus without creating any path. */
@@ -276,7 +277,7 @@ export function listCorpusSessions(options: {
 	// The project key is the Git common directory. Git's top-level directory is needed
 	// only for the display marker and never comes from metadata.
 	try {
-		const result = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: options.cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+		const result = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: options.cwd, env: gitEnvironment(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
 		if (result.status === 0 && result.stdout.trim() !== "") worktreeRoot = realpathSync(result.stdout.trim());
 	} catch { /* a non-Git directory uses its own canonical root */ }
 	let directory: ReturnType<typeof opendirSync> | undefined;
@@ -320,7 +321,19 @@ export function listCorpusSessions(options: {
 		`slate: corpus sessions for ${corpusListCell(project.label)}`,
 		...rows.map(renderRow),
 	];
-	if (omitted > 0) lines.push(`listing truncated: read ${limits.rowEntries} entries; did not read ${countExhausted ? "at least " : ""}${omitted} entries`);
+	if (omitted > 0) {
+		const readNoun = limits.rowEntries === 1 ? "entry" : "entries";
+		const omittedNoun = omitted === 1 && !countExhausted ? "entry" : "entries";
+		lines.push(`listing truncated: read ${limits.rowEntries} ${readNoun}. Did not read ${countExhausted ? "at least " : ""}${omitted} ${omittedNoun}`);
+	}
 	lines.push("Sequential best-effort reading: each row was read at a different moment. Another process may have changed the corpus. No line describes a single instant.");
 	return { ok: true, lines, rows: rows.length, truncated: omitted > 0 };
+}
+
+/** Keep the command channel bounded and state when rows were omitted from it. */
+export function capCorpusSessionOutput(rendered: string): string {
+	const notice = "\n[output truncated at 16384 characters]";
+	return rendered.length > CORPUS_LIST_OUTPUT_CHARS
+		? `${rendered.slice(0, CORPUS_LIST_OUTPUT_CHARS - notice.length)}${notice}`
+		: rendered;
 }

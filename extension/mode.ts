@@ -19,7 +19,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
-import { listCorpusSessions } from "./corpus-list.ts";
+import { capCorpusSessionOutput, listCorpusSessions } from "./corpus-list.ts";
 import { PROFILES_AS_OF } from "./model-profiles.ts";
 import { checkEffort, ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "./model-router.ts";
 import {
@@ -681,7 +681,7 @@ export function registerSlateMode(
 					isTrusted: () => ctx.isProjectTrusted(),
 					project: store.corpusProject,
 				});
-				const message = listed.ok ? listed.lines.join("\n") : listed.reason;
+				const message = listed.ok ? capCorpusSessionOutput(listed.lines.join("\n")) : listed.reason;
 				console.warn(message);
 				if (ctx.hasUI) ctx.ui.notify(message, listed.ok ? "info" : "warning");
 				return;

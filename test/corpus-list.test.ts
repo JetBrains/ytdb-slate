@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import fs, { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -102,9 +104,11 @@ test("project overflow reports exact and at-least omitted counts without retaini
   try {
     for (let i = 0; i < 4; i++) writeFileSync(join(b.session.project.directory, `junk-${i}`), "x");
     const exact = b.list({ rowEntries: 3, countEntries: 8 });
-    assert.match(output(exact), /listing truncated: read 3 entries; did not read 2 entries/);
+    assert.match(output(exact), /listing truncated: read 3 entries\. Did not read 2 entries/);
+    const singular = b.list({ rowEntries: 4, countEntries: 8 });
+    assert.match(output(singular), /listing truncated: read 4 entries\. Did not read 1 entry/);
     const bounded = b.list({ rowEntries: 2, countEntries: 2 });
-    assert.match(output(bounded), /listing truncated: read 2 entries; did not read at least 2 entries/);
+    assert.match(output(bounded), /listing truncated: read 2 entries\. Did not read at least 2 entries/);
   } finally { b.close(); }
 });
 
@@ -178,18 +182,30 @@ test("missing project state and a disappeared matching project refuse the whole 
   } finally { b.close(); }
 });
 
-test("a session started in a checkout subdirectory is not foreign", () => {
+test("a session started in a checkout subdirectory is not foreign under an inherited Git directory", () => {
   const b = box();
+  const oldGitDir = process.env.GIT_DIR;
+  const oldGitWorkTree = process.env.GIT_WORK_TREE;
   try {
+    assert.equal(spawnSync("git", ["init", "-q"], { cwd: b.cwd }).status, 0);
     const sub = join(b.cwd, "nested");
     mkdirSync(sub);
     const raw = JSON.parse(readFileSync(join(b.session.directory, "session.json"), "utf8"));
-    raw.worktreePath = sub;
+    raw.worktreePath = b.cwd;
     writeFileSync(join(b.session.directory, "session.json"), JSON.stringify(raw));
-    const line = output(b.list()).split("\n").find((value) => value.startsWith(`- ${b.session.name}`));
+    process.env.GIT_DIR = join(b.cwd, ".git");
+    process.env.GIT_WORK_TREE = sub;
+    const listed = listCorpusSessions({ cwd: sub, project: b.session.project, isTrusted: () => true });
+    const line = output(listed).split("\n").find((value) => value.startsWith(`- ${b.session.name}`));
     assert.ok(line);
     assert.equal(line.includes("outside this working tree"), false);
-  } finally { b.close(); }
+  } finally {
+    if (oldGitDir === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = oldGitDir;
+    if (oldGitWorkTree === undefined) delete process.env.GIT_WORK_TREE;
+    else process.env.GIT_WORK_TREE = oldGitWorkTree;
+    b.close();
+  }
 });
 
 test("file and session-directory ceilings accept the boundary and defect one beyond it", () => {
@@ -201,12 +217,61 @@ test("file and session-directory ceilings accept the boundary and defect one bey
     for (let i = readdirSync(b.session.directory).length; i < CORPUS_LIST_SESSION_ENTRIES; i++) writeFileSync(join(b.session.directory, `entry-${i}`), "");
     let line = output(b.list()).split("\n").find((value) => value.startsWith(`- ${b.session.name}`));
     assert.ok(line);
+    assert.match(line, new RegExp(`identity ${ID1}`));
+    assert.equal(line.includes("session metadata is unreadable"), false);
     assert.equal(line.includes("more than 64"), false);
     writeFileSync(join(b.session.directory, "entry-65"), "");
     line = output(b.list()).split("\n").find((value) => value.startsWith(`- ${b.session.name}`));
     assert.ok(line?.includes("more than 64 entries"));
     writeFileSync(file, "x".repeat(CORPUS_LIST_FILE_BYTES + 1));
     assert.match(output(b.list()), /larger than 65536 bytes/);
+  } finally { b.close(); }
+});
+
+test("one session entry read failure yields a defect row and the report continues", (t) => {
+  const b = box();
+  const original = fs.lstatSync;
+  try {
+    t.mock.method(fs, "lstatSync", ((path: fs.PathLike, options?: unknown) => {
+      if (String(path) === b.session.directory) throw new Error("injected entry failure");
+      return original(path, options as never);
+    }) as typeof fs.lstatSync);
+    syncBuiltinESMExports();
+    const listed = b.list();
+    const text = output(listed);
+    assert.match(text, new RegExp(`${b.session.name}.*session entry read failed: injected entry failure`));
+    assert.match(text, /Sequential best-effort reading/);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    b.close();
+  }
+});
+
+test("a project directory read failure refuses the whole report", (t) => {
+  const b = box();
+  const original = fs.opendirSync;
+  try {
+    t.mock.method(fs, "opendirSync", ((path: fs.PathLike, options?: fs.OpenDirOptions) => {
+      if (String(path) === b.session.project.directory) throw new Error("injected project failure");
+      return original(path, options);
+    }) as typeof fs.opendirSync);
+    syncBuiltinESMExports();
+    const listed = b.list();
+    assert.deepEqual(listed, { ok: false, reason: "slate: could not read the corpus project directory: injected project failure" });
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    b.close();
+  }
+});
+
+test("two project directories with one digest refuse the whole report", () => {
+  const b = box();
+  try {
+    mkdirSync(join(b.session.project.root, `duplicate-${b.session.project.digest}`));
+    const listed = b.list();
+    assert.deepEqual(listed, { ok: false, reason: "slate: several corpus project directories match this project" });
   } finally { b.close(); }
 });
 
@@ -306,6 +371,17 @@ test("the registered sessions subcommand reports success and trust refusal throu
     await command.handler("sessions", ctx);
     assert.equal(notices.at(-1)?.[1], "info");
     assert.match(notices.at(-1)?.[0] ?? "", /corpus sessions/);
+    assert.match(notices.at(-1)?.[0] ?? "", /branch \(unknown\)/);
+    for (let i = 0; i < 30; i++) {
+      const name = `calm-otter-${String(i + 100).padStart(4, "0")}`;
+      addSession(b.session.project.directory, name, metadata(name, ID2, {
+        branchLabel: "b".repeat(1000),
+        worktreePath: `/outside/${"w".repeat(1000)}`,
+      }));
+    }
+    await command.handler("sessions", ctx);
+    assert.equal(notices.at(-1)?.[0].length, 16_384);
+    assert.match(notices.at(-1)?.[0] ?? "", /\[output truncated at 16384 characters\]$/);
     trusted = false;
     await command.handler("sessions", ctx);
     assert.deepEqual(notices.at(-1), ["slate: corpus session listing requires a trusted project", "warning"]);
