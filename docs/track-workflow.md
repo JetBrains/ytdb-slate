@@ -209,8 +209,9 @@ A later track builds on the accepted boundary before it.
 
 ## Session handoff and the research log
 
-MEDIUM and LARGE changes always use `research-log.md` at the repository root.
-A SMALL change opens it when any retained trigger fires.
+MEDIUM and LARGE changes always use `research-log.md` at the root of the
+worktree that holds the change. For a single-checkout clone, that root is the
+checkout root. A SMALL change opens the log when any retained trigger fires.
 
 | trigger | SMALL | MEDIUM and LARGE |
 | --- | --- | --- |
@@ -240,6 +241,65 @@ omitted and why.
 Use a safe write method. Create the file without following a symlink. Append
 through a temporary file and atomic rename when replacement is needed. Keep the
 log untracked. Never overwrite it from a stale in-memory copy.
+
+### The delivery archive
+
+Archive the log after final change acceptance. The archive is a required
+delivery step. Delivery does not complete until a worker verifies the archive.
+The user may waive it only by recording that waiver in the pull request.
+
+The orchestrator dispatches one worker. The dispatch text supplies exactly two
+inputs: the corpus session name from the doctrine and the absolute path of the
+working `research-log.md`. The worker resolves every destination component.
+
+The worker follows these steps.
+
+1. Resolve the Pi agent directory from `PI_CODING_AGENT_DIR` when it is set.
+   Otherwise use `~/.pi/agent`. Resolve the `ytdb-slate/projects` corpus root
+   once with `realpath`.
+2. Derive the project digest from the source worktree. Run this exact command:
+
+   `printf '%s' "$(env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C <change worktree root> rev-parse --path-format=absolute --git-common-dir)" | sha256sum | cut -c1-12`
+
+   Refuse when Git or hashing fails. Under the corpus root, select the one
+   project directory whose name ends in `-<digest>`. Refuse zero matches and
+   several matches.
+3. Select `<project directory>/<corpus session name>`. It must be a directory
+   below the digest-bearing project directory. Set the archive parent to
+   `<corpus session directory>/deliveries`. Select the lowest positive
+   three-digit ordinal whose entry is absent, starting at `001`. The destination
+   is `<corpus session directory>/deliveries/<ordinal>/research-log.md`. Refuse
+   and report exhaustion without creating anything when `001` through `999` all
+   exist.
+4. Before reading `session.json` or writing anything, test the project directory,
+   session directory, `deliveries` directory and selected ordinal directory with
+   `test -L <path>`. Refuse when any test finds a symbolic link. A symbolic link
+   above the resolved corpus root is legitimate because users may place the
+   agent directory behind a link, while each named component below that root is
+   an archive identity or destination boundary.
+5. Read the selected session directory's `session.json`. Refuse unless the
+   metadata `name` equals the supplied corpus session name. Refuse when the
+   source is not a regular file or is unreadable. A source symbolic link is not
+   a regular source for this procedure.
+6. Create `deliveries` when it is absent. Create the selected ordinal directory.
+   Refuse when that ordinal directory already exists. Never remove an entry the
+   worker did not create.
+7. Copy the source to `research-log.md` in the new ordinal directory. Hash the
+   source and destination after the copy with SHA-256. Compare those two hashes
+   once.
+8. On a mismatch or any other failure, remove every file or directory this
+   attempt created. Keep every pre-existing entry. Report the failed step and
+   reason.
+9. On success, report the absolute destination path, the ordinal and the shared
+   hash. Never delete the working log.
+
+Two workers can select one ordinal before either creates it. Directory creation
+lets one worker succeed and makes the other refuse the existing directory. The
+orchestrator dispatches the refused archive again. The next attempt selects the
+next available ordinal. Add no lock.
+
+A source change during or after the copy can leave that attempt stale, but the
+working source survives every archive path and loses no bytes.
 
 Before a session handoff, append a state summary. It names the confirmed grade,
 focus sets, current track, last boundary marker, live registers, open findings,
@@ -333,8 +393,11 @@ Numbers are never reused.
 
 Delivery is the final squashed commit on the default development branch, or an
 explicit abandonment. Resolve or hand every open question to the user. Follow
-[user-notes.md](user-notes.md) for final accounting. Delete the retained local
-log only at delivery. On abandonment, offer its content for archival first.
+[user-notes.md](user-notes.md) for final accounting. Archive the retained local
+log as § Session handoff and the research log defines. Delivery completes only
+after the worker verifies the archive, unless the user records an archive waiver
+in the pull request. Never delete the working log. Worktree removal disposes of
+that copy. On abandonment, offer the log content for archival first.
 
 Aim for a delivery body at or below 16,384 UTF-8 bytes. Measure exact bytes from
 the commit object. If larger, remove repetition first. Then record a measured
