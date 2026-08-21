@@ -11,6 +11,7 @@ import {
   DEFAULT_HANDOFF_DURABILITY_OPERATIONS,
   fsyncHeldDirectory,
   handoffTreeWithinDepth,
+  holdDirectory,
   listCorpusHandoffCandidates,
   readCorpusHandoffRecord,
   writeCorpusHandoffRecord,
@@ -882,6 +883,26 @@ test("production handoff durability defaults are the real frozen fsync operation
   assert.equal(Object.isFrozen(DEFAULT_HANDOFF_DURABILITY_OPERATIONS), true);
   assert.equal(DEFAULT_HANDOFF_DURABILITY_OPERATIONS.fsyncFile, fsyncSync);
   assert.equal(DEFAULT_HANDOFF_DURABILITY_OPERATIONS.fsyncDirectory, fsyncHeldDirectory);
+});
+
+test("a failed directory status query closes its descriptor", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const descriptorDirectory = "/proc/self/fd";
+  if (process.platform !== "linux" || !existsSync(descriptorDirectory)) {
+    t.skip("/proc/self/fd is unavailable");
+    return;
+  }
+
+  const descriptorsBefore = readdirSync(descriptorDirectory).length;
+  const failure = Object.assign(new Error("injected status query failure"), { code: "EIO" });
+  for (let attempt = 0; attempt < 32; attempt++) {
+    assert.throws(
+      () => holdDirectory(box.source.project.directory, () => { throw failure; }),
+      (error) => error === failure,
+    );
+  }
+  assert.equal(readdirSync(descriptorDirectory).length, descriptorsBefore);
 });
 
 test("write closes the pending directory when the staging directory hold fails", (t) => {

@@ -386,9 +386,16 @@ export function directoryMatches(held: HeldDirectory): boolean {
 	}
 }
 
-export function holdDirectory(path: string): HeldDirectory {
+export function holdDirectory(path: string, statusQuery: typeof fstatSync = fstatSync): HeldDirectory {
 	const fd = openSync(path, constants.O_RDONLY | NO_FOLLOW | DIRECTORY_ONLY);
-	const held = { fd, stat: fstatSync(fd), path };
+	let stat: ReturnType<typeof fstatSync>;
+	try {
+		stat = statusQuery(fd);
+	} catch (error) {
+		closeSync(fd);
+		throw error;
+	}
+	const held = { fd, stat, path };
 	if (!directoryMatches(held)) {
 		closeSync(fd);
 		throw new Error("slate refused a linked or changing handoff directory");
