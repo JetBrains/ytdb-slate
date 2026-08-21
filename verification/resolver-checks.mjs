@@ -393,7 +393,7 @@ const DOCTRINE_IDS = [
 	"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace",
 	"doctrine-corpus-off", "doctrine-corpus-on", "doctrine-corpus-untrusted", "doctrine-corpus-reject-rename",
 	"doctrine-corpus-reject-invisible", "doctrine-corpus-no-project-text", "doctrine-corpus-fresh",
-	"doctrine-corpus-report", "doctrine-corpus-vocabulary", "doctrine-corpus-callsite",
+	"doctrine-corpus-report", "doctrine-corpus-headless", "doctrine-corpus-notify-guard", "doctrine-corpus-vocabulary", "doctrine-corpus-callsite",
 	"doctrine-budget", "doctrine-budget-follow-up",
 	"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite",
 ];
@@ -1381,25 +1381,84 @@ try {
 				["second render carries only the second name", secondFresh.includes(archiveFragment("brisk-bison-abcd")) && !secondFresh.includes(STANDARD_CORPUS.sessionName), rule8Of(secondFresh)],
 			]);
 
-			const reportHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, { sessionName: STANDARD_CORPUS.sessionName });
-			await reportHarness.sessionStart();
-			await reportHarness.render();
-			await reportHarness.render();
-			reportHarness.store.corpusProject = CORPUS_PROJECT;
-			reportHarness.store.slateSessionName = renamed;
-			await reportHarness.render();
-			await reportHarness.render();
-			reportHarness.store.slateSessionName = STANDARD_CORPUS.sessionName;
-			await reportHarness.render();
-			const firstSessionReports = [...reportHarness.notifications];
-			await reportHarness.sessionStart();
-			reportHarness.store.slateSessionName = renamed;
-			await reportHarness.render();
-			checkAll("doctrine-corpus-report", "each corpus refusal code reports once per session, accepted state reports nothing, and session start resets deduplication", [
-				["the first session reports exactly one no-project and one unminted-name refusal", firstSessionReports.length === 2 && firstSessionReports.filter((entry) => entry.message.includes("corpus project is unavailable")).length === 1 && firstSessionReports.filter((entry) => entry.message.includes("session name is not Slate-minted")).length === 1, firstSessionReports],
-				["accepted state adds no report", firstSessionReports.length === 2, firstSessionReports],
-				["session start resets the refusal set", reportHarness.notifications.length === 3 && reportHarness.notifications.at(-1)?.message.includes("session name is not Slate-minted"), reportHarness.notifications],
-				["all reports use warning severity and the archive fallback", reportHarness.notifications.every((entry) => entry.level === "warning" && entry.message.includes("archive the research log")), reportHarness.notifications],
+			const reportCases = [
+				{
+					label: "no-project",
+					state: { sessionName: STANDARD_CORPUS.sessionName },
+					reason: "the corpus project is unavailable",
+					name: STANDARD_CORPUS.sessionName,
+				},
+				{
+					label: "no-session-name",
+					state: { project: CORPUS_PROJECT },
+					reason: "the session name is absent",
+					name: "(missing)",
+				},
+				{
+					label: "unminted-name",
+					state: { project: CORPUS_PROJECT, sessionName: renamed },
+					reason: "the session name is not Slate-minted",
+					name: renamed,
+				},
+			].map((fixture) => ({
+				...fixture,
+				expectedMessage: `slate: doctrine cannot name the corpus session (${fixture.reason}, name: ${fixture.name}). At delivery, record the archive waiver per the workflow doc.`,
+			}));
+			const allReasons = reportCases.map(({ reason }) => reason);
+			const reportResults = [];
+			for (const fixture of reportCases) {
+				const harness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, fixture.state);
+				await harness.sessionStart();
+				await harness.render();
+				await harness.render();
+				reportResults.push({ ...fixture, notifications: harness.notifications });
+			}
+			const acceptedHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, STANDARD_CORPUS);
+			await acceptedHarness.sessionStart();
+			await acceptedHarness.render();
+			const resetHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, { project: CORPUS_PROJECT });
+			await resetHarness.sessionStart();
+			await resetHarness.render();
+			await resetHarness.sessionStart();
+			await resetHarness.render();
+			const modeSourceForReports = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
+			checkAll("doctrine-corpus-report", "the exact three-code set reports each truthful refusal once, a fresh accepted state stays silent, and session start resets deduplication", [
+				["the defect-code union is exact", modeSourceForReports.includes('type DoctrineCorpusDefectCode = "no-project" | "no-session-name" | "unminted-name";'), modeSourceForReports.match(/type DoctrineCorpusDefectCode[^;]*;/)?.[0]],
+				["each refusal reports exactly once despite two renders", reportResults.every(({ notifications }) => notifications.length === 1), reportResults],
+				["each situation reports only its own truthful reason", reportResults.every(({ reason, notifications }) => notifications[0]?.message.includes(reason) && allReasons.filter((candidate) => candidate !== reason).every((candidate) => !notifications[0]?.message.includes(candidate))), reportResults],
+				["each report exactly names the defect, sanitized name, waiver action, and workflow source", reportResults.every(({ expectedMessage, notifications }) => notifications[0]?.message === expectedMessage), reportResults],
+				["the fresh accepted state emits no report", acceptedHarness.notifications.length === 0, acceptedHarness.notifications],
+				["session start resets the refusal set", resetHarness.notifications.length === 2 && resetHarness.notifications.every((entry) => entry.message === reportCases[1]?.expectedMessage), resetHarness.notifications],
+				["all reports use warning severity", [...reportResults.flatMap(({ notifications }) => notifications), ...resetHarness.notifications].every((entry) => entry.level === "warning"), { reportResults, reset: resetHarness.notifications }],
+			]);
+
+			// Mutation: force reportCorpusDefect through the UI branch when hasUI is false.
+			const headlessHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, { sessionName: STANDARD_CORPUS.sessionName });
+			headlessHarness.ctx.hasUI = false;
+			await headlessHarness.sessionStart();
+			const headlessDoctrine = await headlessHarness.render();
+			const visibleHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, { sessionName: STANDARD_CORPUS.sessionName });
+			await visibleHarness.sessionStart();
+			const visibleDoctrine = await visibleHarness.render();
+			checkAll("doctrine-corpus-headless", "a session without a UI reports through console.warn and receives byte-identical doctrine", [
+				["the headless warning appears exactly once on the console path", headlessHarness.warnings.length === 1 && headlessHarness.warnings[0]?.includes("the corpus project is unavailable"), headlessHarness.warnings],
+				["the headless branch sends no UI notification", headlessHarness.notifications.length === 0, headlessHarness.notifications],
+				["headless and visible sessions receive byte-identical doctrine", headlessDoctrine === visibleDoctrine, { headlessBytes: headlessDoctrine.length, visibleBytes: visibleDoctrine.length }],
+			]);
+
+			// Mutation: remove the try/catch around the UI notification sink.
+			const throwingHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, { sessionName: STANDARD_CORPUS.sessionName });
+			let notificationAttempts = 0;
+			throwingHarness.ctx.ui.notify = () => {
+				notificationAttempts += 1;
+				throw new Error("notification sink failed");
+			};
+			await throwingHarness.sessionStart();
+			const throwingDoctrine = await throwingHarness.render();
+			checkAll("doctrine-corpus-notify-guard", "a throwing notification sink costs only its report and leaves the complete doctrine unchanged", [
+				["the throwing notification sink is exercised once", notificationAttempts === 1, notificationAttempts],
+				["the returned doctrine is byte-identical to the non-throwing control", throwingDoctrine === visibleDoctrine, { throwingBytes: throwingDoctrine.length, visibleBytes: visibleDoctrine.length }],
+				["the complete fixed doctrine tail survives", /\n9\. Review every track[\s\S]*\n10\. The design principles behind this architecture/.test(throwingDoctrine), throwingDoctrine.slice(-700)],
 			]);
 
 			const expectedAdjectives = ["amber", "brisk", "calm", "clear", "cool", "crisp", "daring", "eager", "fair", "fleet", "fresh", "gentle", "glad", "grand", "keen", "kind", "lively", "merry", "mild", "neat", "nimble", "plain", "proud", "quick", "quiet", "rapid", "ready", "steady", "swift", "tidy", "warm", "wise"];
@@ -3632,14 +3691,82 @@ production behaviour.`);
 
 			const archive = workflow.match(/^### The delivery archive\n([\s\S]*?)(?=^### |^## )/m)?.[1] ?? "";
 			const archiveText = normalizeText(archive);
-			const digestCommand = `printf '%s' "$(env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C <change worktree root> rev-parse --path-format=absolute --git-common-dir)" | sha256sum | cut -c1-12`;
+			const inlineArchiveCode = [...archive.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]);
+			const pathAssignmentNames = ["corpus_root_input", "corpus_root", "worktree", "git_common_dir", "candidate"];
+			const pathAssignments = inlineArchiveCode.filter((code) => pathAssignmentNames.some((name) => code.startsWith(`${name}=`)));
+			const expectedPathAssignments = [
+				"worktree='<change worktree root>'",
+				"candidate='<selected path>'",
+				"corpus_root_input='<Pi agent directory>/ytdb-slate/projects'",
+				"corpus_root='<resolved corpus root>'",
+				"worktree='<change worktree root>'",
+				"git_common_dir='<Git common directory>'",
+				"candidate='<selected path>'",
+			];
+			const archiveCommands = inlineArchiveCode.filter((code) => /^(?:env |git |realpath |printf |test )/.test(code));
+			const expectedArchiveCommands = [
+				`git -C "$worktree"`,
+				`test -L "$candidate"`,
+				`realpath "$corpus_root_input"`,
+				`env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "$worktree" rev-parse --path-format=absolute --git-common-dir`,
+				`printf '%s' "$git_common_dir" | sha256sum`,
+				`test -L "$candidate"`,
+			];
+			const pathVariablePattern = /\$(?:corpus_root_input|corpus_root|worktree|git_common_dir|candidate)\b/g;
+			const unquotedPathReferences = archiveCommands.flatMap((command) => [...command.matchAll(pathVariablePattern)].flatMap((match) => {
+				const start = match.index ?? -1;
+				const end = start + match[0].length;
+				return command[start - 1] === `"` && command[end] === `"` ? [] : [`${command} → ${match[0]}`];
+			}));
+			const directPathInterpolations = archiveCommands.filter((command) => /<[^>]*(?:path|root|directory|worktree)[^>]*>/i.test(command));
+			const gitCaptureCommand = `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "$worktree" rev-parse --path-format=absolute --git-common-dir`;
+			const capturedGitAssignment = `git_common_dir='<Git common directory>'`;
+			const hashCapturedCommand = `printf '%s' "$git_common_dir" | sha256sum`;
+			const digestPositions = {
+				captureInstruction: archiveText.indexOf("Run the Git command and capture its output through the worker harness"),
+				git: archiveText.indexOf(gitCaptureCommand),
+				gitRefusal: archiveText.indexOf("Refuse when the Git command fails or prints nothing."),
+				capturedAssignment: archiveText.indexOf(capturedGitAssignment),
+				hash: archiveText.indexOf(hashCapturedCommand),
+				hashRefusal: archiveText.indexOf("Refuse when hashing fails or prints nothing."),
+				digestWidth: archiveText.indexOf("The digest is the first 12 hexadecimal characters of the hash."),
+			};
+			const maskedDigestCommands = archiveCommands.filter((command) => /\$\([^)]*\bgit\b[^)]*\)[^`]*\|\s*sha256sum/.test(command) || /sha256sum\s*\|\s*cut\s+-c1-12/.test(command));
+			const archiveStepPositions = {
+				symlinkPreamble: archiveText.indexOf("4. Before reading `session.json` or writing anything"),
+				symlinkRefusal: archiveText.indexOf("Refuse when any test finds a symbolic link."),
+				metadataRead: archiveText.indexOf("5. Read the selected session directory's `session.json`."),
+				firstWrite: archiveText.indexOf("6. Create `deliveries` when it is absent."),
+			};
+			const expectedDecisionTable = [
+				"| working log exists | corpus session resolves | required result |",
+				"| --- | --- | --- |",
+				"| no | either | Nothing needs archival. Delivery proceeds. |",
+				"| yes | yes | The orchestrator archives and verifies the working log before delivery. |",
+				"| yes | no | The orchestrator reports that no corpus session resolved and records an archive waiver. |",
+			];
+			const decisionTable = archive.split("\n").filter((line) => line.startsWith("|"));
+			const corpusRootRefusal = "The worker refuses and reports when the resolution fails or returns an empty value.";
+			const deliveryScopeRule = normalizeText(`The delivery archive applies only to delivery. Abandonment is not delivery.
+After final change acceptance, archive the working log when this decision table
+requires it. The table governs delivery and is complete.`);
+			const deliveryWaiverRule = normalizeText(`The orchestrator does not guess a corpus session. The archive waiver exists for
+delivery only. The orchestrator records every archive waiver in the delivery
+commit body. When \`workflow.draftPRs\` is enabled, the orchestrator records the
+waiver in the pull request as well.`);
+			const abandonmentRule = normalizeText(`For an abandoned change, offer the working log to the user before the worktree
+is removed. When the user wants the working log kept, archive it with the same
+procedure. No waiver applies because no delivery happens.`);
+			const commitWaiverRule = "The orchestrator records every archive waiver in the delivery commit body.";
+			const pullRequestWaiverRule = "When `workflow.draftPRs` is enabled, the orchestrator records the waiver in the pull request as well.";
 			const refusalAndCleanupTerms = [
-				"Refuse when Git or hashing fails.",
+				"Refuse when the Git command fails or prints nothing.",
+				"Refuse when hashing fails or prints nothing.",
 				"Refuse zero matches and several matches.",
 				"Refuse and report exhaustion without creating anything when `001` through `999` all exist.",
 				"Refuse when any test finds a symbolic link.",
 				"Refuse unless the metadata `name` equals the supplied corpus session name.",
-				"Refuse when the source is not a regular file or is unreadable.",
+				"Refuse when the working log is not a regular file or is unreadable.",
 				"Refuse when that ordinal directory already exists.",
 				"Never remove an entry the worker did not create.",
 				"On a mismatch or any other failure, remove every file or directory this attempt created.",
@@ -3648,20 +3775,45 @@ production behaviour.`);
 			];
 			const missingArchiveTerms = refusalAndCleanupTerms.filter((term) => !archiveText.includes(normalizeText(term)));
 			const oldDeletionSentence = "Delete the retained local log only at delivery.";
-			const agentsArchiveLine = agents.split("\n").find((line) => line.includes("At delivery, after final change acceptance")) ?? "";
-			checkAll("contract-delivery-archive", "the shipped workflow and project instructions pin the complete non-destructive delivery archive contract", [
+			const agentsArchiveClause = agents.match(/^- At delivery, after final change acceptance,[\s\S]*?(?=^- |^## )/m)?.[0]?.trim() ?? "";
+			const expectedAgentsArchiveClause = normalizeText(`- At delivery, after final change acceptance, the orchestrator applies the complete archive decision table. The orchestrator records any archive waiver in the delivery commit body. When \`workflow.draftPRs\` is enabled, the orchestrator also records it in the pull request. Never delete the working log. Worktree removal disposes of that copy. \`docs/track-workflow.md\` § Session handoff and the research log defines resolution, refusal, verification and retry.`);
+			checkAll("contract-delivery-archive", "the workflow pins quoted paths, digest and root failures, ordering, the delivery-only table, abandonment, waiver locations, and the AGENTS summary", [
 				["the archive section exists once", archive !== "" && (workflow.match(/^### The delivery archive$/gm) ?? []).length === 1, archive.slice(0, 200)],
-				["dispatch supplies only the corpus session name and absolute source-log path", archiveText.includes("supplies exactly two inputs: the corpus session name from the doctrine and the absolute path of the working `research-log.md`"), archiveText.slice(0, 500)],
-				["the worker resolves the agent root and project digest", archiveText.includes("Resolve the Pi agent directory from `PI_CODING_AGENT_DIR`") && archiveText.includes("Otherwise use `~/.pi/agent`") && archiveText.includes("Derive the project digest from the source worktree"), archiveText.slice(0, 900)],
-				["the exact digest command appears once", workflow.split(digestCommand).length - 1 === 1, workflow.split(digestCommand).length - 1],
+				["dispatch supplies only the named corpus session and absolute working-log path", archiveText.includes("supplies exactly two inputs: that corpus session name and the absolute path of the working log"), archiveText.slice(0, 700)],
+				["the worktree-root placeholder is defined from the working log", archiveText.includes("`<change worktree root>` is the directory that holds the working log"), archiveText.slice(0, 700)],
+				["the worker resolves the agent root and derives the project digest from the change worktree", archiveText.includes("Resolve the Pi agent directory from `PI_CODING_AGENT_DIR`") && archiveText.includes("Otherwise use `~/.pi/agent`") && archiveText.includes("Derive the project digest from the change worktree"), archiveText.slice(0, 1200)],
+				// Pin 1a. Mutation: change any listed literal single-quoted assignment to another assignment form.
+				["every command path is first represented by the exact single-quoted assignment roster", JSON.stringify(pathAssignments) === JSON.stringify(expectedPathAssignments), { expected: expectedPathAssignments, actual: pathAssignments }],
+				// Pin 1b. Mutation: remove the refusal for a supplied or derived path containing one single quote.
+				["the path rule refuses a single quote before assignment", archiveText.includes("Before forming an assignment, the worker refuses a path containing a single quote character (`'`) because the assignment cannot represent it safely."), archiveText.slice(650, 1450)],
+				// Pin 1c. Mutation: remove double quotes from any later path-variable use.
+				["every path variable in every command is double-quoted", JSON.stringify(archiveCommands) === JSON.stringify(expectedArchiveCommands) && unquotedPathReferences.length === 0, { commands: archiveCommands, unquotedPathReferences }],
+				// Pin 2. Mutation: insert a raw path placeholder directly into any command.
+				["no command contains a direct path interpolation", directPathInterpolations.length === 0, directPathInterpolations],
+				// Pin 3. Mutation: combine Git capture, hashing, or truncation into the old masked pipeline, or remove either refusal.
+				["digest derivation captures Git output before separate Git refusal, assignment, hashing, hash refusal, and truncation", Object.values(digestPositions).every((position) => position >= 0) && digestPositions.captureInstruction < digestPositions.git && digestPositions.git < digestPositions.gitRefusal && digestPositions.gitRefusal < digestPositions.capturedAssignment && digestPositions.capturedAssignment < digestPositions.hash && digestPositions.hash < digestPositions.hashRefusal && digestPositions.hashRefusal < digestPositions.digestWidth && maskedDigestCommands.length === 0, { digestPositions, maskedDigestCommands }],
+				["the exact Git-capture and captured-value hash commands each appear once", archiveCommands.filter((command) => command === gitCaptureCommand).length === 1 && archiveCommands.filter((command) => command === hashCapturedCommand).length === 1, { gitCapture: archiveCommands.filter((command) => command === gitCaptureCommand).length, hashCaptured: archiveCommands.filter((command) => command === hashCapturedCommand).length }],
 				["the destination is the ordinal archive path", archiveText.includes("<corpus session directory>/deliveries/<ordinal>/research-log.md"), archiveText.match(/deliveries[^ ]*research-log\.md/)?.[0]],
+				["the project digest selects the project before any same-name session", archiveText.includes("The project digest selects the project directory first, so a same-name session in another project cannot be selected."), archiveText.slice(1000, 1800)],
+				// Pin 4. Mutation: move the symbolic-link refusal after the metadata read or the first write.
+				["symbolic-link refusal and its command precede the metadata read and first write", Object.values(archiveStepPositions).every((position) => position >= 0) && archiveStepPositions.symlinkPreamble < archiveStepPositions.symlinkRefusal && archiveStepPositions.symlinkRefusal < archiveStepPositions.metadataRead && archiveStepPositions.symlinkRefusal < archiveStepPositions.firstWrite, archiveStepPositions],
+				// Pin 5. Mutation: remove the refusal for failed or empty corpus-root resolution.
+				["corpus-root resolution failure or empty output is refused and reported", archiveText.includes(corpusRootRefusal) && archiveText.indexOf(corpusRootRefusal) > archiveText.indexOf('realpath "$corpus_root_input"') && archiveText.indexOf(corpusRootRefusal) < archiveText.indexOf("`corpus_root='<resolved corpus root>'`"), archiveText.match(/realpath[\s\S]{0,360}?resolved corpus root/)?.[0]],
+				// Pin 6. Mutation: remove any decision-table row or change any row's required result.
+				["the complete delivery decision table contains exactly its header, separator, and three required rows", JSON.stringify(decisionTable) === JSON.stringify(expectedDecisionTable), { expected: expectedDecisionTable, actual: decisionTable }],
+				// Pin 7. Mutation: extend the archive duty or waiver to abandonment, or remove their delivery-only scope.
+				["archive duty and archive waivers belong to delivery only", archiveText.startsWith(deliveryScopeRule) && archiveText.includes(deliveryWaiverRule), { opening: archiveText.slice(0, deliveryScopeRule.length), waiver: archiveText.match(/The orchestrator does not guess[\s\S]{0,380}?as well\./)?.[0] }],
+				// Pin 8. Mutation: remove the abandonment offer, archive-on-request rule, or no-waiver result.
+				["abandonment offers the working log, archives it on request, and applies no waiver", archiveText.includes(abandonmentRule), archiveText.match(/For an abandoned change[\s\S]{0,320}?happens\./)?.[0]],
+				// Pin 9. Mutation: remove either waiver destination or make the pull-request destination unconditional.
+				["waivers always enter the delivery commit body and also enter an enabled draft pull request", archiveText.includes(commitWaiverRule) && archiveText.includes(pullRequestWaiverRule) && archiveText.indexOf(commitWaiverRule) < archiveText.indexOf(pullRequestWaiverRule), { commit: archiveText.indexOf(commitWaiverRule), pullRequest: archiveText.indexOf(pullRequestWaiverRule) }],
 				["no branch label builds the destination", !/branch(?: label)?/i.test(archive), archive.match(/.{0,60}branch.{0,100}/i)?.[0]],
 				["no instruction deletes the working log and the old sentence is absent", archiveText.includes("Never delete the working log.") && !workflow.includes(oldDeletionSentence) && !agents.includes(oldDeletionSentence), { archiveNeverDelete: archiveText.includes("Never delete the working log."), oldWorkflow: workflow.includes(oldDeletionSentence), oldAgents: agents.includes(oldDeletionSentence) }],
-				["delivery requires verified archival or a pull-request waiver", archiveText.includes("Delivery does not complete until a worker verifies the archive") && archiveText.includes("waive it only by recording that waiver in the pull request"), archiveText.slice(0, 400)],
 				["every refusal and cleanup rule appears", missingArchiveTerms.length === 0, missingArchiveTerms],
-				["verification compares exactly the two post-copy SHA-256 hashes once", archiveText.includes("Hash the source and destination after the copy with SHA-256. Compare those two hashes once."), archiveText.match(/Hash the source[\s\S]{0,180}?once\./)?.[0]],
+				["verification compares exactly the two post-copy SHA-256 hashes once", archiveText.includes("Hash the working log and destination after the copy with SHA-256. Compare those two hashes once."), archiveText.match(/Hash the working log[\s\S]{0,180}?once\./)?.[0]],
 				["a same-ordinal race refuses one worker and triggers redispatch", archiveText.includes("makes the other refuse the existing directory") && archiveText.includes("orchestrator dispatches the refused archive again") && archiveText.includes("Add no lock."), archiveText.slice(-700)],
-				["AGENTS carries the same required outcome", agentsArchiveLine.includes("corpus session name and the absolute source-log path") && agentsArchiveLine.includes("Delivery completes only after the worker reports a verified archive") && agentsArchiveLine.includes("archive waiver in the pull request") && agentsArchiveLine.includes("Never delete the working log") && agentsArchiveLine.includes("defines resolution, refusal, verification and retry"), agentsArchiveLine],
+				// Pin 10. Mutation: alter the AGENTS actor, complete-table duty, waiver locations, preservation rule, or delegated procedure scope.
+				["AGENTS pins the corrected delivery archive clause and delegates the procedure", normalizeText(agentsArchiveClause) === expectedAgentsArchiveClause, { expected: expectedAgentsArchiveClause, actual: normalizeText(agentsArchiveClause) }],
 			]);
 		});
 
@@ -7452,7 +7604,7 @@ production behaviour.`);
 		"off-inert", "off-doctrine",
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace",
 		"doctrine-corpus-off", "doctrine-corpus-on", "doctrine-corpus-untrusted", "doctrine-corpus-reject-rename", "doctrine-corpus-reject-invisible",
-		"doctrine-corpus-no-project-text", "doctrine-corpus-fresh", "doctrine-corpus-report", "doctrine-corpus-vocabulary", "doctrine-corpus-callsite",
+		"doctrine-corpus-no-project-text", "doctrine-corpus-fresh", "doctrine-corpus-report", "doctrine-corpus-headless", "doctrine-corpus-notify-guard", "doctrine-corpus-vocabulary", "doctrine-corpus-callsite",
 		"doctrine-budget", "doctrine-budget-follow-up",
 		"writing-config-default", "writing-config-reminder-valid", "writing-config-reminder-inert", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
 		"writing-reminder-load", "writing-reminder-roster", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-interval", "writing-reminder-cadence", "writing-reminder-gates", "writing-reminder-state-machine",

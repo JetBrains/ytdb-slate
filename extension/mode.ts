@@ -449,16 +449,22 @@ ${renderWritingScopeExclusion("   ")}
    — read it only for an unusual prose decision. Skip it if already in context.`;
 }
 
+type DoctrineCorpusDefectCode = "no-project" | "no-session-name" | "unminted-name";
+
 interface DoctrineCorpus {
 	project: CorpusProject | undefined;
 	sessionName: string | undefined;
-	report?: (code: "no-project" | "unminted-name") => void;
+	report?: (code: DoctrineCorpusDefectCode) => void;
 }
 
 function buildArchiveFragment(trusted: boolean, corpus: DoctrineCorpus): string {
 	if (!trusted) return "";
 	if (corpus.project === undefined) {
 		corpus.report?.("no-project");
+		return "";
+	}
+	if (corpus.sessionName === undefined) {
+		corpus.report?.("no-session-name");
 		return "";
 	}
 	if (!isMintedSlateSessionName(corpus.sessionName)) {
@@ -617,18 +623,24 @@ export function registerSlateMode(
 	const writingCounters: WritingCounters = { measuredTurns: 0, findingTurns: 0 };
 	let writingStatus: WritingStatus = "fresh";
 	let writingCheckerPromise: Promise<WritingChecker> | undefined;
-	const reportedCorpusDefects = new Set<string>();
+	const reportedCorpusDefects = new Set<DoctrineCorpusDefectCode>();
 
-	const reportCorpusDefect = (code: "no-project" | "unminted-name") => {
+	const reportCorpusDefect = (code: DoctrineCorpusDefectCode) => {
 		if (reportedCorpusDefects.has(code)) return;
 		reportedCorpusDefects.add(code);
 		const reason = code === "no-project"
 			? "the corpus project is unavailable"
-			: "the session name is not Slate-minted";
+			: code === "no-session-name"
+				? "the session name is absent"
+				: "the session name is not Slate-minted";
 		const name = sanitizeForNotify(store.slateSessionName ?? "(missing)", 48);
-		const message = `slate: doctrine cannot name the corpus session (${reason}, name: ${name}). At delivery, archive the research log into the corpus session directory per the workflow doc.`;
-		if (uiCtx?.hasUI) uiCtx.ui.notify(message, "warning");
-		else console.warn(message);
+		const message = `slate: doctrine cannot name the corpus session (${reason}, name: ${name}). At delivery, record the archive waiver per the workflow doc.`;
+		try {
+			if (uiCtx?.hasUI) uiCtx.ui.notify(message, "warning");
+			else console.warn(message);
+		} catch {
+			/* BG740: a throwing sink costs the report, never the doctrine */
+		}
 	};
 
 	const writingIsVisible = (ctx: ExtensionContext): boolean =>

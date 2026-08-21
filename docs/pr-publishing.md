@@ -3,9 +3,9 @@
 Umbrella draft PR mechanics for the track-based workflow (see
 track-workflow.md in this directory). This document applies ONLY when
 `workflow.draftPRs` is enabled in the project's `slate.json` (default:
-false). When it is disabled, the workflow creates no PR; the
-research-log lifecycle in that mode is owned by track-workflow.md
-§ Session handoff and the research log.
+false). When it is disabled, the workflow creates no PR. The working log
+lifecycle in that mode is owned by track-workflow.md § Session handoff and the
+research log.
 
 ## Creation
 
@@ -26,7 +26,7 @@ implementation:
   branch.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation for every change with a high-level design, the research log's
+- At creation for every change with a high-level design, the working log's
   Planned changes content folds into the PR description. This includes a SMALL
   change whose focus set required design. Create the pull request only after
   final design approval, as stated above.
@@ -38,12 +38,11 @@ implementation:
   design verdict lines alone.
 - For a SMALL change without a high-level design, the initial request supplies
   Motivation. The confirmed grade, focus proposal, and intended fix supply
-  Planned changes. If
-  a log exists, its relevant decisions and Open Questions also fold
-  into the description.
-- The research log is retained until delivery, and its Decision Log
-  keeps appending during implementation. track-workflow.md § Session handoff
-  and the research log owns the full lifecycle.
+  Planned changes. If a working log exists, its relevant decisions and Open
+  Questions also fold into the description.
+- The working log is never deleted. Its Decision Log keeps appending during
+  implementation. track-workflow.md § Session handoff and the research log owns
+  the full lifecycle, including the delivery archive.
 
 ## Description rules
 
@@ -181,7 +180,7 @@ of any recorded size exception.
 
 ## After the merge
 
-Complete the research-log delivery cleanup defined by track-workflow.md
+Complete the working log delivery archive defined by track-workflow.md
 § Session handoff and the research log.
 
 Any cleanup a layered peer-review process requires (closing its review

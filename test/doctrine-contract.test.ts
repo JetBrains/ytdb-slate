@@ -32,6 +32,13 @@ interface DoctrineCorpusInput {
   sessionName?: string;
 }
 
+interface DoctrineSinkOptions {
+  warnings?: string[];
+  hasUI?: boolean;
+  notify?: (message: string) => void;
+  renders?: number;
+}
+
 after(() => rmSync(scratch, { recursive: true, force: true }));
 
 type Handler = (event: any, context: ExtensionContext) => unknown;
@@ -61,10 +68,15 @@ class FakeExtensionApi {
   }
 }
 
-function extensionContext(cwd: string, warnings: string[] = [], trusted = true): ExtensionContext {
+function extensionContext(
+  cwd: string,
+  warnings: string[] = [],
+  trusted = true,
+  sink: DoctrineSinkOptions = {},
+): ExtensionContext {
   return {
     cwd,
-    hasUI: true,
+    hasUI: sink.hasUI ?? true,
     isProjectTrusted: () => trusted,
     model: undefined,
     modelRegistry: {},
@@ -75,7 +87,10 @@ function extensionContext(cwd: string, warnings: string[] = [], trusted = true):
       getSessionFile: () => join(cwd, "doctrine-test-session.jsonl"),
     },
     ui: {
-      notify: (message: string) => warnings.push(message),
+      notify: (message: string) => {
+        if (sink.notify !== undefined) sink.notify(message);
+        else warnings.push(message);
+      },
       setWidget: () => {},
       setStatus: () => {},
     },
@@ -118,6 +133,7 @@ async function renderDoctrine(
   trusted = true,
   paused = false,
   corpus: DoctrineCorpusInput = {},
+  sink: DoctrineSinkOptions = {},
 ): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
@@ -137,11 +153,15 @@ async function renderDoctrine(
     () => EMPTY_WORKER_EXTENSION_SET,
     router === undefined ? undefined : () => router,
   );
-  const context = extensionContext(scratch, [], trusted);
+  const context = extensionContext(scratch, sink.warnings, trusted, sink);
   await api.emit("session_start", {}, context);
   const handler = api.handlers.get("before_agent_start")?.[0];
   assert.ok(handler);
-  const result = await handler({ systemPrompt: "BASE" }, context) as { systemPrompt: string };
+  let result: { systemPrompt: string } | undefined;
+  for (let index = 0; index < (sink.renders ?? 1); index += 1) {
+    result = await handler({ systemPrompt: "BASE" }, context) as { systemPrompt: string };
+  }
+  assert.ok(result);
   assert.ok(result.systemPrompt.startsWith("BASE"));
   return result.systemPrompt.slice("BASE".length);
 }
@@ -240,6 +260,89 @@ test("rule 8 omits the corpus sentence without either required corpus field", { 
     assert.equal(noName, absent, String(draftPRs));
     assert.equal(absent.includes("Corpus session:"), false, String(draftPRs));
   }
+});
+
+test("corpus refusal reports distinguish all three defect situations", { timeout: 5000 }, async () => {
+  // Mutation killed: replace the no-session-name report call with unminted-name.
+  const cases: Array<{ corpus: DoctrineCorpusInput; reason: string; name: string }> = [
+    {
+      corpus: { sessionName: "calm-otter-7f3a" },
+      reason: "the corpus project is unavailable",
+      name: "calm-otter-7f3a",
+    },
+    {
+      corpus: { project: corpusProject },
+      reason: "the session name is absent",
+      name: "(missing)",
+    },
+    {
+      corpus: { project: corpusProject, sessionName: "renamed-session-7f3a" },
+      reason: "the session name is not Slate-minted",
+      name: "renamed-session-7f3a",
+    },
+  ];
+  const reasons = cases.map(({ reason }) => reason);
+
+  for (const { corpus, reason, name } of cases) {
+    const warnings: string[] = [];
+    await renderDoctrine(undefined, {}, true, false, corpus, { warnings, renders: 2 });
+    const expected = `slate: doctrine cannot name the corpus session (${reason}, name: ${name}). At delivery, record the archive waiver per the workflow doc.`;
+    assert.equal(warnings.length, 1, reason);
+    assert.equal(warnings[0], expected);
+    assert.match(warnings[0] ?? "", new RegExp(reason));
+    for (const otherReason of reasons.filter((candidate) => candidate !== reason)) {
+      assert.equal(warnings[0]?.includes(otherReason), false, `${reason} versus ${otherReason}`);
+    }
+  }
+
+  const acceptedWarnings: string[] = [];
+  await renderDoctrine(
+    undefined,
+    {},
+    true,
+    false,
+    { project: corpusProject, sessionName: "calm-otter-7f3a" },
+    { warnings: acceptedWarnings },
+  );
+  assert.deepEqual(acceptedWarnings, []);
+});
+
+test("headless corpus reporting preserves doctrine", { timeout: 5000 }, async () => {
+  // Mutation killed: route hasUI false through ui.notify instead of console.warn.
+  const corpus = { sessionName: "calm-otter-7f3a" };
+  const visibleWarnings: string[] = [];
+  const visibleDoctrine = await renderDoctrine(undefined, {}, true, false, corpus, { warnings: visibleWarnings });
+  const consoleWarnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (message?: unknown) => consoleWarnings.push(String(message));
+  let headlessDoctrine: string;
+  try {
+    headlessDoctrine = await renderDoctrine(undefined, {}, true, false, corpus, { hasUI: false });
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(consoleWarnings.length, 1);
+  assert.match(consoleWarnings[0] ?? "", /the corpus project is unavailable/);
+  assert.equal(headlessDoctrine, visibleDoctrine);
+  assert.equal(visibleWarnings.length, 1);
+});
+
+test("throwing corpus notification sinks preserve doctrine", { timeout: 5000 }, async () => {
+  // Mutation killed: remove the reportCorpusDefect notification guard.
+  const corpus = { sessionName: "calm-otter-7f3a" };
+  const controlDoctrine = await renderDoctrine(undefined, {}, true, false, corpus);
+  let attempts = 0;
+  const throwingDoctrine = await renderDoctrine(undefined, {}, true, false, corpus, {
+    notify: () => {
+      attempts += 1;
+      throw new Error("notification sink failed");
+    },
+  });
+
+  assert.equal(attempts, 1);
+  assert.equal(throwingDoctrine, controlDoctrine);
+  assert.match(throwingDoctrine, /9\. Review every track[\s\S]*10\. The design principles behind this architecture/);
 });
 
 test("untrusted projects omit corpus state in both draft-publishing branches", { timeout: 5000 }, async () => {

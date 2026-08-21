@@ -30,7 +30,7 @@ This repo runs slate on itself from the main worktree's sources:
 - Dispatch every action with absolute paths into its change worktree. A relative path can resolve against main and edit the live sources.
 - Run `npm ci --ignore-scripts` in every new worktree before verification or an isolated smoke test.
 - Keep `research-log.md` at the change worktree root for the life of the change.
-- At delivery, after final change acceptance, archive that log into its corpus session directory. Dispatch one worker with the corpus session name and the absolute source-log path. Delivery completes only after the worker reports a verified archive, unless the user records an archive waiver in the pull request. Never delete the working log. Worktree removal disposes of that copy. `docs/track-workflow.md` § Session handoff and the research log defines resolution, refusal, verification and retry.
+- At delivery, after final change acceptance, the orchestrator applies the complete archive decision table. The orchestrator records any archive waiver in the delivery commit body. When `workflow.draftPRs` is enabled, the orchestrator also records it in the pull request. Never delete the working log. Worktree removal disposes of that copy. `docs/track-workflow.md` § Session handoff and the research log defines resolution, refusal, verification and retry.
 - Keep the main worktree clean. Verify that it is clean before every user review.
 - After a change merges, run `git fetch origin` in the clean main worktree, then `git merge --ff-only origin/main`. If the fast-forward fails, stop and reconcile the divergence without a merge commit before restarting the orchestrator. The restarted session then loads the merged sources.
 

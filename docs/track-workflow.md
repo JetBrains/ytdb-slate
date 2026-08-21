@@ -44,7 +44,7 @@ and triage. When no adversarial review is required, validation and final
 approval form one gate.
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
-[pr-publishing.md](pr-publishing.md). When disabled, the retained research log
+[pr-publishing.md](pr-publishing.md). When disabled, the retained working log
 is the durable workflow record.
 
 ## Size script and focus prediction
@@ -70,7 +70,7 @@ never falls after implementation starts.
 | pre-implementation | validation before adversarial review | when a design adversary is required | required | required |
 | pre-implementation | adversarial design review | when design uncertainty engages, or an existing consumer-reachable rule changes | when the same focus condition engages | when the same focus condition engages |
 | pre-implementation | final design approval | after required design work | required after validation and any adversarial review | required after validation and any adversarial review |
-| lifecycle | research log | when any trigger fires | always | always |
+| lifecycle | working log | when any trigger fires | always | always |
 | per-track | Reviewer I | no by grade, except carved-out verification work | every track | every track |
 | per-track | engaged-area reviewers | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track |
 | final | final change acceptance | blocking | blocking | blocking |
@@ -209,20 +209,21 @@ A later track builds on the accepted boundary before it.
 
 ## Session handoff and the research log
 
-MEDIUM and LARGE changes always use `research-log.md` at the root of the
-worktree that holds the change. For a single-checkout clone, that root is the
-checkout root. A SMALL change opens the log when any retained trigger fires.
+MEDIUM and LARGE changes always use `research-log.md`, called the working log,
+at the root of the worktree that holds the change. For a single-checkout clone,
+that root is the checkout root. A SMALL change opens the working log when any
+retained trigger fires.
 
 | trigger | SMALL | MEDIUM and LARGE |
 | --- | --- | --- |
-| second non-obvious decision | opens the log | already open |
-| surprise about repository behaviour | opens the log | already open |
-| any focus area engages | opens the log | already open |
-| session boundary | opens the log | already open |
-| multiple tracks | opens the log | already open |
-| plan-changing ruling | opens the log | already open |
-| user request | opens the log | already open |
-| unresolved question needed later | opens the log | already open |
+| second non-obvious decision | opens the working log | already open |
+| surprise about repository behaviour | opens the working log | already open |
+| any focus area engages | opens the working log | already open |
+| session boundary | opens the working log | already open |
+| multiple tracks | opens the working log | already open |
+| plan-changing ruling | opens the working log | already open |
+| user request | opens the working log | already open |
+| unresolved question needed later | opens the working log | already open |
 
 Open these sections: Initial request, Decision Log, Surprises and Discoveries,
 and Open Questions. Add Planned changes, Track table, coverage register,
@@ -235,58 +236,101 @@ At MEDIUM and LARGE, every retained entry is typed as `decision`, `evidence`,
 entry immediately after its event. Keep each entry self-contained.
 
 Do not copy secrets, credentials, private user data, or unnecessary personal
-data into the log. Record a privacy exception as a typed ruling. State what was
-omitted and why.
+data into the working log. Record a privacy exception as a typed ruling. State
+what was omitted and why.
 
 Use a safe write method. Create the file without following a symlink. Append
 through a temporary file and atomic rename when replacement is needed. Keep the
-log untracked. Never overwrite it from a stale in-memory copy.
+working log untracked. Never overwrite it from a stale in-memory copy.
 
 ### The delivery archive
 
-Archive the log after final change acceptance. The archive is a required
-delivery step. Delivery does not complete until a worker verifies the archive.
-The user may waive it only by recording that waiver in the pull request.
+The delivery archive applies only to delivery. Abandonment is not delivery.
+After final change acceptance, archive the working log when this decision table
+requires it. The table governs delivery and is complete.
 
-The orchestrator dispatches one worker. The dispatch text supplies exactly two
-inputs: the corpus session name from the doctrine and the absolute path of the
-working `research-log.md`. The worker resolves every destination component.
+| working log exists | corpus session resolves | required result |
+| --- | --- | --- |
+| no | either | Nothing needs archival. Delivery proceeds. |
+| yes | yes | The orchestrator archives and verifies the working log before delivery. |
+| yes | no | The orchestrator reports that no corpus session resolved and records an archive waiver. |
+
+The orchestrator does not guess a corpus session. The archive waiver exists for
+delivery only. The orchestrator records every archive waiver in the delivery
+commit body. When `workflow.draftPRs` is enabled, the orchestrator records the
+waiver in the pull request as well.
+
+For an abandoned change, offer the working log to the user before the worktree
+is removed. When the user wants the working log kept, archive it with the same
+procedure. No waiver applies because no delivery happens.
+
+When the doctrine names a corpus session, the orchestrator dispatches one
+worker. The dispatch text supplies exactly two inputs: that corpus session name
+and the absolute path of the working log. The worker resolves every destination
+component. `<change worktree root>` is the directory that holds the working log.
+
+One shell path rule applies throughout the archive procedure. Before a shell
+command uses any supplied, resolved, derived, or selected path, the worker
+assigns that path to a variable with a literal single-quoted assignment.
+Examples are `worktree='<change worktree root>'` and
+`candidate='<selected path>'`. Before forming an assignment, the worker refuses
+a path containing a single quote character (`'`) because the assignment cannot
+represent it safely. Every later path operand uses only the variable,
+with double quotes around it, such as `git -C "$worktree"` or
+`test -L "$candidate"`. The worker never inserts path text directly into a
+later command.
 
 The worker follows these steps.
 
 1. Resolve the Pi agent directory from `PI_CODING_AGENT_DIR` when it is set.
-   Otherwise use `~/.pi/agent`. Resolve the `ytdb-slate/projects` corpus root
-   once with `realpath`.
-2. Derive the project digest from the source worktree. Run this exact command:
+   Otherwise use `~/.pi/agent`. Assign the unresolved corpus path with
+   `corpus_root_input='<Pi agent directory>/ytdb-slate/projects'`. Resolve it
+   once with `realpath "$corpus_root_input"`. The worker refuses and reports
+   when the resolution fails or returns an empty value. Validate that output
+   under the path rule before assigning it as
+   `corpus_root='<resolved corpus root>'`.
+2. Derive the project digest from the change worktree. Assign the supplied path
+   as `worktree='<change worktree root>'`. Run the Git command and capture its
+   output through the worker harness:
 
-   `printf '%s' "$(env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C <change worktree root> rev-parse --path-format=absolute --git-common-dir)" | sha256sum | cut -c1-12`
+   `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "$worktree" rev-parse --path-format=absolute --git-common-dir`
 
-   Refuse when Git or hashing fails. Under the corpus root, select the one
+   Refuse when the Git command fails or prints nothing. Validate that output
+   under the path rule before assigning it as
+   `git_common_dir='<Git common directory>'`. Only then hash the captured value:
+
+   `printf '%s' "$git_common_dir" | sha256sum`
+
+   Refuse when hashing fails or prints nothing. The digest is the first 12
+   hexadecimal characters of the hash. Under the corpus root, select the one
    project directory whose name ends in `-<digest>`. Refuse zero matches and
    several matches.
 3. Select `<project directory>/<corpus session name>`. It must be a directory
-   below the digest-bearing project directory. Set the archive parent to
-   `<corpus session directory>/deliveries`. Select the lowest positive
-   three-digit ordinal whose entry is absent, starting at `001`. The destination
-   is `<corpus session directory>/deliveries/<ordinal>/research-log.md`. Refuse
-   and report exhaustion without creating anything when `001` through `999` all
-   exist.
+   below the digest-bearing project directory. The project digest selects the
+   project directory first, so a same-name session in another project cannot be
+   selected. Set the archive parent to `<corpus session directory>/deliveries`.
+   Select the lowest positive three-digit ordinal whose entry is absent,
+   starting at `001`. The destination is `<corpus session
+   directory>/deliveries/<ordinal>/research-log.md`. Refuse and report
+   exhaustion without creating anything when `001` through `999` all exist.
 4. Before reading `session.json` or writing anything, test the project directory,
-   session directory, `deliveries` directory and selected ordinal directory with
-   `test -L <path>`. Refuse when any test finds a symbolic link. A symbolic link
-   above the resolved corpus root is legitimate because users may place the
-   agent directory behind a link, while each named component below that root is
-   an archive identity or destination boundary.
+   session directory, the session directory's `session.json`, `deliveries`
+   directory and selected ordinal directory. For each path, assign
+   `candidate='<selected path>'`, then run `test -L "$candidate"`. Refuse when
+   any test finds a symbolic link. A symbolic link above the resolved corpus
+   root is legitimate because users may place the agent directory behind a
+   link. Each named path below that root is an archive identity or destination
+   boundary.
 5. Read the selected session directory's `session.json`. Refuse unless the
    metadata `name` equals the supplied corpus session name. Refuse when the
-   source is not a regular file or is unreadable. A source symbolic link is not
-   a regular source for this procedure.
+   working log is not a regular file or is unreadable. A symbolic link is not a
+   regular working log for this procedure.
 6. Create `deliveries` when it is absent. Create the selected ordinal directory.
    Refuse when that ordinal directory already exists. Never remove an entry the
    worker did not create.
-7. Copy the source to `research-log.md` in the new ordinal directory. Hash the
-   source and destination after the copy with SHA-256. Compare those two hashes
-   once.
+7. Copy the working log to `research-log.md` in the new ordinal directory. Hash
+   the working log and destination after the copy with SHA-256. Compare those
+   two hashes once.
 8. On a mismatch or any other failure, remove every file or directory this
    attempt created. Keep every pre-existing entry. Report the failed step and
    reason.
@@ -298,8 +342,8 @@ lets one worker succeed and makes the other refuse the existing directory. The
 orchestrator dispatches the refused archive again. The next attempt selects the
 next available ordinal. Add no lock.
 
-A source change during or after the copy can leave that attempt stale, but the
-working source survives every archive path and loses no bytes.
+A working log change during or after the copy can leave that attempt stale. The
+working log survives every archive path and loses no bytes.
 
 Before a session handoff, append a state summary. It names the confirmed grade,
 focus sets, current track, last boundary marker, live registers, open findings,
@@ -320,7 +364,7 @@ Resume in this fixed order:
 6. Continue only after answering: **What changed since the last state summary,
    and does it change grade, focus, scope, or required gates?**
 
-A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
+A mismatch pauses work. Reconcile it in the working log. Use marker commits and Git
 history as boundary authority. The track table is display-only.
 
 ## Closing review
@@ -391,13 +435,16 @@ The track table lists names, one-line scopes, and status. It contains no commit
 identifier. Track numbers are append-only. Abandoned tracks are struck through.
 Numbers are never reused.
 
-Delivery is the final squashed commit on the default development branch, or an
-explicit abandonment. Resolve or hand every open question to the user. Follow
-[user-notes.md](user-notes.md) for final accounting. Archive the retained local
-log as § Session handoff and the research log defines. Delivery completes only
-after the worker verifies the archive, unless the user records an archive waiver
-in the pull request. Never delete the working log. Worktree removal disposes of
-that copy. On abandonment, offer the log content for archival first.
+Delivery is the final squashed commit on the default development branch.
+Abandonment is not delivery. Resolve or hand every open question to the user.
+Follow [user-notes.md](user-notes.md) for final accounting. For delivery, apply
+the complete archive decision table in § Session handoff and the research log.
+The orchestrator records every archive waiver in the delivery commit body. When
+`workflow.draftPRs` is enabled, the orchestrator records it in the pull request
+as well. Never delete the working log. Worktree removal disposes of that copy.
+For an abandoned change, offer the working log to the user before removing the
+worktree. When the user wants the working log kept, archive it with the same
+procedure. No waiver applies because no delivery happens.
 
 Aim for a delivery body at or below 16,384 UTF-8 bytes. Measure exact bytes from
 the commit object. If larger, remove repetition first. Then record a measured

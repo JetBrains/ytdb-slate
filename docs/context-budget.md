@@ -128,11 +128,12 @@ orchestrator mode, `writing.check`, `writing.remind`, or pause gates. Slate
 commits the cadence mark only when pi starts delivery of the custom message.
 
 The current hidden message is 320 ASCII characters, including its `[slate]`
-header, five reminder requirements, blank separator, and scope exclusion. That
-is about 80 tokens at four characters per token. This count is for the exact
-rendered production string, without JSONL framing or provider-role overhead. The
-message enters conversation context only when a reminder fires. Later requests
-resend it with the rest of the conversation.
+header, five reminder requirements, blank separator, and scope exclusion. The
+character count is derived from the exact rendered string pinned by the reminder
+checks. The roughly 80-token estimate derives from four characters per token.
+Both figures exclude JSONL framing and provider-role overhead. The message enters
+conversation context only when a reminder fires. Later requests resend it with
+the rest of the conversation.
 
 ## What always-loaded tool definitions cost the budget
 
@@ -146,9 +147,12 @@ parameter schema is 2,005 bytes, measured as `JSON.stringify(parameters)`.
 The schema includes the 289-byte `type` parameter description and the
 `freshContext` argument.
 
+These are unpinned live registration measurements. They depend on the current
+tool description, parameter descriptions, schema shape, and JSON serialization.
 The description and schema total 3,391 bytes before provider framing. The
 `freshContext` schema entry adds 214 bytes to the previous combined figure.
-The increase is roughly 54 tokens at four characters per token.
+Those two values are derived from the live measurements and the previous schema.
+The roughly 54-token increase uses four characters per token.
 
 The figure excludes the prompt snippet, prompt guidelines, tool name,
 provider framing, and serialization outside the parameter schema.
@@ -249,35 +253,42 @@ path:
 
 - The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
   so what renders is the models you CONFIGURE — not the nine Slate
-  ships profiles for. In this snapshot it is 2,030 portable
-  characters and adds 21 doctrine lines for six configured models;
-  for all nine it is 2,585 characters and adds 24 lines. The six
-  model rows are 146–181 characters; all nine are 146–183. The
-  legend adds a one-off clause per marker it has to explain, so
+  ships profiles for. The six-model figure is derived from paired,
+  exact corpus-off doctrine pins. It is 2,030 portable characters
+  and adds 21 doctrine lines. The all-nine figure is derived on the
+  same corpus-off basis. It is 2,585 characters and adds 24 lines.
+  The row ranges are unpinned renderer measurements from those profile
+  rosters. The six rows are 146–181 characters. All nine are 146–183.
+  The ranges depend on current profile text and candidate ordering.
+  The legend adds a one-off clause per marker it has to explain, so
   growth is not only the sum of new rows.
 - The worker-extension rule grows per whitelisted extension and per
   tool that extension contributes, so it has no fixed size. One
   extension contributing two tools measured 373 portable characters
-  / 7 lines.
+  / 7 lines with corpus off. This measurement is unpinned. It depends
+  on that extension's rendered label, tool names, and descriptions.
 
 The table above isolates the shipped rules. Two representative bases include
 worker extensions and support verification decisions:
 
-| basis | corpus | models | worker extensions | paths | portable | lines | rough tokens |
-| --- | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| current `.pi/slate.json` config shape | off | 6 | configured-package 2 units / 4 tools | 7 | 6,943 | 101 | ≈1,736 |
-| current `.pi/slate.json` config shape | on, standard name | 6 | configured-package 2 units / 4 tools | 7 | 7,077 | 103 | ≈1,769 |
-| stable maximal fixture | off | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,929 | 104 | ≈1,982 |
-| stable maximal fixture | on, longest name | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,067 | 106 | ≈2,017 |
-| follow-up-issues maximal fixture | off | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,007 | 105 | ≈2,002 |
-| follow-up-issues maximal fixture | on, longest name | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,145 | 107 | ≈2,036 |
+| basis | corpus | models | worker extensions | paths | portable | lines | rough tokens | figure source |
+| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | --- |
+| current `.pi/slate.json` config shape | off | 6 | configured-package 2 units / 4 tools | 7 | 6,943 | 101 | ≈1,736 | live configuration measurement, unpinned |
+| current `.pi/slate.json` config shape | on, standard name | 6 | configured-package 2 units / 4 tools | 7 | 7,077 | 103 | ≈1,769 | live configuration measurement, unpinned |
+| stable maximal fixture | off | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,929 | 104 | ≈1,982 | exact resolver pin |
+| stable maximal fixture | on, longest name | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,067 | 106 | ≈2,017 | exact resolver pin |
+| follow-up-issues maximal fixture | off | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,007 | 105 | ≈2,002 | exact resolver pin |
+| follow-up-issues maximal fixture | on, longest name | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,145 | 107 | ≈2,036 | exact resolver pin |
 
 Both project-config rows use `workflow.draftPRs: true`, `writing.check: true`,
-and the six models in `.pi/slate.json`. Their extension basis is
+and the six models in `.pi/slate.json`. Their figures depend on the live project
+config and the currently resolved extension packages. Their extension basis is
 `pi-smart-fetch@0.3.12` plus `pi-web-search@1.3.1`. Those packages resolve to two
-units and four tools. Their worker-extension rule is 916 portable characters /
-11 lines. Raw size remains symbolic: `portable + 7 × length(installed docs
-directory)`. No maintainer checkout path belongs in this shipped document.
+units and four tools. Their worker-extension rule is an unpinned live
+measurement of 916 portable characters / 11 lines. It is corpus independent and
+depends on the resolved package labels, tool names, and descriptions. Raw size
+remains symbolic: `portable + 7 × length(installed docs directory)`. No
+maintainer checkout path belongs in this shipped document.
 
 Both stable maximal rows use all nine shipped profiles, draft PRs, and writing.
 The paired corpus-on row uses the longest minted name, `daring-dolphin-ffff`. The follow-up-issues rows
@@ -308,29 +319,31 @@ A doctrine change updates the exact literal and every published measurement. A
 maintainer revisits a bound only when the reserve policy requires it. The check
 applies the five-percent rule to every upper bound, so this decision is auditable.
 
-| budget term and corpus basis | measured | enforced bound | reserve |
-| --- | ---: | ---: | ---: |
-| routing rule characters, corpus independent | 2,585 | 4,000 | 1,415 |
-| routing rule lines, corpus independent | 25 | 34 | 9 |
-| routing fixed prose, corpus independent | 1,110 | 1,500 | 390 |
-| largest model row, corpus off | 183 | 300 | 117 |
-| router-on doctrine, corpus off | 5,497 | 6,500 | 1,003 |
-| writing-only doctrine, corpus off | 3,982 | 5,600 | 1,618 |
-| writing plus router, corpus off | 6,567 | 6,900 | 333 |
-| writing plus extensions, corpus off | 4,237 | 6,000 | 1,763 |
-| writing plus router and extensions, corpus off | 6,822 | 7,200 | 378 |
-| maximal doctrine, draft PRs enabled, corpus off | 7,929 | 8,600 | 671 |
-| maximal doctrine, draft PRs disabled, corpus off | 7,914 | 8,600 | 686 |
-| maximal doctrine, follow-up issues enabled, corpus off | 8,007 | 8,600 | 593 |
-| maximal doctrine, draft PRs enabled, corpus on | 8,067 | 8,600 | 533 |
-| maximal doctrine, draft PRs disabled, corpus on | 8,052 | 8,600 | 548 |
-| maximal doctrine, follow-up issues enabled, corpus on | 8,145 | 8,600 | 455 |
-| capped worker rule, corpus off | 1,347 | 1,600 | 253 |
-| writing rule characters, corpus off | 1,070 | 1,150 | 80 |
-| writing rule lines, corpus off | 23 | 25 | 2 |
+| budget term and corpus basis | measured | enforced bound | reserve | measurement source |
+| --- | ---: | ---: | ---: | --- |
+| routing rule characters, corpus independent | 2,585 | 4,000 | 1,415 | derived from paired exact pins |
+| routing rule lines, corpus independent | 25 | 34 | 9 | renderer split-line measurement, unpinned |
+| routing fixed prose, corpus independent | 1,110 | 1,500 | 390 | renderer measurement, unpinned |
+| largest model row, corpus off | 183 | 300 | 117 | renderer measurement, unpinned |
+| router-on doctrine, corpus off | 5,497 | 6,500 | 1,003 | exact resolver pin |
+| writing-only doctrine, corpus off | 3,982 | 5,600 | 1,618 | exact resolver pin |
+| writing plus router, corpus off | 6,567 | 6,900 | 333 | exact resolver pin |
+| writing plus extensions, corpus off | 4,237 | 6,000 | 1,763 | exact resolver pin |
+| writing plus router and extensions, corpus off | 6,822 | 7,200 | 378 | exact resolver pin |
+| maximal doctrine, draft PRs enabled, corpus off | 7,929 | 8,600 | 671 | exact resolver pin |
+| maximal doctrine, draft PRs disabled, corpus off | 7,914 | 8,600 | 686 | exact resolver pin |
+| maximal doctrine, follow-up issues enabled, corpus off | 8,007 | 8,600 | 593 | exact resolver pin |
+| maximal doctrine, draft PRs enabled, corpus on | 8,067 | 8,600 | 533 | exact resolver pin |
+| maximal doctrine, draft PRs disabled, corpus on | 8,052 | 8,600 | 548 | exact resolver pin |
+| maximal doctrine, follow-up issues enabled, corpus on | 8,145 | 8,600 | 455 | exact resolver pin |
+| capped worker rule, corpus off | 1,347 | 1,600 | 253 | exact resolver pin |
+| writing rule characters, corpus off | 1,070 | 1,150 | 80 | exact resolver pin |
+| writing rule lines, corpus off | 23 | 25 | 2 | exact resolver pin |
 
 Slate replaced the four-class prompt with size grades and focus areas. The
-fixed rules grew by 207 portable characters and two lines. The corpus-off
+fixed-rule growth is an unpinned historical comparison on a corpus-off basis.
+It is 207 portable characters and two lines. It depends on the previous
+four-class wording and the current fixed-rule wording. The corpus-off
 writing-plus-router fixture requires `6,567 × 1.05 = 6,895.35`. Ceiling gives
 6,896, and the next-hundred rule sets 6,900. The corpus-off all-tail fixture
 requires `6,822 × 1.05 = 7,163.1`. Ceiling gives 7,164, and the rule sets 7,200.
@@ -369,17 +382,19 @@ The doctrine table does not include the worker preamble. It belongs
 to each worker session's system prompt, not to the orchestrator's
 per-turn doctrine.
 
-| Worker preamble form | UTF-8 bytes | Increase from base |
-| --- | ---: | ---: |
-| Base | 226 | — |
-| Base + writing guidance | 384 | 158 |
-| Base + reviewer charter | 2,381 | 2,155 |
-| Base + writing guidance + reviewer charter | 2,539 | 2,313 |
+| Worker preamble form | UTF-8 bytes | Increase from base | figure source |
+| --- | ---: | ---: | --- |
+| Base | 226 | — | exact resolver pin |
+| Base + writing guidance | 384 | 158 | exact resolver pin, with derived increase |
+| Base + reviewer charter | 2,381 | 2,155 | live renderer measurement, unpinned |
+| Base + writing guidance + reviewer charter | 2,539 | 2,313 | live renderer measurement, unpinned |
 
-The writing guidance is 157 bytes. The reviewer charter constant is
-2,154 bytes. The writing addendum needs one separating space. The reviewer
-charter addendum needs one separating newline. The current text uses UTF-8
-punctuation, so byte and character counts can differ.
+The unpinned rows depend on the current reviewer charter and separator. The
+157-byte writing guidance is derived from the two pinned preamble forms. The
+2,154-byte reviewer charter is derived from the unpinned base-plus-charter row.
+The writing addendum needs one separating space. The reviewer charter addendum
+needs one separating newline. The current text uses UTF-8 punctuation, so byte
+and character counts can differ.
 This separate figure states the worker-session cost without presenting
 it as orchestrator doctrine.
 
