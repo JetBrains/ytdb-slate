@@ -833,8 +833,8 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It reads no project config. The draft-enabled maximum is **7,929 of 8,500** portable characters. The draft-disabled pin is **7,910**. Writing plus routing is **6,563 of 6,900**. All tails are **6,818 of 7,200**. The capped worker rule is **1,347 of 1,600**. An **8,877-character** positive control exceeds the maximal bound by 377. These are verification budgets, not runtime limits. |
-| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,007 of 8,500** portable characters and 105 lines. It is the largest maximal-family fixture and keeps 493 characters of reserve. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It reads no project config. The corpus-off draft-enabled maximum is **7,929 of 8,600** portable characters. The corpus-off draft-disabled maximum is **7,914 of 8,600**. The longest-name corpus-on equivalents are **8,067 of 8,600** and **8,052 of 8,600**. Corpus-off writing plus routing is **6,567 of 6,900**. Corpus-off all tails are **6,822 of 7,200**. The corpus-off capped worker rule is **1,347 of 1,600**. The **8,877-character, 109-line corpus-off** positive control exceeds the maximal bound by 277. These are verification budgets, not runtime limits. |
+| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` measures **8,007 of 8,600** portable characters and 105 lines with corpus off. It keeps 593 characters of reserve. With the longest corpus name, it measures **8,145 of 8,600** and 107 lines. That corpus-on fixture is the largest maximal-family fixture and keeps 455 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
@@ -1008,23 +1008,29 @@ that `doctrine-budget` enforces. To recover a raw count, add `paths × docs dire
 length`.
 
 The full multi-basis table lives in `docs/context-budget.md`. The resolver check
-owns these stable verification fixtures:
+owns these stable verification fixtures. Standard corpus-on rows use
+`calm-otter-7f3a`. Maximal corpus-on rows use the longest minted name,
+`daring-dolphin-ffff`.
 
-| fixture | paths | portable | lines | bound |
-| --- | ---: | ---: | ---: | ---: |
-| routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
-| writing rule | 1 | **1,070** | 23 | 1,150 |
-| capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| router-off doctrine | 4 | **2,908** | 48 | — |
-| router-on doctrine | 5 | **5,493** | 72 | 6,500 |
-| writing-only doctrine | 5 | **3,978** | 70 | 5,600 |
-| writing plus router | 6 | **6,563** | 94 | 6,900 |
-| writing plus extensions | 5 | **4,233** | 76 | 6,000 |
-| writing plus router and extensions | 6 | **6,818** | 100 | 7,200 |
-| maximal doctrine with draft PRs enabled | 7 | **7,929** | 104 | 8,500 |
-| maximal doctrine with draft PRs disabled | 6 | **7,910** | 104 | 8,500 |
-| maximal doctrine with follow-up issues enabled | 7 | **8,007** | 105 | 8,500 |
-| positive control, one extra capped tool plus four maximum-growth model rows | 7 | **8,877** | 109 | must exceed 8,500 |
+| fixture | corpus | paths | portable | lines | bound |
+| --- | --- | ---: | ---: | ---: | ---: |
+| routing rule, 9 profiles | independent | 1 | **2,585** | 25 | 4,000 |
+| writing rule | off | 1 | **1,070** | 23 | 1,150 |
+| capped worker rule, 2 units / 4 tools | off | 0 | **1,347** | 11 | 1,600 |
+| router-off doctrine | off | 4 | **2,912** | 48 | — |
+| router-off doctrine, standard corpus name | on | 4 | **3,046** | 50 | — |
+| router-on doctrine | off | 5 | **5,497** | 72 | 6,500 |
+| writing-only doctrine | off | 5 | **3,982** | 70 | 5,600 |
+| writing plus router | off | 6 | **6,567** | 94 | 6,900 |
+| writing plus extensions | off | 5 | **4,237** | 76 | 6,000 |
+| writing plus router and extensions | off | 6 | **6,822** | 100 | 7,200 |
+| maximal doctrine with draft PRs enabled | off | 7 | **7,929** | 104 | 8,600 |
+| maximal doctrine with draft PRs disabled | off | 6 | **7,914** | 104 | 8,600 |
+| maximal doctrine with follow-up issues enabled | off | 7 | **8,007** | 105 | 8,600 |
+| maximal doctrine with draft PRs enabled, longest corpus name | on | 7 | **8,067** | 106 | 8,600 |
+| maximal doctrine with draft PRs disabled, longest corpus name | on | 6 | **8,052** | 106 | 8,600 |
+| maximal doctrine with follow-up issues enabled, longest corpus name | on | 7 | **8,145** | 107 | 8,600 |
+| positive control, one extra capped tool plus four maximum-growth model rows | off | 7 | **8,877** | 109 | must exceed 8,600 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
 maximal pins cover draft pull requests enabled, draft pull requests disabled,
@@ -1035,19 +1041,20 @@ Required character raises round up to the next hundred, while line bounds use
 the next whole line.
 
 A doctrine change updates its exact literal. A bound changes only when this
-reserve policy requires it. Writing plus routing uses
-`6,563 × 1.05 = 6,891.15`. Ceiling gives 6,892. Next-hundred rounding gives
+reserve policy requires it. Corpus-off writing plus routing uses
+`6,567 × 1.05 = 6,895.35`. Ceiling gives 6,896. Next-hundred rounding gives
 6,900.
 
-All tails use `6,818 × 1.05 = 7,158.9`. Ceiling gives 7,159. Next-hundred
-rounding gives 7,200.
+Corpus-off all tails use `6,822 × 1.05 = 7,163.1`. Ceiling gives 7,164.
+Next-hundred rounding gives 7,200.
 
-The largest maximal fixture uses `8,007 × 1.05 = 8,407.35`. Ceiling gives
-8,408. Next-hundred rounding gives 8,500. The enabled, disabled, and follow-up
-maximal reserves are 571, 590, and 493.
+The largest maximal fixture is the longest-name corpus-on follow-up render.
+It uses `8,145 × 1.05 = 8,552.25`. Ceiling gives 8,553. Next-hundred rounding
+gives 8,600. Its reserve is 455 characters.
 
-The largest model-row growth is 184 characters. The capped tool-line growth is
-212 characters. The positive control exceeds the maximal bound by 377.
+The largest corpus-off model-row growth is 184 characters. The capped
+corpus-off tool-line growth is 212 characters. The corpus-off positive control
+measures 8,877 characters and 109 lines. It exceeds the maximal bound by 277.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension

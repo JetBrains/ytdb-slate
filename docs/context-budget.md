@@ -206,25 +206,39 @@ and `writing.check` each move the number. Rows with the same fixture
 and basis must agree with `verification/README.md`. A different basis
 must be named instead of presented as the same measurement:
 
-| router | models | `draftPRs` | `writing.check` | paths | portable | lines |
-| --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | off | 4 | 2,908 | 48 |
-| off | — | off | on | 5 | 3,978 | 70 |
-| off | — | on | off | 5 | 2,927 | 48 |
-| off | — | on | on | 6 | 3,997 | 70 |
-| on | fixed six-model fixture | off | off | 5 | 4,938 | 69 |
-| on | fixed six-model fixture | off | on | 6 | 6,008 | 91 |
-| on | fixed six-model fixture | on | off | 6 | 4,957 | 69 |
-| on | fixed six-model fixture | on | on | 7 | 6,027 | 91 |
-| on | all 9 shipped | off | off | 5 | 5,493 | 72 |
-| on | all 9 shipped | off | on | 6 | 6,563 | 94 |
-| on | all 9 shipped | on | off | 6 | 5,512 | 72 |
-| on | all 9 shipped | on | on | 7 | 6,582 | 94 |
+| router | models | `draftPRs` | `writing.check` | corpus | paths | portable | lines |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| off | — | off | off | off | 4 | 2,912 | 48 |
+| off | — | off | on | off | 5 | 3,982 | 70 |
+| off | — | on | off | off | 5 | 2,927 | 48 |
+| off | — | on | on | off | 6 | 3,997 | 70 |
+| on | fixed six-model fixture | off | off | off | 5 | 4,942 | 69 |
+| on | fixed six-model fixture | off | on | off | 6 | 6,012 | 91 |
+| on | fixed six-model fixture | on | off | off | 6 | 4,957 | 69 |
+| on | fixed six-model fixture | on | on | off | 7 | 6,027 | 91 |
+| on | all 9 shipped | off | off | off | 5 | 5,497 | 72 |
+| on | all 9 shipped | off | on | off | 6 | 6,567 | 94 |
+| on | all 9 shipped | on | off | off | 6 | 5,512 | 72 |
+| on | all 9 shipped | on | on | off | 7 | 6,582 | 94 |
+| off | — | off | off | on, standard name | 4 | 3,046 | 50 |
+| off | — | off | on | on, standard name | 5 | 4,116 | 72 |
+| off | — | on | off | on, standard name | 5 | 3,061 | 50 |
+| off | — | on | on | on, standard name | 6 | 4,131 | 72 |
+| on | fixed six-model fixture | off | off | on, standard name | 5 | 5,076 | 71 |
+| on | fixed six-model fixture | off | on | on, standard name | 6 | 6,146 | 93 |
+| on | fixed six-model fixture | on | off | on, standard name | 6 | 5,091 | 71 |
+| on | fixed six-model fixture | on | on | on, standard name | 7 | 6,161 | 93 |
+| on | all 9 shipped | off | off | on, standard name | 5 | 5,631 | 74 |
+| on | all 9 shipped | off | on | on, standard name | 6 | 6,701 | 96 |
+| on | all 9 shipped | on | off | on, standard name | 6 | 5,646 | 74 |
+| on | all 9 shipped | on | on | on, standard name | 7 | 6,716 | 96 |
+
+The standard corpus-on rows use `calm-otter-7f3a`.
 
 An untrusted project reads the first row whatever its `slate.json`
 says: no project config is loaded, so no optional rule renders. Line
 counts do not vary with the install path. Enabling `draftPRs` costs
-19 portable characters plus one embedded path. Enabling
+15 portable characters plus one embedded path. Enabling
 `writing.check` costs 1,070 portable characters, adds 22 lines to the
 whole doctrine, and adds one embedded path. Considered alone, the
 writing rule is 1,070 portable characters / 23 lines. Its leading
@@ -249,24 +263,27 @@ path:
 The table above isolates the shipped rules. Two representative bases include
 worker extensions and support verification decisions:
 
-| basis | models | worker extensions | paths | portable | lines | rough tokens |
-| --- | ---: | --- | ---: | ---: | ---: | ---: |
-| current `.pi/slate.json` project config | 6 | configured-package 2 units / 4 tools | 7 | 6,943 | 101 | ≈1,736 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,929 | 104 | ≈1,982 |
-| follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,007 | 105 | ≈2,002 |
+| basis | corpus | models | worker extensions | paths | portable | lines | rough tokens |
+| --- | --- | ---: | --- | ---: | ---: | ---: | ---: |
+| current `.pi/slate.json` config shape | off | 6 | configured-package 2 units / 4 tools | 7 | 6,943 | 101 | ≈1,736 |
+| current `.pi/slate.json` config shape | on, standard name | 6 | configured-package 2 units / 4 tools | 7 | 7,077 | 103 | ≈1,769 |
+| stable maximal fixture | off | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,929 | 104 | ≈1,982 |
+| stable maximal fixture | on, longest name | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,067 | 106 | ≈2,017 |
+| follow-up-issues maximal fixture | off | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,007 | 105 | ≈2,002 |
+| follow-up-issues maximal fixture | on, longest name | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,145 | 107 | ≈2,036 |
 
-The project-config row uses `workflow.draftPRs: true`, `writing.check: true`, and the
-six models in `.pi/slate.json`. Its extension basis is
+Both project-config rows use `workflow.draftPRs: true`, `writing.check: true`,
+and the six models in `.pi/slate.json`. Their extension basis is
 `pi-smart-fetch@0.3.12` plus `pi-web-search@1.3.1`. Those packages resolve to two
 units and four tools. Their worker-extension rule is 916 portable characters /
 11 lines. Raw size remains symbolic: `portable + 7 × length(installed docs
 directory)`. No maintainer checkout path belongs in this shipped document.
 
-The stable maximal row uses all nine shipped profiles, draft PRs, and writing.
-The follow-up-issues row uses the same basis with `workflow.followUpIssues: true`.
-Its direct post-resolution worker fixture has two units and four tools. Unit
-labels are 128 characters. Tool names are 64 characters. Descriptions are 140
-characters.
+Both stable maximal rows use all nine shipped profiles, draft PRs, and writing.
+The paired corpus-on row uses the longest minted name, `daring-dolphin-ffff`. The follow-up-issues rows
+use the same bases with `workflow.followUpIssues: true`. Their direct
+post-resolution worker fixture has two units and four tools. Unit labels are 128
+characters. Tool names are 64 characters. Descriptions are 140 characters.
 
 Those are the renderer caps. The fixture uses safe ASCII letters. It is
 independent of installed extension labels, descriptions, versions and other
@@ -291,40 +308,43 @@ A doctrine change updates the exact literal and every published measurement. A
 maintainer revisits a bound only when the reserve policy requires it. The check
 applies the five-percent rule to every upper bound, so this decision is auditable.
 
-| budget term | current | enforced bound | current reserve |
+| budget term and corpus basis | measured | enforced bound | reserve |
 | --- | ---: | ---: | ---: |
-| routing rule characters | 2,585 | 4,000 | 1,415 |
-| routing rule lines | 25 | 34 | 9 |
-| routing fixed prose | 1,110 | 1,500 | 390 |
-| largest model row | 183 | 300 | 117 |
-| router-on doctrine | 5,493 | 6,500 | 1,007 |
-| writing-only doctrine | 3,978 | 5,600 | 1,622 |
-| writing plus router | 6,563 | 6,900 | 337 |
-| writing plus extensions | 4,233 | 6,000 | 1,767 |
-| writing plus router and extensions | 6,818 | 7,200 | 382 |
-| maximal doctrine, draft PRs enabled | 7,929 | 8,500 | 571 |
-| maximal doctrine, draft PRs disabled | 7,910 | 8,500 | 590 |
-| maximal doctrine, follow-up issues enabled | 8,007 | 8,500 | 493 |
-| capped worker rule | 1,347 | 1,600 | 253 |
-| writing rule characters | 1,070 | 1,150 | 80 |
-| writing rule lines | 23 | 25 | 2 |
+| routing rule characters, corpus independent | 2,585 | 4,000 | 1,415 |
+| routing rule lines, corpus independent | 25 | 34 | 9 |
+| routing fixed prose, corpus independent | 1,110 | 1,500 | 390 |
+| largest model row, corpus off | 183 | 300 | 117 |
+| router-on doctrine, corpus off | 5,497 | 6,500 | 1,003 |
+| writing-only doctrine, corpus off | 3,982 | 5,600 | 1,618 |
+| writing plus router, corpus off | 6,567 | 6,900 | 333 |
+| writing plus extensions, corpus off | 4,237 | 6,000 | 1,763 |
+| writing plus router and extensions, corpus off | 6,822 | 7,200 | 378 |
+| maximal doctrine, draft PRs enabled, corpus off | 7,929 | 8,600 | 671 |
+| maximal doctrine, draft PRs disabled, corpus off | 7,914 | 8,600 | 686 |
+| maximal doctrine, follow-up issues enabled, corpus off | 8,007 | 8,600 | 593 |
+| maximal doctrine, draft PRs enabled, corpus on | 8,067 | 8,600 | 533 |
+| maximal doctrine, draft PRs disabled, corpus on | 8,052 | 8,600 | 548 |
+| maximal doctrine, follow-up issues enabled, corpus on | 8,145 | 8,600 | 455 |
+| capped worker rule, corpus off | 1,347 | 1,600 | 253 |
+| writing rule characters, corpus off | 1,070 | 1,150 | 80 |
+| writing rule lines, corpus off | 23 | 25 | 2 |
 
 Slate replaced the four-class prompt with size grades and focus areas. The
-fixed rules grew by 207 portable characters and two lines. The writing-plus-
-router fixture requires `6,563 × 1.05 = 6,891.15`. Ceiling gives 6,892, and the
-next-hundred rule sets 6,900. The all-tail fixture requires
-`6,818 × 1.05 = 7,158.9`. Ceiling gives 7,159, and the rule sets 7,200.
+fixed rules grew by 207 portable characters and two lines. The corpus-off
+writing-plus-router fixture requires `6,567 × 1.05 = 6,895.35`. Ceiling gives
+6,896, and the next-hundred rule sets 6,900. The corpus-off all-tail fixture
+requires `6,822 × 1.05 = 7,163.1`. Ceiling gives 7,164, and the rule sets 7,200.
 
-The follow-up fixture is the largest maximal-family member. Its calculation is
-`8,007 × 1.05 = 8,407.35`. Ceiling gives 8,408. Rounding to the next hundred
-sets the shared maximal bound to 8,500. The draft-enabled and draft-disabled
-fixtures fit that bound with the required reserve.
+The corpus-on follow-up fixture is the largest maximal-family member. Its
+calculation is `8,145 × 1.05 = 8,552.25`. Ceiling gives 8,553. Rounding to the
+next hundred sets the shared maximal bound to 8,600. The bound leaves 455
+portable characters above that 8,145-character fixture.
 
-The positive control adds one capped tool and four copies of the largest
-measured model row. It measures 8,877 portable characters and exceeds the
-8,500-character maximal bound by 377. That margin remains larger than the
-184-character maximum model-row growth and the 212-character capped tool growth.
-The raised bound does not blunt the positive control.
+The corpus-off positive control adds one capped tool and four copies of the
+largest measured model row. It measures 8,877 portable characters and 109 lines.
+It exceeds the 8,600-character maximal bound by 277. That margin remains larger
+than the 184-character maximum model-row growth and the 212-character capped
+tool growth. The raised bound does not blunt the positive control.
 
 These figures are verification budgets, never runtime limits. Arbitrary user
 extension rosters can exceed them. Keep the positive-control steps unchanged
@@ -332,10 +352,13 @@ unless the fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. The rough
 estimate divides each measured portable-character render by four and rounds to
-the nearest whole token. The shipped-rule table ranges from about 727 tokens to
-about 1,646 tokens. The current project basis is about 1,736 tokens. The stable
-representative maximum is about 1,982 tokens. The follow-up-issues maximum is
-about 2,002 tokens, or 0.78 percent of the default budget.
+the nearest whole token. The expanded shipped-rule table ranges from about 728
+to 1,679 tokens across its corpus-off and standard-name corpus-on rows. The
+current project corpus-off basis is about 1,736 tokens. Its standard-name
+corpus-on basis is about 1,769 tokens. The stable corpus-off representative is
+about 1,982 tokens, while its longest-name corpus-on maximum is about 2,017.
+The follow-up-issues corpus-off comparison is about 2,002 tokens. Its
+longest-name corpus-on maximum is about 2,036 tokens.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
 much headroom Slate consumes before conversation content.

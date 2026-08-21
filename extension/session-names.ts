@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 const NAME_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-[0-9a-f]{4}$/;
+const MINTED_NAME_PATTERN = /^([a-z]+)-([a-z]+)-([0-9a-f]{4})$/;
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:-|$)/;
 
 export const SESSION_ADJECTIVES = [
@@ -21,6 +22,14 @@ export function isSlateSessionName(value: unknown): value is string {
 	if (typeof value !== "string" || value.length === 0 || value.length > 48) return false;
 	if (!/^[\x00-\x7f]+$/.test(value) || Buffer.byteLength(value, "utf8") > 48) return false;
 	return NAME_PATTERN.test(value) && !WINDOWS_RESERVED.test(value);
+}
+
+export function isMintedSlateSessionName(value: unknown): value is string {
+	if (!isSlateSessionName(value)) return false;
+	const parts = MINTED_NAME_PATTERN.exec(value);
+	if (parts === null) return false;
+	return (SESSION_ADJECTIVES as readonly string[]).includes(parts[1]!)
+		&& (SESSION_NOUNS as readonly string[]).includes(parts[2]!);
 }
 
 export interface SlateMint {
