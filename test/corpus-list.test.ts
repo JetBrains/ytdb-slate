@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import fs, { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -206,6 +206,47 @@ test("a session started in a checkout subdirectory is not foreign under an inher
     else process.env.GIT_WORK_TREE = oldGitWorkTree;
     b.close();
   }
+});
+
+test("project directory identity changes before or during the scan refuse every row", () => {
+  for (const seam of ["afterProjectDirectoryOpen", "beforeProjectDirectoryFinalCheck"] as const) {
+    const b = box();
+    try {
+      const moved = `${b.session.project.directory}-moved`;
+      const listed = listCorpusSessions({
+        cwd: b.cwd,
+        project: b.session.project,
+        isTrusted: () => true,
+        [seam]() {
+          renameSync(b.session.project.directory, moved);
+          mkdirSync(b.session.project.directory);
+        },
+      });
+      assert.deepEqual(listed, { ok: false, reason: "slate: corpus project directory identity changed during listing" });
+    } finally { b.close(); }
+  }
+});
+
+test("metadata growth after the held-descriptor size check produces a defect row", () => {
+  const b = box();
+  try {
+    const file = join(b.session.directory, "session.json");
+    let injected = false;
+    const listed = listCorpusSessions({
+      cwd: b.cwd,
+      project: b.session.project,
+      isTrusted: () => true,
+      afterMetadataSizeCheck(path) {
+        if (path !== file || injected) return;
+        injected = true;
+        appendFileSync(path, " ".repeat(CORPUS_LIST_FILE_BYTES + 1 - statSync(path).size));
+      },
+    });
+    assert.equal(injected, true);
+    const line = output(listed).split("\n").find((value) => value.startsWith(`- ${b.session.name}`));
+    assert.match(line ?? "", /session metadata is unreadable: file is larger than 65536 bytes/);
+    assert.match(line ?? "", /identity \(invalid\)/);
+  } finally { b.close(); }
 });
 
 test("file and session-directory ceilings accept the boundary and defect one beyond it", () => {

@@ -374,9 +374,9 @@ function sameFile(a: ReturnType<typeof fstatSync>, b: NonNullable<ReturnType<typ
  * no portable openat-style child open, so a same-inode replace-and-restore ABA race
  * remains accepted. Do not remove these checks on the grounds that ABA remains.
  */
-type HeldDirectory = { fd: number; stat: ReturnType<typeof fstatSync>; path: string };
+export type HeldDirectory = { fd: number; stat: ReturnType<typeof fstatSync>; path: string };
 
-function directoryMatches(held: HeldDirectory): boolean {
+export function directoryMatches(held: HeldDirectory): boolean {
 	try {
 		const current = lstatSync(held.path, { throwIfNoEntry: false });
 		return held.stat.isDirectory() && current?.isDirectory() === true && !current.isSymbolicLink()
@@ -386,7 +386,7 @@ function directoryMatches(held: HeldDirectory): boolean {
 	}
 }
 
-function holdDirectory(path: string): HeldDirectory {
+export function holdDirectory(path: string): HeldDirectory {
 	const fd = openSync(path, constants.O_RDONLY | NO_FOLLOW | DIRECTORY_ONLY);
 	const held = { fd, stat: fstatSync(fd), path };
 	if (!directoryMatches(held)) {

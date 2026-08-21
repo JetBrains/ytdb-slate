@@ -11,7 +11,7 @@ import {
 import { isAbsolute, join, relative, sep } from "node:path";
 import { TextDecoder } from "node:util";
 import { spawnSync } from "node:child_process";
-import { parseCorpusHandoffRecord } from "./handoff-record.ts";
+import { directoryMatches, holdDirectory, parseCorpusHandoffRecord } from "./handoff-record.ts";
 import { isSlateSessionName } from "./session-names.ts";
 import { SLATE_SESSION_ID_PATTERN } from "./state.ts";
 import { gitEnvironment, type CorpusProject } from "./corpus.ts";
@@ -72,7 +72,7 @@ interface BoundedRead {
 	reason?: string;
 }
 
-function boundedRegularFile(file: string, ceiling: number): BoundedRead {
+function boundedRegularFile(file: string, ceiling: number, afterSizeCheck?: (file: string) => void): BoundedRead {
 	let fd: number | undefined;
 	try {
 		const before = lstatSync(file, { throwIfNoEntry: false });
@@ -84,6 +84,7 @@ function boundedRegularFile(file: string, ceiling: number): BoundedRead {
 			return { ok: false, reason: "linked or changing file" };
 		}
 		if (held.size > ceiling) return { ok: false, reason: `file is larger than ${ceiling} bytes` };
+		afterSizeCheck?.(file);
 		const buffer = Buffer.alloc(ceiling + 1);
 		let used = 0;
 		while (used < buffer.length) {
@@ -173,7 +174,13 @@ function pendingState(project: CorpusProject, name: string, ceiling: number): Pi
 	}
 }
 
-function readRow(project: CorpusProject, name: string, worktreeRoot: string, limits: CorpusListLimits): { row: DraftRow; metadataBytes: number } {
+function readRow(
+	project: CorpusProject,
+	name: string,
+	worktreeRoot: string,
+	limits: CorpusListLimits,
+	afterMetadataSizeCheck?: (file: string) => void,
+): { row: DraftRow; metadataBytes: number } {
 	const row: DraftRow = { name, pending: "absent", markers: [], notes: [] };
 	const directory = join(project.directory, name);
 	try {
@@ -187,7 +194,7 @@ function readRow(project: CorpusProject, name: string, worktreeRoot: string, lim
 		}
 		const countDefect = countSessionEntries(directory, limits.sessionEntries);
 		if (countDefect !== undefined) row.notes.push(countDefect);
-		const read = boundedRegularFile(join(directory, "session.json"), limits.fileBytes);
+		const read = boundedRegularFile(join(directory, "session.json"), limits.fileBytes, afterMetadataSizeCheck);
 		if (!read.ok || read.bytes === undefined) {
 			row.notes.push(`session metadata is unreadable: ${read.reason}`);
 			return { row, metadataBytes: 0 };
@@ -240,6 +247,10 @@ export function listCorpusSessions(options: {
 	isTrusted: () => boolean;
 	project?: CorpusProject;
 	limits?: Partial<CorpusListLimits>;
+	/** Deterministic race-injection seams. Production callers omit them. */
+	afterProjectDirectoryOpen?: () => void;
+	beforeProjectDirectoryFinalCheck?: () => void;
+	afterMetadataSizeCheck?: (file: string) => void;
 }): CorpusSessionListResult {
 	if (!options.isTrusted()) return { ok: false, reason: "slate: corpus session listing requires a trusted project" };
 	const project = options.project;
@@ -281,11 +292,18 @@ export function listCorpusSessions(options: {
 		if (result.status === 0 && result.stdout.trim() !== "") worktreeRoot = realpathSync(result.stdout.trim());
 	} catch { /* a non-Git directory uses its own canonical root */ }
 	let directory: ReturnType<typeof opendirSync> | undefined;
+	let projectHeld: ReturnType<typeof holdDirectory> | undefined;
 	const rows: DraftRow[] = [];
 	let aggregate = 0;
 	let omitted = 0;
 	let countExhausted = false;
 	try {
+		projectHeld = holdDirectory(project.directory);
+		options.afterProjectDirectoryOpen?.();
+		if (!directoryMatches(projectHeld)) return { ok: false, reason: "slate: corpus project directory identity changed during listing" };
+		// The runtime offers no directory-relative child open. A same-inode
+		// replace-and-restore race remains. This matches the accepted risk that the
+		// project already records for the handoff record path.
 		directory = opendirSync(project.directory);
 		let seen = 0;
 		for (;;) {
@@ -298,15 +316,18 @@ export function listCorpusSessions(options: {
 				continue;
 			}
 			if (!isSlateSessionName(entry.name)) continue;
-			const read = readRow(project, entry.name, worktreeRoot, limits);
+			const read = readRow(project, entry.name, worktreeRoot, limits, options.afterMetadataSizeCheck);
 			aggregate += read.metadataBytes;
 			if (aggregate > limits.aggregateBytes) return { ok: false, reason: `slate: session metadata exceeds ${limits.aggregateBytes} aggregate bytes` };
 			rows.push(read.row);
 		}
+		options.beforeProjectDirectoryFinalCheck?.();
+		if (!directoryMatches(projectHeld)) return { ok: false, reason: "slate: corpus project directory identity changed during listing" };
 	} catch (error) {
 		return { ok: false, reason: `slate: could not read the corpus project directory: ${errorText(error)}` };
 	} finally {
 		try { directory?.closeSync(); } catch { /* the refusal above remains authoritative */ }
+		if (projectHeld !== undefined) closeSync(projectHeld.fd);
 	}
 	const identities = new Map<string, DraftRow[]>();
 	for (const row of rows) {
