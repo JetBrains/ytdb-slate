@@ -8,6 +8,11 @@ The orchestrator reads this document at packet time for a MEDIUM or LARGE
 track. It also reads it at the first recorded user note, at a drain with a
 non-empty note queue, and at the first owner triage.
 
+## Commands
+
+The `/slate sessions` command lists persisted corpus sessions for the current
+project. It is read-only. It writes nothing and removes nothing.
+
 ## Track packets
 
 Every completed track reaches the user in a track packet. The packet contains

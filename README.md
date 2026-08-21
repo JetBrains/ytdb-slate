@@ -107,6 +107,12 @@ pi install -l npm:ytdb-slate@<version>
 
 > **Note on pinning:** pinned specs (`@<version>`) are deliberately skipped by `pi update --extensions` / `pi update --all`. Bumping the pin is a conscious project change — review Slate's shipped workflow docs for changes when you do.
 
+## Commands
+
+Use `/slate sessions` to list the persisted corpus sessions for the current project. The command is read-only. It reports session names, identities, branch labels, worktree paths, creation times, pending handoff state, and safety markers. It writes nothing and removes nothing.
+
+Use `/slate on`, `/slate off`, `/slate handoff [focus]`, `/slate adopt <name>`, and `/slate resume` for orchestrator mode and handoff operations.
+
 ## Configuration
 
 Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.json`). It is honored **only in trusted projects** (see [Trust](#trust)).

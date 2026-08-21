@@ -1,5 +1,26 @@
 # Verification ladder — global model-default restore
 
+## Corpus session listing
+
+`test/corpus-list.test.ts` covers `extension/corpus-list.ts` and the `/slate sessions`
+command. It checks trust gating, bounded reads, metadata validation, display
+sanitization, pending and foreign-worktree markers, defect rows, duplicate
+identities, truncation, refusal paths, and the read-only guarantee.
+
+Run the focused tests with:
+
+```sh
+node --test test/corpus-list.test.ts
+```
+
+The test creates temporary corpus data. It does not modify the repository or
+user state. The listing command writes nothing and removes nothing.
+
+Open an interactive session against a real corpus copy after command or
+registration changes. Run `/slate sessions` from the project root and from a
+subdirectory. Confirm that the output lists sessions, marks foreign worktrees,
+and reports pending state without changing the corpus copy.
+
 ## Size-grade regression suite
 
 `node verification/size-grade-tests.mjs` checks the shipped `extension/size-grade.mjs` command. The suite covers grade boundaries, all declared source extensions, binary numstat zero-line handling, configuration safety, Git failures, and output formats. It runs first through `verification/run-tests.sh`, so `npm test` and `npm run test:coverage` include it before the TypeScript tests and coverage gate. Use `npm run test:size-grade` for the focused package script. `run-tests.sh` refuses to start with exit 2 when the suite file is absent, so CI cannot silently skip this net.
