@@ -321,7 +321,7 @@ function validSnapshot(value: unknown): value is SlateSnapshot {
 	return true;
 }
 
-function validateRecord(value: unknown): CorpusHandoffRecord | undefined {
+export function validateCorpusHandoffRecord(value: unknown): CorpusHandoffRecord | undefined {
 	if (!handoffTreeWithinDepth(value) || !object(value)) return undefined;
 	const allowed = [
 		"version", "author", "authorSessionDirectory", "createdAt", "worktreePath", "branchLabel",
@@ -347,6 +347,17 @@ function validateRecord(value: unknown): CorpusHandoffRecord | undefined {
 	if (value.snapshot.slateSessionId !== value.author.identity || value.snapshot.slateSessionName !== value.author.name) return undefined;
 	if (JSON.stringify(value.snapshot.slateSessionParentChain ?? []) !== JSON.stringify(value.parentChain)) return undefined;
 	return value as unknown as CorpusHandoffRecord;
+}
+
+/** Validate either persisted handoff wire version without following any record paths. */
+export function parseCorpusHandoffRecord(value: unknown): CorpusHandoffRecord | undefined {
+	let runtime = value;
+	if (object(value) && value.version === 2) {
+		if (!validateWireRecord(value)) return undefined;
+		runtime = decodeWireValue(value, new Set(["authorSessionDirectory", "worktreePath", "branchLabel", "brief", "focus", "thinkingLevel"]));
+		(runtime as Record<string, unknown>).version = 1;
+	}
+	return validateCorpusHandoffRecord(runtime);
 }
 
 export function corpusHandoffFile(project: CorpusProject, name: string): string {
@@ -477,7 +488,7 @@ export function readCorpusHandoffRecord(options: {
 			runtimeRaw = decodeWireValue(raw, new Set(["authorSessionDirectory", "worktreePath", "branchLabel", "brief", "focus", "thinkingLevel"]));
 			(runtimeRaw as Record<string, unknown>).version = 1;
 		}
-		const record = validateRecord(runtimeRaw);
+		const record = validateCorpusHandoffRecord(runtimeRaw);
 		if (record === undefined) return { ok: false, reason: "slate refused a handoff record that does not match its schema or bounds" };
 
 		// D126 and D133: only validated names form followed paths. The recorded path must equal the derived path.
@@ -611,7 +622,7 @@ export function writeCorpusHandoffRecord(
 	hooks: HandoffWriteHooks = {},
 	durability: HandoffDurabilityOperations = DEFAULT_HANDOFF_DURABILITY_OPERATIONS,
 ): string {
-	const validated = validateRecord(record);
+	const validated = validateCorpusHandoffRecord(record);
 	if (validated === undefined) throw new Error("slate refused to write an invalid handoff record");
 	const projectEntry = lstatSync(project.directory, { throwIfNoEntry: false });
 	if (!projectEntry?.isDirectory() || projectEntry.isSymbolicLink() || realpathSync(project.directory) !== project.directory) {

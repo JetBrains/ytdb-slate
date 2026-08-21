@@ -19,6 +19,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
+import { listCorpusSessions } from "./corpus-list.ts";
 import { PROFILES_AS_OF } from "./model-profiles.ts";
 import { checkEffort, ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "./model-router.ts";
 import {
@@ -668,12 +669,23 @@ export function registerSlateMode(
 	store.onDidChange = updateWidget;
 
 	pi.registerCommand("slate", {
-		description: "Slate orchestrator mode: on | off | handoff [focus] | adopt <name> | resume (no arg toggles)",
+		description: "Slate orchestrator mode: on | off | sessions | handoff [focus] | adopt <name> | resume (no arg toggles)",
 		handler: async (args, ctx) => {
 			uiCtx = ctx;
 			const trimmed = args?.trim() ?? "";
 			const [verb, ...rest] = trimmed.split(/\s+/);
 			const arg = verb?.toLowerCase();
+			if (arg === "sessions") {
+				const listed = listCorpusSessions({
+					cwd: ctx.cwd,
+					isTrusted: () => ctx.isProjectTrusted(),
+					project: store.corpusProject,
+				});
+				const message = listed.ok ? listed.lines.join("\n") : listed.reason;
+				console.warn(message);
+				if (ctx.hasUI) ctx.ui.notify(message, listed.ok ? "info" : "warning");
+				return;
+			}
 			if (arg === "handoff") {
 				if (!store.orchestratorMode) {
 					if (ctx.hasUI) ctx.ui.notify("slate: orchestrator mode is not active — nothing to hand off.", "warning");
