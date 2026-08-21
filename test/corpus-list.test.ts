@@ -330,6 +330,43 @@ test("aggregate metadata accepts its boundary and refuses one byte beyond withou
   } finally { b.close(); }
 });
 
+test("a valid pending record contributes to the aggregate boundary", () => {
+  const b = box();
+  try {
+    const record: CorpusHandoffRecord = {
+      version: 1,
+      author: { identity: ID1, name: b.session.name },
+      authorSessionDirectory: b.session.directory,
+      createdAt: 1,
+      worktreePath: b.cwd,
+      branchLabel: "",
+      parentChain: [],
+      brief: "continue",
+      snapshot: {
+        threads: [], episodes: [], orchestratorMode: false, paused: false,
+        workerCostUsd: 0, carriedCostUsd: 0, slateSessionId: ID1, slateSessionName: b.session.name,
+      },
+    };
+    writeCorpusHandoffRecord(b.session.project, record);
+    const metadataBytes = statSync(join(b.session.directory, "session.json")).size;
+    const pendingBytes = statSync(join(b.session.project.directory, "pending", `${b.session.name}.json`)).size;
+    assert.equal(b.list({ aggregateBytes: metadataBytes + pendingBytes }).ok, true);
+    assert.equal(b.list({ aggregateBytes: metadataBytes + pendingBytes - 1 }).ok, false);
+  } finally { b.close(); }
+});
+
+test("pending bytes alone can breach the aggregate bound and refuse every row", () => {
+  const b = box();
+  try {
+    const metadataBytes = statSync(join(b.session.directory, "session.json")).size;
+    const pending = join(b.session.project.directory, "pending");
+    mkdirSync(pending);
+    writeFileSync(join(pending, `${b.session.name}.json`), "not valid json");
+    const refused = b.list({ aggregateBytes: metadataBytes });
+    assert.deepEqual(refused, { ok: false, reason: `slate: session metadata exceeds ${metadataBytes} aggregate bytes` });
+  } finally { b.close(); }
+});
+
 test("pending files above the ceiling and linked pending paths are unreadable", () => {
   const b = box();
   try {

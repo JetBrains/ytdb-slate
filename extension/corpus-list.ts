@@ -149,28 +149,32 @@ interface DraftRow {
 	notes: string[];
 }
 
-function pendingState(project: CorpusProject, name: string, ceiling: number): Pick<DraftRow, "pending" | "notes"> {
+interface PendingState extends Pick<DraftRow, "pending" | "notes"> {
+	bytes: number;
+}
+
+function pendingState(project: CorpusProject, name: string, ceiling: number): PendingState {
 	const pendingDirectory = join(project.directory, "pending");
 	const directoryEntry = lstatSync(pendingDirectory, { throwIfNoEntry: false });
-	if (directoryEntry === undefined) return { pending: "absent", notes: [] };
+	if (directoryEntry === undefined) return { pending: "absent", notes: [], bytes: 0 };
 	try {
 		if (!directoryEntry.isDirectory() || directoryEntry.isSymbolicLink() || realpathSync(pendingDirectory) !== pendingDirectory) {
-			return { pending: "unreadable", notes: ["pending record is unreadable: pending path is not a real directory"] };
+			return { pending: "unreadable", notes: ["pending record is unreadable: pending path is not a real directory"], bytes: 0 };
 		}
 	} catch (error) {
-		return { pending: "unreadable", notes: [`pending record is unreadable: ${errorText(error)}`] };
+		return { pending: "unreadable", notes: [`pending record is unreadable: ${errorText(error)}`], bytes: 0 };
 	}
 	const file = join(pendingDirectory, `${name}.json`);
 	const entry = lstatSync(file, { throwIfNoEntry: false });
-	if (entry === undefined) return { pending: "absent", notes: [] };
+	if (entry === undefined) return { pending: "absent", notes: [], bytes: 0 };
 	const read = boundedRegularFile(file, ceiling);
-	if (!read.ok || read.bytes === undefined) return { pending: "unreadable", notes: [`pending record is unreadable: ${read.reason}`] };
+	if (!read.ok || read.bytes === undefined) return { pending: "unreadable", notes: [`pending record is unreadable: ${read.reason}`], bytes: 0 };
 	try {
 		const record = parseCorpusHandoffRecord(parseJson(read.bytes));
 		if (record === undefined || record.author.name !== name) throw new Error("record does not match its schema or session name");
-		return { pending: "present", notes: [] };
+		return { pending: "present", notes: [], bytes: read.bytes.byteLength };
 	} catch (error) {
-		return { pending: "unreadable", notes: [`pending record is unreadable: ${errorText(error)}`] };
+		return { pending: "unreadable", notes: [`pending record is unreadable: ${errorText(error)}`], bytes: read.bytes.byteLength };
 	}
 }
 
@@ -180,34 +184,36 @@ function readRow(
 	worktreeRoot: string,
 	limits: CorpusListLimits,
 	afterMetadataSizeCheck?: (file: string) => void,
-): { row: DraftRow; metadataBytes: number } {
+): { row: DraftRow; readBytes: number } {
 	const row: DraftRow = { name, pending: "absent", markers: [], notes: [] };
 	const directory = join(project.directory, name);
+	let readBytes = 0;
 	try {
 		const pending = pendingState(project, name, limits.fileBytes);
 		row.pending = pending.pending;
 		row.notes.push(...pending.notes);
+		readBytes += pending.bytes;
 		const entry = lstatSync(directory, { throwIfNoEntry: false });
 		if (!entry?.isDirectory() || entry.isSymbolicLink()) {
 			row.notes.push(entry?.isSymbolicLink() ? "session directory is a symbolic link" : "session directory is unreadable");
-			return { row, metadataBytes: 0 };
+			return { row, readBytes };
 		}
 		const countDefect = countSessionEntries(directory, limits.sessionEntries);
 		if (countDefect !== undefined) row.notes.push(countDefect);
 		const read = boundedRegularFile(join(directory, "session.json"), limits.fileBytes, afterMetadataSizeCheck);
 		if (!read.ok || read.bytes === undefined) {
 			row.notes.push(`session metadata is unreadable: ${read.reason}`);
-			return { row, metadataBytes: 0 };
+			return { row, readBytes };
 		}
 		let raw: unknown;
 		try { raw = parseJson(read.bytes); }
 		catch (error) {
 			row.notes.push(`session metadata is malformed: ${errorText(error)}`);
-			return { row, metadataBytes: read.bytes.byteLength };
+			return { row, readBytes: readBytes + read.bytes.byteLength };
 		}
 		if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
 			row.notes.push("session metadata is not an object");
-			return { row, metadataBytes: read.bytes.byteLength };
+			return { row, readBytes: readBytes + read.bytes.byteLength };
 		}
 		const value = raw as Record<string, unknown>;
 		for (const field of ["identity", "name", "createdAt", "worktreePath", "branchLabel"] as const) {
@@ -228,10 +234,10 @@ function readRow(
 			if (!insideOrEqual(worktreeRoot, value.worktreePath)) row.markers.push("session started outside this working tree");
 		}
 		if (typeof value.branchLabel === "string") row.branchLabel = value.branchLabel;
-		return { row, metadataBytes: read.bytes.byteLength };
+		return { row, readBytes: readBytes + read.bytes.byteLength };
 	} catch (error) {
 		row.notes.push(`session entry read failed: ${errorText(error)}`);
-		return { row, metadataBytes: 0 };
+		return { row, readBytes };
 	}
 }
 
@@ -317,7 +323,7 @@ export function listCorpusSessions(options: {
 			}
 			if (!isSlateSessionName(entry.name)) continue;
 			const read = readRow(project, entry.name, worktreeRoot, limits, options.afterMetadataSizeCheck);
-			aggregate += read.metadataBytes;
+			aggregate += read.readBytes;
 			if (aggregate > limits.aggregateBytes) return { ok: false, reason: `slate: session metadata exceeds ${limits.aggregateBytes} aggregate bytes` };
 			rows.push(read.row);
 		}
