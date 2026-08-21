@@ -3692,17 +3692,20 @@ production behaviour.`);
 			const archive = workflow.match(/^### The delivery archive\n([\s\S]*?)(?=^### |^## )/m)?.[1] ?? "";
 			const archiveText = normalizeText(archive);
 			const inlineArchiveCode = [...archive.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]);
-			const pathAssignmentNames = ["corpus_root_input", "corpus_root", "worktree", "git_common_dir", "candidate"];
+			const pathAssignmentNames = ["agent_root", "corpus_root_input", "corpus_root", "worktree", "git_common_dir", "candidate"];
 			const pathAssignments = inlineArchiveCode.filter((code) => pathAssignmentNames.some((name) => code.startsWith(`${name}=`)));
 			const expectedPathAssignments = [
 				"worktree='<change worktree root>'",
 				"candidate='<selected path>'",
-				"corpus_root_input='<Pi agent directory>/ytdb-slate/projects'",
+				'agent_root="$PI_CODING_AGENT_DIR"',
+				'agent_root="$HOME/.pi/agent"',
+				'corpus_root_input="$agent_root/ytdb-slate/projects"',
 				"corpus_root='<resolved corpus root>'",
 				"worktree='<change worktree root>'",
 				"git_common_dir='<Git common directory>'",
 				"candidate='<selected path>'",
 			];
+			const singleQuotedPathAssignments = pathAssignments.filter((assignment) => assignment.includes("='"));
 			const archiveCommands = inlineArchiveCode.filter((code) => /^(?:env |git |realpath |printf |test )/.test(code));
 			const expectedArchiveCommands = [
 				`git -C "$worktree"`,
@@ -3747,6 +3750,24 @@ production behaviour.`);
 			];
 			const decisionTable = archive.split("\n").filter((line) => line.startsWith("|"));
 			const corpusRootRefusal = "The worker refuses and reports when the resolution fails or returns an empty value.";
+			const environmentPathRule = normalizeText(`A path built from an
+ environment variable instead uses double quotes around the variable. A variable
+ expansion inside double quotes performs no further parsing, so it is safe. A
+ tilde never appears inside a single-quoted assignment.`);
+			const agentRootRule = normalizeText(`Resolve the Pi agent directory from \`PI_CODING_AGENT_DIR\` when it is set.
+ Use \`agent_root="$PI_CODING_AGENT_DIR"\` in that case. Otherwise the
+ home-directory form supplies the default: \`agent_root="$HOME/.pi/agent"\`.
+ Form the unresolved corpus path as
+ \`corpus_root_input="$agent_root/ytdb-slate/projects"\`.`);
+			const ordinalSelectionRule = normalizeText(`List the entries of the \`deliveries\` directory once. When that directory is
+ absent, use an empty listing. From that one listing, choose the lowest
+ three-digit value from \`001\` through \`999\` that is absent. This method needs
+ no script and no repeated existence test.`);
+			const emptyDirectoryCleanupRule = normalizeText(`On a mismatch or any other failure, remove every file or directory this
+ attempt created, subject to the empty-directory rule. Remove a directory
+ only when that directory is empty. When a directory is not empty, leave it
+ and report it. Keep every pre-existing entry. Report the failed step and
+ reason.`);
 			const deliveryScopeRule = normalizeText(`The delivery archive applies only to delivery. Abandonment is not delivery.
 After final change acceptance, archive the working log when this decision table
 requires it. The table governs delivery and is complete.`);
@@ -3769,7 +3790,9 @@ procedure. No waiver applies because no delivery happens.`);
 				"Refuse when the working log is not a regular file or is unreadable.",
 				"Refuse when that ordinal directory already exists.",
 				"Never remove an entry the worker did not create.",
-				"On a mismatch or any other failure, remove every file or directory this attempt created.",
+				"On a mismatch or any other failure, remove every file or directory this attempt created, subject to the empty-directory rule.",
+				"Remove a directory only when that directory is empty.",
+				"When a directory is not empty, leave it and report it.",
 				"Keep every pre-existing entry.",
 				"Report the failed step and reason.",
 			];
@@ -3777,15 +3800,16 @@ procedure. No waiver applies because no delivery happens.`);
 			const oldDeletionSentence = "Delete the retained local log only at delivery.";
 			const agentsArchiveClause = agents.match(/^- At delivery, after final change acceptance,[\s\S]*?(?=^- |^## )/m)?.[0]?.trim() ?? "";
 			const expectedAgentsArchiveClause = normalizeText(`- At delivery, after final change acceptance, the orchestrator applies the complete archive decision table. The orchestrator records any archive waiver in the delivery commit body. When \`workflow.draftPRs\` is enabled, the orchestrator also records it in the pull request. Never delete the working log. Worktree removal disposes of that copy. \`docs/track-workflow.md\` § Session handoff and the research log defines resolution, refusal, verification and retry.`);
-			checkAll("contract-delivery-archive", "the workflow pins quoted paths, digest and root failures, ordering, the delivery-only table, abandonment, waiver locations, and the AGENTS summary", [
+			checkAll("contract-delivery-archive", "the workflow pins safe path construction, digest and root failures, ordinal selection, cleanup, ordering, the delivery-only table, abandonment, waiver locations, and the AGENTS summary", [
 				["the archive section exists once", archive !== "" && (workflow.match(/^### The delivery archive$/gm) ?? []).length === 1, archive.slice(0, 200)],
 				["dispatch supplies only the named corpus session and absolute working-log path", archiveText.includes("supplies exactly two inputs: that corpus session name and the absolute path of the working log"), archiveText.slice(0, 700)],
 				["the worktree-root placeholder is defined from the working log", archiveText.includes("`<change worktree root>` is the directory that holds the working log"), archiveText.slice(0, 700)],
-				["the worker resolves the agent root and derives the project digest from the change worktree", archiveText.includes("Resolve the Pi agent directory from `PI_CODING_AGENT_DIR`") && archiveText.includes("Otherwise use `~/.pi/agent`") && archiveText.includes("Derive the project digest from the change worktree"), archiveText.slice(0, 1200)],
-				// Pin 1a. Mutation: change any listed literal single-quoted assignment to another assignment form.
-				["every command path is first represented by the exact single-quoted assignment roster", JSON.stringify(pathAssignments) === JSON.stringify(expectedPathAssignments), { expected: expectedPathAssignments, actual: pathAssignments }],
-				// Pin 1b. Mutation: remove the refusal for a supplied or derived path containing one single quote.
-				["the path rule refuses a single quote before assignment", archiveText.includes("Before forming an assignment, the worker refuses a path containing a single quote character (`'`) because the assignment cannot represent it safely."), archiveText.slice(650, 1450)],
+				// Pin WI740a. Mutation: alter either environment-derived assignment, its safety rationale, the home-directory default, or the no-tilde rule.
+				["the worker forms the agent root safely from the configured or home-directory environment variable before deriving the project digest", archiveText.includes(environmentPathRule) && archiveText.includes(agentRootRule) && singleQuotedPathAssignments.every((assignment) => !assignment.includes("~")) && archiveText.includes("Derive the project digest from the change worktree"), { environmentPathRule: archiveText.includes(environmentPathRule), agentRootRule: archiveText.includes(agentRootRule), singleQuotedPathAssignments }],
+				// Pin 1a and WI740b. Mutation: change any listed literal or environment-derived assignment to another assignment form.
+				["every command path is first represented by the exact safe-assignment roster", JSON.stringify(pathAssignments) === JSON.stringify(expectedPathAssignments), { expected: expectedPathAssignments, actual: pathAssignments }],
+				// Pin 1b. Mutation: remove the refusal for a literal supplied or derived path containing one single quote.
+				["the path rule refuses a single quote before a literal assignment", archiveText.includes("Before forming a literal single-quoted assignment, the worker refuses a path containing a single quote character (`'`) because the assignment cannot represent it safely."), archiveText.slice(650, 1550)],
 				// Pin 1c. Mutation: remove double quotes from any later path-variable use.
 				["every path variable in every command is double-quoted", JSON.stringify(archiveCommands) === JSON.stringify(expectedArchiveCommands) && unquotedPathReferences.length === 0, { commands: archiveCommands, unquotedPathReferences }],
 				// Pin 2. Mutation: insert a raw path placeholder directly into any command.
@@ -3795,6 +3819,8 @@ procedure. No waiver applies because no delivery happens.`);
 				["the exact Git-capture and captured-value hash commands each appear once", archiveCommands.filter((command) => command === gitCaptureCommand).length === 1 && archiveCommands.filter((command) => command === hashCapturedCommand).length === 1, { gitCapture: archiveCommands.filter((command) => command === gitCaptureCommand).length, hashCaptured: archiveCommands.filter((command) => command === hashCapturedCommand).length }],
 				["the destination is the ordinal archive path", archiveText.includes("<corpus session directory>/deliveries/<ordinal>/research-log.md"), archiveText.match(/deliveries[^ ]*research-log\.md/)?.[0]],
 				["the project digest selects the project before any same-name session", archiveText.includes("The project digest selects the project directory first, so a same-name session in another project cannot be selected."), archiveText.slice(1000, 1800)],
+				// Pin WI742. Mutation: replace the single listing with repeated probes, a script, or another ordinal range.
+				["ordinal selection uses one deliveries listing, no script, and no repeated existence test", archiveText.includes(ordinalSelectionRule), archiveText.match(/List the entries[\s\S]{0,420}?existence test\./)?.[0]],
 				// Pin 4. Mutation: move the symbolic-link refusal after the metadata read or the first write.
 				["symbolic-link refusal and its command precede the metadata read and first write", Object.values(archiveStepPositions).every((position) => position >= 0) && archiveStepPositions.symlinkPreamble < archiveStepPositions.symlinkRefusal && archiveStepPositions.symlinkRefusal < archiveStepPositions.metadataRead && archiveStepPositions.symlinkRefusal < archiveStepPositions.firstWrite, archiveStepPositions],
 				// Pin 5. Mutation: remove the refusal for failed or empty corpus-root resolution.
@@ -3810,6 +3836,8 @@ procedure. No waiver applies because no delivery happens.`);
 				["no branch label builds the destination", !/branch(?: label)?/i.test(archive), archive.match(/.{0,60}branch.{0,100}/i)?.[0]],
 				["no instruction deletes the working log and the old sentence is absent", archiveText.includes("Never delete the working log.") && !workflow.includes(oldDeletionSentence) && !agents.includes(oldDeletionSentence), { archiveNeverDelete: archiveText.includes("Never delete the working log."), oldWorkflow: workflow.includes(oldDeletionSentence), oldAgents: agents.includes(oldDeletionSentence) }],
 				["every refusal and cleanup rule appears", missingArchiveTerms.length === 0, missingArchiveTerms],
+				// Pin WI741. Mutation: remove the empty-directory condition, foreign-content preservation, or report duty.
+				["failure cleanup removes only empty created directories and reports retained nonempty directories", archiveText.includes(emptyDirectoryCleanupRule), archiveText.match(/On a mismatch[\s\S]{0,420}?reason\./)?.[0]],
 				["verification compares exactly the two post-copy SHA-256 hashes once", archiveText.includes("Hash the working log and destination after the copy with SHA-256. Compare those two hashes once."), archiveText.match(/Hash the working log[\s\S]{0,180}?once\./)?.[0]],
 				["a same-ordinal race refuses one worker and triggers redispatch", archiveText.includes("makes the other refuse the existing directory") && archiveText.includes("orchestrator dispatches the refused archive again") && archiveText.includes("Add no lock."), archiveText.slice(-700)],
 				// Pin 10. Mutation: alter the AGENTS actor, complete-table duty, waiver locations, preservation rule, or delegated procedure scope.

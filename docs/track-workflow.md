@@ -270,24 +270,29 @@ and the absolute path of the working log. The worker resolves every destination
 component. `<change worktree root>` is the directory that holds the working log.
 
 One shell path rule applies throughout the archive procedure. Before a shell
-command uses any supplied, resolved, derived, or selected path, the worker
-assigns that path to a variable with a literal single-quoted assignment.
+command uses any supplied, resolved, derived, or selected literal path, the
+worker assigns that path to a variable with a literal single-quoted assignment.
 Examples are `worktree='<change worktree root>'` and
-`candidate='<selected path>'`. Before forming an assignment, the worker refuses
-a path containing a single quote character (`'`) because the assignment cannot
-represent it safely. Every later path operand uses only the variable,
-with double quotes around it, such as `git -C "$worktree"` or
-`test -L "$candidate"`. The worker never inserts path text directly into a
-later command.
+`candidate='<selected path>'`. Before forming a literal single-quoted
+assignment, the worker refuses a path containing a single quote character
+(`'`) because the assignment cannot represent it safely. A path built from an
+environment variable instead uses double quotes around the variable. A variable
+expansion inside double quotes performs no further parsing, so it is safe. A
+tilde never appears inside a single-quoted assignment. Every later path operand
+uses only the variable, with double quotes around it, such as
+`git -C "$worktree"` or `test -L "$candidate"`. The worker never inserts path
+text directly into a later command.
 
 The worker follows these steps.
 
 1. Resolve the Pi agent directory from `PI_CODING_AGENT_DIR` when it is set.
-   Otherwise use `~/.pi/agent`. Assign the unresolved corpus path with
-   `corpus_root_input='<Pi agent directory>/ytdb-slate/projects'`. Resolve it
-   once with `realpath "$corpus_root_input"`. The worker refuses and reports
-   when the resolution fails or returns an empty value. Validate that output
-   under the path rule before assigning it as
+   Use `agent_root="$PI_CODING_AGENT_DIR"` in that case. Otherwise the
+   home-directory form supplies the default: `agent_root="$HOME/.pi/agent"`.
+   Form the unresolved corpus path as
+   `corpus_root_input="$agent_root/ytdb-slate/projects"`. Resolve it once with
+   `realpath "$corpus_root_input"`. The worker refuses and reports when the
+   resolution fails or returns an empty value. Validate that output under the
+   path rule before assigning it as
    `corpus_root='<resolved corpus root>'`.
 2. Derive the project digest from the change worktree. Assign the supplied path
    as `worktree='<change worktree root>'`. Run the Git command and capture its
@@ -309,9 +314,11 @@ The worker follows these steps.
    below the digest-bearing project directory. The project digest selects the
    project directory first, so a same-name session in another project cannot be
    selected. Set the archive parent to `<corpus session directory>/deliveries`.
-   Select the lowest positive three-digit ordinal whose entry is absent,
-   starting at `001`. The destination is `<corpus session
-   directory>/deliveries/<ordinal>/research-log.md`. Refuse and report
+   List the entries of the `deliveries` directory once. When that directory is
+   absent, use an empty listing. From that one listing, choose the lowest
+   three-digit value from `001` through `999` that is absent. This method needs
+   no script and no repeated existence test. The destination is `<corpus
+   session directory>/deliveries/<ordinal>/research-log.md`. Refuse and report
    exhaustion without creating anything when `001` through `999` all exist.
 4. Before reading `session.json` or writing anything, test the project directory,
    session directory, the session directory's `session.json`, `deliveries`
@@ -332,7 +339,9 @@ The worker follows these steps.
    the working log and destination after the copy with SHA-256. Compare those
    two hashes once.
 8. On a mismatch or any other failure, remove every file or directory this
-   attempt created. Keep every pre-existing entry. Report the failed step and
+   attempt created, subject to the empty-directory rule. Remove a directory
+   only when that directory is empty. When a directory is not empty, leave it
+   and report it. Keep every pre-existing entry. Report the failed step and
    reason.
 9. On success, report the absolute destination path, the ordinal and the shared
    hash. Never delete the working log.
