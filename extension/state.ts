@@ -32,6 +32,8 @@ import {
 	type CorpusProject,
 } from "./corpus.ts";
 import { drawSlateMint, isSlateSessionName } from "./session-names.ts";
+import { OWNER_SESSION_DIGEST_PATTERN, SLATE_SESSION_ID_PATTERN } from "./session-identity.ts";
+export { OWNER_SESSION_DIGEST_PATTERN, SLATE_SESSION_ID_PATTERN } from "./session-identity.ts";
 
 /**
  * ADDITIVE TOLERANCE (the persistence model has no migration hook): the
@@ -251,9 +253,6 @@ export interface SlateSnapshot {
 	workerCostUsd: number;
 	carriedCostUsd: number; // orchestrator spend banked from ancestor sessions at handoff
 }
-
-export const SLATE_SESSION_ID_PATTERN = /^\d{8}T\d{6}Z-[0-9a-f]{16}$/;
-export const OWNER_SESSION_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 
 export interface SanitizedSnapshotIdentity {
 	snapshotPresent: boolean;

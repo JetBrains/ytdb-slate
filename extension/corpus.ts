@@ -27,6 +27,7 @@ export class SlateWriteRefused extends Error {}
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 const NO_FOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+const DIRECTORY_ONLY = typeof constants.O_DIRECTORY === "number" ? constants.O_DIRECTORY : 0;
 // SE91. A FIFO or a device node blocks INSIDE openSync, so a type check that runs after
 // the open never runs at all. The type check below moved before the open, and this flag is
 // the second line for a path that becomes a FIFO between the two calls. It changes nothing
@@ -52,7 +53,7 @@ function refuse(message: string, cause?: unknown): never {
 	throw new SlateWriteRefused(message, cause === undefined ? undefined : { cause });
 }
 
-function sameFile(a: ReturnType<typeof fstatSync>, b: NonNullable<ReturnType<typeof lstatSync>>): boolean {
+export function sameFileIdentity(a: ReturnType<typeof fstatSync>, b: NonNullable<ReturnType<typeof lstatSync>>): boolean {
 	return a.dev === b.dev && a.ino === b.ino;
 }
 
@@ -95,6 +96,44 @@ function fsyncDirectory(path: string): void {
 	} finally {
 		if (fd !== undefined) closeSync(fd);
 	}
+}
+
+export interface HeldCorpusDirectory {
+	fd: number;
+	stat: ReturnType<typeof fstatSync>;
+	path: string;
+}
+
+export function corpusDirectoryMatches(held: HeldCorpusDirectory, path = held.path): boolean {
+	try {
+		const current = lstatSync(path, { throwIfNoEntry: false });
+		return held.stat.isDirectory() && current?.isDirectory() === true && !current.isSymbolicLink()
+			&& sameFileIdentity(held.stat, current) && realpathSync(path) === path;
+	} catch {
+		return false;
+	}
+}
+
+export function holdCorpusDirectory(path: string): HeldCorpusDirectory {
+	const fd = openSync(path, constants.O_RDONLY | NO_FOLLOW | DIRECTORY_ONLY);
+	try {
+		const held = { fd, stat: fstatSync(fd), path };
+		if (!corpusDirectoryMatches(held)) refuse("slate refused a linked or changing corpus directory");
+		return held;
+	} catch (error) {
+		closeSync(fd);
+		throw error;
+	}
+}
+
+export function fsyncHeldCorpusDirectory(held: HeldCorpusDirectory): "fsync" {
+	try {
+		fsyncSync(held.fd);
+	} catch (error) {
+		const code = (error as { code?: string }).code;
+		if (code !== "EINVAL" && code !== "ENOTSUP" && code !== "EISDIR" && code !== "EPERM") throw error;
+	}
+	return "fsync";
 }
 
 export function resolveCorpusRoot(): string {
@@ -194,9 +233,12 @@ export function resolveCorpusProject(cwd: string, corpusName?: unknown): CorpusP
 	return { root, key, label, digest, directory: matchingDirectories[0] ?? preferred, matchingDirectories };
 }
 
-function ensureProjectDirectory(project: CorpusProject): void {
+export function ensureCorpusProjectDirectory(project: CorpusProject): void {
 	const root = ensureCorpusRoot();
 	if (root !== project.root) refuse("slate refused a corpus project because its root changed");
+	if (dirname(project.directory) !== root || !project.directory.endsWith(`-${project.digest}`)) {
+		refuse("slate refused a corpus project outside its direct digest path");
+	}
 	ensureRealDirectory(project.directory);
 	if (realpathSync(project.directory) !== project.directory) refuse("slate refused a corpus project because its path changed");
 }
@@ -226,12 +268,12 @@ function readJsonNoFollow(file: string): unknown {
 	try {
 		const held = fstatSync(fd);
 		const current = lstatSync(file, { throwIfNoEntry: false });
-		if (!held.isFile() || !current?.isFile() || current.isSymbolicLink() || !sameFile(held, current)) {
+		if (!held.isFile() || !current?.isFile() || current.isSymbolicLink() || !sameFileIdentity(held, current)) {
 			refuse("slate refused linked or changing session metadata");
 		}
 		const parsed: unknown = JSON.parse(readFileSync(fd, "utf8"));
 		const after = lstatSync(file, { throwIfNoEntry: false });
-		if (!after?.isFile() || after.isSymbolicLink() || !sameFile(held, after)) refuse("slate refused changing session metadata");
+		if (!after?.isFile() || after.isSymbolicLink() || !sameFileIdentity(held, after)) refuse("slate refused changing session metadata");
 		return parsed;
 	} finally {
 		closeSync(fd);
@@ -248,7 +290,8 @@ function metadataAt(directory: string, expectedName: string): SessionMetadata | 
 		if (!entry?.isDirectory() || entry.isSymbolicLink()) return undefined;
 		const raw = readJsonNoFollow(join(directory, "session.json"));
 		if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
-		const metadata = raw as Partial<SessionMetadata>;
+		const metadata = raw as Partial<SessionMetadata> & { policy?: unknown };
+		if (metadata.policy !== undefined) return undefined;
 		return metadata.name === expectedName && typeof metadata.identity === "string" ? metadata as SessionMetadata : undefined;
 	} catch {
 		return undefined;
@@ -327,7 +370,7 @@ export function createCorpusSession(opts: {
 }): { project: CorpusProject; name: string; directory: string; created: true } {
 	const project = opts.project ?? resolveCorpusProject(opts.cwd, opts.corpusName);
 	try {
-		ensureProjectDirectory(project);
+		ensureCorpusProjectDirectory(project);
 		for (let attempt = 0; attempt < 8; attempt++) {
 			const name = nameCandidate(
 				attempt === 0 && opts.initialNameBytes !== undefined
@@ -397,7 +440,7 @@ function withContainedRoots<T>(
 			afterOpen?.(fd);
 			const held = fstatSync(fd);
 			const current = lstatSync(value, { throwIfNoEntry: false });
-			if (!acceptable(held) || !acceptable(current ?? undefined) || !sameFile(held, current!)) return undefined;
+			if (!acceptable(held) || !acceptable(current ?? undefined) || !sameFileIdentity(held, current!)) return undefined;
 			const canonical = realpathSync(value);
 			if (canonical !== value || !insideRoot(root, canonical)) return undefined;
 			opened = { fd, held, canonical };
@@ -411,7 +454,7 @@ function withContainedRoots<T>(
 		try {
 			const result = use(opened.fd, opened.canonical);
 			const after = lstatSync(value, { throwIfNoEntry: false });
-			if (!acceptable(after ?? undefined) || !sameFile(opened.held, after!)) return undefined;
+			if (!acceptable(after ?? undefined) || !sameFileIdentity(opened.held, after!)) return undefined;
 			return result;
 		} finally {
 			closeSync(opened.fd);
@@ -546,12 +589,12 @@ export function publishStagedFile(stagingFile: string, finalFile: string, verify
 	const fd = openSync(stagingFile, constants.O_RDONLY | NO_FOLLOW | NON_BLOCK);
 	try {
 		const held = fstatSync(fd);
-		if (!singleNamedFile(held) || !sameFile(held, staging!)) refuse("slate refused a staged file because it changed");
+		if (!singleNamedFile(held) || !sameFileIdentity(held, staging!)) refuse("slate refused a staged file because it changed");
 		verify(fd, stagingFile);
 		bestEffortFsync(fd);
 		fsyncDirectory(stagingDirectory);
 		const before = lstatSync(stagingFile, { throwIfNoEntry: false }) ?? undefined;
-		if (!singleNamedFile(before) || !sameFile(held, before!)) refuse("slate refused a staged file because it changed");
+		if (!singleNamedFile(before) || !sameFileIdentity(held, before!)) refuse("slate refused a staged file because it changed");
 		try {
 			closeSync(openSync(finalFile, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW, PRIVATE_FILE_MODE));
 		} catch (error) {
@@ -565,7 +608,7 @@ export function publishStagedFile(stagingFile: string, finalFile: string, verify
 			refuse("slate could not publish the staged file", error);
 		}
 		const published = lstatSync(finalFile, { throwIfNoEntry: false }) ?? undefined;
-		if (!singleNamedFile(published) || !sameFile(held, published!)) refuse("slate refused a published file because it changed");
+		if (!singleNamedFile(published) || !sameFileIdentity(held, published!)) refuse("slate refused a published file because it changed");
 		fsyncDirectory(stagingDirectory);
 		fsyncDirectory(finalDirectory);
 	} finally {

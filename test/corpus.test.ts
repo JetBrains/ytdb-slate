@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   createCorpusSession,
+  ensureCorpusProjectDirectory,
   ensureCorpusRoot,
   findCorpusSessionByIdentity,
   readContainedFile,
@@ -145,6 +146,18 @@ test("project derivation uses a sanitized label and stable twelve-hex digest", (
       assert.equal(sanitizeCorpusLabel("a   b"), "a-b");
       assert.equal(sanitizeCorpusLabel("a💥b"), "a-b");
       assert.equal(sanitizeCorpusLabel("x".repeat(60))?.length, 48);
+    });
+  } finally { rmSync(paths.root, { recursive: true, force: true }); }
+});
+
+test("project creation refuses a forged path outside its direct digest child", () => {
+  const paths = workspace();
+  try {
+    withAgent(paths.agent, () => {
+      const project = resolveCorpusProject(paths.project, "records");
+      const escaped = { ...project, directory: join(paths.root, `escaped-${project.digest}`) };
+      assert.throws(() => ensureCorpusProjectDirectory(escaped), /outside its direct digest path/);
+      assert.equal(existsSync(escaped.directory), false);
     });
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
 });
