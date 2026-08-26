@@ -496,9 +496,6 @@ do
   grep -Fxq "$path" "$PACKED_DOCS"
 done
 
-# The workflow loads this required procedure transitively.
-grep -Fxq 'docs/delivery-archive.md' "$PACKED_DOCS"
-
 HASHES=$(node "$RELEASE_DIR/hash.cjs" "$TARBALL")
 read -r TARBALL_SHA256 TARBALL_INTEGRITY <<<"$HASHES"
 node "$RELEASE_DIR/state.cjs" save "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" \
@@ -510,7 +507,7 @@ The manifest checks cover all four packaging rules in `AGENTS.md`: the four SDK 
 
 The docs check compares the tarball against the `docs/` tree of the merged commit and requires exact equality. It cannot go stale when a document is added, as it did when it named five of seven shipped documents. The floor of seven catches an empty or truncated `docs/` tree.
 
-The named group contains the five direct doctrine documents. `docs/delivery-archive.md` is a separate, transitively required packed document. The workflow links to it, but the doctrine does not cite it directly. The package-content checks prove one exported path and one packed copy. The packaging guards separately prove packed presence.
+The named group contains the five direct doctrine documents. The package-content checks prove one exported path and one packed copy for every shipped document.
 
 `TARBALL_SHA256` and `TARBALL_INTEGRITY` are the record of the inspected bytes. `TARBALL_INTEGRITY` is in npm's own `dist.integrity` form, so step 6 compares the registry's value against it directly.
 

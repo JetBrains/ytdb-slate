@@ -19,7 +19,6 @@ export const SIZE_GRADE_SCRIPT = join(EXTENSION_DIR, "size-grade.mjs");
 // treat `#` or `?` in an install directory as URL syntax.
 export const WRITING_CHECKER_URL = pathToFileURL(WRITING_CHECKER).href;
 export const TRACK_WORKFLOW_DOC = join(DOCS_DIR, "track-workflow.md");
-export const DELIVERY_ARCHIVE_DOC = join(DOCS_DIR, "delivery-archive.md");
 export const PR_PUBLISHING_DOC = join(DOCS_DIR, "pr-publishing.md");
 export const REVIEW_RULES_DOC = join(DOCS_DIR, "review-rules.md");
 export const DESIGN_PRINCIPLES_DOC = join(DOCS_DIR, "design-principles.md");

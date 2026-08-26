@@ -833,20 +833,9 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-corpus-off` | incomplete corpus state adds no archive fragment in either draft branch and preserves both exact rule-8 tails. Break it by rendering a fragment from a missing project or session name, or by changing either tail. |
-| `doctrine-corpus-on` | accepted corpus state renders the exact archive fragment once inside rule 8 in both draft branches. Break it by moving, duplicating, omitting, or rewording the fragment. |
-| `doctrine-corpus-untrusted` | an untrusted project renders and reports nothing from valid corpus state. Break it by removing the trust gate from rendering or refusal reporting. |
-| `doctrine-corpus-reject-rename` | a grammar-valid renamed session cannot pass the Slate-minted-name gate. Break it by replacing the minted validator with the broad session-name validator. |
-| `doctrine-corpus-reject-invisible` | controls, zero-width text, and a vertical bar cannot enter the archive fragment. Break it by accepting any hostile fixture as a minted name. |
-| `doctrine-corpus-no-project-text` | the fragment carries only the minted session name, with no project field or filesystem separator. Break it by rendering the project label, directory, or digest. |
-| `doctrine-corpus-fresh` | each render reads the live store name instead of a value captured at session start. Break it by caching the first accepted name. |
-| `doctrine-corpus-report` | the exact three refusal codes each report their truthful reason once, accepted state stays silent, and session start resets deduplication. Break it by merging codes, sharing the wrong reason, reporting accepted state, or retaining deduplication across sessions. |
-| `doctrine-corpus-headless` | a headless refusal uses `console.warn`, sends no UI notification, and leaves doctrine byte-identical to the visible control. Break it by routing `hasUI: false` through the UI sink. |
-| `doctrine-corpus-notify-guard` | a throwing UI notification sink loses only the report and returns the complete unchanged doctrine. Break it by removing the notification guard. |
-| `doctrine-corpus-vocabulary` | both ordered 32-word rosters and all 1,024 adjective-noun pairs remain frozen and mint valid names. Break it by changing roster content, order, or minted-name acceptance. |
-| `doctrine-corpus-callsite` | the sole production call passes exactly the raw corpus project, session name, and report callback. Break it by moving the gate verdict or extra corpus fields into the call site. |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It reads no project config. The corpus-off draft-enabled maximum is **7,929 of 8,600** portable characters. The corpus-off draft-disabled maximum is **7,914 of 8,600**. The longest-name corpus-on equivalents are **8,067 of 8,600** and **8,052 of 8,600**. Corpus-off writing plus routing is **6,567 of 6,900**. Corpus-off all tails are **6,822 of 7,200**. The corpus-off capped worker rule is **1,347 of 1,600**. The **8,877-character, 109-line corpus-off** positive control exceeds the maximal bound by 277. These are verification budgets, not runtime limits. |
-| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` measures **8,007 of 8,600** portable characters and 105 lines with corpus off. It keeps 593 characters of reserve. With the longest corpus name, it measures **8,145 of 8,600** and 107 lines. That corpus-on fixture is the largest maximal-family fixture and keeps 455 characters of reserve. |
+| `session-name-vocabulary` | both ordered 32-word rosters and all 1,024 minted adjective-noun pairs remain frozen and valid |
+| `doctrine-budget` | an install-invariant size guard pins every shipped-rule fixture, two maximal fixtures, growth increments, path counts, and one positive control. The largest retained fixture measures 8,007 portable characters against an 8,500-character bound. The 8,877-character positive control still exceeds that bound. |
+| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` measures 8,007 portable characters and 105 lines. It keeps 493 characters of reserve under the 8,500-character bound. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
@@ -859,70 +848,8 @@ The doctrine contract checks read the shipped workflow documents directly:
 | `contract-test-composite` | the composite charter requires both behavioral effectiveness and structure and isolation sections |
 | `contract-no-test-structure` | the retired standalone test-structure role does not return or merge into another reviewer |
 | `contract-section-targets` | every named level-two target across the five workflow documents occurs exactly once. Regex metacharacters are escaped, and a duplicated Fast path counterfactual fails uniqueness |
-| `contract-delivery-archive` | the split delivery archive keeps lifecycle policy in `track-workflow.md` and operational authority in `delivery-archive.md`. It also pins dispatch conformance, publication order, release classification, and the retained-subsection budget. |
-
-### Delivery archive split contract
-
-The check keeps one top-level identity and an independent assertion-level roster.
-Every roster entry has a group-qualified identifier, a base predicate, and a
-defeating mutation. The expected roster is declared separately from the
-assertions. Deleting or duplicating a conjunct therefore fails the roster term.
-A mutation that does not apply, or does not defeat its predicate, also fails.
-
-The assertion groups divide authority as follows:
-
-- **Lifecycle policy** reads `docs/track-workflow.md`. It pins the complete
-  decision table, waiver destinations, preservation gates, product-change
-  restart, and the narrow log-only exception. It also checks the authority
-  summary in `AGENTS.md` and the procedure's policy citation.
-- **Dispatch conformance** pins independent Slate project trust, the fixed
-  package-resolved procedure path, and canonical `corpusSession` as the sole
-  variable input. It requires a new thread and every context exclusion. It
-  also forbids a raw log path and operational Git mechanics in the workflow.
-  These are text contracts. The check claims no generic runtime rejection.
-- **Operational authority** reads `docs/delivery-archive.md`. It pins Git root
-  derivation, path and metadata refusals, descriptor-bound source capture,
-  retained-parent destination creation, identity-bound verification, and
-  source preservation. The `platform-identity-primitives` assertion requires
-  refusal before mutation when any required filesystem primitive is absent.
-  The `parent-relative-device-inode` assertion requires no-follow child lookup,
-  recorded device and inode comparison, and descriptor-relative child work.
-  Its mutation removes the descriptor identity-recording rule. It also pins
-  non-destructive failure handling, complete created-path reporting, occupied
-  ordinals, fresh retry selection, and all success fields. A source scan rejects
-  lifecycle policy in the procedure.
-- **Publication ordering** reads the workflow and `docs/pr-publishing.md`. It
-  requires acceptance before archive or waiver, and archive or waiver before
-  publication approval, commit, ready flip, or merge. It pins both product-fix
-  restart paths and rejects a first archive attempt after merge.
-- **Release classification** reads `RELEASING.md`, `extension/paths.ts`, and
-  `extension/mode.ts`. Five direct doctrine documents stay in one class. The
-  archive procedure stays in a separate transitive class with one path export
-  and no direct doctrine import. Package-content checks prove export
-  cardinality and packed-copy cardinality. Packaging guards prove packed
-  presence.
-- **Size budget** extracts from the exact `### The delivery archive` heading
-  through the final nonblank line before `### The handoff summary`. The
-  extracted text must end with one newline. It may use at most 64 physical
-  lines and 3,812 UTF-8 bytes. The accepted subsection measures 60 lines and
-  3,471 bytes.
-
-Most text assertions erase their first required term everywhere in the target
-source. Structural assertions use focused mutations. Heading fixtures delete,
-duplicate, rename, and reverse the two boundary headings.
-
-The line-only fixture adds five blank lines inside the subsection. It reaches 65
-lines while staying below the byte cap. The byte-only fixture adds 342 ASCII
-bytes to one existing line. It remains at 60 lines and reaches 3,813 bytes. Each
-cap must reject only its own fixture.
-
-Re-run the pure-resolver checks after changing either archive document or either
-boundary heading. Re-run them after changing publication order, the `AGENTS.md`
-archive summary, or release document classes. Re-run them after changing the
-archive path export or doctrine path imports. Also re-run after changing this
-contract or its mutation machinery. The existing `doctrine-budget` checks and
-runtime doctrine expectations remain separate and unchanged. The procedure is
-not a direct doctrine document.
+| `contract-archive-retirement` | old archive symbols and the removed document stay absent. Retired corpus state changes neither doctrine nor warnings. A mandatory copy, hash, verification, waiver, or corpus rule fails, including a renamed counterfactual |
+| `contract-retained-safety` | the handoff summary, working-log retention, five direct doctrine documents, and publishing acceptance sequence remain present. Each assertion defeats its own deletion mutation |
 
 The **writing checker command** (`extension/writing-check.mjs`) is covered both by
 direct import and by spawned command tests. This is the checker's smallest net:
@@ -1084,29 +1011,23 @@ that `doctrine-budget` enforces. To recover a raw count, add `paths × docs dire
 length`.
 
 The full multi-basis table lives in `docs/context-budget.md`. The resolver check
-owns these stable verification fixtures. Standard corpus-on rows use
-`calm-otter-7f3a`. Maximal corpus-on rows use the longest minted name,
-`daring-dolphin-ffff`.
+owns these stable verification fixtures.
 
-| fixture | corpus | paths | portable | lines | bound |
-| --- | --- | ---: | ---: | ---: | ---: |
-| routing rule, 9 profiles | independent | 1 | **2,585** | 25 | 4,000 |
-| writing rule | off | 1 | **1,070** | 23 | 1,150 |
-| capped worker rule, 2 units / 4 tools | off | 0 | **1,347** | 11 | 1,600 |
-| router-off doctrine | off | 4 | **2,912** | 48 | — |
-| router-off doctrine, standard corpus name | on | 4 | **3,046** | 50 | — |
-| router-on doctrine | off | 5 | **5,497** | 72 | 6,500 |
-| writing-only doctrine | off | 5 | **3,982** | 70 | 5,600 |
-| writing plus router | off | 6 | **6,567** | 94 | 6,900 |
-| writing plus extensions | off | 5 | **4,237** | 76 | 6,000 |
-| writing plus router and extensions | off | 6 | **6,822** | 100 | 7,200 |
-| maximal doctrine with draft PRs enabled | off | 7 | **7,929** | 104 | 8,600 |
-| maximal doctrine with draft PRs disabled | off | 6 | **7,914** | 104 | 8,600 |
-| maximal doctrine with follow-up issues enabled | off | 7 | **8,007** | 105 | 8,600 |
-| maximal doctrine with draft PRs enabled, longest corpus name | on | 7 | **8,067** | 106 | 8,600 |
-| maximal doctrine with draft PRs disabled, longest corpus name | on | 6 | **8,052** | 106 | 8,600 |
-| maximal doctrine with follow-up issues enabled, longest corpus name | on | 7 | **8,145** | 107 | 8,600 |
-| positive control, one extra capped tool plus four maximum-growth model rows | off | 7 | **8,877** | 109 | must exceed 8,600 |
+| fixture | paths | portable | lines | bound |
+| --- | ---: | ---: | ---: | ---: |
+| routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
+| writing rule | 1 | **1,070** | 23 | 1,150 |
+| capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
+| router-off doctrine | 4 | **2,912** | 48 | — |
+| router-on doctrine | 5 | **5,497** | 72 | 6,500 |
+| writing-only doctrine | 5 | **3,982** | 70 | 5,600 |
+| writing plus router | 6 | **6,567** | 94 | 6,900 |
+| writing plus extensions | 5 | **4,237** | 76 | 6,000 |
+| writing plus router and extensions | 6 | **6,822** | 100 | 7,200 |
+| maximal doctrine with draft pull requests enabled | 7 | **7,929** | 104 | 8,500 |
+| maximal doctrine with draft pull requests disabled | 6 | **7,914** | 104 | 8,500 |
+| maximal doctrine with follow-up issues enabled | 7 | **8,007** | 105 | 8,500 |
+| positive control, one extra capped tool plus four maximum-growth model rows | 7 | **8,877** | 109 | must exceed 8,500 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
 maximal pins cover draft pull requests enabled, draft pull requests disabled,
@@ -1117,20 +1038,20 @@ Required character raises round up to the next hundred, while line bounds use
 the next whole line.
 
 A doctrine change updates its exact literal. A bound changes only when this
-reserve policy requires it. Corpus-off writing plus routing uses
+reserve policy requires it. Writing plus routing uses
 `6,567 × 1.05 = 6,895.35`. Ceiling gives 6,896. Next-hundred rounding gives
 6,900.
 
-Corpus-off all tails use `6,822 × 1.05 = 7,163.1`. Ceiling gives 7,164.
+All tails use `6,822 × 1.05 = 7,163.1`. Ceiling gives 7,164.
 Next-hundred rounding gives 7,200.
 
-The largest maximal fixture is the longest-name corpus-on follow-up render.
-It uses `8,145 × 1.05 = 8,552.25`. Ceiling gives 8,553. Next-hundred rounding
-gives 8,600. Its reserve is 455 characters.
+The largest maximal fixture is the follow-up-issues render. It uses
+`8,007 × 1.05 = 8,407.35`. Ceiling gives 8,408. Next-hundred rounding gives
+8,500. Its reserve is 493 characters.
 
-The largest corpus-off model-row growth is 184 characters. The capped
-corpus-off tool-line growth is 212 characters. The corpus-off positive control
-measures 8,877 characters and 109 lines. It exceeds the maximal bound by 277.
+The largest model-row growth is 184 characters. The capped tool-line growth is
+212 characters. The positive control measures 8,877 characters and 109 lines.
+It exceeds the maximal bound by 377.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
@@ -2250,20 +2171,24 @@ bash verification/run-packaging-checks.sh --help
 The harness prints one line for each check, then a summary:
 
 ```
+CHECK guard-roster                     PASS — independent expected guard ids match executable guards
+CHECK mutation-roster                  PASS — independent expected guard ids match mutation cases
 CHECK files-exact                      PASS — files is exactly ["extension","docs","README.md","LICENSE"] (order included), got ["extension","docs","README.md","LICENSE"]
-CHECK pack-doctrine-docs               PASS — every doctrine doc derived from extension/*.ts via DOCS_DIR ships: design-principles.md, model-routing.md, pr-publishing.md, review-rules.md, track-workflow.md, writing-guidance.md — missing: none
-== summary: 16 pass, 0 fail ==
+CHECK pack-doctrine-docs               PASS — every derived doctrine document ships
+== summary: 18 pass, 0 fail ==
 ```
 
-`--self-test` prints the same 16 ids with the prefix `self-`. The verdict column
-holds the meaning: PASS says that the guard rejected its mutated input, which is
-the required result.
+The roster checks compare independent expected identities with executable
+guards and mutation cases. Deleting a guard and its mutation fails both runs.
+
+`--self-test` prefixes the 16 guard ids with `self-`. The roster checks keep
+their normal names. PASS means each guard rejected its mutated input.
 
 ```
 == self-test: each guard must reject a real input carrying one violating mutation ==
 CHECK self-files-exact                 PASS — mutated the real manifest: pushed "verification" onto files → the guard rejected it, as required
 CHECK self-pack-doctrine-docs          PASS — not manifest-shaped, so mutated the REAL pack list: dropped docs/design-principles.md from the shipped paths → the guard rejected it, as required
-== summary: 16 pass, 0 fail ==
+== summary: 18 pass, 0 fail ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed · **2** the harness
@@ -2428,8 +2353,9 @@ CHECK T2                               PASS — slate's config sanitizers emitte
 CHECK T4                               PASS — /home/you/src/ytdb-slate/.pi/slate.json parses as a JSON object, 5 top-level key(s): orchestratorModeDefault, workflow, modelFailover, router, workerExtensions
 CHECK T5                               PASS — project settings contain one local ytdb-slate entry: ../ resolves from /home/you/src/ytdb-slate/.pi to this repository, with 1 existing pi extension entry file(s)
 CHECK T6                               PASS — trusted scratch project loaded slate through "../" from /tmp/slate-loadcheck.Qw69p0/local-package/extension/index.ts, registered thread, threads and episode, and exited without a duplicate-load conflict
+CHECK roster                           PASS — missing=none duplicated=none unexpected=none
 
-== summary: 14 pass, 0 fail ==
+== summary: 15 pass, 0 fail ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed, or `--only` matched
@@ -2521,10 +2447,10 @@ the live main-worktree session, before any cleanup runs.
 
 ## What it covers
 
-The harness runs 14 checks. `L1`–`L8` cover the untrusted load path, `T1`–`T3`
-cover the trusted config path, and `T6` covers the trusted local-package path.
-`T4` and `T5` need no pi process: either static-only selection starts no session,
-but still runs the version probe that resolves the CLI.
+The harness declares 14 checks. `L1`–`L8` cover the untrusted load path.
+`T1`–`T3` cover the trusted config path. `T6` covers the trusted package path.
+`T4` and `T5` need no pi process. A separate roster verdict reconciles every
+selected declared identity with every reported identity.
 
 | id | what it proves |
 | --- | --- |
@@ -2648,9 +2574,8 @@ validates its named path imports.
 The self-test uses temporary fixtures outside the checkout. It proves recursive
 discovery of a nested shebang command and exclusion of a non-command helper. It
 also proves missing command export, missing document export, and missing packed
-runtime file findings. Two isolated subprocesses prove that `--help` works
-without TypeScript and real analysis refuses a missing TypeScript dependency
-with exit 2.
+runtime file findings. Two isolated subprocesses cover optional analyzer
+loading. An independent expected roster catches a deleted mutation case.
 
 Exit 0 means all checks passed. Exit 1 means a roster mismatch, a missing packed
 file, or an escaped self-test mutation. Exit 2 means a bad invocation, missing

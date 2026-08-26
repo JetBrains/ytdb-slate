@@ -26,7 +26,6 @@
 // =============================================================================
 import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -271,13 +270,24 @@ function mkpkg(name, entries, files) {
 	return { dir, paths };
 }
 
-// Drive the doctrine builder the way index.ts does — through registerSlateMode's
-// before_agent_start handler. The fixture exposes live store fields and session
-// start so corpus freshness and report deduplication use the production wiring.
-function doctrineHarness(extSet, getRouter, trusted = false, config = {}, corpusState = {}) {
+async function captureConsoleWarnings(warnings, run) {
+	const originalWarn = console.warn;
+	console.warn = (...args) => {
+		warnings.push(args.map(String).join(" "));
+		originalWarn(...args);
+	};
+	try {
+		return await run();
+	} finally {
+		console.warn = originalWarn;
+	}
+}
+
+// Drive the doctrine builder through registerSlateMode's before_agent_start handler.
+function doctrineHarness(extSet, getRouter, trusted = false, config = {}, storeState = {}, hasUI = true) {
 	const handlers = {};
-	const notifications = [];
 	const warnings = [];
+	const consoleWarnings = [];
 	const pi = {
 		on: (e, h) => (handlers[e] = h),
 		registerCommand: () => {},
@@ -291,11 +301,10 @@ function doctrineHarness(extSet, getRouter, trusted = false, config = {}, corpus
 		threads: new Map(),
 		workerCostUsd: 0,
 		carriedCostUsd: 0,
-		corpusProject: corpusState.project,
-		slateSessionName: corpusState.sessionName,
 		writingReminder: { markTokens: 0, sentThisRound: false, forceNext: false, deliverySequence: 0, adoptedThisSessionStart: false },
 		save() {},
 		set onDidChange(_v) {},
+		...storeState,
 	};
 	// The 6th parameter is OPTIONAL and defaults to the shared off resolution. Keep
 	// omitting it when a check supplies none so the default path remains exercised.
@@ -306,30 +315,27 @@ function doctrineHarness(extSet, getRouter, trusted = false, config = {}, corpus
 		cwd: REPO,
 		isProjectTrusted: () => trusted,
 		mode: "print",
-		hasUI: true,
+		hasUI,
 		sessionManager: { getEntries: () => [], getBranch: () => [] },
 		ui: {
 			setStatus: () => {},
 			setWidget: () => {},
-			notify: (message, level) => notifications.push({ message, level }),
+			notify: (message) => warnings.push(String(message)),
 		},
 	};
 	const render = async () => {
-		const originalWarn = console.warn;
-		console.warn = (message) => warnings.push(String(message));
-		try {
-			const res = await handlers.before_agent_start({ systemPrompt: "" }, ctx);
-			return res.systemPrompt;
-		} finally {
-			console.warn = originalWarn;
-		}
+		const res = await handlers.before_agent_start({ systemPrompt: "" }, ctx);
+		return res.systemPrompt;
 	};
-	const sessionStart = async () => handlers.session_start({}, ctx);
-	return { handlers, notifications, warnings, pi, store, ctx, render, sessionStart };
+	const runLifecycle = () => captureConsoleWarnings(consoleWarnings, async () => {
+		await handlers.session_start?.({}, ctx);
+		return render();
+	});
+	return { handlers, pi, store, ctx, render, runLifecycle, warnings, consoleWarnings };
 }
 
-async function doctrine(extSet, getRouter, trusted = false, config = {}, corpusState = {}) {
-	return doctrineHarness(extSet, getRouter, trusted, config, corpusState).render();
+async function doctrine(extSet, getRouter, trusted = false, config = {}) {
+	return doctrineHarness(extSet, getRouter, trusted, config).render();
 }
 
 // Every id whose section needs the router module; used to emit honest NOT RUN
@@ -392,9 +398,7 @@ const STATE_IDS = ["spec-invisible", "spec-config-key", "state-snapshot-identity
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
 const DOCTRINE_IDS = [
 	"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace",
-	"doctrine-corpus-off", "doctrine-corpus-on", "doctrine-corpus-untrusted", "doctrine-corpus-reject-rename",
-	"doctrine-corpus-reject-invisible", "doctrine-corpus-no-project-text", "doctrine-corpus-fresh",
-	"doctrine-corpus-report", "doctrine-corpus-headless", "doctrine-corpus-notify-guard", "doctrine-corpus-vocabulary", "doctrine-corpus-callsite",
+	"session-name-vocabulary",
 	"doctrine-budget", "doctrine-budget-follow-up",
 	"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite",
 ];
@@ -407,7 +411,8 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-test-composite",
 	"contract-no-test-structure",
 	"contract-section-targets",
-	"contract-delivery-archive",
+	"contract-archive-retirement",
+	"contract-retained-safety",
 ];
 /** Checks that need extension/thread-choice.ts — the pure continue-or-fresh planner. */
 const CHOICE_IDS = [
@@ -1123,21 +1128,8 @@ try {
 		 * pins that trusted and untrusted render byte-identically for the configurations
 		 * used here, and `doctrine-untrusted` pins the gate itself.
 		 */
-		const asTrusted = (extSet, getRouter, config = {}, corpusState = {}) => doctrine(extSet, getRouter, true, config, corpusState);
+		const asTrusted = (extSet, getRouter, config = {}) => doctrine(extSet, getRouter, true, config);
 		const WITH_EXT = { units: [{ path: "/x", source: "npm:demo", isDirectory: true, tools: [{ name: "d", description: "d" }] }], paths: [], toolNames: [] };
-		const CORPUS_PROJECT = Object.freeze({
-			directory: "/synthetic/corpus/project-label-deadbeef0000",
-			label: "project-label-deadbeef0000",
-			root: "/synthetic/corpus",
-		});
-		const STANDARD_CORPUS = Object.freeze({ project: CORPUS_PROJECT, sessionName: "calm-otter-7f3a" });
-		const LONGEST_CORPUS = Object.freeze({ project: CORPUS_PROJECT, sessionName: "daring-dolphin-ffff" });
-		const archiveFragment = (name) => `\n   Corpus session: ${name}. At delivery, archive the research log\n   into that corpus session directory per the workflow doc.`;
-		const rule8Of = (text) => {
-			const start = text.indexOf("\n8. Scale change gates");
-			const end = text.indexOf("\n9. Review every track", start);
-			return start < 0 || end < 0 ? "" : text.slice(start, end);
-		};
 		/** A RouterCandidate as model-router freezes them — only the fields mode.ts reads. */
 		const cand = (spec, o = {}) => ({
 			spec,
@@ -1313,178 +1305,15 @@ try {
 			);
 		});
 
-		await section("doctrine-corpus", async () => {
-			const offNoState = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }));
-			const offNoProject = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), {}, { sessionName: STANDARD_CORPUS.sessionName });
-			const offNoName = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), {}, { project: CORPUS_PROJECT });
-			const offDraft = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { workflow: { draftPRs: true } });
-			checkAll("doctrine-corpus-off", "corpus-off state contributes no archive fragment in either draft branch and preserves the exact rule-8 tails", [
-				["all corpus-off shapes render byte-identically", offNoState === offNoProject && offNoState === offNoName, { noState: offNoState.length, noProject: offNoProject.length, noName: offNoName.length }],
-				["draft-disabled rule 8 keeps the exact worktree-root tail", rule8Of(offNoState).includes("Durable workflow records anchor in the retained worktree-root research\n   log per the workflow doc."), rule8Of(offNoState)],
-				["draft-enabled rule 8 keeps the exact publishing tail", rule8Of(offDraft).includes(`An umbrella draft PR is part of the pre-implementation gates; PR\n   publishing mechanics are in ${paths.PR_PUBLISHING_DOC}.`), rule8Of(offDraft)],
-				["neither draft branch names a corpus session", !offNoState.includes("Corpus session:") && !offDraft.includes("Corpus session:"), [rule8Of(offNoState), rule8Of(offDraft)]],
-			]);
-
-			const onNoDraft = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), {}, STANDARD_CORPUS);
-			const onDraft = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { workflow: { draftPRs: true } }, STANDARD_CORPUS);
-			const expectedFragment = archiveFragment(STANDARD_CORPUS.sessionName);
-			const corpusOnRenders = [onNoDraft, onDraft];
-			checkAll("doctrine-corpus-on", "the exact archive fragment renders once inside rule 8 in both draft branches", [
-				["both branches contain the exact fragment once", corpusOnRenders.every((text) => text.split(expectedFragment).length - 1 === 1), corpusOnRenders.map((text) => text.split(expectedFragment).length - 1)],
-				["the fragment is inside rule 8", corpusOnRenders.every((text) => rule8Of(text).endsWith(expectedFragment)), corpusOnRenders.map(rule8Of)],
-				["rule 9 follows immediately after the fragment", corpusOnRenders.every((text) => text.includes(`${expectedFragment}\n9. Review every track`)), corpusOnRenders.map((text) => text.slice(text.indexOf("Corpus session:"), text.indexOf("Corpus session:") + 180))],
-				["the standard fragment adds 134 portable bytes and two doctrine lines", Buffer.byteLength(expectedFragment) === 134 && onNoDraft.length - offNoState.length === 134 && onNoDraft.split("\n").length - offNoState.split("\n").length === 2, { bytes: Buffer.byteLength(expectedFragment), addedBytes: onNoDraft.length - offNoState.length, addedLines: onNoDraft.split("\n").length - offNoState.split("\n").length }],
-			]);
-
-			const untrustedOn = await doctrine(EMPTY_EXT, () => ({ on: false, candidates: [] }), false, {}, STANDARD_CORPUS);
-			const untrustedOff = await doctrine(EMPTY_EXT, () => ({ on: false, candidates: [] }), false);
-			const untrustedHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), false, {}, STANDARD_CORPUS);
-			await untrustedHarness.render();
-			checkAll("doctrine-corpus-untrusted", "valid corpus state renders nothing and reports nothing when project trust is false", [
-				["untrusted corpus-on equals untrusted corpus-off", untrustedOn === untrustedOff, { on: untrustedOn.length, off: untrustedOff.length }],
-				["no fragment renders", !untrustedOn.includes("Corpus session:"), rule8Of(untrustedOn)],
-				["the trust refusal is silent", untrustedHarness.warnings.length === 0 && untrustedHarness.notifications.length === 0, { warnings: untrustedHarness.warnings, notifications: untrustedHarness.notifications }],
-			]);
-
-			const renamed = "renamed-session-7f3a";
-			const renamedRender = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), {}, { project: CORPUS_PROJECT, sessionName: renamed });
-			checkAll("doctrine-corpus-reject-rename", "a grammar-valid prose rename cannot pass the Slate-minted doctrine gate", [
-				["the broad session-name grammar accepts the control", sessionNames.isSlateSessionName(renamed), renamed],
-				["the minted validator rejects it", !sessionNames.isMintedSlateSessionName(renamed), renamed],
-				["the doctrine remains corpus off", renamedRender === offNoState && !renamedRender.includes(renamed), rule8Of(renamedRender)],
-			]);
-
-			const invisibleNames = [
-				"calm-otter-\u200b7f3a",
-				"calm-\u0007otter-7f3a",
-				"calm-otter-7f3a|forged",
-			];
-			const invisibleRenders = await Promise.all(invisibleNames.map((sessionName) => asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), {}, { project: CORPUS_PROJECT, sessionName })));
-			checkAll("doctrine-corpus-reject-invisible", "controls, zero-width text, and a vertical bar cannot enter the corpus fragment", [
-				["every hostile name fails the minted validator", invisibleNames.every((name) => !sessionNames.isMintedSlateSessionName(name)), invisibleNames],
-				["every hostile render equals corpus off", invisibleRenders.every((text) => text === offNoState), invisibleRenders.map((text) => text.length)],
-				["none of the hostile bytes or corpus lead-in survives", invisibleRenders.every((text) => !text.includes("Corpus session:") && !/[\u0007\u200b|]/u.test(rule8Of(text))), invisibleRenders.map(rule8Of)],
-			]);
-
-			const projectTextRender = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), {}, STANDARD_CORPUS);
-			checkAll("doctrine-corpus-no-project-text", "the archive fragment carries only the minted session name and no project label or directory", [
-				["the accepted session name renders", projectTextRender.includes(expectedFragment), rule8Of(projectTextRender)],
-				["no project field renders", Object.values(CORPUS_PROJECT).every((value) => !projectTextRender.includes(value)), Object.values(CORPUS_PROJECT).filter((value) => projectTextRender.includes(value))],
-				["the fragment embeds no filesystem separator", !archiveFragment(STANDARD_CORPUS.sessionName).includes("/"), archiveFragment(STANDARD_CORPUS.sessionName)],
-			]);
-
-			const freshHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, STANDARD_CORPUS);
-			const firstFresh = await freshHarness.render();
-			freshHarness.store.slateSessionName = "brisk-bison-abcd";
-			const secondFresh = await freshHarness.render();
-			checkAll("doctrine-corpus-fresh", "each doctrine render reads the live store name rather than a captured session-start value", [
-				["first render carries only the first name", firstFresh.includes(archiveFragment(STANDARD_CORPUS.sessionName)) && !firstFresh.includes("brisk-bison-abcd"), rule8Of(firstFresh)],
-				["second render carries only the second name", secondFresh.includes(archiveFragment("brisk-bison-abcd")) && !secondFresh.includes(STANDARD_CORPUS.sessionName), rule8Of(secondFresh)],
-			]);
-
-			const reportCases = [
-				{
-					label: "no-project",
-					state: { sessionName: STANDARD_CORPUS.sessionName },
-					reason: "the corpus project is unavailable",
-					name: STANDARD_CORPUS.sessionName,
-				},
-				{
-					label: "no-session-name",
-					state: { project: CORPUS_PROJECT },
-					reason: "the session name is absent",
-					name: "(missing)",
-				},
-				{
-					label: "unminted-name",
-					state: { project: CORPUS_PROJECT, sessionName: renamed },
-					reason: "the session name is not Slate-minted",
-					name: renamed,
-				},
-			].map((fixture) => ({
-				...fixture,
-				expectedMessage: `slate: doctrine cannot name the corpus session (${fixture.reason}, name: ${fixture.name}). At delivery, record the archive waiver per the workflow doc.`,
-			}));
-			const allReasons = reportCases.map(({ reason }) => reason);
-			const reportResults = [];
-			for (const fixture of reportCases) {
-				const harness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, fixture.state);
-				await harness.sessionStart();
-				await harness.render();
-				await harness.render();
-				reportResults.push({ ...fixture, notifications: harness.notifications });
-			}
-			const acceptedHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, STANDARD_CORPUS);
-			await acceptedHarness.sessionStart();
-			await acceptedHarness.render();
-			const resetHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, { project: CORPUS_PROJECT });
-			await resetHarness.sessionStart();
-			await resetHarness.render();
-			await resetHarness.sessionStart();
-			await resetHarness.render();
-			const modeSourceForReports = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
-			checkAll("doctrine-corpus-report", "the exact three-code set reports each truthful refusal once, a fresh accepted state stays silent, and session start resets deduplication", [
-				["the defect-code union is exact", modeSourceForReports.includes('type DoctrineCorpusDefectCode = "no-project" | "no-session-name" | "unminted-name";'), modeSourceForReports.match(/type DoctrineCorpusDefectCode[^;]*;/)?.[0]],
-				["each refusal reports exactly once despite two renders", reportResults.every(({ notifications }) => notifications.length === 1), reportResults],
-				["each situation reports only its own truthful reason", reportResults.every(({ reason, notifications }) => notifications[0]?.message.includes(reason) && allReasons.filter((candidate) => candidate !== reason).every((candidate) => !notifications[0]?.message.includes(candidate))), reportResults],
-				["each report exactly names the defect, sanitized name, waiver action, and workflow source", reportResults.every(({ expectedMessage, notifications }) => notifications[0]?.message === expectedMessage), reportResults],
-				["the fresh accepted state emits no report", acceptedHarness.notifications.length === 0, acceptedHarness.notifications],
-				["session start resets the refusal set", resetHarness.notifications.length === 2 && resetHarness.notifications.every((entry) => entry.message === reportCases[1]?.expectedMessage), resetHarness.notifications],
-				["all reports use warning severity", [...reportResults.flatMap(({ notifications }) => notifications), ...resetHarness.notifications].every((entry) => entry.level === "warning"), { reportResults, reset: resetHarness.notifications }],
-			]);
-
-			// Mutation: force reportCorpusDefect through the UI branch when hasUI is false.
-			const headlessHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, { sessionName: STANDARD_CORPUS.sessionName });
-			headlessHarness.ctx.hasUI = false;
-			await headlessHarness.sessionStart();
-			const headlessDoctrine = await headlessHarness.render();
-			const visibleHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, { sessionName: STANDARD_CORPUS.sessionName });
-			await visibleHarness.sessionStart();
-			const visibleDoctrine = await visibleHarness.render();
-			checkAll("doctrine-corpus-headless", "a session without a UI reports through console.warn and receives byte-identical doctrine", [
-				["the headless warning appears exactly once on the console path", headlessHarness.warnings.length === 1 && headlessHarness.warnings[0]?.includes("the corpus project is unavailable"), headlessHarness.warnings],
-				["the headless branch sends no UI notification", headlessHarness.notifications.length === 0, headlessHarness.notifications],
-				["headless and visible sessions receive byte-identical doctrine", headlessDoctrine === visibleDoctrine, { headlessBytes: headlessDoctrine.length, visibleBytes: visibleDoctrine.length }],
-			]);
-
-			// Mutation: remove the try/catch around the UI notification sink.
-			const throwingHarness = doctrineHarness(EMPTY_EXT, () => ({ on: false, candidates: [] }), true, {}, { sessionName: STANDARD_CORPUS.sessionName });
-			let notificationAttempts = 0;
-			throwingHarness.ctx.ui.notify = () => {
-				notificationAttempts += 1;
-				throw new Error("notification sink failed");
-			};
-			await throwingHarness.sessionStart();
-			const throwingDoctrine = await throwingHarness.render();
-			checkAll("doctrine-corpus-notify-guard", "a throwing notification sink costs only its report and leaves the complete doctrine unchanged", [
-				["the throwing notification sink is exercised once", notificationAttempts === 1, notificationAttempts],
-				["the returned doctrine is byte-identical to the non-throwing control", throwingDoctrine === visibleDoctrine, { throwingBytes: throwingDoctrine.length, visibleBytes: visibleDoctrine.length }],
-				["the complete fixed doctrine tail survives", /\n9\. Review every track[\s\S]*\n10\. The design principles behind this architecture/.test(throwingDoctrine), throwingDoctrine.slice(-700)],
-			]);
-
+		await section("session-name-vocabulary", async () => {
 			const expectedAdjectives = ["amber", "brisk", "calm", "clear", "cool", "crisp", "daring", "eager", "fair", "fleet", "fresh", "gentle", "glad", "grand", "keen", "kind", "lively", "merry", "mild", "neat", "nimble", "plain", "proud", "quick", "quiet", "rapid", "ready", "steady", "swift", "tidy", "warm", "wise"];
 			const expectedNouns = ["badger", "bison", "cedar", "comet", "coral", "crane", "dolphin", "falcon", "fern", "finch", "forest", "fox", "heron", "lark", "lynx", "maple", "marten", "moth", "oak", "otter", "owl", "panda", "pine", "puffin", "raven", "river", "robin", "sparrow", "spruce", "swift", "tiger", "willow"];
 			const vocabularyPairs = expectedAdjectives.flatMap((adjective) => expectedNouns.map((noun) => `${adjective}-${noun}-0000`));
-			checkAll("doctrine-corpus-vocabulary", "both ordered 32-word rosters and all 1,024 minted pairs remain frozen and valid", [
+			checkAll("session-name-vocabulary", "both ordered 32-word rosters and all 1,024 minted pairs remain frozen and valid", [
 				["the adjective roster is exact", JSON.stringify(sessionNames.SESSION_ADJECTIVES) === JSON.stringify(expectedAdjectives), sessionNames.SESSION_ADJECTIVES],
 				["the noun roster is exact", JSON.stringify(sessionNames.SESSION_NOUNS) === JSON.stringify(expectedNouns), sessionNames.SESSION_NOUNS],
 				["all 1,024 pairs validate", vocabularyPairs.length === 1024 && vocabularyPairs.every((name) => sessionNames.isMintedSlateSessionName(name)), vocabularyPairs.filter((name) => !sessionNames.isMintedSlateSessionName(name)).slice(0, 10)],
 				["swift remains in both roles", expectedAdjectives.includes("swift") && expectedNouns.includes("swift") && sessionNames.isMintedSlateSessionName("swift-swift-ffff"), { adjective: expectedAdjectives.indexOf("swift"), noun: expectedNouns.indexOf("swift") }],
-			]);
-
-			const modeSource = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
-			const normalizeCall = (source) => source.replace(/\s+/g, " ").trim();
-			const callMatches = modeSource.match(/buildDoctrine\(ctx\.cwd,\s*config,\s*trusted,\s*getExtensions\(\),\s*getRouter\(\),\s*\{[\s\S]*?report:\s*reportCorpusDefect,\s*\}\),/g) ?? [];
-			const expectedCall = normalizeCall(`buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRouter(), {
-				project: store.corpusProject,
-				sessionName: store.slateSessionName,
-				report: reportCorpusDefect,
-			}),`);
-			checkAll("doctrine-corpus-callsite", "the sole buildDoctrine call passes exactly the three raw corpus fields and computes no gate verdict", [
-				["one production call has the corpus object shape", callMatches.length === 1, callMatches],
-				["normalized call text is exact", callMatches.length === 1 && normalizeCall(callMatches[0]) === expectedCall, callMatches.map(normalizeCall)],
-				["the source contains one call plus one declaration", (modeSource.match(/buildDoctrine\s*\(/g) ?? []).length === 2, modeSource.match(/buildDoctrine\s*\(/g)?.length],
-				["the call object carries no computed boolean", callMatches.length === 1 && !/isMinted|trusted\s*&&|valid|verdict/.test(callMatches[0]), callMatches[0]],
 			]);
 		});
 
@@ -2013,19 +1842,6 @@ try {
 			const offDraftWriting = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { workflow: { draftPRs: true }, writing: { check: true } });
 			const allDraft = await asTrusted(EMPTY_EXT, onReal, { workflow: { draftPRs: true } });
 			const allDraftWriting = await asTrusted(EMPTY_EXT, onReal, { workflow: { draftPRs: true }, writing: { check: true } });
-			// Paired corpus-on fixtures use the production hook and the standard minted name.
-			const offCorpus = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), {}, STANDARD_CORPUS);
-			const writingOnCorpus = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { writing: { check: true } }, STANDARD_CORPUS);
-			const offDraftCorpus = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { workflow: { draftPRs: true } }, STANDARD_CORPUS);
-			const offDraftWritingCorpus = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { workflow: { draftPRs: true }, writing: { check: true } }, STANDARD_CORPUS);
-			const configuredOffDraftCorpus = await asTrusted(EMPTY_EXT, onConfigured, {}, STANDARD_CORPUS);
-			const configuredOffDraftWritingCorpus = await asTrusted(EMPTY_EXT, onConfigured, { writing: { check: true } }, STANDARD_CORPUS);
-			const configuredDraftCorpus = await asTrusted(EMPTY_EXT, onConfigured, { workflow: { draftPRs: true } }, STANDARD_CORPUS);
-			const configuredDraftWritingCorpus = await asTrusted(EMPTY_EXT, onConfigured, { workflow: { draftPRs: true }, writing: { check: true } }, STANDARD_CORPUS);
-			const onCorpus = await asTrusted(EMPTY_EXT, onReal, {}, STANDARD_CORPUS);
-			const writingRouterOnCorpus = await asTrusted(EMPTY_EXT, onReal, { writing: { check: true } }, STANDARD_CORPUS);
-			const allDraftCorpus = await asTrusted(EMPTY_EXT, onReal, { workflow: { draftPRs: true } }, STANDARD_CORPUS);
-			const allDraftWritingCorpus = await asTrusted(EMPTY_EXT, onReal, { workflow: { draftPRs: true }, writing: { check: true } }, STANDARD_CORPUS);
 			const capString = (ch, n) => ch.repeat(n);
 			const MAX_EXT = {
 				units: ["a", "b"].map((ch, unitIndex) => ({
@@ -2046,10 +1862,6 @@ try {
 			const maximal = await asTrusted(MAX_EXT, onReal, maximalConfig);
 			const maximalFollowUp = await asTrusted(MAX_EXT, onReal, maximalFollowUpConfig);
 			const maximalNoDraft = await asTrusted(MAX_EXT, onReal, maximalNoDraftConfig);
-			// The longest current minted name makes the maximum bound cover every vocabulary pair.
-			const maximalCorpus = await asTrusted(MAX_EXT, onReal, maximalConfig, LONGEST_CORPUS);
-			const maximalFollowUpCorpus = await asTrusted(MAX_EXT, onReal, maximalFollowUpConfig, LONGEST_CORPUS);
-			const maximalNoDraftCorpus = await asTrusted(MAX_EXT, onReal, maximalNoDraftConfig, LONGEST_CORPUS);
 			const DOCS_DIR = dirname(paths.TRACK_WORKFLOW_DOC);
 			const portableFrom = (text, docsDir) => text.split(docsDir).join("");
 			const portable = (text) => portableFrom(text, DOCS_DIR);
@@ -2067,10 +1879,7 @@ try {
 			const maximalPortable = portable(maximal).length;
 			const maximalFollowUpPortable = portable(maximalFollowUp).length;
 			const maximalNoDraftPortable = portable(maximalNoDraft).length;
-			const maximalCorpusPortable = portable(maximalCorpus).length;
-			const maximalFollowUpCorpusPortable = portable(maximalFollowUpCorpus).length;
-			const maximalNoDraftCorpusPortable = portable(maximalNoDraftCorpus).length;
-			const measureDoctrine = (text, corpusState) => ({ portable: portable(text).length, lines: text.split("\n").length, corpus: corpusState });
+			const measureDoctrine = (text, corpusState) => ({ portable: portable(text).length, lines: text.split("\n").length, basis: corpusState });
 			const writingPortable = portable(ruleOfWriting(writingOn)).length;
 			const modelIncrements = [];
 			for (const candidate of realCandidates) {
@@ -2096,50 +1905,36 @@ try {
 			const docPaths = pathOccurrences(on);
 			// Exact pins below were transcribed from this check's observed objects.
 			const shippedRuleFixtures = [
-				{ basis: "router off, writing off, draft off, corpus off", text: off, corpus: "off", expectedPortable: 2912, expectedLines: 48 },
-				{ basis: "router off, writing on, draft off, corpus off", text: writingOn, corpus: "off", expectedPortable: 3982, expectedLines: 70 },
-				{ basis: "router off, writing off, draft on, corpus off", text: offDraft, corpus: "off", expectedPortable: 2927, expectedLines: 48 },
-				{ basis: "router off, writing on, draft on, corpus off", text: offDraftWriting, corpus: "off", expectedPortable: 3997, expectedLines: 70 },
-				{ basis: "six models, writing off, draft off, corpus off", text: configuredOffDraft, corpus: "off", expectedPortable: 4942, expectedLines: 69 },
-				{ basis: "six models, writing on, draft off, corpus off", text: configuredOffDraftWriting, corpus: "off", expectedPortable: 6012, expectedLines: 91 },
-				{ basis: "six models, writing off, draft on, corpus off", text: configuredDraft, corpus: "off", expectedPortable: 4957, expectedLines: 69 },
-				{ basis: "six models, writing on, draft on, corpus off", text: configuredDraftWriting, corpus: "off", expectedPortable: 6027, expectedLines: 91 },
-				{ basis: "all nine, writing off, draft off, corpus off", text: on, corpus: "off", expectedPortable: 5497, expectedLines: 72 },
-				{ basis: "all nine, writing on, draft off, corpus off", text: writingRouterOn, corpus: "off", expectedPortable: 6567, expectedLines: 94 },
-				{ basis: "all nine, writing off, draft on, corpus off", text: allDraft, corpus: "off", expectedPortable: 5512, expectedLines: 72 },
-				{ basis: "all nine, writing on, draft on, corpus off", text: allDraftWriting, corpus: "off", expectedPortable: 6582, expectedLines: 94 },
-				{ basis: "router off, writing off, draft off, corpus on", text: offCorpus, corpus: "on", expectedPortable: 3046, expectedLines: 50 },
-				{ basis: "router off, writing on, draft off, corpus on", text: writingOnCorpus, corpus: "on", expectedPortable: 4116, expectedLines: 72 },
-				{ basis: "router off, writing off, draft on, corpus on", text: offDraftCorpus, corpus: "on", expectedPortable: 3061, expectedLines: 50 },
-				{ basis: "router off, writing on, draft on, corpus on", text: offDraftWritingCorpus, corpus: "on", expectedPortable: 4131, expectedLines: 72 },
-				{ basis: "six models, writing off, draft off, corpus on", text: configuredOffDraftCorpus, corpus: "on", expectedPortable: 5076, expectedLines: 71 },
-				{ basis: "six models, writing on, draft off, corpus on", text: configuredOffDraftWritingCorpus, corpus: "on", expectedPortable: 6146, expectedLines: 93 },
-				{ basis: "six models, writing off, draft on, corpus on", text: configuredDraftCorpus, corpus: "on", expectedPortable: 5091, expectedLines: 71 },
-				{ basis: "six models, writing on, draft on, corpus on", text: configuredDraftWritingCorpus, corpus: "on", expectedPortable: 6161, expectedLines: 93 },
-				{ basis: "all nine, writing off, draft off, corpus on", text: onCorpus, corpus: "on", expectedPortable: 5631, expectedLines: 74 },
-				{ basis: "all nine, writing on, draft off, corpus on", text: writingRouterOnCorpus, corpus: "on", expectedPortable: 6701, expectedLines: 96 },
-				{ basis: "all nine, writing off, draft on, corpus on", text: allDraftCorpus, corpus: "on", expectedPortable: 5646, expectedLines: 74 },
-				{ basis: "all nine, writing on, draft on, corpus on", text: allDraftWritingCorpus, corpus: "on", expectedPortable: 6716, expectedLines: 96 },
+				{ name: "router off, writing off, draft off, standard", text: off, basis: "standard", expectedPortable: 2912, expectedLines: 48 },
+				{ name: "router off, writing on, draft off, standard", text: writingOn, basis: "standard", expectedPortable: 3982, expectedLines: 70 },
+				{ name: "router off, writing off, draft on, standard", text: offDraft, basis: "standard", expectedPortable: 2927, expectedLines: 48 },
+				{ name: "router off, writing on, draft on, standard", text: offDraftWriting, basis: "standard", expectedPortable: 3997, expectedLines: 70 },
+				{ name: "six models, writing off, draft off, standard", text: configuredOffDraft, basis: "standard", expectedPortable: 4942, expectedLines: 69 },
+				{ name: "six models, writing on, draft off, standard", text: configuredOffDraftWriting, basis: "standard", expectedPortable: 6012, expectedLines: 91 },
+				{ name: "six models, writing off, draft on, standard", text: configuredDraft, basis: "standard", expectedPortable: 4957, expectedLines: 69 },
+				{ name: "six models, writing on, draft on, standard", text: configuredDraftWriting, basis: "standard", expectedPortable: 6027, expectedLines: 91 },
+				{ name: "all nine, writing off, draft off, standard", text: on, basis: "standard", expectedPortable: 5497, expectedLines: 72 },
+				{ name: "all nine, writing on, draft off, standard", text: writingRouterOn, basis: "standard", expectedPortable: 6567, expectedLines: 94 },
+				{ name: "all nine, writing off, draft on, standard", text: allDraft, basis: "standard", expectedPortable: 5512, expectedLines: 72 },
+				{ name: "all nine, writing on, draft on, standard", text: allDraftWriting, basis: "standard", expectedPortable: 6582, expectedLines: 94 },
+
 			];
 			const maximalFixtures = [
-				{ basis: "maximal, draft enabled, corpus off", text: maximal, corpus: "off", expectedPortable: 7929, expectedLines: 104 },
-				{ basis: "maximal, draft disabled, corpus off", text: maximalNoDraft, corpus: "off", expectedPortable: 7914, expectedLines: 104 },
-				{ basis: "maximal, draft enabled, corpus on", text: maximalCorpus, corpus: "on", expectedPortable: 8067, expectedLines: 106 },
-				{ basis: "maximal, draft disabled, corpus on", text: maximalNoDraftCorpus, corpus: "on", expectedPortable: 8052, expectedLines: 106 },
+				{ name: "maximal, draft enabled, standard", text: maximal, basis: "standard", expectedPortable: 7929, expectedLines: 104 },
+				{ name: "maximal, draft disabled, standard", text: maximalNoDraft, basis: "standard", expectedPortable: 7914, expectedLines: 104 },
 			];
 			// 2026-08-21: 6,567 × 1.05 = 6,895.35; ceil 6,896, then round the bound up to 6,900.
 			const WRITING_ROUTER_BOUND = 6900;
 			// 2026-08-21: 6,822 × 1.05 = 7,163.1; ceil 7,164, then round the bound up to 7,200.
 			const ALL_TAILS_BOUND = 7200;
-			// 2026-08-21: corpus-on maximal follow-up is largest at 8,145. Its five-percent ceiling is 8,553, rounded to 8,600.
-			const MAXIMAL_BOUND = 8600;
+			// 2026-08-26: maximal follow-up is largest at 8,007. Its five-percent ceiling is 8,408, rounded to 8,500.
+			const MAXIMAL_BOUND = 8500;
 			checkAll(
 				"doctrine-budget",
-				"portable doctrine budgets cover paired corpus-off and corpus-on shipped-rule rows, six maximal fixtures across both corpus states, and one corpus-off positive control",
+				"portable doctrine budgets cover shipped-rule rows, maximal fixtures, and one positive control",
 				[
 					["the normalisation bites: the doctrine really does embed the authoritative docs directory", docPaths === 5 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC), { docPaths, DOCS_DIR }],
-					["every corpus-off fixture has the exact embedded-path occurrence count", pathOccurrences(off) === 4 && pathOccurrences(on) === 5 && pathOccurrences(writingOn) === 5 && pathOccurrences(writingRouterOn) === 6 && pathOccurrences(writingExtensionsOn) === 5 && pathOccurrences(writingAllOn) === 6 && pathOccurrences(maximal) === 7 && pathOccurrences(maximalNoDraft) === 6 && pathOccurrences(maximalFollowUp) === 7 && pathOccurrences(overBudget) === 7, { off: pathOccurrences(off), on: pathOccurrences(on), writing: pathOccurrences(writingOn), writingRouter: pathOccurrences(writingRouterOn), writingExtensions: pathOccurrences(writingExtensionsOn), all: pathOccurrences(writingAllOn), maximalCorpusOff: pathOccurrences(maximal), maximalNoDraftCorpusOff: pathOccurrences(maximalNoDraft), followUpCorpusOff: pathOccurrences(maximalFollowUp), positiveCorpusOff: pathOccurrences(overBudget) }],
-					["each corpus-on pair has the same embedded paths as its corpus-off basis", pathOccurrences(offCorpus) === pathOccurrences(off) && pathOccurrences(onCorpus) === pathOccurrences(on) && pathOccurrences(writingOnCorpus) === pathOccurrences(writingOn) && pathOccurrences(writingRouterOnCorpus) === pathOccurrences(writingRouterOn) && pathOccurrences(maximalCorpus) === pathOccurrences(maximal) && pathOccurrences(maximalNoDraftCorpus) === pathOccurrences(maximalNoDraft) && pathOccurrences(maximalFollowUpCorpus) === pathOccurrences(maximalFollowUp), { off: pathOccurrences(offCorpus), on: pathOccurrences(onCorpus), writing: pathOccurrences(writingOnCorpus), writingRouter: pathOccurrences(writingRouterOnCorpus), maximalCorpusOn: pathOccurrences(maximalCorpus), maximalNoDraftCorpusOn: pathOccurrences(maximalNoDraftCorpus), followUpCorpusOn: pathOccurrences(maximalFollowUpCorpus) }],
+					["every fixture has the exact embedded-path occurrence count", pathOccurrences(off) === 4 && pathOccurrences(on) === 5 && pathOccurrences(writingOn) === 5 && pathOccurrences(writingRouterOn) === 6 && pathOccurrences(writingExtensionsOn) === 5 && pathOccurrences(writingAllOn) === 6 && pathOccurrences(maximal) === 7 && pathOccurrences(maximalNoDraft) === 6 && pathOccurrences(maximalFollowUp) === 7 && pathOccurrences(overBudget) === 7, { off: pathOccurrences(off), on: pathOccurrences(on), writing: pathOccurrences(writingOn), writingRouter: pathOccurrences(writingRouterOn), writingExtensions: pathOccurrences(writingExtensionsOn), all: pathOccurrences(writingAllOn), maximal: pathOccurrences(maximal), maximalNoDraft: pathOccurrences(maximalNoDraft), followUp: pathOccurrences(maximalFollowUp), positive: pathOccurrences(overBudget) }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
 					["space-bearing docs directories normalize without parsing rendered text", spacedPortable === "read /track-workflow.md", spacedPortable],
 					["the whole rule stays under 4000 portable chars with five percent reserve", ruleChars <= 4000 && hasDoctrineReserve(ruleChars, 4000), { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
@@ -2148,27 +1943,27 @@ try {
 					["no single model row exceeds 300 chars or consumes its five percent reserve", longest <= 300 && hasDoctrineReserve(longest, 300), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the configured-model fixture is the exact six-model project list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
-					["the corpus-off routing rule is the ONLY thing added when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length, corpus: "off" }],
+					["the standard routing rule is the ONLY thing added when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length, basis: "standard" }],
 					...shippedRuleFixtures.map((fixture) => {
-						const observed = measureDoctrine(fixture.text, fixture.corpus);
-						return [`${fixture.basis} is the pinned portable render`, observed.portable === fixture.expectedPortable && observed.lines === fixture.expectedLines, observed];
+						const observed = measureDoctrine(fixture.text, fixture.basis);
+						return [`${fixture.name} is the pinned portable render`, observed.portable === fixture.expectedPortable && observed.lines === fixture.expectedLines, observed];
 					}),
-					["all-nine writing, draft off, corpus off stays under its 6,900 bound with five percent reserve", portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { ...measureDoctrine(writingRouterOn, "off"), bound: WRITING_ROUTER_BOUND }],
-					["writing plus extensions, draft off, corpus off is the measured 4237 portable chars and 76 lines", portable(writingExtensionsOn).length === 4237 && writingExtensionsOn.split("\n").length === 76, measureDoctrine(writingExtensionsOn, "off")],
-					[`all tail features, draft off, corpus off is the measured 6822 portable chars and 100 lines, within ${ALL_TAILS_BOUND}`, portable(writingAllOn).length === 6822 && writingAllOn.split("\n").length === 100 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), measureDoctrine(writingAllOn, "off")],
+					["all-nine writing, draft off, standard stays under its 6,900 bound with five percent reserve", portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { ...measureDoctrine(writingRouterOn, "off"), bound: WRITING_ROUTER_BOUND }],
+					["writing plus extensions, draft off, standard is the measured 4237 portable chars and 76 lines", portable(writingExtensionsOn).length === 4237 && writingExtensionsOn.split("\n").length === 76, measureDoctrine(writingExtensionsOn, "off")],
+					[`all tail features, draft off, standard is the measured 6822 portable chars and 100 lines, within ${ALL_TAILS_BOUND}`, portable(writingAllOn).length === 6822 && writingAllOn.split("\n").length === 100 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), measureDoctrine(writingAllOn, "off")],
 					...maximalFixtures.map((fixture) => {
-						const observed = measureDoctrine(fixture.text, fixture.corpus);
-						return [`${fixture.basis} is pinned within ${MAXIMAL_BOUND} with five percent reserve`, observed.portable === fixture.expectedPortable && observed.lines === fixture.expectedLines && observed.portable <= MAXIMAL_BOUND && hasDoctrineReserve(observed.portable, MAXIMAL_BOUND), observed];
+						const observed = measureDoctrine(fixture.text, fixture.basis);
+						return [`${fixture.name} is pinned within ${MAXIMAL_BOUND} with five percent reserve`, observed.portable === fixture.expectedPortable && observed.lines === fixture.expectedLines && observed.portable <= MAXIMAL_BOUND && hasDoctrineReserve(observed.portable, MAXIMAL_BOUND), observed];
 					}),
-					["every measured corpus-off and corpus-on fixture retains five percent reserve under the maximal bound", [...shippedRuleFixtures.map((fixture) => portable(fixture.text).length), portable(writingExtensionsOn).length, portable(writingAllOn).length, maximalPortable, maximalNoDraftPortable, maximalCorpusPortable, maximalNoDraftCorpusPortable, maximalFollowUpPortable, maximalFollowUpCorpusPortable].every((measured) => hasDoctrineReserve(measured, MAXIMAL_BOUND)), { largest: Math.max(...shippedRuleFixtures.map((fixture) => portable(fixture.text).length), portable(writingExtensionsOn).length, portable(writingAllOn).length, maximalPortable, maximalNoDraftPortable, maximalCorpusPortable, maximalNoDraftCorpusPortable, maximalFollowUpPortable, maximalFollowUpCorpusPortable), bound: MAXIMAL_BOUND }],
-					["the corpus-off capped worker rule is the measured 1347 chars and 11 split lines, and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length, corpus: "off" }],
-					["the corpus-off maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements, corpus: "off" }],
-					[`the corpus-off positive control is the measured 8877 portable chars and 109 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 8877 && overBudget.split("\n").length === 109 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, corpus: "off", bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
+					["every measured fixture retains five percent reserve under the maximal bound", [...shippedRuleFixtures.map((fixture) => portable(fixture.text).length), portable(writingExtensionsOn).length, portable(writingAllOn).length, maximalPortable, maximalNoDraftPortable, maximalFollowUpPortable].every((measured) => hasDoctrineReserve(measured, MAXIMAL_BOUND)), { largest: Math.max(...shippedRuleFixtures.map((fixture) => portable(fixture.text).length), portable(writingExtensionsOn).length, portable(writingAllOn).length, maximalPortable, maximalNoDraftPortable, maximalFollowUpPortable), bound: MAXIMAL_BOUND }],
+					["the standard capped worker rule is the measured 1347 chars and 11 split lines, and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length, basis: "standard" }],
+					["the standard maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements, basis: "standard" }],
+					[`the standard positive control is the measured 8877 portable chars and 109 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 8877 && overBudget.split("\n").length === 109 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, basis: "standard", bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
 					// The writing rule has its own bound because its absolute citation changes raw size.
-					["the corpus-off writing rule is the measured 1070 portable chars and stays under 1150 with five percent reserve", writingPortable === 1070 && writingPortable <= 1150 && hasDoctrineReserve(writingPortable, 1150), { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length, corpus: "off" }],
+					["the standard writing rule is the measured 1070 portable chars and stays under 1150 with five percent reserve", writingPortable === 1070 && writingPortable <= 1150 && hasDoctrineReserve(writingPortable, 1150), { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length, basis: "standard" }],
 					["...and is 23 split lines, adding 22 whole-doctrine lines, under the 25-line bound with five percent reserve", ruleOfWriting(writingOn).split("\n").length === 23 && writingOn.split("\n").length - off.split("\n").length === 22 && hasDoctrineReserve(ruleOfWriting(writingOn).split("\n").length, 25), ruleOfWriting(writingOn).split("\n").length],
 					["...and embeds exactly ONE doc path, so the citation is charged once per turn, not once per mention", DOCS_DIR !== "" && ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 === 1, { paths: DOCS_DIR === "" ? "no docs dir found" : ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 }],
 					["writing-on text is actually larger than writing-off text", writingOn.length > off.length, { off: off.length, writing: writingOn.length }],
@@ -2177,10 +1972,9 @@ try {
 			);
 			checkAll(
 				"doctrine-budget-follow-up",
-				"the trusted follow-up-issues configuration pins both corpus states under the maximal bound",
+				"the trusted follow-up-issues configuration stays under the maximal bound",
 				[
-					[`maximal follow-up, corpus off is the measured 8007 portable chars and 105 lines within ${MAXIMAL_BOUND}`, maximalFollowUpPortable === 8007 && maximalFollowUp.split("\n").length === 105 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { ...measureDoctrine(maximalFollowUp, "off"), reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
-					[`maximal follow-up, corpus on is the measured 8145 portable chars and 107 lines within ${MAXIMAL_BOUND}`, maximalFollowUpCorpusPortable === 8145 && maximalFollowUpCorpus.split("\n").length === 107 && maximalFollowUpCorpusPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpCorpusPortable, MAXIMAL_BOUND), { ...measureDoctrine(maximalFollowUpCorpus, "on"), reserveRequired: Math.ceil(maximalFollowUpCorpusPortable * 1.05), bound: MAXIMAL_BOUND }],
+					[`maximal follow-up is the measured 8007 portable chars and 105 lines within ${MAXIMAL_BOUND}`, maximalFollowUpPortable === 8007 && maximalFollowUp.split("\n").length === 105 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { ...measureDoctrine(maximalFollowUp, "standard"), reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
 				],
 			);
 		});
@@ -3690,234 +3484,147 @@ production behaviour.`);
 				["duplicated Fast path counterfactual fails uniqueness", headingCount(duplicatedFastPath, "Fast path") === 2 && headingCount(duplicatedFastPath, "Fast path") !== 1, headingCount(duplicatedFastPath, "Fast path")],
 			]);
 
-			const procedure = readFileSync(join(REPO, "docs", "delivery-archive.md"), "utf8");
 			const releasing = readFileSync(join(REPO, "RELEASING.md"), "utf8");
 			const pathsSource = readFileSync(join(REPO, "extension", "paths.ts"), "utf8");
 			const modeSource = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
-			const sources = { workflow, procedure, publishing, agents, releasing, pathsSource, modeSource };
-			const archiveHeading = "### The delivery archive";
-			const handoffHeading = "### The handoff summary";
-			const countExactLine = (source, line) => (source.match(new RegExp(`^${escapeRegex(line)}$`, "gm")) ?? []).length;
-			const archiveBoundary = (source) => {
-				const archiveCount = countExactLine(source, archiveHeading);
-				const handoffCount = countExactLine(source, handoffHeading);
-				const archiveAt = source.indexOf(`${archiveHeading}\n`);
-				const handoffAt = source.indexOf(`${handoffHeading}\n`);
-				const between = archiveAt >= 0 && handoffAt > archiveAt ? source.slice(archiveAt, handoffAt) : "";
-				const exactSeparator = between.endsWith("\n\n") && !between.endsWith("\n\n\n");
-				const text = exactSeparator ? between.slice(0, -1) : "";
-				return { archiveCount, handoffCount, archiveAt, handoffAt, exactSeparator, text };
-			};
-			const measureArchive = (source) => {
-				const boundary = archiveBoundary(source);
-				return {
-					...boundary,
-					finalNewline: boundary.text.endsWith("\n"),
-					lines: boundary.text.endsWith("\n") ? boundary.text.split("\n").length - 1 : -1,
-					bytes: Buffer.byteLength(boundary.text, "utf8"),
-				};
-			};
-			const sectionBetween = (source, start, end) => {
-				const from = source.indexOf(start);
-				const to = source.indexOf(end, from + start.length);
-				return from >= 0 && to > from ? source.slice(from, to) : "";
-			};
-			const cloneWith = (base, key, value) => ({ ...base, [key]: value });
-			const replaceFlexible = (source, needle, replacement = "[defeating mutation]") => {
-				const pattern = needle.trim().split(/\s+/).map(escapeRegex).join("\\s+");
-				return source.replace(new RegExp(pattern, "g"), replacement);
-			};
-			const removeTerm = (base, key, term) => cloneWith(base, key, replaceFlexible(base[key], term));
-			const appendTerm = (base, key, term) => cloneWith(base, key, `${base[key]}\n${term}\n`);
 			const containsAll = (source, terms) => {
 				const text = normalizeText(source);
 				return terms.every((term) => text.includes(normalizeText(term)));
 			};
-			const missingTerms = (source, terms) => {
-				const text = normalizeText(source);
-				return terms.filter((term) => !text.includes(normalizeText(term)));
+			const replaceFlexible = (source, term, replacement = "") => {
+				const pattern = normalizeText(term).split(/\s+/).map(escapeRegex).join("\\s+");
+				return source.replace(new RegExp(pattern), replacement);
 			};
-			const ordered = (text, terms) => {
+			const ordered = (source, terms) => {
+				const text = normalizeText(source);
 				let cursor = -1;
 				for (const term of terms) {
-					const next = normalizeText(text).indexOf(normalizeText(term), cursor + 1);
-					if (next < 0) return false;
-					cursor = next;
+					cursor = text.indexOf(normalizeText(term), cursor + 1);
+					if (cursor < 0) return false;
 				}
 				return true;
 			};
-
-			const assertions = [];
-			const addAssertion = (group, id, test, mutate, observed) => {
-				assertions.push({ group, id, test, mutate, observed });
-			};
-			const addTerms = (group, id, key, terms) => addAssertion(
-				group,
-				id,
-				(base) => containsAll(base[key], terms),
-				(base) => removeTerm(base, key, terms[0]),
-				(base) => missingTerms(base[key], terms),
-			);
-			const addAbsent = (group, id, key, terms) => addAssertion(
-				group,
-				id,
-				(base) => terms.every((term) => !normalizeText(base[key]).includes(normalizeText(term))),
-				(base) => appendTerm(base, key, terms[0]),
-				(base) => terms.filter((term) => normalizeText(base[key]).includes(normalizeText(term))),
-			);
-
-			const expectedDecisionTable = [
-				"| working log exists | corpus session resolves | required result |",
-				"| --- | --- | --- |",
-				"| no | either | Nothing needs archival. Delivery proceeds. |",
-				"| yes | yes | The orchestrator archives and verifies the working log before delivery. |",
-				"| yes | no | The orchestrator reports that no corpus session resolved and records an archive waiver. |",
-			];
-			const decisionRows = (source) => archiveBoundary(source).text.split("\n").filter((line) => line.startsWith("|"));
-			addAssertion("lifecycle", "decision-table", (base) => JSON.stringify(decisionRows(base.workflow)) === JSON.stringify(expectedDecisionTable), (base) => cloneWith(base, "workflow", base.workflow.replace(expectedDecisionTable[4], "")), (base) => decisionRows(base.workflow));
-			addTerms("lifecycle", "waiver-destinations", "workflow", ["Record every waiver in the delivery commit body", "when `workflow.draftPRs` is enabled, in the pull request"]);
-			addTerms("lifecycle", "delivery-timing", "workflow", ["After final change acceptance and before final publication approval"]);
-			addTerms("lifecycle", "preservation-offer", "workflow", ["For an abandoned change, offer the working log to the user before removing the worktree"]);
-			addTerms("lifecycle", "abandonment-no-waiver", "workflow", ["When the user requests preservation, use the same procedure. No waiver applies"]);
-			addTerms("lifecycle", "cleanup-disposition", "workflow", ["Cleanup requires recorded preservation success or recorded explicit user withdrawal", "Silence, timeout, or failure is not withdrawal"]);
-			addTerms("lifecycle", "working-log-preserved", "workflow", ["No archive path deletes or rewrites the working log", "The working log survives success and failure"]);
-			addTerms("lifecycle", "product-change-restart", "workflow", ["Every product change after final change acceptance restarts all four gates", "completed review, final change acceptance, the archive decision, and final publication approval"]);
-			addTerms("lifecycle", "log-only-exception", "workflow", ["A completed archive may remain valid only after a log-only change", "Report that its snapshot predates later log text"]);
-			addTerms("lifecycle", "fresh-decision-triggers", "workflow", ["A log-only change that creates the first working log", "a newly resolved corpus session", "requires a fresh archive decision"]);
-			addTerms("lifecycle", "authority-delegation", "workflow", ["delivery-archive.md", "is the sole authority for archive operations", "The workflow retains lifecycle cleanup gates"]);
-			addTerms("lifecycle", "procedure-policy-citation", "procedure", ["The lifecycle policy remains in [track-workflow.md](track-workflow.md)", "This procedure never creates a waiver or authorizes worktree cleanup"]);
-			addTerms("lifecycle", "agents-authority-summary", "agents", ["`docs/track-workflow.md` § The delivery archive owns lifecycle policy and the archive decision", "`docs/delivery-archive.md` is the sole authority for archive operations, refusals, verification, and failed-ordinal retry mechanics"]);
-
-			addTerms("dispatch", "project-trust", "workflow", ["Before each archive dispatch, require independent Slate project trust"]);
-			addTerms("dispatch", "trusted-boundary", "workflow", ["package-resolved Slate documents", "the orchestrator-authored task", "all existing worker prompt sources are trusted", "no integrity claim against a compromised trusted input"]);
-			addTerms("dispatch", "fresh-thread", "workflow", ["Open a brand-new archive thread for one attempt"]);
-			addTerms("dispatch", "omitted-fields", "workflow", ["must omit `thread`, `context`, `contextEpisodeIds`, `freshContext`"]);
-			addTerms("dispatch", "omitted-state-sources", "workflow", ["continuation identity and state", "injected episodes and summaries", "reused transcripts", "inherited action text"]);
-			addTerms("dispatch", "nonconforming-classification", "workflow", ["A dispatch containing any excluded field or source is nonconforming"]);
-			addTerms("dispatch", "fixed-procedure-path", "workflow", ["The task supplies the fixed absolute package-resolved path for [delivery-archive.md](delivery-archive.md)"]);
-			addTerms("dispatch", "sole-variable-input", "workflow", ["one variable value named `corpusSession`"]);
-			addTerms("dispatch", "canonical-session-token", "workflow", ["must pass `isMintedSlateSessionName`", "ASCII of at most 48 bytes", "`<shipped-adjective>-<shipped-noun>-<four lowercase hexadecimal digits>`"]);
-			addTerms("dispatch", "no-raw-log-path", "workflow", ["No raw working-log path enters the task"]);
-			addTerms("dispatch", "complete-procedure-read", "workflow", ["The worker reads the entire procedure before any archive action"]);
-			addTerms("dispatch", "worker-cwd-outcome", "workflow", ["The procedure derives root `research-log.md` from the worker working directory"]);
-			addAbsent("dispatch", "git-mechanics-only-in-procedure", "workflow", ["GIT_COMMON_DIR", "--show-toplevel", "PI_CODING_AGENT_DIR", "--git-common-dir", "fstat", "session.json", "mode `0700`", "mode `0600`", "lowest absent three-digit ordinal", "append-only list of paths"]);
-			addTerms("dispatch", "report-and-retry-shape", "workflow", ["reports a failed step and reason", "absolute destination, ordinal, and shared SHA-256 hash", "Only the orchestrator schedules a retry through a fresh dispatch"]);
-
-			addTerms("operations", "attempt-input-boundary", "procedure", ["The task provides the fixed absolute package-resolved path of this document", "one variable value named `corpusSession`", "Accept no caller-selected procedure path, working-log path, destination path, ordinal, project path, or retry state"]);
-			addTerms("operations", "canonical-input-refusal", "procedure", ["Refuse the attempt unless `corpusSession` passes the shipped `isMintedSlateSessionName` validator", "ASCII and at most 48 UTF-8 bytes", "`<shipped-adjective>-<shipped-noun>-<four lowercase hexadecimal digits>`", "adjective and noun must occur in Slate's shipped mint tables"]);
-			addTerms("operations", "git-root-derivation", "procedure", ["Remove `GIT_DIR`, `GIT_COMMON_DIR`, and `GIT_WORK_TREE`", "git rev-parse --path-format=absolute --show-toplevel", "Reject a missing terminator, remaining line terminator, extra output, control character, or nonabsolute result", "Canonicalize the result"]);
-			addTerms("operations", "path-and-platform-refusals", "procedure", ["Use direct process calls with argument arrays", "Do not interpolate a path into a command string", "Refuse a path containing a single quote", "Use double quotes around every later variable expansion", "Do not place a tilde inside a single-quoted assignment", "Reject an empty path, a nonabsolute path where an absolute path is required, or a path containing a control character", "Use no-follow operations for every named archive boundary"]);
-			addTerms("operations", "platform-identity-primitives", "procedure", ["Before any mutation, refuse if the runtime lacks any required primitive", "Required primitives are no-follow file opens, retained directory descriptors, descriptor-relative operations, and device-and-inode identity comparisons", "Do not fall back to a pathname-based copy"]);
-			addTerms("operations", "boundary-symlink-refusals", "procedure", ["A symbolic link above the canonical corpus root may represent the agent directory", "Do not follow a symbolic link at or below that root", "project directory, session directory, `session.json`, `deliveries`, selected ordinal, or archive-file boundary"]);
-			addTerms("operations", "source-capture-identity", "procedure", ["Open the source with read-only, no-follow, and nonblocking semantics", "Validate regular-file status through `fstat` on that same descriptor", "A symbolic link, directory, device, socket, or FIFO is not a valid source", "Read every source byte through that descriptor", "Do not read, stat, resolve, or reopen the source pathname after the open"]);
-			addTerms("operations", "corpus-root-refusals", "procedure", ["When `PI_CODING_AGENT_DIR` is set, use its value as the Pi agent directory", "Otherwise derive the agent directory as `$HOME/.pi/agent`", "Refuse failed resolution, empty output, a nonabsolute result, or a result that is not an existing readable directory", "Open and retain a descriptor for the canonical corpus root"]);
-			addTerms("operations", "corpus-project-selection", "procedure", ["git -C <canonical worktree root> rev-parse --path-format=absolute --git-common-dir", "Apply the same exit, terminator, extra-output, control-character, and absolute-path checks used for worktree-root output", "first 12 lowercase hexadecimal characters", "ends in `-<project digest>`", "Refuse zero matching directories", "Refuse several matching directories"]);
-			addTerms("operations", "session-boundary-refusals", "procedure", ["Resolve `corpusSession` as one child name beneath the retained project descriptor", "Refuse absence, a symbolic link, a non-directory, or any resolution outside the selected project", "Retain the session descriptor"]);
-			addAssertion("operations", "project-before-session-order", (base) => ordered(base.procedure, ["Derive the project key from the canonical worktree root", "Open the sole project directory relative to the retained corpus-root descriptor", "Resolve `corpusSession` as one child name beneath the retained project descriptor"]), (base) => removeTerm(base, "procedure", "Derive the project key from the canonical worktree root"), (base) => sectionBetween(base.procedure, "## Resolve the corpus project and session", "## Select one ordinal"));
-			addTerms("operations", "metadata-refusals", "procedure", ["Open `session.json` relative to the retained session descriptor", "Validate regular-file status through that descriptor", "Refuse unreadable or malformed JSON", "Refuse a value that is not an object", "Refuse unless its `name` property is a string exactly equal to `corpusSession`", "Perform every check in this section before creating any path"]);
-			addAssertion("operations", "metadata-before-creation", (base) => ordered(base.procedure, ["Refuse unless its `name` property is a string exactly equal to `corpusSession`", "Perform every check in this section before creating any path", "## Select one ordinal", "## Create and verify the destination"]), (base) => removeTerm(base, "procedure", "Perform every check in this section before creating any path"), (base) => base.procedure.match(/Refuse unless its `name`[\s\S]{0,500}?## Create and verify the destination/)?.[0]);
-			addTerms("operations", "one-listing-ordinal", "procedure", ["List its entries exactly once", "Treat every name present in the listing as occupied", "Choose the lowest absent three-digit ordinal from `001` through `999`", "Refuse exhaustion before creating anything", "Add no lock"]);
-			addTerms("operations", "destination-parent-identity", "procedure", ["relative to the retained `deliveries` descriptor", "Use an exclusive directory-relative operation", "Create `research-log.md` relative to that retained parent descriptor", "create, exclusive, and no-follow flags"]);
-			addTerms("operations", "destination-collision-refusals", "procedure", ["Creation must fail when an entry now exists", "A creation collision ends the attempt", "Refuse any existing entry, including a symbolic link or partial ordinal", "Refuse any collision", "Record the absolute destination path immediately after successful creation"]);
-			addTerms("operations", "destination-path", "procedure", ["`<session directory>/deliveries/<ordinal>/research-log.md`"]);
-			addTerms("operations", "copy-write-verification", "procedure", ["Write the captured source bytes completely through that descriptor", "Treat a short write as a failure", "Flush the file before verification", "Seek the same opened destination descriptor to the start"]);
-			addTerms("operations", "parent-relative-device-inode", "procedure", ["record its device and inode from the opened descriptor", "A descriptor type check alone is insufficient", "relative to its retained parent descriptor", "Compare its device and inode with the values recorded from the retained child descriptor", "Refuse absence, a type mismatch, or either identity mismatch", "Perform every child operation through the retained parent or child descriptor, not through the rechecked pathname"]);
-			addTerms("operations", "identity-bound-verification", "procedure", ["Read every destination byte through that descriptor", "Do not reopen or verify through the destination pathname", "immediately before destination creation", "immediately after destination creation and before writing", "after the write and flush, before reading bytes for verification", "after verification and immediately before success reporting", "Opening or creating a retained child requires an immediate first check"]);
-			addTerms("operations", "no-post-failure-removal", "procedure", ["Closing a descriptor is the only cleanup action", "Do not unlink, rename, truncate, rewrite, or remove any file or directory after failure", "There is no empty-directory exception and no rollback path", "Never remove the replacement"]);
-			addTerms("operations", "created-path-reporting", "procedure", ["Maintain an append-only list of paths created by the attempt", "every absolute path that the attempt created, in creation order", "Report `none` when the attempt created no path", "Report an original created path even when another actor later renamed or replaced its entry"]);
-			addTerms("operations", "failure-report", "procedure", ["the failed step", "the reason", "the selected ordinal, when selection completed", "every absolute path that the attempt created, in creation order"]);
-			addTerms("operations", "every-present-ordinal-occupied", "procedure", ["Every ordinal present in a future listing is occupied", "A collision is also occupied", "must not resume, repair, overwrite, or remove a failed ordinal"]);
-			addTerms("operations", "fresh-free-ordinal-on-retry", "procedure", ["That fresh attempt resolves every identity again, takes one fresh listing, and selects the lowest ordinal that is then free"]);
-			addTerms("operations", "hash-and-publication", "procedure", ["Compute SHA-256 over the bytes read from the opened destination identity", "Require an exact byte match and a hash match with the captured source snapshot", "Do not publish or report a destination as successful before every verification step passes"]);
-			addTerms("operations", "success-report", "procedure", ["the absolute destination path", "the selected ordinal", "the one shared lowercase SHA-256 hash", "A missing result leaves the archive action incomplete"]);
-			addTerms("operations", "source-survives", "procedure", ["Never write, truncate, rename, unlink, or remove the source", "The archive operation never deletes the working log after success"]);
-			addAssertion("operations", "no-branch-derived-destination", (base) => !/\bbranch(?:\s+label)?\b/i.test(base.procedure), (base) => appendTerm(base, "procedure", "Derive the destination from the branch label."), (base) => base.procedure.match(/.{0,60}\bbranch(?:\s+label)?\b.{0,100}/i)?.[0]);
-			addAbsent("operations", "no-lifecycle-policy-duplication", "procedure", ["| working log exists | corpus session resolves | required result |", "Record every waiver in the delivery commit body", "A completed archive may remain valid only after a log-only change"]);
-			addAssertion("publication", "disabled-prepublication-order", (base) => containsAll(archiveBoundary(base.workflow).text, ["After final change acceptance and before final publication approval", "The orchestrator archives and verifies the working log before delivery"]) && ordered(base.workflow, [archiveHeading, "Delivery is the final squashed commit"]), (base) => removeTerm(base, "workflow", "After final change acceptance and before final publication approval"), (base) => archiveBoundary(base.workflow).text);
-			addAssertion("publication", "enabled-prepublication-order", (base) => ordered(base.publishing, ["Update the pull request description to describe the reviewed product content", "Obtain final change acceptance", "Apply the archive decision table", "Complete the required archive or waiver before the ready flip", "The user's merge act is final publication approval"]), (base) => removeTerm(base, "publishing", "Apply the archive decision table"), (base) => sectionBetween(base.publishing, "## Ready-for-review flip", "## After the merge"));
-			addAssertion("publication", "ready-flip-order", (base) => ordered(base.publishing, ["Update the pull request description to describe the reviewed product content", "Obtain final change acceptance", "Apply the archive decision table", "Complete the required archive or waiver before the ready flip"]), (base) => removeTerm(base, "publishing", "Obtain final change acceptance"), (base) => sectionBetween(base.publishing, "## Ready-for-review flip", "## After the flip"));
-			addTerms("publication", "writable-waiver-destinations", "publishing", ["Record a waiver in the pull request and intended commit body while both remain writable"]);
-			addTerms("publication", "post-change-restart", "publishing", ["A product change returns the pull request to an editable draft state", "Repeat review, final change acceptance, the archive decision, and the ready flip in that order"]);
-			addTerms("publication", "no-first-post-merge-attempt", "publishing", ["Do not make the first archive attempt after merge", "The archive or waiver must already be complete before final publication approval", "Perform cleanup only"]);
-
 			const releaseDirectDocs = (source) => {
 				const match = source.match(/# Keep the five direct doctrine documents in one class\.\nfor path in \\\n([\s\S]*?)\ndo\n/);
 				return match?.[1]?.match(/docs\/[a-z0-9-]+\.md/g) ?? [];
 			};
 			const expectedDirectDocs = ["docs/track-workflow.md", "docs/review-rules.md", "docs/design-principles.md", "docs/pr-publishing.md", "docs/model-routing.md"];
-			addAssertion("release", "five-direct-documents", (base) => JSON.stringify(releaseDirectDocs(base.releasing)) === JSON.stringify(expectedDirectDocs), (base) => cloneWith(base, "releasing", base.releasing.replace("  docs/model-routing.md\n", "  docs/model-routing.md \\\n  docs/delivery-archive.md\n")), (base) => releaseDirectDocs(base.releasing));
-			addTerms("release", "transitive-procedure-class", "releasing", ["The workflow loads this required procedure transitively", "grep -Fxq 'docs/delivery-archive.md' \"$PACKED_DOCS\"", "`docs/delivery-archive.md` is a separate, transitively required packed document", "the doctrine does not cite it directly"]);
-			addTerms("release", "verification-classification", "releasing", ["The package-content checks prove one exported path and one packed copy", "The packaging guards separately prove packed presence"]);
-			addTerms("release", "agents-document-classification", "agents", ["Direct doctrine docs:", "`docs/delivery-archive.md` is a transitively required, load-on-demand procedure", "the doctrine does not cite it directly"]);
-			addAssertion("release", "single-path-export", (base) => (base.pathsSource.match(/^export const DELIVERY_ARCHIVE_DOC = join\(DOCS_DIR, "delivery-archive\.md"\);$/gm) ?? []).length === 1, (base) => cloneWith(base, "pathsSource", `${base.pathsSource}\nexport const DELIVERY_ARCHIVE_DOC = join(DOCS_DIR, "delivery-archive.md");\n`), (base) => base.pathsSource.match(/.*DELIVERY_ARCHIVE_DOC.*/g));
-			addAssertion("release", "not-direct-doctrine", (base) => !base.modeSource.includes("DELIVERY_ARCHIVE_DOC"), (base) => cloneWith(base, "modeSource", `${base.modeSource}\nDELIVERY_ARCHIVE_DOC\n`), (base) => base.modeSource.match(/.*DELIVERY_ARCHIVE_DOC.*/g));
-
-			addAssertion("budget", "archive-heading-unique", (base) => archiveBoundary(base.workflow).archiveCount === 1, (base) => cloneWith(base, "workflow", base.workflow.replace(`${archiveHeading}\n`, "")), (base) => archiveBoundary(base.workflow));
-			addAssertion("budget", "handoff-heading-unique", (base) => archiveBoundary(base.workflow).handoffCount === 1, (base) => cloneWith(base, "workflow", `${base.workflow}\n${handoffHeading}\n`), (base) => archiveBoundary(base.workflow));
-			addAssertion("budget", "heading-order-and-boundary", (base) => {
-				const boundary = archiveBoundary(base.workflow);
-				return boundary.archiveAt >= 0 && boundary.handoffAt > boundary.archiveAt && boundary.exactSeparator && boundary.text !== "";
-			}, (base) => {
-				const sentinel = "### track-08-heading-sentinel";
-				const reversed = base.workflow.replace(archiveHeading, sentinel).replace(handoffHeading, archiveHeading).replace(sentinel, handoffHeading);
-				return cloneWith(base, "workflow", reversed);
-			}, (base) => archiveBoundary(base.workflow));
-			addAssertion("budget", "exact-boundary-names", (base) => archiveBoundary(base.workflow).archiveCount === 1 && archiveBoundary(base.workflow).handoffCount === 1, (base) => cloneWith(base, "workflow", base.workflow.replace(handoffHeading, "### The renamed handoff summary")), (base) => archiveBoundary(base.workflow));
-			addTerms("budget", "handoff-paragraph", "workflow", [`${handoffHeading}\n\nBefore a session handoff, append a state summary.`]);
-			addAssertion("budget", "retained-subsection-identity", (base) => createHash("sha256").update(archiveBoundary(base.workflow).text).digest("hex") === "44de0495f0f39c0775e55043e469255c4ea762194140c987c05a1fa2169f9050", (base) => cloneWith(base, "workflow", base.workflow.replace("The delivery archive applies only to delivery.", "The delivery archive applies only to final delivery.")), (base) => createHash("sha256").update(archiveBoundary(base.workflow).text).digest("hex"));
-			addAssertion("budget", "line-cap-independent", (base) => {
-				const value = measureArchive(base.workflow);
-				return value.finalNewline && value.lines <= 64;
-			}, (base) => cloneWith(base, "workflow", base.workflow.replace(`${archiveHeading}\n`, `${archiveHeading}\n\n\n\n\n\n`)), (base) => measureArchive(base.workflow));
-			addAssertion("budget", "byte-cap-independent", (base) => {
-				const value = measureArchive(base.workflow);
-				return value.finalNewline && value.bytes <= 3812;
-			}, (base) => cloneWith(base, "workflow", base.workflow.replace("The delivery archive applies only to delivery.", `The delivery archive applies only to delivery.${"x".repeat(342)}`)), (base) => measureArchive(base.workflow));
-
-			const EXPECTED_ARCHIVE_ASSERTIONS = [
-				"lifecycle:decision-table", "lifecycle:waiver-destinations", "lifecycle:delivery-timing", "lifecycle:preservation-offer", "lifecycle:abandonment-no-waiver", "lifecycle:cleanup-disposition", "lifecycle:working-log-preserved", "lifecycle:product-change-restart", "lifecycle:log-only-exception", "lifecycle:fresh-decision-triggers", "lifecycle:authority-delegation", "lifecycle:procedure-policy-citation", "lifecycle:agents-authority-summary",
-				"dispatch:project-trust", "dispatch:trusted-boundary", "dispatch:fresh-thread", "dispatch:omitted-fields", "dispatch:omitted-state-sources", "dispatch:nonconforming-classification", "dispatch:fixed-procedure-path", "dispatch:sole-variable-input", "dispatch:canonical-session-token", "dispatch:no-raw-log-path", "dispatch:complete-procedure-read", "dispatch:worker-cwd-outcome", "dispatch:git-mechanics-only-in-procedure", "dispatch:report-and-retry-shape",
-				"operations:attempt-input-boundary", "operations:canonical-input-refusal", "operations:git-root-derivation", "operations:path-and-platform-refusals", "operations:platform-identity-primitives", "operations:boundary-symlink-refusals", "operations:source-capture-identity", "operations:corpus-root-refusals", "operations:corpus-project-selection", "operations:session-boundary-refusals", "operations:project-before-session-order", "operations:metadata-refusals", "operations:metadata-before-creation", "operations:one-listing-ordinal", "operations:destination-parent-identity", "operations:destination-collision-refusals", "operations:destination-path", "operations:copy-write-verification", "operations:parent-relative-device-inode", "operations:identity-bound-verification", "operations:no-post-failure-removal", "operations:created-path-reporting", "operations:failure-report", "operations:every-present-ordinal-occupied", "operations:fresh-free-ordinal-on-retry", "operations:hash-and-publication", "operations:success-report", "operations:source-survives", "operations:no-branch-derived-destination", "operations:no-lifecycle-policy-duplication",
-				"publication:disabled-prepublication-order", "publication:enabled-prepublication-order", "publication:ready-flip-order", "publication:writable-waiver-destinations", "publication:post-change-restart", "publication:no-first-post-merge-attempt",
-				"release:five-direct-documents", "release:transitive-procedure-class", "release:verification-classification", "release:agents-document-classification", "release:single-path-export", "release:not-direct-doctrine",
-				"budget:archive-heading-unique", "budget:handoff-heading-unique", "budget:heading-order-and-boundary", "budget:exact-boundary-names", "budget:handoff-paragraph", "budget:retained-subsection-identity", "budget:line-cap-independent", "budget:byte-cap-independent",
-			];
-			const actualAssertionIds = assertions.map(({ group, id }) => `${group}:${id}`);
-			const assertionParts = [];
-			for (const assertion of assertions) {
-				const assertionId = `${assertion.group}:${assertion.id}`;
-				let basePassed = false;
-				let baseObserved;
-				try {
-					basePassed = assertion.test(sources) === true;
-					baseObserved = assertion.observed?.(sources);
-				} catch (error) {
-					baseObserved = error?.stack ?? String(error);
+			const archivePolicyFindings = (workflowText, publishingText) => {
+				const approvedNegations = [
+					"Slate does not create, verify, or require that copy.",
+					"The copy is not a delivery gate or a condition for abandonment.",
+				];
+				let text = normalizeText(`${workflowText}\n${publishingText}`);
+				for (const sentence of approvedNegations) text = text.replaceAll(sentence, "");
+				const patterns = [
+					/\bdelivery archive\b/i,
+					/\barchive waiver\b/i,
+					/\bcorpus session\b/i,
+					/\b(?:sha-?256|hash verification)\b/i,
+					/\b(?:must|required|requires?|gate(?:d)?)\b[^.]{0,160}\bcopy\b/i,
+					/\bcopy\b[^.]{0,160}\b(?:must|required|requires?|verify|verification|waiver|gate(?:d)?)\b/i,
+					/\b(?:before delivery|before the ready flip|before final publication approval)\b[^.]{0,200}\b(?:copy|verify|verification|waiver)\b/i,
+					/\b(?:copy|verify|verification|waiver)\b[^.]{0,200}\b(?:before delivery|before the ready flip|before final publication approval)\b/i,
+				];
+				return patterns.flatMap((pattern) => text.match(pattern) ?? []);
+			};
+			const EXPECTED_ARCHIVE_RETIREMENT_ASSERTIONS = ["removed-runtime-symbols", "removed-document", "no-equivalent-rule", "runtime-state-inert", "headless-warning-inert"];
+			const oldSymbols = ["DoctrineCorpus", "buildArchiveFragment", "DELIVERY_ARCHIVE_DOC"];
+			const symbolFindings = oldSymbols.filter((symbol) => modeSource.includes(symbol) || pathsSource.includes(symbol));
+			const equivalentFindings = archivePolicyFindings(workflow, publishing);
+			const equivalentMutation = `${workflow}\nBefore delivery, Slate must copy the working log into a corpus session, verify its SHA-256 hash, and record a waiver.\n`;
+			const corpusProject = { root: REPO, key: "project", label: "project", digest: "0123456789ab", directory: REPO, matchingDirectories: [] };
+			const visibleRuntimeParts = [];
+			const visibleRuntimeBaselines = [];
+			const headlessRuntimeParts = [];
+			const headlessRuntimeBaselines = [];
+			for (const hasUI of [true, false]) {
+				const runtimeParts = hasUI ? visibleRuntimeParts : headlessRuntimeParts;
+				const runtimeBaselines = hasUI ? visibleRuntimeBaselines : headlessRuntimeBaselines;
+				for (const draftPRs of [false, true]) {
+					for (const trusted of [false, true]) {
+						const config = { workflow: { draftPRs } };
+						const baseline = doctrineHarness({ units: [] }, undefined, trusted, config, {}, hasUI);
+						const baselineText = await baseline.runLifecycle();
+						runtimeBaselines.push(baseline.warnings.length === 0 && baseline.consoleWarnings.length === 0);
+						for (const storeState of [
+							{ corpusProject },
+							{ slateSessionName: "calm-otter-7f3a" },
+							{ corpusProject, slateSessionName: "calm-otter-7f3a" },
+							{ corpusProject, slateSessionName: "renamed-session" },
+						]) {
+							const fixture = doctrineHarness({ units: [] }, undefined, trusted, config, storeState, hasUI);
+							const text = await fixture.runLifecycle();
+							runtimeParts.push(text === baselineText && fixture.warnings.length === 0 && fixture.consoleWarnings.length === 0 && !/archive the research log|archive waiver|Corpus session:/i.test(text));
+						}
+					}
 				}
-				assertionParts.push([`${assertionId} holds`, basePassed, baseObserved]);
-				let mutationPassed = false;
-				let mutationObserved;
-				try {
-					const mutated = assertion.mutate(sources);
-					const applied = Object.keys(sources).some((key) => mutated[key] !== sources[key]);
-					const rejected = assertion.test(mutated) !== true;
-					const lineFixture = assertionId === "budget:line-cap-independent" ? measureArchive(mutated.workflow) : undefined;
-					const byteFixture = assertionId === "budget:byte-cap-independent" ? measureArchive(mutated.workflow) : undefined;
-					const independent = lineFixture ? lineFixture.lines === 65 && lineFixture.bytes < 3812 : byteFixture ? byteFixture.lines === 60 && byteFixture.bytes === 3813 : true;
-					mutationPassed = applied && rejected && independent;
-					mutationObserved = { applied, rejected, lineFixture, byteFixture };
-				} catch (error) {
-					mutationObserved = error?.stack ?? String(error);
-				}
-				assertionParts.push([`${assertionId} defeats its mutation`, mutationPassed, mutationObserved]);
 			}
-			const expectedGroups = ["lifecycle", "dispatch", "operations", "publication", "release", "budget"];
-			const actualGroups = [...new Set(assertions.map(({ group }) => group))];
-			assertionParts.unshift(
-				["the six archive assertion groups are separate and ordered", JSON.stringify(actualGroups) === JSON.stringify(expectedGroups), { expectedGroups, actualGroups }],
-				["the assertion-level roster has every required conjunct exactly once", JSON.stringify(actualAssertionIds) === JSON.stringify(EXPECTED_ARCHIVE_ASSERTIONS), { expected: EXPECTED_ARCHIVE_ASSERTIONS, actual: actualAssertionIds }],
-			);
-			checkAll("contract-delivery-archive", "the split archive contract preserves lifecycle, dispatch, operations, publication, release, and independent size-budget guarantees with a defeating mutation for every rostered assertion", assertionParts);
+			const fabricatedRuntime = `${await doctrineHarness({ units: [] }, undefined, true, {}).render()}\nCorpus session: calm-otter-7f3a. At delivery, archive the research log.`;
+			const archiveAssertions = [
+				{
+					id: "removed-runtime-symbols",
+					holds: symbolFindings.length === 0,
+					observed: symbolFindings,
+					mutationRejected: oldSymbols.some((symbol) => `${modeSource}\ninterface DoctrineCorpus {}`.includes(symbol)),
+				},
+				{
+					id: "removed-document",
+					holds: !existsSync(join(REPO, "docs", "delivery-archive.md")),
+					observed: existsSync(join(REPO, "docs", "delivery-archive.md")),
+					mutationRejected: ({ deliveryDocExists: true }).deliveryDocExists !== false,
+				},
+				{
+					id: "no-equivalent-rule",
+					holds: equivalentFindings.length === 0,
+					observed: equivalentFindings,
+					mutationRejected: archivePolicyFindings(equivalentMutation, publishing).length > 0,
+				},
+				{
+					id: "runtime-state-inert",
+					holds: visibleRuntimeParts.length === 16 && visibleRuntimeParts.every(Boolean) && visibleRuntimeBaselines.length === 4 && visibleRuntimeBaselines.every(Boolean),
+					observed: { visibleRuntimeParts, visibleRuntimeBaselines },
+					mutationRejected: /archive the research log|archive waiver|Corpus session:/i.test(fabricatedRuntime),
+				},
+				{
+					id: "headless-warning-inert",
+					holds: headlessRuntimeParts.length === 16 && headlessRuntimeParts.every(Boolean) && headlessRuntimeBaselines.length === 4 && headlessRuntimeBaselines.every(Boolean),
+					observed: { headlessRuntimeParts, headlessRuntimeBaselines },
+					mutationRejected: ({ consoleWarnings: ["At delivery, archive the research log."] }).consoleWarnings.length !== 0,
+				},
+			];
+			const archiveParts = [
+				["the independent assertion roster is exact", JSON.stringify(archiveAssertions.map(({ id }) => id)) === JSON.stringify(EXPECTED_ARCHIVE_RETIREMENT_ASSERTIONS), { expected: EXPECTED_ARCHIVE_RETIREMENT_ASSERTIONS, actual: archiveAssertions.map(({ id }) => id) }],
+			];
+			for (const assertion of archiveAssertions) {
+				archiveParts.push([`${assertion.id} holds`, assertion.holds, assertion.observed]);
+				archiveParts.push([`${assertion.id} defeats its mutation`, assertion.mutationRejected, assertion.id]);
+			}
+			checkAll("contract-archive-retirement", "the independent retirement roster rejects old runtime symbols, the removed document, archive-equivalent policy, and visible or headless corpus-state behavior", archiveParts);
+
+			const handoffTerms = ["### The handoff summary", "Before a session handoff, append a state summary.", "A context-budget handoff, user-requested handoff, or session end with unfinished work triggers this summary."];
+			const retentionTerms = ["Never delete the working log during a change.", "Before removing an abandoned worktree, explain that removal destroys its root-owned working log.", "Obtain the user's informed confirmation.", "Slate does not create, verify, or require that copy."];
+			const publishingOrder = ["Update the pull request description to describe the reviewed product content.", "Obtain final change acceptance for that content.", "Last, re-read the whole PR description end-to-end to confirm the as-flipped text tells one consistent story."];
+			const postChangePublishingOrder = ["A product change returns the pull request to an editable draft state.", "Repeat review, final change acceptance, and the ready flip in that order."];
+			const EXPECTED_RETAINED_SAFETY_ASSERTIONS = ["handoff-summary", "working-log-retention", "five-direct-documents", "publishing-acceptance-order", "post-change-acceptance-order"];
+			const retainedAssertions = [
+				{ id: "handoff-summary", test: (source) => containsAll(source.workflow, handoffTerms), mutate: (source) => ({ ...source, workflow: replaceFlexible(source.workflow, handoffTerms[1]) }) },
+				{ id: "working-log-retention", test: (source) => containsAll(source.workflow, retentionTerms), mutate: (source) => ({ ...source, workflow: replaceFlexible(source.workflow, retentionTerms[0]) }) },
+				{ id: "five-direct-documents", test: (source) => JSON.stringify(releaseDirectDocs(source.releasing)) === JSON.stringify(expectedDirectDocs), mutate: (source) => ({ ...source, releasing: source.releasing.replace("  docs/model-routing.md\n", "") }) },
+				{ id: "publishing-acceptance-order", test: (source) => containsAll(source.publishing, ["Flipping the PR to ready-for-review is the agent's last act", "The flip is gated by this checklist, executed in order:"]) && ordered(source.publishing, publishingOrder), mutate: (source) => ({ ...source, publishing: replaceFlexible(source.publishing, publishingOrder[1]) }) },
+				{ id: "post-change-acceptance-order", test: (source) => containsAll(source.publishing, postChangePublishingOrder) && ordered(source.publishing, postChangePublishingOrder), mutate: (source) => ({ ...source, publishing: replaceFlexible(source.publishing, postChangePublishingOrder[1]) }) },
+			];
+			const retainedSources = { workflow, publishing, releasing };
+			const retainedParts = [
+				["the independent assertion roster is exact", JSON.stringify(retainedAssertions.map(({ id }) => id)) === JSON.stringify(EXPECTED_RETAINED_SAFETY_ASSERTIONS), { expected: EXPECTED_RETAINED_SAFETY_ASSERTIONS, actual: retainedAssertions.map(({ id }) => id) }],
+			];
+			for (const assertion of retainedAssertions) {
+				retainedParts.push([`${assertion.id} holds`, assertion.test(retainedSources), assertion.id]);
+				const mutated = assertion.mutate(retainedSources);
+				retainedParts.push([`${assertion.id} defeats its mutation`, JSON.stringify(mutated) !== JSON.stringify(retainedSources) && assertion.test(mutated) === false, assertion.id]);
+			}
+			checkAll("contract-retained-safety", "handoff, root-log retention, release documents, and both acceptance-to-ready sequences each defeat deletion", retainedParts);
+
 		});
 
 		check("worker-load", worker !== undefined, "extension/worker.ts loads for direct preamble verification", workerLoad.error?.stack ?? workerLoad.error);
@@ -7706,9 +7413,7 @@ production behaviour.`);
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace",
-		"doctrine-corpus-off", "doctrine-corpus-on", "doctrine-corpus-untrusted", "doctrine-corpus-reject-rename", "doctrine-corpus-reject-invisible",
-		"doctrine-corpus-no-project-text", "doctrine-corpus-fresh", "doctrine-corpus-report", "doctrine-corpus-headless", "doctrine-corpus-notify-guard", "doctrine-corpus-vocabulary", "doctrine-corpus-callsite",
-		"doctrine-budget", "doctrine-budget-follow-up",
+		"session-name-vocabulary", "doctrine-budget", "doctrine-budget-follow-up",
 		"writing-config-default", "writing-config-reminder-valid", "writing-config-reminder-inert", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
 		"writing-reminder-load", "writing-reminder-roster", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-interval", "writing-reminder-cadence", "writing-reminder-gates", "writing-reminder-state-machine",
 		"writing-reminder-mode-send", "writing-reminder-rearm", "writing-reminder-mode-gates", "writing-reminder-mode-force", "writing-reminder-send-retry", "writing-reminder-cleared-retry", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",

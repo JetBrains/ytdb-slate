@@ -90,6 +90,14 @@ const SDK = [
 // Lifecycle scripts npm runs on a consumer's machine at install time.
 const INSTALL_SCRIPTS = ["prepare", "postinstall", "install", "preinstall"];
 
+const EXPECTED_MANIFEST_GUARDS = [
+	"files-exact", "files-docs", "keywords-pi-package",
+	"peer-pi-ai", "nodep-pi-ai", "peer-pi-agent", "nodep-pi-agent",
+	"peer-pi-tui", "nodep-pi-tui", "peer-typebox", "nodep-typebox",
+	"no-install-scripts",
+];
+const EXPECTED_PACK_GUARDS = ["pack-allowed", "pack-no-junk", "pack-doctrine-docs", "pack-no-tarball"];
+
 // What the package is allowed to ship. `extension` and `docs` in `files` expand
 // recursively, so these say what may live UNDER them, not just at the top.
 const ALLOWED = [
@@ -288,6 +296,14 @@ const packFiles = packOutput(REPO);
 const packCtx = { files: packFiles, docs: derived.docs, vars: derived.vars, tarballs: findTarballs(REPO) };
 
 // --------------------------------------------------------------------- runs ---
+const expectedGuardIds = [...EXPECTED_MANIFEST_GUARDS, ...EXPECTED_PACK_GUARDS];
+const actualGuardIds = [...MANIFEST.keys(), ...PACK.keys()];
+const actualMutationIds = [...MUTATE.keys(), ...MUTATE_PACK.keys()];
+const sameIds = (actual, expected) =>
+	actual.length === expected.length && actual.every((id, index) => id === expected[index]);
+check("guard-roster", sameIds(actualGuardIds, expectedGuardIds), `independent expected guard ids match executable guards — expected: ${list(expectedGuardIds)}; actual: ${list(actualGuardIds)}`);
+check("mutation-roster", sameIds(actualMutationIds, expectedGuardIds), `independent expected guard ids match mutation cases — expected: ${list(expectedGuardIds)}; actual: ${list(actualMutationIds)}`);
+
 if (!SELF_TEST) {
 	for (const [id, assertion] of MANIFEST) {
 		const r = assertion(manifest);

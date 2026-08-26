@@ -59,7 +59,7 @@ The workflow follows these steps:
 2. **Design** — MEDIUM and LARGE need a high-level design. Design uncertainty adds adversarial review. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
 3. **Implement tracks** — each track declares its files and focus areas. Track reviews are non-blocking. Final change acceptance remains blocking.
 4. **Measure** — the size command shipped with Slate checks the committed range at the first track boundary.
-5. **Review and deliver** — grade and focus select fresh machine reviewers. Final change acceptance comes before the delivery archive decision. Final publication approval and any squash merge follow the archive or waiver.
+5. **Review and deliver** — grade and focus select fresh machine reviewers. Final change acceptance precedes final publication approval and any squash merge.
 
 SMALL has a mechanical fast path. Any focus area, project test artifact, or
 verification machinery voids it. Umbrella draft-PR publishing activates only
@@ -197,10 +197,9 @@ A **doctrine** is a block of numbered rules. In orchestrator mode, Slate appends
 
 It cites direct doctrine documents by **absolute path** inside the installed package. The orchestrator reads them on demand. Those embedded paths make the block's character count depend on your install location. [`docs/context-budget.md`](docs/context-budget.md) has measured sizes and arithmetic for your installation.
 
-One workflow document links to a transitively required procedure. The doctrine does not cite that procedure directly. Package-content verification requires one exported path and one packed copy for every shipped Markdown document. Packaging guards separately require every referenced document in the packed file set.
+Package-content verification requires one exported path and one packed copy for every shipped Markdown document. Packaging guards separately require every referenced document in the packed file set.
 
 - `docs/track-workflow.md` — the size-grade and focus-area lifecycle for research, design, implementation, review, and delivery
-- `docs/delivery-archive.md` — the sole operational procedure for delivery archives. `track-workflow.md` owns lifecycle policy and loads this procedure on demand. The doctrine does not cite it directly.
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
 - `docs/review-rules.md` — reviewer composition, the composite test-quality role, evidence standards, findings, and fix gates
 - `docs/design-principles.md` — Slate's own design rationale

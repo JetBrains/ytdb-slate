@@ -40,9 +40,8 @@ implementation:
   Motivation. The confirmed grade, focus proposal, and intended fix supply
   Planned changes. If a working log exists, its relevant decisions and Open
   Questions also fold into the description.
-- The working log is never deleted. Its Decision Log keeps appending during
-  implementation. track-workflow.md § The delivery archive owns lifecycle policy.
-  delivery-archive.md owns archive operations.
+- The working log is never deleted during the change. Its Decision Log keeps
+  appending during implementation.
 
 ## Description rules
 
@@ -141,9 +140,6 @@ executed in order:
   here because no design approval presented it before implementation.
 - Update the pull request description to describe the reviewed product content.
   Obtain final change acceptance for that content.
-- Apply the archive decision table in track-workflow.md. Complete the required
-  archive or waiver before the ready flip. Record a waiver in the pull request
-  and intended commit body while both remain writable.
 - Every remaining suggestion is reported to the user, and the
   Suggestions index is present in the description.
 - Strip the whole Tracks section from the description, whatever its
@@ -175,8 +171,7 @@ executed in order:
 The user may wait for green continuous integration or peer-review completion.
 The user may ask the agent to fix test failures or review observations. A product
 change returns the pull request to an editable draft state. Repeat review, final
-change acceptance, the archive decision, and the ready flip in that order. Only a
-qualifying log-only change may retain an earlier archive under track-workflow.md.
+change acceptance, and the ready flip in that order.
 
 The agent lands fixes as normal commits and keeps the description in sync. The
 agent presents each landed commit to the user. Repeat the byte measurement after
@@ -189,9 +184,6 @@ act is final publication approval. It includes acceptance of any recorded size
 exception.
 
 ## After the merge
-
-Do not make the first archive attempt after merge. The archive or waiver must
-already be complete before final publication approval.
 
 Perform cleanup only. This includes worktree cleanup and any cleanup a layered
 peer-review process requires. Examples include closing its review pull requests

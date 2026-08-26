@@ -18,7 +18,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { CorpusProject } from "./corpus.ts";
 import type { SlateHandoffHooks } from "./handoff.ts";
 import { capCorpusSessionOutput, listCorpusSessions } from "./corpus-list.ts";
 import { PROFILES_AS_OF } from "./model-profiles.ts";
@@ -35,7 +34,7 @@ import {
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { isMintedSlateSessionName, isSlateSessionName } from "./session-names.ts";
+import { isSlateSessionName } from "./session-names.ts";
 import { THINKING_LEVELS } from "./route.ts";
 import {
 	displayThreadType,
@@ -449,40 +448,12 @@ ${renderWritingScopeExclusion("   ")}
    — read it only for an unusual prose decision. Skip it if already in context.`;
 }
 
-type DoctrineCorpusDefectCode = "no-project" | "no-session-name" | "unminted-name";
-
-interface DoctrineCorpus {
-	project: CorpusProject | undefined;
-	sessionName: string | undefined;
-	report?: (code: DoctrineCorpusDefectCode) => void;
-}
-
-function buildArchiveFragment(trusted: boolean, corpus: DoctrineCorpus): string {
-	if (!trusted) return "";
-	if (corpus.project === undefined) {
-		corpus.report?.("no-project");
-		return "";
-	}
-	if (corpus.sessionName === undefined) {
-		corpus.report?.("no-session-name");
-		return "";
-	}
-	if (!isMintedSlateSessionName(corpus.sessionName)) {
-		corpus.report?.("unminted-name");
-		return "";
-	}
-	return `
-   Corpus session: ${corpus.sessionName}. At delivery, archive the research log
-   into that corpus session directory per the workflow doc.`;
-}
-
 function buildDoctrine(
 	cwd: string,
 	config: SlateConfig,
 	trusted: boolean,
 	extensions: WorkerExtensionSet,
 	router: ModelRouterResolution,
-	corpus: DoctrineCorpus,
 ): string {
 	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
 	// one of the gates; otherwise durable records live in the research log.
@@ -537,7 +508,7 @@ threads execute. Rules:
    the first file-modifying dispatch, confirm the user confirmed the predicted grade
    and focus set, and every required pre-implementation gate ran. Validate each
    required design before adversarial design review, then obtain final user approval.
-   ${rule8Tail}${buildArchiveFragment(trusted, corpus)}
+   ${rule8Tail}
 9. Review every track with the set required by its grade and engaged focus areas.
    Verification or gate machinery receives the general implementation reviewer even
    at SMALL. Before dispatching review threads, read
@@ -623,26 +594,6 @@ export function registerSlateMode(
 	const writingCounters: WritingCounters = { measuredTurns: 0, findingTurns: 0 };
 	let writingStatus: WritingStatus = "fresh";
 	let writingCheckerPromise: Promise<WritingChecker> | undefined;
-	const reportedCorpusDefects = new Set<DoctrineCorpusDefectCode>();
-
-	const reportCorpusDefect = (code: DoctrineCorpusDefectCode) => {
-		if (reportedCorpusDefects.has(code)) return;
-		reportedCorpusDefects.add(code);
-		const reason = code === "no-project"
-			? "the corpus project is unavailable"
-			: code === "no-session-name"
-				? "the session name is absent"
-				: "the session name is not Slate-minted";
-		const name = sanitizeForNotify(store.slateSessionName ?? "(missing)", 48);
-		const message = `slate: doctrine cannot name the corpus session (${reason}, name: ${name}). At delivery, record the archive waiver per the workflow doc.`;
-		try {
-			if (uiCtx?.hasUI) uiCtx.ui.notify(message, "warning");
-			else console.warn(message);
-		} catch {
-			/* BG740: a throwing sink costs the report, never the doctrine */
-		}
-	};
-
 	const writingIsVisible = (ctx: ExtensionContext): boolean =>
 		ctx.hasUI && store.orchestratorMode && getConfig().writing?.check === true && ctx.isProjectTrusted();
 
@@ -787,11 +738,7 @@ export function registerSlateMode(
 		// addendum goes LAST so the pause directive is the final word in the
 		// prompt, undiluted by the role guidelines.
 		const parts = [
-			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRouter(), {
-				project: store.corpusProject,
-				sessionName: store.slateSessionName,
-				report: reportCorpusDefect,
-			}),
+			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRouter()),
 			...loadDoctrineExtra(ctx.cwd, config, trusted).map((d) => `\n\n${d}`),
 			...docs.map((d) => `\n\n${d}`),
 		];
@@ -906,7 +853,6 @@ export function registerSlateMode(
 		writingCounters.findingTurns = 0;
 		writingCheckerPromise = undefined;
 		writingStatus = "fresh";
-		reportedCorpusDefects.clear();
 		Object.assign(store.writingReminder, resetWritingReminderSession(store.writingReminder));
 		// The reset consumes any force marker from an explicit adoption cycle, so a
 		// later generic session_start clears stale force. Re-apply the persisted mode

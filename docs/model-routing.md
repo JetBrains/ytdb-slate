@@ -506,11 +506,9 @@ model's ladder is unreadable.
   21 added doctrine lines for six configured models, 2,585 / 24 for
   all nine. In the current snapshot a model row costs 146–183
   characters, plus a one-off legend clause for each marker it
-  introduces. With corpus off, the router grows Slate's always-loaded block
-  from 2,912 portable characters and 48 lines to 4,942 portable characters and
-  69 lines for the fixed fabricated six-model fixture. With the standard corpus
-  name, those figures become 3,046 portable characters and 50 lines, then 5,076
-  portable characters and 71 lines. That roster currently matches this
+  introduces. The router grows Slate's always-loaded block from 2,912 portable
+  characters and 48 lines to 4,942 portable characters and 69 lines for the
+  fixed fabricated six-model fixture. That roster currently matches this
   repository's list but does not read project config. Those are PORTABLE
   characters — the doctrine with each occurrence of the installed `docs/`
   directory removed, filenames kept — because the doctrine embeds absolute doc

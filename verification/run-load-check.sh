@@ -97,6 +97,8 @@ print_help() {
 	awk 'NR == 1 { next } $0 == "# END LOAD-CHECK HELP" { exit } { print }' "$0"
 }
 
+# Declared independently from the verdict blocks. The final roster audit compares
+# this list with every identity that check() reported.
 ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3 T4 T5 T6"
 
 REPO="."
@@ -388,11 +390,13 @@ npmdir_state() {
 
 # ---------------------------------------------------------------- bookkeeping
 PASS=0; FAIL=0; RAN=0
+REPORTED=""
 # The id column is 32 wide across all three check harnesses in verification/: the
 # longest id in any of them is 30 characters (route-stored-effort-vocabulary, in
 # the resolver checks; 24 in the packaging guards, 2 here), plus two. So their
 # output lines up with each other and the verdict column never shifts (CQ1).
 check() { # $1 id, $2 condition (0 = pass), $3 detail
+	REPORTED="$REPORTED $1"
 	if [ "$2" = 0 ]; then PASS=$((PASS+1)); printf 'CHECK %-32s %-4s — %s\n' "$1" "PASS" "$3"
 	else FAIL=$((FAIL+1)); printf 'CHECK %-32s %-4s — %s\n' "$1" "FAIL" "$3"; fi
 }
@@ -816,6 +820,25 @@ if [ "$RAN" -eq 0 ]; then
 	echo "verification: NO CHECK RAN. --only='$ONLY' matched nothing, so this run proves nothing." >&8
 	FAIL=$((FAIL+1))
 fi
+EXPECTED_REPORTED=""
+for id in $ALL_CHECKS; do
+	if [ -z "$ONLY" ]; then EXPECTED_REPORTED="$EXPECTED_REPORTED $id"
+	else case ",$ONLY," in *",$id,"*) EXPECTED_REPORTED="$EXPECTED_REPORTED $id" ;; esac
+	fi
+done
+ROSTER_RESULT="$(node -e '
+const expected = process.argv[1].trim().split(/\s+/).filter(Boolean);
+const reported = process.argv[2].trim().split(/\s+/).filter(Boolean);
+const missing = expected.filter((id) => !reported.includes(id));
+const duplicated = reported.filter((id, index) => reported.indexOf(id) !== index);
+const unexpected = reported.filter((id) => !expected.includes(id));
+const ok = missing.length === 0 && duplicated.length === 0 && unexpected.length === 0;
+process.stdout.write(`${ok ? "OK" : "BAD"} missing=${missing.join(",") || "none"} duplicated=${duplicated.join(",") || "none"} unexpected=${unexpected.join(",") || "none"}`);
+' "$EXPECTED_REPORTED" "$REPORTED")"
+case "$ROSTER_RESULT" in
+	"OK "*) PASS=$((PASS+1)); printf 'CHECK %-32s %-4s — %s\n' "roster" "PASS" "${ROSTER_RESULT#OK }" ;;
+	*) FAIL=$((FAIL+1)); printf 'CHECK %-32s %-4s — %s\n' "roster" "FAIL" "${ROSTER_RESULT#BAD }" ;;
+esac
 echo "== summary: $PASS pass, $FAIL fail =="
 
 # Only when something failed, and only when a pi run actually produced streams:

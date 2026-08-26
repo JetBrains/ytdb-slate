@@ -44,8 +44,9 @@ and triage. When no adversarial review is required, validation and final
 approval form one gate.
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
-[pr-publishing.md](pr-publishing.md). When disabled, the retained working log
-is the durable workflow record.
+[pr-publishing.md](pr-publishing.md). When disabled, the working log is the
+durable workflow record while its worktree remains available. Removing that
+worktree destroys its root-owned working log.
 
 ## Size script and focus prediction
 
@@ -243,67 +244,6 @@ Use a safe write method. Create the file without following a symlink. Append
 through a temporary file and atomic rename when replacement is needed. Keep the
 working log untracked. Never overwrite it from a stale in-memory copy.
 
-### The delivery archive
-
-The delivery archive applies only to delivery. Abandonment is not delivery. After final
-change acceptance and before final publication approval, apply this complete decision
-table.
-
-| working log exists | corpus session resolves | required result |
-| --- | --- | --- |
-| no | either | Nothing needs archival. Delivery proceeds. |
-| yes | yes | The orchestrator archives and verifies the working log before delivery. |
-| yes | no | The orchestrator reports that no corpus session resolved and records an archive waiver. |
-
-The orchestrator never guesses a corpus session. A waiver applies only to delivery.
-Record every waiver in the delivery commit body and, when `workflow.draftPRs` is
-enabled, in the pull request.
-
-Before each archive dispatch, require independent Slate project trust. The
-package-resolved Slate documents, the orchestrator-authored task, and all existing
-worker prompt sources are trusted. This workflow makes no integrity claim against a
-compromised trusted input, source, handler, tool, or transformation.
-
-Open a brand-new archive thread for one attempt. The dispatch must omit `thread`,
-`context`, `contextEpisodeIds`, `freshContext`, continuation identity and state,
-injected episodes and summaries, reused transcripts, and inherited action text. A
-dispatch containing any excluded field or source is nonconforming.
-
-The task supplies the fixed absolute package-resolved path for
-[delivery-archive.md](delivery-archive.md) and one variable value named `corpusSession`.
-That value must pass `isMintedSlateSessionName`: ASCII of at most 48 bytes in the form
-`<shipped-adjective>-<shipped-noun>-<four lowercase hexadecimal digits>`.
-
-The worker reads the entire procedure before any archive action. The procedure derives
-root `research-log.md` from the worker working directory. No raw working-log path enters
-the task.
-
-[delivery-archive.md](delivery-archive.md) is the sole authority for archive operations,
-refusals, partial-destination cleanup, and same-ordinal retry mechanics. The workflow
-retains lifecycle cleanup gates. The worker follows the procedure completely and
-reports a failed step and reason. On success, the worker reports the absolute
-destination, ordinal, and shared SHA-256 hash. Only the orchestrator schedules a retry
-through a fresh dispatch.
-
-No archive path deletes or rewrites the working log. The working log survives success
-and failure. Worktree removal later disposes of that copy.
-
-For an abandoned change, offer the working log to the user before removing the worktree.
-When the user requests preservation, use the same procedure. No waiver applies. A
-blocked or failed attempt leaves the worktree and log in place, and the orchestrator
-reports the blocker. Cleanup requires recorded preservation success or recorded explicit
-user withdrawal, rechecked immediately before worktree removal. Silence, timeout, or
-failure is not withdrawal.
-
-Every product change after final change acceptance restarts all four gates. They run in
-this order: completed review, final change acceptance, the archive decision, and final
-publication approval. A fresh required archive follows renewed acceptance. An earlier
-archive cannot satisfy the renewed decision.
-
-A completed archive may remain valid only after a log-only change. Report that its
-snapshot predates later log text. A log-only change that creates the first working log,
-or a newly resolved corpus session, requires a fresh archive decision.
-
 ### The handoff summary
 
 Before a session handoff, append a state summary. It names the confirmed grade,
@@ -398,14 +338,14 @@ Numbers are never reused.
 
 Delivery is the final squashed commit on the default development branch.
 Abandonment is not delivery. Resolve or hand every open question to the user.
-Follow [user-notes.md](user-notes.md) for final accounting. For delivery, apply
-the complete archive decision table in § Session handoff and the research log.
-The orchestrator records every archive waiver in the delivery commit body. When
-`workflow.draftPRs` is enabled, the orchestrator records it in the pull request
-as well. Never delete the working log. Worktree removal disposes of that copy.
-For an abandoned change, offer the working log to the user before removing the
-worktree. When the user wants the working log kept, archive it with the same
-procedure. No waiver applies because no delivery happens.
+Follow [user-notes.md](user-notes.md) for final accounting. Never delete the
+working log during a change.
+
+Before removing an abandoned worktree, explain that removal destroys its
+root-owned working log. Obtain the user's informed confirmation. The user may
+retain the worktree. The user may instead arrange a manual copy through project
+guidance. Slate does not create, verify, or require that copy. The copy is not a
+delivery gate or a condition for abandonment.
 
 Aim for a delivery body at or below 16,384 UTF-8 bytes. Measure exact bytes from
 the commit object. If larger, remove repetition first. Then record a measured

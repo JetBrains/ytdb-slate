@@ -316,18 +316,15 @@ the load-on-demand discipline the extension itself prescribes:
   that ships with this package (`track-workflow.md` in this directory),
   appended to the system prompt every turn while orchestrator mode is
   on. Sizing it matters to the tiering argument, so it is measured
-  rather than asserted. With every conditional tail rule off,
-  `workflow.draftPRs` off, and corpus off, the block is **2,912 portable
-  characters / 48 lines**. The fixed fabricated six-model fixture grows it to
-  **4,942 portable characters / 69 lines** on that same corpus-off basis.
-  With the standard corpus name, those two fixtures become **3,046 portable
-  characters / 50 lines** and **5,076 portable characters / 71 lines**.
-  The routing rule renders one table row per routable model. (Portable
+  rather than asserted. With every conditional tail rule off and
+  `workflow.draftPRs` off, the block is **2,912 portable characters / 48
+  lines**. The fixed fabricated six-model fixture grows it to **4,942 portable
+  characters / 69 lines**. The routing rule renders one table row per routable
+  model. (Portable
   characters, and the rest of the configurations, are defined and tabulated
   in `context-budget.md`; the raw count also depends on where the package is
   installed, because the doctrine embeds absolute doc paths.) At a rough four
-  characters per token, the corpus-off figures are about 728 and 1,236 tokens.
-  The standard-name corpus-on figures are about 762 and 1,269 tokens. The
+  characters per token, the figures are about 728 and 1,236 tokens. The
   original "a few hundred tokens" holds
   only for the fixed rules, and a configured router buys its table with
   a real slice of every request. It still covers everything routine
