@@ -160,6 +160,7 @@ test("malformed metadata and unsupported policy fail closed", () => {
 		["missing field", (value: Record<string, unknown>) => { delete value.creatorOwnerDigest; }],
 		["unknown field", (value: Record<string, unknown>) => { value.extra = true; }],
 		["unsupported policy", (value: Record<string, unknown>) => { value.policy = "durable-session-v2"; }],
+		["mismatched namespace name", (value: Record<string, unknown>) => { value.name = "brisk-bison-abcd"; }],
 		["invalid identity", (value: Record<string, unknown>) => { value.identity = "bad"; }],
 		["invalid creation time", (value: Record<string, unknown>) => { value.createdAt = "tomorrow"; }],
 		["relative current directory", (value: Record<string, unknown>) => { value.currentDirectory = "project"; }],
