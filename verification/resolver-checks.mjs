@@ -26,6 +26,7 @@
 // =============================================================================
 import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -3689,58 +3690,82 @@ production behaviour.`);
 				["duplicated Fast path counterfactual fails uniqueness", headingCount(duplicatedFastPath, "Fast path") === 2 && headingCount(duplicatedFastPath, "Fast path") !== 1, headingCount(duplicatedFastPath, "Fast path")],
 			]);
 
-			const archive = workflow.match(/^### The delivery archive\n([\s\S]*?)(?=^### |^## )/m)?.[1] ?? "";
-			const archiveText = normalizeText(archive);
-			const inlineArchiveCode = [...archive.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]);
-			const pathAssignmentNames = ["agent_root", "corpus_root_input", "corpus_root", "worktree", "git_common_dir", "candidate"];
-			const pathAssignments = inlineArchiveCode.filter((code) => pathAssignmentNames.some((name) => code.startsWith(`${name}=`)));
-			const expectedPathAssignments = [
-				"worktree='<change worktree root>'",
-				"candidate='<selected path>'",
-				'agent_root="$PI_CODING_AGENT_DIR"',
-				'agent_root="$HOME/.pi/agent"',
-				'corpus_root_input="$agent_root/ytdb-slate/projects"',
-				"corpus_root='<resolved corpus root>'",
-				"worktree='<change worktree root>'",
-				"git_common_dir='<Git common directory>'",
-				"candidate='<selected path>'",
-			];
-			const singleQuotedPathAssignments = pathAssignments.filter((assignment) => assignment.includes("='"));
-			const archiveCommands = inlineArchiveCode.filter((code) => /^(?:env |git |realpath |printf |test )/.test(code));
-			const expectedArchiveCommands = [
-				`git -C "$worktree"`,
-				`test -L "$candidate"`,
-				`realpath "$corpus_root_input"`,
-				`env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "$worktree" rev-parse --path-format=absolute --git-common-dir`,
-				`printf '%s' "$git_common_dir" | sha256sum`,
-				`test -L "$candidate"`,
-			];
-			const pathVariablePattern = /\$(?:corpus_root_input|corpus_root|worktree|git_common_dir|candidate)\b/g;
-			const unquotedPathReferences = archiveCommands.flatMap((command) => [...command.matchAll(pathVariablePattern)].flatMap((match) => {
-				const start = match.index ?? -1;
-				const end = start + match[0].length;
-				return command[start - 1] === `"` && command[end] === `"` ? [] : [`${command} → ${match[0]}`];
-			}));
-			const directPathInterpolations = archiveCommands.filter((command) => /<[^>]*(?:path|root|directory|worktree)[^>]*>/i.test(command));
-			const gitCaptureCommand = `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "$worktree" rev-parse --path-format=absolute --git-common-dir`;
-			const capturedGitAssignment = `git_common_dir='<Git common directory>'`;
-			const hashCapturedCommand = `printf '%s' "$git_common_dir" | sha256sum`;
-			const digestPositions = {
-				captureInstruction: archiveText.indexOf("Run the Git command and capture its output through the worker harness"),
-				git: archiveText.indexOf(gitCaptureCommand),
-				gitRefusal: archiveText.indexOf("Refuse when the Git command fails or prints nothing."),
-				capturedAssignment: archiveText.indexOf(capturedGitAssignment),
-				hash: archiveText.indexOf(hashCapturedCommand),
-				hashRefusal: archiveText.indexOf("Refuse when hashing fails or prints nothing."),
-				digestWidth: archiveText.indexOf("The digest is the first 12 hexadecimal characters of the hash."),
+			const procedure = readFileSync(join(REPO, "docs", "delivery-archive.md"), "utf8");
+			const releasing = readFileSync(join(REPO, "RELEASING.md"), "utf8");
+			const pathsSource = readFileSync(join(REPO, "extension", "paths.ts"), "utf8");
+			const modeSource = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
+			const sources = { workflow, procedure, publishing, agents, releasing, pathsSource, modeSource };
+			const archiveHeading = "### The delivery archive";
+			const handoffHeading = "### The handoff summary";
+			const countExactLine = (source, line) => (source.match(new RegExp(`^${escapeRegex(line)}$`, "gm")) ?? []).length;
+			const archiveBoundary = (source) => {
+				const archiveCount = countExactLine(source, archiveHeading);
+				const handoffCount = countExactLine(source, handoffHeading);
+				const archiveAt = source.indexOf(`${archiveHeading}\n`);
+				const handoffAt = source.indexOf(`${handoffHeading}\n`);
+				const between = archiveAt >= 0 && handoffAt > archiveAt ? source.slice(archiveAt, handoffAt) : "";
+				const exactSeparator = between.endsWith("\n\n") && !between.endsWith("\n\n\n");
+				const text = exactSeparator ? between.slice(0, -1) : "";
+				return { archiveCount, handoffCount, archiveAt, handoffAt, exactSeparator, text };
 			};
-			const maskedDigestCommands = archiveCommands.filter((command) => /\$\([^)]*\bgit\b[^)]*\)[^`]*\|\s*sha256sum/.test(command) || /sha256sum\s*\|\s*cut\s+-c1-12/.test(command));
-			const archiveStepPositions = {
-				symlinkPreamble: archiveText.indexOf("4. Before reading `session.json` or writing anything"),
-				symlinkRefusal: archiveText.indexOf("Refuse when any test finds a symbolic link."),
-				metadataRead: archiveText.indexOf("5. Read the selected session directory's `session.json`."),
-				firstWrite: archiveText.indexOf("6. Create `deliveries` when it is absent."),
+			const measureArchive = (source) => {
+				const boundary = archiveBoundary(source);
+				return {
+					...boundary,
+					finalNewline: boundary.text.endsWith("\n"),
+					lines: boundary.text.endsWith("\n") ? boundary.text.split("\n").length - 1 : -1,
+					bytes: Buffer.byteLength(boundary.text, "utf8"),
+				};
 			};
+			const sectionBetween = (source, start, end) => {
+				const from = source.indexOf(start);
+				const to = source.indexOf(end, from + start.length);
+				return from >= 0 && to > from ? source.slice(from, to) : "";
+			};
+			const cloneWith = (base, key, value) => ({ ...base, [key]: value });
+			const replaceFlexible = (source, needle, replacement = "[defeating mutation]") => {
+				const pattern = needle.trim().split(/\s+/).map(escapeRegex).join("\\s+");
+				return source.replace(new RegExp(pattern, "g"), replacement);
+			};
+			const removeTerm = (base, key, term) => cloneWith(base, key, replaceFlexible(base[key], term));
+			const appendTerm = (base, key, term) => cloneWith(base, key, `${base[key]}\n${term}\n`);
+			const containsAll = (source, terms) => {
+				const text = normalizeText(source);
+				return terms.every((term) => text.includes(normalizeText(term)));
+			};
+			const missingTerms = (source, terms) => {
+				const text = normalizeText(source);
+				return terms.filter((term) => !text.includes(normalizeText(term)));
+			};
+			const ordered = (text, terms) => {
+				let cursor = -1;
+				for (const term of terms) {
+					const next = normalizeText(text).indexOf(normalizeText(term), cursor + 1);
+					if (next < 0) return false;
+					cursor = next;
+				}
+				return true;
+			};
+
+			const assertions = [];
+			const addAssertion = (group, id, test, mutate, observed) => {
+				assertions.push({ group, id, test, mutate, observed });
+			};
+			const addTerms = (group, id, key, terms) => addAssertion(
+				group,
+				id,
+				(base) => containsAll(base[key], terms),
+				(base) => removeTerm(base, key, terms[0]),
+				(base) => missingTerms(base[key], terms),
+			);
+			const addAbsent = (group, id, key, terms) => addAssertion(
+				group,
+				id,
+				(base) => terms.every((term) => !normalizeText(base[key]).includes(normalizeText(term))),
+				(base) => appendTerm(base, key, terms[0]),
+				(base) => terms.filter((term) => normalizeText(base[key]).includes(normalizeText(term))),
+			);
+
 			const expectedDecisionTable = [
 				"| working log exists | corpus session resolves | required result |",
 				"| --- | --- | --- |",
@@ -3748,101 +3773,151 @@ production behaviour.`);
 				"| yes | yes | The orchestrator archives and verifies the working log before delivery. |",
 				"| yes | no | The orchestrator reports that no corpus session resolved and records an archive waiver. |",
 			];
-			const decisionTable = archive.split("\n").filter((line) => line.startsWith("|"));
-			const corpusRootRefusal = "The worker refuses and reports when the resolution fails or returns an empty value.";
-			const environmentPathRule = normalizeText(`A path built from an
- environment variable instead uses double quotes around the variable. A variable
- expansion inside double quotes performs no further parsing, so it is safe. A
- tilde never appears inside a single-quoted assignment.`);
-			const agentRootRule = normalizeText(`Resolve the Pi agent directory from \`PI_CODING_AGENT_DIR\` when it is set.
- Use \`agent_root="$PI_CODING_AGENT_DIR"\` in that case. Otherwise the
- home-directory form supplies the default: \`agent_root="$HOME/.pi/agent"\`.
- Form the unresolved corpus path as
- \`corpus_root_input="$agent_root/ytdb-slate/projects"\`.`);
-			const ordinalSelectionRule = normalizeText(`List the entries of the \`deliveries\` directory once. When that directory is
- absent, use an empty listing. From that one listing, choose the lowest
- three-digit value from \`001\` through \`999\` that is absent. This method needs
- no script and no repeated existence test.`);
-			const emptyDirectoryCleanupRule = normalizeText(`On a mismatch or any other failure, remove every file or directory this
- attempt created, subject to the empty-directory rule. Remove a directory
- only when that directory is empty. When a directory is not empty, leave it
- and report it. Keep every pre-existing entry. Report the failed step and
- reason.`);
-			const deliveryScopeRule = normalizeText(`The delivery archive applies only to delivery. Abandonment is not delivery.
-After final change acceptance, archive the working log when this decision table
-requires it. The table governs delivery and is complete.`);
-			const deliveryWaiverRule = normalizeText(`The orchestrator does not guess a corpus session. The archive waiver exists for
-delivery only. The orchestrator records every archive waiver in the delivery
-commit body. When \`workflow.draftPRs\` is enabled, the orchestrator records the
-waiver in the pull request as well.`);
-			const abandonmentRule = normalizeText(`For an abandoned change, offer the working log to the user before the worktree
-is removed. When the user wants the working log kept, archive it with the same
-procedure. No waiver applies because no delivery happens.`);
-			const commitWaiverRule = "The orchestrator records every archive waiver in the delivery commit body.";
-			const pullRequestWaiverRule = "When `workflow.draftPRs` is enabled, the orchestrator records the waiver in the pull request as well.";
-			const refusalAndCleanupTerms = [
-				"Refuse when the Git command fails or prints nothing.",
-				"Refuse when hashing fails or prints nothing.",
-				"Refuse zero matches and several matches.",
-				"Refuse and report exhaustion without creating anything when `001` through `999` all exist.",
-				"Refuse when any test finds a symbolic link.",
-				"Refuse unless the metadata `name` equals the supplied corpus session name.",
-				"Refuse when the working log is not a regular file or is unreadable.",
-				"Refuse when that ordinal directory already exists.",
-				"Never remove an entry the worker did not create.",
-				"On a mismatch or any other failure, remove every file or directory this attempt created, subject to the empty-directory rule.",
-				"Remove a directory only when that directory is empty.",
-				"When a directory is not empty, leave it and report it.",
-				"Keep every pre-existing entry.",
-				"Report the failed step and reason.",
+			const decisionRows = (source) => archiveBoundary(source).text.split("\n").filter((line) => line.startsWith("|"));
+			addAssertion("lifecycle", "decision-table", (base) => JSON.stringify(decisionRows(base.workflow)) === JSON.stringify(expectedDecisionTable), (base) => cloneWith(base, "workflow", base.workflow.replace(expectedDecisionTable[4], "")), (base) => decisionRows(base.workflow));
+			addTerms("lifecycle", "waiver-destinations", "workflow", ["Record every waiver in the delivery commit body", "when `workflow.draftPRs` is enabled, in the pull request"]);
+			addTerms("lifecycle", "delivery-timing", "workflow", ["After final change acceptance and before final publication approval"]);
+			addTerms("lifecycle", "preservation-offer", "workflow", ["For an abandoned change, offer the working log to the user before removing the worktree"]);
+			addTerms("lifecycle", "abandonment-no-waiver", "workflow", ["When the user requests preservation, use the same procedure. No waiver applies"]);
+			addTerms("lifecycle", "cleanup-disposition", "workflow", ["Cleanup requires recorded preservation success or recorded explicit user withdrawal", "Silence, timeout, or failure is not withdrawal"]);
+			addTerms("lifecycle", "working-log-preserved", "workflow", ["No archive path deletes or rewrites the working log", "The working log survives success and failure"]);
+			addTerms("lifecycle", "product-change-restart", "workflow", ["Every product change after final change acceptance restarts all four gates", "completed review, final change acceptance, the archive decision, and final publication approval"]);
+			addTerms("lifecycle", "log-only-exception", "workflow", ["A completed archive may remain valid only after a log-only change", "Report that its snapshot predates later log text"]);
+			addTerms("lifecycle", "fresh-decision-triggers", "workflow", ["A log-only change that creates the first working log", "a newly resolved corpus session", "requires a fresh archive decision"]);
+			addTerms("lifecycle", "authority-delegation", "workflow", ["delivery-archive.md", "is the sole authority for archive operations", "The workflow retains lifecycle cleanup gates"]);
+			addTerms("lifecycle", "procedure-policy-citation", "procedure", ["The lifecycle policy remains in [track-workflow.md](track-workflow.md)", "This procedure never creates a waiver or authorizes worktree cleanup"]);
+			addTerms("lifecycle", "agents-authority-summary", "agents", ["`docs/track-workflow.md` § The delivery archive owns lifecycle policy and the archive decision", "`docs/delivery-archive.md` is the sole authority for archive operations, refusals, verification, and failed-ordinal retry mechanics"]);
+
+			addTerms("dispatch", "project-trust", "workflow", ["Before each archive dispatch, require independent Slate project trust"]);
+			addTerms("dispatch", "trusted-boundary", "workflow", ["package-resolved Slate documents", "the orchestrator-authored task", "all existing worker prompt sources are trusted", "no integrity claim against a compromised trusted input"]);
+			addTerms("dispatch", "fresh-thread", "workflow", ["Open a brand-new archive thread for one attempt"]);
+			addTerms("dispatch", "omitted-fields", "workflow", ["must omit `thread`, `context`, `contextEpisodeIds`, `freshContext`"]);
+			addTerms("dispatch", "omitted-state-sources", "workflow", ["continuation identity and state", "injected episodes and summaries", "reused transcripts", "inherited action text"]);
+			addTerms("dispatch", "nonconforming-classification", "workflow", ["A dispatch containing any excluded field or source is nonconforming"]);
+			addTerms("dispatch", "fixed-procedure-path", "workflow", ["The task supplies the fixed absolute package-resolved path for [delivery-archive.md](delivery-archive.md)"]);
+			addTerms("dispatch", "sole-variable-input", "workflow", ["one variable value named `corpusSession`"]);
+			addTerms("dispatch", "canonical-session-token", "workflow", ["must pass `isMintedSlateSessionName`", "ASCII of at most 48 bytes", "`<shipped-adjective>-<shipped-noun>-<four lowercase hexadecimal digits>`"]);
+			addTerms("dispatch", "no-raw-log-path", "workflow", ["No raw working-log path enters the task"]);
+			addTerms("dispatch", "complete-procedure-read", "workflow", ["The worker reads the entire procedure before any archive action"]);
+			addTerms("dispatch", "worker-cwd-outcome", "workflow", ["The procedure derives root `research-log.md` from the worker working directory"]);
+			addAbsent("dispatch", "git-mechanics-only-in-procedure", "workflow", ["GIT_COMMON_DIR", "--show-toplevel", "PI_CODING_AGENT_DIR", "--git-common-dir", "fstat", "session.json", "mode `0700`", "mode `0600`", "lowest absent three-digit ordinal", "append-only list of paths"]);
+			addTerms("dispatch", "report-and-retry-shape", "workflow", ["reports a failed step and reason", "absolute destination, ordinal, and shared SHA-256 hash", "Only the orchestrator schedules a retry through a fresh dispatch"]);
+
+			addTerms("operations", "attempt-input-boundary", "procedure", ["The task provides the fixed absolute package-resolved path of this document", "one variable value named `corpusSession`", "Accept no caller-selected procedure path, working-log path, destination path, ordinal, project path, or retry state"]);
+			addTerms("operations", "canonical-input-refusal", "procedure", ["Refuse the attempt unless `corpusSession` passes the shipped `isMintedSlateSessionName` validator", "ASCII and at most 48 UTF-8 bytes", "`<shipped-adjective>-<shipped-noun>-<four lowercase hexadecimal digits>`", "adjective and noun must occur in Slate's shipped mint tables"]);
+			addTerms("operations", "git-root-derivation", "procedure", ["Remove `GIT_DIR`, `GIT_COMMON_DIR`, and `GIT_WORK_TREE`", "git rev-parse --path-format=absolute --show-toplevel", "Reject a missing terminator, remaining line terminator, extra output, control character, or nonabsolute result", "Canonicalize the result"]);
+			addTerms("operations", "path-and-platform-refusals", "procedure", ["Use direct process calls with argument arrays", "Do not interpolate a path into a command string", "Refuse a path containing a single quote", "Use double quotes around every later variable expansion", "Do not place a tilde inside a single-quoted assignment", "Reject an empty path, a nonabsolute path where an absolute path is required, or a path containing a control character", "Use no-follow operations for every named archive boundary"]);
+			addTerms("operations", "platform-identity-primitives", "procedure", ["Before any mutation, refuse if the runtime lacks any required primitive", "Required primitives are no-follow file opens, retained directory descriptors, descriptor-relative operations, and device-and-inode identity comparisons", "Do not fall back to a pathname-based copy"]);
+			addTerms("operations", "boundary-symlink-refusals", "procedure", ["A symbolic link above the canonical corpus root may represent the agent directory", "Do not follow a symbolic link at or below that root", "project directory, session directory, `session.json`, `deliveries`, selected ordinal, or archive-file boundary"]);
+			addTerms("operations", "source-capture-identity", "procedure", ["Open the source with read-only, no-follow, and nonblocking semantics", "Validate regular-file status through `fstat` on that same descriptor", "A symbolic link, directory, device, socket, or FIFO is not a valid source", "Read every source byte through that descriptor", "Do not read, stat, resolve, or reopen the source pathname after the open"]);
+			addTerms("operations", "corpus-root-refusals", "procedure", ["When `PI_CODING_AGENT_DIR` is set, use its value as the Pi agent directory", "Otherwise derive the agent directory as `$HOME/.pi/agent`", "Refuse failed resolution, empty output, a nonabsolute result, or a result that is not an existing readable directory", "Open and retain a descriptor for the canonical corpus root"]);
+			addTerms("operations", "corpus-project-selection", "procedure", ["git -C <canonical worktree root> rev-parse --path-format=absolute --git-common-dir", "Apply the same exit, terminator, extra-output, control-character, and absolute-path checks used for worktree-root output", "first 12 lowercase hexadecimal characters", "ends in `-<project digest>`", "Refuse zero matching directories", "Refuse several matching directories"]);
+			addTerms("operations", "session-boundary-refusals", "procedure", ["Resolve `corpusSession` as one child name beneath the retained project descriptor", "Refuse absence, a symbolic link, a non-directory, or any resolution outside the selected project", "Retain the session descriptor"]);
+			addAssertion("operations", "project-before-session-order", (base) => ordered(base.procedure, ["Derive the project key from the canonical worktree root", "Open the sole project directory relative to the retained corpus-root descriptor", "Resolve `corpusSession` as one child name beneath the retained project descriptor"]), (base) => removeTerm(base, "procedure", "Derive the project key from the canonical worktree root"), (base) => sectionBetween(base.procedure, "## Resolve the corpus project and session", "## Select one ordinal"));
+			addTerms("operations", "metadata-refusals", "procedure", ["Open `session.json` relative to the retained session descriptor", "Validate regular-file status through that descriptor", "Refuse unreadable or malformed JSON", "Refuse a value that is not an object", "Refuse unless its `name` property is a string exactly equal to `corpusSession`", "Perform every check in this section before creating any path"]);
+			addAssertion("operations", "metadata-before-creation", (base) => ordered(base.procedure, ["Refuse unless its `name` property is a string exactly equal to `corpusSession`", "Perform every check in this section before creating any path", "## Select one ordinal", "## Create and verify the destination"]), (base) => removeTerm(base, "procedure", "Perform every check in this section before creating any path"), (base) => base.procedure.match(/Refuse unless its `name`[\s\S]{0,500}?## Create and verify the destination/)?.[0]);
+			addTerms("operations", "one-listing-ordinal", "procedure", ["List its entries exactly once", "Treat every name present in the listing as occupied", "Choose the lowest absent three-digit ordinal from `001` through `999`", "Refuse exhaustion before creating anything", "Add no lock"]);
+			addTerms("operations", "destination-parent-identity", "procedure", ["relative to the retained `deliveries` descriptor", "Use an exclusive directory-relative operation", "Create `research-log.md` relative to that retained parent descriptor", "create, exclusive, and no-follow flags"]);
+			addTerms("operations", "destination-collision-refusals", "procedure", ["Creation must fail when an entry now exists", "A creation collision ends the attempt", "Refuse any existing entry, including a symbolic link or partial ordinal", "Refuse any collision", "Record the absolute destination path immediately after successful creation"]);
+			addTerms("operations", "destination-path", "procedure", ["`<session directory>/deliveries/<ordinal>/research-log.md`"]);
+			addTerms("operations", "copy-write-verification", "procedure", ["Write the captured source bytes completely through that descriptor", "Treat a short write as a failure", "Flush the file before verification", "Seek the same opened destination descriptor to the start"]);
+			addTerms("operations", "parent-relative-device-inode", "procedure", ["record its device and inode from the opened descriptor", "A descriptor type check alone is insufficient", "relative to its retained parent descriptor", "Compare its device and inode with the values recorded from the retained child descriptor", "Refuse absence, a type mismatch, or either identity mismatch", "Perform every child operation through the retained parent or child descriptor, not through the rechecked pathname"]);
+			addTerms("operations", "identity-bound-verification", "procedure", ["Read every destination byte through that descriptor", "Do not reopen or verify through the destination pathname", "immediately before destination creation", "immediately after destination creation and before writing", "after the write and flush, before reading bytes for verification", "after verification and immediately before success reporting", "Opening or creating a retained child requires an immediate first check"]);
+			addTerms("operations", "no-post-failure-removal", "procedure", ["Closing a descriptor is the only cleanup action", "Do not unlink, rename, truncate, rewrite, or remove any file or directory after failure", "There is no empty-directory exception and no rollback path", "Never remove the replacement"]);
+			addTerms("operations", "created-path-reporting", "procedure", ["Maintain an append-only list of paths created by the attempt", "every absolute path that the attempt created, in creation order", "Report `none` when the attempt created no path", "Report an original created path even when another actor later renamed or replaced its entry"]);
+			addTerms("operations", "failure-report", "procedure", ["the failed step", "the reason", "the selected ordinal, when selection completed", "every absolute path that the attempt created, in creation order"]);
+			addTerms("operations", "every-present-ordinal-occupied", "procedure", ["Every ordinal present in a future listing is occupied", "A collision is also occupied", "must not resume, repair, overwrite, or remove a failed ordinal"]);
+			addTerms("operations", "fresh-free-ordinal-on-retry", "procedure", ["That fresh attempt resolves every identity again, takes one fresh listing, and selects the lowest ordinal that is then free"]);
+			addTerms("operations", "hash-and-publication", "procedure", ["Compute SHA-256 over the bytes read from the opened destination identity", "Require an exact byte match and a hash match with the captured source snapshot", "Do not publish or report a destination as successful before every verification step passes"]);
+			addTerms("operations", "success-report", "procedure", ["the absolute destination path", "the selected ordinal", "the one shared lowercase SHA-256 hash", "A missing result leaves the archive action incomplete"]);
+			addTerms("operations", "source-survives", "procedure", ["Never write, truncate, rename, unlink, or remove the source", "The archive operation never deletes the working log after success"]);
+			addAssertion("operations", "no-branch-derived-destination", (base) => !/\bbranch(?:\s+label)?\b/i.test(base.procedure), (base) => appendTerm(base, "procedure", "Derive the destination from the branch label."), (base) => base.procedure.match(/.{0,60}\bbranch(?:\s+label)?\b.{0,100}/i)?.[0]);
+			addAbsent("operations", "no-lifecycle-policy-duplication", "procedure", ["| working log exists | corpus session resolves | required result |", "Record every waiver in the delivery commit body", "A completed archive may remain valid only after a log-only change"]);
+			addAssertion("publication", "disabled-prepublication-order", (base) => containsAll(archiveBoundary(base.workflow).text, ["After final change acceptance and before final publication approval", "The orchestrator archives and verifies the working log before delivery"]) && ordered(base.workflow, [archiveHeading, "Delivery is the final squashed commit"]), (base) => removeTerm(base, "workflow", "After final change acceptance and before final publication approval"), (base) => archiveBoundary(base.workflow).text);
+			addAssertion("publication", "enabled-prepublication-order", (base) => ordered(base.publishing, ["Update the pull request description to describe the reviewed product content", "Obtain final change acceptance", "Apply the archive decision table", "Complete the required archive or waiver before the ready flip", "The user's merge act is final publication approval"]), (base) => removeTerm(base, "publishing", "Apply the archive decision table"), (base) => sectionBetween(base.publishing, "## Ready-for-review flip", "## After the merge"));
+			addAssertion("publication", "ready-flip-order", (base) => ordered(base.publishing, ["Update the pull request description to describe the reviewed product content", "Obtain final change acceptance", "Apply the archive decision table", "Complete the required archive or waiver before the ready flip"]), (base) => removeTerm(base, "publishing", "Obtain final change acceptance"), (base) => sectionBetween(base.publishing, "## Ready-for-review flip", "## After the flip"));
+			addTerms("publication", "writable-waiver-destinations", "publishing", ["Record a waiver in the pull request and intended commit body while both remain writable"]);
+			addTerms("publication", "post-change-restart", "publishing", ["A product change returns the pull request to an editable draft state", "Repeat review, final change acceptance, the archive decision, and the ready flip in that order"]);
+			addTerms("publication", "no-first-post-merge-attempt", "publishing", ["Do not make the first archive attempt after merge", "The archive or waiver must already be complete before final publication approval", "Perform cleanup only"]);
+
+			const releaseDirectDocs = (source) => {
+				const match = source.match(/# Keep the five direct doctrine documents in one class\.\nfor path in \\\n([\s\S]*?)\ndo\n/);
+				return match?.[1]?.match(/docs\/[a-z0-9-]+\.md/g) ?? [];
+			};
+			const expectedDirectDocs = ["docs/track-workflow.md", "docs/review-rules.md", "docs/design-principles.md", "docs/pr-publishing.md", "docs/model-routing.md"];
+			addAssertion("release", "five-direct-documents", (base) => JSON.stringify(releaseDirectDocs(base.releasing)) === JSON.stringify(expectedDirectDocs), (base) => cloneWith(base, "releasing", base.releasing.replace("  docs/model-routing.md\n", "  docs/model-routing.md \\\n  docs/delivery-archive.md\n")), (base) => releaseDirectDocs(base.releasing));
+			addTerms("release", "transitive-procedure-class", "releasing", ["The workflow loads this required procedure transitively", "grep -Fxq 'docs/delivery-archive.md' \"$PACKED_DOCS\"", "`docs/delivery-archive.md` is a separate, transitively required packed document", "the doctrine does not cite it directly"]);
+			addTerms("release", "verification-classification", "releasing", ["The package-content checks prove one exported path and one packed copy", "The packaging guards separately prove packed presence"]);
+			addTerms("release", "agents-document-classification", "agents", ["Direct doctrine docs:", "`docs/delivery-archive.md` is a transitively required, load-on-demand procedure", "the doctrine does not cite it directly"]);
+			addAssertion("release", "single-path-export", (base) => (base.pathsSource.match(/^export const DELIVERY_ARCHIVE_DOC = join\(DOCS_DIR, "delivery-archive\.md"\);$/gm) ?? []).length === 1, (base) => cloneWith(base, "pathsSource", `${base.pathsSource}\nexport const DELIVERY_ARCHIVE_DOC = join(DOCS_DIR, "delivery-archive.md");\n`), (base) => base.pathsSource.match(/.*DELIVERY_ARCHIVE_DOC.*/g));
+			addAssertion("release", "not-direct-doctrine", (base) => !base.modeSource.includes("DELIVERY_ARCHIVE_DOC"), (base) => cloneWith(base, "modeSource", `${base.modeSource}\nDELIVERY_ARCHIVE_DOC\n`), (base) => base.modeSource.match(/.*DELIVERY_ARCHIVE_DOC.*/g));
+
+			addAssertion("budget", "archive-heading-unique", (base) => archiveBoundary(base.workflow).archiveCount === 1, (base) => cloneWith(base, "workflow", base.workflow.replace(`${archiveHeading}\n`, "")), (base) => archiveBoundary(base.workflow));
+			addAssertion("budget", "handoff-heading-unique", (base) => archiveBoundary(base.workflow).handoffCount === 1, (base) => cloneWith(base, "workflow", `${base.workflow}\n${handoffHeading}\n`), (base) => archiveBoundary(base.workflow));
+			addAssertion("budget", "heading-order-and-boundary", (base) => {
+				const boundary = archiveBoundary(base.workflow);
+				return boundary.archiveAt >= 0 && boundary.handoffAt > boundary.archiveAt && boundary.exactSeparator && boundary.text !== "";
+			}, (base) => {
+				const sentinel = "### track-08-heading-sentinel";
+				const reversed = base.workflow.replace(archiveHeading, sentinel).replace(handoffHeading, archiveHeading).replace(sentinel, handoffHeading);
+				return cloneWith(base, "workflow", reversed);
+			}, (base) => archiveBoundary(base.workflow));
+			addAssertion("budget", "exact-boundary-names", (base) => archiveBoundary(base.workflow).archiveCount === 1 && archiveBoundary(base.workflow).handoffCount === 1, (base) => cloneWith(base, "workflow", base.workflow.replace(handoffHeading, "### The renamed handoff summary")), (base) => archiveBoundary(base.workflow));
+			addTerms("budget", "handoff-paragraph", "workflow", [`${handoffHeading}\n\nBefore a session handoff, append a state summary.`]);
+			addAssertion("budget", "retained-subsection-identity", (base) => createHash("sha256").update(archiveBoundary(base.workflow).text).digest("hex") === "44de0495f0f39c0775e55043e469255c4ea762194140c987c05a1fa2169f9050", (base) => cloneWith(base, "workflow", base.workflow.replace("The delivery archive applies only to delivery.", "The delivery archive applies only to final delivery.")), (base) => createHash("sha256").update(archiveBoundary(base.workflow).text).digest("hex"));
+			addAssertion("budget", "line-cap-independent", (base) => {
+				const value = measureArchive(base.workflow);
+				return value.finalNewline && value.lines <= 64;
+			}, (base) => cloneWith(base, "workflow", base.workflow.replace(`${archiveHeading}\n`, `${archiveHeading}\n\n\n\n\n\n`)), (base) => measureArchive(base.workflow));
+			addAssertion("budget", "byte-cap-independent", (base) => {
+				const value = measureArchive(base.workflow);
+				return value.finalNewline && value.bytes <= 3812;
+			}, (base) => cloneWith(base, "workflow", base.workflow.replace("The delivery archive applies only to delivery.", `The delivery archive applies only to delivery.${"x".repeat(342)}`)), (base) => measureArchive(base.workflow));
+
+			const EXPECTED_ARCHIVE_ASSERTIONS = [
+				"lifecycle:decision-table", "lifecycle:waiver-destinations", "lifecycle:delivery-timing", "lifecycle:preservation-offer", "lifecycle:abandonment-no-waiver", "lifecycle:cleanup-disposition", "lifecycle:working-log-preserved", "lifecycle:product-change-restart", "lifecycle:log-only-exception", "lifecycle:fresh-decision-triggers", "lifecycle:authority-delegation", "lifecycle:procedure-policy-citation", "lifecycle:agents-authority-summary",
+				"dispatch:project-trust", "dispatch:trusted-boundary", "dispatch:fresh-thread", "dispatch:omitted-fields", "dispatch:omitted-state-sources", "dispatch:nonconforming-classification", "dispatch:fixed-procedure-path", "dispatch:sole-variable-input", "dispatch:canonical-session-token", "dispatch:no-raw-log-path", "dispatch:complete-procedure-read", "dispatch:worker-cwd-outcome", "dispatch:git-mechanics-only-in-procedure", "dispatch:report-and-retry-shape",
+				"operations:attempt-input-boundary", "operations:canonical-input-refusal", "operations:git-root-derivation", "operations:path-and-platform-refusals", "operations:platform-identity-primitives", "operations:boundary-symlink-refusals", "operations:source-capture-identity", "operations:corpus-root-refusals", "operations:corpus-project-selection", "operations:session-boundary-refusals", "operations:project-before-session-order", "operations:metadata-refusals", "operations:metadata-before-creation", "operations:one-listing-ordinal", "operations:destination-parent-identity", "operations:destination-collision-refusals", "operations:destination-path", "operations:copy-write-verification", "operations:parent-relative-device-inode", "operations:identity-bound-verification", "operations:no-post-failure-removal", "operations:created-path-reporting", "operations:failure-report", "operations:every-present-ordinal-occupied", "operations:fresh-free-ordinal-on-retry", "operations:hash-and-publication", "operations:success-report", "operations:source-survives", "operations:no-branch-derived-destination", "operations:no-lifecycle-policy-duplication",
+				"publication:disabled-prepublication-order", "publication:enabled-prepublication-order", "publication:ready-flip-order", "publication:writable-waiver-destinations", "publication:post-change-restart", "publication:no-first-post-merge-attempt",
+				"release:five-direct-documents", "release:transitive-procedure-class", "release:verification-classification", "release:agents-document-classification", "release:single-path-export", "release:not-direct-doctrine",
+				"budget:archive-heading-unique", "budget:handoff-heading-unique", "budget:heading-order-and-boundary", "budget:exact-boundary-names", "budget:handoff-paragraph", "budget:retained-subsection-identity", "budget:line-cap-independent", "budget:byte-cap-independent",
 			];
-			const missingArchiveTerms = refusalAndCleanupTerms.filter((term) => !archiveText.includes(normalizeText(term)));
-			const oldDeletionSentence = "Delete the retained local log only at delivery.";
-			const agentsArchiveClause = agents.match(/^- At delivery, after final change acceptance,[\s\S]*?(?=^- |^## )/m)?.[0]?.trim() ?? "";
-			const expectedAgentsArchiveClause = normalizeText(`- At delivery, after final change acceptance, the orchestrator applies the complete archive decision table. The orchestrator records any archive waiver in the delivery commit body. When \`workflow.draftPRs\` is enabled, the orchestrator also records it in the pull request. Never delete the working log. Worktree removal disposes of that copy. \`docs/track-workflow.md\` § Session handoff and the research log defines resolution, refusal, verification and retry.`);
-			checkAll("contract-delivery-archive", "the workflow pins safe path construction, digest and root failures, ordinal selection, cleanup, ordering, the delivery-only table, abandonment, waiver locations, and the AGENTS summary", [
-				["the archive section exists once", archive !== "" && (workflow.match(/^### The delivery archive$/gm) ?? []).length === 1, archive.slice(0, 200)],
-				["dispatch supplies only the named corpus session and absolute working-log path", archiveText.includes("supplies exactly two inputs: that corpus session name and the absolute path of the working log"), archiveText.slice(0, 700)],
-				["the worktree-root placeholder is defined from the working log", archiveText.includes("`<change worktree root>` is the directory that holds the working log"), archiveText.slice(0, 700)],
-				// Pin WI740a. Mutation: alter either environment-derived assignment, its safety rationale, the home-directory default, or the no-tilde rule.
-				["the worker forms the agent root safely from the configured or home-directory environment variable before deriving the project digest", archiveText.includes(environmentPathRule) && archiveText.includes(agentRootRule) && singleQuotedPathAssignments.every((assignment) => !assignment.includes("~")) && archiveText.includes("Derive the project digest from the change worktree"), { environmentPathRule: archiveText.includes(environmentPathRule), agentRootRule: archiveText.includes(agentRootRule), singleQuotedPathAssignments }],
-				// Pin 1a and WI740b. Mutation: change any listed literal or environment-derived assignment to another assignment form.
-				["every command path is first represented by the exact safe-assignment roster", JSON.stringify(pathAssignments) === JSON.stringify(expectedPathAssignments), { expected: expectedPathAssignments, actual: pathAssignments }],
-				// Pin 1b. Mutation: remove the refusal for a literal supplied or derived path containing one single quote.
-				["the path rule refuses a single quote before a literal assignment", archiveText.includes("Before forming a literal single-quoted assignment, the worker refuses a path containing a single quote character (`'`) because the assignment cannot represent it safely."), archiveText.slice(650, 1550)],
-				// Pin 1c. Mutation: remove double quotes from any later path-variable use.
-				["every path variable in every command is double-quoted", JSON.stringify(archiveCommands) === JSON.stringify(expectedArchiveCommands) && unquotedPathReferences.length === 0, { commands: archiveCommands, unquotedPathReferences }],
-				// Pin 2. Mutation: insert a raw path placeholder directly into any command.
-				["no command contains a direct path interpolation", directPathInterpolations.length === 0, directPathInterpolations],
-				// Pin 3. Mutation: combine Git capture, hashing, or truncation into the old masked pipeline, or remove either refusal.
-				["digest derivation captures Git output before separate Git refusal, assignment, hashing, hash refusal, and truncation", Object.values(digestPositions).every((position) => position >= 0) && digestPositions.captureInstruction < digestPositions.git && digestPositions.git < digestPositions.gitRefusal && digestPositions.gitRefusal < digestPositions.capturedAssignment && digestPositions.capturedAssignment < digestPositions.hash && digestPositions.hash < digestPositions.hashRefusal && digestPositions.hashRefusal < digestPositions.digestWidth && maskedDigestCommands.length === 0, { digestPositions, maskedDigestCommands }],
-				["the exact Git-capture and captured-value hash commands each appear once", archiveCommands.filter((command) => command === gitCaptureCommand).length === 1 && archiveCommands.filter((command) => command === hashCapturedCommand).length === 1, { gitCapture: archiveCommands.filter((command) => command === gitCaptureCommand).length, hashCaptured: archiveCommands.filter((command) => command === hashCapturedCommand).length }],
-				["the destination is the ordinal archive path", archiveText.includes("<corpus session directory>/deliveries/<ordinal>/research-log.md"), archiveText.match(/deliveries[^ ]*research-log\.md/)?.[0]],
-				["the project digest selects the project before any same-name session", archiveText.includes("The project digest selects the project directory first, so a same-name session in another project cannot be selected."), archiveText.slice(1000, 1800)],
-				// Pin WI742. Mutation: replace the single listing with repeated probes, a script, or another ordinal range.
-				["ordinal selection uses one deliveries listing, no script, and no repeated existence test", archiveText.includes(ordinalSelectionRule), archiveText.match(/List the entries[\s\S]{0,420}?existence test\./)?.[0]],
-				// Pin 4. Mutation: move the symbolic-link refusal after the metadata read or the first write.
-				["symbolic-link refusal and its command precede the metadata read and first write", Object.values(archiveStepPositions).every((position) => position >= 0) && archiveStepPositions.symlinkPreamble < archiveStepPositions.symlinkRefusal && archiveStepPositions.symlinkRefusal < archiveStepPositions.metadataRead && archiveStepPositions.symlinkRefusal < archiveStepPositions.firstWrite, archiveStepPositions],
-				// Pin 5. Mutation: remove the refusal for failed or empty corpus-root resolution.
-				["corpus-root resolution failure or empty output is refused and reported", archiveText.includes(corpusRootRefusal) && archiveText.indexOf(corpusRootRefusal) > archiveText.indexOf('realpath "$corpus_root_input"') && archiveText.indexOf(corpusRootRefusal) < archiveText.indexOf("`corpus_root='<resolved corpus root>'`"), archiveText.match(/realpath[\s\S]{0,360}?resolved corpus root/)?.[0]],
-				// Pin 6. Mutation: remove any decision-table row or change any row's required result.
-				["the complete delivery decision table contains exactly its header, separator, and three required rows", JSON.stringify(decisionTable) === JSON.stringify(expectedDecisionTable), { expected: expectedDecisionTable, actual: decisionTable }],
-				// Pin 7. Mutation: extend the archive duty or waiver to abandonment, or remove their delivery-only scope.
-				["archive duty and archive waivers belong to delivery only", archiveText.startsWith(deliveryScopeRule) && archiveText.includes(deliveryWaiverRule), { opening: archiveText.slice(0, deliveryScopeRule.length), waiver: archiveText.match(/The orchestrator does not guess[\s\S]{0,380}?as well\./)?.[0] }],
-				// Pin 8. Mutation: remove the abandonment offer, archive-on-request rule, or no-waiver result.
-				["abandonment offers the working log, archives it on request, and applies no waiver", archiveText.includes(abandonmentRule), archiveText.match(/For an abandoned change[\s\S]{0,320}?happens\./)?.[0]],
-				// Pin 9. Mutation: remove either waiver destination or make the pull-request destination unconditional.
-				["waivers always enter the delivery commit body and also enter an enabled draft pull request", archiveText.includes(commitWaiverRule) && archiveText.includes(pullRequestWaiverRule) && archiveText.indexOf(commitWaiverRule) < archiveText.indexOf(pullRequestWaiverRule), { commit: archiveText.indexOf(commitWaiverRule), pullRequest: archiveText.indexOf(pullRequestWaiverRule) }],
-				["no branch label builds the destination", !/branch(?: label)?/i.test(archive), archive.match(/.{0,60}branch.{0,100}/i)?.[0]],
-				["no instruction deletes the working log and the old sentence is absent", archiveText.includes("Never delete the working log.") && !workflow.includes(oldDeletionSentence) && !agents.includes(oldDeletionSentence), { archiveNeverDelete: archiveText.includes("Never delete the working log."), oldWorkflow: workflow.includes(oldDeletionSentence), oldAgents: agents.includes(oldDeletionSentence) }],
-				["every refusal and cleanup rule appears", missingArchiveTerms.length === 0, missingArchiveTerms],
-				// Pin WI741. Mutation: remove the empty-directory condition, foreign-content preservation, or report duty.
-				["failure cleanup removes only empty created directories and reports retained nonempty directories", archiveText.includes(emptyDirectoryCleanupRule), archiveText.match(/On a mismatch[\s\S]{0,420}?reason\./)?.[0]],
-				["verification compares exactly the two post-copy SHA-256 hashes once", archiveText.includes("Hash the working log and destination after the copy with SHA-256. Compare those two hashes once."), archiveText.match(/Hash the working log[\s\S]{0,180}?once\./)?.[0]],
-				["a same-ordinal race refuses one worker and triggers redispatch", archiveText.includes("makes the other refuse the existing directory") && archiveText.includes("orchestrator dispatches the refused archive again") && archiveText.includes("Add no lock."), archiveText.slice(-700)],
-				// Pin 10. Mutation: alter the AGENTS actor, complete-table duty, waiver locations, preservation rule, or delegated procedure scope.
-				["AGENTS pins the corrected delivery archive clause and delegates the procedure", normalizeText(agentsArchiveClause) === expectedAgentsArchiveClause, { expected: expectedAgentsArchiveClause, actual: normalizeText(agentsArchiveClause) }],
-			]);
+			const actualAssertionIds = assertions.map(({ group, id }) => `${group}:${id}`);
+			const assertionParts = [];
+			for (const assertion of assertions) {
+				const assertionId = `${assertion.group}:${assertion.id}`;
+				let basePassed = false;
+				let baseObserved;
+				try {
+					basePassed = assertion.test(sources) === true;
+					baseObserved = assertion.observed?.(sources);
+				} catch (error) {
+					baseObserved = error?.stack ?? String(error);
+				}
+				assertionParts.push([`${assertionId} holds`, basePassed, baseObserved]);
+				let mutationPassed = false;
+				let mutationObserved;
+				try {
+					const mutated = assertion.mutate(sources);
+					const applied = Object.keys(sources).some((key) => mutated[key] !== sources[key]);
+					const rejected = assertion.test(mutated) !== true;
+					const lineFixture = assertionId === "budget:line-cap-independent" ? measureArchive(mutated.workflow) : undefined;
+					const byteFixture = assertionId === "budget:byte-cap-independent" ? measureArchive(mutated.workflow) : undefined;
+					const independent = lineFixture ? lineFixture.lines === 65 && lineFixture.bytes < 3812 : byteFixture ? byteFixture.lines === 60 && byteFixture.bytes === 3813 : true;
+					mutationPassed = applied && rejected && independent;
+					mutationObserved = { applied, rejected, lineFixture, byteFixture };
+				} catch (error) {
+					mutationObserved = error?.stack ?? String(error);
+				}
+				assertionParts.push([`${assertionId} defeats its mutation`, mutationPassed, mutationObserved]);
+			}
+			const expectedGroups = ["lifecycle", "dispatch", "operations", "publication", "release", "budget"];
+			const actualGroups = [...new Set(assertions.map(({ group }) => group))];
+			assertionParts.unshift(
+				["the six archive assertion groups are separate and ordered", JSON.stringify(actualGroups) === JSON.stringify(expectedGroups), { expectedGroups, actualGroups }],
+				["the assertion-level roster has every required conjunct exactly once", JSON.stringify(actualAssertionIds) === JSON.stringify(EXPECTED_ARCHIVE_ASSERTIONS), { expected: EXPECTED_ARCHIVE_ASSERTIONS, actual: actualAssertionIds }],
+			);
+			checkAll("contract-delivery-archive", "the split archive contract preserves lifecycle, dispatch, operations, publication, release, and independent size-budget guarantees with a defeating mutation for every rostered assertion", assertionParts);
 		});
 
 		check("worker-load", worker !== undefined, "extension/worker.ts loads for direct preamble verification", workerLoad.error?.stack ?? workerLoad.error);

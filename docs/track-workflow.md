@@ -245,9 +245,9 @@ working log untracked. Never overwrite it from a stale in-memory copy.
 
 ### The delivery archive
 
-The delivery archive applies only to delivery. Abandonment is not delivery.
-After final change acceptance, archive the working log when this decision table
-requires it. The table governs delivery and is complete.
+The delivery archive applies only to delivery. Abandonment is not delivery. After final
+change acceptance and before final publication approval, apply this complete decision
+table.
 
 | working log exists | corpus session resolves | required result |
 | --- | --- | --- |
@@ -255,104 +255,56 @@ requires it. The table governs delivery and is complete.
 | yes | yes | The orchestrator archives and verifies the working log before delivery. |
 | yes | no | The orchestrator reports that no corpus session resolved and records an archive waiver. |
 
-The orchestrator does not guess a corpus session. The archive waiver exists for
-delivery only. The orchestrator records every archive waiver in the delivery
-commit body. When `workflow.draftPRs` is enabled, the orchestrator records the
-waiver in the pull request as well.
+The orchestrator never guesses a corpus session. A waiver applies only to delivery.
+Record every waiver in the delivery commit body and, when `workflow.draftPRs` is
+enabled, in the pull request.
 
-For an abandoned change, offer the working log to the user before the worktree
-is removed. When the user wants the working log kept, archive it with the same
-procedure. No waiver applies because no delivery happens.
+Before each archive dispatch, require independent Slate project trust. The
+package-resolved Slate documents, the orchestrator-authored task, and all existing
+worker prompt sources are trusted. This workflow makes no integrity claim against a
+compromised trusted input, source, handler, tool, or transformation.
 
-When the doctrine names a corpus session, the orchestrator dispatches one
-worker. The dispatch text supplies exactly two inputs: that corpus session name
-and the absolute path of the working log. The worker resolves every destination
-component. `<change worktree root>` is the directory that holds the working log.
+Open a brand-new archive thread for one attempt. The dispatch must omit `thread`,
+`context`, `contextEpisodeIds`, `freshContext`, continuation identity and state,
+injected episodes and summaries, reused transcripts, and inherited action text. A
+dispatch containing any excluded field or source is nonconforming.
 
-One shell path rule applies throughout the archive procedure. Before a shell
-command uses any supplied, resolved, derived, or selected literal path, the
-worker assigns that path to a variable with a literal single-quoted assignment.
-Examples are `worktree='<change worktree root>'` and
-`candidate='<selected path>'`. Before forming a literal single-quoted
-assignment, the worker refuses a path containing a single quote character
-(`'`) because the assignment cannot represent it safely. A path built from an
-environment variable instead uses double quotes around the variable. A variable
-expansion inside double quotes performs no further parsing, so it is safe. A
-tilde never appears inside a single-quoted assignment. Every later path operand
-uses only the variable, with double quotes around it, such as
-`git -C "$worktree"` or `test -L "$candidate"`. The worker never inserts path
-text directly into a later command.
+The task supplies the fixed absolute package-resolved path for
+[delivery-archive.md](delivery-archive.md) and one variable value named `corpusSession`.
+That value must pass `isMintedSlateSessionName`: ASCII of at most 48 bytes in the form
+`<shipped-adjective>-<shipped-noun>-<four lowercase hexadecimal digits>`.
 
-The worker follows these steps.
+The worker reads the entire procedure before any archive action. The procedure derives
+root `research-log.md` from the worker working directory. No raw working-log path enters
+the task.
 
-1. Resolve the Pi agent directory from `PI_CODING_AGENT_DIR` when it is set.
-   Use `agent_root="$PI_CODING_AGENT_DIR"` in that case. Otherwise the
-   home-directory form supplies the default: `agent_root="$HOME/.pi/agent"`.
-   Form the unresolved corpus path as
-   `corpus_root_input="$agent_root/ytdb-slate/projects"`. Resolve it once with
-   `realpath "$corpus_root_input"`. The worker refuses and reports when the
-   resolution fails or returns an empty value. Validate that output under the
-   path rule before assigning it as
-   `corpus_root='<resolved corpus root>'`.
-2. Derive the project digest from the change worktree. Assign the supplied path
-   as `worktree='<change worktree root>'`. Run the Git command and capture its
-   output through the worker harness:
+[delivery-archive.md](delivery-archive.md) is the sole authority for archive operations,
+refusals, partial-destination cleanup, and same-ordinal retry mechanics. The workflow
+retains lifecycle cleanup gates. The worker follows the procedure completely and
+reports a failed step and reason. On success, the worker reports the absolute
+destination, ordinal, and shared SHA-256 hash. Only the orchestrator schedules a retry
+through a fresh dispatch.
 
-   `env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "$worktree" rev-parse --path-format=absolute --git-common-dir`
+No archive path deletes or rewrites the working log. The working log survives success
+and failure. Worktree removal later disposes of that copy.
 
-   Refuse when the Git command fails or prints nothing. Validate that output
-   under the path rule before assigning it as
-   `git_common_dir='<Git common directory>'`. Only then hash the captured value:
+For an abandoned change, offer the working log to the user before removing the worktree.
+When the user requests preservation, use the same procedure. No waiver applies. A
+blocked or failed attempt leaves the worktree and log in place, and the orchestrator
+reports the blocker. Cleanup requires recorded preservation success or recorded explicit
+user withdrawal, rechecked immediately before worktree removal. Silence, timeout, or
+failure is not withdrawal.
 
-   `printf '%s' "$git_common_dir" | sha256sum`
+Every product change after final change acceptance restarts all four gates. They run in
+this order: completed review, final change acceptance, the archive decision, and final
+publication approval. A fresh required archive follows renewed acceptance. An earlier
+archive cannot satisfy the renewed decision.
 
-   Refuse when hashing fails or prints nothing. The digest is the first 12
-   hexadecimal characters of the hash. Under the corpus root, select the one
-   project directory whose name ends in `-<digest>`. Refuse zero matches and
-   several matches.
-3. Select `<project directory>/<corpus session name>`. It must be a directory
-   below the digest-bearing project directory. The project digest selects the
-   project directory first, so a same-name session in another project cannot be
-   selected. Set the archive parent to `<corpus session directory>/deliveries`.
-   List the entries of the `deliveries` directory once. When that directory is
-   absent, use an empty listing. From that one listing, choose the lowest
-   three-digit value from `001` through `999` that is absent. This method needs
-   no script and no repeated existence test. The destination is `<corpus
-   session directory>/deliveries/<ordinal>/research-log.md`. Refuse and report
-   exhaustion without creating anything when `001` through `999` all exist.
-4. Before reading `session.json` or writing anything, test the project directory,
-   session directory, the session directory's `session.json`, `deliveries`
-   directory and selected ordinal directory. For each path, assign
-   `candidate='<selected path>'`, then run `test -L "$candidate"`. Refuse when
-   any test finds a symbolic link. A symbolic link above the resolved corpus
-   root is legitimate because users may place the agent directory behind a
-   link. Each named path below that root is an archive identity or destination
-   boundary.
-5. Read the selected session directory's `session.json`. Refuse unless the
-   metadata `name` equals the supplied corpus session name. Refuse when the
-   working log is not a regular file or is unreadable. A symbolic link is not a
-   regular working log for this procedure.
-6. Create `deliveries` when it is absent. Create the selected ordinal directory.
-   Refuse when that ordinal directory already exists. Never remove an entry the
-   worker did not create.
-7. Copy the working log to `research-log.md` in the new ordinal directory. Hash
-   the working log and destination after the copy with SHA-256. Compare those
-   two hashes once.
-8. On a mismatch or any other failure, remove every file or directory this
-   attempt created, subject to the empty-directory rule. Remove a directory
-   only when that directory is empty. When a directory is not empty, leave it
-   and report it. Keep every pre-existing entry. Report the failed step and
-   reason.
-9. On success, report the absolute destination path, the ordinal and the shared
-   hash. Never delete the working log.
+A completed archive may remain valid only after a log-only change. Report that its
+snapshot predates later log text. A log-only change that creates the first working log,
+or a newly resolved corpus session, requires a fresh archive decision.
 
-Two workers can select one ordinal before either creates it. Directory creation
-lets one worker succeed and makes the other refuse the existing directory. The
-orchestrator dispatches the refused archive again. The next attempt selects the
-next available ordinal. Add no lock.
-
-A working log change during or after the copy can leave that attempt stale. The
-working log survives every archive path and loses no bytes.
+### The handoff summary
 
 Before a session handoff, append a state summary. It names the confirmed grade,
 focus sets, current track, last boundary marker, live registers, open findings,

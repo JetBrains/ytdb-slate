@@ -485,6 +485,7 @@ git -C "$WORKTREE" ls-tree -r --name-only HEAD docs | sort >"$EXPECTED_DOCS"
 tar -tzf "$TARBALL" | sed -n 's#^package/\(docs/.*[^/]\)$#\1#p' | sort >"$PACKED_DOCS"
 (( $(wc -l <"$EXPECTED_DOCS") >= 7 ))
 diff "$EXPECTED_DOCS" "$PACKED_DOCS"
+# Keep the five direct doctrine documents in one class.
 for path in \
   docs/track-workflow.md \
   docs/review-rules.md \
@@ -495,6 +496,9 @@ do
   grep -Fxq "$path" "$PACKED_DOCS"
 done
 
+# The workflow loads this required procedure transitively.
+grep -Fxq 'docs/delivery-archive.md' "$PACKED_DOCS"
+
 HASHES=$(node "$RELEASE_DIR/hash.cjs" "$TARBALL")
 read -r TARBALL_SHA256 TARBALL_INTEGRITY <<<"$HASHES"
 node "$RELEASE_DIR/state.cjs" save "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" \
@@ -504,7 +508,9 @@ printf 'tarball:   %s\nsha256:    %s\nintegrity: %s\n' "$TARBALL" "$TARBALL_SHA2
 
 The manifest checks cover all four packaging rules in `AGENTS.md`: the four SDK packages stay peers at `*`, the typecheck's tooling stays dev-only and out of the artifact, `keywords` keeps `pi-package`, and the docs check below proves `docs/` shipped.
 
-The docs check compares the tarball against the `docs/` tree of the merged commit and requires exact equality, so it cannot go stale when a document is added — as it did when it named five of the seven shipped documents. The floor of seven catches an empty or truncated `docs/` tree, and the named five are the documents the doctrine dereferences at runtime; a publish without them ships a broken doctrine.
+The docs check compares the tarball against the `docs/` tree of the merged commit and requires exact equality. It cannot go stale when a document is added, as it did when it named five of seven shipped documents. The floor of seven catches an empty or truncated `docs/` tree.
+
+The named group contains the five direct doctrine documents. `docs/delivery-archive.md` is a separate, transitively required packed document. The workflow links to it, but the doctrine does not cite it directly. The package-content checks prove one exported path and one packed copy. The packaging guards separately prove packed presence.
 
 `TARBALL_SHA256` and `TARBALL_INTEGRITY` are the record of the inspected bytes. `TARBALL_INTEGRITY` is in npm's own `dist.integrity` form, so step 6 compares the registry's value against it directly.
 

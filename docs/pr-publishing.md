@@ -41,8 +41,8 @@ implementation:
   Planned changes. If a working log exists, its relevant decisions and Open
   Questions also fold into the description.
 - The working log is never deleted. Its Decision Log keeps appending during
-  implementation. track-workflow.md § Session handoff and the research log owns
-  the full lifecycle, including the delivery archive.
+  implementation. track-workflow.md § The delivery archive owns lifecycle policy.
+  delivery-archive.md owns archive operations.
 
 ## Description rules
 
@@ -139,6 +139,11 @@ executed in order:
 - All commits landed since the last user-approved gate are presented
   to the user. For a SMALL change without a design gate, present the description
   here because no design approval presented it before implementation.
+- Update the pull request description to describe the reviewed product content.
+  Obtain final change acceptance for that content.
+- Apply the archive decision table in track-workflow.md. Complete the required
+  archive or waiver before the ready flip. Record a waiver in the pull request
+  and intended commit body while both remain writable.
 - Every remaining suggestion is reported to the user, and the
   Suggestions index is present in the description.
 - Strip the whole Tracks section from the description, whatever its
@@ -167,23 +172,28 @@ executed in order:
 
 ## After the flip
 
-The user may wait for CI green and/or peer-review completion and ask
-the agent to fix test failures or review observations. The agent lands
-fixes as normal commits, keeps the description in sync, and presents
-agent-landed commits to the user as they land. After every post-flip
-description change, and again at the final handoff for merge, repeat
-the byte measurement and any over-target size exception required by §
-Description rules. Commits pushed directly by reviewers are visible in
-the PR UI; the agent reconciles the description with them on its next
-task. The user's merge act is the final approval, including acceptance
-of any recorded size exception.
+The user may wait for green continuous integration or peer-review completion.
+The user may ask the agent to fix test failures or review observations. A product
+change returns the pull request to an editable draft state. Repeat review, final
+change acceptance, the archive decision, and the ready flip in that order. Only a
+qualifying log-only change may retain an earlier archive under track-workflow.md.
+
+The agent lands fixes as normal commits and keeps the description in sync. The
+agent presents each landed commit to the user. Repeat the byte measurement after
+every post-flip description change. Repeat it again at the final handoff for
+merge. Apply any over-target size exception required by § Description rules.
+
+Commits pushed directly by reviewers are visible in the pull request interface.
+The agent reconciles the description with them on its next task. The user's merge
+act is final publication approval. It includes acceptance of any recorded size
+exception.
 
 ## After the merge
 
-Complete the working log delivery archive defined by track-workflow.md
-§ Session handoff and the research log.
+Do not make the first archive attempt after merge. The archive or waiver must
+already be complete before final publication approval.
 
-Any cleanup a layered peer-review process requires (closing its review
-PRs, deleting its pinned branches) is an agent duty, executed when the
-user reports the merge or a later session detects it, per that
-process's own rules.
+Perform cleanup only. This includes worktree cleanup and any cleanup a layered
+peer-review process requires. Examples include closing its review pull requests
+and deleting its pinned branches. Perform that work when the user reports the
+merge or a later session detects it. Follow that process's own rules.

@@ -859,7 +859,70 @@ The doctrine contract checks read the shipped workflow documents directly:
 | `contract-test-composite` | the composite charter requires both behavioral effectiveness and structure and isolation sections |
 | `contract-no-test-structure` | the retired standalone test-structure role does not return or merge into another reviewer |
 | `contract-section-targets` | every named level-two target across the five workflow documents occurs exactly once. Regex metacharacters are escaped, and a duplicated Fast path counterfactual fails uniqueness |
-| `contract-delivery-archive` | the delivery archive keeps its ordered two-step digest, two dispatch inputs, refusal gates, non-destructive cleanup, verification, and retry contract. Break the digest by masking Git failure in one pipeline. Break ordering by reading before symlink refusal. Other break mutations change an input, delete a refusal, or weaken delivery and abandonment gating. |
+| `contract-delivery-archive` | the split delivery archive keeps lifecycle policy in `track-workflow.md` and operational authority in `delivery-archive.md`. It also pins dispatch conformance, publication order, release classification, and the retained-subsection budget. |
+
+### Delivery archive split contract
+
+The check keeps one top-level identity and an independent assertion-level roster.
+Every roster entry has a group-qualified identifier, a base predicate, and a
+defeating mutation. The expected roster is declared separately from the
+assertions. Deleting or duplicating a conjunct therefore fails the roster term.
+A mutation that does not apply, or does not defeat its predicate, also fails.
+
+The assertion groups divide authority as follows:
+
+- **Lifecycle policy** reads `docs/track-workflow.md`. It pins the complete
+  decision table, waiver destinations, preservation gates, product-change
+  restart, and the narrow log-only exception. It also checks the authority
+  summary in `AGENTS.md` and the procedure's policy citation.
+- **Dispatch conformance** pins independent Slate project trust, the fixed
+  package-resolved procedure path, and canonical `corpusSession` as the sole
+  variable input. It requires a new thread and every context exclusion. It
+  also forbids a raw log path and operational Git mechanics in the workflow.
+  These are text contracts. The check claims no generic runtime rejection.
+- **Operational authority** reads `docs/delivery-archive.md`. It pins Git root
+  derivation, path and metadata refusals, descriptor-bound source capture,
+  retained-parent destination creation, identity-bound verification, and
+  source preservation. The `platform-identity-primitives` assertion requires
+  refusal before mutation when any required filesystem primitive is absent.
+  The `parent-relative-device-inode` assertion requires no-follow child lookup,
+  recorded device and inode comparison, and descriptor-relative child work.
+  Its mutation removes the descriptor identity-recording rule. It also pins
+  non-destructive failure handling, complete created-path reporting, occupied
+  ordinals, fresh retry selection, and all success fields. A source scan rejects
+  lifecycle policy in the procedure.
+- **Publication ordering** reads the workflow and `docs/pr-publishing.md`. It
+  requires acceptance before archive or waiver, and archive or waiver before
+  publication approval, commit, ready flip, or merge. It pins both product-fix
+  restart paths and rejects a first archive attempt after merge.
+- **Release classification** reads `RELEASING.md`, `extension/paths.ts`, and
+  `extension/mode.ts`. Five direct doctrine documents stay in one class. The
+  archive procedure stays in a separate transitive class with one path export
+  and no direct doctrine import. Package-content checks prove export
+  cardinality and packed-copy cardinality. Packaging guards prove packed
+  presence.
+- **Size budget** extracts from the exact `### The delivery archive` heading
+  through the final nonblank line before `### The handoff summary`. The
+  extracted text must end with one newline. It may use at most 64 physical
+  lines and 3,812 UTF-8 bytes. The accepted subsection measures 60 lines and
+  3,471 bytes.
+
+Most text assertions erase their first required term everywhere in the target
+source. Structural assertions use focused mutations. Heading fixtures delete,
+duplicate, rename, and reverse the two boundary headings.
+
+The line-only fixture adds five blank lines inside the subsection. It reaches 65
+lines while staying below the byte cap. The byte-only fixture adds 342 ASCII
+bytes to one existing line. It remains at 60 lines and reaches 3,813 bytes. Each
+cap must reject only its own fixture.
+
+Re-run the pure-resolver checks after changing either archive document or either
+boundary heading. Re-run them after changing publication order, the `AGENTS.md`
+archive summary, or release document classes. Re-run them after changing the
+archive path export or doctrine path imports. Also re-run after changing this
+contract or its mutation machinery. The existing `doctrine-budget` checks and
+runtime doctrine expectations remain separate and unchanged. The procedure is
+not a direct doctrine document.
 
 The **writing checker command** (`extension/writing-check.mjs`) is covered both by
 direct import and by spawned command tests. This is the checker's smallest net:

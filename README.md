@@ -59,7 +59,7 @@ The workflow follows these steps:
 2. **Design** — MEDIUM and LARGE need a high-level design. Design uncertainty adds adversarial review. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
 3. **Implement tracks** — each track declares its files and focus areas. Track reviews are non-blocking. Final change acceptance remains blocking.
 4. **Measure** — the size command shipped with Slate checks the committed range at the first track boundary.
-5. **Review and deliver** — grade and focus select fresh machine reviewers. The user gives final acceptance and performs any squash merge.
+5. **Review and deliver** — grade and focus select fresh machine reviewers. Final change acceptance comes before the delivery archive decision. Final publication approval and any squash merge follow the archive or waiver.
 
 SMALL has a mechanical fast path. Any focus area, project test artifact, or
 verification machinery voids it. Umbrella draft-PR publishing activates only
@@ -193,9 +193,14 @@ Slate reads project configuration (`.pi/slate.json`) and injects project files (
 
 ## Shipped docs
 
-In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths are also why the block's character count depends on your install location; [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
+A **doctrine** is a block of numbered rules. In orchestrator mode, Slate appends a short doctrine to the system prompt each turn. The doctrine does not embed the workflow docs.
+
+It cites direct doctrine documents by **absolute path** inside the installed package. The orchestrator reads them on demand. Those embedded paths make the block's character count depend on your install location. [`docs/context-budget.md`](docs/context-budget.md) has measured sizes and arithmetic for your installation.
+
+One workflow document links to a transitively required procedure. The doctrine does not cite that procedure directly. Package-content verification requires one exported path and one packed copy for every shipped Markdown document. Packaging guards separately require every referenced document in the packed file set.
 
 - `docs/track-workflow.md` — the size-grade and focus-area lifecycle for research, design, implementation, review, and delivery
+- `docs/delivery-archive.md` — the sole operational procedure for delivery archives. `track-workflow.md` owns lifecycle policy and loads this procedure on demand. The doctrine does not cite it directly.
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
 - `docs/review-rules.md` — reviewer composition, the composite test-quality role, evidence standards, findings, and fix gates
 - `docs/design-principles.md` — Slate's own design rationale
