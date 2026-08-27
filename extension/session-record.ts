@@ -15,7 +15,7 @@ import {
 	type Stats,
 } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { TextDecoder } from "node:util";
 import {
 	corpusDirectoryMatches,
@@ -32,10 +32,18 @@ import {
 } from "./corpus.ts";
 import { isOwnerSessionDigest, isSlateSessionId } from "./session-identity.ts";
 import { isSlateSessionName } from "./session-names.ts";
+import {
+	CanonicalRuntimeDecodeError,
+	decodeCanonicalRuntime,
+	type CanonicalRuntimeState,
+} from "./state.ts";
 
 export const DURABLE_SESSION_POLICY = "durable-session-v1" as const;
 export type DurableSessionStatus = "active" | "delivered" | "abandoned";
 export type DurableTerminalOutcome = Exclude<DurableSessionStatus, "active">;
+
+/** Complete Slate-owned runtime data stored only in the external namespace. */
+export interface CanonicalSlateRuntime extends CanonicalRuntimeState {}
 
 export interface DurableSessionMetadata {
 	policy: typeof DURABLE_SESSION_POLICY;
@@ -48,14 +56,49 @@ export interface DurableSessionMetadata {
 	creatorOwnerDigest: string;
 }
 
+interface DurableSessionStateBase {
+	generation: number;
+	ownerSessionDigest: string;
+	runtime: CanonicalSlateRuntime;
+}
+
 export type DurableSessionState =
-	| { generation: number; status: "active" }
-	| { generation: number; status: DurableTerminalOutcome; terminalAt: string };
+	| (DurableSessionStateBase & { status: "active" })
+	| (DurableSessionStateBase & { status: DurableTerminalOutcome; terminalAt: string });
 
 export interface DurableSessionRecord {
 	directory: string;
 	metadata: DurableSessionMetadata;
 	state: DurableSessionState;
+}
+
+export type DurableRevisionConflictReason = "generation" | "terminal" | "metadata" | "owner" | "state";
+
+/** The attempted mutation no longer follows the external revision that authorized it. */
+export class DurableRevisionConflict extends SlateWriteRefused {
+	readonly reason: DurableRevisionConflictReason;
+
+	constructor(reason: DurableRevisionConflictReason, message: string) {
+		super(message);
+		this.name = "DurableRevisionConflict";
+		this.reason = reason;
+	}
+}
+
+/** A rename became visible, but final directory durability could not be established. */
+export class DurableCommitUncertain extends SlateWriteRefused {
+	readonly operation: "create" | "update";
+	readonly record: DurableSessionRecord | undefined;
+
+	constructor(operation: "create" | "update", record: DurableSessionRecord | undefined, cause: unknown) {
+		super(
+			`slate published a durable session ${operation}, but directory synchronization is uncertain`,
+			{ cause },
+		);
+		this.name = "DurableCommitUncertain";
+		this.operation = operation;
+		this.record = record;
+	}
 }
 
 export type DurableDirectorySyncPoint =
@@ -85,7 +128,8 @@ export interface DurableSessionHooks {
 
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
-const RECORD_MAX_BYTES = 64 * 1024;
+const METADATA_MAX_BYTES = 64 * 1024;
+const STATE_MAX_BYTES = 1024 * 1024;
 const NO_FOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 const NON_BLOCK = typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOCK : 0;
 const METADATA_KEYS = [
@@ -101,6 +145,10 @@ const METADATA_KEYS = [
 
 function refuse(message: string, cause?: unknown): never {
 	throw new SlateWriteRefused(message, cause === undefined ? undefined : { cause });
+}
+
+function refuseRevision(reason: DurableRevisionConflictReason, message: string): never {
+	throw new DurableRevisionConflict(reason, message);
 }
 
 function exactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
@@ -161,7 +209,43 @@ function validateMetadata(raw: unknown, project: CorpusProject, name: string, id
 	return value as unknown as DurableSessionMetadata;
 }
 
-function validateState(raw: unknown): DurableSessionState {
+interface RuntimeDecodeContext {
+	metadata: DurableSessionMetadata;
+	directory: HeldCorpusDirectory;
+	canonicalDirectory: string;
+}
+
+function existingCanonicalArtifact(context: RuntimeDecodeContext, absolutePath: string): boolean {
+	try {
+		const suffix = relative(context.canonicalDirectory, absolutePath);
+		const actualPath = join(context.directory.path, suffix);
+		const entry = lstatSync(actualPath, { throwIfNoEntry: false });
+		return singleNamedRecord(entry) && realpathSync(actualPath) === actualPath
+			&& corpusDirectoryMatches(context.directory);
+	} catch {
+		return false;
+	}
+}
+
+function decodeRuntime(raw: unknown, ownerSessionDigest: string, context: RuntimeDecodeContext): CanonicalSlateRuntime {
+	try {
+		return decodeCanonicalRuntime({
+			runtime: raw,
+			externalIdentity: context.metadata.identity,
+			externalOwnerSessionDigest: ownerSessionDigest,
+			expectedIdentity: context.metadata.identity,
+			expectedOwnerSessionDigest: ownerSessionDigest,
+			namespaceName: context.metadata.name,
+			namespaceDirectory: context.canonicalDirectory,
+			artifactPathAllowed: (_kind, path) => existingCanonicalArtifact(context, path),
+		});
+	} catch (error) {
+		if (error instanceof CanonicalRuntimeDecodeError) refuse(error.message, error);
+		throw error;
+	}
+}
+
+function validateState(raw: unknown, context: RuntimeDecodeContext): DurableSessionState {
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
 		refuse("slate refused durable session state that is not an object");
 	}
@@ -169,17 +253,35 @@ function validateState(raw: unknown): DurableSessionState {
 	if (!Number.isSafeInteger(value.generation) || (value.generation as number) < 0) {
 		refuse("slate refused an invalid durable session generation");
 	}
-	if (value.status === "active") {
-		if (!exactKeys(value, ["generation", "status"])) refuse("slate refused malformed active durable session state");
-		return value as unknown as DurableSessionState;
+	if (!isOwnerSessionDigest(value.ownerSessionDigest)) {
+		refuse("slate refused durable session state with an invalid mutation owner");
 	}
-	if (value.status === "delivered" || value.status === "abandoned") {
-		if (!exactKeys(value, ["generation", "status", "terminalAt"]) || !canonicalTimestamp(value.terminalAt)) {
+	let status: DurableSessionStatus;
+	let terminalAt: string | undefined;
+	if (value.status === "active") {
+		if (!exactKeys(value, ["generation", "status", "ownerSessionDigest", "runtime"])) {
+			refuse("slate refused malformed active durable session state");
+		}
+		status = "active";
+	} else if (value.status === "delivered" || value.status === "abandoned") {
+		if (!exactKeys(value, ["generation", "status", "terminalAt", "ownerSessionDigest", "runtime"])
+			|| !canonicalTimestamp(value.terminalAt)) {
 			refuse("slate refused malformed terminal durable session state");
 		}
-		return value as unknown as DurableSessionState;
+		status = value.status;
+		terminalAt = value.terminalAt;
+	} else {
+		refuse("slate refused an unsupported durable session status");
 	}
-	refuse("slate refused an unsupported durable session status");
+	const runtime = decodeRuntime(value.runtime, value.ownerSessionDigest, context);
+	const base = {
+		generation: value.generation as number,
+		ownerSessionDigest: value.ownerSessionDigest,
+		runtime,
+	};
+	return status === "active"
+		? { ...base, status }
+		: { ...base, status, terminalAt: terminalAt! };
 }
 
 function assertProjectShape(project: CorpusProject): void {
@@ -213,7 +315,7 @@ function sessionDirectory(project: CorpusProject, name: string): string {
 	return join(project.directory, name);
 }
 
-function readJsonFile(file: string, directory: HeldCorpusDirectory): unknown {
+function readJsonFile(file: string, directory: HeldCorpusDirectory, maxBytes: number): unknown {
 	if (dirname(file) !== directory.path || !corpusDirectoryMatches(directory)) {
 		refuse("slate refused a durable session record outside its namespace");
 	}
@@ -224,18 +326,18 @@ function readJsonFile(file: string, directory: HeldCorpusDirectory): unknown {
 		fd = openSync(file, constants.O_RDONLY | NO_FOLLOW | NON_BLOCK);
 		const held = fstatSync(fd);
 		const current = lstatSync(file, { throwIfNoEntry: false });
-		if (!singleNamedRecord(held) || held.size > RECORD_MAX_BYTES || !singleNamedRecord(current)
+		if (!singleNamedRecord(held) || held.size > maxBytes || !singleNamedRecord(current)
 			|| !sameFileIdentity(held, current!) || !corpusDirectoryMatches(directory)) {
 			refuse("slate refused a linked, oversized, or changing durable session record");
 		}
-		const bytes = Buffer.alloc(RECORD_MAX_BYTES + 1);
+		const bytes = Buffer.alloc(maxBytes + 1);
 		let used = 0;
 		while (used < bytes.byteLength) {
 			const count = readSync(fd, bytes, used, bytes.byteLength - used, null);
 			if (count === 0) break;
 			used += count;
 		}
-		if (used > RECORD_MAX_BYTES) refuse("slate refused an oversized durable session record");
+		if (used > maxBytes) refuse("slate refused an oversized durable session record");
 		let text: string;
 		try {
 			text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, used));
@@ -263,13 +365,14 @@ function writeExclusiveJson(
 	file: string,
 	value: unknown,
 	directory: HeldCorpusDirectory,
+	maxBytes: number,
 	hooks?: DurableSessionHooks,
 ): Stats {
 	if (dirname(file) !== directory.path || !corpusDirectoryMatches(directory)) {
 		refuse("slate refused a durable session write outside its namespace");
 	}
 	const content = `${JSON.stringify(value, null, 2)}\n`;
-	if (Buffer.byteLength(content, "utf8") > RECORD_MAX_BYTES) refuse("slate refused an oversized durable session record");
+	if (Buffer.byteLength(content, "utf8") > maxBytes) refuse("slate refused an oversized durable session record");
 	let fd: number | undefined;
 	try {
 		fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW, PRIVATE_FILE_MODE);
@@ -300,6 +403,8 @@ function sameMetadata(left: DurableSessionMetadata, right: DurableSessionMetadat
 
 function sameState(left: DurableSessionState, right: DurableSessionState): boolean {
 	return left.generation === right.generation && left.status === right.status
+		&& left.ownerSessionDigest === right.ownerSessionDigest
+		&& JSON.stringify(left.runtime) === JSON.stringify(right.runtime)
 		&& (left.status === "active" || (right.status !== "active" && left.terminalAt === right.terminalAt));
 }
 
@@ -323,8 +428,15 @@ function validateNamespace(
 ): { metadata: DurableSessionMetadata; state: DurableSessionState } {
 	if (!corpusDirectoryMatches(directory)) refuse("slate refused a changing durable session namespace");
 	assertRequiredDirectories(directory);
-	const metadata = validateMetadata(readJsonFile(join(directory.path, "session.json"), directory), project, name);
-	const state = validateState(readJsonFile(join(directory.path, "state.json"), directory));
+	const metadata = validateMetadata(
+		readJsonFile(join(directory.path, "session.json"), directory, METADATA_MAX_BYTES),
+		project,
+		name,
+	);
+	const state = validateState(
+		readJsonFile(join(directory.path, "state.json"), directory, STATE_MAX_BYTES),
+		{ metadata, directory, canonicalDirectory: sessionDirectory(project, name) },
+	);
 	if (expectedMetadata !== undefined && !sameMetadata(metadata, expectedMetadata)) {
 		refuse("slate refused durable session metadata modified before publication");
 	}
@@ -362,7 +474,7 @@ function assertIdentityAvailable(project: CorpusProject, identity: string): void
 		}
 		const held = holdCorpusDirectory(path);
 		try {
-			const raw = readJsonFile(join(path, "session.json"), held);
+			const raw = readJsonFile(join(path, "session.json"), held, METADATA_MAX_BYTES);
 			if (typeof raw === "object" && raw !== null && !Array.isArray(raw)
 				&& !("policy" in raw) && validLegacyMetadata(raw, name)) {
 				continue;
@@ -397,7 +509,7 @@ function openDurableSession(options: {
 	try {
 		assertRequiredDirectories(held);
 		const metadata = validateMetadata(
-			readJsonFile(join(directory, "session.json"), held),
+			readJsonFile(join(directory, "session.json"), held, METADATA_MAX_BYTES),
 			options.project,
 			options.name,
 			options.identity,
@@ -408,7 +520,10 @@ function openDurableSession(options: {
 				refuse("slate refused durable session mutation from a different current directory");
 			}
 		}
-		const state = validateState(readJsonFile(join(directory, "state.json"), held));
+		const state = validateState(
+			readJsonFile(join(directory, "state.json"), held, STATE_MAX_BYTES),
+			{ metadata, directory: held, canonicalDirectory: directory },
+		);
 		return { directory, metadata, state, held };
 	} catch (error) {
 		closeSync(held.fd);
@@ -421,6 +536,7 @@ export function createDurableSession(options: {
 	identity: string;
 	name: string;
 	creatorOwnerDigest: string;
+	runtime: CanonicalSlateRuntime;
 	project?: CorpusProject;
 	corpusName?: unknown;
 	now?: Date;
@@ -453,12 +569,12 @@ export function createDurableSession(options: {
 		projectDigest: project.digest,
 		creatorOwnerDigest: options.creatorOwnerDigest,
 	};
-	const state: DurableSessionState = { generation: 0, status: "active" };
 	validateMetadata(metadata, project, options.name, options.identity);
-	validateState(state);
 	const directory = sessionDirectory(project, options.name);
 	const projectHeld = holdCorpusDirectory(project.directory);
 	let stagingHeld: HeldCorpusDirectory | undefined;
+	let stagedState: DurableSessionState | undefined;
+	let publicationVisible = false;
 	let staging = "";
 	try {
 		if (lstatSync(directory, { throwIfNoEntry: false }) !== undefined) {
@@ -471,15 +587,25 @@ export function createDurableSession(options: {
 		for (const category of ["episodes", "observations", "threads"]) {
 			mkdirSync(join(staging, category), { mode: PRIVATE_DIRECTORY_MODE });
 		}
-		writeExclusiveJson(join(staging, "session.json"), metadata, stagingHeld, options.hooks);
-		writeExclusiveJson(join(staging, "state.json"), state, stagingHeld, options.hooks);
+		stagedState = {
+			generation: 0,
+			status: "active",
+			ownerSessionDigest: options.creatorOwnerDigest,
+			runtime: decodeRuntime(options.runtime, options.creatorOwnerDigest, {
+				metadata,
+				directory: stagingHeld,
+				canonicalDirectory: directory,
+			}),
+		};
+		writeExclusiveJson(join(staging, "session.json"), metadata, stagingHeld, METADATA_MAX_BYTES, options.hooks);
+		writeExclusiveJson(join(staging, "state.json"), stagedState, stagingHeld, STATE_MAX_BYTES, options.hooks);
 		syncDirectory(stagingHeld, "staged-namespace", options.hooks);
 		syncDirectory(projectHeld, "project-before-publication", options.hooks);
 		options.hooks?.beforeNamespacePublish?.(staging);
 		if (!corpusDirectoryMatches(stagingHeld) || !corpusDirectoryMatches(projectHeld)) {
 			refuse("slate refused a changing staged durable session namespace");
 		}
-		validateNamespace(project, options.name, stagingHeld, metadata, state);
+		validateNamespace(project, options.name, stagingHeld, metadata, stagedState);
 		if (lstatSync(directory, { throwIfNoEntry: false }) !== undefined) {
 			refuse("slate refused duplicate durable session publication");
 		}
@@ -493,14 +619,29 @@ export function createDurableSession(options: {
 			}
 			throw error;
 		}
-		if (!corpusDirectoryMatches(stagingHeld, directory) || !corpusDirectoryMatches(projectHeld)) {
+		publicationVisible = true;
+		stagingHeld.path = directory;
+		if (!corpusDirectoryMatches(stagingHeld) || !corpusDirectoryMatches(projectHeld)) {
 			refuse("slate refused a durable session namespace modified during publication");
 		}
-		stagingHeld.path = directory;
-		validateNamespace(project, options.name, stagingHeld, metadata, state);
+		const committed = validateNamespace(project, options.name, stagingHeld, metadata, stagedState);
 		syncDirectory(projectHeld, "project-after-publication", options.hooks);
-		return { directory, metadata, state };
+		return { directory, metadata: committed.metadata, state: committed.state };
 	} catch (error) {
+		if (publicationVisible && stagingHeld !== undefined) {
+			let record: DurableSessionRecord | undefined;
+			let cause = error;
+			try {
+				const reconciled = validateNamespace(project, options.name, stagingHeld, metadata);
+				if (reconciled.state.ownerSessionDigest !== options.creatorOwnerDigest) {
+					refuse("slate refused reconciled durable session state owned by a different session");
+				}
+				record = { directory, metadata: reconciled.metadata, state: reconciled.state };
+			} catch (reconcileError) {
+				cause = new AggregateError([error, reconcileError], "visible durable session publication could not be reconciled");
+			}
+			throw new DurableCommitUncertain("create", record, cause);
+		}
 		throw error instanceof SlateWriteRefused
 			? error
 			: new SlateWriteRefused("slate could not publish its durable session namespace", { cause: error });
@@ -531,12 +672,17 @@ function replaceState(options: {
 	identity: string;
 	cwd: string;
 	expectedGeneration: number;
+	ownerSessionDigest: string;
 	nextStatus: DurableSessionStatus;
+	runtime?: CanonicalSlateRuntime;
 	terminalAt?: string;
 	hooks?: DurableSessionHooks;
 }): DurableSessionRecord {
 	if (!Number.isSafeInteger(options.expectedGeneration) || options.expectedGeneration < 0) {
 		refuse("slate refused an invalid expected durable session generation");
+	}
+	if (!isOwnerSessionDigest(options.ownerSessionDigest)) {
+		refuse("slate refused an invalid durable session mutation owner");
 	}
 	let nonce: string;
 	try {
@@ -558,33 +704,65 @@ function replaceState(options: {
 	const stateFile = join(opened.directory, "state.json");
 	const staging = join(options.project.directory, `.staging-durable-state-${options.name}-${process.pid}-${nonce}.tmp`);
 	let stagingStat: Stats | undefined;
+	let candidate: DurableSessionState | undefined;
+	let publicationVisible = false;
 	try {
-		if (opened.state.status !== "active") refuse("slate refused mutation of a terminal durable session");
+		if (opened.state.status !== "active") {
+			refuseRevision("terminal", "slate refused mutation of a terminal durable session");
+		}
+		if (opened.state.ownerSessionDigest !== options.ownerSessionDigest) {
+			refuseRevision("owner", "slate refused durable session mutation by a different owner");
+		}
 		if (opened.state.generation !== options.expectedGeneration) {
-			refuse(`slate refused durable session generation mismatch: expected ${options.expectedGeneration}, found ${opened.state.generation}`);
+			refuseRevision("generation", `slate refused durable session generation mismatch: expected ${options.expectedGeneration}, found ${opened.state.generation}`);
 		}
 		const nextGeneration = options.expectedGeneration + 1;
 		if (!Number.isSafeInteger(nextGeneration)) refuse("slate refused durable session generation exhaustion");
-		const candidate: DurableSessionState = options.nextStatus === "active"
-			? { generation: nextGeneration, status: "active" }
-			: { generation: nextGeneration, status: options.nextStatus, terminalAt: options.terminalAt! };
-		validateState(candidate);
-		stagingStat = writeExclusiveJson(staging, candidate, projectHeld, options.hooks);
+		candidate = options.nextStatus === "active"
+			? {
+				generation: nextGeneration,
+				status: "active",
+				ownerSessionDigest: opened.state.ownerSessionDigest,
+				runtime: decodeRuntime(options.runtime, opened.state.ownerSessionDigest, {
+					metadata: opened.metadata,
+					directory: opened.held,
+					canonicalDirectory: opened.directory,
+				}),
+			}
+			: {
+				generation: nextGeneration,
+				status: options.nextStatus,
+				terminalAt: options.terminalAt!,
+				ownerSessionDigest: opened.state.ownerSessionDigest,
+				runtime: opened.state.runtime,
+			};
+		stagingStat = writeExclusiveJson(staging, candidate, projectHeld, STATE_MAX_BYTES, options.hooks);
 		syncDirectory(projectHeld, "staged-state", options.hooks);
 		options.hooks?.beforeGenerationRecheck?.();
 		const currentMetadata = validateMetadata(
-			readJsonFile(join(opened.directory, "session.json"), opened.held),
+			readJsonFile(join(opened.directory, "session.json"), opened.held, METADATA_MAX_BYTES),
 			options.project,
 			options.name,
 			options.identity,
 		);
 		if (!sameMetadata(currentMetadata, opened.metadata)) {
-			refuse("slate refused durable session metadata modified during state replacement");
+			refuseRevision("metadata", "slate refused durable session metadata modified during state replacement");
 		}
-		const current = validateState(readJsonFile(stateFile, opened.held));
-		if (current.status !== "active") refuse("slate refused mutation of a terminal durable session");
+		const current = validateState(
+			readJsonFile(stateFile, opened.held, STATE_MAX_BYTES),
+			{ metadata: opened.metadata, directory: opened.held, canonicalDirectory: opened.directory },
+		);
+		if (current.status !== "active") {
+			refuseRevision("terminal", "slate refused mutation of a terminal durable session");
+		}
+		if (current.ownerSessionDigest !== options.ownerSessionDigest) {
+			refuseRevision("owner", "slate refused durable session mutation by a different owner");
+		}
 		if (current.generation !== options.expectedGeneration) {
-			refuse(`slate refused durable session generation mismatch: expected ${options.expectedGeneration}, found ${current.generation}`);
+			refuseRevision("generation", `slate refused durable session generation mismatch: expected ${options.expectedGeneration}, found ${current.generation}`);
+		}
+		if (!sameState(current, opened.state)) {
+			refuseRevision("state", "slate refused durable session state modified during replacement");
 		}
 		const stagedBeforeRename = lstatSync(staging, { throwIfNoEntry: false });
 		if (!singleNamedRecord(stagedBeforeRename) || !sameFileIdentity(stagingStat, stagedBeforeRename!)
@@ -597,6 +775,7 @@ function replaceState(options: {
 		 * that final race window. This layer adds no lock, lease, or writer coordinator.
 		 */
 		renameSync(staging, stateFile);
+		publicationVisible = true;
 		const published = lstatSync(stateFile, { throwIfNoEntry: false });
 		if (!singleNamedRecord(published) || !sameFileIdentity(stagingStat, published!)
 			|| !corpusDirectoryMatches(opened.held) || !corpusDirectoryMatches(projectHeld)) {
@@ -604,12 +783,34 @@ function replaceState(options: {
 		}
 		syncDirectory(opened.held, "published-state", options.hooks);
 		syncDirectory(projectHeld, "project-after-state-publication", options.hooks);
-		const committed = validateState(readJsonFile(stateFile, opened.held));
-		if (committed.generation !== nextGeneration || committed.status !== candidate.status) {
+		const committed = validateState(
+			readJsonFile(stateFile, opened.held, STATE_MAX_BYTES),
+			{ metadata: opened.metadata, directory: opened.held, canonicalDirectory: opened.directory },
+		);
+		if (!sameState(committed, candidate)) {
 			refuse("slate refused an unexpected durable session state after replacement");
 		}
 		return { directory: opened.directory, metadata: opened.metadata, state: committed };
 	} catch (error) {
+		if (publicationVisible) {
+			let record: DurableSessionRecord | undefined;
+			let cause = error;
+			try {
+				const reconciled = validateNamespace(
+					options.project,
+					options.name,
+					opened.held,
+					opened.metadata,
+				);
+				if (reconciled.state.ownerSessionDigest !== options.ownerSessionDigest) {
+					refuse("slate refused reconciled durable session state owned by a different session");
+				}
+				record = { directory: opened.directory, metadata: reconciled.metadata, state: reconciled.state };
+			} catch (reconcileError) {
+				cause = new AggregateError([error, reconcileError], "visible durable state replacement could not be reconciled");
+			}
+			throw new DurableCommitUncertain("update", record, cause);
+		}
 		throw error instanceof SlateWriteRefused
 			? error
 			: new SlateWriteRefused("slate could not replace durable session state", { cause: error });
@@ -626,6 +827,8 @@ export function updateDurableSession(options: {
 	identity: string;
 	cwd: string;
 	expectedGeneration: number;
+	ownerSessionDigest: string;
+	runtime: CanonicalSlateRuntime;
 	hooks?: DurableSessionHooks;
 }): DurableSessionRecord {
 	return replaceState({ ...options, nextStatus: "active" });
@@ -637,6 +840,7 @@ export function closeDurableSession(options: {
 	identity: string;
 	cwd: string;
 	expectedGeneration: number;
+	ownerSessionDigest: string;
 	outcome: DurableTerminalOutcome;
 	now?: Date;
 	hooks?: DurableSessionHooks;

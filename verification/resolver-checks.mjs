@@ -394,7 +394,17 @@ const ROUTER_IDS = [
 ];
 const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-price", "profiles-price-values", "profiles-price-dates", "profiles-price-identity", "profiles-price-long-context", "profiles-meta"];
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
-const STATE_IDS = ["spec-invisible", "spec-config-key", "state-snapshot-identity", "state-thread-record", "state-episode-record"];
+const STATE_IDS = [
+	"spec-invisible",
+	"spec-config-key",
+	"state-snapshot-identity",
+	"state-thread-record",
+	"state-episode-record",
+	"state-runtime-root",
+	"state-runtime-records",
+	"state-runtime-graph",
+	"state-runtime-artifacts",
+];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
 const DOCTRINE_IDS = [
 	"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace",
@@ -6148,14 +6158,14 @@ production behaviour.`);
 				["...and reports no repair at all", roundTrip.repairs.length === 0, roundTrip.repairs],
 				["every unaddressable shape is dropped", kept.length === 0, kept],
 				["...silently, because the caller writes that note", noisy.length === 0, noisy],
-				["a live status is normalised to idle, silently", running.out?.status === "idle" && running.repairs.length === 0, [running.out?.status, running.repairs]],
+				["a live status is normalised to idle with a repair notice", running.out?.status === "idle" && /status \(string\)/.test(running.repairs.join()), [running.out?.status, running.repairs]],
 				["a wrong-typed name falls back to the id, noted", nameBad.out?.name === "t1" && nameBad.repairs.join() === "thread t1: ignoring name (number)", [nameBad.out?.name, nameBad.repairs]],
 				["a wrong-typed sessionFile falls back to empty, noted as an object", fileBad.out?.sessionFile === "" && /sessionFile \(object\)/.test(fileBad.repairs.join()), [fileBad.out?.sessionFile, fileBad.repairs]],
 				["a non-finite episodeSeq falls back to the id count, noted", seqBad.out?.episodeSeq === 0 && /episodeSeq \(number\)/.test(seqBad.repairs.join()), [seqBad.out?.episodeSeq, seqBad.repairs]],
 				["...and an absent one is derived from the ids, silently", seqFromIds.out?.episodeSeq === 2 && seqFromIds.repairs.length === 0, [seqFromIds.out?.episodeSeq, seqFromIds.repairs]],
 				["a wrong-typed timestamp becomes a real number, noted", typeof stampBad.out?.createdAt === "number" && /createdAt \(string\)/.test(stampBad.repairs.join()), [stampBad.out?.createdAt, stampBad.repairs]],
 				["a non-array episodeIds becomes empty, noted", JSON.stringify(idsBad.out?.episodeIds) === "[]" && /episodeIds \(string\)/.test(idsBad.repairs.join()), [idsBad.out?.episodeIds, idsBad.repairs]],
-				["...while a mixed array keeps its strings, silently", JSON.stringify(idsMixed.out?.episodeIds) === '["a","b"]' && idsMixed.repairs.length === 0, [idsMixed.out?.episodeIds, idsMixed.repairs]],
+				["...while a mixed array keeps its strings and reports the dropped values", JSON.stringify(idsMixed.out?.episodeIds) === '["a","b"]' && /episodeIds \(object\)/.test(idsMixed.repairs.join()), [idsMixed.out?.episodeIds, idsMixed.repairs]],
 				["a malformed-but-STRING type, spec or level survives untouched", padded.out?.type === "future-type" && padded.out?.model === "  p/x  " && padded.out?.baseModel === "not a spec" && padded.out?.baseEffort === "HIGH", padded.out],
 				["...and is not reported as a repair, because nothing was repaired", padded.repairs.length === 0, padded.repairs],
 				["a non-string type IS dropped and noted", typeBad.out?.type === undefined && /type \(number\)/.test(typeBad.repairs.join()), [typeBad.out?.type, typeBad.repairs]],
@@ -6303,6 +6313,164 @@ production behaviour.`);
 				["every field the ADOPTION CHECKLIST names comes back, and no other (CQ22)", adoptedKeys.length > 0 && unadopted.length === 0 && surplus.length === 0, { unadopted, surplus, adoptedKeys }],
 				["...and that all-fields record round-trips byte-identically too", JSON.stringify(everyRoundTrip.out) === JSON.stringify(everyField) && everyRoundTrip.repairs.length === 0, [everyRoundTrip.out, everyRoundTrip.repairs]],
 				["...a field the snapshot has and the build lost is reported as a SLATE BUG, by name", lost.length === adoptedKeys.length - 1 && lost.every((m) => /^episode e: field \w+ is in the snapshot but adoption does not handle it \(slate bug\)/.test(m)), lost],
+			]);
+		});
+
+		const runtimeIdentity = "20260827T010203Z-0123456789abcdef";
+		const runtimeOwner = "a".repeat(64);
+		const runtimeName = "calm-otter-7f3a";
+		const runtimeDirectory = join(WORK, runtimeName);
+		const runtimeFixture = () => ({
+			threads: [
+				{ id: "t1", name: "source", sessionFile: join(runtimeDirectory, "threads", "t1.jsonl"), forkedFrom: join(runtimeDirectory, "threads", "imported.jsonl"), status: "idle", supersededBy: "t2", episodeIds: ["t1.e1"], episodeSeq: 1, createdAt: 1, updatedAt: 2 },
+				{ id: "t2", name: "successor", sessionFile: join(runtimeDirectory, "threads", "t2.jsonl"), status: "idle", restartOf: "t1", restartGeneration: 1, episodeIds: [], episodeSeq: 0, createdAt: 3, updatedAt: 4 },
+			],
+			episodes: [{
+				id: "t1.e1",
+				threadId: "t1",
+				task: "decode",
+				status: "ok",
+				file: join(runtimeDirectory, "episodes", "t1.e1.md"),
+				observations: { stored: true, path: `.pi/slate/sessions/${runtimeName}/observations/t1.e1.md`, bytes: 1, truncated: false, grammar: "present" },
+				createdAt: 5,
+			}],
+			threadSeq: 2,
+			slateSessionParentChain: [{ identity: "20260826T010203Z-fedcba9876543210", name: "brisk-bison-abcd" }],
+			orchestratorMode: true,
+			paused: false,
+			workerCostUsd: 1.25,
+			carriedCostUsd: 0.5,
+		});
+		const runtimeOptions = (runtime = runtimeFixture()) => ({
+			runtime,
+			externalIdentity: runtimeIdentity,
+			externalOwnerSessionDigest: runtimeOwner,
+			expectedIdentity: runtimeIdentity,
+			expectedOwnerSessionDigest: runtimeOwner,
+			namespaceName: runtimeName,
+			namespaceDirectory: runtimeDirectory,
+			artifactPathAllowed: () => true,
+		});
+		const runtimeRefuses = (mutate, override = {}) => {
+			const runtime = runtimeFixture();
+			mutate(runtime);
+			try {
+				state.decodeCanonicalRuntime({ ...runtimeOptions(runtime), ...override });
+				return false;
+			} catch (error) {
+				return error?.name === "CanonicalRuntimeDecodeError";
+			}
+		};
+		const runtimeMutationOutcome = ([label, mutate]) => {
+			const runtime = runtimeFixture();
+			const before = JSON.stringify(runtime);
+			mutate(runtime);
+			let refused = false;
+			try {
+				state.decodeCanonicalRuntime(runtimeOptions(runtime));
+			} catch (error) {
+				refused = error?.name === "CanonicalRuntimeDecodeError";
+			}
+			return { label, changed: JSON.stringify(runtime) !== before, refused };
+		};
+
+		await section("state-runtime-root", async () => {
+			const source = runtimeFixture();
+			const decoded = state.decodeCanonicalRuntime(runtimeOptions(source));
+			const zeroCost = runtimeFixture();
+			zeroCost.workerCostUsd = 0;
+			zeroCost.carriedCostUsd = 0;
+			const rootMutations = [
+				["missing field", (runtime) => { delete runtime.paused; }],
+				["unknown field", (runtime) => { runtime.unknown = true; }],
+				["fractional sequence", (runtime) => { runtime.threadSeq = 1.5; }],
+				["negative worker cost", (runtime) => { runtime.workerCostUsd = -1; }],
+				["non-finite carried cost", (runtime) => { runtime.carriedCostUsd = Number.NaN; }],
+				["malformed parent", (runtime) => { runtime.slateSessionParentChain[0].name = "bad/name"; }],
+				["duplicate parent", (runtime) => { runtime.slateSessionParentChain.push({ ...runtime.slateSessionParentChain[0] }); }],
+			];
+			const rootOutcomes = rootMutations.map(runtimeMutationOutcome);
+			checkAll("state-runtime-root", "canonical external decoding requires an exact plain-data root, relationship, parent chain, counters, and costs", [
+				["a valid missing-artifact fixture decodes equivalently", JSON.stringify(decoded) === JSON.stringify(source), decoded],
+				["zero is a valid cost", JSON.stringify(state.decodeCanonicalRuntime(runtimeOptions(zeroCost))) === JSON.stringify(zeroCost), zeroCost],
+				["a non-object root is refused", runtimeRefuses(() => {}, { runtime: [] }), []],
+				["identity mismatch is refused", runtimeRefuses(() => {}, { externalIdentity: "20260827T010203Z-1111111111111111" }), runtimeIdentity],
+				["owner mismatch is refused", runtimeRefuses(() => {}, { externalOwnerSessionDigest: "b".repeat(64) }), runtimeOwner],
+				["invalid namespace relationship is refused", runtimeRefuses(() => {}, { namespaceDirectory: join(runtimeDirectory, "nested") }), runtimeDirectory],
+				["every root mutation changes its fixture and is defeated", rootOutcomes.every((outcome) => outcome.changed && outcome.refused), rootOutcomes],
+			]);
+		});
+
+		await section("state-runtime-records", async () => {
+			const mutations = [
+				["thread missing", (runtime) => { delete runtime.threads[0].name; }],
+				["thread unknown", (runtime) => { runtime.threads[0].unknown = true; }],
+				["thread silent normalization", (runtime) => { runtime.threads[0].status = "running"; }],
+				["thread counter repair", (runtime) => { runtime.threads[0].episodeSeq = -1; }],
+				["episode missing", (runtime) => { delete runtime.episodes[0].task; }],
+				["episode unknown", (runtime) => { runtime.episodes[0].unknown = true; }],
+				["episode status repair", (runtime) => { runtime.episodes[0].status = "other"; }],
+				["token repair", (runtime) => { runtime.episodes[0].input = 1.5; }],
+				["cost repair", (runtime) => { runtime.episodes[0].compressorCostUsd = -1; }],
+				["nested counter repair", (runtime) => { runtime.episodes[0].compressorUsage = { input: -1 }; }],
+			];
+			const outcomes = mutations.map(runtimeMutationOutcome);
+			checkAll("state-runtime-records", "canonical records reject missing or unknown fields and every explicit or silent sanitizer repair", [
+				["the mutation roster is complete", outcomes.length === 10, outcomes.map((outcome) => outcome.label)],
+				["every record mutation changes its fixture and is defeated", outcomes.every((outcome) => outcome.changed && outcome.refused), outcomes],
+			]);
+		});
+
+		await section("state-runtime-graph", async () => {
+			const mutations = [
+				["duplicate thread", (runtime) => { runtime.threads.push(structuredClone(runtime.threads[0])); }],
+				["duplicate episode", (runtime) => { runtime.episodes.push(structuredClone(runtime.episodes[0])); }],
+				["missing episode", (runtime) => { runtime.episodes.length = 0; }],
+				["unlisted episode", (runtime) => { runtime.threads[0].episodeIds = []; }],
+				["duplicate reference", (runtime) => { runtime.threads[0].episodeIds.push("t1.e1"); }],
+				["foreign reference", (runtime) => { runtime.threads[0].episodeIds[0] = "t2.e1"; }],
+				["stale episode counter", (runtime) => { runtime.threads[0].episodeSeq = 0; }],
+				["stale thread sequence", (runtime) => { runtime.threadSeq = 1; }],
+				["missing restart source", (runtime) => { runtime.threads[1].restartOf = "t9"; }],
+				["missing restart backlink", (runtime) => { delete runtime.threads[0].supersededBy; }],
+				["wrong restart generation", (runtime) => { runtime.threads[1].restartGeneration = 2; }],
+				["restart cycle", (runtime) => { runtime.threads[0].restartOf = "t2"; runtime.threads[0].restartGeneration = 2; runtime.threads[1].supersededBy = "t1"; }],
+				["shared writable transcript", (runtime) => { runtime.threads[1].sessionFile = runtime.threads[0].sessionFile; }],
+			];
+			const outcomes = mutations.map(runtimeMutationOutcome);
+			checkAll("state-runtime-graph", "thread and episode identifiers form one complete graph with monotone counters and acyclic reciprocal restart links", [
+				["the independent graph-mutation roster is complete", outcomes.length === 13, outcomes.map((outcome) => outcome.label)],
+				["every graph mutation changes its fixture and is defeated", outcomes.every((outcome) => outcome.changed && outcome.refused), outcomes],
+			]);
+		});
+
+		await section("state-runtime-artifacts", async () => {
+			const mutations = [
+				["outside transcript", (runtime) => { runtime.threads[0].sessionFile = join(WORK, "outside.jsonl"); }],
+				["nested transcript", (runtime) => { runtime.threads[0].sessionFile = join(runtimeDirectory, "threads", "nested", "t1.jsonl"); }],
+				["wrong transcript suffix", (runtime) => { runtime.threads[0].sessionFile = join(runtimeDirectory, "threads", "t1.txt"); }],
+				["outside fork", (runtime) => { runtime.threads[0].forkedFrom = join(WORK, "source.jsonl"); }],
+				["self fork", (runtime) => { runtime.threads[0].forkedFrom = runtime.threads[0].sessionFile; }],
+				["wrong episode path", (runtime) => { runtime.episodes[0].file = join(runtimeDirectory, "episodes", "t2.e1.md"); }],
+				["legacy observation", (runtime) => { runtime.episodes[0].observations.path = ".pi/slate/observations/t1.e1.md"; }],
+				["sibling observation", (runtime) => { runtime.episodes[0].observations.path = ".pi/slate/sessions/brisk-bison-abcd/observations/t1.e1.md"; }],
+			];
+			const outcomes = mutations.map(runtimeMutationOutcome);
+			const artifactKinds = ["thread-session", "thread-fork", "episode", "observation"];
+			const rejectedKinds = artifactKinds.map((rejectedKind) => ({
+				kind: rejectedKind,
+				falseRefused: runtimeRefuses(() => {}, { artifactPathAllowed: (kind) => kind !== rejectedKind }),
+				throwRefused: runtimeRefuses(() => {}, { artifactPathAllowed: (kind) => {
+					if (kind === rejectedKind) throw new Error("unreadable path");
+					return true;
+				} }),
+			}));
+			checkAll("state-runtime-artifacts", "canonical artifact references require an independently accepted physical artifact of every declared kind", [
+				["an accepted complete artifact fixture decodes", state.decodeCanonicalRuntime(runtimeOptions()).episodes[0].id === "t1.e1", runtimeDirectory],
+				["every artifact kind independently refuses false and throwing physical checks", rejectedKinds.every((result) => result.falseRefused && result.throwRefused), rejectedKinds],
+				["the artifact-kind roster is complete", artifactKinds.length === 4, artifactKinds],
+				["the independent artifact-mutation roster is complete", outcomes.length === 8, outcomes.map((outcome) => outcome.label)],
+				["every unsafe artifact mutation changes its fixture and is defeated", outcomes.every((outcome) => outcome.changed && outcome.refused), outcomes],
 			]);
 		});
 	}
@@ -7454,6 +7622,7 @@ production behaviour.`);
 		"choice-load", "choice-order", "choice-refusals", "choice-new-stream", "choice-warmth", "choice-effort-cold", "choice-short-work",
 		"choice-abstentions", "choice-token-buckets", "choice-long-context", "choice-rediscovery", "choice-final-verdict", "choice-verdict-shape", "choice-hostile",
 		"wiring", "spec-invisible", "spec-config-key", "state-snapshot-identity", "state-thread-record", "state-episode-record",
+		"state-runtime-root", "state-runtime-records", "state-runtime-graph", "state-runtime-artifacts",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
 		"episode-load", "episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header",
