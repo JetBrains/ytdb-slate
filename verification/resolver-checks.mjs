@@ -3345,12 +3345,15 @@ production behaviour.`);
 			skip("worker-preamble", "extension/worker.ts could not be loaded");
 			skip("reviewer-charter-sync", "extension/worker.ts could not be loaded");
 		} else {
-			const historicalPreamble = [
+			const commonPreamble = [
 				"You are a worker thread executing ONE bounded action for an orchestrator.",
 				"Do the action fully, then stop.",
+				"Issue all independent tool calls simultaneously in one worker turn.",
+				"Use separate turns only when results depend on each other or conflict.",
 				"Your final message must state: what you did, what you found, files you touched,",
 				"and anything the orchestrator must know.",
 			].join(" ");
+			const parallelToolRule = "Issue all independent tool calls simultaneously in one worker turn. Use separate turns only when results depend on each other or conflict.";
 			const currentGuidance = "Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply these rules to all your prose.";
 			const workerSource = readFileSync(join(REPO, "extension", "worker.ts"), "utf8")
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
@@ -3358,10 +3361,11 @@ production behaviour.`);
 			const threadsSource = readFileSync(join(REPO, "extension", "threads.ts"), "utf8")
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
-			checkAll("worker-preamble", "optional worker guidance preserves the historical base, keeps writing trust-gated, and receives the review-role decision at the pinned prompt boundary", [
-				["feature-off preamble is the 226-byte historical text", worker.WORKER_PREAMBLE === historicalPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 226, worker.workerPreamble(false, false)],
-				["absent and false are byte-identical to the historical preamble", worker.workerPreamble(undefined, undefined) === historicalPreamble && worker.workerPreamble(false, false) === historicalPreamble, { absent: worker.workerPreamble(undefined, undefined), false: worker.workerPreamble(false, false) }],
-				["only literal true enables the current 384-byte writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${historicalPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 384 && worker.workerPreamble("true", false) === historicalPreamble, { on: worker.workerPreamble(true, false), malformed: worker.workerPreamble("true", false) }],
+			checkAll("worker-preamble", "common worker guidance requires parallel independent tool calls while optional guidance stays gated at the pinned prompt boundary", [
+				["feature-off preamble is the 365-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 365, worker.workerPreamble(false, false)],
+				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
+				["absent and false optional switches are byte-identical", worker.workerPreamble(undefined, undefined) === commonPreamble && worker.workerPreamble(false, false) === commonPreamble, { absent: worker.workerPreamble(undefined, undefined), false: worker.workerPreamble(false, false) }],
+				["only literal true enables the current 523-byte writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 523 && worker.workerPreamble("true", false) === commonPreamble, { on: worker.workerPreamble(true, false), malformed: worker.workerPreamble("true", false) }],
 				["worker prompt re-checks writing trust and passes the charter as workerPreamble's second argument", /appendSystemPrompt\s*:\s*\[\s*workerPreamble\(trusted\s*&&\s*opts\.writingCheck\s*===\s*true\s*,\s*opts\.reviewerCharter\s*===\s*true\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,180}/)?.[0] ?? "not found"],
 				["ThreadManager passes its sanitized writing switch", /writingCheck\s*:\s*this\.config\.writing\?\.check\s*===\s*true/.test(threadsSource), threadsSource.match(/writingCheck\s*:[^,\n]*/)?.[0] ?? "not found"],
 				["ThreadManager derives the charter switch from effective thread type through the shared judgement-type predicate", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*isJudgementThreadType\(type\)/.test(threadsSource) && worker.JUDGEMENT_THREAD_TYPES?.join(",") === "reviewer,adversarial", { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found", judgementTypes: worker.JUDGEMENT_THREAD_TYPES }],
