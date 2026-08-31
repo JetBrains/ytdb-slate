@@ -129,6 +129,17 @@ const WRITING_TURN_MAX_BYTES = 16 * 1024;
 
 type WritingStatus = "fresh" | "ready" | "skipped" | "unavailable";
 
+type SessionDiscoveryCommandResult =
+	| { ok: true; lines: string[] }
+	| { ok: false; reason: string };
+
+interface SessionDiscoveryModule {
+	discoverCorpusSession(options: {
+		query: string;
+		isTrusted: () => boolean;
+	}): SessionDiscoveryCommandResult;
+}
+
 function assistantTextBytes(message: unknown): number | undefined {
 	if (!message || typeof message !== "object") return undefined;
 	const content = (message as { content?: unknown }).content;
@@ -588,6 +599,8 @@ export function registerSlateMode(
 	// Injected only by the pure harness so it can exercise both dynamic-import
 	// failure and checker failure through the real turn hook.
 	loadWritingChecker: () => Promise<WritingChecker> = () => import(WRITING_CHECKER_URL),
+	// A dynamic import keeps project-independent discovery outside normal startup.
+	loadSessionDiscovery: () => Promise<SessionDiscoveryModule> = () => import("./session-discovery.ts"),
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
@@ -668,18 +681,33 @@ export function registerSlateMode(
 	store.onDidChange = updateWidget;
 
 	pi.registerCommand("slate", {
-		description: "Slate orchestrator mode: on | off | sessions | handoff [focus] | adopt <name> | resume (no arg toggles)",
+		description: "Slate orchestrator mode: on | off | sessions [name|identifier] | handoff [focus] | adopt <name> | resume (no arg toggles)",
 		handler: async (args, ctx) => {
 			uiCtx = ctx;
 			const trimmed = args?.trim() ?? "";
 			const [verb, ...rest] = trimmed.split(/\s+/);
 			const arg = verb?.toLowerCase();
 			if (arg === "sessions") {
-				const listed = listCorpusSessions({
-					cwd: ctx.cwd,
-					isTrusted: () => ctx.isProjectTrusted(),
-					project: store.corpusProject,
-				});
+				let listed: SessionDiscoveryCommandResult;
+				if (rest.length === 0) {
+					listed = listCorpusSessions({
+						cwd: ctx.cwd,
+						isTrusted: () => ctx.isProjectTrusted(),
+						project: store.corpusProject,
+					});
+				} else if (!ctx.isProjectTrusted()) {
+					listed = { ok: false, reason: "slate: project-independent session lookup requires a trusted project" };
+				} else {
+					try {
+						const discovery = await loadSessionDiscovery();
+						listed = discovery.discoverCorpusSession({
+							query: rest.join(" "),
+							isTrusted: () => ctx.isProjectTrusted(),
+						});
+					} catch {
+						listed = { ok: false, reason: "slate: project-independent session lookup could not be loaded" };
+					}
+				}
 				const message = listed.ok ? capCorpusSessionOutput(listed.lines.join("\n")) : listed.reason;
 				console.warn(message);
 				if (ctx.hasUI) ctx.ui.notify(message, listed.ok ? "info" : "warning");

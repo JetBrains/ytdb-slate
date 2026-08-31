@@ -360,7 +360,17 @@ export function listCorpusSessions(options: {
 /** Keep the command channel bounded and state when rows were omitted from it. */
 export function capCorpusSessionOutput(rendered: string): string {
 	const notice = "\n[output truncated at 16384 characters]";
-	return rendered.length > CORPUS_LIST_OUTPUT_CHARS
-		? `${rendered.slice(0, CORPUS_LIST_OUTPUT_CHARS - notice.length)}${notice}`
-		: rendered;
+	if (rendered.length <= CORPUS_LIST_OUTPUT_CHARS) return rendered;
+	const bodyLimit = CORPUS_LIST_OUTPUT_CHARS - notice.length;
+	const summary = /^Lookup found (\d+) matches?\. The printed list contains \d+ matches?\.$/mu;
+	if (!summary.test(rendered)) return `${rendered.slice(0, bodyLimit)}${notice}`;
+	const sliced = rendered.slice(0, bodyLimit);
+	const lastLineBreak = sliced.lastIndexOf("\n");
+	const completeLines = lastLineBreak < 0 ? "" : sliced.slice(0, lastLineBreak);
+	const printed = completeLines.match(/^- /gmu)?.length ?? 0;
+	const body = completeLines.replace(summary, (_line, foundText: string) => {
+		const found = Number(foundText);
+		return `Lookup found ${found} ${found === 1 ? "match" : "matches"}. The printed list contains ${printed} ${printed === 1 ? "match" : "matches"}.`;
+	});
+	return `${body}${notice}`;
 }
