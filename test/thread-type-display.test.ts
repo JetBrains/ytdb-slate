@@ -12,10 +12,8 @@ function record(overrides: Partial<ThreadRecord>): ThreadRecord {
   return {
     id: "t1",
     name: "worker",
-    sessionFile: "",
-    status: "idle",
-    episodeIds: [],
-    episodeSeq: 0,
+    type: "general",
+    status: "cancelled",
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
@@ -88,8 +86,6 @@ const cases: Array<{ name: string; type: ThreadRecord["type"]; marker: string }>
   { name: "adversarial", type: "adversarial", marker: " type=adversarial" },
   { name: "implementer", type: "implementer", marker: " type=implementer" },
   { name: "general", type: "general", marker: "" },
-  { name: "absent", type: undefined, marker: "" },
-  { name: "unknown", type: "future-role" as ThreadType, marker: "" },
 ];
 
 function caseRecords(): ThreadRecord[] {
@@ -107,14 +103,14 @@ test("widget thread lines render every type and both fallback shapes", () => {
     assert.ok(thread);
     assert.equal(
       renderThreadWidgetLine(thread),
-      `  · ${thread.id} ${entry.name} [idle]${entry.marker} 0 episodes`,
+      `  · ${thread.id} ${entry.name} [cancelled]${entry.marker} no episode`,
     );
   }
 });
 
 test("widget thread lines distinguish a running thread with one episode", () => {
-  const running = record({ status: "running", episodeIds: ["t1.e1"] });
-  assert.equal(renderThreadWidgetLine(running), "  ⏳ t1 worker [running] 1 episode");
+  const running = record({ status: "running", episodeId: "t1.e1" });
+  assert.equal(renderThreadWidgetLine(running), "  ⏳ t1 worker [running] episode t1.e1");
 });
 
 test("mode refresh publishes all stored thread widget lines", async () => {
@@ -133,7 +129,7 @@ test("mode refresh publishes all stored thread widget lines", async () => {
   } as unknown as ExtensionAPI;
   const store = new SlateStore(pi);
   store.orchestratorMode = true;
-  store.threads.set("t1", record({ id: "t1", status: "running", episodeIds: ["t1.e1"] }));
+  store.threads.set("t1", record({ id: "t1", status: "running", episodeId: "t1.e1" }));
   registerSlateMode(
     pi,
     store,
@@ -155,7 +151,7 @@ test("mode refresh publishes all stored thread widget lines", async () => {
   assert.deepEqual(widgets.at(-1), [
     "slate ⋅ orchestrator mode ⋅ 1 thread",
     "  total $0.0000 (me $0.0000 + workers $0.0000)",
-    "  ⏳ t1 worker [running] 1 episode",
+    "  ⏳ t1 worker [running] episode t1.e1",
   ]);
   assert.equal(appended.length, 0);
 });
@@ -176,7 +172,7 @@ test("threads tool rows render every type and both fallback shapes", async () =>
     assert.ok(thread);
     assert.equal(
       lines[index],
-      `${thread.id} "${entry.name}" [idle]${entry.marker} — episodes: (none) — updated 1970-01-01T00:00:00.001Z`,
+      `${thread.id} "${entry.name}" [cancelled]${entry.marker} — episode: (none) — updated 1970-01-01T00:00:00.001Z`,
     );
   }
 });
@@ -190,33 +186,14 @@ test("a new dispatch call renders its requested type", () => {
   assert.equal(firstLine(renderedCall), "thread new:\"fresh\" type=reviewer");
 });
 
-test("dispatch call lines render every type, both fallback shapes, and a legacy correction", () => {
-  const records = caseRecords();
-  const { registered } = toolsFixture(records);
+test("dispatch call lines render every new thread type", () => {
+  const { registered } = toolsFixture([]);
   const threadTool = registered.get("thread");
   assert.ok(threadTool?.renderCall);
-
-  for (const [index, entry] of cases.entries()) {
-    const thread = records[index];
-    assert.ok(thread);
-    const renderedCall: { render(width: number): string[] } = threadTool.renderCall(
-      { thread: thread.id, task: "Inspect", model: "p/m", effort: "high" },
-      theme,
-    );
-    assert.equal(firstLine(renderedCall), `thread ${thread.id}${entry.marker} [p/m @high]`);
+  for (const entry of cases) {
+    const rendered: { render(width: number): string[] } = threadTool.renderCall({ name: entry.name, type: entry.type, task: "Inspect", model: "p/m", effort: "high" }, theme);
+    assert.equal(firstLine(rendered), `thread new:"${entry.name}"${entry.marker} [p/m @high]`);
   }
-
-  const correctable = records.find((thread) => thread.name === "unknown");
-  assert.ok(correctable);
-  const corrected = threadTool.renderCall({ thread: correctable.id, type: "reviewer", task: "Inspect" }, theme);
-  assert.equal(firstLine(corrected), `thread ${correctable.id} type=reviewer`);
-
-  const immutable = records.find((thread) => thread.name === "reviewer");
-  assert.ok(immutable);
-  const unknownArgument = threadTool.renderCall({ thread: immutable.id, type: "future-role", task: "Inspect" }, theme);
-  assert.equal(firstLine(unknownArgument), `thread ${immutable.id} type=reviewer`);
-  const conflictingArgument = threadTool.renderCall({ thread: immutable.id, type: "adversarial", task: "Inspect" }, theme);
-  assert.equal(firstLine(conflictingArgument), `thread ${immutable.id} type=reviewer`);
 });
 
 test("thread tool populates type details for progress and completion", async () => {
@@ -231,7 +208,7 @@ test("thread tool populates type details for progress and completion", async () 
 
   const result = await threadTool.execute(
     "call",
-    { thread: reviewer.id, type: "reviewer", task: "Inspect" },
+    { name: reviewer.name, type: "reviewer", task: "Inspect" },
     undefined,
     (update: {
       content?: Array<{ type: string; text?: string }>;
@@ -277,33 +254,6 @@ test("dispatch result lines keep the marker through streaming, collapsed, and ex
   }
 });
 
-test("restart lineage stays exact across the thread listing and result render", async () => {
-  initTheme(undefined, false);
-  const source = record({ id: "t1", name: "source", supersededBy: "t2" });
-  const successor = record({ id: "t2", name: "successor", restartOf: "t1", episodeIds: ["t2.e1"] });
-  const { registered } = toolsFixture([source, successor]);
-  const threadsTool = registered.get("threads");
-  assert.ok(threadsTool);
-  const listed = await threadsTool.execute("call", {}, undefined, undefined, ctx) as {
-    content: Array<{ type: string; text: string }>;
-  };
-  assert.equal(
-    listed.content[0]?.text,
-    't1 "source" [idle] source t1 -> successor t2 — episodes: (none) — updated 1970-01-01T00:00:00.001Z\n' +
-      't2 "successor" [idle] source t1 -> successor t2 — episodes: t2.e1 — updated 1970-01-01T00:00:00.001Z',
-  );
-
-  const rendered = renderThreadResult(
-    { content: [{ type: "text", text: "" }], details: { threadName: "successor", threadId: "t2", restartOf: "t1", episodeId: "t2.e1", status: "ok", done: true } },
-    { expanded: false },
-    theme,
-  );
-  assert.equal(firstLine(rendered), "✓ successor source t1 -> successor t2 t2.e1");
-
-  const legacyTool = toolsFixture([record({ id: "legacy", name: "legacy" })]).registered.get("thread");
-  assert.ok(legacyTool?.renderCall);
-  assert.equal(firstLine(legacyTool.renderCall({ thread: "legacy", task: "Inspect" }, theme)), 'thread "legacy"');
-});
 
 test("result rendering normalizes unknown, absent, and malformed stored types", () => {
   initTheme(undefined, false);

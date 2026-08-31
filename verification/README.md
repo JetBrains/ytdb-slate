@@ -648,11 +648,8 @@ A net much smaller than the ladder, for these subjects:
 - the **model router** in `extension/model-router.ts` — its config sanitizer, its
   candidate resolution and warnings, and its dispatch-side effort predicate;
 - the **dispatch guards** in `extension/route.ts` (`route-*`) — the route planner:
-  the seven guards that decide whether one dispatched action may run at all, and
+  the model and effort guards that decide whether one dispatched action may run, and
   on which (model, effort) pair;
-- the **thread-choice planner** in `extension/thread-choice.ts` (`choice-*`) — the
-  pure continue-or-fresh decision, its safety refusals, cache evidence, pricing,
-  short-work guard and conservative uncertainty rules;
 - **episode compression** in `extension/episodes.ts` (`episode-*`) — the compressor
   pin, its usability rule, the newest-Sonnet ordering, its diagnostics and the
   episode header's sanitisation. Loaded through a second loader instance with the
@@ -834,8 +831,8 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
 | `session-name-vocabulary` | both ordered 32-word rosters and all 1,024 minted adjective-noun pairs remain frozen and valid |
-| `doctrine-budget` | an install-invariant size guard pins every shipped-rule fixture, two maximal fixtures, growth increments, path counts, and one positive control. The largest retained fixture measures 8,007 portable characters against an 8,500-character bound. The 8,877-character positive control still exceeds that bound. |
-| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` measures 8,007 portable characters and 105 lines. It keeps 493 characters of reserve under the 8,500-character bound. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It reads no project config. The draft-enabled maximum is **7,605 of 8,500** portable characters. The draft-disabled pin is **7,586**. Writing plus routing is **6,239 of 6,900**. All tails are **6,494 of 7,200**. The capped worker rule is **1,347 of 1,600**. An **8,921-character** positive control exceeds the maximal bound by 421. These are verification budgets, not runtime limits. |
+| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **7,683 of 8,500** portable characters and 100 lines and keeps 817 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
@@ -1018,16 +1015,16 @@ owns these stable verification fixtures.
 | routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
 | writing rule | 1 | **1,070** | 23 | 1,150 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| router-off doctrine | 4 | **2,912** | 48 | — |
-| router-on doctrine | 5 | **5,497** | 72 | 6,500 |
-| writing-only doctrine | 5 | **3,982** | 70 | 5,600 |
-| writing plus router | 6 | **6,567** | 94 | 6,900 |
-| writing plus extensions | 5 | **4,237** | 76 | 6,000 |
-| writing plus router and extensions | 6 | **6,822** | 100 | 7,200 |
-| maximal doctrine with draft pull requests enabled | 7 | **7,929** | 104 | 8,500 |
-| maximal doctrine with draft pull requests disabled | 6 | **7,914** | 104 | 8,500 |
-| maximal doctrine with follow-up issues enabled | 7 | **8,007** | 105 | 8,500 |
-| positive control, one extra capped tool plus four maximum-growth model rows | 7 | **8,877** | 109 | must exceed 8,500 |
+| router-off doctrine | 3 | **2,584** | 43 | — |
+| router-on doctrine | 4 | **5,169** | 67 | 6,500 |
+| writing-only doctrine | 4 | **3,654** | 65 | 5,600 |
+| writing plus router | 5 | **6,239** | 89 | 6,900 |
+| writing plus extensions | 4 | **3,909** | 71 | 6,000 |
+| writing plus router and extensions | 5 | **6,494** | 95 | 7,200 |
+| maximal doctrine with draft PRs enabled | 6 | **7,605** | 99 | 8,500 |
+| maximal doctrine with draft PRs disabled | 5 | **7,586** | 99 | 8,500 |
+| maximal doctrine with follow-up issues enabled | 6 | **7,683** | 100 | 8,500 |
+| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **8,921** | 106 | must exceed 8,500 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
 maximal pins cover draft pull requests enabled, draft pull requests disabled,
@@ -1039,19 +1036,16 @@ the next whole line.
 
 A doctrine change updates its exact literal. A bound changes only when this
 reserve policy requires it. Writing plus routing uses
-`6,567 × 1.05 = 6,895.35`. Ceiling gives 6,896. Next-hundred rounding gives
-6,900.
+`6,239 × 1.05 = 6,550.95`. Ceiling gives 6,551. The existing 6,900 bound remains larger.
 
-All tails use `6,822 × 1.05 = 7,163.1`. Ceiling gives 7,164.
-Next-hundred rounding gives 7,200.
+All tails use `6,494 × 1.05 = 6,818.7`. Ceiling gives 6,819. The existing
+7,200 bound remains larger.
 
-The largest maximal fixture is the follow-up-issues render. It uses
-`8,007 × 1.05 = 8,407.35`. Ceiling gives 8,408. Next-hundred rounding gives
-8,500. Its reserve is 493 characters.
+The largest maximal fixture uses `7,683 × 1.05 = 8,067.15`. The existing 8,500 bound remains larger. The enabled, disabled, and follow-up
+maximal reserves are 895, 914, and 817.
 
 The largest model-row growth is 184 characters. The capped tool-line growth is
-212 characters. The positive control measures 8,877 characters and 109 lines.
-It exceeds the maximal bound by 377.
+212 characters. The positive control exceeds the maximal bound by 421.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
@@ -1123,48 +1117,6 @@ covers wrapper registration and session startup. A live interactive session
 covers the wrapper's rendered behavior. The resolver checks prove only that the
 resolver emits every warning and supplies the class that the wrapper consumes.
 
-Thread choice — the pure planner (`extension/thread-choice.ts`). A dead refusal
-or reversed comparison still produces a normal dispatch and episode, so every
-input is fabricated and every verdict is asserted by kind and code:
-
-| id | what it proves |
-| --- | --- |
-| `choice-load` | the module loads. A failure converts every other `choice-*` check into an explicit NOT RUN line |
-| `choice-order` | unusable input and safety refusals settle before source selection, warmth, short-work handling, or arithmetic |
-| `choice-refusals` | absent and empty permission, a missing episode, unrecorded or empty tools, and a failed last dispatch each return their exact refusal code |
-| `choice-new-stream` | no source thread returns `fresh/no-thread-to-continue` without allowance, cache, size, or price inputs |
-| `choice-warmth` | model changes, zero read-plus-write, retention boundaries, expiry, missing retention, and unknown age classify conservatively |
-| `choice-effort-cold` | an effort change is cold against an otherwise identical same-effort warm control |
-| `choice-short-work` | one and two turns continue before pricing, while three turns reach arithmetic |
-| `choice-abstentions` | every missing economic input returns its exact abstention code instead of a fabricated choice |
-| `choice-token-buckets` | cache-read, fresh, and output tokens remain disjoint, with zero or absent write premiums falling back to input price |
-| `choice-long-context` | multipliers start at the exact threshold and apply independently to both arms |
-| `choice-rediscovery` | the fresh arm keeps its extra turn, including at the maximum-turn clamp |
-| `choice-final-verdict` | wide cost gaps choose in both directions, while an exact tie continues. The fresh fixture is the positive control |
-| `choice-verdict-shape` | every verdict explains itself, and priced choices carry estimates and warmth evidence |
-| `choice-hostile` | malformed values never throw, verdict kinds stay closed, and oversized turn estimates clamp |
-
-Mutation checks give the family teeth. Moving the short-work guard above
-permission breaks `choice-order`. Removing effort comparison breaks
-`choice-effort-cold`. Double-charging fresh input breaks
-`choice-token-buckets`. Reversing the final comparison breaks
-`choice-final-verdict` despite its wide positive-control gap.
-
-Every other row has a discriminating mutation. Break the export for
-`choice-load`. Change one refusal code for `choice-refusals`. Require rates on a
-new work stream for `choice-new-stream`. Expire at equality for `choice-warmth`.
-Move the short-work boundary for `choice-short-work`. Default a missing price or
-size to zero for `choice-abstentions`. Start long-context billing above rather
-than at the threshold for `choice-long-context`. Clamp both arms before adding
-rediscovery for `choice-rediscovery`. Blank a reason for `choice-verdict-shape`.
-Remove the turn clamp for `choice-hostile`.
-
-The family executes only `thread-choice.ts`. It fabricates time, route, cache,
-retention, prices, sizes, episodes, tools, and turn estimates. It does not execute
-`ThreadManager`, a worker session, reporting, lineage, restart refusal, rollback,
-or successor creation. Those caller and acting-path behaviors belong in unit or
-integration tests.
-
 Dispatch guards — the route planner (`extension/route.ts`). The **safety core** of
 action-level routing, and the one place where a regression is completely silent: a
 guard that stops guarding still "works", the dispatch runs and an episode is
@@ -1178,7 +1130,7 @@ session's frozen resolution carries:
 | `route-vocabulary` | an `effort` outside pi's vocabulary is **rejected** (never clamped, never ignored), the reason names the value and the ascending level list, `THINKING_LEVELS` *is* that ascending vocabulary, a padded valid level is trimmed, and this guard runs **before** the list guard. A whitespace-only or omitted effort names no level, so one is **derived for the model the planner routes to** (its lowest measured level) and `effortJudgedFor` names that model — it no longer resolves to nothing |
 | `route-effort-type` | a **non-string** `effort` is rejected rather than read as absent — reading it as absent would silently run the action at the thread's **base** level, a substitution that looks like success. Seven shapes (number, object, array, boolean, function, cyclic, escape-bearing), each rejected with the type and value named, pi's levels offered, display-safe text and no throw; `undefined`/`null` stay absent and the base effort then applies |
 | `route-list-on` | with the router ON a model outside the candidate list is rejected, naming every candidate **in resolution order** and a remediation clause naming a **listed** base to fall back to — for a listed base, for a base that was just seeded or re-seeded (the clause can no longer be empty, nor name the model it just refused), and for a thread that does not exist yet; the rejection still carries the repair's own warning; a listed model routes that action, at a level derived for it |
-| `route-list-off` | with the router OFF the **candidate-list and window guards** are inert: an unlisted model and a ladder-less valid-vocabulary effort pass through unwarned, the `model` argument is preserved **byte-for-byte** for pi to resolve, the thread's **pre-router pin** is the planner's only model-field fall-through and is `openOnly`, and a **stored `baseModel` resolves nothing**. The check stops at planner output; it does not claim which model a held live session runs |
+| `route-list-off` | with the router off the candidate-list guard is inert: an unlisted model and a ladder-less valid-vocabulary effort pass through unwarned, the `model` argument is preserved **byte-for-byte** for pi to resolve, the thread's **pre-router pin** is the planner's only model-field fall-through and is `openOnly`, and a **stored `baseModel` resolves nothing**. The check stops at planner output; it does not claim which model a held live session runs |
 | `route-resolution` | a malformed, half-built (`on: true` with no candidates) or absent resolution collapses to the shared `ROUTER_OFF` constant, so candidate-dependent planner guards become inert instead of walking a shape they cannot read |
 | `route-resolved-pair` | an **omitted** model and an **omitted** effort still go through the guards, because they fall through to the thread's base values: an off-list base is **re-seeded** to a listed candidate (signalled for persistence, naming what it replaced, base effort re-derived, one warning) rather than rejected, an off-ladder base effort is rejected, a valid base pair proceeds and is echoed back, a pre-router `model` pin still reads as the base, a new thread is seeded with the cheapest candidate at its lowest **measured** level, and an omitted model falls back to the host model for the effort check. A suite that only ever passed explicit arguments would miss the most common real dispatch |
 | `route-base-reseed` | the base **repair** (route.ts's THE ONE RULE): with the router ON an off-list or **absent** base — including a pre-router `model` pin — is seeded to the cheapest preferred candidate with its effort re-derived, signalled for persistence (`baseReseeded` / `baseReseededFrom`) and warned about once, never refused. A listed base or pin is untouched and silent; the router-OFF path is unaffected; an explicit route does not become the base nor the base the route; and a resolution that is ON but carries nothing usable to seed from **drops** the base rather than enforcing a list it could not read. Both repaired shapes are ordinary states — a thread predating `router.models`, or a list that changed — and the baseless one is the dangerous half: it used to run outside the closed list silently, so the cost bound the list expresses simply did not apply |
@@ -1187,21 +1139,15 @@ session's frozen resolution carries:
 | `route-ladder-per-model` | the ladder guard answers **per model**, never as a union: two ladders differing in *both* directions, so a union implementation fails whichever way it is built, and the reason names the offending model's own ladder |
 | `route-evidence-gap` | an unmeasured but ladder-valid level is dispatched **with** a warning and the proceed verdict carries the unmeasured marker; an unlisted table hole says so; `router.allowUnmeasuredEffort: false` refuses it instead; a measured level is silent and unmarked |
 | `route-api-rejected` | a level in `apiRejectedLevels` is refused **outright**, named as a guaranteed provider failure rather than an evidence gap, and not rescued by `allowUnmeasuredEffort` — while a normal level on the same model still proceeds |
-| `route-window-substitute` | a model that cannot hold the thread's context is replaced by the **widest** candidate (not the next, not the cheapest); the verdict still PROCEEDS and records `substitutedFrom`; the warning names both models and the widest window; and a level invalid on the *substituted* model is **dropped with a warning** rather than rejecting the action |
-| `route-window-skip` | the guard is skipped when the context size is unknowable, when pi supplies no compaction predicate, and when that predicate throws — and it never rejects: with no listed model able to hold the context the widest is used anyway ("pi will compact"), and with nothing wider the resolved model is kept with a warning |
-| `route-window-reserve` | capacity is judged by **pi's own** compaction predicate on the candidate's **registry** window — a context that fits the bare window but *not* the window minus pi's reserve is substituted; the predicate is asked with exactly `(tokens, window)`; a predicate that says it fits is obeyed; and `reserveTokens` only shapes the warning text |
 | `route-price-divergence-*` | dispatch reads fresh registry prices and the dispatch date. Material divergence returns one hardened model-visible warning without exact rates. An exact-rate companion goes through the router sink as a `model-data-note`. Identical evidence is condition-key deduplicated there, while the model-visible warning is re-evaluated and can repeat. The checks cover exact wording, tolerance, absent or invalid rates, output-only divergence, and dated schedule boundaries |
-| `route-long-context` | the long-context **billing** notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a substitution the notice belongs to the model the planner routes to |
-| `route-failover` | a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a **non-substituting** window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-OFF failover emits **no window warning at all**, which is the only pre-router equivalence this row asserts (it says nothing about router-OFF per-action model switches, which still move a held session) |
+| `route-failover` | failover bypasses model and effort guards, while refusing an absent target or the model that failed |
 | `route-lowest-effort` | the base-effort seed is the **lowest measured, non-provider-rejected** level on that model's ladder — never an evidence gap — ascending from pi's vocabulary rather than the table's authoring order, and `undefined` (pi's own default) when there is no measured level, the model is unlisted, the router is off, or the resolution is junk |
 | `route-off-ladder-source` | with the router **OFF** the ladder used for effort validation comes from the caller's **injected** profile source and nothing else: it is consulted by spec, it is authoritative (a level off a **known** ladder is refused even for a spec the shipped table has never heard of — the discriminating direction), a spec it **declines** is not judged at all, an absent source, a throwing lookup and an **unreadable ladder** (throwing or non-array) are all **inert** — the level is kept, with no unmeasured marker and no warning — a foreign level is filtered out of the quoted ladder, and the module reaches the shipped table at runtime by no route at all. That last property is asserted **behaviourally first**: a REAL shipped spec (read from the table at runtime, never hard-coded) paired with a level really off ITS shipped ladder, so the injected source and the table disagree and only a planner consulting the table can be caught — with no source injected, and with a source that DECLINES the spec, which is the shape `threads.ts`'s vetted source produces for a model pi cannot serve. Two text terms back it up: no `import type`-less reference to `model-profiles.ts`, and no shipped-table VALUE (`SHIPPED_PROFILE_SOURCE`, `MODEL_PROFILES`, `findProfile`, `ladderFor`, `PROFILES_AS_OF`) imported under any name from any module — the re-export route, which needs no new import statement, only a new name on an existing one. A fifth behavioural fixture covers the **router-ON** path (TQ9), where `checkEffortFor` answers from the CANDIDATE's ladder and every router-OFF fixture above is blind: the same real shipped spec, with a candidate ladder that deliberately CONTAINS a level the shipped table says it lacks, so the candidate and the table disagree in the opposite direction. It is the only term in the suite that stands between that path and a **rename**-re-export — a new name defeats the value scanner, and consuming it only for specs the table knows leaves every fabricated `p/*` fixture green |
-| `route-effort-derived-for-model` | THE ONE RULE's effort half: a level stored on the thread is inherited **only** while the planner routes the action to the base model it was derived for. An explicit per-action model gets **that model's** own lowest measured level instead — asserted with two **disjoint** ladders, so an inheriting implementation cannot pass: it would refuse a level absent from the new model's ladder where this asserts a proceed, including under `allowUnmeasuredEffort: false` (BG14). A window substitution re-derives for the substituted model; an **explicit** level is still judged hard against the routed model; `effortJudgedFor` always names the model used for that judgement |
 | `route-off-invisible` | pins the **router-OFF planner state**: no base model or effort is seeded or persisted, no re-seed signal or derived level appears, the pin is `openOnly`, no candidate-dependent guard speaks even with a 5M-token context, a malformed model argument passes through for pi to reject, and the removed tracker input changes nothing. The **ladder** guard remains active and refuses an off-ladder explicit level. The check does not assert the live model after switch decisions |
 | `route-stored-effort-refresh` | a thread's stored `baseEffort` is a **cached derivation** over a table that ships with slate, so a refresh can invalidate it. It is re-checked against today's table and, when it no longer reads `ok`, **re-derived** for that model rather than replayed — for all four ways a refresh can invalidate it (evidence gap, gap under `allowUnmeasuredEffort: false`, a shrunken ladder, a provider's hard rejection), three of which used to make the thread **undispatchable** through a dispatch that named no effort at all. The correction is **silent** (nobody asked for that level) and is **not persisted** (the verdict still echoes the stored value, no re-seed is signalled — pinned as observed). A still-measured level is kept rather than re-derived, a model with no measured level yields none, and an **explicit** level keeps the full guard treatment: warned on a gap, refused under `allowUnmeasuredEffort: false`, off-ladder or API-rejected |
 | `route-stored-effort-vocabulary` | a stored `baseEffort` outside pi's vocabulary — wrong case, a non-vocabulary string, a number, an object, an empty string, `null`, an array — is **discarded**, never replayed onto a dispatch: the record is an unversioned snapshot, so its declared type is a claim about the writer, and pi would clamp a junk level silently while the episode reported a level nothing ran at. The boundary is the **vocabulary itself, not the profile table**: with an unreadable ladder (nothing to re-derive from) a junk value is still gone from the verdict's own base-effort echo while a vocabulary-valid one survives it — the discriminator that a table-trusting boundary fails |
 | `route-switch-decision` | the model-switch decision, whole: a **plan** target moves a live session and outranks even a held failover; an **`openOnly`** target never does — it only chose what a NEW session opened on (BG16) — and falls through to the revert rule; an action naming no model **reverts** to the session's opening model (BG22) unless a failover holds it; `no-baseline` outranks the failover stand-down; a model spec is carried **byte-for-byte** — a padded one is not normalised into a silent success and a whitespace-only one is not read as an absence that silently reverts (RG1, repinned; CQ13's one rule, shared with `planRoute` and asserted on the same value through both modules) — and every switch is labelled `plan` or `revert`, the split that tells the caller whether failing to perform it may fail the action (BG24) |
 | `route-open-plan-inputs` | the plan that decides what a NEW session opens on strips **both** of the action's arguments. With `effort` left in, that plan can REJECT — an explicit level the thread's pin does not offer — and a rejection carries no model, so the session opens on the HOST and the pin is silently dropped while the real plan a moment later never complains (BG25). Asserted on both router states — and on the caller's half too, which is a CALL now rather than a regex: `planSessionOpen` IS the stripping, so "both arguments dropped, and the open model taken from that plan" is exercised, not matched. (Until TQ4 those were two text terms over `threads.ts`; the regex enumerated two keys in two orders and would have false-failed on a third.) |
-| `route-switch-opening-baseline` | the revert target is what a **model-less plan** resolves to, never what a routed open happened to use. Composed from both plans plus the decision helper: with the correct baseline the next model-less action reverts off the per-action model; with the defective one it reports `already-current` and the explicit model becomes the thread's permanent default — BG22 surviving its own first fix, on the opening path. Router-ON is shown to be immune (the base arrives as a plan target), which is why only a router-OFF fixture could ever have caught it. The caller's half — the open planned with `model` dropped, and the baseline read from the session that plan opened — was two text terms over `threads.ts` and is now EXECUTED through `planSessionOpen` and `captureSessionBaseline` (TQ4); the regexes were deleted rather than kept beside them, because a brittle term next to a real one contributes nothing but false alarms. One further fixture is **router-ON** (TQ8): under WINDOW SUBSTITUTION the thread's base and the model this action resolves to diverge — the base stays the thread's own while the open must report the widest candidate — and that is the only shape in which `planSessionOpen` returning a base-flavoured value looks identical everywhere else |
 | `route-baseline-capture` | **TQ7** — the caller's **dataflow into** the switch decisions, which was the last hole in this track: the decisions were pinned and correct, and both flagship defects re-inserted fully green one line OUTSIDE them, because the baseline came from somewhere else, later. Pins the producer: `captureSessionBaseline` reads the SESSION object and nothing else — the caller-assembled `{ model, effort }` record the old signature took, and every argument-shaped decoy beside it (`baseModel`, `requestedModel`, `spec`, `level`), reads as **no baseline at all**. Each axis is captured independently and validated on the way in (the spec byte-for-byte per RG1, the level against pi's vocabulary per BG21); an unreadable axis is an **absent key**, which is what makes a session reporting nothing identical to `NO_SESSION_BASELINE` and to omitting the argument. Both decisions read their own axis off ONE captured object — the collapse of the two per-axis maps — and a baseline carrying only the other axis is an absence on this one. An absent baseline is `no-baseline` on both axes **even with a live value sitting right there**: that is the BG18 fallback shape, executable, and it is what a `?? current` in either decision dies on. **Two** structural terms sit alongside, for the two facts no pure function can hold: the residual no type can close (`applyRoute` takes its baseline as a parameter, uses it, captures none itself, and the caller never asserts a value into the brand), and the other end of the lifecycle — every per-thread map the session OPEN touches must be RELEASED on disposal, so a baseline cannot outlive its session and be handed to a switch decision for a reused thread id. The second is derived from what `openWorkerFor` writes rather than from a list of map names, so a new session-scoped map is covered the day it is added (see below) |
 | `route-switch-lifecycle-i1` | **I1** — the model and effort axes obey the same per-action lifecycle: a value the action names applies to that action, an action naming none falls back to what the session OPENED with, a failover holds the model axis in place. **Both** halves execute through their extracted helpers over one thread's life, off ONE captured baseline object, including the BG18 shape (revert to the baseline, never to the live level) and BG21's vocabulary rule on the effort axis. The two structural per-axis terms this row used to list are deleted, not re-anchored (TQ10): TQ7 collapsed the two baseline maps into a single `liveBaselines` written in one place and moved the capture into a private `openWorkerFor`, so there is no per-axis ordering left to assert. That asymmetry is why BG22 needed two rounds — the effort axis had had its baseline since BG18, the model axis had none, and no net noticed — and what now prevents it is a type, not a regex: the baseline is a branded object only `captureSessionBaseline` can produce and `applyRoute` takes it as a parameter |
 | `route-hostile` | a hostile `model` or `effort` argument is stripped of control/ANSI bytes and length-capped before it reaches a rejection reason — that text goes to the orchestrator *and* to pi-tui, which renders escapes verbatim — while the rejection itself still happens |
@@ -1246,14 +1192,13 @@ listed so a reader never has to infer it:
   orchestrator can correct, and that a re-seed warning reaches the tool result and
   the progress lines rather than only a log, is end-to-end behaviour. The module
   owner exercises it with a live-session demo; nothing here can.
-- **The failover WIRING.** `route-failover` proves the carve-out's rules; that the
+| `route-failover` | failover bypasses model and effort guards, while refusing an absent target or the model that failed |
   in-dispatch failover block is the thing that passes `failoverSwitch: true` (and
   `failoverFrom`) is in `threads.ts`.
 - **BG22's revert-on-omit decision — CLOSED, by extraction.** This was recorded here
   as a known gap: the decision lived entirely in `threads.ts` and the planner emitted
   no revert instruction, so nothing pure could reach it. The dispatch side then took
   the first of the closure paths below and extracted it into `decideModelSwitch` in
-  `route.ts`, and `route-switch-decision`, `route-switch-opening-baseline` and
   `route-switch-lifecycle-i1` now pin it. Three of the four caller-side facts this
   bullet used to list as "asserted structurally" have since stopped being text at all:
   planning the open with `model` dropped and reading the baseline from the session
@@ -1270,18 +1215,6 @@ listed so a reader never has to infer it:
   The episode is worth keeping: the gap was closed by making the decision pure, not by
   building a live-session rung, and the extraction cost less than the rung would have.
 
-- **The compaction-settings elision (CQ17) is verified indirectly, on purpose.** The
-  caller now reads pi's compaction settings only when the router is ON, so with it
-  OFF `wouldCompact`/`reserveTokens` arrive `undefined`. No check asserts "the
-  off-path verdict does not depend on them", because that cannot be falsified: with
-  the router off the window guard is structurally unreachable — it needs a candidate,
-  and an off resolution has none — so such a term would be a tautology. What the
-  elision actually risks is reaching the **ON** path, where a missing predicate makes
-  the guard **inert** (`route-window-skip` pins exactly that, and
-  `route-window-reserve` pins that a supplied predicate is asked with `(tokens,
-  window)` and obeyed). The conditionality itself — `resolution.on ? read : undefined`
-  — is in `threads.ts` and is not reachable from here; the ON-path checks passing
-  unchanged is the whole of the evidence this harness can offer.
 
 One earlier entry has been **removed from this list because it was fixed**: an
 unreadable ladder used to make the planner refuse the level, contradicting the
@@ -1425,7 +1358,6 @@ The two survivors, reported rather than papered over:
 
 - **`?? opts.model` on the open path.** Expressed inside the pure module
   (`planSessionOpen` regaining `input.requestedModel`) it dies — but on
-  `route-switch-opening-baseline`'s TQ4 term, not this one. Expressed where it
   actually shipped, at the call site in `threads.ts`, it is unreachable to this
   harness at all: that module cannot be loaded here, and what blocks the edit now
   is the `OpenModel` brand plus `openWorkerFor`'s scope, neither of which exists at
@@ -1458,8 +1390,7 @@ weakening the model/pin check from type-only to content validation (trim + spec
 shape, each sanitizer); suppressing the CQ22 adoption notice, which kills BOTH
 sections since they share the function; destroying a VALID name — the
 false-positive repair, the worst outcome in this track; noting a field that was
-ACCEPTED, i.e. a repair notice that fires spuriously; and throwing away the valid
-strings in `episodeIds`. Two gaps surfaced while writing them, both fixed: the
+ACCEPTED, i.e. a repair notice that fires spuriously; Two gaps surfaced while writing the checks: the
 round-trip term could only speak for the fields its fixture carried (hence the
 checklist walk over the exported `ADOPTED_*_FIELDS`), and only the wrong-TYPE case
 was covered per field — absent was not, so a bare record now has to fill every
@@ -1600,8 +1531,6 @@ re-seeded to the same model instead (`route-resolved-pair` — this one *survive
 first time and exposed a real gap: the check could not tell "the pin was honoured"
 from "the pin was ignored and the base happened to be re-seeded to it", so it now
 asserts the absence of the re-seed signal too); deriving the level for the
-PRE-substitution model (`route-window-substitute`); inheriting a level across models,
-which is BG14 reintroduced (`route-effort-derived-for-model`); seeding a base effort
 with the router off (`route-off-invisible`); and, in `episodes.ts`, making the module
 unloadable (`episode-load`, which is also how the NOT RUN registration was verified
 — five `episode-*` lines report NOT RUN by name), falling back to the action's own
@@ -1689,7 +1618,6 @@ suite has shipped two of those.
   green (exit 0). Nothing else in the suite sees it — the value scanner is defeated
   by the rename, the namespace term by there being no namespace import, and every
   other router-ON fixture uses fabricated `p/*` specs the table declines.
-- **TQ8** (the router-ON open in `route-switch-opening-baseline`) is load-bearing
   too, but **the mutation named in the original finding is now over-determined** —
   worth recording, because the obvious ablation gives the wrong answer. Returning
   `verdict.baseModel` bare also fails two OTHER terms, since `baseModel` is
@@ -1712,7 +1640,6 @@ dropping the failover stand-down, letting a held failover outrank a plan target,
 removing the `already-current` short-circuit, and mislabelling a revert as a plan
 (the BG24 split) each kill `route-switch-decision`; making the pin non-`openOnly`
 and — the one that matters — planning the session OPEN *with* the model argument
-kill `route-switch-opening-baseline`; and removing the effort axis's baseline,
 capturing the model baseline after the switch, or not clearing it on disposal each
 kill `route-switch-lifecycle-i1`.
 
@@ -1722,7 +1649,6 @@ terms which have since been deleted: planning the session OPEN *with* the model
 argument, capturing the model baseline after the switch, and not clearing the
 baseline on disposal. The first is now caught EXECUTABLY — its in-module equivalent
 (`planSessionOpen` regaining `input.requestedModel`) fails
-`route-switch-opening-baseline`, verified. The second is caught only in its
 `applyRoute` form, by `route-baseline-capture`'s residual term; captured later still,
 in the dispatch body, it is not caught. **This used to say "TQ7 blocks that with a
 type, not a check", and that was false** — see the enforcement note below. It stays
@@ -1785,7 +1711,6 @@ here rather than dropped:
   invalid on the target model and gets re-derived, so inheriting and deriving now
   produce the same answer. The half of BG14 that survives — running at a level chosen
   for a different model when that level happens to be legal on this one — was
-  genuinely uncovered. `route-effort-derived-for-model` gained an OVERLAPPING-ladder
   case (stored `medium`, legal on both; the target's own lowest measured level is
   `low`), and the mutation kills again. A fix making a mutation harmless is good news;
   a fixture that can no longer tell the two apart is not.
@@ -1894,8 +1819,7 @@ and two of them were added AFTER this section was first written:
   the revert target for a session that never opened on it. It is **derived, not
   enumerated**, which is the whole reason it is not brittle: naming the three maps
   would be a list to forget and a rename away from a false alarm, and "every map"
-  would be wrong, since `queues` and `longContextWarned` deliberately outlive a
-  session. The rule asserted is the one the code already obeys — *state a session's
+  would be wrong because some manager state is not session-scoped. The rule asserted is the one the code already obeys — *state a session's
   OPEN touches is state its DISPOSAL must release* — so the session-scoped set is
   read out of `openWorkerFor` and each member must be cleared in `disposeAll`. Two
   ways of defeating its first version are closed (TQ13): the clear must be an

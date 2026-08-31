@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test as nodeTest } from "node:test";
@@ -8,7 +8,7 @@ import slateExtension from "../extension/index.ts";
 import { PROFILES_AS_OF, MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
 import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { PR_PUBLISHING_DOC, REVIEW_RULES_DOC, THREAD_CACHE_COST_DOC, TRACK_WORKFLOW_DOC } from "../extension/paths.ts";
+import { PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 
@@ -195,22 +195,13 @@ test("routing doctrine renders dated prices and truthful candidate ordering", { 
   assert.match(doctrine, /A model or effort change empties the prompt cache\. Rewrites cost 12\.5 times cache reads\./);
 });
 
-test("thread-choice doctrine defines work streams, consent, restart limits, and its shipped reference", { timeout: 5000 }, async () => {
+test("single-action doctrine requires new threads and episode references", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine(routedResolution());
-  assert.match(doctrine, /3\. Keep each work stream in one thread\./);
-  assert.match(doctrine, /Omit `freshContext` on creation\./);
-  assert.match(doctrine, /On\s+continuations, it is required with `threadChoice\.act: true`\s+and optional otherwise\./);
-  assert.match(doctrine, /With acting off, omit it for no permission or supply it for a reported choice\./);
-  assert.match(doctrine, /`\[\]`\s+refuses a restart and preserves the live transcript\./);
-  assert.match(doctrine, /A non-empty list of existing\s+episode ids permits a restart and seeds the new thread\./);
-  // Behavioural coverage lives in dispatch-choice.test.ts's rejection tests, not these text guards.
-  assert.doesNotMatch(doctrine, /Omission while required fails\./);
-  assert.doesNotMatch(doctrine, /Any supplied malformed value or unknown id fails before state changes\./);
-  assert.doesNotMatch(doctrine, /A valid creation value is accepted but unused\./);
-  assert.doesNotMatch(doctrine, /Treat a different model or effort as cold,\s+with no prefix reuse\./);
-  const citation = /Details:\s+([^\n]+)$/m.exec(doctrine)?.[1]?.trim();
-  assert.equal(citation, THREAD_CACHE_COST_DOC);
-  assert.equal(existsSync(THREAD_CACHE_COST_DOC), true);
+  assert.match(doctrine, /Every `thread` call creates a new thread for one action\./);
+  assert.match(doctrine, /A follow-up action\s+must use another new thread\./);
+  assert.match(doctrine, /No worker conversation crosses that boundary\./);
+  assert.match(doctrine, /Slate loads those episodes into the new worker prompt\./);
+  assert.doesNotMatch(doctrine, /freshContext|threadChoice|restart/);
 });
 
 test("doctrine reads workflow only for changes and enforces size-focus confirmation", { timeout: 5000 }, async () => {
@@ -285,10 +276,6 @@ test("retired archive state changes neither doctrine nor visible or headless war
   }
 });
 
-test("doctrine states the exact restart-refusal test", { timeout: 5000 }, async () => {
-  const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("A blanket refusal of a thread restart has a price. Refuse only when the next action depends on context from the previous action that the thread's episodes do not carry."));
-});
 
 test("follow-up issue doctrine renders after review only when enabled", { timeout: 5000 }, async () => {
   const sentence = "After review, ask the user which review suggestions become tracker issues.";

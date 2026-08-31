@@ -226,6 +226,7 @@ test("SlateStore saves through the ExtensionAPI supplied to its constructor", ()
     {
       customType: "slate-state",
       data: {
+        format: "single-action-v1",
         threads: [],
         episodes: [],
         threadSeq: 0,

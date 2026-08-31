@@ -1,10 +1,10 @@
 /**
  * Episode compression (ExecPlan D5, D6, D8).
  *
- * An episode is the compressed, structured record of ONE completed thread
- * action. It is produced by a single LLM call over the messages generated
- * during that action, stored at <config dir>/slate/episodes/<id>.md, and returned to
- * the orchestrator as the tool result — it IS the synchronization mechanism.
+ * An episode is the structured record of ONE completed thread action.
+ * Actions with a worker response use one large language model call when a compressor is available.
+ * Failed actions without a worker response use a short fixed structure without compression.
+ * Episodes are stored at <config dir>/slate/episodes/<id>.md and returned to the orchestrator.
  *
  * COMPRESSOR MODEL RESOLUTION (D5), in this order:
  *   1. the configured `episodeModel`;
@@ -57,7 +57,7 @@ import type { ObservationRecord } from "./observations.ts";
 // with recursive mkdir and writeFileSync — so both kinds now go through one safe
 // writer rather than shipping a new guard beside a known identical hole.
 import { writeSlateArtifact } from "./slate-files.ts";
-import { renderThreadId, restartLineageText, splitModelSpec, type EpisodeUsage } from "./state.ts";
+import { renderThreadId, splitModelSpec, type EpisodeUsage } from "./state.ts";
 
 type CompressorModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
 
@@ -108,9 +108,9 @@ a durable, structured record another agent will rely on WITHOUT seeing the
 raw transcript. Retain decisions, discoveries, exact identifiers (paths,
 symbols, commands, versions, error messages) and outcomes. Drop tactical
 noise (retries, scrolling, dead ends — unless a dead end is itself a finding).
-Note: the transcript covers only THIS action; the thread may legitimately use
-context from its earlier actions that you cannot see — do not flag that as
-fabrication.
+Note: the transcript covers only THIS action. Referenced earlier episodes may
+inform the action, but Slate excludes their injected text from this transcript.
+Do not treat that missing source text as fabrication.
 Target 300-800 words. Output ONLY markdown with EXACTLY these sections:
 
 ${EPISODE_SECTIONS.join("\n")}
@@ -390,8 +390,6 @@ export interface CompressEpisodeOptions {
 	episodeId: string;
 	threadId: string;
 	threadName: string;
-	/** Source thread when this episode belongs to an automatic restart. */
-	restartOf?: string;
 	task: string;
 	status: "ok" | "failed";
 	diagnostics?: string; // failure diagnostics (D6)
@@ -568,6 +566,51 @@ function lastAssistantText(messages: unknown[]): string {
 	return text || "(no output)";
 }
 
+export interface FailedEpisodeOptions {
+	ctx: Pick<ExtensionContext, "cwd">;
+	episodeId: string;
+	threadId: string;
+	threadName: string;
+	task: string;
+	diagnostics: string;
+	workerModel?: { provider: string; id: string };
+	workerCostUsd: number;
+}
+
+/** Write the fixed episode for a failed action that produced no worker response. */
+export function writeFailedEpisode(opts: FailedEpisodeOptions): CompressedEpisode {
+	const episodeId = headerField(opts.episodeId, 80) ?? "(unknown)";
+	const threadId = headerField(renderThreadId(opts.threadId), 80) ?? "(unknown)";
+	const threadName = headerField(opts.threadName, 80) ?? "(unknown)";
+	const task = headerField(opts.task) ?? "(no task recorded)";
+	const failure = headerField(opts.diagnostics, 300) ?? "the worker action failed";
+	const model = opts.workerModel
+		? headerField(`${opts.workerModel.provider}/${opts.workerModel.id}`, 120) ?? "(unknown)"
+		: "(unknown)";
+	const cost = Number.isFinite(opts.workerCostUsd) && opts.workerCostUsd >= 0
+		? opts.workerCostUsd.toFixed(6)
+		: "0.000000";
+	const text = [
+		`# Episode ${episodeId} — thread ${threadId} (${threadName}) — STATUS: FAILED`,
+		"",
+		`> task: ${task}`,
+		"> status: FAILED",
+		`> error: ${failure}`,
+		`> model: ${model}`,
+		`> cost: USD ${cost}`,
+		"",
+		"## Failure",
+		"The action failed before the worker produced a response.",
+		"",
+	].join("\n");
+	try {
+		const written = writeSlateArtifact({ cwd: opts.ctx.cwd, kind: "episodes", id: opts.episodeId, content: text });
+		return { text, file: written.absolutePath, compressor: "(fixed failed-action episode)" };
+	} catch (error) {
+		throw new EpisodePersistenceError(undefined, error);
+	}
+}
+
 export async function compressEpisode(opts: CompressEpisodeOptions): Promise<CompressedEpisode> {
 	const { ctx } = opts;
 
@@ -659,16 +702,14 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	// here and the status label is one of two literals, so both are already safe.
 	const episodeId = headerField(opts.episodeId, 80) ?? "(unknown)";
 	const threadId = headerField(renderThreadId(opts.threadId), 80) ?? "(unknown)";
-	const threadName = headerField(opts.threadName, 80);
-	const restartOf = headerField(opts.restartOf, 80);
-	const restart = restartLineageText(restartOf, threadId);
+	const threadName = headerField(opts.threadName, 80) ?? "(unknown)";
 	const task = headerField(opts.task) ?? "(no task recorded)";
 	const failure = opts.status === "failed" ? headerField(opts.diagnostics, 300) : undefined;
 	const observations = opts.observations.stored
 		? `stored | path: ${headerField(opts.observations.path, 240) ?? "(unknown)"} | bytes: ${opts.observations.bytes} | truncated: ${opts.observations.truncated ? "yes" : "no"} | grammar: ${opts.observations.grammar}`
 		: `not stored | reason: ${opts.observations.reason} | grammar: ${opts.observations.grammar}`;
 	const header = [
-		`# Episode ${episodeId} — thread ${threadId}${threadName ? ` (${threadName})` : ""}${restart ? ` — ${restart}` : ""} — STATUS: ${statusLabel}`,
+		`# Episode ${episodeId} — thread ${threadId} (${threadName}) — STATUS: ${statusLabel}`,
 		"",
 		`> task: ${task}`,
 		`> observations: ${observations}`,

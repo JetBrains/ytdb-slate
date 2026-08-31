@@ -47,13 +47,10 @@ export function isSafeThreadId(value: unknown): value is string {
 	return typeof value === "string" && isSlateArtifactId(`${value}.e0`);
 }
 
-/** Return the next canonical episode id, or undefined when it cannot advance safely. */
-export function nextSlateEpisodeId(threadId: unknown, episodeSeq: unknown): string | undefined {
+/** Return the single canonical episode id for one thread. */
+export function slateEpisodeId(threadId: unknown): string | undefined {
 	if (!isSafeThreadId(threadId)) return undefined;
-	if (typeof episodeSeq !== "number" || !Number.isSafeInteger(episodeSeq) || episodeSeq < 0 || episodeSeq >= Number.MAX_SAFE_INTEGER) {
-		return undefined;
-	}
-	const id = `${threadId}.e${episodeSeq + 1}`;
+	const id = `${threadId}.e1`;
 	return isSlateArtifactId(id) ? id : undefined;
 }
 

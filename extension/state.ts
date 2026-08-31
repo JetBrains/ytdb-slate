@@ -3,16 +3,17 @@
  *
  * Persistence model (ExecPlan D9): every mutation appends a full snapshot as a
  * custom session entry ("slate-state") via pi.appendEntry. On session_start the
- * store rebuilds from the LAST such entry on the current branch, so state
- * follows pi's session tree across restart/resume/fork. Thread session files
- * and episode files live in the project corpus. Legacy flat project artifacts
- * remain readable and are validated on restore.
+ * store rebuilds from the last current-format entry on the current branch.
+ * State follows pi's session tree across restart, resume, and fork. Episode files
+ * live in the project corpus. Legacy flat project artifacts remain readable and
+ * are validated on restore.
  */
 
 import { createHash } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 // TYPE-ONLY: the effort vocabulary is defined once, in the profile table
 // (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
 // union. The import is erased at load time. State restoration therefore keeps
@@ -25,6 +26,7 @@ import {
 	isSlateArtifactId,
 	isSlateArtifactReference,
 	slateArtifactReference,
+	slateEpisodeId,
 } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 import {
@@ -92,13 +94,6 @@ export function renderThreadId(value: unknown): string | undefined {
 	return isCanonicalThreadId(value) ? value : JSON.stringify(value);
 }
 
-/** One readable lineage phrase for every user-facing surface. */
-export function restartLineageText(source: unknown, successor: unknown): string | undefined {
-	return isCanonicalThreadId(source) && isCanonicalThreadId(successor)
-		? `source ${source} -> successor ${successor}`
-		: undefined;
-}
-
 /** Validate the conditionally required tool argument at its runtime boundary. */
 export function parseThreadType(value: unknown, required: boolean): ThreadType | undefined {
 	const allowed = THREAD_TYPES.join(", ");
@@ -144,18 +139,9 @@ export function threadTypeMarker(type: ThreadType): string {
 export interface ThreadRecord {
 	id: string; // "t1", "t2", ...
 	name: string;
-	sessionFile: string; // absolute path to worker .jsonl ("" until first dispatch completes session creation)
-	/** Validated inherited transcript retained as the recovery source for a corpus fork. */
-	forkedFrom?: string;
-	status: "idle" | "running";
-	/** Immutable thread type. Absent means an older thread; resolve it with effectiveThreadType. */
-	type?: ThreadType;
-	/** Source thread replaced by this automatic restart. Absent means no restart lineage. */
-	restartOf?: string;
-	/** One-based depth in an automatic-restart lineage. Valid only with restartOf. */
-	restartGeneration?: number;
-	/** Successor that replaced this thread. Absent means this thread was not superseded. */
-	supersededBy?: string;
+	status: "queued" | "running" | "successful" | "failed" | "cancelled";
+	/** Immutable thread type. */
+	type: ThreadType;
 	/**
 	 * PRE-ROUTER pin: "provider/id" passed as `model` when the thread was created
 	 * WITH THE ROUTER OFF. It names what a NEW worker session opens on and never
@@ -189,10 +175,10 @@ export interface ThreadRecord {
 	cacheKeyShard?: number;
 	/** Effective built-in worker tool allowlist. Absent means an older thread whose tools are unknown. */
 	tools?: string[];
-	/** True when the live session grew beyond its newest durable episode evidence. */
-	choiceEvidenceStale?: true;
-	episodeIds: string[];
-	episodeSeq: number; // monotonic per-thread episode counter
+	/** The action's only episode. Absent only before work starts or after an unbilled abort. */
+	episodeId?: string;
+	/** Failure or cancellation reason. */
+	outcomeReason?: string;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -246,7 +232,10 @@ export interface SlateSessionParent {
 	name: string;
 }
 
+export const SLATE_STATE_FORMAT = "single-action-v1";
+
 export interface SlateSnapshot {
+	format: typeof SLATE_STATE_FORMAT;
 	threads: ThreadRecord[];
 	episodes: EpisodeRecord[];
 	/** Highest allocated generated thread ordinal. Absent snapshots derive it from records. */
@@ -561,51 +550,6 @@ export function sanitizeEpisodeModel(raw: unknown, warn: (msg: string) => void):
 export const DEFAULT_CACHE_KEY_SHARDS = 2;
 export const MAX_CACHE_KEY_SHARDS = 64;
 
-const THREAD_CHOICE_KEYS = ["report", "act"];
-
-/** Validate the raw thread-choice config and apply independent safe defaults. */
-export function sanitizeThreadChoiceConfig(raw: unknown, warn: (msg: string) => void): Required<ThreadChoiceConfig> {
-	const defaults: Required<ThreadChoiceConfig> = { report: true, act: false };
-	if (raw === undefined) return defaults;
-	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-		warn('slate: ignoring threadChoice — expected an object like { "report": true, "act": false }');
-		return defaults;
-	}
-	const value = raw as { report?: unknown; act?: unknown };
-	let keys: string[];
-	try {
-		keys = Object.keys(value);
-	} catch {
-		warn("slate: ignoring threadChoice because its keys could not be read. Slate uses the defaults.");
-		return defaults;
-	}
-	const unknownKeys = keys.filter((key) => !THREAD_CHOICE_KEYS.includes(key));
-	if (unknownKeys.length > 0) {
-		warn(
-			`slate: ignoring unknown threadChoice key(s): ${sanitizeForNotify(unknownKeys.join(", "))} (known: ${THREAD_CHOICE_KEYS.map(
-				(key) => `"${key}"`,
-			).join(", ")})`,
-		);
-	}
-	const booleanValue = (key: keyof typeof value, fallback: boolean): boolean => {
-		let candidate: unknown;
-		try {
-			candidate = value[key];
-		} catch {
-			warn(`slate: ignoring threadChoice.${key} because its value could not be read (defaulting to ${fallback})`);
-			return fallback;
-		}
-		if (candidate === undefined) return fallback;
-		if (typeof candidate === "boolean") return candidate;
-		warn(`slate: ignoring threadChoice.${key} — expected true or false (defaulting to ${fallback})`);
-		return fallback;
-	};
-	return {
-		report: booleanValue("report", defaults.report),
-		act: booleanValue("act", defaults.act),
-	};
-}
-
 /** Validate the explicit prompt-cache-key feature switch. */
 export function sanitizeCacheKeyEnabled(raw: unknown, warn: (msg: string) => void): boolean {
 	if (raw === undefined) return true;
@@ -714,21 +658,15 @@ function observationRecord(value: unknown, episodeId: string): ObservationRecord
 export const ADOPTED_THREAD_FIELDS = {
 	id: true,
 	name: true,
-	sessionFile: true,
-	forkedFrom: true,
 	status: true,
 	type: true,
-	restartOf: true,
-	restartGeneration: true,
-	supersededBy: true,
 	model: true,
 	baseModel: true,
 	baseEffort: true,
 	cacheKeyShard: true,
 	tools: true,
-	choiceEvidenceStale: true,
-	episodeIds: true,
-	episodeSeq: true,
+	episodeId: true,
+	outcomeReason: true,
 	createdAt: true,
 	updatedAt: true,
 } satisfies Record<keyof Required<ThreadRecord>, true>;
@@ -802,89 +740,64 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	if (typeof raw !== "object" || raw === null) return undefined;
 	const t = raw as Record<string, unknown>;
 	const id = str(t.id);
-	if (id === undefined || id === "") return undefined; // unaddressable: nothing can refer to it
-	if (!isSafeThreadId(id)) {
-		repairs.push(`thread ${sanitizeForNotify(id, 80)}: invalid id cannot form a canonical episode filename — remove or rename this record`);
+	if (id === undefined || !isCanonicalThreadId(id)) {
+		repairs.push("thread record: invalid id");
+		return undefined;
+	}
+	const name = str(t.name);
+	const type = isThreadType(t.type) ? t.type : undefined;
+	const status = typeof t.status === "string" && (["queued", "running", "successful", "failed", "cancelled"] as const).includes(t.status as ThreadRecord["status"])
+		? t.status as ThreadRecord["status"]
+		: undefined;
+	if (name === undefined || type === undefined || status === undefined) {
+		const field = name === undefined ? "name" : type === undefined ? "type" : "status";
+		repairs.push(`thread ${id}: invalid ${field}`);
 		return undefined;
 	}
 	const refused = new Set<string>();
-	const note = (field: string, value: unknown) => {
-		refused.add(field);
-		repairs.push(`thread ${id}: ignoring ${field} (${typeof value === "object" ? "object" : typeof value})`);
-	};
 	const keep = <T>(field: string, value: unknown, parsed: T | undefined): T | undefined => {
-		if (value !== undefined && parsed === undefined) note(field, value);
+		if (value !== undefined && parsed === undefined) {
+			refused.add(field);
+			repairs.push(`thread ${id}: ignoring ${field} (${typeof value === "object" ? "object" : typeof value})`);
+		}
 		return parsed;
 	};
-	const episodeIds = Array.isArray(t.episodeIds) ? t.episodeIds.filter((e): e is string => typeof e === "string") : [];
-	if (t.episodeIds !== undefined && !Array.isArray(t.episodeIds)) note("episodeIds", t.episodeIds);
-	else if (Array.isArray(t.episodeIds) && episodeIds.length !== t.episodeIds.length) note("episodeIds", t.episodeIds);
-	if (t.status !== undefined && t.status !== "idle") note("status", t.status);
 	const tools = keep("tools", t.tools, stringList(t.tools));
-	const lineageId = (field: "restartOf" | "supersededBy"): string | undefined => {
-		const value = t[field];
-		return keep(field, value, isCanonicalThreadId(value) && value !== id ? value : undefined);
-	};
-	let restartOf = lineageId("restartOf");
-	let restartGeneration = keep(
-		"restartGeneration",
-		t.restartGeneration,
-		typeof t.restartGeneration === "number" && Number.isSafeInteger(t.restartGeneration) && t.restartGeneration >= 1
-			? t.restartGeneration
-			: undefined,
-	);
-	if ((restartOf === undefined) !== (restartGeneration === undefined)) {
-		if (restartOf !== undefined) refused.add("restartOf");
-		if (restartGeneration !== undefined) refused.add("restartGeneration");
-		repairs.push(`thread ${id}: ignoring incomplete restart lineage (restartOf and restartGeneration must appear together)`);
-		restartOf = undefined;
-		restartGeneration = undefined;
+	const parsedEpisodeId = keep("episodeId", t.episodeId, str(t.episodeId));
+	const episodeId = parsedEpisodeId === undefined || parsedEpisodeId === slateEpisodeId(id) ? parsedEpisodeId : undefined;
+	if (parsedEpisodeId !== undefined && episodeId === undefined) {
+		refused.add("episodeId");
+		repairs.push(`thread ${id}: ignoring episodeId because it is not ${id}.e1`);
 	}
-	const supersededBy = lineageId("supersededBy");
+	let outcomeReason = keep("outcomeReason", t.outcomeReason, str(t.outcomeReason));
+	let adoptedStatus = status;
+	if (status === "running" || status === "queued") {
+		adoptedStatus = "failed";
+		outcomeReason = "the session ended before the action finished";
+		repairs.push(`thread ${id}: normalized unfinished ${status} action to failed`);
+	} else if (status === "successful" && episodeId === undefined) {
+		adoptedStatus = "failed";
+		outcomeReason = "the stored successful action has no valid episode id";
+		repairs.push(`thread ${id}: normalized successful action without a valid episode id to failed`);
+	}
 	const now = Date.now();
 	const built: ThreadRecord = {
 		id,
-		name: keep("name", t.name, str(t.name)) ?? id,
-		sessionFile: keep("sessionFile", t.sessionFile, str(t.sessionFile)) ?? "",
-		// BG4: an EMPTY retained source is an ABSENT one. It used to survive as a present
-		// field, and adoption then dropped the whole thread over a path that named nothing.
-		...(keep("forkedFrom", t.forkedFrom, str(t.forkedFrom) === "" ? undefined : str(t.forkedFrom)) !== undefined
-			? { forkedFrom: str(t.forkedFrom) }
-			: {}),
-		status: "idle",
-		// Vocabulary is resolved only at the point of use. Adoption follows the
-		// model/base-effort precedent and rejects only a non-string value.
-		...(keep("type", t.type, str(t.type)) !== undefined ? { type: str(t.type) as ThreadType } : {}),
-		...(restartOf !== undefined && restartGeneration !== undefined ? { restartOf, restartGeneration } : {}),
-		...(supersededBy !== undefined ? { supersededBy } : {}),
-		...(keep("model", t.model, str(t.model)) !== undefined ? { model: str(t.model) } : {}),
-		...(keep("baseModel", t.baseModel, str(t.baseModel)) !== undefined ? { baseModel: str(t.baseModel) } : {}),
-		// The LEVEL's vocabulary is re-checked by the reader (route.ts's storedLevel, BG21);
-		// this boundary only refuses a value that is not a string at all, so the vocabulary
-		// stays defined in exactly one place.
-		...(keep("baseEffort", t.baseEffort, str(t.baseEffort)) !== undefined ? { baseEffort: str(t.baseEffort) as ThinkingLevel } : {}),
-		...(keep(
-			"cacheKeyShard",
-			t.cacheKeyShard,
-			typeof t.cacheKeyShard === "number" &&
-				Number.isInteger(t.cacheKeyShard) &&
-				t.cacheKeyShard >= 0 &&
-				t.cacheKeyShard < MAX_CACHE_KEY_SHARDS
-				? t.cacheKeyShard
-				: undefined,
-		) !== undefined
-			? { cacheKeyShard: t.cacheKeyShard as number }
-			: {}),
-		...(tools !== undefined ? { tools } : {}),
-		...(keep("choiceEvidenceStale", t.choiceEvidenceStale, t.choiceEvidenceStale === true ? (true as const) : undefined) !== undefined
-			? { choiceEvidenceStale: true as const }
-			: {}),
-		episodeIds,
-		episodeSeq: keep("episodeSeq", t.episodeSeq, counter(t.episodeSeq)) ?? episodeIds.length,
+		name,
+		status: adoptedStatus,
+		type,
+		model: keep("model", t.model, str(t.model)),
+		baseModel: keep("baseModel", t.baseModel, str(t.baseModel)),
+		baseEffort: keep("baseEffort", t.baseEffort, str(t.baseEffort)) as ThinkingLevel | undefined,
+		cacheKeyShard: keep("cacheKeyShard", t.cacheKeyShard, typeof t.cacheKeyShard === "number" && Number.isInteger(t.cacheKeyShard) && t.cacheKeyShard >= 0 && t.cacheKeyShard < MAX_CACHE_KEY_SHARDS
+			? t.cacheKeyShard : undefined),
+		tools,
+		episodeId,
+		outcomeReason,
 		createdAt: keep("createdAt", t.createdAt, num(t.createdAt)) ?? now,
 		updatedAt: keep("updatedAt", t.updatedAt, num(t.updatedAt)) ?? now,
 	};
-	noteUnadoptedFields("thread", id, t, built, refused, repairs); // CQ22
+	noteUnadoptedFields("thread", id, t, built, refused, repairs);
 	return built;
 }
 
@@ -901,6 +814,10 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 	const threadId = str(e.threadId);
 	const file = str(e.file);
 	if (id === undefined || id === "" || threadId === undefined || file === undefined) return undefined;
+	if (!isCanonicalThreadId(threadId) || id !== slateEpisodeId(threadId)) {
+		repairs.push(`episode ${id || "record"}: id must be the thread's canonical .e1 id`);
+		return undefined;
+	}
 	const refused = new Set<string>();
 	const keep = <T>(field: string, value: unknown, parsed: T | undefined): T | undefined => {
 		if (value !== undefined && parsed === undefined) {
@@ -1277,12 +1194,6 @@ export interface RouterConfig {
 	showWarnings?: boolean;
 }
 
-/** Reporting and automatic action for the thread-choice verdict. */
-export interface ThreadChoiceConfig {
-	report?: boolean;
-	act?: boolean;
-}
-
 /** Optional raw workflow publishing and follow-up issue controls. */
 export interface WorkflowConfig {
 	draftPRs?: boolean;
@@ -1616,7 +1527,6 @@ export interface SlateConfig {
 	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
 	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
 	router?: RouterConfig; // action-level model router: the closed model list + the evidence-gap policy (default: off) — see model-router.ts
-	threadChoice?: ThreadChoiceConfig; // verdict reporting defaults on; automatic action defaults off
 	corpusName?: string; // optional readable corpus-project label; the digest remains authoritative
 	writing?: WritingConfig; // writing guidance for orchestrator output (default: off) — see writing.ts
 }
@@ -1802,7 +1712,8 @@ export class SlateStore {
 
 	snapshot(): SlateSnapshot {
 		return {
-			threads: [...this.threads.values()].map((t) => ({ ...t, status: "idle" as const })),
+			format: SLATE_STATE_FORMAT,
+			threads: [...this.threads.values()],
 			episodes: [...this.episodes.values()],
 			threadSeq: this.threadSeq,
 			...(this.slateSessionId !== undefined ? { slateSessionId: this.slateSessionId } : {}),
@@ -2407,9 +2318,9 @@ export class SlateStore {
 			const e = entry as {
 				type: string;
 				customType?: string;
-				data?: { workerCostUsd?: number; carriedCostUsd?: number };
+				data?: { format?: unknown; workerCostUsd?: number; carriedCostUsd?: number };
 			};
-			if (e.type !== "custom" || e.customType !== "slate-state") continue;
+			if (e.type !== "custom" || e.customType !== "slate-state" || e.data?.format !== SLATE_STATE_FORMAT) continue;
 			workerCostUsd = Math.max(workerCostUsd, e.data?.workerCostUsd ?? 0);
 			carriedCostUsd = Math.max(carriedCostUsd, e.data?.carriedCostUsd ?? 0);
 		}
@@ -2462,7 +2373,7 @@ export class SlateStore {
 		this.paused = false;
 		this.workerCostUsd = costFloor.workerCostUsd;
 		this.carriedCostUsd = costFloor.carriedCostUsd;
-		if (!latest) return;
+		if (!latest || latest.format !== SLATE_STATE_FORMAT) return;
 
 		this.orchestratorMode = latest.orchestratorMode ?? false;
 		this.paused = latest.paused ?? false;
@@ -2548,14 +2459,6 @@ export class SlateStore {
 			const ordinal = canonicalThreadOrdinal(t.id);
 			if (ordinal !== undefined) this.threadSeq = Math.max(this.threadSeq, ordinal);
 		}
-		// A dangling successor would permanently reject the source thread. Repair it
-		// only after every surviving thread is known, since this is a cross-record rule.
-		for (const thread of this.threads.values()) {
-			if (thread.supersededBy !== undefined && !this.threads.has(thread.supersededBy)) {
-				dropped.push(`thread ${thread.id}: ignoring supersededBy ${thread.supersededBy} because that successor is absent`);
-				delete thread.supersededBy;
-			}
-		}
 		const episodeList = Array.isArray(latest.episodes) ? latest.episodes : [];
 		for (const raw of episodeList) {
 			const e = sanitizeEpisodeRecord(raw, dropped);
@@ -2571,12 +2474,18 @@ export class SlateStore {
 			} else {
 				e.file = safeFile;
 			}
-			if (!this.threads.has(e.threadId)) continue;
+			const owner = this.threads.get(e.threadId);
+			if (owner?.episodeId !== e.id) {
+				dropped.push(`episode ${e.id}: owning thread does not reference this episode`);
+				continue;
+			}
 			this.episodes.set(e.id, e);
 		}
-		// Prune episode ids that did not survive.
-		for (const t of this.threads.values()) {
-			t.episodeIds = t.episodeIds.filter((id) => this.episodes.has(id));
+		for (const thread of this.threads.values()) {
+			if (thread.episodeId !== undefined && !this.episodes.has(thread.episodeId)) {
+				this.threads.delete(thread.id);
+				dropped.push(`thread ${thread.id}: its episode did not survive restoration`);
+			}
 		}
 		if (dropped.length > 0 && ctx.hasUI) {
 			try {

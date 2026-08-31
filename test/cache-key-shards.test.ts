@@ -7,13 +7,12 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH as PLATFORM_OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH } from "@earendil-works/pi-ai/api/openai-prompt-cache";
 import { stream as streamOpenAIResponses } from "@earendil-works/pi-ai/api/openai-responses";
-import type { RoutePlanProceed, SessionOpenDecision } from "../extension/route.ts";
+import type { RoutePlanProceed } from "../extension/route.ts";
 import {
   DEFAULT_CACHE_KEY_SHARDS,
   MAX_CACHE_KEY_SHARDS,
   sanitizeCacheKeyEnabled,
   sanitizeCacheKeyShards,
-  sanitizeThreadRecord,
   SlateStore,
   type ThreadRecord,
 } from "../extension/state.ts";
@@ -231,13 +230,6 @@ test("worker cache wrapper chains platform results and contains platform and wra
 
 interface ManagerAccess {
   createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord;
-  openWorkerFor(args: {
-    thread: ThreadRecord;
-    ctx: ExtensionContext;
-    open: SessionOpenDecision;
-    tools: string[] | undefined;
-    report: (message: string) => void;
-  }): Promise<{ session: WorkerSession }>;
 }
 
 function store(): SlateStore {
@@ -249,7 +241,6 @@ function access(manager: ThreadManager): ManagerAccess {
 }
 
 const PROCEED = { kind: "proceed" } as unknown as RoutePlanProceed;
-const OPEN = {} as unknown as SessionOpenDecision;
 
 test("project namespaces isolate shard keys while preserving within-project grouping", () => {
   const firstProject = join(scratch, "first-project");
@@ -327,95 +318,4 @@ test("configured shard counts are honored and invalid counts warn before default
   assert.equal(sanitizeCacheKeyShards(1, (warning) => validWarnings.push(warning)), 1);
   assert.equal(sanitizeCacheKeyShards(MAX_CACHE_KEY_SHARDS, (warning) => validWarnings.push(warning)), MAX_CACHE_KEY_SHARDS);
   assert.deepEqual(validWarnings, []);
-});
-
-function rawThread(cacheKeyShard?: unknown): Record<string, unknown> {
-  return {
-    id: "t9",
-    name: "restored",
-    sessionFile: "",
-    status: "idle",
-    ...(cacheKeyShard === undefined ? {} : { cacheKeyShard }),
-    episodeIds: [],
-    episodeSeq: 0,
-    createdAt: 1,
-    updatedAt: 2,
-  };
-}
-
-test("thread snapshot adoption preserves valid shards and leaves legacy records unassigned", () => {
-  const repairs: string[] = [];
-  const restored = sanitizeThreadRecord(rawThread(7), repairs);
-  assert.equal(restored?.cacheKeyShard, 7);
-  assert.deepEqual(repairs, []);
-
-  const legacy = sanitizeThreadRecord(rawThread(), repairs);
-  assert.equal(legacy?.cacheKeyShard, undefined);
-  assert.equal(legacy?.type, undefined);
-  assert.deepEqual(repairs, []);
-
-  const invalidRepairs: string[] = [];
-  const invalid = sanitizeThreadRecord(rawThread(MAX_CACHE_KEY_SHARDS), invalidRepairs);
-  assert.equal(invalid?.cacheKeyShard, undefined);
-  assert.match(invalidRepairs[0] ?? "", /ignoring cacheKeyShard/);
-});
-
-test("legacy and restored threads open with their persisted cache behavior", { timeout: 5000 }, async () => {
-  const manager = new ThreadManager(store(), { cacheKeyShards: 2 });
-  const internal = access(manager);
-
-  const legacy = sanitizeThreadRecord(rawThread(), []) as ThreadRecord;
-  const legacyOpen = await internal.openWorkerFor({
-    thread: legacy,
-    ctx: context("legacy-open"),
-    open: OPEN,
-    tools: undefined,
-    report: () => {},
-  });
-  sessions.push(legacyOpen.session);
-  const legacyPayload: Record<string, unknown> = { legacy: true };
-  assert.strictEqual(await applyPayload(legacyOpen.session, legacyPayload), legacyPayload);
-  assert.equal("prompt_cache_key" in legacyPayload, false);
-
-  const restored = sanitizeThreadRecord(rawThread(7), []) as ThreadRecord;
-  const restoredOpen = await internal.openWorkerFor({
-    thread: restored,
-    ctx: context("restored-open"),
-    open: OPEN,
-    tools: undefined,
-    report: () => {},
-  });
-  sessions.push(restoredOpen.session);
-  const restoredPayload: Record<string, unknown> = { restored: true };
-  assert.strictEqual(await applyPayload(restoredOpen.session, restoredPayload), restoredPayload);
-  const restoredKey = restoredPayload.prompt_cache_key;
-  assert.equal(restoredKey, workerPromptCacheKey(context("restored-open").cwd, 7));
-  assert.equal(restored.cacheKeyShard, 7);
-
-  const sibling = { ...restored, id: "t10" };
-  const siblingOpen = await internal.openWorkerFor({
-    thread: sibling,
-    ctx: context("restored-open"),
-    open: OPEN,
-    tools: undefined,
-    report: () => {},
-  });
-  sessions.push(siblingOpen.session);
-  const siblingPayload: Record<string, unknown> = {};
-  await applyPayload(siblingOpen.session, siblingPayload);
-  assert.equal(siblingPayload.prompt_cache_key, restoredKey);
-
-  const disabledManager = access(new ThreadManager(store(), { cacheKeyEnabled: false, cacheKeyShards: 2 }));
-  const disabledOpen = await disabledManager.openWorkerFor({
-    thread: restored,
-    ctx: context("disabled-restored-open"),
-    open: OPEN,
-    tools: undefined,
-    report: () => {},
-  });
-  sessions.push(disabledOpen.session);
-  const disabledPayload: Record<string, unknown> = { disabled: true };
-  assert.strictEqual(await applyPayload(disabledOpen.session, disabledPayload), disabledPayload);
-  assert.equal("prompt_cache_key" in disabledPayload, false);
-  assert.equal(restored.cacheKeyShard, 7);
 });

@@ -1,19 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { effectiveThreadType, sanitizeThreadRecord, SlateStore, THREAD_TYPES, type ThreadRecord, type ThreadType } from "../extension/state.ts";
+import { SlateStore, THREAD_TYPES, type ThreadRecord } from "../extension/state.ts";
 import { ThreadManager, type DispatchOptions } from "../extension/threads.ts";
 import { registerSlateTools } from "../extension/tools.ts";
 
 interface ManagerInternals {
-  live: Map<string, unknown>;
-  runDispatchInner: (...args: unknown[]) => Promise<unknown>;
-  openWorkerFor: (...args: unknown[]) => Promise<unknown>;
   createThread(opts: DispatchOptions, plan: unknown): ThreadRecord;
-  setExistingThreadType(thread: ThreadRecord, requested: ThreadType | undefined): void;
   runDispatch: (...args: unknown[]) => Promise<unknown>;
 }
 
@@ -25,10 +18,8 @@ function record(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
   return {
     id: "t1",
     name: "legacy",
-    sessionFile: "",
-    status: "idle",
-    episodeIds: [],
-    episodeSeq: 0,
+    type: "general",
+    status: "cancelled",
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
@@ -61,7 +52,7 @@ interface RegisteredThreadTool {
   ): Promise<unknown>;
 }
 
-function registeredThreadTool(): { tool: RegisteredThreadTool; calls: DispatchOptions[] } {
+function registeredThreadTool(status: "ok" | "failed" = "ok"): { tool: RegisteredThreadTool; calls: DispatchOptions[] } {
   let registered: unknown;
   const pi = {
     registerTool(tool: unknown) {
@@ -76,7 +67,7 @@ function registeredThreadTool(): { tool: RegisteredThreadTool; calls: DispatchOp
       const thread = record({ type: opts.type });
       return {
         thread,
-        episode: { id: "t1.e1", threadId: "t1", task: opts.task, status: "ok", file: "/tmp/e", createdAt: 1 },
+        episode: { id: "t1.e1", threadId: "t1", task: opts.task, status, file: "/tmp/e", createdAt: 1 },
         episodeText: "episode",
         warnings: [],
         usage: { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 },
@@ -97,15 +88,15 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
   assert.doesNotMatch(tool.description, /researcher, reviewer, adversarial, implementer/);
   assert.equal(
     tool.parameters.properties.type.description,
-    "Required for a new thread and immutable after creation. Pick by main job: researcher investigates, reviewer judges work, adversarial seeks counterexamples, implementer makes the change, general is anything else. Slate adds its reviewer evidence charter to reviewer and adversarial threads.",
+    "Required. Pick by main job: researcher investigates, reviewer judges work, adversarial seeks counterexamples, implementer makes the change, general is anything else. Slate adds its reviewer evidence charter to reviewer and adversarial threads.",
   );
   const descriptionBytes = Buffer.byteLength(tool.description, "utf8");
   const parameterSchemaBytes = Buffer.byteLength(JSON.stringify(tool.parameters), "utf8");
-  assert.equal(descriptionBytes, 1_386, "thread description byte budget changed; update docs/context-budget.md in the same commit");
-  assert.equal(parameterSchemaBytes, 2_005, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(descriptionBytes, 1_062, "thread description byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(parameterSchemaBytes, 1_246, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
   assert.equal(
     descriptionBytes + parameterSchemaBytes,
-    3_391,
+    2_308,
     "thread combined byte budget changed; update docs/context-budget.md in the same commit",
   );
 
@@ -121,8 +112,19 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
   for (const type of THREAD_TYPES) {
     await tool.execute(type, { task: `create ${type}`, type }, undefined, undefined, ctx);
   }
-  await tool.execute("continue", { thread: "t1", task: "continue without a type" }, undefined, undefined, ctx);
-  assert.deepEqual(calls.map((call) => call.type), [...THREAD_TYPES, undefined]);
+  assert.deepEqual(calls.map((call) => call.type), [...THREAD_TYPES]);
+});
+
+test("thread tool returns a failed episode with failed status", async () => {
+  const { tool } = registeredThreadTool("failed");
+  const result = await tool.execute("failed", { task: "x", type: "general" }, undefined, undefined, ctx) as {
+    content: Array<{ text: string }>;
+    details: { status: string; episodeId: string };
+  };
+  assert.match(result.content[0]?.text ?? "", /STATUS: FAILED/);
+  assert.match(result.content[0]?.text ?? "", /episode/);
+  assert.equal(result.details.status, "failed");
+  assert.equal(result.details.episodeId, "t1.e1");
 });
 
 test("new records persist every valid type", () => {
@@ -137,197 +139,21 @@ test("new records persist every valid type", () => {
   }
 });
 
-test("an existing type is immutable, while a matching value is silently ignored", () => {
-  const { store, snapshots } = storeHarness();
-  const manager = new ThreadManager(store, {});
-  const view = internals(manager);
-  const existing = record({ type: "reviewer" });
-  store.threads.set(existing.id, existing);
 
-  view.setExistingThreadType(existing, "reviewer");
-  assert.equal(snapshots.length, 0);
-  assert.throws(
-    () => view.setExistingThreadType(existing, "implementer"),
-    /immutable type "reviewer".*cannot be changed to "implementer"/,
-  );
-  assert.equal(existing.type, "reviewer");
-  assert.equal(snapshots.length, 0);
-});
-
-test("public dispatch rejects a conflicting type before worker work or state changes", { timeout: 1000 }, async () => {
-  const { store, snapshots } = storeHarness();
-  const existing = record({ type: "reviewer" });
-  store.threads.set(existing.id, existing);
-  store.workerCostUsd = 4.5;
-  const before = structuredClone(existing);
-  const manager = new ThreadManager(store, {});
-  let opens = 0;
-  internals(manager).openWorkerFor = async () => {
-    opens++;
-    throw new Error("worker must not open");
-  };
-
-  await assert.rejects(
-    manager.dispatch(
-      { threadId: existing.id, task: "conflict", type: "implementer" },
-      {} as ExtensionContext,
-      undefined,
-    ),
-    /immutable type "reviewer"\. It cannot be changed to "implementer"/,
-  );
-  assert.equal(opens, 0);
-  assert.deepEqual(existing, before);
-  assert.equal(store.workerCostUsd, 4.5);
-  assert.equal(store.episodes.size, 0);
-  assert.equal(snapshots.length, 0);
-});
-
-test("dispatch passes route warnings from worker opening to the episode result", { timeout: 1000 }, async () => {
-  const root = mkdtempSync(join(tmpdir(), "slate-route-warning-test."));
-  try {
-    const { store } = storeHarness();
-    const manager = new ThreadManager(store, {});
-    const view = internals(manager);
-    view.openWorkerFor = async (args: unknown) => {
-      const report = (args as { report: (message: string) => void }).report;
-      report("worker opening warning");
-      throw new Error("worker opening failed");
-    };
-    const thread = record({ id: "t1", type: "researcher" });
-    const result = await view.runDispatchInner(
-      thread,
-      { task: "x", type: "researcher" },
-      "x",
-      "t1.e1",
-      { cwd: root } as ExtensionContext,
-      undefined,
-    ) as { warnings: string[] };
-    assert.deepEqual(result.warnings, ["worker opening warning"]);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("dispatch creates and persists a typed thread before running it", async () => {
+test("public dispatch creates and persists every thread type", async () => {
   const { store } = storeHarness();
   const manager = new ThreadManager(store, {});
   const view = internals(manager);
   view.runDispatch = async (thread: unknown) => thread;
 
-  const result = await manager.dispatch(
-    { name: "fresh", task: "x", type: "researcher" },
-    {} as ExtensionContext,
-    undefined,
-  ) as unknown as ThreadRecord;
-  assert.equal(result.name, "fresh");
-  assert.equal(result.type, "researcher");
-  assert.strictEqual(store.threads.get(result.id), result);
-});
-
-test("dispatch applies a one-time type to an existing thread after argument planning", async () => {
-  const { store } = storeHarness();
-  const existing = record();
-  store.threads.set(existing.id, existing);
-  const manager = new ThreadManager(store, {});
-  const view = internals(manager);
-  view.runDispatch = async () => ({ marker: "dispatched" });
-
-  const result = await manager.dispatch(
-    { threadId: existing.id, task: "x", type: "reviewer" },
-    {} as ExtensionContext,
-    undefined,
-  );
-  assert.deepEqual(result, { marker: "dispatched" });
-  assert.equal(existing.type, "reviewer");
-});
-
-test("a legacy thread can be typed once unless its worker session is live", () => {
-  const { store, snapshots } = storeHarness();
-  const manager = new ThreadManager(store, {});
-  const view = internals(manager);
-  const legacy = record();
-  store.threads.set(legacy.id, legacy);
-
-  view.setExistingThreadType(legacy, "researcher");
-  assert.equal(legacy.type, "researcher");
-  assert.equal(snapshots.length, 1);
-  assert.equal((snapshots[0]?.threads as ThreadRecord[])[0]?.type, "researcher");
-
-  const liveLegacy = record({ id: "t2" });
-  store.threads.set(liveLegacy.id, liveLegacy);
-  view.live.set(liveLegacy.id, {});
-  assert.throws(
-    () => view.setExistingThreadType(liveLegacy, "general"),
-    /live worker session.*cannot be set safely.*Omit "type" to continue this thread\. Create a new thread with type "general" to use that role/,
-  );
-  assert.equal(liveLegacy.type, undefined);
-  assert.equal(snapshots.length, 1);
-});
-
-test("a restored unrecognised type accepts one valid correction", () => {
-  const repairs: string[] = [];
-  const adopted = sanitizeThreadRecord({ ...record(), type: "future-role" }, repairs);
-  assert.ok(adopted);
-  assert.equal(adopted.type, "future-role");
-  assert.deepEqual(repairs, []);
-
-  const { store, snapshots } = storeHarness();
-  store.threads.set(adopted.id, adopted);
-  const view = internals(new ThreadManager(store, {}));
-  view.setExistingThreadType(adopted, "implementer");
-  assert.equal(adopted.type, "implementer");
-  assert.equal(snapshots.length, 1);
-
-  assert.throws(
-    () => view.setExistingThreadType(adopted, "reviewer"),
-    /immutable type "implementer".*cannot be changed to "reviewer"/,
-  );
-});
-
-test("an absent type survives save and restore without materialising a default", () => {
-  const first = storeHarness();
-  first.store.threads.set("t1", record());
-  first.store.save();
-  const snapshot = first.snapshots.at(-1);
-  assert.ok(snapshot);
-  assert.equal((snapshot.threads as ThreadRecord[])[0]?.type, undefined);
-  assert.equal(Object.hasOwn((snapshot.threads as ThreadRecord[])[0] ?? {}, "type"), false);
-
-  const restored = storeHarness().store;
-  const context = {
-    hasUI: false,
-    sessionManager: {
-      getBranch: () => [{ type: "custom", customType: "slate-state", data: snapshot }],
-      getEntries: () => [],
-    },
-  } as unknown as ExtensionContext;
-  restored.restore(context);
-  const adopted = restored.threads.get("t1");
-  assert.ok(adopted);
-  assert.equal(adopted.type, undefined);
-  assert.equal(Object.hasOwn(adopted, "type"), false);
-});
-
-test("restore drops a non-string type with a visible repair note", () => {
-  const repairs: string[] = [];
-  const adopted = sanitizeThreadRecord({ ...record(), type: 7 }, repairs);
-  assert.equal(adopted?.type, undefined);
-  assert.deepEqual(repairs, ["thread t1: ignoring type (number)"]);
-});
-
-test("an unrecognised restored string survives and reads as general with one report", () => {
-  const repairs: string[] = [];
-  const adopted = sanitizeThreadRecord({ ...record(), type: "future-role" }, repairs);
-  assert.ok(adopted);
-  assert.equal(adopted.type, "future-role");
-  assert.deepEqual(repairs, []);
-
-  const reports: string[] = [];
-  assert.equal(effectiveThreadType(adopted, (message) => reports.push(message)), "general");
-  assert.equal(effectiveThreadType(adopted, (message) => reports.push(message)), "general");
-  assert.deepEqual(reports, ["slate: thread t1 has unrecognised type future-role. Slate is treating it as general."]);
-
-  const absent = record();
-  assert.equal(effectiveThreadType(absent, (message) => reports.push(message)), "general");
-  assert.equal(reports.length, 1);
+  for (const type of THREAD_TYPES) {
+    const result = await manager.dispatch(
+      { name: `fresh-${type}`, task: "x", type },
+      {} as ExtensionContext,
+      undefined,
+    ) as unknown as ThreadRecord;
+    assert.equal(result.name, `fresh-${type}`);
+    assert.equal(result.type, type);
+    assert.strictEqual(store.threads.get(result.id), result);
+  }
 });

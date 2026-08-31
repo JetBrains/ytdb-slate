@@ -4,7 +4,7 @@
 
 Slate is a thread-weaving orchestration extension for the [pi coding agent](https://pi.dev).
 
-The orchestrator is your main pi session. It dispatches **bounded actions** to persistent **worker threads**. A large language model compresses each completed action into an **episode**. The episode retains intent, actions, findings, artifacts, open issues, and handoff notes.
+The orchestrator is your main pi session. It dispatches each **bounded action** to a new **worker thread**. Each thread runs one action. A large language model compresses successful work and failed partial work into one **episode**. A failure without a worker response uses a fixed episode and no compression call. The episode retains intent, actions, findings, artifacts, open issues, and handoff notes.
 
 The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use a confirmed size grade and the focus areas the change engages. Optional umbrella **draft-PR publishing** covers tracks.
 
@@ -34,7 +34,7 @@ Characterizations of third-party systems reflect their publicly described design
 
 - **Per-episode feedback.** Each thread executes one bounded action and hands control back. The orchestrator adapts after every episode — reactive like a ReAct loop — instead of firing off a subagent and hoping the result comes back usable.
 - **Compaction at a chosen boundary.** Compression happens at a predictable point — action completion — instead of mid-stream when context overflows. The compression itself is still LLM-performed and lossy, but the boundary is chosen, not forced.
-- **Episodes compose.** One thread's episode can seed another thread's context, so conclusions travel across the system by reference. Subagents pass back a single response string; episodes are durable, structured, reusable records.
+- **Episodes compose.** A follow-up action uses a new thread. The caller passes earlier episode identifiers through `context`. Slate loads that episode content into the new worker prompt. Subagents pass back one response string. Episodes are durable, structured records.
 
 Full rationale: [`docs/design-principles.md`](docs/design-principles.md), shipped in the package — if this summary and that document disagree, the document wins.
 
@@ -73,7 +73,7 @@ Slate can ride through model API outages. The opt-in `modelFailover` map in `.pi
 
 ## Action-level model routing
 
-Slate can pick the model and the effort level per dispatched action rather than running every action on whatever model the orchestrator happens to be on. `router.models` in `.pi/slate.json` (trusted projects only) is a closed list of `provider/id` specs. Each action uses its `model` and `effort` arguments when present. Otherwise, it uses the thread's base model and a level DERIVED for the model it routes to. That level is the lowest one with a capability measurement, never a fixed default. The list is empty by default. An empty list disables candidate-list enforcement, base seeding, effort derivation, and the router's window, billing, and substitution paths. Per-action `model` and `effort` arguments stay active on both router states. Slate always checks an explicit effort against pi's vocabulary, and against the ladder of the model it routes to whenever it has that model's profile data. An action that omits `model` plans for the thread's pre-router pin, and a thread with no pin gives it no plan target. An action that omits `effort` resolves no level. In both cases the worker session returns to what it opened on. [`docs/model-routing.md`](docs/model-routing.md) holds the full contract, including the known cases where the model or level that runs differs. Only models Slate ships a benchmark profile for can be routed to; entries pi cannot serve, or has no profile for, are dropped with a warning naming them.
+Slate can pick the model and effort level for each action. `router.models` in `.pi/slate.json` is a closed list of `provider/id` specs for trusted projects. Each action uses its explicit `model` and `effort` when present. Otherwise, Slate derives the lowest measured effort for the selected base model. An empty list disables candidate-list enforcement, base seeding, and effort derivation. Explicit action arguments stay active in both router states. Slate checks explicit effort against pi's vocabulary. Slate also checks the model ladder when profile data exists. Each action opens a new worker session. [`docs/model-routing.md`](docs/model-routing.md) holds the full contract.
 
 Router startup warnings have two classes. One class is a configuration fault. It reports project configuration that Slate ignored or dropped. A configuration fault also covers problems the user can stop by adding a model, credential, or failover entry.
 
@@ -81,9 +81,9 @@ The addition must go into their project configuration or pi credentials. Removin
 
 The other class is a model data note. It reports shipped research data that project configuration cannot correct. Slate hides those notes by default.
 
-With this repository's six-model list and pi's stock registry, Slate hides eleven notes. Slate shows one discoverability line instead. A local registry override can change that count. The line names the hidden warning count and the `router.showWarnings` setting. A hidden note can still affect which model runs an action.
+With this repository's six-model list and pi's stock registry, Slate hides eleven notes. Slate shows one discoverability line instead. A local registry override can change that count. The line names the hidden warning count and the `router.showWarnings` setting. Hidden notes do not change model selection.
 
-What the code enforces is deliberately narrower than what the routing data advises. The dispatch guards refuse an unlisted model, a level off the target model's ladder and a level the provider rejects outright; they warn about — and mark — an unmeasured level, refusing it only when `router.allowUnmeasuredEffort` is `false`; and the context-window guard substitutes a wider listed model instead of ever blocking an action. The obligations that come from the profile data itself — keeping review and gate actions on measured levels, and honoring a REFUSE such as `anthropic/claude-fable-5`'s for zero-data-retention work — are stated in the doctrine for the orchestrator to honor; they are **not** code-enforced guards. Full semantics: the `router.*` rows in [Configuration](#configuration) and the shipped [`docs/model-routing.md`](docs/model-routing.md) — if they disagree, that document wins.
+The dispatch guards refuse an unlisted model and an invalid effort level. They mark an unmeasured level. They refuse that level only when `router.allowUnmeasuredEffort` is `false`. Slate does not substitute models by context size. Slate does not print a long-prompt price notice. The doctrine states profile-based obligations that code does not enforce. Full semantics appear in the `router.*` configuration rows and [`docs/model-routing.md`](docs/model-routing.md).
 
 ## Optional writing guidance
 
@@ -120,10 +120,10 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | Key | Type | Default | Semantics |
 | --- | --- | --- | --- |
 | `orchestratorModeDefault` | boolean | `false` | Start fresh interactive sessions with orchestrator mode ON. |
-| `episodeModel` | string | newest available Anthropic Sonnet, else the orchestrator's own base model | Model (`provider/id`) used to compress a finished action into an episode. Never the model an action was routed to: an episode is read by every later consumer of the thread, so one cheap route must not degrade the record. An unusable value is reported and the default is used. |
+| `episodeModel` | string | newest available Anthropic Sonnet, else the orchestrator's own base model | Model (`provider/id`) used to compress a successful action or failed partial work into an episode. A failure without a worker response uses no compression model. Never the model an action was routed to: an episode is read by every later consumer of the thread, so one cheap route must not degrade the record. An unusable value is reported and the default is used. |
 | `workerTools` | string[] | `["read", "bash", "edit", "write", "grep", "find", "ls"]` | Tools available to worker threads (an empty list also falls back to the default). |
 | `workerExtensions` | string[] | `[]` | Regex patterns (matched **unanchored**) selecting which of the host session's already-loaded extensions also load into every worker thread; each matched extension's tools are added **on top of** `workerTools`. Empty (default) means workers load no extensions. The orchestrator keeps its restricted tool set but its doctrine is told what was whitelisted. Invalid patterns are dropped with a warning at session start. |
-| `maxConcurrent` | number | `4` | Maximum number of worker actions running concurrently (must be ≥ 1 — unenforced: a value of 0 or less silently hangs all dispatches). Excess dispatches wait in a queue; actions on the same thread always run in dispatch order. Default rationale: shipped `docs/design-principles.md` §5 (repo-local note). |
+| `maxConcurrent` | number | `4` | Maximum number of worker actions running concurrently (must be ≥ 1 — unenforced: a value of 0 or less silently hangs all dispatches). Excess actions wait for a global concurrency slot. Every action has its own thread. Default rationale: shipped `docs/design-principles.md` §5 (repo-local note). |
 | `contextBudget` | number \| object | `256000` (Anthropic models: `400000`) | Absolute orchestrator context budget (tokens) at which Slate auto-pauses and prepares a fresh-session handoff — semantics, defaults, per-model overrides, and rationale in [`docs/context-budget.md`](docs/context-budget.md). |
 | `orchestratorPromptDocs` | string[] | `[]` | Project markdown files (paths relative to the project root) whose **contents** are appended to the orchestrator system prompt. |
 | `workerPromptDocs` | string[] | `[]` | Project markdown files whose **contents** are appended to every worker-thread system prompt. |

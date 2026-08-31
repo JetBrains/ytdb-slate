@@ -1,98 +1,13 @@
 /**
- * ThreadManager: dispatch lifecycle (ExecPlan M1).
+ * Coordinates one new thread for each accepted action.
  *
- * One dispatch = one bounded action on one thread:
- *   resolve/create thread → EARLY route validation → per-thread FIFO queue →
- *   global semaphore → open/reuse worker session → APPLY-TIME route
- *   re-validation + model/effort switch → inject context episodes → prompt →
- *   compress the new messages into an episode (ok or FAILED) → update store.
- *
- * Parallelism happens ACROSS threads (pi runs sibling tool calls
- * concurrently); a single thread is a serial work stream (D9).
- *
- * PER-ACTION ROUTING (model-router D4/D48/D53). `model` and `effort` are
- * per-DISPATCH, honoured on a continuation exactly as on a creation — before
- * this, `model` was accepted only when a thread was created and silently ignored
- * on every later dispatch. The rules the dispatch path implements:
- *
- *  - RESOLUTION: the planner's model is the explicit argument, else the thread's
- *    base model. Its effort is the explicit argument, else the thread's base effort
- *    WHEN THE BASE MODEL IS THE ROUTE TARGET, else a level derived for that target —
- *    a level never travels between planner targets (route.ts's THE ONE RULE, effort
- *    half). The GUARDS ALWAYS VALIDATE THE RESOLVED PAIR,
- *    never only the explicit arguments — an omitted argument must not escape
- *    validation.
- *
- *  - A THREAD'S BASE is not an action's route. With the router ON the base model
- *    is the resolver's cheapest preferred candidate, which is always a LISTED
- *    model, so a later dispatch that omits `model` can never be rejected by the
- *    list guard (model-router D48); the base effort seeds to the LOWEST MEASURED
- *    level for that model, never to the user's global thinking-level default. A
- *    model passed to the creating dispatch routes THAT action only. A base that is
- *    NOT a listed candidate — absent (a thread older than the config) or dropped by
- *    a list change — is SEEDED by the planner on its next dispatch and written back
- *    here (persistReseededBase), so the invariant holds for threads the config
- *    outlived instead of leaving them undispatchable or silently unrouted. Stated
- *    once, in route.ts's header: with the router ON a thread's base is ALWAYS a
- *    listed candidate.
- *
- *  - ROUTER OFF MAKES ROUTER-OWNED MECHANISMS INERT. No list guard, window guard,
- *    billing notice, seeded or persisted base, or consultation of the
- *    orchestrator's tracked model: a model-less plan targets the thread's
- *    creation-time PIN — which only opens a NEW worker session (`openOnly`) — and
- *    nothing at all when there is no pin, so a NEW session opens on the host's
- *    current model (worker.ts) and a reused one is reverted to the model it opened
- *    on — outside cases M1, M3 and M7 of the doc named below (BG16, BG24).
- *    The `model` and `effort` arguments still apply per action: an explicit
- *    `effort` is validated against the plan target's ladder whenever that ladder is
- *    readable, and a level set by one action is put back to the session's opening
- *    level by the next. The MODEL an explicit argument routes to is reverted the same
- *    way (BG22), outside those same cases; the failover hold predates the router, and
- *    an OFF plan does not undo it. docs/model-routing.md's "Known cases where the
- *    model or level differs" collects the ones known to bite, this file's included.
- *    It does not claim to be exhaustive, and this code is the authority.
- *
- *    An earlier iteration seeded the base from the tracker here and persisted it.
- *    That undid failovers on reused sessions, could strand a thread once its
- *    tracked model lost credentials, and stopped a restarted thread following the
- *    host's model. The tracker survives only as the episode compressor's
- *    last-resort rung.
- *
- *  - VALIDATION HAPPENS TWICE. Early, in dispatch(), before any state mutation
- *    or session work, so a bad pick is a TOOL ERROR rather than a billed failed
- *    episode; and again at apply time, once the worker session exists and the
- *    thread's context size is knowable, where it also warns and may substitute.
- *    An apply-time rejection ABORTS the dispatch without recording an episode and
- *    without invoking the compressor (DispatchAbort below) — the only path in
- *    this module that does not end in an episode.
- *
- *  - FAILOVER IS CARVED OUT (guard 7): the in-dispatch failover switch bypasses
- *    the list and effort guards entirely and keeps only a non-substituting window
- *    warning. The router must never veto a failover.
- *
- *  - WHAT RAN IS REPORTED, never what was asked for. The model and level the LIVE
- *    session ended on — after pi's clamp, after a window substitution, after a
- *    failover — go into both the episode RECORD and the episode HEADER, and the
- *    evidence-gap marker rides along only when that exact pair is the one the
- *    guards judged. The compressor is handed the ORCHESTRATOR's base model as its
- *    last-resort rung and never the action's own model (the compressor pin, D5 —
- *    see episodes.ts).
- *
- * WHERE THE DECISION LIVES. The planning itself — the resolution rules and all
- * seven guards, with their wording — is route.ts, a PURE function: it takes the
- * frozen router resolution, the profile lookup, pi's compaction predicate and
- * reserve, the thread's context size and the raw arguments, and returns a
- * proceed/reject verdict. This module keeps only what is inherently impure:
- * reading the live session (its model, level and context size), assembling those
- * inputs, APPLYING the switch, and turning a rejection into either a tool error or
- * a non-billed abort. The split exists so the guards have permanent automated
- * coverage: verification/resolver-checks.mjs cannot load THIS module at all (it
- * transitively imports @earendil-works/pi-ai, an uninstalled peer dependency), but
- * it can load route.ts.
+ * Validation runs before thread creation. The global semaphore limits parallel
+ * actions. Each action opens one worker session. In-action failover can re-prompt
+ * that session once. Terminal work creates at most one episode.
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, fstatSync, mkdirSync, readSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, fstatSync, mkdirSync, readFileSync, readSync, realpathSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import {
@@ -109,7 +24,7 @@ import {
 // injected instance (and never calls expectOwnSwitch — a WORKER session's model
 // switch is not an orchestrator switch, so it must not be announced as one).
 import type { BaseModelTracker } from "./base-model.ts";
-import { compressEpisode, EpisodePersistenceError } from "./episodes.ts";
+import { compressEpisode, EpisodePersistenceError, writeFailedEpisode } from "./episodes.ts";
 import {
 	insideRoot,
 	publishStagedFile,
@@ -119,10 +34,10 @@ import {
 	withContainedThreadFile,
 } from "./corpus.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
-import { findProfile, type ThinkingLevel } from "./model-profiles.ts";
+import type { ThinkingLevel } from "./model-profiles.ts";
 import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture, type ObservationRecord } from "./observations.ts";
-import { nextSlateEpisodeId } from "./slate-files.ts";
-import { coveringPriceRow, ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
+import { slateEpisodeId } from "./slate-files.ts";
+import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
 	captureSessionBaseline,
@@ -142,9 +57,7 @@ import {
 	DEFAULT_CACHE_KEY_SHARDS,
 	effectiveThreadType,
 	isModelSpec,
-	isThreadType,
 	parseThreadType,
-	sanitizeThreadChoiceConfig,
 	splitModelSpec,
 	type EpisodeRecord,
 	type EpisodeUsage,
@@ -153,7 +66,6 @@ import {
 	type ThreadRecord,
 	type ThreadType,
 } from "./state.ts";
-import { planThreadChoice, type ThreadChoiceVerdict } from "./thread-choice.ts";
 import {
 	DEFAULT_WORKER_TOOLS,
 	isJudgementThreadType,
@@ -173,7 +85,6 @@ export function workerPromptCacheKey(cwd: string, shard: number): string {
 	return `slate-worker-${project}-${shard}`;
 }
 
-export const MAX_FRESH_CONTEXT_EPISODES = 32;
 export const MAX_FORK_SOURCE_BYTES = 64 * 1024 * 1024;
 /**
  * A hang and memory bound for inspecting a transcript slate ALREADY owns. It is not
@@ -187,40 +98,29 @@ const TRANSCRIPT_READ_BYTES = 64 * 1024;
 export function forkSourceSizeAllowed(bytes: number): boolean {
 	return bytes <= MAX_FORK_SOURCE_BYTES;
 }
-const FRESH_CONTEXT_REQUIRED_ERROR =
-	`Continuations with threadChoice.act=true require freshContext: pass [] to refuse a restart or up to ${MAX_FRESH_CONTEXT_EPISODES} episode ids to permit one.`;
+export const MAX_CONTEXT_EPISODES = 32;
 
-/** Preserve no answer, malformed input, and an explicit empty list as distinct consent states. */
-export function normalizeFreshContext(value: unknown): string[] | null | undefined {
-	if (value === undefined) return undefined;
-	if (!Array.isArray(value)) return null;
-	let length: number;
-	try {
-		length = value.length;
-	} catch {
-		return null;
+/** Validate and deduplicate episode references while preserving first position. */
+export function normalizeContextEpisodeIds(value: unknown): string[] {
+	if (value === undefined) return [];
+	if (!Array.isArray(value) || !value.every((id) => typeof id === "string")) {
+		throw new Error(`context must be a list of up to ${MAX_CONTEXT_EPISODES} episode ids.`);
 	}
-	if (length > MAX_FRESH_CONTEXT_EPISODES) {
-		throw new Error(
-			`freshContext accepts at most ${MAX_FRESH_CONTEXT_EPISODES} episode ids. Reduce the list instead of sending an oversized worker prompt.`,
-		);
+	if (value.length > MAX_CONTEXT_EPISODES) {
+		throw new Error(`context accepts at most ${MAX_CONTEXT_EPISODES} episode ids.`);
 	}
-	try {
-		if (!value.every((id) => typeof id === "string")) return null;
-		return [...value];
-	} catch {
-		return null;
-	}
+	return [...new Set(value)];
 }
 
 export interface DispatchOptions {
-	threadId?: string;
+	/** Removed public field. Kept only so direct callers receive the migration error. */
+	threadId?: unknown;
 	name?: string;
 	type?: ThreadType;
 	task: string;
-	contextEpisodeIds?: string[];
-	/** undefined = absent, null = malformed, array = explicit allowance. Interpreted only at the dispatch boundary. */
-	freshContext?: string[] | null;
+	contextEpisodeIds?: unknown;
+	/** Removed public field. Kept only so direct callers receive the migration error. */
+	freshContext?: unknown;
 	model?: string; // "provider/id" for THIS action (see the header): the thread's base model when omitted
 	effort?: string; // pi thinking level for THIS action; validated against the target model's ladder
 	tools?: string[];
@@ -360,9 +260,7 @@ export interface DispatchResult {
 	episode: EpisodeRecord;
 	thread: ThreadRecord;
 	usage: UsageStats;
-	/** Reporting-only thread choice for this continuation. It never changes dispatch placement. */
-	choice?: ThreadChoiceVerdict;
-	/** Routing notices for THIS action (evidence gaps, window substitutions, billing cliffs). */
+	/** Routing notices for this action. */
 	warnings: readonly string[];
 }
 
@@ -405,7 +303,28 @@ function lastAssistantMessage(messages: unknown[]): WorkerAssistantMsg | undefin
 	return undefined;
 }
 
-/** Continuation nudge for the post-failover re-prompt (same live session, context intact). */
+/** Remove Slate's injected user prompt by its exact role and text identity. */
+export function messagesForCompression(messages: unknown[], injectedPrompt?: string): unknown[] {
+	if (injectedPrompt === undefined) return messages;
+	const textOf = (message: unknown): string | undefined => {
+		const candidate = message as { role?: unknown; content?: unknown } | null;
+		if (candidate?.role !== "user") return undefined;
+		if (typeof candidate.content === "string") return candidate.content;
+		if (!Array.isArray(candidate.content)) return undefined;
+		return candidate.content
+			.filter((part): part is { type: string; text?: string } => typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text")
+			.map((part) => part.text ?? "")
+			.join("\n");
+	};
+	let removed = false;
+	return messages.filter((message) => {
+		if (removed || textOf(message) !== injectedPrompt) return true;
+		removed = true;
+		return false;
+	});
+}
+
+/** Retry nudge for the in-action failover prompt. */
 const FAILOVER_NUDGE =
 	"The previous attempt was interrupted by a model API failure. The conversation context is intact " +
 	"and partial changes may exist — verify the current state, then complete the original action.";
@@ -442,14 +361,7 @@ export class ThreadManager {
 	private live = new Map<string, WorkerSession>();
 	/** threadId → "provider/id" a LIVE session was switched to by model failover (AF12). */
 	private failoverLive = new Map<string, string>();
-	private queues = new Map<string, Promise<unknown>>();
 	private semaphore: Semaphore;
-	/**
-	 * threadId → models this thread has already had a long-context billing notice
-	 * for. Guard 6's memory lives HERE and not in the planner: route.ts is pure, so
-	 * it reports what it just warned about and this side records it.
-	 */
-	private longContextWarned = new Map<string, Set<string>>();
 	/**
 	 * threadId → what a LIVE worker session was OPENED on, both axes in one captured
 	 * value: pi's clamped settings default for that session's model, and the model pi
@@ -465,8 +377,6 @@ export class ThreadManager {
 	 * from.
 	 */
 	private liveBaselines = new Map<string, SessionBaseline>();
-	/** pi's compaction settings, read once (a lock-protected disk read) — see compactionSettings(). */
-	private cachedCompaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
 	/** Session-owned persisted thread and episode state. */
 	private store: SlateStore;
 	/** This manager's immutable session configuration. */
@@ -477,8 +387,6 @@ export class ThreadManager {
 	private resolveRouter: () => ModelRouterResolution;
 	/** Orchestrator base model used only by the episode compressor's last-resort rung. */
 	private baseModelTracker?: BaseModelTracker;
-	/** Sanitized once when the first continuation reaches thread-choice reporting. */
-	private choiceConfig?: ReturnType<typeof sanitizeThreadChoiceConfig>;
 
 	constructor(
 		store: SlateStore,
@@ -512,27 +420,7 @@ export class ThreadManager {
 		return this.config;
 	}
 
-	/**
-	 * The "provider/id" a thread's LIVE session runs after a model failover,
-	 * undefined when none happened or the session has since been disposed.
-	 * Failover is deliberately NOT persisted to ThreadRecord (neither the
-	 * pre-router `model` pin nor `baseModel`). A reopen normally reverts to the
-	 * dispatch's resolved model because worker.ts is passed one explicitly, which
-	 * overrides the session file — EXCEPT when the dispatch resolved to no model
-	 * at all (router off, no tracker, no pin, and a model-less host session): the
-	 * SDK then restores the session file's last model_change, which can be the
-	 * mapped model (CQ3).
-	 *
-	 * The marker is also DROPPED, not just on disposal, whenever a dispatch's own
-	 * ROUTING moves the session (see applyRoute) — an explicit `model` argument, and
-	 * with the router ON the thread's base, which a dispatch that omits `model`
-	 * resolves to. It is not limited to an "explicit" reroute, and it must not be:
-	 * this marker describes the model the live session is ACTUALLY on, so anything
-	 * that moves the session off the mapped model has to clear it or the report
-	 * becomes a lie. The one switch that never clears it is the REVERT (BG22), which
-	 * cannot run while the marker is held — that is exactly how a failover survives
-	 * the next action.
-	 */
+	/** The live model after an in-action failover. Disposal removes the marker. */
 	liveFailoverModel(threadId: string): string | undefined {
 		return this.live.has(threadId) ? this.failoverLive.get(threadId) : undefined;
 	}
@@ -543,110 +431,27 @@ export class ThreadManager {
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
-		// Pause blocks only NEW dispatches — in-flight ones already hold their
-		// queue slot and are allowed to finish (their episodes still get written).
 		if (this.store.paused) {
-			throw new Error(
-				"Slate is paused for handoff: the context budget was exceeded and new dispatches are rejected. " +
-					"Reply to the user with a handoff brief (overall goal, per-thread state with episode ids, immediate next actions) " +
-					"and ask them to run /slate handoff [focus], then run /slate adopt <name> in the successor session.",
-			);
+			throw new Error("Slate is paused for handoff. New actions are rejected until handoff completes.");
 		}
-		// EARLY route validation (see the header): the RESOLVED model/effort pair is
-		// validated here, before any state mutation and before any session work, so a
-		// bad pick is a tool error the orchestrator can correct — not a billed failed
-		// episode. Reject-only: no warnings and no window substitution, both of which
-		// belong to the apply-time plan that runs with the thread's real context size.
-		// Ordering inside this method matters: the unknown-thread error above comes
-		// first (it explains itself better than a routing complaint would), the
-		// routing guards next, and only then is a new thread created.
-		const existing = opts.threadId ? this.requireThread(opts.threadId) : undefined;
-		const actingContinuation = existing !== undefined && sanitizeThreadChoiceConfig(this.config.threadChoice, () => undefined).act;
-		let suppliedFreshContext: string[] | undefined;
+		if (opts.threadId !== undefined) {
+			throw new Error('The "thread" field was removed. Create a new thread and pass earlier episode ids through "context".');
+		}
 		if (opts.freshContext !== undefined) {
-			const normalized = normalizeFreshContext(opts.freshContext);
-			if (!Array.isArray(normalized)) {
-				throw new Error(`freshContext must be [] or a list of up to ${MAX_FRESH_CONTEXT_EPISODES} episode ids.`);
-			}
-			suppliedFreshContext = normalized;
+			throw new Error('The "freshContext" field was removed. Pass earlier episode ids through "context".');
 		}
-		if (actingContinuation && suppliedFreshContext === undefined) throw new Error(FRESH_CONTEXT_REQUIRED_ERROR);
-		if (suppliedFreshContext !== undefined) {
-			for (const id of suppliedFreshContext) {
-				if (!this.store.episodes.has(id)) {
-					const known = [...this.store.episodes.keys()].join(", ") || "none";
-					throw new Error(`Unknown freshContext episode "${sanitizeForNotify(id, 80)}". Known episodes: ${known}. Pass [] to refuse a restart.`);
-				}
-			}
+		if (typeof opts.task !== "string" || opts.task.trim() === "") {
+			throw new Error("task must be a non-empty string.");
 		}
-		const dispatchOpts: DispatchOptions = { ...opts, freshContext: existing === undefined ? undefined : suppliedFreshContext };
-		if (existing && nextSlateEpisodeId(existing.id, existing.episodeSeq) === undefined) {
-			throw new Error(
-				`Slate cannot dispatch thread ${sanitizeForNotify(existing.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
-			);
-		}
-		// Tool schemas are descriptive rather than an enforcement boundary. Keep
-		// this argument guard beside the model/effort guards below, as well as in
-		// tools.ts, so direct callers cannot persist an unusable type.
-		const requestedType = parseThreadType(opts.type, existing === undefined);
-		const liveSession = existing ? this.live.get(existing.id) : undefined;
-		const early = planRoute(this.routeInputs(ctx, existing, opts, liveSession));
-		// Reject-only here: a rejection is a TOOL ERROR the orchestrator can correct,
-		// raised before the thread record exists. The plan's WARNINGS are deliberately
-		// dropped — the apply-time plan re-derives them with the thread's real context
-		// size, and reporting them twice (or consuming guard 6's once-per-pair notice
-		// before anyone could see it) would both be wrong.
+		const type = parseThreadType(opts.type, true)!
+		const contextEpisodeIds = normalizeContextEpisodeIds(opts.contextEpisodeIds);
+		const accepted: DispatchOptions = { ...opts, type, contextEpisodeIds };
+		const prompt = this.buildPrompt(accepted, ctx.cwd);
+		const early = planRoute(this.routeInputs(ctx, undefined, accepted));
 		if (early.kind === "reject") throw new Error(early.reason);
-		// Accepted residual race: this correction deliberately runs before the per-thread
-		// queue. In pi's default parallel tool-execution mode, calls from one assistant
-		// message run in one synchronous tick, which makes this correct for the dominant
-		// shape. Moving it inside the queue was measured to leave the thread untyped,
-		// drop the reviewer charter, and reject later continuations. The residual race
-		// needs a hand-driven interleaving to reach, and this ordering does not close it.
-		if (existing) this.setExistingThreadType(existing, requestedType);
-		const thread = existing ?? this.createThread({ ...dispatchOpts, type: requestedType }, early);
-
-		// Per-thread FIFO: chain onto the previous dispatch for this thread.
-		const prev = this.queues.get(thread.id) ?? Promise.resolve();
-		const run = prev
-			.catch(() => undefined) // a failed predecessor must not poison the queue
-			.then(() => this.runDispatch(thread, dispatchOpts, ctx, signal, onProgress));
-		this.queues.set(thread.id, run);
-		return run;
-	}
-
-	private requireThread(threadId: string): ThreadRecord {
-		const existing = this.store.threads.get(threadId);
-		if (!existing) {
-			const known = [...this.store.threads.keys()].join(", ") || "none";
-			throw new Error(`Unknown thread "${threadId}". Known threads: ${known}. Omit "thread" to create a new one.`);
-		}
-		if (existing.supersededBy !== undefined) {
-			throw new Error(`Thread "${threadId}" was superseded by ${existing.supersededBy}. Continue the successor instead.`);
-		}
-		return existing;
-	}
-
-	/**
-	 * Apply a continuation's optional type after early route validation. A
-	 * matching value is the same silent no-op as a repeated `name`. A legacy
-	 * absent or unrecognised value may be corrected once, but not while its worker is live because
-	 * that session opened without the type's future charter and tool envelope.
-	 */
-	private setExistingThreadType(thread: ThreadRecord, requested: ThreadType | undefined): void {
-		if (requested === undefined || thread.type === requested) return;
-		if (isThreadType(thread.type)) {
-			throw new Error(`Thread ${thread.id} has immutable type "${thread.type}". It cannot be changed to "${requested}".`);
-		}
-		if (this.live.has(thread.id)) {
-			throw new Error(
-				`Thread ${thread.id} has a live worker session, so its type cannot be set safely. ` +
-					`Omit "type" to continue this thread. Create a new thread with type "${requested}" to use that role.`,
-			);
-		}
-		thread.type = requested;
-		thread.updatedAt = Date.now();
-		this.store.save();
+		this.validateRequestedModel(ctx, accepted.model);
+		const thread = this.createThread(accepted, early);
+		return this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress);
 	}
 
 	/**
@@ -660,124 +465,62 @@ export class ThreadManager {
 	 * thread's own default is `baseModel` — recording the routed model as a pin
 	 * would make one action's route the thread's permanent base.
 	 */
-	private createThread(opts: DispatchOptions, plan: RoutePlanProceed, restartOf?: ThreadRecord): ThreadRecord {
+	private validateRequestedModel(ctx: ExtensionContext, spec: string | undefined): void {
+		if (spec === undefined) return;
+		const parts = splitModelSpec(spec);
+		if (!parts) throw new Error(`Requested model "${sanitizeForNotify(spec, 80)}" is not a valid provider/id spec.`);
+		try {
+			const model = ctx.modelRegistry.find(parts.provider, parts.id);
+			if (!model || ctx.modelRegistry.hasConfiguredAuth(model) !== true) {
+				throw new Error("unavailable or has no configured credentials");
+			}
+		} catch (error) {
+			throw new Error(`Requested model "${sanitizeForNotify(spec, 80)}" could not be validated: ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 160)}.`);
+		}
+	}
+
+	private createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord {
 		const id = this.store.claimNextThreadId();
-		const type = parseThreadType(opts.type, true);
+		const type = parseThreadType(opts.type, true)!
 		const ordinal = Number(id.slice(1));
-		// Thread role does not affect cache sharding. No measurement supports coupling them.
-		const cacheKeyShard =
-			this.config.cacheKeyEnabled === false
-				? undefined
-				: (ordinal - 1) % (this.config.cacheKeyShards ?? DEFAULT_CACHE_KEY_SHARDS);
-		// Concretize the same fallback openWorkerSession applies, so a later reopen
-		// does not silently adopt a changed configuration default.
-		const configuredTools = restartOf?.tools ?? opts.tools ?? this.config.workerTools;
+		const cacheKeyShard = this.config.cacheKeyEnabled === false
+			? undefined
+			: (ordinal - 1) % (this.config.cacheKeyShards ?? DEFAULT_CACHE_KEY_SHARDS);
+		const configuredTools = opts.tools ?? this.config.workerTools;
 		const tools = [...new Set(configuredTools && configuredTools.length > 0 ? configuredTools : DEFAULT_WORKER_TOOLS)];
 		const now = Date.now();
-		const restartGeneration = restartOf === undefined ? undefined : (restartOf.restartGeneration ?? 0) + 1;
-		if (restartGeneration !== undefined && !Number.isSafeInteger(restartGeneration)) {
-			throw new Error(`Thread ${restartOf?.id ?? id} has exhausted the restart generation range.`);
-		}
 		const record: ThreadRecord = {
 			id,
 			name: opts.name?.trim() || id,
-			sessionFile: "",
-			status: "idle",
+			status: "queued",
 			type,
-			...(restartOf !== undefined ? { restartOf: restartOf.id, restartGeneration } : {}),
+			...(this.routerResolution().on ? {} : { model: opts.model }),
+			...(plan.baseModel ? { baseModel: plan.baseModel } : {}),
+			...(plan.baseEffort ? { baseEffort: plan.baseEffort } : {}),
 			...(cacheKeyShard === undefined ? {} : { cacheKeyShard }),
-			...(this.routerResolution().on ? {} : { model: restartOf?.model ?? opts.model }),
-			...((restartOf?.baseModel ?? plan.baseModel) ? { baseModel: restartOf?.baseModel ?? plan.baseModel } : {}),
-			...((restartOf?.baseEffort ?? plan.baseEffort) ? { baseEffort: restartOf?.baseEffort ?? plan.baseEffort } : {}),
 			tools,
-			episodeIds: [],
-			episodeSeq: 0,
 			createdAt: now,
 			updatedAt: now,
 		};
-		if (restartOf !== undefined) {
-			restartOf.supersededBy = id;
-			restartOf.status = "idle";
-			restartOf.updatedAt = now;
-		}
 		this.store.threads.set(id, record);
 		try {
 			this.store.save();
 		} catch (error) {
-			if (restartOf !== undefined) {
-				this.store.threads.delete(id);
-				delete restartOf.supersededBy;
-				restartOf.status = "running";
-			}
+			this.store.threads.delete(id);
 			throw error;
 		}
 		return record;
 	}
 
-	/** Acting-only refusals that depend on thread semantics rather than price. */
-	private restartRefusal(source: ThreadRecord): string | undefined {
-		if (this.store.paused) return "slate is paused, so it cannot open a replacement thread";
-		if (isJudgementThreadType(source.type)) return `${source.type} threads keep their live review transcript`;
-		// A successor with no episode has added no evidence since the prior move.
-		// Refuse a second move until this work stream publishes something of its own.
-		if (source.restartOf !== undefined && source.episodeIds.length === 0) {
-			return `thread ${source.id} is a successor with no episode of its own, so no new evidence supports another restart`;
-		}
-		return undefined;
-	}
-
-	/** Release runtime resources that no dispatch can reach after successful supersession. */
-	private retireSupersededSource(source: ThreadRecord): void {
-		try {
-			this.live.get(source.id)?.dispose();
-		} catch {
-			/* retirement continues through every runtime map */
-		}
-		this.live.delete(source.id);
-		this.liveBaselines.delete(source.id);
-		this.failoverLive.delete(source.id);
-		this.longContextWarned.delete(source.id);
-		this.queues.delete(source.id);
-	}
-
-	/** Undo a replacement that failed before it could return a usable dispatch result. */
-	private rollbackRestart(
-		source: ThreadRecord,
-		successor: ThreadRecord,
-		sourceStatus: "idle" | "running" = "running",
-	): void {
-		const session = this.live.get(successor.id);
-		try {
-			session?.dispose();
-		} catch {
-			/* rollback must still restore the source record */
-		}
-		this.live.delete(successor.id);
-		this.liveBaselines.delete(successor.id);
-		this.failoverLive.delete(successor.id);
-		this.longContextWarned.delete(successor.id);
-		this.queues.delete(successor.id);
-		for (const id of successor.episodeIds) this.store.episodes.delete(id);
-		this.store.threads.delete(successor.id);
-		delete source.supersededBy;
-		source.status = sourceStatus;
-		source.updatedAt = Date.now();
-		try {
-			this.store.save();
-		} catch {
-			/* the in-memory source remains usable even when persistence is unavailable */
-		}
-	}
-
 	private buildPrompt(opts: DispatchOptions, cwd: string): string {
-		const contextIds = opts.contextEpisodeIds ?? [];
+		const contextIds = normalizeContextEpisodeIds(opts.contextEpisodeIds);
 		if (contextIds.length === 0) return opts.task;
-		const parts: string[] = ["## Context from prior episodes (injected by the orchestrator)", ""];
+		const parts: string[] = ["## Context from prior episodes (loaded by Slate)", ""];
 		for (const id of contextIds) {
 			const episode = this.store.episodes.get(id);
-			if (!episode) throw new Error(`Unknown episode "${id}". Known: ${[...this.store.episodes.keys()].join(", ") || "none"}`);
+			if (!episode) throw new Error(`Unknown context episode "${sanitizeForNotify(id, 80)}". Known episodes: ${[...this.store.episodes.keys()].join(", ") || "none"}.`);
 			const content = readContainedFile(cwd, episode.file, this.store.corpusProject?.directory);
-			if (content === undefined) throw new Error(`Episode "${id}" is no longer a safe readable slate episode file.`);
+			if (content === undefined) throw new Error(`Episode "${sanitizeForNotify(id, 80)}" is not a safe readable Slate episode file.`);
 			parts.push(content.toString("utf8").trim(), "");
 		}
 		parts.push("## Action", "", opts.task);
@@ -794,8 +537,7 @@ export class ThreadManager {
 	 * This session's frozen router resolution, defensively.
 	 *
 	 * A THROWING resolver, or one that hands back a malformed object, falls back to
-	 * the shared OFF resolution. That answer supplies no candidates, so list, window,
-	 * billing and substitution paths cannot walk an unreadable shape. The SHAPE check
+	 * the shared OFF resolution. That answer supplies no candidates, so candidate-dependent paths cannot walk an unreadable shape. The SHAPE check
 	 * itself is route.ts's usableResolution, so the planner and this module cannot
 	 * disagree about what a usable resolution is.
 	 */
@@ -807,152 +549,6 @@ export class ThreadManager {
 		}
 	}
 
-	private threadChoiceConfig(warn: (message: string) => void): ReturnType<typeof sanitizeThreadChoiceConfig> {
-		this.choiceConfig ??= sanitizeThreadChoiceConfig(this.config.threadChoice, warn);
-		return this.choiceConfig;
-	}
-
-	/** Use pi's own context estimator for text that has no provider-reported token count. */
-	private estimatedTokens(text: string): number {
-		return estimateTokens({ role: "user", content: text, timestamp: 0 });
-	}
-
-	/**
-	 * Estimate future work from the work stream's observed depth. One more than the
-	 * completed dispatch count is evidence of continuation, not a promise. The floor
-	 * of three reaches pricing while preserving the planner's two-turn short-work guard.
-	 */
-	private expectedChoiceTurns(thread: ThreadRecord): number {
-		return Math.max(3, thread.episodeIds.length + 1);
-	}
-
-	/** The cache state of the shard the next thread id would occupy. */
-	private freshSeedCacheState(
-		source: ThreadRecord,
-		model: string | undefined,
-		effort: ThinkingLevel | undefined,
-		now: number,
-		retentionSeconds: number | undefined,
-	): "read" | "write" | "unknown" {
-		if (this.config.cacheKeyEnabled === false) return "unknown";
-		const nextId = this.store.nextThreadId();
-		const ordinal = Number(nextId.slice(1));
-		const shards = this.config.cacheKeyShards ?? DEFAULT_CACHE_KEY_SHARDS;
-		if (!Number.isSafeInteger(ordinal) || ordinal < 1 || !Number.isSafeInteger(shards) || shards < 1) return "unknown";
-		const shard = (ordinal - 1) % shards;
-		const occupants = [...this.store.threads.values()].filter((thread) => thread.cacheKeyShard === shard && thread.episodeIds.length > 0);
-		if (occupants.length === 0) return "write";
-		if (model === undefined || effort === undefined || retentionSeconds === undefined) return "unknown";
-		const sourceTools = JSON.stringify(source.tools);
-		for (const occupant of occupants) {
-			if (occupant.type !== source.type || JSON.stringify(occupant.tools) !== sourceTools) continue;
-			const lastId = occupant.episodeIds.at(-1);
-			const last = lastId === undefined ? undefined : this.store.episodes.get(lastId);
-			if (last?.model !== model || last.effort !== effort) continue;
-			if (!((last.cacheRead ?? 0) > 0 || (last.cacheWrite ?? 0) > 0)) continue;
-			const age = (now - last.createdAt) / 1000;
-			if (Number.isFinite(age) && age >= 0 && age <= retentionSeconds) return "read";
-		}
-		return "unknown";
-	}
-
-	/** Build and run the pure choice planner from evidence available inside this thread's queue slot. */
-	private planChoice(
-		thread: ThreadRecord,
-		opts: DispatchOptions,
-		plan: RoutePlanProceed,
-		session: WorkerSession,
-		cwd: string,
-	): ThreadChoiceVerdict {
-		const now = Date.now();
-		const today = new Date(now).toISOString().slice(0, 10);
-		const lastId = thread.episodeIds.at(-1);
-		const recordedLast = lastId === undefined ? undefined : this.store.episodes.get(lastId);
-		// A failed episode write leaves the live session ahead of durable evidence.
-		// Preserve the record for refusal checks, but remove the measurements so the
-		// planner reaches its honest prefix-size abstention instead of pricing stale data.
-		const last = thread.choiceEvidenceStale === true
-			? { ...(recordedLast ?? {}), cacheRead: undefined, cacheWrite: undefined, contextTokens: undefined }
-			: recordedLast;
-		const model = session.model ? `${session.model.provider}/${session.model.id}` : plan.model;
-		const effort = this.sessionEffort(session) ?? plan.effort;
-		const profile = model === undefined ? undefined : findProfile(model);
-		const row = profile === undefined ? undefined : coveringPriceRow(profile, today);
-		const evidenceIsCurrent = (date: string | undefined): boolean => {
-			if (date === undefined) return false;
-			const then = Date.parse(`${date}T00:00:00Z`);
-			const age = now - then;
-			return Number.isFinite(then) && age >= 0 && age <= 90 * 24 * 60 * 60 * 1000;
-		};
-		const retention = profile?.cacheRetention;
-		const documentedSeconds =
-			retention && evidenceIsCurrent(retention.documented.retrieved)
-				? retention.documented.retentionSeconds
-				: undefined;
-		const measuredWarmSeconds =
-			retention?.measured && evidenceIsCurrent(retention.measured.observedOn)
-				? Math.max(0, ...retention.measured.warm.map((probe) => probe.afterSeconds))
-				: undefined;
-		const retentionSeconds =
-			documentedSeconds === undefined
-				? measuredWarmSeconds
-				: measuredWarmSeconds === undefined
-					? documentedSeconds
-					: Math.max(documentedSeconds, measuredWarmSeconds);
-		const freshSeedCache = this.freshSeedCacheState(thread, model, effort, now, retentionSeconds);
-		// pi reports the whole live context, not the seed alone. Using it as the seed
-		// size is a one-sided upper bound because it includes the existing transcript.
-		// That can suppress a restart, but it cannot make a fresh thread look too cheap.
-		// When pi reports no context estimate, absence lets the planner abstain.
-		const freshSeedTokens = this.contextTokens(session);
-		let episodeTokens: number | undefined = 0;
-		try {
-			for (const id of opts.freshContext ?? []) {
-				const episode = this.store.episodes.get(id);
-				if (episode === undefined) throw new Error("episode disappeared after validation");
-				const content = readContainedFile(cwd, episode.file, this.store.corpusProject?.directory);
-				if (content === undefined) throw new Error("episode file became unsafe after validation");
-				episodeTokens += this.estimatedTokens(content.toString("utf8"));
-			}
-		} catch {
-			episodeTokens = undefined;
-		}
-		return planThreadChoice({
-			now,
-			thread,
-			...(last !== undefined ? { last } : {}),
-			action: { model, effort, expectedTurns: this.expectedChoiceTurns(thread) },
-			...(documentedSeconds !== undefined || measuredWarmSeconds !== undefined
-				? { retention: { documentedSeconds, measuredWarmSeconds } }
-				: {}),
-			...(row !== undefined
-				? {
-						rates: {
-							inUsdPerMTok: row.inUsdPerMTok,
-							outUsdPerMTok: row.outUsdPerMTok,
-							cachedInUsdPerMTok: row.cachedInUsdPerMTok,
-							cacheWriteUsdPerMTok: row.cacheWriteUsdPerMTok ?? row.cacheWrite5mUsdPerMTok,
-						},
-					}
-				: {}),
-			...(profile !== undefined
-				? {
-						longContext: {
-							threshold: profile.longContextThreshold,
-							multipliers: profile.longContextMultipliers,
-						},
-					}
-				: {}),
-			sizes: {
-				freshSeedTokens,
-				episodeTokens,
-				taskTokens: this.estimatedTokens(opts.task),
-				freshSeedCache,
-			},
-			allowance: Array.isArray(opts.freshContext) ? opts.freshContext : undefined,
-			knownEpisodeIds: [...this.store.episodes.keys()],
-		});
-	}
 
 	/**
 	 * The orchestrator's base model, EXCLUDING slate's own failover fallbacks, so a
@@ -1000,41 +596,7 @@ export class ThreadManager {
 		}
 	}
 
-	/**
-	 * pi's own accounting of a live worker session's context size, or undefined when
-	 * it is not knowable before dispatch — no live session (a fresh or resumed
-	 * thread, before the session is opened), no model, or a post-compaction gap
-	 * where pi itself reports the token count as unknown. undefined means the window
-	 * guard is SKIPPED, never that the context is small.
-	 */
-	private contextTokens(session: WorkerSession | undefined): number | undefined {
-		if (!session) return undefined;
-		try {
-			const tokens = session.getContextUsage()?.tokens;
-			return typeof tokens === "number" && Number.isFinite(tokens) && tokens > 0 ? tokens : undefined;
-		} catch {
-			return undefined; // a stale/disposed session tells us nothing about context
-		}
-	}
 
-	/**
-	 * pi's compaction settings, read ONCE and cached: the read is a lock-protected
-	 * disk read and this feeds a per-dispatch check. READ-ONLY, and it must stay
-	 * that way — a setter call on this throwaway instance would write straight into
-	 * the user's GLOBAL settings unmediated (the same rule handoff.ts states).
-	 */
-	private compactionSettings(ctx: ExtensionContext): { enabled: boolean; reserveTokens: number; keepRecentTokens: number } {
-		if (!this.cachedCompaction) {
-			try {
-				this.cachedCompaction = SettingsManager.create(ctx.cwd, getAgentDir(), {
-					projectTrusted: ctx.isProjectTrusted(),
-				}).getCompactionSettings();
-			} catch {
-				this.cachedCompaction = DEFAULT_COMPACTION_SETTINGS;
-			}
-		}
-		return this.cachedCompaction;
-	}
 
 	/**
 	 * Assemble the PURE planner's inputs from this session's impure surroundings.
@@ -1048,57 +610,22 @@ export class ThreadManager {
 		ctx: ExtensionContext,
 		thread: ThreadRecord | undefined,
 		opts: DispatchOptions,
-		session: WorkerSession | undefined,
+		_session?: WorkerSession,
 		failover?: { target: string; from: string; contextWindow?: number },
 	): RoutePlanInput {
-		const resolution = this.routerResolution();
-		// CQ17: the window guard is router-ON only, so with the router OFF pi's compaction
-		// settings are NOT READ and no predicate is built. The router-OFF path must add no
-		// router-owned SIDE EFFECT, not merely no router-owned decision: the read is a
-		// lock-protected disk read, and performing it for a guard that cannot fire is the
-		// kind of side effect that rule exists to forbid. (Memoized per manager, so this
-		// was never a cost question.) Per-action argument and effort paths are unaffected
-		// by it. The router-ON path is untouched, including the
-		// `enabled: true` forcing below, which is load-bearing.
-		const settings = resolution.on ? this.compactionSettings(ctx) : undefined;
 		return {
 			thread,
 			requestedModel: failover ? failover.target : opts.model,
 			requestedEffort: failover ? undefined : opts.effort,
-			resolution,
+			resolution: this.routerResolution(),
 			allowUnmeasuredEffort: this.config.router?.allowUnmeasuredEffort,
-			// The orchestrator's tracked base model is deliberately NOT an input: with the
-			// router OFF nothing is seeded from it (BG16 — seeding and persisting it undid
-			// failovers, stranded threads whose tracked model lost credentials, and stopped
-			// restarted threads following the host), and with the router ON the base is
-			// always a candidate. It survives for the EPISODE COMPRESSOR's last-resort rung
-			// only (trackedBaseModel, passed to compressEpisode).
 			hostModel: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
-			contextTokens: this.contextTokens(session),
-			// pi's OWN compaction predicate, bound to pi's compaction settings, so the
-			// window guard cannot drift from pi's compaction point. `enabled` is FORCED
-			// TRUE against the user's setting on purpose: disabling auto-compaction does
-			// not make an over-window dispatch safe, it turns the compaction into an
-			// overflow error instead — and shouldCompact answers `false` for every input
-			// when compaction is disabled, which would silently delete guard 5 for those
-			// users. Absent with the router off (CQ17), where guard 5 never runs.
-			wouldCompact:
-				settings === undefined ? undefined : (tokens, window) => shouldCompact(tokens, window, { ...settings, enabled: true }),
-			reserveTokens: settings?.reserveTokens,
 			profiles: this.routerOffProfiles(ctx),
-			warnedLongContext: thread ? [...(this.longContextWarned.get(thread.id) ?? [])] : [],
 			failoverSwitch: failover !== undefined,
 			failoverFrom: failover?.from,
-			contextWindow: failover?.contextWindow,
 		};
 	}
 
-	/** Record that a thread has had the long-context billing notice for a model (guard 6's memory). */
-	private noteLongContext(threadId: string, spec: string): void {
-		const seen = this.longContextWarned.get(threadId) ?? new Set<string>();
-		seen.add(spec);
-		this.longContextWarned.set(threadId, seen);
-	}
 
 	/**
 	 * Persist a base the planner had to SEED because the thread's own was not a
@@ -1197,9 +724,8 @@ export class ThreadManager {
 			// THROWS on a missing key (unlike setThinkingLevel, which only clamps), so a
 			// revert — slate housekeeping the caller never requested — could abort a whole
 			// dispatch just because the model the session opened on has since lost its
-			// credentials. That is the auth-failover chain: the open model dies, an action
-			// is routed elsewhere, and the next action's revert then kills the dispatch. A
-			// revert therefore WARNS and leaves the session where it is; a PLAN-driven
+			// credentials. A housekeeping revert therefore warns and keeps the current model.
+			// A PLAN-driven
 			// switch stays fatal, because running the action on a model neither the caller
 			// nor the router chose would break the routing contract itself.
 			const fatal = decision.source === "plan";
@@ -1474,10 +1000,7 @@ export class ThreadManager {
 	 * before any per-action switch, which is the property applyRoute now takes on trust
 	 * from its parameter.
 	 *
-	 * A NEW session gets the CURRENT frozen worker-extension set. A LIVE cached session
-	 * (reused when present) keeps whatever set it was opened with — which is precisely
-	 * why the resolution is frozen per session (AD41): every worker in this session then
-	 * shares one extension set.
+	 * The new session receives the frozen worker-extension set for this orchestrator session.
 	 */
 	private async openWorkerFor(args: {
 		thread: ThreadRecord;
@@ -1487,32 +1010,22 @@ export class ThreadManager {
 		report: (message: string) => void;
 	}): Promise<{ session: WorkerSession; baseline: SessionBaseline }> {
 		const type = effectiveThreadType(args.thread, args.report);
-		const sessionFile = this.prepareTranscriptForOpen(args);
-		let session: WorkerSession;
-		try {
-			session = await openWorkerSession({
-				ctx: args.ctx,
-				sessionName: this.artifactSessionName(),
-				projectDirectory: this.store.corpusProject?.directory,
-				sessionFile,
-				model: args.open.model,
-				tools: args.tools,
-				promptDocs: this.config.workerPromptDocs,
-				extensionPaths: this.resolveExtensions().paths,
-				writingCheck: this.config.writing?.check === true,
-				reviewerCharter: isJudgementThreadType(type),
-				promptCacheKey:
-					this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
-						? undefined
-						: workerPromptCacheKey(args.ctx.cwd, args.thread.cacheKeyShard),
-			});
-		} catch (error) {
-			// RG272 mirrors CQ38. This named refusal happens before a prompt, so route it
-			// through the existing DispatchAbort exit. Other open failures keep their
-			// historical FAILED-episode behavior.
-			if (error instanceof WorkerTranscriptOpenRefused) throw new DispatchAbort(error.message);
-			throw error;
-		}
+		const session = await openWorkerSession({
+			ctx: args.ctx,
+			sessionName: this.artifactSessionName(),
+			projectDirectory: this.store.corpusProject?.directory,
+			sessionFile: undefined,
+			model: args.open.model,
+			tools: args.tools,
+			promptDocs: this.config.workerPromptDocs,
+			extensionPaths: this.resolveExtensions().paths,
+			writingCheck: this.config.writing?.check === true,
+			reviewerCharter: isJudgementThreadType(type),
+			promptCacheKey:
+				this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
+					? undefined
+					: workerPromptCacheKey(args.ctx.cwd, args.thread.cacheKeyShard),
+		});
 		this.live.set(args.thread.id, session);
 		// A freshly opened session starts on its configured model — drop any stale
 		// failover marker (possible if a previous live session was disposed mid-dispatch
@@ -1535,30 +1048,30 @@ export class ThreadManager {
 		}
 	}
 
+	private cancelBeforeStart(thread: ThreadRecord): never {
+		this.store.threads.delete(thread.id);
+		try {
+			this.store.save();
+		} catch {
+			/* the in-memory removal remains authoritative */
+		}
+		throw new Error(`Thread ${thread.id} was cancelled before the action started. No thread or episode was recorded.`);
+	}
+
 	private async runDispatch(
 		thread: ThreadRecord,
 		opts: DispatchOptions,
+		prompt: string,
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
-		// Admission happened before this queue slot ran. A predecessor may have
-		// superseded the source while this dispatch waited, so re-admit it now.
-		if (thread.supersededBy !== undefined) {
-			throw new Error(`Thread "${thread.id}" was superseded by ${thread.supersededBy}. Continue the successor instead.`);
-		}
-		// Recheck after this thread's FIFO predecessor. Two calls may both pass the
-		// public check before the first advances the counter.
-		const nextEpisodeId = nextSlateEpisodeId(thread.id, thread.episodeSeq);
-		if (nextEpisodeId === undefined) {
-			throw new Error(
-				`Slate cannot dispatch thread ${sanitizeForNotify(thread.id, 80)} because its restored id or episode counter cannot form the next canonical episode filename. Repair or remove the thread record.`,
-			);
-		}
-		const prompt = this.buildPrompt(opts, ctx.cwd); // may throw on unknown episode ids (before any state change)
+		const episodeId = slateEpisodeId(thread.id)!;
+		if (signal?.aborted) this.cancelBeforeStart(thread);
 		await this.semaphore.acquire();
 		try {
-			return await this.runDispatchInner(thread, opts, prompt, nextEpisodeId, ctx, signal, onProgress);
+			if (signal?.aborted) this.cancelBeforeStart(thread);
+			return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress);
 		} finally {
 			this.semaphore.release();
 		}
@@ -1572,7 +1085,6 @@ export class ThreadManager {
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
-		onPromptCommitted?: () => void,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
@@ -1602,12 +1114,12 @@ export class ThreadManager {
 		let unsubscribe: (() => void) | undefined;
 		let onAbort: (() => void) | undefined;
 		let messagesBefore = 0;
+		let workerCallStarted = false;
+		let workerProducedResponse = false;
 		let status: "ok" | "failed" = "ok";
 		let diagnostics: string | undefined;
 		/** The authoritative route for this action (apply-time plan); undefined if we never got that far. */
 		let plan: RoutePlanProceed | undefined;
-		/** Reporting-only verdict for a continuation. It never controls this dispatch. */
-		let choice: ThreadChoiceVerdict | undefined;
 		/** Set ONLY by an apply-time rejection: end the dispatch with no episode and no compression. */
 		let aborted: DispatchAbort | undefined;
 		const warnings: string[] = [];
@@ -1647,72 +1159,32 @@ export class ThreadManager {
 			return { status: "ok" as const, diagnostics: undefined, final };
 		};
 
+		thread.status = "running";
+		thread.updatedAt = Date.now();
 		try {
-			thread.status = "running";
-			thread.updatedAt = Date.now();
 			this.store.save();
+		} catch (error) {
+			this.store.threads.delete(thread.id);
+			try { this.store.save(); } catch { /* the in-memory rollback remains authoritative */ }
+			throw new Error(
+				`Slate could not start thread ${thread.id}: ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 200)}. ` +
+					"Nothing ran and no episode was recorded.",
+			);
+		}
+
+		try {
 			emit(false);
+			const open = planSessionOpen(this.routeInputs(ctx, thread, opts));
+			let baseline = NO_SESSION_BASELINE;
+			({ session, baseline } = await this.openWorkerFor({
+				thread,
+				ctx,
+				open,
+				tools: thread.tools,
+				report: routeWarn,
+			}));
 
-			session = this.live.get(thread.id);
-			// The baseline of a REUSED session is the one captured when it was opened; the
-			// open below replaces it for a new one. Read once, here, and passed down — see
-			// applyRoute's `baseline` parameter (TQ7).
-			let baseline = this.liveBaselines.get(thread.id) ?? NO_SESSION_BASELINE;
-			if (!session) {
-				// The model a NEW session OPENS on is what a MODEL-LESS dispatch would resolve
-				// to — the thread's base or pin, or nothing — and NEVER this action's `model`
-				// argument. That argument is per-ACTION: applyRoute applies it as a switch on
-				// top, exactly as the per-action thinking level is applied on top of the level
-				// the session opens at. Opening ON the routed model instead made the baseline
-				// captured at the open equal to it, so an explicit model became the thread's
-				// permanent default the moment its action was the one that opened the session
-				// — BG22 on the opening path, the asymmetry that made the effort axis right
-				// and the model axis wrong. Passing a model explicitly also keeps overriding
-				// whatever model_change the session file ends with (CQ3).
-				//
-				// WHAT TO OPEN ON is route.ts's `planSessionOpen`: a MODEL-LESS resolution of
-				// this dispatch's own inputs. It strips both arguments INSIDE the pure module
-				// (BG22 on the opening path, BG25's unreachable rejection), so the rule is a
-				// function of its inputs rather than a shape in this file — hand it the full
-				// inputs and it must still answer with the thread's base or pin. Its answer is
-				// then handed WHOLE to openWorkerFor, which cannot see this action's `opts` —
-				// `?? opts.model` is the edit that shipped BG22, so the remedy is a scope in
-				// which it does not compile rather than a rule this file must remember.
-				const open = planSessionOpen(this.routeInputs(ctx, thread, opts, undefined));
-				// BG25's tripwire: unreachable today (planSessionOpen enumerates why), and if a
-				// future guard makes it reachable the session opens on the host model and the
-				// thread's base or pin is lost for the session's lifetime. It must not be
-				// silent a second time.
-				if (open.unplanned !== undefined) {
-					routeWarn(
-						`slate: could not plan thread ${thread.id}'s default model ` +
-							`(${sanitizeForNotify(open.unplanned, 160)}) — opening its worker session on the host's model instead, ` +
-							"so an omitted `model` will resolve there until the session is disposed. This action's own routing is unaffected.",
-					);
-				}
-
-				({ session, baseline } = await this.openWorkerFor({
-					thread,
-					ctx,
-					open,
-					// New records always carry this field. Legacy records retain the old open
-					// behavior, but their missing field remains visible to restart eligibility.
-					tools: thread.tools ?? opts.tools ?? this.config.workerTools,
-					report: routeWarn,
-				}));
-				// CQ18: the session FILE is deliberately not persisted yet. pi flushes a
-				// session file only once it holds an assistant message, so this path can name
-				// a file that does not exist — and a snapshot carrying one makes the next
-				// restore drop the whole thread as stale (adoptSnapshot). It is recorded after
-				// the action instead, when its existence is knowable.
-			}
-
-			// APPLY-TIME validation + switch. Still unbilled: the session exists but has
-			// not been prompted, so a rejection here costs nothing and must therefore
-			// record nothing. This is the second of the two validations (module header),
-			// and the first one that can see the thread's real context size — for a
-			// RESUMED thread the early pass had no live session at all, and for a queued
-			// one a predecessor action has since grown the context.
+			// Apply-time validation catches registry changes before the first prompt.
 			const applied = planRoute(this.routeInputs(ctx, thread, opts, session));
 			if (applied.kind === "reject") {
 				// The world moved between the early validation and now (the router list is
@@ -1726,108 +1198,22 @@ export class ThreadManager {
 			// APPLY FIRST, then record what was decided. Everything above this line can
 			// still abort the dispatch unbilled, and an abort discards the warnings — so
 			// nothing that MARKS a notice as delivered may run before the notice can
-			// actually be delivered (BG17). The restart decision below is the remaining
-			// unbilled exit, so notice memory waits until that decision settles.
+			// actually be delivered.
 			await this.applyRoute(session, plan, thread, ctx, signal, routeWarn, baseline);
 			for (const message of applied.warnings) routeWarn(message);
 			// Same division of labour for a SEEDED base: the planner decided it (purely),
 			// this side writes it down — after the apply, for the same reason as above.
 			this.persistReseededBase(thread, applied);
-			if (opts.threadId !== undefined) {
-				const policy = this.threadChoiceConfig(routeWarn);
-				if (policy.report || policy.act) {
-					// This method runs inside the promise chained to this thread's predecessor.
-					// The predecessor has therefore saved its episode before this read of episodeIds.
-					const plannedChoice = this.planChoice(thread, opts, applied, session, ctx.cwd);
-					if (policy.report) choice = plannedChoice;
-					// Only the economic fresh verdict may move work. Every refusal and every
-					// uncertainty stays on the source thread, including an empty allowance.
-					if (policy.act && plannedChoice.kind === "fresh") {
-						if (thread.supersededBy !== undefined) {
-							throw new DispatchAbort(
-								`Thread "${thread.id}" was superseded by ${thread.supersededBy} before it could restart.`,
-							);
-						}
-						const restartContext = [...new Set([...(opts.contextEpisodeIds ?? []), ...(opts.freshContext ?? [])])];
-						const refusal =
-							restartContext.length > MAX_FRESH_CONTEXT_EPISODES
-								? `the combined context names ${restartContext.length} episodes, above the ${MAX_FRESH_CONTEXT_EPISODES}-episode limit`
-								: this.restartRefusal(thread);
-						if (refusal !== undefined) {
-							routeWarn(`slate: automatic fresh-thread restart refused — ${refusal}.`);
-						} else {
-						let successor: ThreadRecord | undefined;
-						let restartCommitted = false;
-						try {
-							const restartOpts: DispatchOptions = {
-								...opts,
-								threadId: undefined,
-								name: thread.name,
-								type: effectiveThreadType(thread, routeWarn),
-								contextEpisodeIds: restartContext,
-								freshContext: undefined,
-								tools: thread.tools,
-							};
-							successor = this.createThread(restartOpts, applied, thread);
-							const successorEpisodeId = nextSlateEpisodeId(successor.id, successor.episodeSeq);
-							if (successorEpisodeId === undefined) throw new Error("the successor could not form an episode id");
-							const successorPrompt = this.buildPrompt(restartOpts, ctx.cwd);
-							const restartRun = this.runDispatchInner(
-								successor,
-								restartOpts,
-								successorPrompt,
-								successorEpisodeId,
-								ctx,
-								signal,
-								onProgress,
-								() => {
-									restartCommitted = true;
-								},
-							);
-							this.queues.set(successor.id, restartRun);
-							const restarted = await restartRun;
-							if (!restartCommitted) {
-								throw new Error(
-									`slate: the restart from thread ${thread.id} ended before its action started. The source thread remains usable.`,
-								);
-							}
-							this.retireSupersededSource(thread);
-							return {
-								...restarted,
-								...(policy.report ? { choice: plannedChoice } : {}),
-								warnings: [...new Set([...warnings, ...restarted.warnings])],
-							};
-						} catch (error) {
-							if (restartCommitted) {
-								throw new DispatchAbort(
-									`slate: the committed restart from thread ${thread.id} failed after its action started — ` +
-										sanitizeForNotify(error instanceof Error ? error.message : String(error), 200),
-								);
-							}
-							if (successor !== undefined) this.rollbackRestart(thread, successor, signal?.aborted ? "idle" : "running");
-							if (signal?.aborted) {
-								throw new DispatchAbort(
-									error instanceof Error ? error.message : `slate: the restart from thread ${thread.id} was aborted.`,
-								);
-							}
-							routeWarn(
-								`slate: the fresh-thread restart failed, so this action remains in thread ${thread.id} — ` +
-									sanitizeForNotify(error instanceof Error ? error.message : String(error), 200),
-							);
-						}
-						}
-					}
-				}
-			}
-			// A restart can still roll back unbilled above. Consume the source notice only
-			// when its action continues and can deliver that notice with its result.
-			if (applied.longContextWarned !== undefined) this.noteLongContext(thread.id, applied.longContextWarned);
+
 			if (applied.warnings.length > 0) emit(false);
 
 			messagesBefore = session.messages.length;
 
 			unsubscribe = session.subscribe((event: { type: string; [k: string]: unknown }) => {
-				if (event.type === "tool_execution_start") {
+				if (event.type === "message_update") {
+					const message = (event as unknown as { message?: WorkerAssistantMsg }).message;
+					if (message?.role === "assistant" && assistantMessageText(message).trim() !== "") workerProducedResponse = true;
+				} else if (event.type === "tool_execution_start") {
 					lines.push(`→ ${(event as unknown as { toolName: string }).toolName}`);
 					emit(false);
 				} else if (event.type === "compaction_end") {
@@ -1838,10 +1224,11 @@ export class ThreadManager {
 					}).result;
 					addCompactionUsage(result?.usage);
 				} else if (event.type === "message_end") {
-					// Usage accumulation + progress lines ONLY — outcome is derived
-					// after prompt() settles (see deriveOutcome above, AF3).
+					// This event-local signal survives host compaction and retry rewrites of
+					// session.messages. It therefore remains valid at episode selection time.
 					const msg = (event as unknown as { message: WorkerAssistantMsg }).message;
 					if (msg.role !== "assistant") return;
+					if (assistantMessageText(msg).trim() !== "") workerProducedResponse = true;
 					usage.turns++;
 					usage.input += msg.usage?.input ?? 0;
 					usage.output += msg.usage?.output ?? 0;
@@ -1879,7 +1266,7 @@ export class ThreadManager {
 				const promptRun = session.prompt(prompt);
 				// COMMIT POINT: prompt execution has started. A caller may no longer
 				// roll this dispatch back or repeat its action on another thread.
-				onPromptCommitted?.();
+				workerCallStarted = true;
 				await promptRun;
 			} catch (error) {
 				thrown = { error };
@@ -1944,10 +1331,7 @@ export class ThreadManager {
 						/* keep the original failure */
 					}
 					if (switched) {
-						// The live session now runs the mapped model — sticky until the session
-						// is disposed or a later dispatch routes it somewhere explicitly (the
-						// thread record keeps its own base either way); record it for the
-						// threads listing (AF12).
+						// Record the mapped model for this live action. Disposal removes the marker.
 						this.failoverLive.set(thread.id, `${mapped.provider}/${mapped.id}`);
 					}
 					// Re-check after the setModel await. If the signal has NOT fired,
@@ -1993,36 +1377,115 @@ export class ThreadManager {
 		}
 
 		if (aborted) {
-			// No episode, no compressor call, no cost accounting. The thread goes back
-			// to idle and is saved so it cannot be left stuck in "running", and NO final
-			// progress event is emitted: the orchestrator sees a TOOL ERROR carrying
-			// this message, not a finished action with an episode id.
-			thread.status = "idle";
-			thread.updatedAt = Date.now();
+			// Apply-time rejection occurs before the worker call. Remove the accepted
+			// placeholder so an unbilled abort leaves neither a thread nor an episode.
+			this.store.threads.delete(thread.id);
 			try {
 				this.store.save();
 			} catch {
-				/* preserve the abort boundary after best-effort rollback persistence */
+				/* the in-memory removal remains authoritative */
+			} finally {
+				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
+				this.live.delete(thread.id);
+				this.liveBaselines.delete(thread.id);
+				this.failoverLive.delete(thread.id);
 			}
 			throw new Error(aborted.message);
 		}
 
-		const actionMessages = session ? session.messages.slice(messagesBefore) : [];
+		const cancelledAfterStart = workerCallStarted &&
+			(signal?.aborted === true || (session !== undefined && this.live.get(thread.id) !== session));
+		if (cancelledAfterStart) {
+			const reason = signal?.aborted === true ? "cancelled by the caller" : "cancelled during session teardown";
+			thread.status = "cancelled";
+			thread.outcomeReason = reason;
+			thread.updatedAt = Date.now();
+			try {
+				this.store.save();
+			} catch {
+				/* retain the terminal cancellation in memory */
+			} finally {
+				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
+				this.live.delete(thread.id);
+				this.liveBaselines.delete(thread.id);
+				this.failoverLive.delete(thread.id);
+			}
+			throw new Error(`Thread ${thread.id} was ${reason}. No episode was recorded.`);
+		}
 
-		// WHAT THE ACTION ACTUALLY RAN ON — derived ONCE, and BEFORE the compressor
-		// call, because two consumers must not disagree about it: the episode HEADER
-		// (episodes.ts's `ran:` segment, the orchestrator's only window into what it
-		// paid for) and the episode RECORD (the threads listing reads it back). It is
-		// read from the LIVE SESSION, never from the request: pi CLAMPS a thinking level
-		// the model cannot do, the window guard may have SUBSTITUTED the model, and a
-		// mid-action failover switches it again — all three must be reported as they
-		// happened. The plan is only a fallback for the model, for a session that never
-		// resolved one; absence then reads as unknown, per the record's contract.
+		const actionMessages = session ? session.messages.slice(messagesBefore) : [];
+		const compressionMessages = messagesForCompression(
+			actionMessages,
+			normalizeContextEpisodeIds(opts.contextEpisodeIds).length > 0 ? prompt : undefined,
+		);
+
+		// Derive the model once before either fixed failure writing or compression.
 		const ranModel = session?.model
 			? { provider: session.model.provider, id: session.model.id }
 			: splitModelSpec(plan?.model);
 		const actualModel = ranModel ? `${ranModel.provider}/${ranModel.id}` : undefined;
 		const actualEffort = this.sessionEffort(session) ?? plan?.effort;
+
+		// An event-local response flag and recorded billing survive host rewrites of
+		// session.messages. Either selects compression even when the rewritten slice
+		// no longer contains an assistant message. A reported zero cost still proves
+		// that a call produced billing evidence.
+		const actionHasBillingEvidence =
+			workerCostUsd !== undefined ||
+			compactionCostUsd !== undefined ||
+			Object.values(compactionUsage).some((quantity) => quantity > 0);
+		if (status === "failed" && !workerProducedResponse && !actionHasBillingEvidence) {
+			const reason = diagnostics ?? "the worker action failed";
+			const totalActionCost = usage.cost + (compactionCostUsd ?? 0);
+			let failed: ReturnType<typeof writeFailedEpisode>;
+			try {
+				failed = writeFailedEpisode({
+					ctx, episodeId, threadId: thread.id, threadName: thread.name, task: opts.task,
+					diagnostics: reason, workerModel: ranModel, workerCostUsd: totalActionCost,
+				});
+			} catch (error) {
+				const storageCause = error instanceof EpisodePersistenceError ? error.originalError : error;
+				const storageDetail = sanitizeForNotify(storageCause instanceof Error ? storageCause.message : String(storageCause), 200);
+				const storageReason = `failure episode persistence failed: ${storageDetail}`;
+				thread.status = "failed";
+				thread.outcomeReason = `${reason}; ${storageReason}`;
+				thread.updatedAt = Date.now();
+				this.store.workerCostUsd += totalActionCost;
+				try { this.store.save(); } catch { /* retain the terminal outcome in memory */ }
+				try { emit(true, "failed"); } catch { /* preserve the persistence failure */ }
+				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
+				this.live.delete(thread.id);
+				this.liveBaselines.delete(thread.id);
+				this.failoverLive.delete(thread.id);
+				throw new Error(`Thread ${thread.id} failed: ${sanitizeForNotify(reason, 200)}. Slate could not store episode ${episodeId}: ${storageDetail}.`);
+			}
+			const episode: EpisodeRecord = {
+				id: episodeId, threadId: thread.id, task: opts.task, status: "failed", file: failed.file,
+				...(actualModel ? { model: actualModel } : {}), ...episodeUsage,
+				...(reportedContextTokens !== undefined ? { contextTokens: reportedContextTokens } : {}),
+				...(workerCostUsd !== undefined ? { workerCostUsd } : {}),
+				...(Object.keys(compactionUsage).length > 0 ? { compactionUsage } : {}),
+				...(compactionCostUsd !== undefined ? { compactionCostUsd } : {}), createdAt: Date.now(),
+			};
+			this.store.episodes.set(episodeId, episode);
+			thread.episodeId = episodeId;
+			thread.status = "failed";
+			thread.outcomeReason = reason;
+			thread.updatedAt = Date.now();
+			this.store.workerCostUsd += totalActionCost;
+			let saveError: unknown;
+			try { this.store.save(); } catch (error) { saveError = error; }
+			try { session?.dispose(); } catch { /* terminal cleanup continues */ }
+			this.live.delete(thread.id);
+			this.liveBaselines.delete(thread.id);
+			this.failoverLive.delete(thread.id);
+			if (saveError !== undefined) {
+				try { emit(true, "failed"); } catch { /* preserve the persistence error */ }
+				throw new Error(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`);
+			}
+			try { emit(true, "failed"); } catch { /* preserve the failed result */ }
+			return { episodeText: failed.text, episode, thread, usage, warnings };
+		}
 		// The unmeasured marker is a claim about the profile data for ONE (model, level)
 		// pair — the pair the guards judged. It survives to the episode only if BOTH
 		// halves of that pair are what actually ran, and the two halves are checked by the
@@ -2042,26 +1505,7 @@ export class ThreadManager {
 		const effortIsAsPlanned = plan?.effortUnmeasured === true && actualEffort !== undefined && actualEffort === plan.effort;
 		const actualEffortUnmeasured = effortIsAsPlanned && actualModel !== undefined && actualModel === plan?.effortJudgedFor;
 
-		// A supersession that appeared after prompt admission makes every measurement
-		// here stale. Do not publish an episode on a source that already has a successor.
-		if (thread.supersededBy !== undefined) {
-			thread.choiceEvidenceStale = true;
-			thread.status = "idle";
-			thread.updatedAt = Date.now();
-			this.store.workerCostUsd += usage.cost + (compactionCostUsd ?? 0);
-			try {
-				this.store.save();
-			} catch {
-				/* preserve the supersession error when snapshot persistence is unavailable */
-			}
-			throw new Error(
-				`Thread "${thread.id}" was superseded by ${thread.supersededBy} before its episode could publish. Continue the successor instead.`,
-			);
-		}
 
-		// The per-thread queue planned this id before any worker was opened. Advance
-		// the counter only when this attempted action reaches episode production.
-		thread.episodeSeq++;
 		// Capture before compression so an episode-write failure does not itself
 		// remove the exact output. The returned union is the single source for the
 		// path, byte count, truncation fact and structural grammar result.
@@ -2143,11 +1587,10 @@ export class ThreadManager {
 				episodeId,
 				threadId: thread.id,
 				threadName: thread.name,
-				restartOf: thread.restartOf,
 				task: opts.task,
 				status,
 				diagnostics,
-				messages: actionMessages as unknown[],
+				messages: compressionMessages as unknown[],
 				observations: durableObservations,
 				// Header only, all four (episodes.ts never picks the compressor from them —
 				// that is the whole point of the compressor pin). `workerEffortUnmeasured` is the
@@ -2170,7 +1613,6 @@ export class ThreadManager {
 		} catch (error) {
 			// The live session has grown, but no episode will publish its new cache and
 			// prefix evidence. The next choice must not reuse the older measurements.
-			thread.choiceEvidenceStale = true;
 			// Compression includes the episode-file write. If that write fails, the
 			// earlier observation normally becomes an unreferenced orphan. It remains
 			// until the user removes it. Persist every cost and recoverable session fact.
@@ -2194,12 +1636,25 @@ export class ThreadManager {
 				usage.cost +
 				(error instanceof EpisodePersistenceError ? (error.costUsd ?? 0) : 0) +
 				(compactionCostUsd ?? 0);
-			thread.status = "idle";
+			const actionFailure = diagnostics ?? "the worker action failed";
+			const storageCause = error instanceof EpisodePersistenceError ? error.originalError : undefined;
+			const storageDetail = storageCause === undefined
+				? undefined
+				: sanitizeForNotify(storageCause instanceof Error ? storageCause.message : String(storageCause), 200);
+			thread.status = "failed";
+			thread.outcomeReason = status === "failed" && storageDetail !== undefined
+				? `${actionFailure}; failure episode persistence failed: ${storageDetail}`
+				: error instanceof Error ? error.message : String(error);
 			thread.updatedAt = Date.now();
 			try {
 				this.store.save();
 			} catch {
 				/* report the original terminal failure through the stable tool boundary */
+			} finally {
+				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
+				this.live.delete(thread.id);
+				this.liveBaselines.delete(thread.id);
+				this.failoverLive.delete(thread.id);
 			}
 			const safeEpisodeId = sanitizeForNotify(episodeId, 80);
 			lines.push(`✗ slate could not store episode ${safeEpisodeId}.`);
@@ -2207,6 +1662,9 @@ export class ThreadManager {
 				emit(true, "failed");
 			} catch {
 				/* a broken progress channel must not replace the tool error */
+			}
+			if (status === "failed" && storageDetail !== undefined) {
+				throw new Error(`Thread ${thread.id} failed: ${sanitizeForNotify(actionFailure, 200)}. Slate could not store episode ${safeEpisodeId}: ${storageDetail}.`);
 			}
 			throw new Error(`slate could not store episode ${safeEpisodeId}.`);
 		}
@@ -2239,18 +1697,31 @@ export class ThreadManager {
 			this.assignSessionFile(thread, session.sessionFile);
 		}
 		this.store.episodes.set(episodeId, episode);
-		thread.episodeIds.push(episodeId);
-		delete thread.choiceEvidenceStale;
-		thread.status = "idle";
+		thread.episodeId = episodeId;
+		thread.status = status === "failed" ? "failed" : "successful";
+		if (status === "failed") thread.outcomeReason = diagnostics ?? "the worker action failed";
 		thread.updatedAt = Date.now();
 		// Accumulate session-wide worker spend, including compression and compaction,
 		// BEFORE save so it persists with the snapshot.
 		this.store.workerCostUsd += usage.cost + (compressed.costUsd ?? 0) + (compactionCostUsd ?? 0);
-		this.store.save();
+		let saveError: unknown;
+		try {
+			this.store.save();
+		} catch (error) {
+			saveError = error;
+		} finally {
+			try { session?.dispose(); } catch { /* terminal cleanup continues */ }
+			this.live.delete(thread.id);
+			this.liveBaselines.delete(thread.id);
+			this.failoverLive.delete(thread.id);
+		}
+		if (saveError !== undefined) {
+			try { emit(true, "failed"); } catch { /* preserve the persistence error */ }
+			throw new Error(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`);
+		}
 
 		emit(true, status);
-
-		return { episodeText: compressed.text, episode, thread, usage, ...(choice !== undefined ? { choice } : {}), warnings };
+		return { episodeText: compressed.text, episode, thread, usage, warnings };
 	}
 
 	disposeAll(): void {

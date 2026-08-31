@@ -20,10 +20,9 @@ function threadRecord(): ThreadRecord & { warmNow: true } {
   return {
     id: "t1",
     name: "cost-test",
-    status: "idle",
-    sessionFile: "/tmp/thread.jsonl",
-    episodeIds: ["t1.e1"],
-    episodeSeq: 1,
+    type: "general",
+    status: "cancelled",
+    episodeId: "t1.e1",
     createdAt: 1,
     updatedAt: 2,
     warmNow: true,

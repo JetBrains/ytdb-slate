@@ -142,17 +142,12 @@ request while that tool is available. Parameter descriptions sit inside the
 schema. A tool description and a parameter description are therefore both
 always loaded.
 
-The current `thread` tool description is 1,386 UTF-8 bytes. Its serialized
-parameter schema is 2,005 bytes, measured as `JSON.stringify(parameters)`.
-The schema includes the 289-byte `type` parameter description and the
-`freshContext` argument.
+The current `thread` tool description is 1,062 UTF-8 bytes. Its serialized
+parameter schema is 1,246 bytes, measured as `JSON.stringify(parameters)`.
+The schema includes the bounded `context` argument.
 
-These are unpinned live registration measurements. They depend on the current
-tool description, parameter descriptions, schema shape, and JSON serialization.
-The description and schema total 3,391 bytes before provider framing. The
-`freshContext` schema entry adds 214 bytes to the previous combined figure.
-Those two values are derived from the live measurements and the previous schema.
-The roughly 54-token increase uses four characters per token.
+The description and schema total 2,308 bytes before provider framing.
+The `context` entry accepts at most 32 episode identifiers.
 
 The figure excludes the prompt snippet, prompt guidelines, tool name,
 provider framing, and serialization outside the parameter schema.
@@ -181,14 +176,14 @@ you pay its input tokens every turn.
 
 **Its size depends on where the package is installed.** That is not
 obvious, and it catches anyone who measures: the doctrine cites the
-shipped docs by ABSOLUTE path, so four to seven full filesystem paths
-are embedded in the block — four at minimum
-(`thread-cache-cost.md`, `track-workflow.md`, `review-rules.md`,
+shipped docs by ABSOLUTE path, so three to six full filesystem paths
+are embedded in the block — three at minimum
+(`track-workflow.md`, `review-rules.md`,
 `design-principles.md`), plus `pr-publishing.md` when
 `workflow.draftPRs` is on, plus `model-routing.md` when the routing
 rule renders, plus `writing-guidance.md` when `writing.check` is on.
 Every additional character in the installed `docs/` directory therefore
-costs 4–7 characters of doctrine.
+costs 3–6 characters of doctrine.
 
 The figures below are **portable characters**, defined exactly as
 Slate's own automated `doctrine-budget` check defines them: the
@@ -212,18 +207,18 @@ must be named instead of presented as the same measurement:
 
 | router | models | `draftPRs` | `writing.check` | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | off | 4 | 2,912 | 48 |
-| off | — | off | on | 5 | 3,982 | 70 |
-| off | — | on | off | 5 | 2,927 | 48 |
-| off | — | on | on | 6 | 3,997 | 70 |
-| on | fixed six-model fixture | off | off | 5 | 4,942 | 69 |
-| on | fixed six-model fixture | off | on | 6 | 6,012 | 91 |
-| on | fixed six-model fixture | on | off | 6 | 4,957 | 69 |
-| on | fixed six-model fixture | on | on | 7 | 6,027 | 91 |
-| on | all 9 shipped | off | off | 5 | 5,497 | 72 |
-| on | all 9 shipped | off | on | 6 | 6,567 | 94 |
-| on | all 9 shipped | on | off | 6 | 5,512 | 72 |
-| on | all 9 shipped | on | on | 7 | 6,582 | 94 |
+| off | — | off | off | 3 | 2,584 | 43 |
+| off | — | off | on | 4 | 3,654 | 65 |
+| off | — | on | off | 4 | 2,603 | 43 |
+| off | — | on | on | 5 | 3,673 | 65 |
+| on | fixed six-model fixture | off | off | 4 | 4,614 | 64 |
+| on | fixed six-model fixture | off | on | 5 | 5,684 | 86 |
+| on | fixed six-model fixture | on | off | 5 | 4,633 | 64 |
+| on | fixed six-model fixture | on | on | 6 | 5,703 | 86 |
+| on | all 9 shipped | off | off | 4 | 5,169 | 67 |
+| on | all 9 shipped | off | on | 5 | 6,239 | 89 |
+| on | all 9 shipped | on | off | 5 | 5,188 | 67 |
+| on | all 9 shipped | on | on | 6 | 6,258 | 89 |
 
 An untrusted project reads the first row whatever its `slate.json`
 says: no project config is loaded, so no optional rule renders. Line
@@ -257,21 +252,19 @@ path:
 The table above isolates the shipped rules. Two representative bases include
 worker extensions and support verification decisions:
 
-| basis | models | worker extensions | paths | portable | lines | rough tokens | figure source |
-| --- | ---: | --- | ---: | ---: | ---: | ---: | --- |
-| current `.pi/slate.json` config shape | 6 | configured-package 2 units / 4 tools | 7 | 6,943 | 101 | ≈1,736 | live configuration measurement, unpinned |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 7,929 | 104 | ≈1,982 | exact resolver pin |
-| follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,007 | 105 | ≈2,002 | exact resolver pin |
+| basis | models | worker extensions | paths | portable | lines | rough tokens |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 6 | 6,619 | 96 | ≈1,655 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 7,605 | 99 | ≈1,901 |
+| follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 7,683 | 100 | ≈1,921 |
 
 The project-config row uses `workflow.draftPRs: true`, `writing.check: true`,
 and the six models in `.pi/slate.json`. Its figures depend on the live project
 config and the currently resolved extension packages. The extension basis is
 `pi-smart-fetch@0.3.12` plus `pi-web-search@1.3.1`. Those packages resolve to two
-units and four tools. The worker-extension rule is an unpinned live
-measurement of 916 portable characters / 11 lines. It depends on the resolved
-package labels, tool names, and descriptions. Raw size
-remains symbolic: `portable + 7 × length(installed docs directory)`. No
-maintainer checkout path belongs in this shipped document.
+units and four tools. Their worker-extension rule is 916 portable characters /
+11 lines. Raw size remains symbolic: `portable + 6 × length(installed docs
+directory)`. No maintainer checkout path belongs in this shipped document.
 
 The stable maximal row uses all nine shipped profiles, draft pull requests,
 and writing. The follow-up-issues row uses the same basis with
@@ -302,42 +295,38 @@ A doctrine change updates the exact literal and every published measurement. A
 maintainer revisits a bound only when the reserve policy requires it. The check
 applies the five-percent rule to every upper bound, so this decision is auditable.
 
-| budget term | measured | enforced bound | reserve | measurement source |
-| --- | ---: | ---: | ---: | --- |
-| routing rule characters | 2,585 | 4,000 | 1,415 | derived from exact pins |
-| routing rule lines | 25 | 34 | 9 | renderer split-line measurement, unpinned |
-| routing fixed prose | 1,110 | 1,500 | 390 | renderer measurement, unpinned |
-| largest model row | 183 | 300 | 117 | renderer measurement, unpinned |
-| router-on doctrine | 5,497 | 6,500 | 1,003 | exact resolver pin |
-| writing-only doctrine | 3,982 | 5,600 | 1,618 | exact resolver pin |
-| writing plus router | 6,567 | 6,900 | 333 | exact resolver pin |
-| writing plus extensions | 4,237 | 6,000 | 1,763 | exact resolver pin |
-| writing plus router and extensions | 6,822 | 7,200 | 378 | exact resolver pin |
-| maximal doctrine, draft PRs enabled | 7,929 | 8,500 | 571 | exact resolver pin |
-| maximal doctrine, draft PRs disabled | 7,914 | 8,500 | 586 | exact resolver pin |
-| maximal doctrine, follow-up issues enabled | 8,007 | 8,500 | 493 | exact resolver pin |
-| capped worker rule | 1,347 | 1,600 | 253 | exact resolver pin |
-| writing rule characters | 1,070 | 1,150 | 80 | exact resolver pin |
-| writing rule lines | 23 | 25 | 2 | exact resolver pin |
+| budget term | current | enforced bound | current reserve |
+| --- | ---: | ---: | ---: |
+| routing rule characters | 2,585 | 4,000 | 1,415 |
+| routing rule lines | 25 | 34 | 9 |
+| routing fixed prose | 1,110 | 1,500 | 390 |
+| largest model row | 183 | 300 | 117 |
+| router-on doctrine | 5,169 | 6,500 | 1,331 |
+| writing-only doctrine | 3,654 | 5,600 | 1,946 |
+| writing plus router | 6,239 | 6,900 | 661 |
+| writing plus extensions | 3,909 | 6,000 | 2,091 |
+| writing plus router and extensions | 6,494 | 7,200 | 706 |
+| maximal doctrine, draft PRs enabled | 7,605 | 8,500 | 895 |
+| maximal doctrine, draft PRs disabled | 7,586 | 8,500 | 914 |
+| maximal doctrine, follow-up issues enabled | 7,683 | 8,500 | 817 |
+| capped worker rule | 1,347 | 1,600 | 253 |
+| writing rule characters | 1,070 | 1,150 | 80 |
+| writing rule lines | 23 | 25 | 2 |
 
 Slate replaced the four-class prompt with size grades and focus areas. The
-fixed-rule growth is an unpinned historical comparison on the standard basis.
-It is 207 portable characters and two lines. It depends on the previous
-four-class wording and the current fixed-rule wording. The
-writing-plus-router fixture requires `6,567 × 1.05 = 6,895.35`. Ceiling gives
-6,896, and the next-hundred rule sets 6,900. The all-tail fixture
-requires `6,822 × 1.05 = 7,163.1`. Ceiling gives 7,164, and the rule sets 7,200.
+fixed rules grew by 207 portable characters and two lines. The writing-plus-
+router fixture requires `6,239 × 1.05 = 6,550.95`. Ceiling gives 6,551. The
+existing 6,900 bound remains larger. The all-tail fixture requires
+`6,494 × 1.05 = 6,818.7`. The existing 7,200 bound remains larger.
 
-The follow-up fixture is the largest maximal-family member. Its calculation is
-`8,007 × 1.05 = 8,407.35`. Ceiling gives 8,408. Rounding to the next hundred
-sets the shared maximal bound to 8,500. The bound leaves 493 portable
-characters above that 8,007-character fixture.
+The follow-up fixture requires `7,683 × 1.05 = 8,067.15`. Ceiling gives 8,068.
+The shared 8,500 bound keeps the required reserve for every maximal fixture.
 
-The positive control adds one capped tool and four copies of the largest
-measured model row. It measures 8,877 portable characters and 109 lines. It
-exceeds the 8,500-character maximal bound by 377. That margin remains larger
-than the 184-character maximum model-row growth and the 212-character capped
-tool growth. The raised bound does not blunt the positive control.
+The positive control adds one capped tool and six copies of the largest
+measured model row. It measures 8,921 portable characters. It exceeds the
+8,500-character maximal bound by 421. That margin remains larger than the
+184-character maximum model-row growth and the 212-character capped tool growth.
+The raised bound does not blunt the positive control.
 
 These figures are verification budgets, never runtime limits. Arbitrary user
 extension rosters can exceed them. Keep the positive-control steps unchanged
@@ -345,9 +334,10 @@ unless the fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. The rough
 estimate divides each measured portable-character render by four and rounds to
-the nearest whole token. The shipped-rule table ranges from about 728 to 1,646 tokens. The current
-project basis is about 1,736 tokens. The stable representative is about 1,982
-tokens. The follow-up-issues comparison is about 2,002 tokens.
+the nearest whole token. The shipped-rule table ranges from about 758 tokens to
+about 1,677 tokens. The current dogfood basis is about 1,767 tokens. The stable
+representative maximum is about 2,013 tokens. The follow-up-issues maximum is
+about 2,033 tokens, or 0.79 percent of the default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
 much headroom Slate consumes before conversation content.
@@ -374,38 +364,11 @@ and character counts can differ.
 This separate figure states the worker-session cost without presenting
 it as orchestrator doctrine.
 
-## Worker threads: the routing window guard
+## Worker actions
 
-The budget above is the ORCHESTRATOR's. Worker threads have no
-budget and never pause; with action-level routing on, they get a
-weaker but automatic counterpart. Before each dispatch — whenever
-the thread's context size is knowable, so not for a thread whose
-worker session has not been opened yet — the routed model's
-REGISTRY context window is checked against that size using pi's OWN
-compaction settings, the same settings whose `reserveTokens` clamps
-the budget above. (The check runs even if you disabled
-auto-compaction: turning compaction off does not make an
-over-window dispatch safe, it only turns the compaction into an
-overflow error.) If the thread no longer fits, the action is moved
-to the widest listed model when that one is strictly wider, with a
-warning; if nothing listed is wider it runs anyway and pi compacts.
-The guard never blocks a dispatch and never pauses a thread.
-
-Two consequences for this document's subject:
-
-- The registry window is what decides the substitution, so the
-  overrides in the next section change worker routing too: raising
-  `gpt-5.6-*` to 1,050,000 makes those models genuinely wide
-  candidates rather than 272K ones.
-- A narrow model in `router.models` is not a hazard the way it would
-  be for the orchestrator — it is a model long threads get routed
-  AWAY from, paying the wider model's rate instead. That is not
-  silent: the substituted action carries a ⚠ notice naming both
-  models.
-
-Routing itself — the two `router` keys, what makes a model routable,
-how effort levels resolve and the full guard list — is documented in
-`model-routing.md` in this directory.
+The budget above applies to the orchestrator. Each worker session runs one action.
+Slate does not route worker actions by prompt size. Pi owns worker compaction and
+context overflow behavior. `model-routing.md` documents the routing guards.
 
 ## Using GPT-5.6's full 1.05M window
 
@@ -446,9 +409,7 @@ long-context rates listed above.
 
 With action-level routing on, this override also settles a warning
 you will otherwise see once per session for each configured
-`gpt-5.6-*` model during resolution. Dispatch-time price divergence warnings
-are conditional and can repeat on later dispatches. Slate's own profile for those
-models records a
+`gpt-5.6-*` model during resolution. Slate's own profile for those models records a
 1,050,000-token window, pi's stock registry reports 272,000, and the
 router reports that divergence without adjudicating it (routing uses
 the registry figure). Raising the registry window removes the

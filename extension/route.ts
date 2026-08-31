@@ -1,115 +1,9 @@
 /**
- * Route planning: WHICH model and WHICH effort level one dispatched action runs
- * on, and the seven dispatch-time guards that decide whether it may run at all.
+ * Pure model and effort planning for one worker action.
  *
- * PURE, INJECTED — the same discipline worker-extensions.ts and model-router.ts
- * follow, and for the same reason: the guards are the safety core of action-level
- * routing, and a guard that silently stops guarding still "works". Nothing here
- * reads a live pi session, pi's settings, the model registry or the clock. Every
- * environment fact arrives as a parameter: the compaction predicate and the
- * reserve-token count (pi's), the candidate list (the session's frozen router
- * resolution), the profile/ladder lookup, the thread's current context size, the
- * allow-unmeasured-effort setting, and whether this call is the in-dispatch
- * FAILOVER switch. So the whole guard set is exercisable against fabricated
- * in-memory inputs by verification/resolver-checks.mjs, which cannot load
- * threads.ts at all (it transitively imports @earendil-works/pi-ai, a peer
- * dependency this repo does not install).
- *
- * A REJECTION IS A RETURN VALUE, never a throw: the caller decides what one
- * means. In threads.ts an EARLY rejection is a tool error raised before any state
- * mutation, and an APPLY-TIME rejection aborts the dispatch without recording an
- * episode; in FAILOVER mode a rejection means "do not switch", not an error.
- *
- * THE ONE RULE, in BOTH dimensions, stated once. With the router ON:
- *
- *   MODEL — a thread's base model is ALWAYS a listed candidate, so the only way an
- *   action can run on an unlisted model is to name one explicitly, and that is
- *   rejected. A base that is ABSENT or has fallen OFF the list is RE-SEEDED to what
- *   a new thread would get (with a warning, persisted by the caller), never
- *   refused: the fall-through path must always have a valid destination, or
- *   configuring a list would strand every thread that predates it.
- *
- *   EFFORT — the level the planner resolves is ALWAYS one that belongs to the model
- *   it routes to: either the caller named it, in which case it is judged against THAT
- *   model's own ladder, or it is derived from that model (its lowest MEASURED level).
- *   A level derived for one model is never carried onto another, and a level
- *   STORED for this one is only replayed while today's table still reads it as `ok` —
- *   a cached derivation must not outlive the evidence it was derived from. `effort`
- *   therefore reports one and only one thing, and `effortJudgedFor` names the model
- *   the judgement was about — they always describe the same pair.
- *
- * Both halves used to hold only for the model. The effort half is why an explicit
- * `model` no longer inherits the thread's base level: that level was derived for a
- * DIFFERENT model, and applying it produced evidence-gap warnings — or, with
- * allowUnmeasuredEffort:false, outright rejections — for a level nobody requested.
- *
- * WITH THE ROUTER OFF ITS PLANNER-OWNED MECHANISMS ARE INERT. There is no list,
- * window guard, billing notice, seeded or persisted base, or tracker input. The
- * plan target is the `model` ARGUMENT (honoured per action) or else the thread's
- * PRE-ROUTER PIN; the pin only opens a NEW worker session and never instructs a
- * live one to switch (`openOnly`). A later switch decision KEEPS a held failover
- * fallback rather than applying an open-only target (decideModelSwitch). The raw
- * argument still passes through byte-for-byte, so a malformed spec produces pi's
- * own error rather than a router opinion.
- *
- * A FAILURE TO READ EVIDENCE IS NOT EVIDENCE OF A PROBLEM. Every injected data
- * source may be missing, throwing or malformed — a profile lookup, a ladder
- * lookup, a candidate entry, the compaction predicate, a window figure. In every
- * case the affected guard goes INERT (it does not fire) rather than refusing:
- * refusing on a read failure turns a data defect into an outage, and the guards
- * exist to prevent dispatches that are KNOWN to be wrong, not ones that could not
- * be checked. The exception is deliberate and narrow: a POSITIVE fact that is
- * still readable still counts — an `apiRejectedLevels` entry refuses the level
- * even when that model's ladder is unreadable.
- *
- * The guards, in the order they run — the order is load-bearing:
- *
- *   0. pi's effort VOCABULARY: an `effort` argument outside off/minimal/low/
- *      medium/high/xhigh/max is rejected before anything else looks at it — and so
- *      is one that is not a STRING at all, since reading a malformed argument as
- *      absent would quietly run the action at the thread's base level instead.
- *   1. LIST MEMBERSHIP (router ON only): a resolved model outside the effective
- *      candidate list is rejected, naming the list. With the router OFF this guard
- *      does not enforce a list; the raw model argument continues to pi unchanged.
- *      A THREAD'S BASE is exempt by REPAIR, not by exception — see THE ONE RULE
- *      above: absent or off-list, it is re-seeded, so only an EXPLICIT off-list
- *      model is ever refused.
- *   5. CONTEXT WINDOW: never a hard block, and it runs BEFORE the effort guards so
- *      that every effort judgement is about the model the planner routes to. The
- *      REGISTRY window (which is what a RouterCandidate carries; a profile's own
- *      figure is documentation only) reduced by pi's compaction reserve, judged by
- *      pi's OWN predicate. A model that cannot hold the thread's context is
- *      replaced by the widest candidate — only when that one is STRICTLY wider,
- *      since an equally narrow substitute buys nothing and only moves the action —
- *      with a warning; if nothing wider exists, the action still runs and says so.
- *      Skipped entirely when the context size is not knowable yet.
- *   4. API-REJECTED LEVEL, checked before the ladder because such a level IS on
- *      the model's pi ladder: the provider refuses it outright, so dispatching it
- *      is a guaranteed failure rather than an evidence gap, and
- *      allowUnmeasuredEffort does not cover it.
- *   2. LADDER VALIDITY, per model — never a union over models. pi CLAMPS an
- *      unsupported level silently, so without this guard the orchestrator would
- *      believe an action ran at a level the model never offered. It fires ONLY on a
- *      KNOWN ladder: an empty one means the data could not be read, not that the
- *      model offers nothing (see A FAILURE TO READ EVIDENCE above).
- *   3. EVIDENCE GAP: advisory. A ladder-valid level with no traced capability
- *      measurement is dispatchable with a warning, and refused only when the
- *      project set allowUnmeasuredEffort to false. It is never CHOSEN by default —
- *      a derived effort is always a measured level, so only an EXPLICIT `effort`
- *      can reach this guard.
- *   6. LONG-CONTEXT BILLING: a cost cliff, not a capacity limit. Warned once per
- *      thread and model — the caller owns that memory (warnedLongContext in,
- *      longContextWarned out), so this function keeps no state.
- *   7. FAILOVER CARVE-OUT (`failoverSwitch: true`): guards 1–4 are bypassed
- *      entirely and the window check becomes NON-SUBSTITUTING — it warns and
- *      proceeds. The router must never veto a failover; the one thing failover may
- *      not do is select the model that just failed.
- *
- * The EFFORT VERDICT ITSELF is not re-implemented here: model-router.ts's
- * checkEffort answers it, on both router states. With the router OFF this module
- * synthesises a one-candidate resolution from the injected profile lookup and
- * hands it to that same predicate, so the ladder answer stays per model and there
- * is exactly one implementation of "measured / gap / off-ladder / API-rejected".
+ * The planner enforces the configured model list and effort capability rules.
+ * Context-size substitution and long-context billing notices are not part of
+ * action routing.
  */
 
 import type { ThinkingLevel } from "./model-profiles.ts";
@@ -169,30 +63,16 @@ export interface RoutePlanInput {
 	 * seeds nothing and with the router ON the base is always a candidate.
 	 */
 	hostModel?: string;
-	/** pi's accounting of the thread's context size; undefined = not knowable ⇒ the window guard is skipped. */
-	contextTokens?: number;
-	/**
-	 * pi's OWN compaction predicate, already bound to pi's compaction settings:
-	 * "would this many tokens trigger compaction on a window this size?". Absent =
-	 * no way to judge capacity ⇒ the window guard is skipped rather than guessed.
-	 */
-	wouldCompact?: (contextTokens: number, contextWindow: number) => boolean;
-	/** pi's compaction reserve, for the warning TEXT only — the decision is wouldCompact's. */
-	reserveTokens?: number;
 	/**
 	 * Profile + ladder lookup, consulted ONLY when the router is off (a candidate
 	 * already carries both). Absent ⇒ no ladder data ⇒ no basis to refuse an effort
 	 * level, which is the pre-router behaviour: pi clamps it.
 	 */
 	profiles?: RouterProfileSource;
-	/** Models this THREAD has already had a long-context billing notice for (guard 6's memory). */
-	warnedLongContext?: readonly string[];
 	/** true = this call is the in-dispatch failover switch (guard 7). */
 	failoverSwitch?: boolean;
 	/** In failover mode: the model that just failed, which the mapping may never resolve to. */
 	failoverFrom?: string;
-	/** In failover mode: the target's REGISTRY context window (a failover target need not be a candidate). */
-	contextWindow?: number;
 	/** Optional UTC date override for fabricated dispatch-time price checks. */
 	currentDate?: () => string;
 }
@@ -242,10 +122,6 @@ export interface RoutePlanProceed {
 	baseReseeded?: true;
 	/** The spec the seed REPLACED, when there was one; absent when the thread had no base. */
 	baseReseededFrom?: string;
-	/** Set when the window guard replaced the resolved model: the spec it replaced. */
-	substitutedFrom?: string;
-	/** Set when this plan emitted the long-context notice for that spec — the caller records it. */
-	longContextWarned?: string;
 	/** Advisory notices for the orchestrator, in order. */
 	warnings: readonly string[];
 }
@@ -534,11 +410,6 @@ export function usableResolution(value: unknown): ModelRouterResolution {
 	return resolution;
 }
 
-/** A finite number, or undefined — profile and registry fields are `null` where untraced. */
-function finite(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
 /**
  * An INTERNAL spec (the host model, a failover target): trimmed, and empty or
  * non-string reads as absent. These arrive from pi's registry, already canonical.
@@ -680,19 +551,8 @@ function checkEffortFor(input: RoutePlanInput, resolution: ModelRouterResolution
 	return checkEffort(synthetic, spec, effort);
 }
 
-/**
- * The LOWEST level on a listed model's ladder that carries a traced capability
- * measurement — the seed for a new thread's base effort.
- *
- * `verdict === "ok"` is exactly "on the ladder, measured, and not rejected by the
- * provider", so an unmeasured level can never be chosen by default and an
- * API-rejected one can never be seeded. undefined when the model has no measured
- * level at all: absence reads as unknown and pi's own default applies — guessing a
- * level from an evidence gap is exactly what the profile data forbids.
- */
+/** Return the lowest measured effort for a listed model. */
 export function lowestMeasuredEffort(resolution: ModelRouterResolution, spec: string | undefined): ThinkingLevel | undefined {
-	// Router OFF: checkEffort is inert and would answer "ok" for every level, so
-	// there is nothing to seed from.
 	if (!resolution?.on || !spec) return undefined;
 	for (const level of THINKING_LEVELS) {
 		if (checkEffort(resolution, spec, level).verdict === "ok") return level;
@@ -700,24 +560,6 @@ export function lowestMeasuredEffort(resolution: ModelRouterResolution, spec: st
 	return undefined;
 }
 
-/** Whether `tokens` still fit a `window`-token model, per pi's own predicate. No predicate ⇒ no basis to refuse. */
-function holdsWindow(input: RoutePlanInput, tokens: number, window: number | undefined): boolean {
-	if (window === undefined || !input.wouldCompact) return true;
-	try {
-		return input.wouldCompact(tokens, window) !== true;
-	} catch {
-		return true; // a throwing predicate cannot condemn a dispatch
-	}
-}
-
-/** "thread t1's" / "this thread's" — the thread may not exist yet when planning. */
-function whose(thread: RouteThread | undefined): string {
-	return thread ? `thread ${thread.id}'s` : "this thread's";
-}
-
-function count(tokens: number): string {
-	return tokens.toLocaleString("en-US");
-}
 
 /** One part per million ignores arithmetic noise while preserving every material catalogue difference. */
 export const REGISTRY_PRICE_RELATIVE_TOLERANCE = 1e-6;
@@ -817,12 +659,7 @@ function priceDivergenceWarning(
 /**
  * GUARD 7 — the failover carve-out. Guards 1–4 do not run: a model that just
  * failed is worse than an unlisted one that works, so the router may never veto a
- * failover. What remains is the one rule failover itself must obey (never the
- * model that just failed) and a NON-SUBSTITUTING window check that warns and
- * proceeds — substituting here would be the router vetoing failover by another
- * name. Gated on the router being ON, so a router-OFF failover gets no window
- * warning at all: that is the pre-router behaviour of THIS branch, not of the
- * dispatch path, where a router-OFF action's own `model` still moves a session.
+ * failover. The failover target must differ from the model that failed.
  */
 function planFailoverSwitch(input: RoutePlanInput, resolution: ModelRouterResolution, target: string | undefined): RoutePlanVerdict {
 	const warnings: string[] = [];
@@ -838,15 +675,6 @@ function planFailoverSwitch(input: RoutePlanInput, resolution: ModelRouterResolu
 			warnings,
 		};
 	}
-	const tokens = finite(input.contextTokens);
-	const window = finite(input.contextWindow);
-	if (resolution.on && tokens !== undefined && window !== undefined && !holdsWindow(input, tokens, window)) {
-		warnings.push(
-			`slate: the failover target ${target} cannot hold ${whose(input.thread)} context ` +
-				`(~${count(tokens)} tokens vs a ${count(window)}-token window) — ` +
-				"failing over anyway; pi will compact. Failover is never vetoed on window size.",
-		);
-	}
 	const priceWarning = priceDivergenceWarning(input, resolution, target);
 	if (priceWarning) warnings.push(priceWarning);
 	return { kind: "proceed", model: target, effortUnmeasured: false, warnings };
@@ -855,11 +683,9 @@ function planFailoverSwitch(input: RoutePlanInput, resolution: ModelRouterResolu
 /**
  * Plan ONE dispatch: resolve the (model, effort) pair and run the guards.
  *
- * Called TWICE per dispatch by threads.ts — early, before any state mutation, and
- * again at apply time once the thread's context size is knowable. The two calls
- * differ ONLY in their inputs (`contextTokens`) and in what the caller does with
- * the result: the early caller uses the resolved model and discards the warnings,
- * so it can neither double-report nor consume guard 6's once-per-pair notice.
+ * Called twice per dispatch by threads.ts. The early pass rejects invalid inputs
+ * before thread creation. The apply-time pass catches registry or credential
+ * changes before billed work.
  */
 export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	const resolution = usableResolution(input.resolution);
@@ -1045,70 +871,16 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		};
 	}
 
-	// GUARD 5 — CONTEXT WINDOW, and it runs BEFORE the effort guards on purpose: the
-	// model the planner routes this action to must be settled before any level is judged
-	// against it, or the judgement is about a model that will be substituted away. Never a
-	// hard block, and router ON only: with the router off there is no candidate list
-	// to fall back to, and the pre-router behaviour is no check at all.
-	let substitutedFrom: string | undefined;
-	const tokens = finite(input.contextTokens);
-	if (resolution.on && model !== undefined && tokens !== undefined) {
-		const windowOf = (candidate: RouterCandidate | undefined) => finite(candidate?.contextWindow);
-		const holds = (candidate: RouterCandidate | undefined): boolean => holdsWindow(input, tokens, windowOf(candidate));
-		const current = candidateFor(resolution, model);
-		if (!holds(current)) {
-			const reserve = finite(input.reserveTokens) ?? 0;
-			const prefix =
-				`slate: ${whose(thread)} context (~${count(tokens)} tokens) does not fit ` +
-				`${sanitizeForNotify(model, 80)}'s context window minus pi's ${count(reserve)}-token ` +
-				"compaction reserve";
-			const widest = resolution.candidates.reduce<RouterCandidate | undefined>(
-				(best, c) =>
-					typeof c?.spec !== "string" || windowOf(c) === undefined
-						? best
-						: best === undefined || (c.contextWindow ?? 0) > (best.contextWindow ?? 0)
-							? c
-							: best,
-				undefined,
-			);
-			// STRICTLY wider, or not at all (BG19): moving the action to a candidate no
-			// wider than the one that already does not fit buys nothing — it would compact
-			// just the same, on a different model, for a different price. An UNKNOWN current
-			// window cannot be compared, so it is not a basis for moving either.
-			const currentWindow = windowOf(current);
-			const widestWindow = windowOf(widest);
-			const strictlyWider =
-				widest !== undefined &&
-				widest.spec !== model &&
-				widestWindow !== undefined &&
-				(currentWindow === undefined || widestWindow > currentWindow);
-			if (strictlyWider && widest) {
-				warn(
-					holds(widest)
-						? `${prefix} — routing this action to the widest listed model instead: ${widest.spec} ` +
-								`(${count(widestWindow ?? 0)} tokens).`
-						: `${prefix}, and NO listed model can hold it — routing to the widest one anyway ` +
-								`(${widest.spec}, ${count(widestWindow ?? 0)} tokens); pi will compact this thread.`,
-				);
-				substitutedFrom = model;
-				model = widest.spec;
-			} else {
-				warn(`${prefix}, and no listed model is wider — dispatching anyway; pi will compact this thread.`);
-			}
-		}
-	}
 
 	// ---- the EFFORT, for the model the planner routes to (THE ONE RULE, effort half)
 	//
-	// The routed model is final inside planRoute (guard 1 accepted it, guard 5 may have
-	// moved it), so the level can be settled against THAT model and nothing else:
+	// The routed model is final after list validation. Settle effort against that model:
 	//
 	//  · an EXPLICIT `effort` is judged against it, hard — the caller named a level and
 	//    is entitled to be told it does not exist there rather than silently clamped;
 	//  · a level INHERITED from the thread's base applies only while the base model is
-	//    the routed model. The moment they differ — an explicit `model`, or a window
-	//    substitution — the inherited level is DROPPED and re-derived for the routed
-	//    model (its lowest MEASURED level, or nothing when it has none). Carrying it over
+	//    the routed model. An explicit different model receives its own derived level.
+	//    Carrying the old level over
 	//    was BG14: an action explicitly routed to another model inherited a budget
 	//    derived for the base, and was warned about — or, with allowUnmeasuredEffort
 	//    false, REJECTED — for a level nobody had asked for.
@@ -1117,10 +889,8 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	// an explicit one can be rejected by them.
 	const judgedModel = model ?? specArg(input.hostModel);
 	let effort: ThinkingLevel | undefined;
-	let effortExplicit = false;
 	if (requestedEffort !== undefined) {
 		effort = requestedEffort;
-		effortExplicit = true;
 	} else if (baseEffort !== undefined && judgedModel !== undefined && judgedModel === baseModel) {
 		// The stored level, but only while it is STILL a level this model is measured at.
 		//
@@ -1159,14 +929,8 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 	let effortUnmeasured = false;
 	let rejection: string | undefined;
 
-	/**
-	 * GUARDS 4, 2 and 3 on the settled (model, effort) pair. `soft` — used when the
-	 * pair only became invalid because guard 5 MOVED the model — drops the level with a
-	 * warning instead of rejecting, because a context size must never hard-block a
-	 * dispatch. It is reachable only for an EXPLICIT level: an inherited one is
-	 * re-derived for the substituted model above, and a derived one always passes.
-	 */
-	const guardEffort = (spec: string | undefined, soft: boolean): void => {
+	/** Apply provider rejection, ladder validity, and evidence-gap policy. */
+	const guardEffort = (spec: string | undefined): void => {
 		if (effort === undefined || spec === undefined || rejection !== undefined) return;
 		const level = effort;
 		const check = checkEffortFor(input, resolution, spec, level);
@@ -1181,13 +945,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		const ladderKnown = Array.isArray(check.ladder) && check.ladder.length > 0;
 		const ladder = ladderKnown ? check.ladder.join(", ") : "(none recorded)";
 		const reject = (message: string) => {
-			if (!soft) {
-				rejection = message;
-				return;
-			}
-			effort = undefined;
-			effortUnmeasured = false;
-			warn(`${message} Dropping the effort level for this action; pi's own default applies.`);
+			rejection = message;
 		};
 		// GUARD 4 — API-rejected level: a guaranteed provider failure, not an evidence
 		// gap, so it is refused outright and is NOT covered by allowUnmeasuredEffort.
@@ -1238,9 +996,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		effortUnmeasured = false;
 	};
 
-	// SOFT only when guard 5 moved the model AND the level came from the caller: that
-	// is the one combination where a rejection would be caused by the context size.
-	guardEffort(judgedModel, effortExplicit && substitutedFrom !== undefined);
+	guardEffort(judgedModel);
 	if (rejection !== undefined) return { kind: "reject", reason: rejection, warnings };
 
 	const finalCandidate = candidateFor(resolution, model);
@@ -1249,32 +1005,6 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		if (priceWarning) warn(priceWarning);
 	}
 
-	// GUARD 6 — LONG-CONTEXT BILLING. A cost cliff, never a capacity limit
-	// (model-profiles §W): above the threshold the price multipliers apply. Emitted
-	// at most once per thread and model, on the FINAL model — the memory is the
-	// caller's (warnedLongContext in, longContextWarned out) so this stays pure.
-	let longContextWarned: string | undefined;
-	if (finalCandidate && tokens !== undefined && thread) {
-		const threshold = finite(finalCandidate.profile?.longContextThreshold);
-		// Array.isArray, not `?? []`: this input is fabricated by checks and assembled
-		// by a caller, and a non-array would throw on .includes inside a guard.
-		const already = Array.isArray(input.warnedLongContext) ? input.warnedLongContext : [];
-		if (threshold !== undefined && tokens >= threshold && !already.includes(finalCandidate.spec)) {
-			longContextWarned = finalCandidate.spec;
-			const multipliers = finalCandidate.profile?.longContextMultipliers;
-			const inMult = finite(multipliers?.in);
-			const outMult = finite(multipliers?.out);
-			const rates =
-				inMult !== undefined || outMult !== undefined
-					? `input bills ×${inMult ?? "?"} and output ×${outMult ?? "?"}`
-					: "the provider's long-context multipliers apply (slate's profile records no figure for them)";
-			warn(
-				`slate: ${thread.id}'s context (~${count(tokens)} tokens) is above ` +
-					`${sanitizeForNotify(finalCandidate.spec, 80)}'s long-context billing threshold ` +
-					`(${count(threshold)} tokens) — above it ${rates}. A cost event, not a capacity limit.`,
-			);
-		}
-	}
 
 	return {
 		kind: "proceed",
@@ -1287,8 +1017,6 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		baseEffort,
 		...(baseReseeded ? { baseReseeded: true as const } : {}),
 		baseReseededFrom,
-		substitutedFrom,
-		longContextWarned,
 		warnings,
 	};
 }

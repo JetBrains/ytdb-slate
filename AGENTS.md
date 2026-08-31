@@ -193,6 +193,27 @@ This environment-isolation harness is not an operating-system sandbox. A deliber
 Concurrent pi sessions are permitted only when they cannot write this checkout. A fatal read-only before-and-after repository fingerprint covers HEAD, index entries, tracked files, relevant untracked files and their metadata. It does not call `git write-tree` or create objects. A same-checkout writer remains prohibited. Same-user edit-and-restore is the documented residual boundary because no portable userspace fingerprint can observe it after the fact. The inherited `PI_CODING_AGENT_DIR` guard remains fatal because the ladder must choose every child redirect itself.
 
 - Run it with `bash verification/run-ladder.sh --repo .` (~3 min; `--only <ids>` for a subset). Not as root, and needs GNU coreutils. Exit 0 means nothing failed — rungs can still report NOT RUN, so read every rung and safety line; automation should pass `--strict`, which makes any NOT RUN fatal. Run `--self-test` after launcher changes.
+#### Running the ladder beside an active pi session
+
+The harness computes the watched settings file from `node os.homedir()` as `<home>/.pi/agent/settings.json`, unless `SLATE_LADDER_REAL_AGENT_DIR` names another agent directory (`verification/run-ladder.sh:151-170`). It refuses to start when `PI_CODING_AGENT_DIR` exists in the environment, including an empty value, because the harness must own that variable (`verification/run-ladder.sh:115-131`).
+
+The harness creates a throwaway `<lab>/agent` directory and assigns it to `AGENT` (`verification/run-ladder.sh:220-240`). Every child pi launch sets `PI_CODING_AGENT_DIR="$AGENT"` (`verification/run-ladder.sh:315-349`). A child that ignores that redirect writes under the run process home directory when pi resolves its agent path through `os.homedir()`. An isolated home therefore keeps escape detection intact (`verification/run-ladder.sh:152-168, 246-258, 347-351`).
+
+A run can therefore overlap another pi session using the real home directory when the run uses an isolated home. That session cannot change the watched file in the isolated home. The isolation is not an operating system sandbox. A process using a hard-coded path instead of the home directory could still escape detection (`verification/run-ladder.sh:1420-1450`).
+
+Use a temporary home outside the repository. Create its agent directory and a settings file before the run. Keep `PI_CODING_AGENT_DIR` removed, and preserve a `PATH` containing every required tool. Prepend the repository's `node_modules/.bin` directory so the pinned pi resolves first:
+
+```sh
+tmp_home=$(mktemp -d /tmp/slate-ladder-home.XXXXXX)
+mkdir -p "$tmp_home/.pi/agent"
+printf '{}' > "$tmp_home/.pi/agent/settings.json"
+env -u PI_CODING_AGENT_DIR -u SLATE_LADDER_REAL_AGENT_DIR HOME="$tmp_home" \
+  PATH="$PWD/node_modules/.bin:$PATH" bash verification/run-ladder.sh --repo . --strict
+```
+
+The harness takes `pi` from the search path. The search path can provide a different version than the version pinned in `package.json`. A wrong version can produce many rung failures that look like code regressions. On 2026-08-31, pi 0.84.4 from the search path made branch `main` report 10 pass, 15 fail and 2 not run. The pinned pi 0.83.0 from `node_modules/.bin` made the same branch report 26 pass, 0 fail and 0 not run. The same failing set appeared on a feature branch and produced a false regression report.
+
+Record `pi --version` with the run. The ladder accepts pi from `PATH` as a last choice and has no version-drift guard (`verification/README.md:675-684`). Compare that version with the exact `@earendil-works/pi-coding-agent` devDependency pin (`package.json:39-43`). If the isolated run fails, run the same ladder on branch `main` with the same isolated-home setup, command shape and pi version. Treat a failure as a current-branch regression only after that comparison. The final safety verdict is based on the before-and-after watched-file fingerprint (`verification/run-ladder.sh:1420-1450`).
 - **Re-run it after any change to `extension/model-default.ts` or to either switch site**, and **after any change to how a worker session is opened or switched** — `extension/worker.ts`'s settings manager, the model/`thinkingLevel` options it passes to `createAgentSession`, or the per-dispatch switch in `threads.ts`'s `applyRoute` (`WK1`). Both mechanisms fail silently when they regress — the switch still works, and the damage lands in the user's own pi configuration — so a passing smoke test proves nothing about either. Details, rung table and the timing-sensitive rungs: `verification/README.md`.
 
 ### Pure-resolver checks (worker extensions + doctrine rules + model router + dispatch guards + state sanitizers + profile table + writing wiring)
