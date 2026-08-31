@@ -207,16 +207,16 @@ must be named instead of presented as the same measurement:
 
 | router | models | `draftPRs` | `writing.check` | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | off | 3 | 2,584 | 43 |
-| off | — | off | on | 4 | 3,654 | 65 |
+| off | — | off | off | 3 | 2,588 | 43 |
+| off | — | off | on | 4 | 3,658 | 65 |
 | off | — | on | off | 4 | 2,603 | 43 |
 | off | — | on | on | 5 | 3,673 | 65 |
-| on | fixed six-model fixture | off | off | 4 | 4,614 | 64 |
-| on | fixed six-model fixture | off | on | 5 | 5,684 | 86 |
+| on | fixed six-model fixture | off | off | 4 | 4,618 | 64 |
+| on | fixed six-model fixture | off | on | 5 | 5,688 | 86 |
 | on | fixed six-model fixture | on | off | 5 | 4,633 | 64 |
 | on | fixed six-model fixture | on | on | 6 | 5,703 | 86 |
-| on | all 9 shipped | off | off | 4 | 5,169 | 67 |
-| on | all 9 shipped | off | on | 5 | 6,239 | 89 |
+| on | all 9 shipped | off | off | 4 | 5,173 | 67 |
+| on | all 9 shipped | off | on | 5 | 6,243 | 89 |
 | on | all 9 shipped | on | off | 5 | 5,188 | 67 |
 | on | all 9 shipped | on | on | 6 | 6,258 | 89 |
 
@@ -301,13 +301,13 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | routing rule lines | 25 | 34 | 9 |
 | routing fixed prose | 1,110 | 1,500 | 390 |
 | largest model row | 183 | 300 | 117 |
-| router-on doctrine | 5,169 | 6,500 | 1,331 |
-| writing-only doctrine | 3,654 | 5,600 | 1,946 |
-| writing plus router | 6,239 | 6,900 | 661 |
-| writing plus extensions | 3,909 | 6,000 | 2,091 |
-| writing plus router and extensions | 6,494 | 7,200 | 706 |
+| router-on doctrine | 5,173 | 6,500 | 1,327 |
+| writing-only doctrine | 3,658 | 5,600 | 1,942 |
+| writing plus router | 6,243 | 6,900 | 657 |
+| writing plus extensions | 3,913 | 6,000 | 2,087 |
+| writing plus router and extensions | 6,498 | 7,200 | 702 |
 | maximal doctrine, draft PRs enabled | 7,605 | 8,500 | 895 |
-| maximal doctrine, draft PRs disabled | 7,586 | 8,500 | 914 |
+| maximal doctrine, draft PRs disabled | 7,590 | 8,500 | 910 |
 | maximal doctrine, follow-up issues enabled | 7,683 | 8,500 | 817 |
 | capped worker rule | 1,347 | 1,600 | 253 |
 | writing rule characters | 1,070 | 1,150 | 80 |
@@ -315,9 +315,9 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 
 Slate replaced the four-class prompt with size grades and focus areas. The
 fixed rules grew by 207 portable characters and two lines. The writing-plus-
-router fixture requires `6,239 × 1.05 = 6,550.95`. Ceiling gives 6,551. The
+router fixture requires `6,243 × 1.05 = 6,555.15`. Ceiling gives 6,556. The
 existing 6,900 bound remains larger. The all-tail fixture requires
-`6,494 × 1.05 = 6,818.7`. The existing 7,200 bound remains larger.
+`6,498 × 1.05 = 6,822.9`. The existing 7,200 bound remains larger.
 
 The follow-up fixture requires `7,683 × 1.05 = 8,067.15`. Ceiling gives 8,068.
 The shared 8,500 bound keeps the required reserve for every maximal fixture.

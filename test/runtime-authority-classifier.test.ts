@@ -39,10 +39,9 @@ function legacyThread(overrides: Record<string, unknown> = {}): Record<string, u
 	return {
 		id: "t1",
 		name: "thread",
-		sessionFile: "/tmp/t1.jsonl",
-		status: "idle",
-		episodeIds: ["t1.e1"],
-		episodeSeq: 1,
+		status: "successful",
+		type: "general",
+		episodeId: "t1.e1",
 		createdAt: 1,
 		updatedAt: 1,
 		...overrides,
@@ -249,16 +248,12 @@ test("legacy threads must contain every required schema field", () => {
 	const complete = {
 		id: "t1",
 		name: "thread",
-		sessionFile: "/tmp/t1.jsonl",
-		status: "idle",
-		episodeIds: [],
-		episodeSeq: 0,
+		status: "failed",
+		type: "general",
 		createdAt: 1,
 		updatedAt: 1,
 	};
-	for (const field of [
-		"id", "name", "sessionFile", "status", "episodeIds", "episodeSeq", "createdAt", "updatedAt",
-	] as const) {
+	for (const field of ["id", "name", "status", "type", "createdAt", "updatedAt"] as const) {
 		const malformed = { ...complete } as Partial<typeof complete>;
 		delete malformed[field];
 		const evidence = legacyEntry(legacy({ threads: [malformed] }));
@@ -281,7 +276,7 @@ test("legacy classification refuses every sanitizer change instead of accepting 
 	const cases: ReadonlyArray<readonly [string, Record<string, unknown>, Record<string, unknown>]> = [
 		["invalid thread status", legacyThread({ status: 17 }), legacyEpisode()],
 		["running thread status", legacyThread({ status: "running" }), legacyEpisode()],
-		["mixed episode identifiers", legacyThread({ episodeIds: ["t1.e1", 7] }), legacyEpisode()],
+		["foreign episode identifier", legacyThread({ episodeId: "t2.e1" }), legacyEpisode()],
 		["invalid episode status", legacyThread(), legacyEpisode({ status: 17 })],
 		["invalid episode task", legacyThread(), legacyEpisode({ task: 17 })],
 		["changed episode timestamp", legacyThread(), legacyEpisode({ createdAt: "1" })],
@@ -301,69 +296,21 @@ test("malformed off-branch legacy evidence refuses without an active fallback", 
 	expectRefused(classifyRuntimeAuthority([valid, malformed], [valid]), "malformed-legacy");
 });
 
-test("legacy graph validation rejects shared nonempty writable transcript paths", () => {
-	const shared = "/tmp/shared.jsonl";
-	const thread = (id: string) => ({
-		id,
-		name: id,
-		sessionFile: shared,
-		status: "idle",
-		episodeIds: [],
-		episodeSeq: 0,
-		createdAt: 1,
-		updatedAt: 1,
-	});
-	const snapshot = legacy({ threads: [thread("t1"), thread("t2")] });
+test("legacy graph validation rejects duplicate thread identifiers", () => {
+	const snapshot = legacy({ threads: [legacyThread(), legacyThread()], episodes: [legacyEpisode()] });
 	expectRefused(classifyRuntimeAuthority([legacyEntry(snapshot)], [legacyEntry(snapshot)]), "malformed-legacy");
 });
 
-test("legacy graph validation requires restart generation progression", () => {
-	const source = legacyThread({
-		episodeIds: [],
-		episodeSeq: 0,
-		supersededBy: "t2",
-	});
-	const successor = legacyThread({
-		id: "t2",
-		sessionFile: "/tmp/t2.jsonl",
-		episodeIds: [],
-		episodeSeq: 0,
-		restartOf: "t1",
-		restartGeneration: 2,
-	});
-	const malformed = legacyEntry(legacy({ threads: [source, successor], episodes: [] }));
-	expectRefused(classifyRuntimeAuthority([malformed], [malformed]), "malformed-legacy");
-
-	(successor as { restartGeneration: number }).restartGeneration = 1;
-	const valid = legacyEntry(legacy({ threads: [source, successor], episodes: [] }));
-	assert.equal(classifyRuntimeAuthority([valid], [valid]).kind, "legacy");
-});
-
-test("legacy graph validation rejects malformed episode ids and counter bounds", () => {
-	const thread = (episodeId: string, episodeSeq: number) => ({
-		id: "t1",
-		name: "t1",
-		sessionFile: "/tmp/t1.jsonl",
-		status: "idle",
-		episodeIds: [episodeId],
-		episodeSeq,
-		createdAt: 1,
-		updatedAt: 1,
-	});
-	const episode = (id: string) => ({
-		id,
-		threadId: "t1",
-		task: "task",
-		status: "ok",
-		file: `/tmp/${id}.md`,
-		createdAt: 1,
-	});
-	for (const [label, id, sequence] of [
-		["foreign id", "foreign", 1],
-		["zero ordinal", "t1.e0", 1],
-		["beyond counter", "t1.e2", 1],
+test("legacy graph validation rejects malformed or mismatched episode identifiers", () => {
+	for (const [label, threadId, episodeId] of [
+		["foreign id", "foreign", "foreign"],
+		["zero ordinal", "t1.e0", "t1.e0"],
+		["mismatched id", "t1.e1", "t2.e1"],
 	] as const) {
-		const snapshot = legacy({ threads: [thread(id, sequence)], episodes: [episode(id)] });
+		const snapshot = legacy({
+			threads: [legacyThread({ episodeId: threadId })],
+			episodes: [legacyEpisode({ id: episodeId })],
+		});
 		expectRefused(
 			classifyRuntimeAuthority([legacyEntry(snapshot)], [legacyEntry(snapshot)]),
 			"malformed-legacy",

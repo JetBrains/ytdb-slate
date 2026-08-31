@@ -1366,6 +1366,7 @@ import { pathToFileURL } from "node:url";
 const [repo, cwd, provider, id, thinking] = process.argv.slice(2);
 const corpus = await import(pathToFileURL(`${repo}/extension/corpus.ts`).href);
 const handoff = await import(pathToFileURL(`${repo}/extension/handoff-record.ts`).href);
+const { SLATE_STATE_FORMAT } = await import(pathToFileURL(`${repo}/extension/state.ts`).href);
 const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 const identity = `${stamp}-${randomBytes(8).toString("hex")}`;
 const source = corpus.createCorpusSession({ cwd, identity, initialNameBytes: randomBytes(4) });
@@ -1381,6 +1382,7 @@ const record = {
   model: { provider, id },
   ...(thinking === "-" ? {} : { thinkingLevel: thinking }),
   snapshot: {
+    format: SLATE_STATE_FORMAT,
     threads: [], episodes: [], threadSeq: 0,
     slateSessionId: identity, slateSessionName: source.name,
     ownerSessionDigest: "a".repeat(64),

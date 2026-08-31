@@ -25,10 +25,10 @@
  * network install.
  *
  * Worker conversations persist under the current corpus session's threads
- * directory and are reopened through SessionManager.open.
+ * directory. Every action creates one fresh worker session.
  */
 
-import { fstatSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
 	CONFIG_DIR_NAME,
@@ -40,16 +40,12 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
-import { withContainedForkSource, withContainedThreadFile } from "./corpus.ts";
 import { isSlateSessionName } from "./session-names.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
-
-/** A pre-prompt transcript refusal that ThreadManager must route to its unbilled exit. */
-export class WorkerTranscriptOpenRefused extends Error {}
 
 export const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
@@ -195,7 +191,6 @@ export async function openWorkerSession(opts: {
 	ctx: ExtensionContext;
 	sessionName?: string;
 	projectDirectory?: string;
-	sessionFile?: string; // resume when provided, else create new under <config dir>/slate/threads/
 	// Episode and observation paths do not belong here. Their shared artifact writer owns persistence.
 	model?: string; // "provider/id"
 	tools?: string[];
@@ -338,26 +333,7 @@ export async function openWorkerSession(opts: {
 
 	const model = opts.model ? resolveModel(ctx, opts.model) : ctx.model;
 
-	const sessionManager = opts.sessionFile
-		? withContainedForkSource(ctx.cwd, opts.sessionFile, opts.projectDirectory, (_fd, path) => SessionManager.open(path))
-		: SessionManager.create(ctx.cwd, dir);
-	if (sessionManager === undefined) {
-		const multiplyLinked = opts.sessionFile === undefined
-			? false
-			: withContainedThreadFile(
-				ctx.cwd,
-				opts.sessionFile,
-				opts.projectDirectory,
-				(fd) => fstatSync(fd).nlink > 1,
-			) === true;
-		if (multiplyLinked) {
-			throw new WorkerTranscriptOpenRefused(
-				"slate refused the worker transcript because it has more than one name on disk. " +
-					"A hardlink backup probably created the extra name. Restore a single-linked copy to proceed.",
-			);
-		}
-		throw new Error("slate refused an unsafe worker session file");
-	}
+	const sessionManager = SessionManager.create(ctx.cwd, dir);
 
 	// No modelRuntime passed: createAgentSession (pi >= 0.80.8) defaults to a
 	// ModelRuntime replacing the AuthStorage + ModelRegistry setup this code

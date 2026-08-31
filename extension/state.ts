@@ -10,10 +10,9 @@
  */
 
 import { createHash } from "node:crypto";
-import { realpathSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // TYPE-ONLY: the effort vocabulary is defined once, in the profile table
 // (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
 // union. The import is erased at load time. State restoration therefore keeps
@@ -23,7 +22,6 @@ import type { ObservationRecord } from "./observations.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
 	isSafeThreadId,
-	isSlateArtifactId,
 	isSlateArtifactReference,
 	slateArtifactReference,
 	slateEpisodeId,
@@ -33,7 +31,6 @@ import {
 	createCorpusSession,
 	removeCorpusSession,
 	resolveContainedFile,
-	resolveContainedThreadFile,
 	resolveCorpusProject,
 	scanCorpusSessionsByIdentity,
 	validateCorpusSession,
@@ -181,6 +178,24 @@ export interface ThreadRecord {
 	outcomeReason?: string;
 	createdAt: number;
 	updatedAt: number;
+}
+
+function copyThreadRecord(record: ThreadRecord): ThreadRecord {
+	return {
+		id: record.id,
+		name: record.name,
+		status: record.status,
+		type: record.type,
+		...(record.model !== undefined ? { model: record.model } : {}),
+		...(record.baseModel !== undefined ? { baseModel: record.baseModel } : {}),
+		...(record.baseEffort !== undefined ? { baseEffort: record.baseEffort } : {}),
+		...(record.cacheKeyShard !== undefined ? { cacheKeyShard: record.cacheKeyShard } : {}),
+		...(record.tools !== undefined ? { tools: record.tools } : {}),
+		...(record.episodeId !== undefined ? { episodeId: record.episodeId } : {}),
+		...(record.outcomeReason !== undefined ? { outcomeReason: record.outcomeReason } : {}),
+		createdAt: record.createdAt,
+		updatedAt: record.updatedAt,
+	};
 }
 
 export interface EpisodeUsage {
@@ -781,22 +796,26 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		repairs.push(`thread ${id}: normalized successful action without a valid episode id to failed`);
 	}
 	const now = Date.now();
-	const built: ThreadRecord = {
+	const model = keep("model", t.model, str(t.model));
+	const baseModel = keep("baseModel", t.baseModel, str(t.baseModel));
+	const baseEffort = keep("baseEffort", t.baseEffort, str(t.baseEffort)) as ThinkingLevel | undefined;
+	const cacheKeyShard = keep("cacheKeyShard", t.cacheKeyShard, typeof t.cacheKeyShard === "number" && Number.isInteger(t.cacheKeyShard) && t.cacheKeyShard >= 0 && t.cacheKeyShard < MAX_CACHE_KEY_SHARDS
+		? t.cacheKeyShard : undefined);
+	const built = copyThreadRecord({
 		id,
 		name,
 		status: adoptedStatus,
 		type,
-		model: keep("model", t.model, str(t.model)),
-		baseModel: keep("baseModel", t.baseModel, str(t.baseModel)),
-		baseEffort: keep("baseEffort", t.baseEffort, str(t.baseEffort)) as ThinkingLevel | undefined,
-		cacheKeyShard: keep("cacheKeyShard", t.cacheKeyShard, typeof t.cacheKeyShard === "number" && Number.isInteger(t.cacheKeyShard) && t.cacheKeyShard >= 0 && t.cacheKeyShard < MAX_CACHE_KEY_SHARDS
-			? t.cacheKeyShard : undefined),
+		model,
+		baseModel,
+		baseEffort,
+		cacheKeyShard,
 		tools,
 		episodeId,
 		outcomeReason,
 		createdAt: keep("createdAt", t.createdAt, num(t.createdAt)) ?? now,
 		updatedAt: keep("updatedAt", t.updatedAt, num(t.updatedAt)) ?? now,
-	};
+	});
 	noteUnadoptedFields("thread", id, t, built, refused, repairs);
 	return built;
 }
@@ -894,7 +913,7 @@ export interface CanonicalRuntimeState {
 }
 
 /** External facts and binding expectations needed to decode one runtime payload. */
-export type CanonicalRuntimeArtifactKind = "thread-session" | "thread-fork" | "episode" | "observation";
+export type CanonicalRuntimeArtifactKind = "episode" | "observation";
 
 export interface CanonicalRuntimeDecodeOptions {
 	runtime: unknown;
@@ -923,16 +942,7 @@ const CANONICAL_RUNTIME_KEYS = [
 	"workerCostUsd",
 	"carriedCostUsd",
 ] as const;
-const CANONICAL_THREAD_REQUIRED = [
-	"id",
-	"name",
-	"sessionFile",
-	"status",
-	"episodeIds",
-	"episodeSeq",
-	"createdAt",
-	"updatedAt",
-] as const;
+const CANONICAL_THREAD_REQUIRED = ["id", "name", "status", "type", "createdAt", "updatedAt"] as const;
 const CANONICAL_EPISODE_REQUIRED = ["id", "threadId", "task", "status", "file", "createdAt"] as const;
 
 function canonicalRuntimeRefuse(message: string): never {
@@ -964,12 +974,6 @@ function copyCanonicalData(value: unknown): unknown | typeof INVALID_CANONICAL_D
 	}
 }
 
-function canonicallyInside(root: string, file: unknown): file is string {
-	if (typeof file !== "string" || file === "" || !isAbsolute(file) || resolve(file) !== file) return false;
-	const rel = relative(root, file);
-	return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
-}
-
 function canonicalArtifactAllowed(
 	options: CanonicalRuntimeDecodeOptions,
 	kind: CanonicalRuntimeArtifactKind,
@@ -989,10 +993,11 @@ function decodeCanonicalThread(raw: unknown, index: number): ThreadRecord {
 	}
 	const repairs: string[] = [];
 	const decoded = sanitizeThreadRecord(raw, repairs);
-	if (decoded === undefined || repairs.length > 0 || !isDeepStrictEqual(decoded, raw)) {
+	const normalized = decoded === undefined ? INVALID_CANONICAL_DATA : copyCanonicalData(decoded);
+	if (decoded === undefined || repairs.length > 0 || !isDeepStrictEqual(normalized, raw)) {
 		canonicalRuntimeRefuse(`thread ${String(raw.id ?? index)} requires sanitizer repair${repairs.length > 0 ? `: ${repairs.join("; ")}` : ""}`);
 	}
-	return decoded;
+	return raw as unknown as ThreadRecord;
 }
 
 function decodeCanonicalEpisode(raw: unknown, index: number): EpisodeRecord {
@@ -1002,10 +1007,11 @@ function decodeCanonicalEpisode(raw: unknown, index: number): EpisodeRecord {
 	}
 	const repairs: string[] = [];
 	const decoded = sanitizeEpisodeRecord(raw, repairs);
-	if (decoded === undefined || repairs.length > 0 || !isDeepStrictEqual(decoded, raw)) {
+	const normalized = decoded === undefined ? INVALID_CANONICAL_DATA : copyCanonicalData(decoded);
+	if (decoded === undefined || repairs.length > 0 || !isDeepStrictEqual(normalized, raw)) {
 		canonicalRuntimeRefuse(`episode ${String(raw.id ?? index)} requires sanitizer repair${repairs.length > 0 ? `: ${repairs.join("; ")}` : ""}`);
 	}
-	return decoded;
+	return raw as unknown as EpisodeRecord;
 }
 
 /**
@@ -1071,69 +1077,21 @@ export function decodeCanonicalRuntime(options: CanonicalRuntimeDecodeOptions): 
 	}
 
 	let maxThreadOrdinal = 0;
-	const threadRoot = join(namespaceDirectory, "threads");
-	const writableSessionFiles = new Set<string>();
 	for (const thread of threads) {
 		const ordinal = canonicalThreadOrdinal(thread.id);
 		if (ordinal !== undefined) maxThreadOrdinal = Math.max(maxThreadOrdinal, ordinal);
-		if (thread.sessionFile !== "") {
-			if (writableSessionFiles.has(thread.sessionFile)) {
-				canonicalRuntimeRefuse(`thread ${thread.id} repeats a writable sessionFile`);
-			}
-			if (!canonicallyInside(threadRoot, thread.sessionFile) || dirname(thread.sessionFile) !== threadRoot
-				|| !thread.sessionFile.endsWith(".jsonl")
-				|| !canonicalArtifactAllowed(options, "thread-session", thread.sessionFile)) {
-				canonicalRuntimeRefuse(`thread ${thread.id} has an unsafe sessionFile`);
-			}
-			writableSessionFiles.add(thread.sessionFile);
-		}
-		if (thread.forkedFrom !== undefined
-			&& (!canonicallyInside(threadRoot, thread.forkedFrom) || dirname(thread.forkedFrom) !== threadRoot
-				|| !thread.forkedFrom.endsWith(".jsonl") || thread.forkedFrom === thread.sessionFile
-				|| !canonicalArtifactAllowed(options, "thread-fork", thread.forkedFrom))) {
-			canonicalRuntimeRefuse(`thread ${thread.id} has an unsafe forkedFrom`);
-		}
-		const referenced = new Set<string>();
-		for (const episodeId of thread.episodeIds) {
-			if (referenced.has(episodeId)) canonicalRuntimeRefuse(`thread ${thread.id} repeats episode reference ${episodeId}`);
-			referenced.add(episodeId);
-			const prefix = `${thread.id}.e`;
-			if (!episodeId.startsWith(prefix) || !isSlateArtifactId(episodeId)) {
-				canonicalRuntimeRefuse(`thread ${thread.id} has a foreign or malformed episode reference ${episodeId}`);
-			}
-			const episodeOrdinal = Number(episodeId.slice(prefix.length));
-			if (!Number.isSafeInteger(episodeOrdinal) || episodeOrdinal < 1 || episodeOrdinal > thread.episodeSeq) {
-				canonicalRuntimeRefuse(`thread ${thread.id} has an episode reference beyond episodeSeq`);
-			}
-			const episode = episodeById.get(episodeId);
+		if (thread.episodeId !== undefined) {
+			const episode = episodeById.get(thread.episodeId);
 			if (episode === undefined || episode.threadId !== thread.id) {
-				canonicalRuntimeRefuse(`thread ${thread.id} has a broken episode reference ${episodeId}`);
+				canonicalRuntimeRefuse(`thread ${thread.id} has a broken episode reference ${thread.episodeId}`);
 			}
-		}
-		if (thread.restartOf !== undefined) {
-			const source = threadById.get(thread.restartOf);
-			if (source === undefined || source.supersededBy !== thread.id
-				|| thread.restartGeneration !== (source.restartGeneration ?? 0) + 1) {
-				canonicalRuntimeRefuse(`thread ${thread.id} has a broken restart source link`);
-			}
-		}
-		if (thread.supersededBy !== undefined) {
-			const successor = threadById.get(thread.supersededBy);
-			if (successor?.restartOf !== thread.id) canonicalRuntimeRefuse(`thread ${thread.id} has a broken successor link`);
-		}
-		const visited = new Set<string>([thread.id]);
-		let ancestor = thread.restartOf;
-		while (ancestor !== undefined) {
-			if (visited.has(ancestor)) canonicalRuntimeRefuse(`thread ${thread.id} has a restart cycle`);
-			visited.add(ancestor);
-			ancestor = threadById.get(ancestor)?.restartOf;
 		}
 	}
 	if ((raw.threadSeq as number) < maxThreadOrdinal) canonicalRuntimeRefuse("threadSeq is stale");
 
 	for (const episode of episodes) {
 		const thread = threadById.get(episode.threadId);
-		if (thread === undefined || !thread.episodeIds.includes(episode.id)) {
+		if (thread?.episodeId !== episode.id) {
 			canonicalRuntimeRefuse(`episode ${episode.id} is not listed by its thread`);
 		}
 		const expectedFile = join(namespaceDirectory, "episodes", `${episode.id}.md`);
@@ -1673,12 +1631,13 @@ export class SlateStore {
 			}
 		}
 		if (resolved.minted || nameChanged) {
-			const candidate = {
-				...this.snapshot(),
-				slateSessionId: resolved.slateSessionId,
-				...(name !== undefined ? { slateSessionName: name } : {}),
-				ownerSessionDigest: resolved.ownerSessionDigest,
-			};
+			const candidate = this.snapshot();
+			if (resolved.slateSessionId === undefined) delete candidate.slateSessionId;
+			else candidate.slateSessionId = resolved.slateSessionId;
+			if (name === undefined) delete candidate.slateSessionName;
+			else candidate.slateSessionName = name;
+			if (resolved.ownerSessionDigest === undefined) delete candidate.ownerSessionDigest;
+			else candidate.ownerSessionDigest = resolved.ownerSessionDigest;
 			try {
 				this.pi.appendEntry("slate-state", candidate as unknown as Record<string, unknown>);
 			} catch (error) {
@@ -1713,7 +1672,7 @@ export class SlateStore {
 	snapshot(): SlateSnapshot {
 		return {
 			format: SLATE_STATE_FORMAT,
-			threads: [...this.threads.values()],
+			threads: [...this.threads.values()].map(copyThreadRecord),
 			episodes: [...this.episodes.values()],
 			threadSeq: this.threadSeq,
 			...(this.slateSessionId !== undefined ? { slateSessionId: this.slateSessionId } : {}),
@@ -1729,7 +1688,7 @@ export class SlateStore {
 
 	private runtimeMemorySnapshot(): CanonicalRuntimeState {
 		return cloneCanonicalRuntime({
-			threads: [...this.threads.values()],
+			threads: [...this.threads.values()].map(copyThreadRecord),
 			episodes: [...this.episodes.values()],
 			threadSeq: this.threadSeq,
 			slateSessionParentChain: this.slateSessionParentChain,
@@ -1741,9 +1700,7 @@ export class SlateStore {
 	}
 
 	private canonicalRuntimeSnapshot(): CanonicalRuntimeState {
-		const runtime = this.runtimeMemorySnapshot();
-		for (const thread of runtime.threads) thread.status = "idle";
-		return runtime;
+		return this.runtimeMemorySnapshot();
 	}
 
 	private runtimeMemoryCheckpoint(): RuntimeMemoryCheckpoint {
@@ -2424,34 +2381,6 @@ export class SlateStore {
 					dropped.push(`thread record without a usable id: ${typeof raw === "object" ? "ignored" : typeof raw}`);
 				}
 				continue;
-			}
-			if (t.sessionFile) {
-				const safeSessionFile = resolveContainedThreadFile(ctx.cwd, t.sessionFile, this.corpusProject?.directory);
-				if (safeSessionFile === undefined) {
-					// RG271. Restore is not an operation on this file. Keep the user's record and
-					// refuse only a later OPEN through the same containment gate. Dropping it here
-					// made the next unrelated save persist history loss after a transient refusal.
-					dropped.push(
-						`thread ${t.id} (${t.name}): retaining sessionFile, but refusing its use while it is missing, linked, or outside slate thread storage`,
-					);
-				} else {
-					t.sessionFile = safeSessionFile;
-				}
-			}
-			if (t.forkedFrom !== undefined) {
-				const safeSource = resolveContainedThreadFile(ctx.cwd, t.forkedFrom, this.corpusProject?.directory);
-				// BG3/BG4: the retained source is a RECOVERY hint, never a requirement. Dropping the
-				// record over it threw away the thread AND every episode of it while the thread's own
-				// transcript was still present and healthy. An unusable hint is removed instead, with
-				// one visible repair, and `sessionFile` above remains the load-bearing path.
-				if (safeSource === undefined || t.sessionFile === "" || safeSource === t.sessionFile) {
-					dropped.push(
-						`thread ${t.id} (${t.name}): ignoring forkedFrom because that fork source is missing, linked, outside slate thread storage, or the session file itself`,
-					);
-					delete t.forkedFrom;
-				} else {
-					t.forkedFrom = safeSource;
-				}
 			}
 			this.threads.set(t.id, t);
 			// Old snapshots have no persisted counter. Derive its floor from every

@@ -88,7 +88,7 @@
     //   value — deferred, not rejected.
     //
     // "noPropertyAccessFromIndexSignature": REJECTED. The diagnostics are
-    //   `t.id` / `t.episodeIds`-style reads of parsed JSON typed as
+    //   `t.id` / `t.episodeId`-style reads of parsed JSON typed as
     //   Record<string, unknown>, plus process.env reads in the tests and the
     //   probe. Pure style churn, zero safety gain.
   },

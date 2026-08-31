@@ -22,6 +22,7 @@ import {
 	ADOPTED_THREAD_FIELDS,
 	OWNER_SESSION_DIGEST_PATTERN,
 	SLATE_SESSION_ID_PATTERN,
+	SLATE_STATE_FORMAT,
 	sanitizeEpisodeRecord,
 	sanitizeThreadRecord,
 	type SlateSessionParent,
@@ -30,7 +31,6 @@ import {
 import {
 	insideRoot,
 	isContainedOrMissingFile,
-	isContainedOrMissingThreadFile,
 	resolveCorpusProject,
 	validateCorpusSession,
 	type CorpusProject,
@@ -132,9 +132,9 @@ function validWireString(value: unknown): value is WireString {
 }
 
 const ROOT_KEYS = ["version", "author", "authorSessionDirectory", "createdAt", "worktreePath", "branchLabel", "parentChain", "brief", "focus", "model", "thinkingLevel", "snapshot"] as const;
-const SNAPSHOT_KEYS = ["threads", "episodes", "threadSeq", "slateSessionId", "slateSessionName", "ownerSessionDigest", "slateSessionParentChain", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"] as const;
+const SNAPSHOT_KEYS = ["format", "threads", "episodes", "threadSeq", "slateSessionId", "slateSessionName", "ownerSessionDigest", "slateSessionParentChain", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"] as const;
 const USAGE_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
-const THREAD_STRING_KEYS = new Set(["id", "name", "sessionFile", "forkedFrom", "status", "type", "restartOf", "supersededBy", "model", "baseModel", "baseEffort"]);
+const THREAD_STRING_KEYS = new Set(["id", "name", "status", "type", "model", "baseModel", "baseEffort", "episodeId", "outcomeReason"]);
 const EPISODE_STRING_KEYS = new Set(["id", "threadId", "task", "status", "file", "model", "effort"]);
 
 function validWireObject(value: unknown, allowed: readonly string[], required: readonly string[]): value is WireObject {
@@ -161,11 +161,11 @@ function validateWireObservation(value: unknown): boolean {
 }
 
 function validateWireThread(value: unknown): boolean {
-	if (!validWireObject(value, Object.keys(ADOPTED_THREAD_FIELDS), ["id", "name", "sessionFile", "status", "episodeIds", "episodeSeq", "createdAt", "updatedAt"])) return false;
+	if (!validWireObject(value, Object.keys(ADOPTED_THREAD_FIELDS), ["id", "name", "status", "type", "createdAt", "updatedAt"])) return false;
 	for (const [key, entry] of Object.entries(value)) {
 		if (THREAD_STRING_KEYS.has(key) && !validWireString(entry)) return false;
-		if ((key === "episodeIds" || key === "tools") && (!Array.isArray(entry) || !entry.every(validWireString))) return false;
-		if (!THREAD_STRING_KEYS.has(key) && key !== "episodeIds" && key !== "tools" && object(entry)) return false;
+		if (key === "tools" && (!Array.isArray(entry) || !entry.every(validWireString))) return false;
+		if (!THREAD_STRING_KEYS.has(key) && key !== "tools" && object(entry)) return false;
 	}
 	return true;
 }
@@ -182,7 +182,7 @@ function validateWireEpisode(value: unknown): boolean {
 }
 
 function validateWireSnapshot(value: unknown): boolean {
-	if (!validWireObject(value, SNAPSHOT_KEYS, ["threads", "episodes", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"])) return false;
+	if (!validWireObject(value, SNAPSHOT_KEYS, ["format", "threads", "episodes", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"])) return false;
 	if (!Array.isArray(value.threads) || !value.threads.every(validateWireThread)) return false;
 	if (!Array.isArray(value.episodes) || !value.episodes.every(validateWireEpisode)) return false;
 	for (const key of ["slateSessionId", "slateSessionName", "ownerSessionDigest"] as const) {
@@ -212,7 +212,7 @@ function decodeWireValue(value: unknown, stringKeys: Set<string>): unknown {
 	const decoded: Record<string, unknown> = {};
 	for (const [key, entry] of Object.entries(value)) {
 		if (stringKeys.has(key)) decoded[key] = decodeWireString(entry as WireString);
-		else if (key === "episodeIds" || key === "tools") decoded[key] = (entry as WireString[]).map(decodeWireString);
+		else if (key === "tools") decoded[key] = (entry as WireString[]).map(decodeWireString);
 		else if (key === "threads") decoded[key] = (entry as WireObject[]).map((item) => decodeWireValue(item, THREAD_STRING_KEYS));
 		else if (key === "episodes") decoded[key] = (entry as WireObject[]).map((item) => decodeWireValue(item, EPISODE_STRING_KEYS));
 		else if (key === "parentChain" || key === "slateSessionParentChain") decoded[key] = (entry as WireObject[]).map((item) => decodeWireValue(item, new Set(["identity", "name"])));
@@ -234,13 +234,11 @@ function validParent(value: unknown): value is SlateSessionParent {
 function validThread(value: unknown): boolean {
 	if (!object(value)) return false;
 	const allowed = Object.keys(ADOPTED_THREAD_FIELDS);
-	const required = ["id", "name", "sessionFile", "status", "episodeIds", "episodeSeq", "createdAt", "updatedAt"];
+	const required = ["id", "name", "status", "type", "createdAt", "updatedAt"];
 	if (!exactKeys(value, allowed, required)) return false;
 	const repairs: string[] = [];
 	const parsed = sanitizeThreadRecord(value, repairs);
-	return parsed !== undefined && repairs.length === 0
-		&& (value.status === "idle" || value.status === "running")
-		&& Array.isArray(value.episodeIds) && value.episodeIds.every((id) => typeof id === "string");
+	return parsed !== undefined && repairs.length === 0;
 }
 
 function validEpisode(value: unknown): boolean {
@@ -253,7 +251,7 @@ function validEpisode(value: unknown): boolean {
 }
 
 function validSnapshotGraph(value: SlateSnapshot): boolean {
-	const threads = new Map(value.threads.map((thread) => [thread.id, thread]));
+	const episodes = new Map(value.episodes.map((episode) => [episode.id, episode]));
 	let maxThreadOrdinal = 0;
 	for (const thread of value.threads) {
 		const ordinal = /^t([1-9]\d*)$/u.exec(thread.id);
@@ -262,30 +260,7 @@ function validSnapshotGraph(value: SlateSnapshot): boolean {
 			if (!Number.isSafeInteger(parsed)) return false;
 			maxThreadOrdinal = Math.max(maxThreadOrdinal, parsed);
 		}
-		for (const id of thread.episodeIds) {
-			const prefix = `${thread.id}.e`;
-			if (!id.startsWith(prefix)) return false;
-			const suffix = id.slice(prefix.length);
-			if (!/^[1-9]\d*$/u.test(suffix)) return false;
-			const episodeOrdinal = Number(suffix);
-			if (!Number.isSafeInteger(episodeOrdinal) || episodeOrdinal > thread.episodeSeq) return false;
-		}
-		if (thread.restartOf !== undefined) {
-			const source = threads.get(thread.restartOf);
-			if (source === undefined || source.supersededBy !== thread.id) return false;
-			if (thread.restartGeneration !== (source.restartGeneration ?? 0) + 1) return false;
-		}
-		if (thread.supersededBy !== undefined) {
-			const successor = threads.get(thread.supersededBy);
-			if (successor?.restartOf !== thread.id) return false;
-		}
-		const visited = new Set<string>([thread.id]);
-		let ancestor = thread.restartOf;
-		while (ancestor !== undefined) {
-			if (visited.has(ancestor)) return false;
-			visited.add(ancestor);
-			ancestor = threads.get(ancestor)?.restartOf;
-		}
+		if (thread.episodeId !== undefined && episodes.get(thread.episodeId)?.threadId !== thread.id) return false;
 	}
 	return (value.threadSeq ?? 0) >= maxThreadOrdinal;
 }
@@ -296,8 +271,9 @@ function validSnapshot(value: unknown): value is SlateSnapshot {
 		"threads", "episodes", "threadSeq", "slateSessionId", "slateSessionName", "ownerSessionDigest", "slateSessionParentChain",
 		"orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd",
 	];
-	const required = ["threads", "episodes", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"];
-	if (!exactKeys(value, allowed, required) || !Array.isArray(value.threads) || !Array.isArray(value.episodes)) return false;
+	const required = ["format", "threads", "episodes", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"];
+	if (!exactKeys(value, ["format", ...allowed], required) || value.format !== SLATE_STATE_FORMAT
+		|| !Array.isArray(value.threads) || !Array.isArray(value.episodes)) return false;
 	if (value.threads.length > HANDOFF_MAX_THREADS || value.episodes.length > HANDOFF_MAX_EPISODES) return false;
 	if (!value.threads.every(validThread) || !value.episodes.every(validEpisode)) return false;
 	const threadIds = new Set(value.threads.map((thread) => thread.id));
@@ -305,9 +281,8 @@ function validSnapshot(value: unknown): value is SlateSnapshot {
 	if (threadIds.size !== value.threads.length || episodeIds.size !== value.episodes.length) return false;
 	if (value.episodes.some((episode) => !threadIds.has(episode.threadId))) return false;
 	for (const thread of value.threads) {
-		if (new Set(thread.episodeIds).size !== thread.episodeIds.length) return false;
-		if (thread.episodeIds.some((id: string) => !episodeIds.has(id))) return false;
-		if (value.episodes.some((episode) => episode.threadId === thread.id && !thread.episodeIds.includes(episode.id))) return false;
+		if (thread.episodeId !== undefined && !episodeIds.has(thread.episodeId)) return false;
+		if (value.episodes.some((episode) => episode.threadId === thread.id && thread.episodeId !== episode.id)) return false;
 	}
 	if (!validSnapshotGraph(value as unknown as SlateSnapshot)) return false;
 	if (typeof value.orchestratorMode !== "boolean" || typeof value.paused !== "boolean") return false;
@@ -516,14 +491,6 @@ export function readCorpusHandoffRecord(options: {
 		}
 		if (!validLineage(record)) {
 			return { ok: false, reason: "slate refused duplicated or cyclic parent lineage" };
-		}
-		for (const thread of record.snapshot.threads) {
-			if (thread.sessionFile !== "" && !isContainedOrMissingThreadFile(options.cwd, thread.sessionFile, project.directory)) {
-				return { ok: false, reason: `slate refused thread ${thread.id} because its session file is linked or outside slate storage` };
-			}
-			if (thread.forkedFrom !== undefined && !isContainedOrMissingThreadFile(options.cwd, thread.forkedFrom, project.directory)) {
-				return { ok: false, reason: `slate refused thread ${thread.id} because its fork source is linked or outside slate storage` };
-			}
 		}
 		for (const episode of record.snapshot.episodes) {
 			if (!isContainedOrMissingFile(options.cwd, episode.file, project.directory)) {

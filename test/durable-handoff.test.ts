@@ -117,10 +117,9 @@ function materializeArtifacts(directory: string): CanonicalSlateRuntime {
 		threads: [{
 			id: "t1",
 			name: "durable thread",
-			sessionFile: join(directory, "threads", "t1.jsonl"),
-			status: "idle",
-			episodeIds: ["t1.e1"],
-			episodeSeq: 1,
+			status: "successful",
+			type: "general",
+			episodeId: "t1.e1",
 			createdAt: 1,
 			updatedAt: 2,
 		}],

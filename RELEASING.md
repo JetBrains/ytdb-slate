@@ -1004,7 +1004,6 @@ export default function doctrineCanary(pi) {
       const systemPrompt = context.systemPrompt ?? "";
       const required = [
         "# Slate orchestrator mode",
-        `${packageRoot}/docs/thread-cache-cost.md`,
         `${packageRoot}/docs/track-workflow.md`,
         `${packageRoot}/docs/review-rules.md`,
         `${packageRoot}/docs/design-principles.md`,

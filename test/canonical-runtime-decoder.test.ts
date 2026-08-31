@@ -20,10 +20,9 @@ function thread(id: string, overrides: Partial<ThreadRecord> = {}): ThreadRecord
 	return {
 		id,
 		name: id,
-		sessionFile: join(DIRECTORY, "threads", `${id}.jsonl`),
-		status: "idle",
-		episodeIds: [],
-		episodeSeq: 0,
+		status: "failed",
+		type: "general",
+		outcomeReason: "stopped",
 		createdAt: 1,
 		updatedAt: 1,
 		...overrides,
@@ -46,21 +45,18 @@ function runtime(): CanonicalRuntimeState {
 	return {
 		threads: [
 			thread("t1", {
-				forkedFrom: join(DIRECTORY, "threads", "imported.jsonl"),
+				status: "successful",
 				type: "reviewer",
-				supersededBy: "t2",
 				model: "provider/model",
 				baseModel: "provider/base",
 				baseEffort: "high",
 				cacheKeyShard: 3,
 				tools: ["read", "grep"],
-				choiceEvidenceStale: true,
-				episodeIds: ["t1.e1"],
-				episodeSeq: 1,
+				episodeId: "t1.e1",
 				createdAt: 1,
 				updatedAt: 2,
 			}),
-			thread("t2", { restartOf: "t1", restartGeneration: 1, createdAt: 3, updatedAt: 4 }),
+			thread("t2", { createdAt: 3, updatedAt: 4 }),
 		],
 		episodes: [episode("t1.e1", "t1", {
 			model: "provider/model",
@@ -116,7 +112,7 @@ test("strict decoding preserves every canonical plain-data field", () => {
 	assert.deepEqual(decodeCanonicalRuntime(options(source)), source);
 });
 
-test("root, relationship, parent, counter, and cost validation fail closed", () => {
+test("root, parent, counter, and cost validation fail closed", () => {
 	const missing = { ...runtime() } as Partial<CanonicalRuntimeState>;
 	delete missing.paused;
 	for (const [label, value, expected] of [
@@ -146,8 +142,7 @@ test("thread and episode sanitizer changes are refusals rather than repairs", ()
 		["thread missing required", (value) => { delete (value.threads[0] as Partial<ThreadRecord>).name; }, /missing or unknown fields/],
 		["thread unknown field", (value) => { Object.assign(value.threads[0]!, { unknown: true }); }, /missing or unknown fields/],
 		["running normalization", (value) => { value.threads[0]!.status = "running"; }, /requires sanitizer repair/],
-		["thread counter", (value) => { value.threads[0]!.episodeSeq = -1; }, /requires sanitizer repair/],
-		["thread mixed ids", (value) => { (value.threads[0]!.episodeIds as unknown[]).push(7); }, /requires sanitizer repair/],
+		["wrong episode id", (value) => { value.threads[0]!.episodeId = "t2.e1"; }, /requires sanitizer repair/],
 		["episode missing required", (value) => { delete (value.episodes[0] as Partial<EpisodeRecord>).task; }, /missing or unknown fields/],
 		["episode unknown field", (value) => { Object.assign(value.episodes[0]!, { unknown: true }); }, /missing or unknown fields/],
 		["episode status", (value) => { value.episodes[0]!.status = "other" as "ok"; }, /requires sanitizer repair/],
@@ -158,38 +153,34 @@ test("thread and episode sanitizer changes are refusals rather than repairs", ()
 	for (const [label, mutate, expected] of cases) rejects(label, mutate, expected);
 });
 
-test("identifier and episode graph mutations are all rejected", () => {
+test("identifier and one-action episode graph mutations are rejected", () => {
 	const cases: Array<[string, (value: CanonicalRuntimeState) => void, RegExp]> = [
 		["duplicate thread", (value) => { value.threads.push(structuredClone(value.threads[0]!)); }, /duplicate thread identifier/],
 		["duplicate episode", (value) => { value.episodes.push(structuredClone(value.episodes[0]!)); }, /duplicate episode identifier/],
-		["missing episode", (value) => { value.episodes.length = 0; }, /broken episode reference/],
-		["unknown thread", (value) => { value.episodes[0]!.threadId = "t9"; }, /broken episode reference|not listed/],
-		["unlisted episode", (value) => { value.threads[0]!.episodeIds = []; }, /not listed by its thread/],
-		["duplicate reference", (value) => { value.threads[0]!.episodeIds.push("t1.e1"); }, /repeats episode reference/],
-		["foreign prefix", (value) => { value.threads[0]!.episodeIds[0] = "t2.e1"; }, /foreign or malformed episode reference/],
-		["counter behind reference", (value) => { value.threads[0]!.episodeSeq = 0; }, /beyond episodeSeq/],
+		["missing episode", (value) => { value.episodes.length = 0; }, /^CanonicalRuntimeDecodeError: slate refused canonical runtime state: thread t1 has a broken episode reference t1\.e1$/],
+		["unknown thread", (value) => {
+			value.threads[0]!.status = "failed";
+			value.threads[0]!.outcomeReason = "stopped";
+			delete value.threads[0]!.episodeId;
+			value.episodes[0]!.threadId = "t9";
+			value.episodes[0]!.id = "t9.e1";
+			delete value.episodes[0]!.observations;
+		}, /^CanonicalRuntimeDecodeError: slate refused canonical runtime state: episode t9\.e1 is not listed by its thread$/],
+		["successful thread without episode", (value) => {
+			delete value.threads[0]!.episodeId;
+		}, /^CanonicalRuntimeDecodeError: slate refused canonical runtime state: thread t1 requires sanitizer repair: thread t1: normalized successful action without a valid episode id to failed$/],
+		["unlisted episode", (value) => {
+			value.threads[0]!.status = "failed";
+			value.threads[0]!.outcomeReason = "stopped";
+			delete value.threads[0]!.episodeId;
+		}, /^CanonicalRuntimeDecodeError: slate refused canonical runtime state: episode t1\.e1 is not listed by its thread$/],
+		["foreign reference", (value) => { value.threads[0]!.episodeId = "t2.e1"; }, /^CanonicalRuntimeDecodeError: slate refused canonical runtime state: thread t1 requires sanitizer repair: thread t1: ignoring episodeId because it is not t1\.e1; thread t1: normalized successful action without a valid episode id to failed$/],
 		["stale thread sequence", (value) => { value.threadSeq = 1; }, /threadSeq is stale/],
-		["shared writable transcript", (value) => { value.threads[1]!.sessionFile = value.threads[0]!.sessionFile; }, /repeats a writable sessionFile/],
 	];
 	for (const [label, mutate, expected] of cases) rejects(label, mutate, expected);
 });
 
-test("restart graph mutations are all rejected", () => {
-	const cases: Array<[string, (value: CanonicalRuntimeState) => void, RegExp]> = [
-		["missing source", (value) => { value.threads[1]!.restartOf = "t9"; }, /broken restart source link|broken successor link/],
-		["missing backlink", (value) => { delete value.threads[0]!.supersededBy; }, /broken restart source link/],
-		["wrong successor", (value) => { value.threads[0]!.supersededBy = "t9"; }, /broken restart source link|broken successor link/],
-		["wrong generation", (value) => { value.threads[1]!.restartGeneration = 2; }, /broken restart source link/],
-		["cycle", (value) => {
-			value.threads[0]!.restartOf = "t2";
-			value.threads[0]!.restartGeneration = 2;
-			value.threads[1]!.supersededBy = "t1";
-		}, /restart cycle/],
-	];
-	for (const [label, mutate, expected] of cases) rejects(label, mutate, expected);
-});
-
-test("artifact validation is required independently for every declared artifact kind", () => {
+test("artifact validation covers only stored episode and observation artifacts", () => {
 	const seen: Array<{ kind: string; path: string }> = [];
 	assert.doesNotThrow(() => decodeCanonicalRuntime({
 		...options(),
@@ -199,19 +190,13 @@ test("artifact validation is required independently for every declared artifact 
 		},
 	}));
 	assert.deepEqual(seen, [
-		{ kind: "thread-session", path: join(DIRECTORY, "threads", "t1.jsonl") },
-		{ kind: "thread-fork", path: join(DIRECTORY, "threads", "imported.jsonl") },
-		{ kind: "thread-session", path: join(DIRECTORY, "threads", "t2.jsonl") },
 		{ kind: "episode", path: join(DIRECTORY, "episodes", "t1.e1.md") },
 		{ kind: "observation", path: join(DIRECTORY, "observations", "t1.e1.md") },
 	]);
-	const kinds: CanonicalRuntimeArtifactKind[] = ["thread-session", "thread-fork", "episode", "observation"];
+	const kinds: CanonicalRuntimeArtifactKind[] = ["episode", "observation"];
 	for (const rejectedKind of kinds) {
 		assert.throws(
-			() => decodeCanonicalRuntime({
-				...options(),
-				artifactPathAllowed: (kind) => kind !== rejectedKind,
-			}),
+			() => decodeCanonicalRuntime({ ...options(), artifactPathAllowed: (kind) => kind !== rejectedKind }),
 			CanonicalRuntimeDecodeError,
 			`${rejectedKind} false`,
 		);
@@ -231,11 +216,6 @@ test("artifact validation is required independently for every declared artifact 
 
 test("lexically unsafe artifact references are rejected", () => {
 	const cases: Array<[string, (value: CanonicalRuntimeState) => void, RegExp]> = [
-		["outside session file", (value) => { value.threads[0]!.sessionFile = "/tmp/outside.jsonl"; }, /unsafe sessionFile/],
-		["nested session file", (value) => { value.threads[0]!.sessionFile = join(DIRECTORY, "threads", "nested", "t1.jsonl"); }, /unsafe sessionFile/],
-		["wrong transcript suffix", (value) => { value.threads[0]!.sessionFile = join(DIRECTORY, "threads", "t1.txt"); }, /unsafe sessionFile/],
-		["outside fork", (value) => { value.threads[0]!.forkedFrom = "/tmp/source.jsonl"; }, /unsafe forkedFrom/],
-		["self fork", (value) => { value.threads[0]!.forkedFrom = value.threads[0]!.sessionFile; }, /unsafe forkedFrom/],
 		["wrong episode file", (value) => { value.episodes[0]!.file = join(DIRECTORY, "episodes", "t2.e1.md"); }, /unsafe file reference/],
 		["legacy observation", (value) => {
 			const observations = value.episodes[0]!.observations;
@@ -252,13 +232,12 @@ test("lexically unsafe artifact references are rejected", () => {
 test("the refusal matrix has independent mutations and an unmutated control", () => {
 	const mutations: Array<(value: CanonicalRuntimeState) => void> = [
 		(value) => { value.threadSeq = -1; },
-		(value) => { value.threads[0]!.episodeSeq = -1; },
+		(value) => { value.threads[0]!.status = "running"; },
 		(value) => { value.episodes[0]!.workerCostUsd = -1; },
 		(value) => { value.threads.push(structuredClone(value.threads[0]!)); },
 		(value) => { value.episodes.push(structuredClone(value.episodes[0]!)); },
-		(value) => { value.threads[0]!.episodeIds = []; },
-		(value) => { delete value.threads[0]!.supersededBy; },
-		(value) => { value.threads[0]!.sessionFile = "/tmp/outside.jsonl"; },
+		(value) => { delete value.threads[0]!.episodeId; },
+		(value) => { value.episodes[0]!.file = "/tmp/outside.md"; },
 	];
 	assert.doesNotThrow(() => decodeCanonicalRuntime(options(runtime())));
 	let defeated = 0;

@@ -20,7 +20,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { createCorpusSession } from "../extension/corpus.ts";
 import { writeCorpusHandoffRecord, type CorpusHandoffRecord } from "../extension/handoff-record.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { SlateStore } from "../extension/state.ts";
+import { SlateStore, SLATE_STATE_FORMAT } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 
 const ID1 = "20260821T010203Z-0123456789abcdef";
@@ -343,6 +343,7 @@ test("a valid pending record contributes to the aggregate boundary", () => {
       parentChain: [],
       brief: "continue",
       snapshot: {
+        format: SLATE_STATE_FORMAT,
         threads: [], episodes: [], orchestratorMode: false, paused: false,
         workerCostUsd: 0, carriedCostUsd: 0, slateSessionId: ID1, slateSessionName: b.session.name,
       },
@@ -396,6 +397,7 @@ test("valid pending records are present and their derived names need no scan", (
       parentChain: [],
       brief: "continue",
       snapshot: {
+        format: SLATE_STATE_FORMAT,
         threads: [], episodes: [], orchestratorMode: false, paused: false,
         workerCostUsd: 0, carriedCostUsd: 0, slateSessionId: ID1, slateSessionName: b.session.name,
       },

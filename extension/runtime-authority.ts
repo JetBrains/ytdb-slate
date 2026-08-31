@@ -1,7 +1,6 @@
 import { realpathSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isSlateArtifactId } from "./artifact-names.ts";
 import { isOwnerSessionDigest, isSlateSessionId } from "./session-identity.ts";
 import { isSlateSessionName, sessionNameFromBytes } from "./session-names.ts";
 import {
@@ -102,13 +101,8 @@ function sameRelationship(left: SlateBindingRecord, right: SlateBindingRecord): 
 
 function validLegacyGraph(threads: ThreadRecord[], episodes: EpisodeRecord[]): boolean {
 	const threadById = new Map<string, ThreadRecord>();
-	const writableSessionFiles = new Set<string>();
 	for (const thread of threads) {
 		if (threadById.has(thread.id)) return false;
-		if (thread.sessionFile !== "") {
-			if (writableSessionFiles.has(thread.sessionFile)) return false;
-			writableSessionFiles.add(thread.sessionFile);
-		}
 		threadById.set(thread.id, thread);
 	}
 	const episodeById = new Map<string, EpisodeRecord>();
@@ -117,42 +111,12 @@ function validLegacyGraph(threads: ThreadRecord[], episodes: EpisodeRecord[]): b
 		episodeById.set(episode.id, episode);
 	}
 	for (const thread of threads) {
-		const seen = new Set<string>();
-		for (const episodeId of thread.episodeIds) {
-			const prefix = `${thread.id}.e`;
-			if (seen.has(episodeId) || !episodeId.startsWith(prefix) || !isSlateArtifactId(episodeId)
-				|| episodeById.get(episodeId)?.threadId !== thread.id) return false;
-			const ordinal = Number(episodeId.slice(prefix.length));
-			if (!Number.isSafeInteger(ordinal) || ordinal < 1 || ordinal > thread.episodeSeq) return false;
-			seen.add(episodeId);
-		}
-		if (thread.restartOf !== undefined) {
-			const source = threadById.get(thread.restartOf);
-			if (source === undefined || source.supersededBy !== thread.id
-				|| thread.restartGeneration !== (source.restartGeneration ?? 0) + 1) return false;
-		}
-		if (thread.supersededBy !== undefined && threadById.get(thread.supersededBy)?.restartOf !== thread.id) return false;
-		const lineage = new Set<string>([thread.id]);
-		let parent = thread.restartOf;
-		while (parent !== undefined) {
-			if (lineage.has(parent)) return false;
-			lineage.add(parent);
-			parent = threadById.get(parent)?.restartOf;
-		}
+		if (thread.episodeId !== undefined && episodeById.get(thread.episodeId)?.threadId !== thread.id) return false;
 	}
-	return episodes.every((episode) => threadById.get(episode.threadId)?.episodeIds.includes(episode.id) === true);
+	return episodes.every((episode) => threadById.get(episode.threadId)?.episodeId === episode.id);
 }
 
-const LEGACY_THREAD_REQUIRED = [
-	"id",
-	"name",
-	"sessionFile",
-	"status",
-	"episodeIds",
-	"episodeSeq",
-	"createdAt",
-	"updatedAt",
-] as const;
+const LEGACY_THREAD_REQUIRED = ["id", "name", "status", "type", "createdAt", "updatedAt"] as const;
 
 const LEGACY_EPISODE_REQUIRED = [
 	"id",
@@ -195,8 +159,8 @@ function decodeLegacySnapshot(value: unknown): Readonly<Record<string, unknown>>
 	const episodes = legacyEpisodes.map((episode) => sanitizeEpisodeRecord(episode, repairs));
 	if (repairs.length > 0 || threads.some((thread) => thread === undefined)
 		|| episodes.some((episode) => episode === undefined)
-		|| threads.some((thread, index) => !isDeepStrictEqual(thread, legacyThreads[index]))
-		|| episodes.some((episode, index) => !isDeepStrictEqual(episode, legacyEpisodes[index]))
+		|| threads.some((thread, index) => !isDeepStrictEqual(clonePlainData(thread), legacyThreads[index]))
+		|| episodes.some((episode, index) => !isDeepStrictEqual(clonePlainData(episode), legacyEpisodes[index]))
 		|| !validLegacyGraph(threads as ThreadRecord[], episodes as EpisodeRecord[])) return undefined;
 	return snapshot;
 }

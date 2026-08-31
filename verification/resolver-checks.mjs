@@ -1028,6 +1028,7 @@ try {
 				parentChain: [],
 				brief: "continue",
 				snapshot: {
+					format: state.SLATE_STATE_FORMAT,
 					threads: [], episodes: [], orchestratorMode: true, paused: false,
 					workerCostUsd: 0, carriedCostUsd: 0,
 					slateSessionId: sourceIdentity, slateSessionName: source.name,
@@ -1889,23 +1890,23 @@ try {
 			const docPaths = pathOccurrences(on);
 			// Exact pins below were transcribed from this check's observed objects.
 			const shippedRuleFixtures = [
-				{ name: "router off, writing off, draft off, standard", text: off, basis: "standard", expectedPortable: 2912, expectedLines: 48 },
-				{ name: "router off, writing on, draft off, standard", text: writingOn, basis: "standard", expectedPortable: 3982, expectedLines: 70 },
+				{ name: "router off, writing off, draft off, standard", text: off, basis: "standard", expectedPortable: 2916, expectedLines: 48 },
+				{ name: "router off, writing on, draft off, standard", text: writingOn, basis: "standard", expectedPortable: 3986, expectedLines: 70 },
 				{ name: "router off, writing off, draft on, standard", text: offDraft, basis: "standard", expectedPortable: 2927, expectedLines: 48 },
 				{ name: "router off, writing on, draft on, standard", text: offDraftWriting, basis: "standard", expectedPortable: 3997, expectedLines: 70 },
-				{ name: "six models, writing off, draft off, standard", text: configuredOffDraft, basis: "standard", expectedPortable: 4942, expectedLines: 69 },
-				{ name: "six models, writing on, draft off, standard", text: configuredOffDraftWriting, basis: "standard", expectedPortable: 6012, expectedLines: 91 },
+				{ name: "six models, writing off, draft off, standard", text: configuredOffDraft, basis: "standard", expectedPortable: 4946, expectedLines: 69 },
+				{ name: "six models, writing on, draft off, standard", text: configuredOffDraftWriting, basis: "standard", expectedPortable: 6016, expectedLines: 91 },
 				{ name: "six models, writing off, draft on, standard", text: configuredDraft, basis: "standard", expectedPortable: 4957, expectedLines: 69 },
 				{ name: "six models, writing on, draft on, standard", text: configuredDraftWriting, basis: "standard", expectedPortable: 6027, expectedLines: 91 },
-				{ name: "all nine, writing off, draft off, standard", text: on, basis: "standard", expectedPortable: 5497, expectedLines: 72 },
-				{ name: "all nine, writing on, draft off, standard", text: writingRouterOn, basis: "standard", expectedPortable: 6567, expectedLines: 94 },
+				{ name: "all nine, writing off, draft off, standard", text: on, basis: "standard", expectedPortable: 5501, expectedLines: 72 },
+				{ name: "all nine, writing on, draft off, standard", text: writingRouterOn, basis: "standard", expectedPortable: 6571, expectedLines: 94 },
 				{ name: "all nine, writing off, draft on, standard", text: allDraft, basis: "standard", expectedPortable: 5512, expectedLines: 72 },
 				{ name: "all nine, writing on, draft on, standard", text: allDraftWriting, basis: "standard", expectedPortable: 6582, expectedLines: 94 },
 
 			];
 			const maximalFixtures = [
 				{ name: "maximal, draft enabled, standard", text: maximal, basis: "standard", expectedPortable: 7929, expectedLines: 104 },
-				{ name: "maximal, draft disabled, standard", text: maximalNoDraft, basis: "standard", expectedPortable: 7914, expectedLines: 104 },
+				{ name: "maximal, draft disabled, standard", text: maximalNoDraft, basis: "standard", expectedPortable: 7918, expectedLines: 104 },
 			];
 			// 2026-08-21: 6,567 × 1.05 = 6,895.35; ceil 6,896, then round the bound up to 6,900.
 			const WRITING_ROUTER_BOUND = 6900;
@@ -1928,23 +1929,23 @@ try {
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the configured-model fixture is the exact six-model project list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
-					["the router-off doctrine is the measured 2584 portable chars and 43 lines", portable(off).length === 2584 && off.split("\n").length === 43, { portable: portable(off).length, lines: off.split("\n").length }],
-					["...and the whole router-on doctrine is the measured 5169 portable chars and 67 lines, and stays under 6500 with five percent reserve", portable(on).length === 5169 && on.split("\n").length === 67 && portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
-					["writing-only doctrine is the measured 3654 portable chars and 65 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 3654 && writingOn.split("\n").length === 65 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
+					["the router-off doctrine is the measured 2588 portable chars and 43 lines", portable(off).length === 2588 && off.split("\n").length === 43, { portable: portable(off).length, lines: off.split("\n").length }],
+					["...and the whole router-on doctrine is the measured 5173 portable chars and 67 lines, and stays under 6500 with five percent reserve", portable(on).length === 5173 && on.split("\n").length === 67 && portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
+					["writing-only doctrine is the measured 3658 portable chars and 65 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 3658 && writingOn.split("\n").length === 65 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
 					["draft-enabled router-off doctrine is 2603 portable chars and 43 lines", portable(offDraft).length === 2603 && offDraft.split("\n").length === 43, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
 					["draft-enabled router-off writing doctrine is 3673 portable chars and 65 lines", portable(offDraftWriting).length === 3673 && offDraftWriting.split("\n").length === 65, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
-					["the six-model fixture is 4614 portable chars and 64 lines without draft publishing or writing", portable(configuredOffDraft).length === 4614 && configuredOffDraft.split("\n").length === 64, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
-					["the six-model fixture is 5684 portable chars and 86 lines with writing", portable(configuredOffDraftWriting).length === 5684 && configuredOffDraftWriting.split("\n").length === 86, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
+					["the six-model fixture is 4618 portable chars and 64 lines without draft publishing or writing", portable(configuredOffDraft).length === 4618 && configuredOffDraft.split("\n").length === 64, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
+					["the six-model fixture is 5688 portable chars and 86 lines with writing", portable(configuredOffDraftWriting).length === 5688 && configuredOffDraftWriting.split("\n").length === 86, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
 					["the six-model draft fixture is 4633 portable chars and 64 lines", portable(configuredDraft).length === 4633 && configuredDraft.split("\n").length === 64, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
 					["the six-model draft and writing fixture is 5703 portable chars and 86 lines", portable(configuredDraftWriting).length === 5703 && configuredDraftWriting.split("\n").length === 86, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
-					[`writing plus router is the measured 6239 portable chars and 89 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 6239 && writingRouterOn.split("\n").length === 89 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
-					["writing plus extensions is the measured 3909 portable chars and 71 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 3909 && writingExtensionsOn.split("\n").length === 71 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
-					[`all three tail features are the measured 6494 portable chars and 95 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 6494 && writingAllOn.split("\n").length === 95 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
+					[`writing plus router is the measured 6243 portable chars and 89 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 6243 && writingRouterOn.split("\n").length === 89 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
+					["writing plus extensions is the measured 3913 portable chars and 71 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 3913 && writingExtensionsOn.split("\n").length === 71 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
+					[`all three tail features are the measured 6498 portable chars and 95 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 6498 && writingAllOn.split("\n").length === 95 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
 					["the all-nine draft fixture is 5188 portable chars and 67 lines", portable(allDraft).length === 5188 && allDraft.split("\n").length === 67, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
 					["the all-nine draft and writing fixture is 6258 portable chars and 89 lines", portable(allDraftWriting).length === 6258 && allDraftWriting.split("\n").length === 89, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
 					// Update exact measurements with production wording in the same commit.
 					[`the maximum all-feature fixture is the measured 7605 portable chars and 99 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 7605 && maximal.split("\n").length === 99 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					[`the draft-PR-disabled maximum fixture is pinned independently at 7586 portable chars and 99 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 7586 && maximalNoDraft.split("\n").length === 99 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the draft-PR-disabled maximum fixture is pinned independently at 7590 portable chars and 99 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 7590 && maximalNoDraft.split("\n").length === 99 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and 11 split lines, and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
 					[`the positive control is the measured 8921 portable chars and 106 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 8921 && overBudget.split("\n").length === 106 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
@@ -5524,6 +5525,8 @@ production behaviour.`);
 			const roundTrip = sane(complete);
 			const bad = [undefined, null, {}, { id: "legacy" }, { id: "t1", name: "x", status: "idle", type: "general" }].map(sane);
 			const successfulWithoutEpisode = sane({ id: "t1", name: "x", status: "successful", type: "general", createdAt: 1, updatedAt: 1 });
+			const minimal = sane({ id: "t5", name: "minimal", status: "failed", type: "general", createdAt: 1, updatedAt: 2 });
+			const optionalKeys = ["model", "baseModel", "baseEffort", "cacheKeyShard", "tools", "episodeId", "outcomeReason"];
 			const wrongEpisodeIds = [8, "t1.e2"].map((episodeId) => sane({ id: "t1", name: "x", status: "failed", type: "general", episodeId, createdAt: 1, updatedAt: 1 }));
 			const cancelled = sane({ id: "t1", name: "x", status: "cancelled", type: "general", outcomeReason: "before start", createdAt: 1, updatedAt: 1 });
 			const unfinished = ["queued", "running"].map((status) => sane({ id: "t3", name: "x", status, type: "general", createdAt: 1, updatedAt: 1 }));
@@ -5537,6 +5540,7 @@ production behaviour.`);
 				["all current fields round-trip", JSON.stringify(roundTrip.out) === JSON.stringify(complete) && roundTrip.repairs.length === 0, roundTrip],
 				["old and incomplete records are rejected", bad.every((entry) => entry.out === undefined), bad],
 				["successful without a valid episode normalizes to failed", successfulWithoutEpisode.out?.status === "failed" && successfulWithoutEpisode.out?.episodeId === undefined && successfulWithoutEpisode.repairs.some((note) => /normalized successful/.test(note)), successfulWithoutEpisode],
+				["absent optional fields produce no own keys", optionalKeys.every((field) => !Object.hasOwn(minimal.out ?? {}, field)) && minimal.repairs.length === 0, minimal],
 				["wrong-typed and wrong-valued episode ids both keep the failed record", wrongEpisodeIds.every((entry) => entry.out?.status === "failed" && entry.out?.episodeId === undefined && entry.repairs.some((note) => /ignoring episodeId/.test(note))), wrongEpisodeIds],
 				["cancelled may carry a reason without an episode", cancelled.out?.outcomeReason === "before start" && cancelled.out?.episodeId === undefined, cancelled],
 				["unfinished records normalize to failed with a reason", unfinished.every((entry) => entry.out?.status === "failed" && /session ended/.test(entry.out?.outcomeReason ?? "") && entry.repairs.some((note) => /normalized unfinished/.test(note))), unfinished],
@@ -5687,8 +5691,8 @@ production behaviour.`);
 		const runtimeDirectory = join(WORK, runtimeName);
 		const runtimeFixture = () => ({
 			threads: [
-				{ id: "t1", name: "source", sessionFile: join(runtimeDirectory, "threads", "t1.jsonl"), forkedFrom: join(runtimeDirectory, "threads", "imported.jsonl"), status: "idle", supersededBy: "t2", episodeIds: ["t1.e1"], episodeSeq: 1, createdAt: 1, updatedAt: 2 },
-				{ id: "t2", name: "successor", sessionFile: join(runtimeDirectory, "threads", "t2.jsonl"), status: "idle", restartOf: "t1", restartGeneration: 1, episodeIds: [], episodeSeq: 0, createdAt: 3, updatedAt: 4 },
+				{ id: "t1", name: "source", status: "successful", type: "reviewer", episodeId: "t1.e1", createdAt: 1, updatedAt: 2 },
+				{ id: "t2", name: "second", status: "failed", type: "general", outcomeReason: "stopped", createdAt: 3, updatedAt: 4 },
 			],
 			episodes: [{
 				id: "t1.e1",
@@ -5768,7 +5772,7 @@ production behaviour.`);
 				["thread missing", (runtime) => { delete runtime.threads[0].name; }],
 				["thread unknown", (runtime) => { runtime.threads[0].unknown = true; }],
 				["thread silent normalization", (runtime) => { runtime.threads[0].status = "running"; }],
-				["thread counter repair", (runtime) => { runtime.threads[0].episodeSeq = -1; }],
+				["thread relationship repair", (runtime) => { delete runtime.threads[0].episodeId; }],
 				["episode missing", (runtime) => { delete runtime.episodes[0].task; }],
 				["episode unknown", (runtime) => { runtime.episodes[0].unknown = true; }],
 				["episode status repair", (runtime) => { runtime.episodes[0].status = "other"; }],
@@ -5788,37 +5792,25 @@ production behaviour.`);
 				["duplicate thread", (runtime) => { runtime.threads.push(structuredClone(runtime.threads[0])); }],
 				["duplicate episode", (runtime) => { runtime.episodes.push(structuredClone(runtime.episodes[0])); }],
 				["missing episode", (runtime) => { runtime.episodes.length = 0; }],
-				["unlisted episode", (runtime) => { runtime.threads[0].episodeIds = []; }],
-				["duplicate reference", (runtime) => { runtime.threads[0].episodeIds.push("t1.e1"); }],
-				["foreign reference", (runtime) => { runtime.threads[0].episodeIds[0] = "t2.e1"; }],
-				["stale episode counter", (runtime) => { runtime.threads[0].episodeSeq = 0; }],
+				["unlisted episode", (runtime) => { delete runtime.threads[0].episodeId; }],
+				["foreign reference", (runtime) => { runtime.threads[0].episodeId = "t2.e1"; }],
 				["stale thread sequence", (runtime) => { runtime.threadSeq = 1; }],
-				["missing restart source", (runtime) => { runtime.threads[1].restartOf = "t9"; }],
-				["missing restart backlink", (runtime) => { delete runtime.threads[0].supersededBy; }],
-				["wrong restart generation", (runtime) => { runtime.threads[1].restartGeneration = 2; }],
-				["restart cycle", (runtime) => { runtime.threads[0].restartOf = "t2"; runtime.threads[0].restartGeneration = 2; runtime.threads[1].supersededBy = "t1"; }],
-				["shared writable transcript", (runtime) => { runtime.threads[1].sessionFile = runtime.threads[0].sessionFile; }],
 			];
 			const outcomes = mutations.map(runtimeMutationOutcome);
-			checkAll("state-runtime-graph", "thread and episode identifiers form one complete graph with monotone counters and acyclic reciprocal restart links", [
-				["the independent graph-mutation roster is complete", outcomes.length === 13, outcomes.map((outcome) => outcome.label)],
+			checkAll("state-runtime-graph", "thread and episode identifiers form one complete one-action graph with a monotone thread counter", [
+				["the independent graph-mutation roster is complete", outcomes.length === 6, outcomes.map((outcome) => outcome.label)],
 				["every graph mutation changes its fixture and is defeated", outcomes.every((outcome) => outcome.changed && outcome.refused), outcomes],
 			]);
 		});
 
 		await section("state-runtime-artifacts", async () => {
 			const mutations = [
-				["outside transcript", (runtime) => { runtime.threads[0].sessionFile = join(WORK, "outside.jsonl"); }],
-				["nested transcript", (runtime) => { runtime.threads[0].sessionFile = join(runtimeDirectory, "threads", "nested", "t1.jsonl"); }],
-				["wrong transcript suffix", (runtime) => { runtime.threads[0].sessionFile = join(runtimeDirectory, "threads", "t1.txt"); }],
-				["outside fork", (runtime) => { runtime.threads[0].forkedFrom = join(WORK, "source.jsonl"); }],
-				["self fork", (runtime) => { runtime.threads[0].forkedFrom = runtime.threads[0].sessionFile; }],
 				["wrong episode path", (runtime) => { runtime.episodes[0].file = join(runtimeDirectory, "episodes", "t2.e1.md"); }],
 				["legacy observation", (runtime) => { runtime.episodes[0].observations.path = ".pi/slate/observations/t1.e1.md"; }],
 				["sibling observation", (runtime) => { runtime.episodes[0].observations.path = ".pi/slate/sessions/brisk-bison-abcd/observations/t1.e1.md"; }],
 			];
 			const outcomes = mutations.map(runtimeMutationOutcome);
-			const artifactKinds = ["thread-session", "thread-fork", "episode", "observation"];
+			const artifactKinds = ["episode", "observation"];
 			const rejectedKinds = artifactKinds.map((rejectedKind) => ({
 				kind: rejectedKind,
 				falseRefused: runtimeRefuses(() => {}, { artifactPathAllowed: (kind) => kind !== rejectedKind }),
@@ -5830,8 +5822,8 @@ production behaviour.`);
 			checkAll("state-runtime-artifacts", "canonical artifact references require an independently accepted physical artifact of every declared kind", [
 				["an accepted complete artifact fixture decodes", state.decodeCanonicalRuntime(runtimeOptions()).episodes[0].id === "t1.e1", runtimeDirectory],
 				["every artifact kind independently refuses false and throwing physical checks", rejectedKinds.every((result) => result.falseRefused && result.throwRefused), rejectedKinds],
-				["the artifact-kind roster is complete", artifactKinds.length === 4, artifactKinds],
-				["the independent artifact-mutation roster is complete", outcomes.length === 8, outcomes.map((outcome) => outcome.label)],
+				["the artifact-kind roster is complete", artifactKinds.length === 2, artifactKinds],
+				["the independent artifact-mutation roster is complete", outcomes.length === 3, outcomes.map((outcome) => outcome.label)],
 				["every unsafe artifact mutation changes its fixture and is defeated", outcomes.every((outcome) => outcome.changed && outcome.refused), outcomes],
 			]);
 		});

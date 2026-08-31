@@ -62,11 +62,10 @@ function persistedRuntime(directory: string): CanonicalSlateRuntime {
 		threads: [{
 			id: "t1",
 			name: "runtime thread",
-			sessionFile: join(directory, "threads", "t1.jsonl"),
-			status: "idle",
+			status: "successful",
+			type: "general",
 			tools: ["read", "grep"],
-			episodeIds: ["t1.e1"],
-			episodeSeq: 1,
+			episodeId: "t1.e1",
 			createdAt: 1,
 			updatedAt: 2,
 		}],
@@ -471,10 +470,9 @@ test("state accepts exactly one mebibyte and refuses one byte above while metada
 		threads: [{
 			id: "t1",
 			name: "",
-			sessionFile: "",
-			status: "idle",
-			episodeIds: [],
-			episodeSeq: 0,
+			status: "failed",
+			type: "general",
+			outcomeReason: "stopped",
 			createdAt: 1,
 			updatedAt: 1,
 		}],
@@ -540,7 +538,7 @@ test("symbolic-link substitution of the namespace or either authoritative record
 	}
 });
 
-test("canonical reads refuse missing and hard-linked declared artifacts", () => {
+test("canonical reads refuse missing and hard-linked declared episode artifacts", () => {
 	const missing = workspace();
 	try {
 		const created = create(missing);
@@ -556,8 +554,11 @@ test("canonical reads refuse missing and hard-linked declared artifacts", () => 
 		const created = create(linked);
 		materializeArtifacts(created.directory);
 		updateDurableSession(mutation(linked, NAME, ID, persistedRuntime(created.directory)));
-		linkSync(join(created.directory, "threads", "t1.jsonl"), join(linked.root, "linked-thread.jsonl"));
-		assert.throws(() => readDurableSession({ project: linked.project, name: NAME }), /unsafe sessionFile/);
+		linkSync(join(created.directory, "episodes", "t1.e1.md"), join(linked.root, "linked-episode.md"));
+		assert.throws(
+			() => readDurableSession({ project: linked.project, name: NAME }),
+			/^Error: slate refused canonical runtime state: episode t1\.e1 has an unsafe file reference$/,
+		);
 	} finally {
 		linked.close();
 	}

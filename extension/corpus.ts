@@ -14,7 +14,6 @@ import {
 	renameSync,
 	rmSync,
 	statSync,
-	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
@@ -36,17 +35,6 @@ const NON_BLOCK = typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOC
 
 function regularFile(entry: { isFile(): boolean; isSymbolicLink(): boolean } | undefined): boolean {
 	return entry?.isFile() === true && !entry.isSymbolicLink();
-}
-
-/**
- * A FORK SOURCE must be the only name of its inode (SE92). That rule does not govern
- * ordinary corpus reads: a hardlink snapshot such as `cp -al` gives an episode or an
- * owned transcript a second safe name, and refusing every such read made restore erase
- * the records (RG271). The caller below selects this stronger predicate only where bytes
- * cross into a new writable transcript.
- */
-function singleNamedFile(entry: { isFile(): boolean; isSymbolicLink(): boolean; nlink: number } | undefined): boolean {
-	return regularFile(entry) && entry!.nlink === 1;
 }
 
 function refuse(message: string, cause?: unknown): never {
@@ -417,14 +405,11 @@ function withContainedRoots<T>(
 	value: unknown,
 	roots: string[],
 	use: (fd: number, path: string) => T,
-	requireSingleName = false,
-	afterOpen?: (fd: number) => void,
 ): T | undefined {
 	if (typeof value !== "string" || value === "" || !isAbsolute(value)) return undefined;
-	const acceptable = requireSingleName ? singleNamedFile : regularFile;
 	// BEFORE any open: reject FIFOs, devices and links. lstat follows nothing and blocks
-	// on nothing (SE91). Fork sources additionally reject hardlinks (SE92).
-	if (!acceptable(lstatSync(value, { throwIfNoEntry: false }) ?? undefined)) return undefined;
+	// on nothing (SE91).
+	if (!regularFile(lstatSync(value, { throwIfNoEntry: false }) ?? undefined)) return undefined;
 	for (const expected of roots) {
 		let root: string;
 		try {
@@ -437,10 +422,9 @@ function withContainedRoots<T>(
 		let opened: { fd: number; held: ReturnType<typeof fstatSync>; canonical: string } | undefined;
 		try {
 			fd = openSync(value, constants.O_RDONLY | NO_FOLLOW | NON_BLOCK);
-			afterOpen?.(fd);
 			const held = fstatSync(fd);
 			const current = lstatSync(value, { throwIfNoEntry: false });
-			if (!acceptable(held) || !acceptable(current ?? undefined) || !sameFileIdentity(held, current!)) return undefined;
+			if (!regularFile(held) || !regularFile(current ?? undefined) || !sameFileIdentity(held, current!)) return undefined;
 			const canonical = realpathSync(value);
 			if (canonical !== value || !insideRoot(root, canonical)) return undefined;
 			opened = { fd, held, canonical };
@@ -454,7 +438,7 @@ function withContainedRoots<T>(
 		try {
 			const result = use(opened.fd, opened.canonical);
 			const after = lstatSync(value, { throwIfNoEntry: false });
-			if (!acceptable(after ?? undefined) || !sameFileIdentity(opened.held, after!)) return undefined;
+			if (!regularFile(after ?? undefined) || !sameFileIdentity(opened.held, after!)) return undefined;
 			return result;
 		} finally {
 			closeSync(opened.fd);
@@ -503,115 +487,10 @@ export function isContainedOrMissingFile(cwd: string, value: unknown, projectDir
 	return containedOrMissing(value, roots, () => resolveContainedFile(cwd, value, projectDirectory));
 }
 
-function threadRoots(cwd: string, projectDirectory: string | undefined): string[] | undefined {
-	try {
-		const legacy = join(realpathSync(cwd), CONFIG_DIR_NAME, "slate", "threads");
-		return [...(projectDirectory === undefined ? [] : [projectDirectory]), legacy];
-	} catch {
-		return undefined;
-	}
-}
-
-export function withContainedThreadFile<T>(
-	cwd: string,
-	value: unknown,
-	projectDirectory: string | undefined,
-	use: (fd: number, path: string) => T,
-	afterOpen?: (fd: number) => void,
-): T | undefined {
-	const roots = threadRoots(cwd, projectDirectory);
-	return roots === undefined ? undefined : withContainedRoots(value, roots, use, false, afterOpen);
-}
-
-export function isContainedOrMissingThreadFile(cwd: string, value: unknown, projectDirectory?: string): boolean {
-	const roots = threadRoots(cwd, projectDirectory);
-	return roots !== undefined && containedOrMissing(value, roots, () => resolveContainedThreadFile(cwd, value, projectDirectory));
-}
-
-/** Strict source boundary for bytes that SessionManager.forkFrom copies (SE92, RG271). */
-export function withContainedForkSource<T>(
-	cwd: string,
-	value: unknown,
-	projectDirectory: string | undefined,
-	use: (fd: number, path: string) => T,
-): T | undefined {
-	const roots = threadRoots(cwd, projectDirectory);
-	return roots === undefined ? undefined : withContainedRoots(value, roots, use, true);
-}
-
 export function readContainedFile(cwd: string, value: unknown, projectDirectory?: string): Buffer | undefined {
 	return withContainedFile(cwd, value, projectDirectory, (fd) => readFileSync(fd));
 }
 
 export function resolveContainedFile(cwd: string, value: unknown, projectDirectory?: string): string | undefined {
 	return withContainedFile(cwd, value, projectDirectory, (_fd, path) => path);
-}
-
-export function resolveContainedThreadFile(cwd: string, value: unknown, projectDirectory?: string): string | undefined {
-	return withContainedThreadFile(cwd, value, projectDirectory, (_fd, path) => path);
-}
-
-/**
- * D121 asks for a best-effort fsync. A kernel or filesystem that refuses one on a
- * read-only descriptor must not fail a publication that is otherwise verified.
- */
-function bestEffortFsync(fd: number): void {
-	try {
-		fsyncSync(fd);
-	} catch (error) {
-		const code = (error as { code?: string }).code;
-		if (code !== "EINVAL" && code !== "ENOTSUP" && code !== "EPERM" && code !== "EACCES" && code !== "EBADF") throw error;
-	}
-}
-
-/**
- * Verify and publish one staged file without exposing a partial or unverified
- * destination.
- *
- * SE93 rewrote this. The staged inode is PINNED for the whole sequence: the caller's
- * verification reads the pinned descriptor, the fsync uses that descriptor, and the
- * identity is re-checked immediately before and after publication, so a staged name that
- * is replaced mid-flight cannot publish unverified bytes. D107's rename stays the
- * publication step, but the destination NAME is reserved first by an exclusive create,
- * because a rename on its own replaces a file created after any check this function could
- * make. After that reservation the rename can replace this call's own placeholder only.
- */
-export function publishStagedFile(stagingFile: string, finalFile: string, verify: (fd: number, path: string) => void): void {
-	const stagingDirectory = dirname(stagingFile);
-	const finalDirectory = dirname(finalFile);
-	const staging = lstatSync(stagingFile, { throwIfNoEntry: false }) ?? undefined;
-	if (!singleNamedFile(staging)) refuse("slate refused a missing or linked staged file");
-	if (lstatSync(finalFile, { throwIfNoEntry: false }) !== undefined) refuse("slate refused to replace an existing published file");
-	if (realpathSync(stagingDirectory) !== stagingDirectory || realpathSync(finalDirectory) !== finalDirectory) {
-		refuse("slate refused a staging directory because its path changed");
-	}
-	if (resolveProspectivePath(finalFile) !== finalFile) refuse("slate refused a destination because its path changed");
-	const fd = openSync(stagingFile, constants.O_RDONLY | NO_FOLLOW | NON_BLOCK);
-	try {
-		const held = fstatSync(fd);
-		if (!singleNamedFile(held) || !sameFileIdentity(held, staging!)) refuse("slate refused a staged file because it changed");
-		verify(fd, stagingFile);
-		bestEffortFsync(fd);
-		fsyncDirectory(stagingDirectory);
-		const before = lstatSync(stagingFile, { throwIfNoEntry: false }) ?? undefined;
-		if (!singleNamedFile(before) || !sameFileIdentity(held, before!)) refuse("slate refused a staged file because it changed");
-		try {
-			closeSync(openSync(finalFile, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW, PRIVATE_FILE_MODE));
-		} catch (error) {
-			if ((error as { code?: string }).code === "EEXIST") refuse("slate refused to replace an existing published file", error);
-			throw error;
-		}
-		try {
-			renameSync(stagingFile, finalFile);
-		} catch (error) {
-			try { unlinkSync(finalFile); } catch { /* the staged name still holds the only copy */ }
-			refuse("slate could not publish the staged file", error);
-		}
-		const published = lstatSync(finalFile, { throwIfNoEntry: false }) ?? undefined;
-		if (!singleNamedFile(published) || !sameFileIdentity(held, published!)) refuse("slate refused a published file because it changed");
-		fsyncDirectory(stagingDirectory);
-		fsyncDirectory(finalDirectory);
-	} finally {
-		closeSync(fd);
-	}
 }

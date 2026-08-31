@@ -18,7 +18,7 @@ import {
   type CorpusHandoffRecord,
 } from "../extension/handoff-record.ts";
 import { registerSlateHandoff } from "../extension/handoff.ts";
-import { SlateStore, type SlateSnapshot, type ThreadRecord } from "../extension/state.ts";
+import { sanitizeThreadRecord, SlateStore, SLATE_STATE_FORMAT, type SlateSnapshot, type ThreadRecord } from "../extension/state.ts";
 
 const SOURCE_ID = "20260820T010203Z-0123456789abcdef";
 const ADOPTER_ID = "20260820T020304Z-fedcba9876543210";
@@ -27,6 +27,7 @@ const ADOPTER_OWNER = "b".repeat(64);
 
 function baseSnapshot(overrides: Partial<SlateSnapshot> = {}): SlateSnapshot {
   return {
+    format: SLATE_STATE_FORMAT,
     threads: [],
     episodes: [],
     orchestratorMode: true,
@@ -37,16 +38,15 @@ function baseSnapshot(overrides: Partial<SlateSnapshot> = {}): SlateSnapshot {
   };
 }
 
-function thread(id: string, sessionFile = ""): ThreadRecord {
+function thread(id: string, overrides: Partial<ThreadRecord> = {}): ThreadRecord {
   return {
     id,
     name: id,
-    sessionFile,
-    status: "idle",
-    episodeIds: [],
-    episodeSeq: 0,
+    status: "failed",
+    type: "general",
     createdAt: 1,
     updatedAt: 1,
+    ...overrides,
   };
 }
 
@@ -69,7 +69,7 @@ function recordWithEpisode(box: Sandbox, overrides: Record<string, unknown> = {}
     snapshot: {
       ...box.record.snapshot,
       threadSeq: 1,
-      threads: [{ ...thread("t1"), episodeIds: ["t1.e1"], episodeSeq: 1 }],
+      threads: [thread("t1", { status: "successful", episodeId: "t1.e1" })],
       episodes: [episode],
     },
   } as CorpusHandoffRecord;
@@ -327,6 +327,51 @@ test("large task strings survive within the total record cap", (t) => {
   if (result.ok) assert.equal(result.record.snapshot.episodes[0]?.task.length, 13_500);
 });
 
+test("handoff writing accepts a restored thread without optional values", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const repairs: string[] = [];
+  const restored = sanitizeThreadRecord({
+    id: "t1",
+    name: "restored",
+    status: "failed",
+    type: "general",
+    model: "openai/gpt-5.6",
+    createdAt: 1,
+    updatedAt: 2,
+  }, repairs);
+  assert.ok(restored);
+  assert.deepEqual(repairs, []);
+  assert.doesNotThrow(() => writeCorpusHandoffRecord(box.source.project, {
+    ...box.record,
+    snapshot: { ...box.record.snapshot, threads: [restored], threadSeq: 1 },
+  }));
+});
+
+test("handoff writing accepts a sanitized router-off thread without a model", (t) => {
+  const box = sandbox();
+  t.after(() => box.restore());
+  const routerOff = {
+    id: "t1",
+    name: "router-off",
+    status: "failed",
+    type: "general",
+    model: undefined,
+    createdAt: 1,
+    updatedAt: 2,
+  };
+  const repairs: string[] = [];
+  const sanitized = sanitizeThreadRecord(routerOff, repairs);
+  assert.ok(sanitized);
+  assert.deepEqual(repairs, []);
+  assert.equal(Object.hasOwn(routerOff, "model"), true);
+  assert.equal(Object.hasOwn(sanitized, "model"), false);
+  assert.doesNotThrow(() => writeCorpusHandoffRecord(box.source.project, {
+    ...box.record,
+    snapshot: { ...box.record.snapshot, threads: [sanitized], threadSeq: 1 },
+  }));
+});
+
 test("wire v1 keeps long scalar compatibility while v2 chunks exact UTF-8 boundaries", (t) => {
   const box = sandbox();
   t.after(() => box.restore());
@@ -372,17 +417,15 @@ test("version 2 preserves every flexible runtime string position", (t) => {
     snapshot: {
       ...box.record.snapshot,
       threadSeq: 1,
-      threads: [{
-        ...thread("t1"),
+      threads: [thread("t1", {
         name: long("thread-name"),
-        type: long("type") as never,
         model: long("thread-model"),
         baseModel: long("base-model"),
         baseEffort: long("base-effort") as never,
         tools: [long("tool")],
-        episodeIds: ["t1.e1"],
-        episodeSeq: 1,
-      }],
+        status: "successful",
+        episodeId: "t1.e1",
+      })],
       episodes: [episode],
     },
   };
@@ -442,18 +485,19 @@ test("version 2 rejects invalid UTF-8, malformed chunks, unknown layers, and exc
 test("compact serialization keeps a valid large record under the unchanged 1 MiB cap", (t) => {
   const box = sandbox();
   t.after(() => box.restore());
-  const count = 3000;
+  const count = 512;
   const episodes = Array.from({ length: count }, (_, index) => episodeRecord(box, {
-    id: `t1.e${index + 1}`,
-    task: "x".repeat(80),
-    file: join(box.source.directory, "episodes", `t1.e${index + 1}.md`),
+    id: `t${index + 1}.e1`,
+    threadId: `t${index + 1}`,
+    task: "x".repeat(1700),
+    file: join(box.source.directory, "episodes", `t${index + 1}.e1.md`),
   }));
   const record: CorpusHandoffRecord = {
     ...box.record,
     snapshot: {
       ...box.record.snapshot,
-      threadSeq: 1,
-      threads: [{ ...thread("t1"), episodeIds: episodes.map((episode) => episode.id), episodeSeq: count }],
+      threadSeq: count,
+      threads: episodes.map((episode, index) => thread(`t${index + 1}`, { status: "successful", episodeId: episode.id })),
       episodes,
     },
   };
@@ -499,7 +543,7 @@ test("schema, unknown fields, and thread and episode count overflows are refused
     ...box.record,
     snapshot: {
       ...box.record.snapshot,
-      threads: [{ ...thread("t1"), episodeIds: episodes.map((episode) => episode.id), episodeSeq: episodes.length }],
+      threads: [thread("t1", { status: "successful", episodeId: episodes[0]?.id })],
       episodes,
       threadSeq: 1,
     },
@@ -524,7 +568,7 @@ test("record validation rejects malformed fields and inconsistent graph referenc
     ...box.record,
     snapshot: {
       ...box.record.snapshot,
-      threads: [{ ...thread("t1"), episodeIds: [validEpisode.id], episodeSeq: 1 }],
+      threads: [thread("t1", { status: "successful", episodeId: validEpisode.id })],
       episodes: [{ ...validEpisode }],
       threadSeq: 1,
     },
@@ -546,7 +590,7 @@ test("record validation rejects malformed fields and inconsistent graph referenc
     ["non-object thread", (record) => { record.snapshot.threads = [null as never]; }],
     ["thread with an unknown field", (record) => { record.snapshot.threads = [{ ...thread("t1"), extra: true } as never]; }],
     ["invalid thread status", (record) => { record.snapshot.threads = [{ ...thread("t1"), status: "done" as never }]; }],
-    ["non-string thread episode id", (record) => { record.snapshot.threads = [{ ...thread("t1"), episodeIds: [4 as never] }]; }],
+    ["non-string thread episode id", (record) => { record.snapshot.threads = [thread("t1", { episodeId: 4 as never })]; }],
     ["non-object episode", (record) => { record.snapshot.episodes = [null as never]; }],
     ["episode with an unknown field", (record) => {
       const value = graph();
@@ -560,19 +604,14 @@ test("record validation rejects malformed fields and inconsistent graph referenc
       Object.assign(record, value);
     }],
     ["episode with no thread", (record) => { record.snapshot.episodes = [{ ...validEpisode }]; }],
-    ["duplicate episode reference", (record) => {
-      const value = graph();
-      value.snapshot.threads[0]!.episodeIds.push(validEpisode.id);
-      Object.assign(record, value);
-    }],
     ["missing episode reference", (record) => {
       const value = graph();
-      value.snapshot.threads[0]!.episodeIds = ["t1.e2"];
+      value.snapshot.threads[0]!.episodeId = "t1.e2";
       Object.assign(record, value);
     }],
     ["unlisted episode", (record) => {
       const value = graph();
-      value.snapshot.threads[0]!.episodeIds = [];
+      delete value.snapshot.threads[0]!.episodeId;
       Object.assign(record, value);
     }],
     ["non-boolean orchestrator mode", (record) => { record.snapshot.orchestratorMode = 1 as never; }],
@@ -696,36 +735,29 @@ test("lineage caps at 256 and foreign adoption keeps the newest 255 ancestors", 
   if (!refused.ok) assert.match(refused.reason, /schema or bounds/);
 });
 
-test("thread counters and restart graph prevent identifier reuse", (t) => {
+test("thread counters and one-action episode links prevent identifier reuse", (t) => {
   const box = sandbox();
   t.after(() => box.restore());
   const first = episodeRecord(box);
-  const base = {
+  const base: CorpusHandoffRecord = {
     ...box.record,
     snapshot: {
       ...box.record.snapshot,
       threadSeq: 2,
       threads: [
-        { ...thread("t1"), episodeIds: [first.id], episodeSeq: 1, supersededBy: "t2" },
-        { ...thread("t2"), restartOf: "t1", restartGeneration: 1 },
+        thread("t1", { status: "successful", episodeId: first.id }),
+        thread("t2"),
       ],
       episodes: [first],
     },
-  } as CorpusHandoffRecord;
+  };
   overwriteRecord(box, base);
   assert.equal(readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true }).ok, true);
 
   const cases: Array<[string, (record: CorpusHandoffRecord) => void]> = [
-    ["stale episode counter", (record) => { record.snapshot.threads[0]!.episodeSeq = 0; }],
-    ["foreign episode prefix", (record) => { record.snapshot.threads[0]!.episodeIds = ["t2.e1"]; record.snapshot.episodes[0]!.id = "t2.e1"; }],
+    ["foreign episode prefix", (record) => { record.snapshot.threads[0]!.episodeId = "t2.e1"; record.snapshot.episodes[0]!.id = "t2.e1"; }],
     ["stale thread counter", (record) => { record.snapshot.threadSeq = 1; }],
-    ["missing successor backlink", (record) => { delete record.snapshot.threads[0]!.supersededBy; }],
-    ["wrong restart generation", (record) => { record.snapshot.threads[1]!.restartGeneration = 2; }],
-    ["restart cycle", (record) => {
-      record.snapshot.threads[0]!.restartOf = "t2";
-      record.snapshot.threads[0]!.restartGeneration = 2;
-      record.snapshot.threads[1]!.supersededBy = "t1";
-    }],
+    ["missing episode", (record) => { record.snapshot.episodes = []; }],
   ];
   for (const [label, mutate] of cases) {
     const record = structuredClone(base);
@@ -803,27 +835,9 @@ test("immediate metadata binds identity and name, while conflicting ancestors gr
   if (!noAuthority.ok) assert.match(noAuthority.reason, /linked or outside slate storage/);
 });
 
-test("linked transcript paths fail containment validation", (t) => {
-  const box = sandbox();
-  t.after(() => box.restore());
-  const real = join(box.source.directory, "threads", "real.jsonl");
-  const linked = join(box.source.directory, "threads", "linked.jsonl");
-  writeFileSync(real, "{}\n");
-  symlinkSync(real, linked);
-  overwriteRecord(box, {
-    ...box.record,
-    snapshot: { ...box.record.snapshot, threads: [thread("t1", linked)], threadSeq: 1 },
-  });
-  const result = readCorpusHandoffRecord({ cwd: box.cwd, name: box.source.name, isTrusted: () => true });
-  assert.equal(result.ok, false);
-  if (!result.ok) assert.match(result.reason, /session file is linked or outside/);
-});
-
 test("missing artifact paths survive while links and outside paths fail every category", (t) => {
   const box = sandbox();
   t.after(() => box.restore());
-  const missingSession = join(box.source.directory, "threads", "missing.jsonl");
-  const missingFork = join(box.source.directory, "threads", "missing-source.jsonl");
   const missingEpisode = join(box.source.directory, "episodes", "t1.e1.md");
   const observationReference = `${CONFIG_DIR_NAME}/slate/sessions/${box.source.name}/observations/t1.e1.md`;
   const withMissing: CorpusHandoffRecord = {
@@ -834,7 +848,7 @@ test("missing artifact paths survive while links and outside paths fail every ca
     snapshot: {
       ...recordWithEpisode(box).snapshot,
       threadSeq: 1,
-      threads: [{ ...thread("t1", missingSession), forkedFrom: missingFork, episodeIds: ["t1.e1"], episodeSeq: 1 }],
+      threads: [thread("t1", { status: "successful", episodeId: "t1.e1" })],
       episodes: [episodeRecord(box, {
         file: missingEpisode,
         observations: { stored: true, path: observationReference, bytes: 10, truncated: false, grammar: "absent" },
@@ -847,8 +861,6 @@ test("missing artifact paths survive while links and outside paths fail every ca
   const victim = join(box.root, "outside.txt");
   writeFileSync(victim, "outside");
   const linkedCases: Array<[string, string, (record: CorpusHandoffRecord, linked: string) => void]> = [
-    ["session", join(box.source.directory, "threads", "linked-session.jsonl"), (record, linked) => { record.snapshot.threads[0]!.sessionFile = linked; }],
-    ["fork", join(box.source.directory, "threads", "linked-fork.jsonl"), (record, linked) => { record.snapshot.threads[0]!.forkedFrom = linked; }],
     ["episode", join(box.source.directory, "episodes", "linked-episode.md"), (record, linked) => { record.snapshot.episodes[0]!.file = linked; }],
     ["observation", join(box.source.directory, "observations", "t1.e1.md"), () => {}],
   ];
@@ -866,8 +878,6 @@ test("missing artifact paths survive while links and outside paths fail every ca
 
   const outsideMissing = join(box.root, "outside-missing");
   for (const [label, mutate] of [
-    ["session", (record: CorpusHandoffRecord) => { record.snapshot.threads[0]!.sessionFile = outsideMissing; }],
-    ["fork", (record: CorpusHandoffRecord) => { record.snapshot.threads[0]!.forkedFrom = outsideMissing; }],
     ["episode", (record: CorpusHandoffRecord) => { record.snapshot.episodes[0]!.file = outsideMissing; }],
   ] as const) {
     const candidate = structuredClone(withMissing);
@@ -1284,7 +1294,7 @@ test("startHandoff writes a compact record and reports specific identity and siz
 
   harness.store.slateSessionId = ADOPTER_ID;
   (harness.store as unknown as { threadSeq: number }).threadSeq = 1;
-  harness.store.threads.set("t1", { ...thread("t1"), episodeIds: ["t1.e1"], episodeSeq: 1 });
+  harness.store.threads.set("t1", thread("t1", { status: "successful", episodeId: "t1.e1" }));
   harness.store.episodes.set("t1.e1", episodeRecord(box, { task: "x".repeat(1024 * 1024) }));
   warnings.length = 0;
   await harness.hooks.startHandoff(ctx);

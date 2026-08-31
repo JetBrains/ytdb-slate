@@ -15,6 +15,7 @@ import {
 } from "../extension/runtime-authority.ts";
 import {
 	SlateStore,
+	SLATE_STATE_FORMAT,
 	type CanonicalRuntimeState,
 	type RuntimeAuthorityBackend,
 	type RuntimeAuthorityBinding,
@@ -356,7 +357,11 @@ test("legacy restore notifies once after session-wide cost restoration completes
 	const value = store().value;
 	const latest = runtime({ workerCostUsd: 2, carriedCostUsd: 3 });
 	const olderBranchCost = runtime({ workerCostUsd: 7, carriedCostUsd: 11 });
-	const custom = (data: CanonicalRuntimeState) => ({ type: "custom", customType: "slate-state", data });
+	const custom = (data: CanonicalRuntimeState) => ({
+		type: "custom",
+		customType: "slate-state",
+		data: { format: SLATE_STATE_FORMAT, ...data },
+	});
 	const ctx = {
 		cwd: "/project",
 		sessionManager: {
@@ -404,7 +409,7 @@ test("legacy restore keeps selected-branch state when its observer fails", () =>
 	const value = store().value;
 	value.paused = true;
 	const selected = runtime({ paused: false, workerCostUsd: 7 });
-	const custom = { type: "custom", customType: "slate-state", data: selected };
+	const custom = { type: "custom", customType: "slate-state", data: { format: SLATE_STATE_FORMAT, ...selected } };
 	let changes = 0;
 	let observedPaused: boolean | undefined;
 	value.onDidChange = () => {
@@ -428,10 +433,10 @@ test("legacy restore keeps selected state when its advisory repair notice throws
 		threads: [{
 			id: "t1",
 			name: "selected",
-			sessionFile: "/missing-selected-session.jsonl",
-			status: "idle",
-			episodeIds: [],
-			episodeSeq: 0,
+			status: "failed",
+			type: "general",
+			model: 5 as unknown as string,
+			outcomeReason: "stopped",
 			createdAt: 1,
 			updatedAt: 1,
 		}],
@@ -439,7 +444,7 @@ test("legacy restore keeps selected state when its advisory repair notice throws
 		paused: true,
 		workerCostUsd: 7,
 	});
-	const custom = { type: "custom", customType: "slate-state", data: selected };
+	const custom = { type: "custom", customType: "slate-state", data: { format: SLATE_STATE_FORMAT, ...selected } };
 	let notices = 0;
 	const ctx = {
 		cwd: "/project",
@@ -457,7 +462,7 @@ test("legacy restore keeps selected state when its advisory repair notice throws
 	assert.equal(value.paused, true);
 	assert.equal(value.workerCostUsd, 7);
 	assert.equal(value.threads.get("t1")?.name, "selected");
-	assert.equal(value.threads.get("t1")?.sessionFile, "/missing-selected-session.jsonl");
+	assert.equal(value.threads.get("t1")?.model, undefined);
 });
 
 test("fresh selection stays unbound until an authorized mutation commits", () => {
@@ -780,8 +785,8 @@ test("a late external update failure reconciles authority or becomes unavailable
 test("ordinary external failure restores a deep committed baseline", () => {
 	const original = runtime({
 		threads: [{
-			id: "t1", name: "original", sessionFile: "", status: "idle", tools: ["read"],
-			episodeIds: [], episodeSeq: 0, createdAt: 1, updatedAt: 1,
+			id: "t1", name: "original", status: "failed", type: "general", tools: ["read"],
+			outcomeReason: "stopped", createdAt: 1, updatedAt: 1,
 		}],
 		threadSeq: 1,
 	});
@@ -1243,6 +1248,7 @@ test("legacy classification can adopt its validated snapshot without durable wri
 	const backend = new FakeBackend();
 	const ctx = context();
 	const legacy = {
+		format: SLATE_STATE_FORMAT,
 		threads: [], episodes: [], threadSeq: 0, orchestratorMode: true, paused: false,
 		workerCostUsd: 2, carriedCostUsd: 0,
 	};

@@ -16,6 +16,7 @@ import {
   sanitizeSnapshotIdentity,
   SlateStore,
   SLATE_SESSION_ID_PATTERN,
+  SLATE_STATE_FORMAT,
   type SlateSnapshot,
 } from "../extension/state.ts";
 
@@ -26,6 +27,7 @@ const FOREIGN_OWNER = "b".repeat(64);
 
 function snapshot(overrides: Record<string, unknown> = {}): SlateSnapshot {
   return {
+    format: SLATE_STATE_FORMAT,
     threads: [],
     episodes: [],
     orchestratorMode: false,
@@ -33,7 +35,7 @@ function snapshot(overrides: Record<string, unknown> = {}): SlateSnapshot {
     workerCostUsd: 0,
     carriedCostUsd: 0,
     ...overrides,
-  } as SlateSnapshot;
+  };
 }
 
 function sanitize(raw: SlateSnapshot | undefined) {
