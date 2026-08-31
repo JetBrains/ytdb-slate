@@ -7,7 +7,6 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { resolveCorpusProject, type CorpusProject } from "../extension/corpus.ts";
 import {
 	DurableCommitUncertain,
-	DurableRevisionConflict,
 	readDurableSession,
 } from "../extension/session-record.ts";
 import {
@@ -43,7 +42,7 @@ function context(overrides: Partial<RuntimeAuthorityContext> = {}): RuntimeAutho
 	return {
 		key: "pi-session:branch-main",
 		cwd: "/project",
-		ownerSessionDigest: OWNER,
+		sessionDigest: OWNER,
 		project: project(),
 		...overrides,
 	};
@@ -54,8 +53,6 @@ function binding(overrides: Partial<RuntimeAuthorityBinding> = {}): RuntimeAutho
 		policy: "durable-session-v1",
 		identity: ID,
 		name: NAME,
-		ownerSessionDigest: OWNER,
-		generation: 0,
 		...overrides,
 	};
 }
@@ -84,6 +81,7 @@ function record(
 	return {
 		directory: join(ctx.project.directory, relation.name),
 		metadata: {
+			policy: "durable-session-v1",
 			identity: relation.identity,
 			name: relation.name,
 			currentDirectory: ctx.cwd,
@@ -93,7 +91,8 @@ function record(
 		state: {
 			generation,
 			status,
-			ownerSessionDigest: relation.ownerSessionDigest,
+			...(status === "active" ? {} : { terminalAt: "2026-08-27T12:00:00.000Z" }),
+			lastWriterSessionDigest: ctx.sessionDigest,
 			runtime: structuredClone(value),
 		},
 	};
@@ -114,7 +113,6 @@ class FakeBackend implements RuntimeAuthorityBackend {
 	onUpdate: (() => void) | undefined;
 	onWriteBinding: (() => void) | undefined;
 	onIsCommitUncertain: (() => void) | undefined;
-	onIsRevisionConflict: (() => void) | undefined;
 
 	mint(): { identity: string; name: string } {
 		this.events.push("mint");
@@ -149,13 +147,14 @@ class FakeBackend implements RuntimeAuthorityBackend {
 	update(options: {
 		context: RuntimeAuthorityContext;
 		binding: RuntimeAuthorityBinding;
-		expectedGeneration: number;
 		runtime: CanonicalRuntimeState;
 	}): RuntimeAuthorityExternalRecord {
 		this.events.push("external-update");
 		this.onUpdate?.();
 		if (this.updateError !== undefined) throw this.updateError;
-		this.current = record(options.context, options.binding, options.expectedGeneration + 1, options.runtime);
+		const generation = (this.current?.state.generation ?? -1) + 1;
+		const status = this.current?.state.status ?? "active";
+		this.current = record(options.context, options.binding, generation, options.runtime, status);
 		return this.current;
 	}
 
@@ -169,11 +168,6 @@ class FakeBackend implements RuntimeAuthorityBackend {
 	isCommitUncertain(error: unknown): boolean {
 		this.onIsCommitUncertain?.();
 		return typeof error === "object" && error !== null && this.uncertain.has(error);
-	}
-
-	isRevisionConflict(error: unknown): boolean {
-		this.onIsRevisionConflict?.();
-		return error instanceof DurableRevisionConflict;
 	}
 }
 
@@ -194,7 +188,7 @@ function activeStore(value = runtime()): {
 	const backend = new FakeBackend();
 	backend.current = record(ctx, binding(), 4, value);
 	const instance = store().value;
-	instance.configureRuntimeAuthority({ kind: "durable", binding: binding({ generation: 1 }) }, ctx, backend);
+	instance.configureRuntimeAuthority({ kind: "durable", binding: binding() }, ctx, backend);
 	return { store: instance, backend, context: ctx };
 }
 
@@ -507,7 +501,7 @@ test("failed first publication restores fresh state without fallback authority",
 	assert.deepEqual(harness.piSnapshots, []);
 });
 
-test("creation responses must preserve initial generation and active status", async (t) => {
+test("creation accepts structurally valid generation and lifecycle information", async (t) => {
 	for (const [label, generation, status] of [
 		["generation", 1, "active"],
 		["status", 0, "abandoned"],
@@ -523,14 +517,14 @@ test("creation responses must preserve initial generation and active status", as
 			};
 			harness.value.configureRuntimeAuthority({ kind: "fresh" }, ctx, backend);
 			const permit = harness.value.prepareMutation(ctx);
-			assert.throws(() => harness.value.save(permit), /unexpected external generation or status after creation/);
-			assert.equal(harness.value.authorityState().kind, "unavailable");
-			assert.equal(backend.bindings.length, 0);
+			assert.equal(harness.value.save(permit)?.kind, "committed");
+			assert.equal(harness.value.authorityState().kind, "durable");
+			assert.equal(backend.bindings.length, 1);
 		});
 	}
 });
 
-test("durable selection trusts current external generation and content over advisory Pi details", () => {
+test("durable selection reads current external generation and content", () => {
 	const current = runtime({ paused: true, workerCostUsd: 7 });
 	const harness = activeStore(current);
 	assert.equal(harness.store.paused, true);
@@ -538,7 +532,7 @@ test("durable selection trusts current external generation and content over advi
 	assert.deepEqual(harness.store.authorityState(), {
 		kind: "durable",
 		contextKey: harness.context.key,
-		binding: binding({ generation: 4 }),
+		binding: binding(),
 		generation: 4,
 	});
 });
@@ -591,10 +585,9 @@ test("mutation permits remain drafts until an authorized save commits", () => {
 	assert.equal(harness.store.workerCostUsd, 3);
 });
 
-test("mutation preparation revalidates external identity, owner, project, and current directory", async (t) => {
+test("mutation preparation revalidates external identity, project, and current directory", async (t) => {
 	const cases: ReadonlyArray<readonly [string, (value: RuntimeAuthorityExternalRecord) => void]> = [
 		["identity", (value) => { (value.metadata as { identity: string }).identity = "20260827T120001Z-deadbeefdeadbeef"; }],
-		["owner", (value) => { (value.state as { ownerSessionDigest: string }).ownerSessionDigest = "b".repeat(64); }],
 		["project", (value) => { (value.metadata as { projectKey: string }).projectKey = "/foreign"; }],
 		["current directory", (value) => { (value.metadata as { currentDirectory: string }).currentDirectory = "/foreign"; }],
 	];
@@ -609,48 +602,26 @@ test("mutation preparation revalidates external identity, owner, project, and cu
 	}
 });
 
-test("mutation preparation refuses a generation below the selected authority floor", () => {
-	const harness = activeStore(runtime({ paused: true }));
-	harness.backend.current = record(harness.context, binding(), 3, runtime({ paused: false }));
-	assert.throws(
-		() => harness.store.prepareMutation(harness.context),
-		/older than the last validated generation/,
-	);
-	assert.equal(harness.store.authorityState().kind, "unavailable");
-	assert.equal(harness.store.paused, false);
-});
-
-test("generation floors do not cross a legitimate Pi context selection", () => {
-	const first = activeStore(runtime({ paused: true }));
-	const nextContext = context({ key: "pi-session:branch-next" });
-	first.backend.current = record(nextContext, binding(), 2, runtime({ paused: false, workerCostUsd: 3 }));
-	first.store.configureRuntimeAuthority(
-		{ kind: "durable", binding: binding({ generation: 2 }) },
-		nextContext,
-		first.backend,
-	);
-	assert.deepEqual(first.store.authorityState(), {
-		kind: "durable",
-		contextKey: nextContext.key,
-		binding: binding({ generation: 2 }),
-		generation: 2,
+test("writer provenance, generation, and lifecycle information do not block preparation", async (t) => {
+	await t.test("writer provenance", () => {
+		const harness = activeStore(runtime({ paused: false }));
+		(harness.backend.current!.state as { lastWriterSessionDigest: string }).lastWriterSessionDigest = "b".repeat(64);
+		assert.equal(harness.store.prepareMutation(harness.context).runtime.paused, false);
 	});
-	assert.equal(first.store.paused, false);
-	assert.equal(first.store.workerCostUsd, 3);
+	await t.test("older generation", () => {
+		const harness = activeStore(runtime({ paused: true }));
+		harness.backend.current = record(harness.context, binding(), 3, runtime({ paused: false }));
+		assert.equal(harness.store.prepareMutation(harness.context).runtime.paused, false);
+	});
+	await t.test("terminal history", () => {
+		const harness = activeStore(runtime({ paused: false }));
+		harness.backend.current = record(harness.context, binding(), 3, runtime({ paused: true }), "delivered");
+		assert.equal(harness.store.prepareMutation(harness.context).runtime.paused, true);
+		assert.equal(harness.store.authorityState().kind, "durable");
+	});
 });
 
-test("a stale terminal reread cannot replace newer selected authority", () => {
-	const harness = activeStore(runtime({ paused: false }));
-	harness.backend.current = record(harness.context, binding(), 3, runtime({ paused: true }), "delivered");
-	assert.throws(
-		() => harness.store.prepareMutation(harness.context),
-		/older than the last validated generation/,
-	);
-	assert.equal(harness.store.authorityState().kind, "unavailable");
-	assert.equal(harness.store.paused, false);
-});
-
-test("mutation preparation accepts exact and newer valid active generations", async (t) => {
+test("mutation preparation accepts exact and newer valid generations", async (t) => {
 	await t.test("exact generation", () => {
 		const harness = activeStore(runtime({ paused: true }));
 		const permit = harness.store.prepareMutation(harness.context);
@@ -674,7 +645,7 @@ test("mutation preparation accepts exact and newer valid active generations", as
 	});
 });
 
-test("update responses must advance exactly once and remain active", async (t) => {
+test("update accepts structurally valid generation and lifecycle information", async (t) => {
 	for (const [label, generation, status] of [
 		["generation", 6, "active"],
 		["status", 5, "delivered"],
@@ -688,9 +659,11 @@ test("update responses must advance exactly once and remain active", async (t) =
 			};
 			const permit = harness.store.prepareMutation(harness.context);
 			permit.runtime.paused = true;
-			assert.throws(() => harness.store.save(permit), /unexpected external generation or status after update/);
-			assert.equal(harness.backend.bindings.length, 0);
-			assert.notEqual(harness.store.authorityState().kind, "fresh");
+			assert.equal(harness.store.save(permit)?.kind, "committed");
+			assert.equal(harness.backend.bindings.length, 1);
+			const authority = harness.store.authorityState();
+			assert.equal(authority.kind, "durable");
+			if (authority.kind === "durable") assert.equal(authority.generation, generation);
 		});
 	}
 });
@@ -703,7 +676,7 @@ test("external commit precedes every advisory binding update", () => {
 	const result = harness.store.save(permit);
 	assert.equal(result?.kind, "committed");
 	assert.deepEqual(harness.backend.events, ["external-read", "external-update", "pi-binding"]);
-	assert.equal(harness.backend.bindings.at(-1)?.generation, 5);
+	assert.deepEqual(harness.backend.bindings.at(-1), binding());
 	assert.equal(harness.store.orchestratorMode, true);
 });
 
@@ -775,16 +748,16 @@ test("a late external update failure reconciles authority or becomes unavailable
 		if (authority.kind === "durable") assert.equal(authority.generation, 6);
 	});
 
-	await t.test("stale reconciliation", () => {
+	await t.test("older valid reconciliation", () => {
 		const harness = activeStore(runtime({ paused: true }));
 		const permit = harness.store.prepareMutation(harness.context);
 		harness.backend.update = (options) => {
 			harness.backend.events.push("external-update");
 			harness.backend.current = record(options.context, options.binding, 3, runtime({ paused: false }));
-			throw new Error("late stale update failure");
+			throw new Error("late update failure");
 		};
-		assert.throws(() => harness.store.save(permit), /late stale update failure/);
-		assert.equal(harness.store.authorityState().kind, "unavailable");
+		assert.throws(() => harness.store.save(permit), /late update failure/);
+		assert.equal(harness.store.authorityState().kind, "durable");
 		assert.equal(harness.store.paused, false);
 	});
 
@@ -984,17 +957,15 @@ test("every authority backend boundary refuses reentrant selection and mutation"
 		assertObserved(observations, 2);
 	});
 
-	await t.test("conflict classification and restoration read", () => {
+	await t.test("ordinary failure restoration read", () => {
 		const observations: boolean[][] = [];
 		const harness = activeStore();
 		const permit = harness.store.prepareMutation(harness.context);
-		harness.backend.updateError = new DurableRevisionConflict("generation", "conflict boundary");
+		harness.backend.updateError = new Error("update boundary");
 		harness.backend.current = record(harness.context, binding(), 5, runtime({ workerCostUsd: 2 }));
-		const observeBoundary = () => observe(observations, harness.store, harness.context, harness.backend);
-		harness.backend.onIsRevisionConflict = observeBoundary;
-		harness.backend.onRead = observeBoundary;
-		assert.throws(() => harness.store.save(permit), /conflict boundary/);
-		assertObserved(observations, 2);
+		harness.backend.onRead = () => observe(observations, harness.store, harness.context, harness.backend);
+		assert.throws(() => harness.store.save(permit), /update boundary/);
+		assertObserved(observations, 1);
 		assert.equal(harness.store.workerCostUsd, 2);
 	});
 });
@@ -1019,16 +990,15 @@ test("context replacement is refused while an external update is active", () => 
 	assert.equal(harness.backend.bindings.length, 1);
 });
 
-test("a revision conflict installs validated current external authority before returning", () => {
+test("an external failure installs structurally valid current state before returning", () => {
 	const harness = activeStore(runtime({ paused: false }));
 	const permit = harness.store.prepareMutation(harness.context);
 	permit.runtime.paused = true;
-	const conflict = new DurableRevisionConflict("generation", "generation changed");
-	harness.backend.updateError = conflict;
+	harness.backend.updateError = new Error("update failed");
 	harness.backend.onUpdate = () => {
 		harness.backend.current = record(harness.context, binding(), 8, runtime({ paused: false, workerCostUsd: 11 }));
 	};
-	assert.throws(() => harness.store.save(permit), /generation changed/);
+	assert.throws(() => harness.store.save(permit), /update failed/);
 	assert.equal(harness.store.paused, false);
 	assert.equal(harness.store.workerCostUsd, 11);
 	const authority = harness.store.authorityState();
@@ -1036,7 +1006,7 @@ test("a revision conflict installs validated current external authority before r
 	if (authority.kind === "durable") assert.equal(authority.generation, 8);
 });
 
-test("an unresolvable revision conflict enters unavailable state and clears visible state", () => {
+test("an unresolvable external failure enters unavailable state and clears visible state", () => {
 	const reports: string[] = [];
 	const ctx = context({ report: (message) => reports.push(message) });
 	const backend = new FakeBackend();
@@ -1044,13 +1014,13 @@ test("an unresolvable revision conflict enters unavailable state and clears visi
 	const harness = store().value;
 	harness.configureRuntimeAuthority({ kind: "durable", binding: binding() }, ctx, backend);
 	const permit = harness.prepareMutation(ctx);
-	backend.updateError = new DurableRevisionConflict("generation", "generation changed");
-	backend.onUpdate = () => { backend.readError = new Error("corrupt authority"); };
-	assert.throws(() => harness.save(permit), /generation changed/);
+	backend.updateError = new Error("update failed");
+	backend.onUpdate = () => { backend.readError = new Error("corrupt state"); };
+	assert.throws(() => harness.save(permit), /update failed/);
 	assert.equal(harness.authorityState().kind, "unavailable");
 	assert.equal(harness.paused, false);
 	assert.equal(harness.threads.size, 0);
-	assert.match(reports.join("\n"), /could not restore authority after a revision conflict/);
+	assert.match(reports.join("\n"), /could not restore state after an external mutation failure/);
 });
 
 test("a valid uncertain commit aligns memory with external storage reread", () => {
@@ -1079,20 +1049,20 @@ test("an uncertain update restores a valid newer active external generation", ()
 	harness.backend.current = record(harness.context, binding(), 6, runtime({ paused: true, workerCostUsd: 12 }));
 	const result = harness.store.save(permit);
 	assert.equal(result?.kind, "committed");
-	assert.equal(result?.binding.generation, 6);
+	assert.deepEqual(result?.binding, binding());
 	assert.equal(harness.store.paused, true);
 	assert.equal(harness.store.workerCostUsd, 12);
 	assert.deepEqual(harness.store.authorityState(), {
 		kind: "durable",
 		contextKey: harness.context.key,
-		binding: binding({ generation: 6 }),
+		binding: binding(),
 		generation: 6,
 	});
 });
 
-test("uncertain updates reject stale and terminal storage rereads", async (t) => {
+test("uncertain updates accept any structurally valid generation and lifecycle information", async (t) => {
 	for (const [label, generation, status] of [
-		["stale generation", 4, "active"],
+		["older generation", 4, "active"],
 		["terminal status", 5, "abandoned"],
 	] as const) {
 		await t.test(label, () => {
@@ -1102,36 +1072,44 @@ test("uncertain updates reject stale and terminal storage rereads", async (t) =>
 			harness.backend.updateError = uncertain;
 			harness.backend.uncertain.add(uncertain);
 			harness.backend.current = record(harness.context, binding(), generation, runtime({ paused: true }), status);
-			assert.throws(() => harness.store.save(permit), new RegExp(`uncertain ${label}`));
-			assert.equal(harness.store.authorityState().kind, "unavailable");
-			assert.equal(harness.store.paused, false);
-			assert.equal(harness.backend.bindings.length, 0);
+			assert.equal(harness.store.save(permit)?.kind, "committed");
+			assert.equal(harness.store.authorityState().kind, "durable");
+			assert.equal(harness.store.paused, true);
+			assert.equal(harness.backend.bindings.length, 1);
 		});
 	}
 });
 
-test("an uncertain first publication without valid reconciliation becomes unavailable", async (t) => {
-	for (const [label, reconciled] of [
-		["missing record", undefined],
-		["terminal record", record(context(), binding(), 0, runtime({ paused: true }), "abandoned")],
-	] as const) {
-		await t.test(label, () => {
-			const harness = store();
-			const backend = new FakeBackend();
-			const ctx = context();
-			harness.value.configureRuntimeAuthority({ kind: "fresh" }, ctx, backend);
-			const permit = harness.value.prepareMutation(ctx);
-			permit.runtime.paused = true;
-			const uncertain = new Error(`creation uncertain: ${label}`);
-			backend.createError = uncertain;
-			backend.uncertain.add(uncertain);
-			backend.current = reconciled;
-			assert.throws(() => harness.value.save(permit), /creation uncertain/);
-			assert.equal(harness.value.authorityState().kind, "unavailable");
-			assert.equal(harness.value.paused, false);
-			assert.equal(backend.bindings.length, 0);
-		});
-	}
+test("an uncertain first publication without saved data becomes unavailable", () => {
+	const harness = store();
+	const backend = new FakeBackend();
+	const ctx = context();
+	harness.value.configureRuntimeAuthority({ kind: "fresh" }, ctx, backend);
+	const permit = harness.value.prepareMutation(ctx);
+	permit.runtime.paused = true;
+	const uncertain = new Error("creation uncertain");
+	backend.createError = uncertain;
+	backend.uncertain.add(uncertain);
+	backend.current = undefined;
+	assert.throws(() => harness.value.save(permit), /creation uncertain/);
+	assert.equal(harness.value.authorityState().kind, "unavailable");
+	assert.equal(harness.value.paused, false);
+	assert.equal(backend.bindings.length, 0);
+});
+
+test("an uncertain first publication accepts structurally valid terminal history", () => {
+	const harness = store();
+	const backend = new FakeBackend();
+	const ctx = context();
+	harness.value.configureRuntimeAuthority({ kind: "fresh" }, ctx, backend);
+	const permit = harness.value.prepareMutation(ctx);
+	const uncertain = new Error("creation uncertain");
+	backend.createError = uncertain;
+	backend.uncertain.add(uncertain);
+	backend.current = record(ctx, binding(), 0, runtime({ paused: true }), "abandoned");
+	assert.equal(harness.value.save(permit)?.kind, "committed");
+	assert.equal(harness.value.authorityState().kind, "durable");
+	assert.equal(harness.value.paused, true);
 });
 
 test("a valid uncertain first publication establishes only its reconciled namespace", () => {
@@ -1149,7 +1127,7 @@ test("a valid uncertain first publication establishes only its reconciled namesp
 	backend.current = record(ctx, binding(), 2, runtime({ paused: true }));
 	const result = harness.value.save(permit);
 	assert.equal(result?.kind, "committed");
-	assert.equal(result?.binding.generation, 2);
+	assert.deepEqual(result?.binding, binding());
 	assert.equal(harness.value.authorityState().kind, "durable");
 	assert.equal(harness.value.paused, true);
 	assert.equal(backend.events.filter((event) => event === "external-create").length, 1);
@@ -1162,6 +1140,7 @@ test("an uncertain commit without a valid reconciled record becomes unavailable"
 	const uncertain = new Error("durability uncertain without record");
 	harness.backend.updateError = uncertain;
 	harness.backend.uncertain.add(uncertain);
+	harness.backend.readError = new Error("saved state unavailable");
 	assert.throws(() => harness.store.save(permit), /durability uncertain/);
 	assert.equal(harness.store.authorityState().kind, "unavailable");
 	assert.equal(harness.store.paused, false);
@@ -1186,7 +1165,7 @@ test("a refused classification enters unavailable state without storage access",
 	assert.deepEqual(backend.events, []);
 });
 
-test("failed updates expose installed terminal authority inside the observer callback", () => {
+test("failed updates expose installed terminal history as writable durable state", () => {
 	const harness = activeStore(runtime({ paused: false }));
 	let changes = 0;
 	let inspectTerminal = false;
@@ -1201,17 +1180,16 @@ test("failed updates expose installed terminal authority inside the observer cal
 	const permit = harness.store.prepareMutation(harness.context);
 	changes = 0;
 	inspectTerminal = true;
-	harness.backend.updateError = new DurableRevisionConflict("terminal", "authority became terminal");
+	harness.backend.updateError = new Error("state changed");
 	harness.backend.onUpdate = () => {
 		harness.backend.current = record(harness.context, binding(), 5, runtime({ paused: true }), "abandoned");
 	};
-	assert.throws(() => harness.store.save(permit), /authority became terminal/);
+	assert.throws(() => harness.store.save(permit), /state changed/);
 	const expectedAuthority = {
-		kind: "terminal" as const,
+		kind: "durable" as const,
 		contextKey: harness.context.key,
-		binding: binding({ generation: 5 }),
+		binding: binding(),
 		generation: 5,
-		status: "abandoned" as const,
 	};
 	assert.deepEqual(observedAuthority, expectedAuthority);
 	assert.equal(observedPaused, true);
@@ -1220,22 +1198,17 @@ test("failed updates expose installed terminal authority inside the observer cal
 	assert.equal(changes, 1);
 });
 
-test("terminal and unavailable authority refuse mutation without fallback", () => {
+test("terminal history permits mutation while unavailable state still refuses", () => {
 	const terminalContext = context();
 	const terminalBackend = new FakeBackend();
 	terminalBackend.current = record(terminalContext, binding(), 9, runtime({ paused: true }), "delivered");
 	const terminal = store().value;
 	terminal.configureRuntimeAuthority({ kind: "durable", binding: binding() }, terminalContext, terminalBackend);
-	assert.equal(terminal.authorityState().kind, "terminal");
-	assert.throws(() => terminal.prepareMutation(terminalContext), /delivered terminal authority/);
-
-	const raced = activeStore();
-	let racedChanges = 0;
-	raced.store.onDidChange = () => { racedChanges += 1; };
-	raced.backend.current = record(raced.context, binding(), 10, runtime({ paused: true }), "abandoned");
-	assert.throws(() => raced.store.prepareMutation(raced.context), /abandoned terminal authority/);
-	assert.equal(raced.store.authorityState().kind, "terminal");
-	assert.equal(racedChanges, 1);
+	assert.equal(terminal.authorityState().kind, "durable");
+	const permit = terminal.prepareMutation(terminalContext);
+	permit.runtime.workerCostUsd = 7;
+	assert.equal(terminal.save(permit)?.kind, "committed");
+	assert.equal(terminal.workerCostUsd, 7);
 
 	const unavailableContext = context({ key: "missing" });
 	const unavailableBackend = new FakeBackend();
@@ -1299,12 +1272,6 @@ test("new-policy authority refuses every Pi snapshot restore path", () => {
 	assert.equal(harness.store.authorityState().kind, "durable");
 });
 
-test("revision conflict classification is structural instead of message-based", () => {
-	const backend = createRuntimeAuthorityBackend({ appendEntry() {} } as unknown as ExtensionAPI);
-	assert.equal(backend.isRevisionConflict(new DurableRevisionConflict("terminal", "words may change")), true);
-	assert.equal(backend.isRevisionConflict(new Error("generation mismatch and state modified during replacement")), false);
-});
-
 test("caller-created uncertainty records never replace actual external authority", () => {
 	const root = mkdtempSync(join(tmpdir(), "slate-runtime-authority-forgery-test-"));
 	const cwd = join(root, "project");
@@ -1315,7 +1282,7 @@ test("caller-created uncertainty records never replace actual external authority
 	process.env.PI_CODING_AGENT_DIR = agent;
 	try {
 		const corpus = resolveCorpusProject(cwd);
-		const ctx = createRuntimeAuthorityContext({ key: "real:forgery", cwd, ownerSessionDigest: OWNER, project: corpus });
+		const ctx = createRuntimeAuthorityContext({ key: "real:forgery", cwd, sessionDigest: OWNER, project: corpus });
 		let attack = false;
 		const forged = record(ctx, binding(), 1, runtime({ paused: true }));
 		const backend = createRuntimeAuthorityBackend(
@@ -1342,11 +1309,12 @@ test("caller-created uncertainty records never replace actual external authority
 		const candidate = value.prepareMutation(ctx);
 		candidate.runtime.paused = true;
 		attack = true;
-		assert.throws(() => value.save(candidate), /directory synchronization is uncertain/);
-		assert.equal(value.authorityState().kind, "unavailable");
+		assert.equal(value.save(candidate)?.kind, "committed");
+		assert.equal(value.authorityState().kind, "durable");
 		const actual = readDurableSession({ project: corpus, name: NAME, identity: ID, cwd });
 		assert.equal(actual.state.generation, 0);
 		assert.equal(actual.state.runtime.paused, false);
+		assert.equal(value.paused, false);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
@@ -1368,7 +1336,7 @@ test("the production adapter creates external authority before its Pi binding", 
 			appendEntry(type: string, data: Record<string, unknown>) { appended.push({ type, data }); },
 		} as unknown as ExtensionAPI;
 		const corpus = resolveCorpusProject(cwd);
-		const ctx = createRuntimeAuthorityContext({ key: "real:main", cwd, ownerSessionDigest: OWNER, project: corpus });
+		const ctx = createRuntimeAuthorityContext({ key: "real:main", cwd, sessionDigest: OWNER, project: corpus });
 		const backend = createRuntimeAuthorityBackend(pi, { mint: () => ({ identity: ID, name: NAME }) });
 		const value = new SlateStore(pi);
 		value.configureRuntimeAuthority({ kind: "fresh" }, ctx, backend);
@@ -1377,7 +1345,7 @@ test("the production adapter creates external authority before its Pi binding", 
 		const result = value.save(permit);
 		assert.equal(result?.kind, "committed");
 		assert.deepEqual(appended.map((item) => item.type), ["slate-binding"]);
-		assert.equal(appended[0]?.data.generation, 0);
+		assert.deepEqual(appended[0]?.data, { policy: "durable-session-v1", identity: ID, name: NAME });
 		assert.equal(value.authorityState().kind, "durable");
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;

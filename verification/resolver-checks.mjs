@@ -6317,7 +6317,6 @@ production behaviour.`);
 		});
 
 		const runtimeIdentity = "20260827T010203Z-0123456789abcdef";
-		const runtimeOwner = "a".repeat(64);
 		const runtimeName = "calm-otter-7f3a";
 		const runtimeDirectory = join(WORK, runtimeName);
 		const runtimeFixture = () => ({
@@ -6344,9 +6343,7 @@ production behaviour.`);
 		const runtimeOptions = (runtime = runtimeFixture()) => ({
 			runtime,
 			externalIdentity: runtimeIdentity,
-			externalOwnerSessionDigest: runtimeOwner,
 			expectedIdentity: runtimeIdentity,
-			expectedOwnerSessionDigest: runtimeOwner,
 			namespaceName: runtimeName,
 			namespaceDirectory: runtimeDirectory,
 			artifactPathAllowed: () => true,
@@ -6395,7 +6392,6 @@ production behaviour.`);
 				["zero is a valid cost", JSON.stringify(state.decodeCanonicalRuntime(runtimeOptions(zeroCost))) === JSON.stringify(zeroCost), zeroCost],
 				["a non-object root is refused", runtimeRefuses(() => {}, { runtime: [] }), []],
 				["identity mismatch is refused", runtimeRefuses(() => {}, { externalIdentity: "20260827T010203Z-1111111111111111" }), runtimeIdentity],
-				["owner mismatch is refused", runtimeRefuses(() => {}, { externalOwnerSessionDigest: "b".repeat(64) }), runtimeOwner],
 				["invalid namespace relationship is refused", runtimeRefuses(() => {}, { namespaceDirectory: join(runtimeDirectory, "nested") }), runtimeDirectory],
 				["every root mutation changes its fixture and is defeated", rootOutcomes.every((outcome) => outcome.changed && outcome.refused), rootOutcomes],
 			]);

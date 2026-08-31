@@ -982,9 +982,7 @@ export type CanonicalRuntimeArtifactKind = "thread-session" | "thread-fork" | "e
 export interface CanonicalRuntimeDecodeOptions {
 	runtime: unknown;
 	externalIdentity: unknown;
-	externalOwnerSessionDigest: unknown;
 	expectedIdentity: string;
-	expectedOwnerSessionDigest: string;
 	namespaceName: string;
 	namespaceDirectory: string;
 	/** Caller-supplied existence, containment, regular-file, and link check. */
@@ -1102,10 +1100,6 @@ function decodeCanonicalEpisode(raw: unknown, index: number): EpisodeRecord {
 export function decodeCanonicalRuntime(options: CanonicalRuntimeDecodeOptions): CanonicalRuntimeState {
 	if (!isSlateSessionId(options.expectedIdentity) || options.externalIdentity !== options.expectedIdentity) {
 		canonicalRuntimeRefuse("external identity does not match the selected binding");
-	}
-	if (!isOwnerSessionDigest(options.expectedOwnerSessionDigest)
-		|| options.externalOwnerSessionDigest !== options.expectedOwnerSessionDigest) {
-		canonicalRuntimeRefuse("external mutation owner does not match the selected binding");
 	}
 	const namespaceDirectory = options.namespaceDirectory;
 	if (!isSlateSessionName(options.namespaceName) || !isAbsolute(namespaceDirectory)
@@ -1346,8 +1340,6 @@ export interface RuntimeAuthorityBinding {
 	readonly policy: "durable-session-v1";
 	readonly identity: string;
 	readonly name: string;
-	readonly ownerSessionDigest: string;
-	readonly generation: number;
 }
 
 export type RuntimeAuthoritySelection =
@@ -1360,7 +1352,7 @@ export interface RuntimeAuthorityContext {
 	/** Stable identity of the selected Pi session and transcript branch. */
 	readonly key: string;
 	readonly cwd: string;
-	readonly ownerSessionDigest: string;
+	readonly sessionDigest: string;
 	readonly project: CorpusProject;
 	readonly report?: (message: string) => void;
 }
@@ -1368,6 +1360,7 @@ export interface RuntimeAuthorityContext {
 export interface RuntimeAuthorityExternalRecord {
 	readonly directory: string;
 	readonly metadata: {
+		readonly policy: "durable-session-v1";
 		readonly identity: string;
 		readonly name: string;
 		readonly currentDirectory: string;
@@ -1375,9 +1368,12 @@ export interface RuntimeAuthorityExternalRecord {
 		readonly projectDigest: string;
 	};
 	readonly state: {
+		/** Informational write sequence only. */
 		readonly generation: number;
 		readonly status: "active" | "delivered" | "abandoned";
-		readonly ownerSessionDigest: string;
+		readonly terminalAt?: string;
+		/** Provenance only. This digest grants no write access. */
+		readonly lastWriterSessionDigest: string;
 		readonly runtime: CanonicalRuntimeState;
 	};
 }
@@ -1397,19 +1393,16 @@ export interface RuntimeAuthorityBackend {
 	update(options: {
 		context: RuntimeAuthorityContext;
 		binding: RuntimeAuthorityBinding;
-		expectedGeneration: number;
 		runtime: CanonicalRuntimeState;
 	}): RuntimeAuthorityExternalRecord;
 	writeBinding(binding: RuntimeAuthorityBinding): void;
 	isCommitUncertain(error: unknown): boolean;
-	isRevisionConflict(error: unknown): boolean;
 }
 
 export type RuntimeAuthorityState =
 	| { readonly kind: "legacy" }
 	| { readonly kind: "fresh"; readonly contextKey: string }
 	| { readonly kind: "durable"; readonly contextKey: string; readonly binding: RuntimeAuthorityBinding; readonly generation: number }
-	| { readonly kind: "terminal"; readonly contextKey: string; readonly binding: RuntimeAuthorityBinding; readonly generation: number; readonly status: "delivered" | "abandoned" }
 	| { readonly kind: "unavailable"; readonly contextKey?: string; readonly message: string };
 
 export interface RuntimeMutationPermit {
@@ -1427,7 +1420,6 @@ interface RuntimeMutationPermitState {
 	readonly contextKey: string;
 	readonly baseline: CanonicalRuntimeState;
 	readonly authorityKind: "fresh" | "durable";
-	readonly expectedGeneration?: number;
 }
 
 interface RuntimeMemoryCheckpoint {
@@ -1455,21 +1447,14 @@ function malformedAuthority(message: string): never {
 function copyRuntimeAuthorityBinding(value: unknown): RuntimeAuthorityBinding {
 	const copy = copyCanonicalData(value);
 	if (copy === INVALID_CANONICAL_DATA || !canonicalObject(copy)
-		|| !exactCanonicalKeys(copy, ["policy", "identity", "name", "ownerSessionDigest", "generation"])) {
+		|| !exactCanonicalKeys(copy, ["policy", "identity", "name"])) {
 		malformedAuthority("binding");
 	}
 	if (copy.policy !== "durable-session-v1" || !isSlateSessionId(copy.identity)
-		|| !isSlateSessionName(copy.name) || !isOwnerSessionDigest(copy.ownerSessionDigest)
-		|| !Number.isSafeInteger(copy.generation) || (copy.generation as number) < 0) {
+		|| !isSlateSessionName(copy.name)) {
 		malformedAuthority("binding");
 	}
-	return {
-		policy: "durable-session-v1",
-		identity: copy.identity,
-		name: copy.name,
-		ownerSessionDigest: copy.ownerSessionDigest,
-		generation: copy.generation as number,
-	};
+	return { policy: "durable-session-v1", identity: copy.identity, name: copy.name };
 }
 
 function copyRuntimeAuthoritySelection(value: unknown): RuntimeAuthoritySelection {
@@ -1494,10 +1479,10 @@ function copyRuntimeAuthoritySelection(value: unknown): RuntimeAuthoritySelectio
 
 function copyRuntimeAuthorityContext(value: unknown): RuntimeAuthorityContext {
 	if (!canonicalObject(value)
-		|| !exactCanonicalKeys(value, ["key", "cwd", "ownerSessionDigest", "project", "report"], ["key", "cwd", "ownerSessionDigest", "project"])
+		|| !exactCanonicalKeys(value, ["key", "cwd", "sessionDigest", "project", "report"], ["key", "cwd", "sessionDigest", "project"])
 		|| typeof value.key !== "string" || value.key === ""
 		|| typeof value.cwd !== "string" || value.cwd === ""
-		|| !isOwnerSessionDigest(value.ownerSessionDigest)
+		|| !isOwnerSessionDigest(value.sessionDigest)
 		|| !canonicalObject(value.project)
 		|| (value.report !== undefined && typeof value.report !== "function")) {
 		malformedAuthority("context");
@@ -1513,7 +1498,7 @@ function copyRuntimeAuthorityContext(value: unknown): RuntimeAuthorityContext {
 	return {
 		key: value.key,
 		cwd: value.cwd,
-		ownerSessionDigest: value.ownerSessionDigest,
+		sessionDigest: value.sessionDigest,
 		project: {
 			root: rawProject.root,
 			key: rawProject.key,
@@ -1528,7 +1513,7 @@ function copyRuntimeAuthorityContext(value: unknown): RuntimeAuthorityContext {
 
 function sameRuntimeAuthorityContext(left: RuntimeAuthorityContext, right: RuntimeAuthorityContext): boolean {
 	return left.key === right.key && left.cwd === right.cwd
-		&& left.ownerSessionDigest === right.ownerSessionDigest
+		&& left.sessionDigest === right.sessionDigest
 		&& left.report === right.report
 		&& left.project.root === right.project.root
 		&& left.project.key === right.project.key
@@ -1556,30 +1541,32 @@ function copyRuntimeAuthorityExternalRecord(value: unknown): RuntimeAuthorityExt
 		malformedAuthority("external record");
 	}
 	const metadataAllowed = [
-		"policy", "identity", "name", "createdAt", "currentDirectory", "projectKey", "projectDigest", "creatorOwnerDigest",
+		"policy", "identity", "name", "createdAt", "currentDirectory", "projectKey", "projectDigest", "creatorSessionDigest",
 	];
-	const metadataRequired = ["identity", "name", "currentDirectory", "projectKey", "projectDigest"];
+	const metadataRequired = ["policy", "identity", "name", "currentDirectory", "projectKey", "projectDigest"];
 	if (!exactCanonicalKeys(copy.metadata, metadataAllowed, metadataRequired)
+		|| copy.metadata.policy !== "durable-session-v1"
 		|| typeof copy.metadata.identity !== "string" || typeof copy.metadata.name !== "string"
 		|| typeof copy.metadata.currentDirectory !== "string" || typeof copy.metadata.projectKey !== "string"
 		|| typeof copy.metadata.projectDigest !== "string"
-		|| (copy.metadata.policy !== undefined && copy.metadata.policy !== "durable-session-v1")
 		|| (copy.metadata.createdAt !== undefined && typeof copy.metadata.createdAt !== "string")
-		|| (copy.metadata.creatorOwnerDigest !== undefined && !isOwnerSessionDigest(copy.metadata.creatorOwnerDigest))) {
+		|| (copy.metadata.creatorSessionDigest !== undefined && !isOwnerSessionDigest(copy.metadata.creatorSessionDigest))) {
 		malformedAuthority("external record metadata");
 	}
-	const stateAllowed = ["generation", "status", "terminalAt", "ownerSessionDigest", "runtime"];
-	const stateRequired = ["generation", "status", "ownerSessionDigest", "runtime"];
+	const stateAllowed = ["generation", "status", "terminalAt", "lastWriterSessionDigest", "runtime"];
+	const stateRequired = ["generation", "status", "lastWriterSessionDigest", "runtime"];
 	if (!exactCanonicalKeys(copy.state, stateAllowed, stateRequired)
 		|| !Number.isSafeInteger(copy.state.generation) || (copy.state.generation as number) < 0
 		|| (copy.state.status !== "active" && copy.state.status !== "delivered" && copy.state.status !== "abandoned")
-		|| typeof copy.state.ownerSessionDigest !== "string"
-		|| (copy.state.terminalAt !== undefined && typeof copy.state.terminalAt !== "string")) {
+		|| !isOwnerSessionDigest(copy.state.lastWriterSessionDigest)
+		|| (copy.state.status === "active" && copy.state.terminalAt !== undefined)
+		|| (copy.state.status !== "active" && typeof copy.state.terminalAt !== "string")) {
 		malformedAuthority("external record state");
 	}
 	return {
 		directory: copy.directory,
 		metadata: {
+			policy: "durable-session-v1",
 			identity: copy.metadata.identity,
 			name: copy.metadata.name,
 			currentDirectory: copy.metadata.currentDirectory,
@@ -1589,7 +1576,8 @@ function copyRuntimeAuthorityExternalRecord(value: unknown): RuntimeAuthorityExt
 		state: {
 			generation: copy.state.generation as number,
 			status: copy.state.status,
-			ownerSessionDigest: copy.state.ownerSessionDigest,
+			...(copy.state.terminalAt !== undefined ? { terminalAt: copy.state.terminalAt as string } : {}),
+			lastWriterSessionDigest: copy.state.lastWriterSessionDigest,
 			runtime: copy.state.runtime as CanonicalRuntimeState,
 		},
 	};
@@ -1603,9 +1591,7 @@ function copyMutationCandidate(
 	return decodeCanonicalRuntime({
 		runtime: permit.runtime,
 		externalIdentity: binding.identity,
-		externalOwnerSessionDigest: binding.ownerSessionDigest,
 		expectedIdentity: binding.identity,
-		expectedOwnerSessionDigest: binding.ownerSessionDigest,
 		namespaceName: binding.name,
 		namespaceDirectory: join(context.project.directory, binding.name),
 		artifactPathAllowed: () => true,
@@ -1912,10 +1898,8 @@ export class SlateStore {
 		binding: RuntimeAuthorityBinding,
 		context: RuntimeAuthorityContext,
 	): RuntimeAuthorityExternalRecord {
-		if (record.metadata.identity !== binding.identity || record.metadata.name !== binding.name
-			|| record.state.ownerSessionDigest !== binding.ownerSessionDigest
-			|| record.state.ownerSessionDigest !== context.ownerSessionDigest) {
-			throw new Error("slate refused external authority with a mismatched identity or owner");
+		if (record.metadata.identity !== binding.identity || record.metadata.name !== binding.name) {
+			throw new Error("slate refused external state with a mismatched durable-session identity");
 		}
 		if (record.metadata.projectKey !== context.project.key
 			|| record.metadata.projectDigest !== context.project.digest
@@ -1926,9 +1910,7 @@ export class SlateStore {
 		const runtime = decodeCanonicalRuntime({
 			runtime: record.state.runtime,
 			externalIdentity: record.metadata.identity,
-			externalOwnerSessionDigest: record.state.ownerSessionDigest,
 			expectedIdentity: binding.identity,
-			expectedOwnerSessionDigest: binding.ownerSessionDigest,
 			namespaceName: binding.name,
 			namespaceDirectory: record.directory,
 			artifactPathAllowed: () => true,
@@ -1945,8 +1927,6 @@ export class SlateStore {
 			policy: "durable-session-v1",
 			identity: record.metadata.identity,
 			name: record.metadata.name,
-			ownerSessionDigest: record.state.ownerSessionDigest,
-			generation: record.state.generation,
 		};
 	}
 
@@ -1954,32 +1934,19 @@ export class SlateStore {
 		record: RuntimeAuthorityExternalRecord,
 		binding: RuntimeAuthorityBinding,
 		context: RuntimeAuthorityContext,
-		enforceGenerationFloor = true,
 	): RuntimeAuthorityBinding {
 		const validated = this.validateAuthorityRecord(record, binding, context);
-		const installed = this.runtimeAuthority;
-		const sameSelectedAuthority = context === this.runtimeAuthorityContext
-			&& (installed.kind === "durable" || installed.kind === "terminal")
-			&& installed.binding.identity === binding.identity
-			&& installed.binding.name === binding.name
-			&& installed.binding.ownerSessionDigest === binding.ownerSessionDigest;
-		if (enforceGenerationFloor && sameSelectedAuthority && validated.state.generation < installed.generation) {
-			throw new Error("slate refused an external authority generation older than the last validated generation");
-		}
 		this.installCanonicalRuntime(validated.state.runtime);
 		this.slateSessionId = binding.identity;
 		this.slateSessionName = binding.name;
-		this.ownerSessionDigest = binding.ownerSessionDigest;
+		this.ownerSessionDigest = context.sessionDigest;
 		const currentBinding = this.bindingFor(validated);
-		this.runtimeAuthority = validated.state.status === "active"
-			? { kind: "durable", contextKey: context.key, binding: currentBinding, generation: validated.state.generation }
-			: {
-				kind: "terminal",
-				contextKey: context.key,
-				binding: currentBinding,
-				generation: validated.state.generation,
-				status: validated.state.status,
-			};
+		this.runtimeAuthority = {
+			kind: "durable",
+			contextKey: context.key,
+			binding: currentBinding,
+			generation: validated.state.generation,
+		};
 		this.runtimeAuthorityRevision += 1;
 		return currentBinding;
 	}
@@ -2081,8 +2048,7 @@ export class SlateStore {
 				|| selectedRevision !== this.runtimeAuthorityRevision) {
 				throw new Error("slate refused external authority loaded for an old Pi context");
 			}
-			// A new Pi-context selection establishes its own generation floor.
-			this.installAuthorityRecord(record, selection.binding, selectedContext, false);
+			this.installAuthorityRecord(record, selection.binding, selectedContext);
 			this.notifyDidChange(selectedContext);
 		} catch (error) {
 			if (!this.selectionIsActive(selectedEpoch, selectedContext, backend)) throw error;
@@ -2121,7 +2087,6 @@ export class SlateStore {
 		if (backend === undefined || context === undefined) throw new Error("slate runtime authority is not configured");
 		let baseline: CanonicalRuntimeState;
 		let authorityKind: "fresh" | "durable";
-		let expectedGeneration: number | undefined;
 		if (this.runtimeAuthority.kind === "fresh") {
 			baseline = this.canonicalRuntimeSnapshot();
 			authorityKind = "fresh";
@@ -2145,19 +2110,13 @@ export class SlateStore {
 			}
 			const installedRevision = this.runtimeAuthorityRevision;
 			this.notifyDidChange(context);
-			if (record.state.status !== "active") {
-				throw new Error(`slate refused mutation of a ${record.state.status} terminal authority`);
-			}
 			if (!this.selectionIsActive(selectedEpoch, context, backend)
 				|| this.runtimeAuthorityRevision !== installedRevision
 				|| this.runtimeAuthority.kind !== "durable" || this.runtimeAuthority.binding !== binding) {
 				throw new Error("slate refused mutation preparation completed for an old Pi context");
 			}
 			baseline = cloneCanonicalRuntime(record.state.runtime);
-			expectedGeneration = record.state.generation;
 			authorityKind = "durable";
-		} else if (this.runtimeAuthority.kind === "terminal") {
-			throw new Error(`slate refused mutation of a ${this.runtimeAuthority.status} terminal authority`);
 		} else if (this.runtimeAuthority.kind === "unavailable") {
 			throw new Error(this.runtimeAuthority.message);
 		} else {
@@ -2170,7 +2129,6 @@ export class SlateStore {
 			contextKey: context.key,
 			baseline,
 			authorityKind,
-			...(expectedGeneration !== undefined ? { expectedGeneration } : {}),
 		});
 		return permit;
 	}
@@ -2196,20 +2154,6 @@ export class SlateStore {
 			throw new Error("slate refused a stale mutation permit");
 		}
 		return state;
-	}
-
-	private validateCommitPostcondition(
-		record: RuntimeAuthorityExternalRecord,
-		expectedGeneration: number,
-		operation: "creation" | "update",
-		allowNewer = false,
-	): void {
-		const generationAccepted = allowNewer
-			? record.state.generation >= expectedGeneration
-			: record.state.generation === expectedGeneration;
-		if (!generationAccepted || record.state.status !== "active") {
-			throw new Error(`slate refused an unexpected external generation or status after ${operation}`);
-		}
 	}
 
 	private reconcilePossibleExternalCommit(
@@ -2288,8 +2232,6 @@ export class SlateStore {
 					policy: "durable-session-v1",
 					identity: minted.identity,
 					name: minted.name,
-					ownerSessionDigest: context.ownerSessionDigest,
-					generation: 0,
 				};
 				const candidate = copyMutationCandidate(permit, relationship, context);
 				this.requireActiveMutation(permitState, context, backend);
@@ -2301,7 +2243,6 @@ export class SlateStore {
 					creationReturned = true;
 					const record = copyRuntimeAuthorityExternalRecord(returned);
 					this.requireActiveMutation(permitState, context, backend);
-					this.validateCommitPostcondition(record, 0, "creation");
 					pendingRecovery = undefined;
 					return this.finishExternalCommit(record, relationship, context, backend, permitState.epoch, "creation");
 				} catch (error) {
@@ -2314,7 +2255,6 @@ export class SlateStore {
 								backend.read({ context, binding: relationship }),
 							);
 							this.requireActiveMutation(permitState, context, backend);
-							this.validateCommitPostcondition(reconciled, 0, "creation", true);
 							pendingRecovery = undefined;
 							return this.finishExternalCommit(reconciled, relationship, context, backend, permitState.epoch, "creation");
 						} catch (reconcileError) {
@@ -2332,9 +2272,9 @@ export class SlateStore {
 					throw error;
 				}
 			}
-			if (this.runtimeAuthority.kind !== "durable" || permitState.expectedGeneration === undefined) {
+			if (this.runtimeAuthority.kind !== "durable") {
 				this.installCanonicalRuntime(permitState.baseline);
-				throw new Error("slate refused a mutation whose durable authority changed");
+				throw new Error("slate refused a mutation whose durable session changed");
 			}
 			const relationship = this.runtimeAuthority.binding;
 			const candidate = copyMutationCandidate(permit, relationship, context);
@@ -2345,11 +2285,9 @@ export class SlateStore {
 				const record = copyRuntimeAuthorityExternalRecord(backend.update({
 					context,
 					binding: relationship,
-					expectedGeneration: permitState.expectedGeneration!,
 					runtime: candidate,
 				}));
 				this.requireActiveMutation(permitState, context, backend);
-				this.validateCommitPostcondition(record, permitState.expectedGeneration + 1, "update");
 				pendingRecovery = undefined;
 				return this.finishExternalCommit(record, relationship, context, backend, permitState.epoch, "update");
 			} catch (error) {
@@ -2362,7 +2300,6 @@ export class SlateStore {
 							backend.read({ context, binding: relationship }),
 						);
 						this.requireActiveMutation(permitState, context, backend);
-						this.validateCommitPostcondition(reconciled, permitState.expectedGeneration + 1, "update", true);
 						pendingRecovery = undefined;
 						return this.finishExternalCommit(reconciled, relationship, context, backend, permitState.epoch, "update");
 					} catch (reconcileError) {
@@ -2372,7 +2309,6 @@ export class SlateStore {
 						throw error;
 					}
 				} else {
-					const revisionConflict = backend.isRevisionConflict(error);
 					this.requireActiveMutation(permitState, context, backend);
 					try {
 						const current = copyRuntimeAuthorityExternalRecord(
@@ -2384,8 +2320,7 @@ export class SlateStore {
 						pendingRecovery = undefined;
 					} catch (restoreError) {
 						if (!this.mutationIsActive(permitState, context, backend)) throw error;
-						const reason = revisionConflict ? "a revision conflict" : "an external mutation failure";
-						this.makeUnavailable(`slate could not restore authority after ${reason}: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`);
+						this.makeUnavailable(`slate could not restore state after an external mutation failure: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`);
 						pendingRecovery = undefined;
 					}
 				}

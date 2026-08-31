@@ -23,7 +23,6 @@ import {
 	createDurableSession,
 	DURABLE_SESSION_POLICY,
 	DurableCommitUncertain,
-	DurableRevisionConflict,
 	readDurableSession,
 	updateDurableSession,
 	type CanonicalSlateRuntime,
@@ -32,8 +31,8 @@ import {
 
 const ID = "20260826T141500Z-0123abcd0123abcd";
 const OTHER_ID = "20260826T141501Z-deadbeefdeadbeef";
-const OWNER = "a".repeat(64);
-const OTHER_OWNER = "b".repeat(64);
+const WRITER = "a".repeat(64);
+const OTHER_WRITER = "b".repeat(64);
 const NAME = "calm-otter-7f3a";
 
 function runtime(overrides: Partial<CanonicalSlateRuntime> = {}): CanonicalSlateRuntime {
@@ -50,8 +49,12 @@ function runtime(overrides: Partial<CanonicalSlateRuntime> = {}): CanonicalSlate
 	};
 }
 
-function activeState(generation: number, value = runtime()): DurableSessionState {
-	return { generation, status: "active", ownerSessionDigest: OWNER, runtime: value };
+function activeState(
+	generation: number,
+	value = runtime(),
+	lastWriterSessionDigest = WRITER,
+): DurableSessionState {
+	return { generation, status: "active", lastWriterSessionDigest, runtime: value };
 }
 
 function persistedRuntime(directory: string): CanonicalSlateRuntime {
@@ -142,7 +145,7 @@ function create(box: Workspace, name = NAME, identity = ID, value = runtime()) {
 		project: box.project,
 		name,
 		identity,
-		creatorOwnerDigest: OWNER,
+		creatorSessionDigest: WRITER,
 		runtime: value,
 		now: new Date("2026-08-26T14:15:00.000Z"),
 	});
@@ -158,18 +161,17 @@ function writeJson(file: string, value: unknown): void {
 
 function mutation(
 	box: Workspace,
-	expectedGeneration: number,
 	name = NAME,
 	identity = ID,
 	value = runtime(),
+	writerSessionDigest = WRITER,
 ) {
 	return {
 		project: box.project,
 		name,
 		identity,
 		cwd: box.cwd,
-		expectedGeneration,
-		ownerSessionDigest: OWNER,
+		writerSessionDigest,
 		runtime: value,
 	};
 }
@@ -207,7 +209,7 @@ test("a durable session publishes complete metadata and active state", () => {
 			currentDirectory: box.cwd,
 			projectKey: box.project.key,
 			projectDigest: box.project.digest,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 		});
 	} finally {
 		box.close();
@@ -220,7 +222,7 @@ test("state updates preserve immutable metadata and omit live runtime configurat
 		const created = create(box);
 		const metadataFile = join(created.directory, "session.json");
 		const before = readFileSync(metadataFile);
-		const updated = updateDurableSession(mutation(box, 0));
+		const updated = updateDurableSession(mutation(box));
 		assert.deepEqual(updated.state, activeState(1));
 		assert.deepEqual(readFileSync(metadataFile), before);
 		const text = before.toString("utf8");
@@ -238,12 +240,12 @@ test("durable storage commits runtime accepted by strict decoding", () => {
 		const created = create(box);
 		materializeArtifacts(created.directory);
 		const initial = persistedRuntime(created.directory);
-		const updated = updateDurableSession(mutation(box, 0, NAME, ID, initial));
+		const updated = updateDurableSession(mutation(box, NAME, ID, initial));
 		assert.deepEqual(updated.state, activeState(1, initial));
 		assert.deepEqual(readDurableSession({ project: box.project, name: NAME }).state, activeState(1, initial));
 
 		const next = runtime({ ...initial, paused: true, workerCostUsd: 2.5 });
-		const replaced = updateDurableSession(mutation(box, 1, NAME, ID, next));
+		const replaced = updateDurableSession(mutation(box, NAME, ID, next));
 		assert.deepEqual(replaced.state, activeState(2, next));
 		assert.deepEqual(readDurableSession({ project: box.project, name: NAME }).state, activeState(2, next));
 	} finally {
@@ -267,7 +269,7 @@ test("durable writers reject malformed nested runtime before publication or repl
 		const created = create(update);
 		const before = readFileSync(join(created.directory, "state.json"));
 		assert.throws(
-			() => updateDurableSession(mutation(update, 0, NAME, ID, runtime({ episodes: [null as unknown as CanonicalSlateRuntime["episodes"][number]] }))),
+			() => updateDurableSession(mutation(update, NAME, ID, runtime({ episodes: [null as unknown as CanonicalSlateRuntime["episodes"][number]] }))),
 			/episode 0 is not an object/,
 		);
 		assert.deepEqual(readFileSync(join(created.directory, "state.json")), before);
@@ -318,7 +320,7 @@ test("canonical runtime validation rejects non-objects before publication and re
 			project: creation.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: [] as unknown as CanonicalSlateRuntime,
 		}), /runtime root is not an object/);
 		assert.equal(existsSync(join(creation.project.directory, NAME)), false);
@@ -331,7 +333,7 @@ test("canonical runtime validation rejects non-objects before publication and re
 		const created = create(update);
 		const before = readFileSync(join(created.directory, "state.json"));
 		assert.throws(() => updateDurableSession({
-			...mutation(update, 0),
+			...mutation(update),
 			runtime: null as unknown as CanonicalSlateRuntime,
 		}), /runtime root is not an object/);
 		assert.deepEqual(readFileSync(join(created.directory, "state.json")), before);
@@ -357,7 +359,7 @@ test("duplicate publication preserves the first namespace", () => {
 
 test("malformed metadata and unsupported policy fail closed", () => {
 	for (const [label, mutate] of [
-		["missing field", (value: Record<string, unknown>) => { delete value.creatorOwnerDigest; }],
+		["missing field", (value: Record<string, unknown>) => { delete value.creatorSessionDigest; }],
 		["unknown field", (value: Record<string, unknown>) => { value.extra = true; }],
 		["unsupported policy", (value: Record<string, unknown>) => { value.policy = "durable-session-v2"; }],
 		["mismatched namespace name", (value: Record<string, unknown>) => { value.name = "brisk-bison-abcd"; }],
@@ -366,7 +368,7 @@ test("malformed metadata and unsupported policy fail closed", () => {
 		["relative current directory", (value: Record<string, unknown>) => { value.currentDirectory = "project"; }],
 		["relative project key", (value: Record<string, unknown>) => { value.projectKey = "project"; }],
 		["invalid project digest", (value: Record<string, unknown>) => { value.projectDigest = "ABC"; }],
-		["invalid provenance", (value: Record<string, unknown>) => { value.creatorOwnerDigest = "owner"; }],
+		["invalid provenance", (value: Record<string, unknown>) => { value.creatorSessionDigest = "bad"; }],
 	] as const) {
 		const box = workspace();
 		try {
@@ -382,10 +384,10 @@ test("malformed metadata and unsupported policy fail closed", () => {
 	}
 });
 
-test("durable state requires exact runtime and mutation-owner fields", () => {
+test("durable state requires exact runtime and writer-provenance fields", () => {
 	for (const [label, mutateState, expected] of [
-		["missing owner", (value: Record<string, unknown>) => { delete value.ownerSessionDigest; }, /invalid mutation owner/],
-		["invalid owner", (value: Record<string, unknown>) => { value.ownerSessionDigest = "bad"; }, /invalid mutation owner/],
+		["missing provenance", (value: Record<string, unknown>) => { delete value.lastWriterSessionDigest; }, /invalid writer provenance/],
+		["invalid provenance", (value: Record<string, unknown>) => { value.lastWriterSessionDigest = "bad"; }, /invalid writer provenance/],
 		["missing runtime", (value: Record<string, unknown>) => { delete value.runtime; }, /malformed active durable session state/],
 		["extra state field", (value: Record<string, unknown>) => { value.extra = true; }, /malformed active durable session state/],
 	] as const) {
@@ -543,7 +545,7 @@ test("canonical reads refuse missing and hard-linked declared artifacts", () => 
 	try {
 		const created = create(missing);
 		materializeArtifacts(created.directory);
-		updateDurableSession(mutation(missing, 0, NAME, ID, persistedRuntime(created.directory)));
+		updateDurableSession(mutation(missing, NAME, ID, persistedRuntime(created.directory)));
 		rmSync(join(created.directory, "episodes", "t1.e1.md"));
 		assert.throws(() => readDurableSession({ project: missing.project, name: NAME }), /unsafe file reference/);
 	} finally {
@@ -553,7 +555,7 @@ test("canonical reads refuse missing and hard-linked declared artifacts", () => 
 	try {
 		const created = create(linked);
 		materializeArtifacts(created.directory);
-		updateDurableSession(mutation(linked, 0, NAME, ID, persistedRuntime(created.directory)));
+		updateDurableSession(mutation(linked, NAME, ID, persistedRuntime(created.directory)));
 		linkSync(join(created.directory, "threads", "t1.jsonl"), join(linked.root, "linked-thread.jsonl"));
 		assert.throws(() => readDurableSession({ project: linked.project, name: NAME }), /unsafe sessionFile/);
 	} finally {
@@ -570,7 +572,7 @@ test("a failed namespace publication leaves only ignored private staging", () =>
 			project: box.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			hooks: {
 				beforeNamespacePublish(path) {
@@ -590,7 +592,7 @@ test("a failed namespace publication leaves only ignored private staging", () =>
 			project: box.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			hooks: { beforeNamespacePublish: () => mkdirSync(join(box.project.directory, NAME)) },
 		}), /duplicate durable session publication/);
@@ -609,13 +611,13 @@ test("creation and read boundaries reject invalid identity, time, and project co
 			project: box.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 		};
 		for (const [label, overrides] of [
 			["identity", { identity: "bad" }],
 			["name", { name: "bad/name" }],
-			["provenance", { creatorOwnerDigest: "bad" }],
+			["provenance", { creatorSessionDigest: "bad" }],
 		] as const) {
 			assert.throws(() => createDurableSession({ ...validOptions, ...overrides }), /invalid/, label);
 		}
@@ -624,7 +626,7 @@ test("creation and read boundaries reject invalid identity, time, and project co
 			project: box.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			now: new Date(Number.NaN),
 		}), /invalid durable session creation time/);
@@ -634,7 +636,7 @@ test("creation and read boundaries reject invalid identity, time, and project co
 			project: forged,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 		}), /different corpus project/);
 		create(box);
@@ -652,7 +654,7 @@ test("creation and read boundaries reject invalid identity, time, and project co
 		);
 		rmSync(box.cwd, { recursive: true });
 		assert.throws(
-			() => updateDurableSession(mutation(box, 0)),
+			() => updateDurableSession(mutation(box)),
 			/current directory is unavailable/,
 		);
 	} finally {
@@ -660,77 +662,58 @@ test("creation and read boundaries reject invalid identity, time, and project co
 	}
 });
 
-test("generation mismatch refuses overwrite and leaves no staged state", () => {
+test("the informational generation never blocks a valid replacement", () => {
 	const box = workspace();
 	try {
 		const created = create(box);
-		const before = readFileSync(join(created.directory, "state.json"));
-		assert.throws(() => updateDurableSession(mutation(box, 1)), /generation mismatch: expected 1, found 0/);
-		assert.deepEqual(readFileSync(join(created.directory, "state.json")), before);
-		assert.equal(readdirSync(created.directory).some((entry) => entry.startsWith(".state-")), false);
-	} finally {
-		box.close();
-	}
-});
-
-test("invalid and exhausted generation inputs refuse replacement", () => {
-	const box = workspace();
-	try {
-		const created = create(box);
-		assert.throws(() => updateDurableSession(mutation(box, -1)), /invalid expected durable session generation/);
 		writeJson(join(created.directory, "state.json"), activeState(Number.MAX_SAFE_INTEGER));
-		assert.throws(
-			() => updateDurableSession(mutation(box, Number.MAX_SAFE_INTEGER)),
-			/generation exhaustion/,
-		);
-		assert.equal(readdirSync(created.directory).some((entry) => entry.startsWith(".state-")), false);
+		const updated = updateDurableSession(mutation(box, NAME, ID, runtime({ workerCostUsd: 4 })));
+		assert.equal(updated.state.generation, Number.MAX_SAFE_INTEGER);
+		assert.equal(updated.state.runtime.workerCostUsd, 4);
 	} finally {
 		box.close();
 	}
 });
 
-test("generation recheck catches a competing writer before the accepted final race window", () => {
+test("a valid overlapping write is not rejected or preserved", () => {
 	const box = workspace();
 	try {
-		const created = create(box);
-		assert.throws(() => updateDurableSession({
-			...mutation(box, 0),
+		create(box);
+		const outerRuntime = runtime({ workerCostUsd: 5 });
+		const updated = updateDurableSession({
+			...mutation(box, NAME, ID, outerRuntime, WRITER),
 			hooks: {
-				beforeGenerationRecheck() {
-					assert.deepEqual(updateDurableSession(mutation(box, 0)).state, activeState(1));
+				beforeStatePublish() {
+					updateDurableSession(mutation(box, NAME, ID, runtime({ workerCostUsd: 8 }), OTHER_WRITER));
 				},
 			},
-		}), /generation mismatch: expected 0, found 1/);
-		assert.deepEqual(readDurableSession({ project: box.project, name: NAME }).state, activeState(1));
-		assert.equal(readdirSync(created.directory).some((entry) => entry.startsWith(".state-")), false);
-		assert.equal(privateStateEntries(box).length, 1);
+		});
+		assert.deepEqual(updated.state, activeState(1, outerRuntime, WRITER));
 	} finally {
 		box.close();
 	}
 });
 
-test("generation recheck rejects a competing terminal transition", () => {
+test("an overlapping terminal write does not enforce lifecycle against another writer", () => {
 	const box = workspace();
 	try {
-		const created = create(box);
-		assert.throws(() => updateDurableSession({
-			...mutation(box, 0),
+		create(box);
+		const updated = updateDurableSession({
+			...mutation(box, NAME, ID, runtime({ workerCostUsd: 6 })),
 			hooks: {
-				beforeGenerationRecheck() {
-					closeDurableSession({ ...mutation(box, 0), outcome: "abandoned" });
+				beforeStatePublish() {
+					closeDurableSession({ ...mutation(box), outcome: "abandoned" });
 				},
 			},
-		}), (error: unknown) => error instanceof DurableRevisionConflict
-			&& error.reason === "terminal" && /terminal durable session/.test(error.message));
-		assert.equal(readDurableSession({ project: box.project, name: NAME }).state.status, "abandoned");
-		assert.equal(readdirSync(created.directory).some((entry) => entry.startsWith(".state-")), false);
-		assert.equal(privateStateEntries(box).length, 1);
+		});
+		assert.equal(updated.state.status, "active");
+		assert.equal(updated.state.runtime.workerCostUsd, 6);
 	} finally {
 		box.close();
 	}
 });
 
-test("delivered and abandoned transitions advance one generation and preserve runtime", () => {
+test("delivered and abandoned history advances one generation and preserves runtime", () => {
 	for (const [index, outcome] of ["delivered", "abandoned"].entries()) {
 		const box = workspace();
 		try {
@@ -738,7 +721,7 @@ test("delivered and abandoned transitions advance one generation and preserve ru
 			const terminalRuntime = runtime({ paused: true, workerCostUsd: index + 0.5 });
 			create(box, name, ID, terminalRuntime);
 			const closed = closeDurableSession({
-				...mutation(box, 0, name),
+				...mutation(box, name),
 				outcome: outcome as "delivered" | "abandoned",
 				now: new Date("2026-08-26T15:00:00.000Z"),
 			});
@@ -746,7 +729,7 @@ test("delivered and abandoned transitions advance one generation and preserve ru
 				generation: 1,
 				status: outcome,
 				terminalAt: "2026-08-26T15:00:00.000Z",
-				ownerSessionDigest: OWNER,
+				lastWriterSessionDigest: WRITER,
 				runtime: terminalRuntime,
 			});
 		} finally {
@@ -755,16 +738,16 @@ test("delivered and abandoned transitions advance one generation and preserve ru
 	}
 });
 
-test("terminal transitions reject invalid outcomes and times", () => {
+test("terminal history rejects invalid outcomes and times", () => {
 	const box = workspace();
 	try {
 		create(box);
 		assert.throws(
-			() => closeDurableSession({ ...mutation(box, 0), outcome: "active" as "delivered" }),
+			() => closeDurableSession({ ...mutation(box), outcome: "active" as "delivered" }),
 			/unsupported durable session terminal outcome/,
 		);
 		assert.throws(
-			() => closeDurableSession({ ...mutation(box, 0), outcome: "delivered", now: new Date(Number.NaN) }),
+			() => closeDurableSession({ ...mutation(box), outcome: "delivered", now: new Date(Number.NaN) }),
 			/invalid durable session terminal time/,
 		);
 		assert.deepEqual(readDurableSession({ project: box.project, name: NAME }).state, activeState(0));
@@ -773,18 +756,23 @@ test("terminal transitions reject invalid outcomes and times", () => {
 	}
 });
 
-test("terminal state rejects later update and closure", () => {
+test("terminal history does not block later state saves", () => {
 	const box = workspace();
 	try {
-		const created = create(box);
-		closeDurableSession({ ...mutation(box, 0), outcome: "delivered", now: new Date("2026-08-26T15:00:00.000Z") });
-		const before = readFileSync(join(created.directory, "state.json"));
-		assert.throws(() => updateDurableSession(mutation(box, 1)), /terminal durable session/);
-		assert.throws(
-			() => closeDurableSession({ ...mutation(box, 1), outcome: "abandoned" }),
-			/terminal durable session/,
-		);
-		assert.deepEqual(readFileSync(join(created.directory, "state.json")), before);
+		create(box);
+		closeDurableSession({ ...mutation(box), outcome: "delivered", now: new Date("2026-08-26T15:00:00.000Z") });
+		const updated = updateDurableSession(mutation(
+			box,
+			NAME,
+			ID,
+			runtime({ workerCostUsd: 9 }),
+			OTHER_WRITER,
+		));
+		assert.equal(updated.state.status, "delivered");
+		assert.equal(updated.state.lastWriterSessionDigest, OTHER_WRITER);
+		assert.equal(updated.state.runtime.workerCostUsd, 9);
+		const closed = closeDurableSession({ ...mutation(box), outcome: "abandoned" });
+		assert.equal(closed.state.status, "abandoned");
 	} finally {
 		box.close();
 	}
@@ -800,7 +788,7 @@ test("publication refuses removed records and required child directories", () =>
 				project: box.project,
 				name: NAME,
 				identity: ID,
-				creatorOwnerDigest: OWNER,
+				creatorSessionDigest: WRITER,
 				runtime: runtime(),
 				hooks: { beforeNamespacePublish(path) { staged = path; rmSync(join(path, child), { recursive: true }); } },
 			}), /incomplete|non-regular/);
@@ -822,7 +810,7 @@ test("publication refuses staged directory and individual record replacement", (
 			project: replaced.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			hooks: {
 				beforeNamespacePublish(path) {
@@ -850,7 +838,7 @@ test("publication refuses staged directory and individual record replacement", (
 				project: box.project,
 				name: NAME,
 				identity: ID,
-				creatorOwnerDigest: OWNER,
+				creatorSessionDigest: WRITER,
 				runtime: runtime(),
 				hooks: {
 					beforeNamespacePublish(path) {
@@ -917,15 +905,15 @@ test("creation fails closed on a malformed session-named sibling", () => {
 	}
 });
 
-test("generation recheck refuses a hard-linked staged state before rename", () => {
+test("state publication refuses a hard-linked staged state before rename", () => {
 	const box = workspace();
 	try {
 		const created = create(box);
 		const before = readFileSync(join(created.directory, "state.json"));
 		assert.throws(() => updateDurableSession({
-			...mutation(box, 0),
+			...mutation(box),
 			hooks: {
-				beforeGenerationRecheck() {
+				beforeStatePublish() {
 					const staged = privateStateEntries(box)[0];
 					assert.ok(staged);
 					linkSync(join(box.project.directory, staged), join(box.root, "externally-writable-state.json"));
@@ -938,7 +926,7 @@ test("generation recheck refuses a hard-linked staged state before rename", () =
 	}
 });
 
-test("generation recheck refuses every stable metadata change", () => {
+test("state publication refuses every stable metadata change", () => {
 	const box = workspace();
 	try {
 		execFileSync("git", ["init", "-q"], { cwd: box.cwd });
@@ -947,9 +935,9 @@ test("generation recheck refuses every stable metadata change", () => {
 		mkdirSync(nested);
 		const created = create(box);
 		assert.throws(() => updateDurableSession({
-			...mutation(box, 0),
+			...mutation(box),
 			hooks: {
-				beforeGenerationRecheck() {
+				beforeStatePublish() {
 					const metadata = parse(join(created.directory, "session.json"));
 					metadata.currentDirectory = nested;
 					writeJson(join(created.directory, "session.json"), metadata);
@@ -972,7 +960,7 @@ test("failed record writes leave no unmanaged state in the authoritative namespa
 			project: creation.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			hooks: {
 				beforeRecordWrite(file) {
@@ -995,7 +983,7 @@ test("failed record writes leave no unmanaged state in the authoritative namespa
 			const before = readFileSync(join(created.directory, "state.json"));
 			const fail = () => { throw new Error(`forced update ${failure} failure`); };
 			assert.throws(() => updateDurableSession({
-				...mutation(update, 0),
+				...mutation(update),
 				hooks: failure === "write" ? { beforeRecordWrite: fail } : { beforeRecordFsync: fail },
 			}), /could not replace/);
 			assert.deepEqual(readFileSync(join(created.directory, "state.json")), before);
@@ -1007,7 +995,7 @@ test("failed record writes leave no unmanaged state in the authoritative namespa
 				() => readDurableSession({ project: update.project, name: privateEntry, identity: ID }),
 				/invalid durable session name/,
 			);
-			assert.deepEqual(updateDurableSession(mutation(update, 0)).state, activeState(1));
+			assert.deepEqual(updateDurableSession(mutation(update)).state, activeState(1));
 			assert.equal(existsSync(join(update.project.directory, privateEntry)), true);
 		} finally {
 			update.close();
@@ -1021,9 +1009,9 @@ test("cleanup never unlinks a pathname replaced with authoritative state", () =>
 		const created = create(box);
 		let swapped = "";
 		assert.throws(() => updateDurableSession({
-			...mutation(box, 0),
+			...mutation(box),
 			hooks: {
-				beforeGenerationRecheck() {
+				beforeStatePublish() {
 					const staged = privateStateEntries(box)[0];
 					assert.ok(staged);
 					swapped = join(box.project.directory, staged);
@@ -1048,7 +1036,7 @@ test("random staging-name failure happens before opening the namespace", () => {
 		const before = existsSync(descriptorDirectory) ? readdirSync(descriptorDirectory).length : undefined;
 		for (let index = 0; index < 40; index++) {
 			assert.throws(() => updateDurableSession({
-				...mutation(box, 0),
+				...mutation(box),
 				hooks: { drawStateNonce: () => { throw new Error("forced random failure"); } },
 			}), /could not prepare/);
 		}
@@ -1058,7 +1046,7 @@ test("random staging-name failure happens before opening the namespace", () => {
 	}
 });
 
-test("every durable transition performs its required directory syncs", () => {
+test("every durable state publication performs its required directory syncs", () => {
 	const box = workspace();
 	try {
 		const points: string[] = [];
@@ -1067,14 +1055,14 @@ test("every durable transition performs its required directory syncs", () => {
 			project: box.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			hooks: { syncDirectory: (_directory, point) => { points.push(point); } },
 		});
 		assert.deepEqual(points, ["staged-namespace", "project-before-publication", "project-after-publication"]);
 		points.length = 0;
 		updateDurableSession({
-			...mutation(box, 0),
+			...mutation(box),
 			hooks: { syncDirectory: (_directory, point) => { points.push(point); } },
 		});
 		assert.deepEqual(points, ["staged-state", "published-state", "project-after-state-publication"]);
@@ -1083,7 +1071,7 @@ test("every durable transition performs its required directory syncs", () => {
 	}
 });
 
-test("creation uncertainty surfaces a newer same-owner visible generation without deleting it", () => {
+test("creation uncertainty surfaces newer valid state without deleting it", () => {
 	const box = workspace();
 	try {
 		const newerRuntime = runtime({ orchestratorMode: true, workerCostUsd: 2 });
@@ -1093,12 +1081,12 @@ test("creation uncertainty surfaces a newer same-owner visible generation withou
 			project: box.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			hooks: {
 				syncDirectory(_directory, point) {
 					if (point !== "project-after-publication") return;
-					const newer = updateDurableSession(mutation(box, 0, NAME, ID, newerRuntime));
+					const newer = updateDurableSession(mutation(box, NAME, ID, newerRuntime));
 					assert.deepEqual(newer.state, activeState(1, newerRuntime));
 					throw new Error("forced final creation sync failure after a newer external commit");
 				},
@@ -1114,22 +1102,19 @@ test("creation uncertainty surfaces a newer same-owner visible generation withou
 	}
 });
 
-test("creation uncertainty does not surface or delete foreign-owner visible authority", () => {
+test("creation uncertainty surfaces valid different-writer provenance", () => {
 	const box = workspace();
 	try {
 		const directory = join(box.project.directory, NAME);
 		const stateFile = join(directory, "state.json");
 		const foreignRuntime = runtime({ paused: true, carriedCostUsd: 3 });
-		const foreignState: DurableSessionState = {
-			...activeState(0, foreignRuntime),
-			ownerSessionDigest: OTHER_OWNER,
-		};
+		const foreignState: DurableSessionState = activeState(0, foreignRuntime, OTHER_WRITER);
 		const error = captureUncertain(() => createDurableSession({
 			cwd: box.cwd,
 			project: box.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			hooks: {
 				syncDirectory(_directory, point) {
@@ -1137,12 +1122,12 @@ test("creation uncertainty does not surface or delete foreign-owner visible auth
 					const foreignFile = join(directory, ".foreign-state.json");
 					writeJson(foreignFile, foreignState);
 					renameSync(foreignFile, stateFile);
-					throw new Error("forced final creation sync failure after a foreign-owner replacement");
+					throw new Error("forced final creation sync failure after a different writer");
 				},
 			},
 		}));
 		assert.equal(error.operation, "create");
-		assert.equal(error.record, undefined);
+		assert.deepEqual(error.record?.state, foreignState);
 		assert.deepEqual(readDurableSession({ project: box.project, name: NAME }).state, foreignState);
 		assert.deepEqual(readdirSync(directory).sort(), ["episodes", "observations", "session.json", "state.json", "threads"]);
 		assert.deepEqual(parse(stateFile), foreignState);
@@ -1151,7 +1136,7 @@ test("creation uncertainty does not surface or delete foreign-owner visible auth
 	}
 });
 
-test("post-rename sync failures report reconciled visible authority", () => {
+test("post-rename sync failures report reconciled visible state", () => {
 	const creation = workspace();
 	try {
 		const error = captureUncertain(() => createDurableSession({
@@ -1159,7 +1144,7 @@ test("post-rename sync failures report reconciled visible authority", () => {
 			project: creation.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			hooks: {
 				syncDirectory(_directory, point) {
@@ -1181,13 +1166,13 @@ test("post-rename sync failures report reconciled visible authority", () => {
 			project: damaged.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			hooks: {
 				syncDirectory(_directory, point) {
 					if (point !== "project-after-publication") return;
 					rmSync(join(damaged.project.directory, NAME, "state.json"));
-					throw new Error("forced final sync failure with damaged authority");
+					throw new Error("forced final sync failure with damaged state");
 				},
 			},
 		}));
@@ -1202,7 +1187,7 @@ test("post-rename sync failures report reconciled visible authority", () => {
 	try {
 		const created = create(update);
 		const error = captureUncertain(() => updateDurableSession({
-			...mutation(update, 0, NAME, ID, runtime({ paused: true })),
+			...mutation(update, NAME, ID, runtime({ paused: true })),
 			hooks: {
 				syncDirectory(_directory, point) {
 					if (point === "published-state") throw new Error("forced final update sync failure");
@@ -1222,11 +1207,11 @@ test("post-rename sync failures report reconciled visible authority", () => {
 		create(advanced);
 		const newerRuntime = runtime({ orchestratorMode: true, workerCostUsd: 2 });
 		const error = captureUncertain(() => updateDurableSession({
-			...mutation(advanced, 0, NAME, ID, runtime({ paused: true })),
+			...mutation(advanced, NAME, ID, runtime({ paused: true })),
 			hooks: {
 				syncDirectory(_directory, point) {
 					if (point !== "published-state") return;
-					const newer = updateDurableSession(mutation(advanced, 1, NAME, ID, newerRuntime));
+					const newer = updateDurableSession(mutation(advanced, NAME, ID, newerRuntime));
 					assert.deepEqual(newer.state, activeState(2, newerRuntime));
 					throw new Error("forced final sync failure after a newer external commit");
 				},
@@ -1239,26 +1224,26 @@ test("post-rename sync failures report reconciled visible authority", () => {
 		advanced.close();
 	}
 
-	const changedOwner = workspace();
+	const changedWriter = workspace();
 	try {
-		const created = create(changedOwner);
+		const created = create(changedWriter);
 		const error = captureUncertain(() => updateDurableSession({
-			...mutation(changedOwner, 0, NAME, ID, runtime({ paused: true })),
+			...mutation(changedWriter, NAME, ID, runtime({ paused: true })),
 			hooks: {
 				syncDirectory(_directory, point) {
 					if (point !== "published-state") return;
 					const state = parse(join(created.directory, "state.json"));
-					state.ownerSessionDigest = OTHER_OWNER;
+					state.lastWriterSessionDigest = OTHER_WRITER;
 					writeJson(join(created.directory, "state.json"), state);
-					throw new Error("forced final sync failure after an owner change");
+					throw new Error("forced final sync failure after a writer change");
 				},
 			},
 		}));
-		assert.equal(error.record, undefined);
-		assert.equal(readDurableSession({ project: changedOwner.project, name: NAME }).state.ownerSessionDigest, OTHER_OWNER);
+		assert.equal(error.record?.state.lastWriterSessionDigest, OTHER_WRITER);
+		assert.equal(readDurableSession({ project: changedWriter.project, name: NAME }).state.lastWriterSessionDigest, OTHER_WRITER);
 		assert.equal(existsSync(join(created.directory, "state.json")), true);
 	} finally {
-		changedOwner.close();
+		changedWriter.close();
 	}
 });
 
@@ -1271,14 +1256,14 @@ test("the production sync branch reports completed held-directory fsyncs", () =>
 			project: box.project,
 			name: NAME,
 			identity: ID,
-			creatorOwnerDigest: OWNER,
+			creatorSessionDigest: WRITER,
 			runtime: runtime(),
 			hooks: {
 				observeDirectorySync: (_directory, point, source) => { observed.push({ point, source }); },
 			},
 		});
 		updateDurableSession({
-			...mutation(box, 0),
+			...mutation(box),
 			hooks: {
 				observeDirectorySync: (_directory, point, source) => { observed.push({ point, source }); },
 			},
@@ -1318,11 +1303,11 @@ test("identity, project, and exact current-directory mismatches refuse mutation"
 		execFileSync("git", ["init", "-q"], { cwd: box.cwd });
 		box.project = resolveCorpusProject(box.cwd, "records");
 		create(box);
-		assert.throws(() => updateDurableSession(mutation(box, 0, NAME, OTHER_ID)), /identity mismatch/);
+		assert.throws(() => updateDurableSession(mutation(box, NAME, OTHER_ID)), /identity mismatch/);
 		const otherDirectory = join(box.cwd, "nested");
 		mkdirSync(otherDirectory);
 		assert.throws(
-			() => updateDurableSession({ ...mutation(box, 0), cwd: otherDirectory }),
+			() => updateDurableSession({ ...mutation(box), cwd: otherDirectory }),
 			/different current directory/,
 		);
 		const foreignProject = { ...box.project, key: otherDirectory };
@@ -1335,59 +1320,38 @@ test("identity, project, and exact current-directory mismatches refuse mutation"
 	}
 });
 
-test("mutations require the stable external owner before and during replacement", () => {
+test("writer provenance is validated but never grants or blocks access", () => {
 	const box = workspace();
 	try {
-		const created = create(box);
-		const stateFile = join(created.directory, "state.json");
-		const before = readFileSync(stateFile);
+		create(box);
 		assert.throws(
-			() => updateDurableSession({ ...mutation(box, 0), ownerSessionDigest: "bad" }),
-			/invalid durable session mutation owner/,
+			() => updateDurableSession({ ...mutation(box), writerSessionDigest: "bad" }),
+			/invalid durable writer provenance/,
 		);
-		assert.throws(
-			() => updateDurableSession({ ...mutation(box, 0), ownerSessionDigest: OTHER_OWNER }),
-			/mutation by a different owner/,
-		);
-		assert.throws(
-			() => closeDurableSession({ ...mutation(box, 0), ownerSessionDigest: OTHER_OWNER, outcome: "delivered" }),
-			/mutation by a different owner/,
-		);
-		assert.deepEqual(readFileSync(stateFile), before);
-		assert.deepEqual(privateStateEntries(box), []);
-
-		assert.throws(() => updateDurableSession({
-			...mutation(box, 0),
-			hooks: {
-				beforeGenerationRecheck() {
-					const changed = parse(stateFile);
-					changed.ownerSessionDigest = OTHER_OWNER;
-					writeJson(stateFile, changed);
-				},
-			},
-		}), /mutation by a different owner/);
-		assert.equal(parse(stateFile).ownerSessionDigest, OTHER_OWNER);
-		assert.equal(privateStateEntries(box).length, 1);
+		const updated = updateDurableSession({ ...mutation(box), writerSessionDigest: OTHER_WRITER });
+		assert.equal(updated.state.lastWriterSessionDigest, OTHER_WRITER);
+		const closed = closeDurableSession({ ...mutation(box), writerSessionDigest: WRITER, outcome: "delivered" });
+		assert.equal(closed.state.lastWriterSessionDigest, WRITER);
 	} finally {
 		box.close();
 	}
 });
 
-test("generation recheck refuses same-generation runtime replacement", () => {
+test("a same-generation replacement is not treated as a conflict", () => {
 	const box = workspace();
 	try {
 		const created = create(box);
 		const stateFile = join(created.directory, "state.json");
-		assert.throws(() => updateDurableSession({
-			...mutation(box, 0, NAME, ID, runtime({ paused: true })),
+		const outer = runtime({ paused: true });
+		const updated = updateDurableSession({
+			...mutation(box, NAME, ID, outer),
 			hooks: {
-				beforeGenerationRecheck() {
+				beforeStatePublish() {
 					writeJson(stateFile, activeState(0, runtime({ orchestratorMode: true })));
 				},
 			},
-		}), /state modified during replacement/);
-		assert.deepEqual(parse(stateFile), activeState(0, runtime({ orchestratorMode: true })));
-		assert.equal(privateStateEntries(box).length, 1);
+		});
+		assert.deepEqual(updated.state.runtime, outer);
 	} finally {
 		box.close();
 	}
@@ -1413,7 +1377,7 @@ test("durable storage and legacy namespaces do not reinterpret each other", () =
 				project: box.project,
 				name: legacy.name,
 				identity: ID,
-				creatorOwnerDigest: OWNER,
+				creatorSessionDigest: WRITER,
 				runtime: runtime(),
 			}),
 			/duplicate durable session publication/,

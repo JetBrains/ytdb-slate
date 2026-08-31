@@ -8,7 +8,6 @@ import {
 	createDurableSession,
 	DURABLE_SESSION_POLICY,
 	DurableCommitUncertain,
-	DurableRevisionConflict,
 	readDurableSession,
 	updateDurableSession,
 	type DurableSessionHooks,
@@ -28,13 +27,11 @@ import {
 export const SLATE_BINDING_CUSTOM_TYPE = "slate-binding" as const;
 export const LEGACY_SLATE_STATE_CUSTOM_TYPE = "slate-state" as const;
 
-/** A Pi-held locator. Its generation is advisory and its other fields only identify external authority. */
+/** A Pi-held locator. It identifies one durable namespace and grants no write access. */
 export interface SlateBindingRecord {
 	readonly policy: typeof DURABLE_SESSION_POLICY;
 	readonly identity: string;
 	readonly name: string;
-	readonly ownerSessionDigest: string;
-	readonly generation: number;
 }
 
 export type RuntimeAuthorityRefusal =
@@ -50,7 +47,7 @@ export type RuntimeAuthorityClassification =
 	| { readonly kind: "durable"; readonly binding: SlateBindingRecord }
 	| { readonly kind: "refused"; readonly reason: RuntimeAuthorityRefusal; readonly message: string };
 
-const BINDING_KEYS = ["policy", "identity", "name", "ownerSessionDigest", "generation"] as const;
+const BINDING_KEYS = ["policy", "identity", "name"] as const;
 const INVALID_DATA = Symbol("invalid-data");
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -76,13 +73,11 @@ function clonePlainData(value: unknown): unknown | typeof INVALID_DATA {
 export function parseSlateBindingRecord(value: unknown): SlateBindingRecord | undefined {
 	const snapshot = clonePlainData(value);
 	if (snapshot === INVALID_DATA || !object(snapshot) || !exactKeys(snapshot, BINDING_KEYS)) return undefined;
-	const { policy, identity, name, ownerSessionDigest, generation } = snapshot;
-	if (policy !== DURABLE_SESSION_POLICY || !isSlateSessionId(identity)
-		|| !isSlateSessionName(name) || !isOwnerSessionDigest(ownerSessionDigest)
-		|| !Number.isSafeInteger(generation) || (generation as number) < 0) {
+	const { policy, identity, name } = snapshot;
+	if (policy !== DURABLE_SESSION_POLICY || !isSlateSessionId(identity) || !isSlateSessionName(name)) {
 		return undefined;
 	}
-	return { policy, identity, name, ownerSessionDigest, generation: generation as number };
+	return { policy, identity, name };
 }
 
 interface CollectedEvidence {
@@ -102,8 +97,7 @@ function collect(entries: readonly unknown[], customType: string): CollectedEvid
 }
 
 function sameRelationship(left: SlateBindingRecord, right: SlateBindingRecord): boolean {
-	return left.policy === right.policy && left.identity === right.identity && left.name === right.name
-		&& left.ownerSessionDigest === right.ownerSessionDigest;
+	return left.policy === right.policy && left.identity === right.identity && left.name === right.name;
 }
 
 function validLegacyGraph(threads: ThreadRecord[], episodes: EpisodeRecord[]): boolean {
@@ -215,7 +209,7 @@ function refused(reason: RuntimeAuthorityRefusal, message: string): RuntimeAutho
 export function createRuntimeAuthorityContext(options: {
 	key: string;
 	cwd: string;
-	ownerSessionDigest: string;
+	sessionDigest: string;
 	project: RuntimeAuthorityContext["project"];
 	report?: (message: string) => void;
 }): RuntimeAuthorityContext {
@@ -246,7 +240,7 @@ export function createRuntimeAuthorityBackend(
 				project: options.context.project,
 				identity: options.identity,
 				name: options.name,
-				creatorOwnerDigest: options.context.ownerSessionDigest,
+				creatorSessionDigest: options.context.sessionDigest,
 				runtime: options.runtime,
 				...(hooks.durable !== undefined ? { hooks: hooks.durable } : {}),
 			});
@@ -265,8 +259,7 @@ export function createRuntimeAuthorityBackend(
 				name: options.binding.name,
 				identity: options.binding.identity,
 				cwd: options.context.cwd,
-				expectedGeneration: options.expectedGeneration,
-				ownerSessionDigest: options.context.ownerSessionDigest,
+				writerSessionDigest: options.context.sessionDigest,
 				runtime: options.runtime,
 				...(hooks.durable !== undefined ? { hooks: hooks.durable } : {}),
 			});
@@ -276,9 +269,6 @@ export function createRuntimeAuthorityBackend(
 		},
 		isCommitUncertain(error: unknown): boolean {
 			return error instanceof DurableCommitUncertain;
-		},
-		isRevisionConflict(error: unknown): boolean {
-			return error instanceof DurableRevisionConflict;
 		},
 	};
 }

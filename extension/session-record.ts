@@ -53,12 +53,14 @@ export interface DurableSessionMetadata {
 	currentDirectory: string;
 	projectKey: string;
 	projectDigest: string;
-	creatorOwnerDigest: string;
+	creatorSessionDigest: string;
 }
 
 interface DurableSessionStateBase {
+	/** Informational write sequence. It does not reject or authorize a writer. */
 	generation: number;
-	ownerSessionDigest: string;
+	/** Provenance for the last saved state. It grants no ownership. */
+	lastWriterSessionDigest: string;
 	runtime: CanonicalSlateRuntime;
 }
 
@@ -70,19 +72,6 @@ export interface DurableSessionRecord {
 	directory: string;
 	metadata: DurableSessionMetadata;
 	state: DurableSessionState;
-}
-
-export type DurableRevisionConflictReason = "generation" | "terminal" | "metadata" | "owner" | "state";
-
-/** The attempted mutation no longer follows the external revision that authorized it. */
-export class DurableRevisionConflict extends SlateWriteRefused {
-	readonly reason: DurableRevisionConflictReason;
-
-	constructor(reason: DurableRevisionConflictReason, message: string) {
-		super(message);
-		this.name = "DurableRevisionConflict";
-		this.reason = reason;
-	}
 }
 
 /** A rename became visible, but final directory durability could not be established. */
@@ -114,7 +103,8 @@ export type DurableDirectorySyncSource = "hook" | "fsync";
 export interface DurableSessionHooks {
 	/** Deterministic test seams. The dormant production module has no callers that pass them. */
 	beforeNamespacePublish?: (stagingDirectory: string) => void;
-	beforeGenerationRecheck?: () => void;
+	beforeStatePublish?: () => void;
+	afterStatePublish?: () => void;
 	beforeRecordWrite?: (file: string, fd: number) => void;
 	beforeRecordFsync?: (file: string, fd: number) => void;
 	drawStateNonce?: () => string;
@@ -140,15 +130,11 @@ const METADATA_KEYS = [
 	"currentDirectory",
 	"projectKey",
 	"projectDigest",
-	"creatorOwnerDigest",
+	"creatorSessionDigest",
 ] as const;
 
 function refuse(message: string, cause?: unknown): never {
 	throw new SlateWriteRefused(message, cause === undefined ? undefined : { cause });
-}
-
-function refuseRevision(reason: DurableRevisionConflictReason, message: string): never {
-	throw new DurableRevisionConflict(reason, message);
 }
 
 function exactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
@@ -201,7 +187,7 @@ function validateMetadata(raw: unknown, project: CorpusProject, name: string, id
 	if (typeof value.projectDigest !== "string" || !/^[0-9a-f]{12}$/.test(value.projectDigest)) {
 		refuse("slate refused an invalid durable session project digest");
 	}
-	if (!isOwnerSessionDigest(value.creatorOwnerDigest)) refuse("slate refused invalid durable session creation provenance");
+	if (!isOwnerSessionDigest(value.creatorSessionDigest)) refuse("slate refused invalid durable session creation provenance");
 	if (value.projectKey !== project.key || value.projectDigest !== project.digest) {
 		refuse("slate refused durable session metadata for a different corpus project");
 	}
@@ -227,14 +213,12 @@ function existingCanonicalArtifact(context: RuntimeDecodeContext, absolutePath: 
 	}
 }
 
-function decodeRuntime(raw: unknown, ownerSessionDigest: string, context: RuntimeDecodeContext): CanonicalSlateRuntime {
+function decodeRuntime(raw: unknown, context: RuntimeDecodeContext): CanonicalSlateRuntime {
 	try {
 		return decodeCanonicalRuntime({
 			runtime: raw,
 			externalIdentity: context.metadata.identity,
-			externalOwnerSessionDigest: ownerSessionDigest,
 			expectedIdentity: context.metadata.identity,
-			expectedOwnerSessionDigest: ownerSessionDigest,
 			namespaceName: context.metadata.name,
 			namespaceDirectory: context.canonicalDirectory,
 			artifactPathAllowed: (_kind, path) => existingCanonicalArtifact(context, path),
@@ -253,18 +237,18 @@ function validateState(raw: unknown, context: RuntimeDecodeContext): DurableSess
 	if (!Number.isSafeInteger(value.generation) || (value.generation as number) < 0) {
 		refuse("slate refused an invalid durable session generation");
 	}
-	if (!isOwnerSessionDigest(value.ownerSessionDigest)) {
-		refuse("slate refused durable session state with an invalid mutation owner");
+	if (!isOwnerSessionDigest(value.lastWriterSessionDigest)) {
+		refuse("slate refused durable session state with invalid writer provenance");
 	}
 	let status: DurableSessionStatus;
 	let terminalAt: string | undefined;
 	if (value.status === "active") {
-		if (!exactKeys(value, ["generation", "status", "ownerSessionDigest", "runtime"])) {
+		if (!exactKeys(value, ["generation", "status", "lastWriterSessionDigest", "runtime"])) {
 			refuse("slate refused malformed active durable session state");
 		}
 		status = "active";
 	} else if (value.status === "delivered" || value.status === "abandoned") {
-		if (!exactKeys(value, ["generation", "status", "terminalAt", "ownerSessionDigest", "runtime"])
+		if (!exactKeys(value, ["generation", "status", "terminalAt", "lastWriterSessionDigest", "runtime"])
 			|| !canonicalTimestamp(value.terminalAt)) {
 			refuse("slate refused malformed terminal durable session state");
 		}
@@ -273,10 +257,10 @@ function validateState(raw: unknown, context: RuntimeDecodeContext): DurableSess
 	} else {
 		refuse("slate refused an unsupported durable session status");
 	}
-	const runtime = decodeRuntime(value.runtime, value.ownerSessionDigest, context);
+	const runtime = decodeRuntime(value.runtime, context);
 	const base = {
 		generation: value.generation as number,
-		ownerSessionDigest: value.ownerSessionDigest,
+		lastWriterSessionDigest: value.lastWriterSessionDigest,
 		runtime,
 	};
 	return status === "active"
@@ -403,7 +387,7 @@ function sameMetadata(left: DurableSessionMetadata, right: DurableSessionMetadat
 
 function sameState(left: DurableSessionState, right: DurableSessionState): boolean {
 	return left.generation === right.generation && left.status === right.status
-		&& left.ownerSessionDigest === right.ownerSessionDigest
+		&& left.lastWriterSessionDigest === right.lastWriterSessionDigest
 		&& JSON.stringify(left.runtime) === JSON.stringify(right.runtime)
 		&& (left.status === "active" || (right.status !== "active" && left.terminalAt === right.terminalAt));
 }
@@ -535,7 +519,7 @@ export function createDurableSession(options: {
 	cwd: string;
 	identity: string;
 	name: string;
-	creatorOwnerDigest: string;
+	creatorSessionDigest: string;
 	runtime: CanonicalSlateRuntime;
 	project?: CorpusProject;
 	corpusName?: unknown;
@@ -544,7 +528,7 @@ export function createDurableSession(options: {
 }): DurableSessionRecord {
 	if (!isSlateSessionId(options.identity)) refuse("slate refused an invalid durable session identity");
 	if (!isSlateSessionName(options.name)) refuse("slate refused an invalid durable session name");
-	if (!isOwnerSessionDigest(options.creatorOwnerDigest)) refuse("slate refused invalid durable session creation provenance");
+	if (!isOwnerSessionDigest(options.creatorSessionDigest)) refuse("slate refused invalid durable session creation provenance");
 	const project = options.project ?? resolveCorpusProject(options.cwd, options.corpusName);
 	const liveProject = resolveCorpusProject(options.cwd, project.label);
 	if (project.root !== liveProject.root || project.key !== liveProject.key || project.digest !== liveProject.digest
@@ -567,7 +551,7 @@ export function createDurableSession(options: {
 		currentDirectory,
 		projectKey: project.key,
 		projectDigest: project.digest,
-		creatorOwnerDigest: options.creatorOwnerDigest,
+		creatorSessionDigest: options.creatorSessionDigest,
 	};
 	validateMetadata(metadata, project, options.name, options.identity);
 	const directory = sessionDirectory(project, options.name);
@@ -590,8 +574,8 @@ export function createDurableSession(options: {
 		stagedState = {
 			generation: 0,
 			status: "active",
-			ownerSessionDigest: options.creatorOwnerDigest,
-			runtime: decodeRuntime(options.runtime, options.creatorOwnerDigest, {
+			lastWriterSessionDigest: options.creatorSessionDigest,
+			runtime: decodeRuntime(options.runtime, {
 				metadata,
 				directory: stagingHeld,
 				canonicalDirectory: directory,
@@ -633,9 +617,6 @@ export function createDurableSession(options: {
 			let cause = error;
 			try {
 				const reconciled = validateNamespace(project, options.name, stagingHeld, metadata);
-				if (reconciled.state.ownerSessionDigest !== options.creatorOwnerDigest) {
-					refuse("slate refused reconciled durable session state owned by a different session");
-				}
 				record = { directory, metadata: reconciled.metadata, state: reconciled.state };
 			} catch (reconcileError) {
 				cause = new AggregateError([error, reconcileError], "visible durable session publication could not be reconciled");
@@ -671,18 +652,14 @@ function replaceState(options: {
 	name: string;
 	identity: string;
 	cwd: string;
-	expectedGeneration: number;
-	ownerSessionDigest: string;
-	nextStatus: DurableSessionStatus;
+	writerSessionDigest: string;
+	nextStatus?: DurableSessionStatus;
 	runtime?: CanonicalSlateRuntime;
 	terminalAt?: string;
 	hooks?: DurableSessionHooks;
 }): DurableSessionRecord {
-	if (!Number.isSafeInteger(options.expectedGeneration) || options.expectedGeneration < 0) {
-		refuse("slate refused an invalid expected durable session generation");
-	}
-	if (!isOwnerSessionDigest(options.ownerSessionDigest)) {
-		refuse("slate refused an invalid durable session mutation owner");
+	if (!isOwnerSessionDigest(options.writerSessionDigest)) {
+		refuse("slate refused invalid durable writer provenance");
 	}
 	let nonce: string;
 	try {
@@ -704,41 +681,44 @@ function replaceState(options: {
 	const stateFile = join(opened.directory, "state.json");
 	const staging = join(options.project.directory, `.staging-durable-state-${options.name}-${process.pid}-${nonce}.tmp`);
 	let stagingStat: Stats | undefined;
-	let candidate: DurableSessionState | undefined;
 	let publicationVisible = false;
 	try {
-		if (opened.state.status !== "active") {
-			refuseRevision("terminal", "slate refused mutation of a terminal durable session");
-		}
-		if (opened.state.ownerSessionDigest !== options.ownerSessionDigest) {
-			refuseRevision("owner", "slate refused durable session mutation by a different owner");
-		}
-		if (opened.state.generation !== options.expectedGeneration) {
-			refuseRevision("generation", `slate refused durable session generation mismatch: expected ${options.expectedGeneration}, found ${opened.state.generation}`);
-		}
-		const nextGeneration = options.expectedGeneration + 1;
-		if (!Number.isSafeInteger(nextGeneration)) refuse("slate refused durable session generation exhaustion");
-		candidate = options.nextStatus === "active"
-			? {
+		const nextGeneration = opened.state.generation === Number.MAX_SAFE_INTEGER
+			? opened.state.generation
+			: opened.state.generation + 1;
+		const nextStatus = options.nextStatus ?? opened.state.status;
+		const runtime = options.runtime === undefined
+			? opened.state.runtime
+			: decodeRuntime(options.runtime, {
+				metadata: opened.metadata,
+				directory: opened.held,
+				canonicalDirectory: opened.directory,
+			});
+		let candidate: DurableSessionState;
+		if (nextStatus === "active") {
+			candidate = {
 				generation: nextGeneration,
 				status: "active",
-				ownerSessionDigest: opened.state.ownerSessionDigest,
-				runtime: decodeRuntime(options.runtime, opened.state.ownerSessionDigest, {
-					metadata: opened.metadata,
-					directory: opened.held,
-					canonicalDirectory: opened.directory,
-				}),
-			}
-			: {
-				generation: nextGeneration,
-				status: options.nextStatus,
-				terminalAt: options.terminalAt!,
-				ownerSessionDigest: opened.state.ownerSessionDigest,
-				runtime: opened.state.runtime,
+				lastWriterSessionDigest: options.writerSessionDigest,
+				runtime,
 			};
+		} else {
+			const terminalAt = options.terminalAt
+				?? (opened.state.status === "active" ? undefined : opened.state.terminalAt);
+			if (terminalAt === undefined || !canonicalTimestamp(terminalAt)) {
+				refuse("slate refused terminal history without a valid time");
+			}
+			candidate = {
+				generation: nextGeneration,
+				status: nextStatus,
+				terminalAt,
+				lastWriterSessionDigest: options.writerSessionDigest,
+				runtime,
+			};
+		}
 		stagingStat = writeExclusiveJson(staging, candidate, projectHeld, STATE_MAX_BYTES, options.hooks);
 		syncDirectory(projectHeld, "staged-state", options.hooks);
-		options.hooks?.beforeGenerationRecheck?.();
+		options.hooks?.beforeStatePublish?.();
 		const currentMetadata = validateMetadata(
 			readJsonFile(join(opened.directory, "session.json"), opened.held, METADATA_MAX_BYTES),
 			options.project,
@@ -746,51 +726,31 @@ function replaceState(options: {
 			options.identity,
 		);
 		if (!sameMetadata(currentMetadata, opened.metadata)) {
-			refuseRevision("metadata", "slate refused durable session metadata modified during state replacement");
-		}
-		const current = validateState(
-			readJsonFile(stateFile, opened.held, STATE_MAX_BYTES),
-			{ metadata: opened.metadata, directory: opened.held, canonicalDirectory: opened.directory },
-		);
-		if (current.status !== "active") {
-			refuseRevision("terminal", "slate refused mutation of a terminal durable session");
-		}
-		if (current.ownerSessionDigest !== options.ownerSessionDigest) {
-			refuseRevision("owner", "slate refused durable session mutation by a different owner");
-		}
-		if (current.generation !== options.expectedGeneration) {
-			refuseRevision("generation", `slate refused durable session generation mismatch: expected ${options.expectedGeneration}, found ${current.generation}`);
-		}
-		if (!sameState(current, opened.state)) {
-			refuseRevision("state", "slate refused durable session state modified during replacement");
+			refuse("slate refused durable session metadata modified during state replacement");
 		}
 		const stagedBeforeRename = lstatSync(staging, { throwIfNoEntry: false });
 		if (!singleNamedRecord(stagedBeforeRename) || !sameFileIdentity(stagingStat, stagedBeforeRename!)
 			|| !corpusDirectoryMatches(projectHeld) || !corpusDirectoryMatches(opened.held)) {
 			refuse("slate refused a linked or changing staged durable session state");
 		}
-		/*
-		 * The generation recheck closes every observed stale-writer race before this point.
-		 * Two single-writer violations can still pass it and rename in sequence. Slate accepts
-		 * that final race window. This layer adds no lock, lease, or writer coordinator.
-		 */
+		/* Caller-controlled exclusive access is the only same-session sequencing rule. */
 		renameSync(staging, stateFile);
 		publicationVisible = true;
+		options.hooks?.afterStatePublish?.();
 		const published = lstatSync(stateFile, { throwIfNoEntry: false });
-		if (!singleNamedRecord(published) || !sameFileIdentity(stagingStat, published!)
-			|| !corpusDirectoryMatches(opened.held) || !corpusDirectoryMatches(projectHeld)) {
+		if (!singleNamedRecord(published) || !corpusDirectoryMatches(opened.held)
+			|| !corpusDirectoryMatches(projectHeld)) {
 			refuse("slate refused durable session state modified during replacement");
 		}
 		syncDirectory(opened.held, "published-state", options.hooks);
 		syncDirectory(projectHeld, "project-after-state-publication", options.hooks);
-		const committed = validateState(
-			readJsonFile(stateFile, opened.held, STATE_MAX_BYTES),
-			{ metadata: opened.metadata, directory: opened.held, canonicalDirectory: opened.directory },
+		const committed = validateNamespace(
+			options.project,
+			options.name,
+			opened.held,
+			opened.metadata,
 		);
-		if (!sameState(committed, candidate)) {
-			refuse("slate refused an unexpected durable session state after replacement");
-		}
-		return { directory: opened.directory, metadata: opened.metadata, state: committed };
+		return { directory: opened.directory, metadata: committed.metadata, state: committed.state };
 	} catch (error) {
 		if (publicationVisible) {
 			let record: DurableSessionRecord | undefined;
@@ -802,9 +762,6 @@ function replaceState(options: {
 					opened.held,
 					opened.metadata,
 				);
-				if (reconciled.state.ownerSessionDigest !== options.ownerSessionDigest) {
-					refuse("slate refused reconciled durable session state owned by a different session");
-				}
 				record = { directory: opened.directory, metadata: reconciled.metadata, state: reconciled.state };
 			} catch (reconcileError) {
 				cause = new AggregateError([error, reconcileError], "visible durable state replacement could not be reconciled");
@@ -815,7 +772,7 @@ function replaceState(options: {
 			? error
 			: new SlateWriteRefused("slate could not replace durable session state", { cause: error });
 	} finally {
-		/* Failed staging remains outside the authoritative namespace. Never unlink a replaceable pathname. */
+		/* Failed staging remains ignored. Recovery does not treat it as authority. */
 		closeSync(projectHeld.fd);
 		closeSync(opened.held.fd);
 	}
@@ -826,12 +783,11 @@ export function updateDurableSession(options: {
 	name: string;
 	identity: string;
 	cwd: string;
-	expectedGeneration: number;
-	ownerSessionDigest: string;
+	writerSessionDigest: string;
 	runtime: CanonicalSlateRuntime;
 	hooks?: DurableSessionHooks;
 }): DurableSessionRecord {
-	return replaceState({ ...options, nextStatus: "active" });
+	return replaceState(options);
 }
 
 export function closeDurableSession(options: {
@@ -839,8 +795,7 @@ export function closeDurableSession(options: {
 	name: string;
 	identity: string;
 	cwd: string;
-	expectedGeneration: number;
-	ownerSessionDigest: string;
+	writerSessionDigest: string;
 	outcome: DurableTerminalOutcome;
 	now?: Date;
 	hooks?: DurableSessionHooks;
@@ -854,5 +809,14 @@ export function closeDurableSession(options: {
 	} catch (error) {
 		refuse("slate refused an invalid durable session terminal time", error);
 	}
-	return replaceState({ ...options, nextStatus: options.outcome, terminalAt });
+	return replaceState({
+		project: options.project,
+		name: options.name,
+		identity: options.identity,
+		cwd: options.cwd,
+		writerSessionDigest: options.writerSessionDigest,
+		nextStatus: options.outcome,
+		terminalAt,
+		...(options.hooks === undefined ? {} : { hooks: options.hooks }),
+	});
 }

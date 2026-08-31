@@ -13,7 +13,6 @@ import {
 
 const IDENTITY = "20260827T010203Z-0123456789abcdef";
 const PARENT_IDENTITY = "20260826T010203Z-fedcba9876543210";
-const OWNER = "a".repeat(64);
 const NAME = "calm-otter-7f3a";
 const DIRECTORY = join("/tmp", NAME);
 
@@ -99,9 +98,7 @@ function options(value: unknown = runtime()): CanonicalRuntimeDecodeOptions {
 	return {
 		runtime: value,
 		externalIdentity: IDENTITY,
-		externalOwnerSessionDigest: OWNER,
 		expectedIdentity: IDENTITY,
-		expectedOwnerSessionDigest: OWNER,
 		namespaceName: NAME,
 		namespaceDirectory: DIRECTORY,
 		artifactPathAllowed: () => true,
@@ -128,10 +125,6 @@ test("root, relationship, parent, counter, and cost validation fail closed", () 
 		["unknown", { ...runtime(), unknown: true }, /missing or unknown fields/],
 	] as const) assert.throws(() => decodeCanonicalRuntime(options(value)), expected, label);
 	assert.throws(() => decodeCanonicalRuntime({ ...options(), externalIdentity: PARENT_IDENTITY }), /identity does not match/);
-	assert.throws(
-		() => decodeCanonicalRuntime({ ...options(), externalOwnerSessionDigest: "b".repeat(64) }),
-		/mutation owner does not match/,
-	);
 	assert.throws(
 		() => decodeCanonicalRuntime({ ...options(), namespaceDirectory: join(DIRECTORY, "nested") }),
 		/namespace location is invalid/,

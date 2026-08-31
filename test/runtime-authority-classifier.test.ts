@@ -12,16 +12,12 @@ const ID = "20260827T090000Z-0123abcd0123abcd";
 const OTHER_ID = "20260827T090001Z-deadbeefdeadbeef";
 const NAME = "calm-otter-7f3a";
 const OTHER_NAME = "brisk-bison-abcd";
-const OWNER = "a".repeat(64);
-const OTHER_OWNER = "b".repeat(64);
 
 function binding(overrides: Partial<SlateBindingRecord> = {}): SlateBindingRecord {
 	return {
 		policy: "durable-session-v1",
 		identity: ID,
 		name: NAME,
-		ownerSessionDigest: OWNER,
-		generation: 0,
 		...overrides,
 	};
 }
@@ -97,12 +93,10 @@ function expectRefused(
 }
 
 test("exact binding parsing accepts only the non-authoritative locator schema", () => {
-	const source = binding({ generation: 7 });
+	const source = binding();
 	const parsed = parseSlateBindingRecord(source);
 	assert.deepEqual(parsed, source);
-	assert.deepEqual(Object.keys(parsed ?? {}).sort(), [
-		"generation", "identity", "name", "ownerSessionDigest", "policy",
-	]);
+	assert.deepEqual(Object.keys(parsed ?? {}).sort(), ["identity", "name", "policy"]);
 	assert.equal("threads" in (parsed ?? {}), false);
 	assert.equal("runtime" in (parsed ?? {}), false);
 });
@@ -116,10 +110,8 @@ test("exact binding parsing rejects every malformed plain-data field class and c
 		["policy", { ...binding(), policy: "legacy" }],
 		["identity", { ...binding(), identity: "bad" }],
 		["name", { ...binding(), name: "bad/name" }],
-		["owner", { ...binding(), ownerSessionDigest: "bad" }],
-		["negative generation", { ...binding(), generation: -1 }],
-		["fractional generation", { ...binding(), generation: 1.5 }],
-		["unsafe generation", { ...binding(), generation: Number.MAX_SAFE_INTEGER + 1 }],
+		["removed ownership payload", { ...binding(), ownerSessionDigest: "a".repeat(64) }],
+		["removed generation payload", { ...binding(), generation: 1 }],
 		["canonical snapshot payload", { ...binding(), threads: [] }],
 	];
 	for (const [label, value] of cases) assert.equal(parseSlateBindingRecord(value), undefined, label);
@@ -164,22 +156,19 @@ test("known Slate custom entries with missing or invalid Pi types refuse", () =>
 	}
 });
 
-test("the active branch selects a coherent durable relationship while generation stays advisory", () => {
-	const first = bindingEntry(binding({ generation: 1 }));
-	const offBranchLatest = bindingEntry(binding({ generation: 20 }));
-	const activeLatest = bindingEntry(binding({ generation: 3 }));
+test("the active branch selects one coherent durable relationship", () => {
+	const first = bindingEntry();
+	const offBranchLatest = bindingEntry();
+	const activeLatest = bindingEntry();
 	const result = classifyRuntimeAuthority([first, offBranchLatest, activeLatest], [first, activeLatest]);
 	assert.equal(result.kind, "durable");
-	if (result.kind === "durable") {
-		assert.deepEqual(result.binding, binding({ generation: 3 }));
-	}
+	if (result.kind === "durable") assert.deepEqual(result.binding, binding());
 });
 
 test("repeated bindings refuse every conflicting stable relationship", () => {
 	for (const [label, changed] of [
 		["identity", binding({ identity: OTHER_ID })],
 		["name", binding({ name: OTHER_NAME })],
-		["owner", binding({ ownerSessionDigest: OTHER_OWNER })],
 	] as const) {
 		const first = bindingEntry();
 		const conflict = bindingEntry(changed);
