@@ -14,7 +14,7 @@ import {
   shouldWarnFindingsGrammar,
 } from "../extension/observations.ts";
 import { isJudgementThreadType, JUDGEMENT_THREAD_TYPES } from "../extension/worker.ts";
-import { sanitizeEpisodeRecord, sanitizeThreadRecord, SlateStore, type ThreadRecord } from "../extension/state.ts";
+import { sanitizeEpisodeRecord, SlateStore, type ThreadRecord } from "../extension/state.ts";
 import { ThreadManager, type DispatchProgress } from "../extension/threads.ts";
 
 function temporaryRoot(): string {
@@ -191,42 +191,6 @@ test("a canonical persisted observation survives, and an absent one stays absent
   assert.deepEqual(withoutField, []);
 });
 
-test("snapshot adoption rejects an unsafe thread id with a visible repair", () => {
-  const repairs: string[] = [];
-  assert.equal(sanitizeThreadRecord({ id: "review:main", episodeSeq: 0 }, repairs), undefined);
-  assert.deepEqual(repairs, ["thread review:main: invalid id cannot form a canonical episode filename — remove or rename this record"]);
-});
-
-test("snapshot adoption reports one specific notice for an unsafe thread id", () => {
-  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-  const notices: string[] = [];
-  store.adoptSnapshot(
-    { threads: [{ id: "review:main", episodeSeq: 0 }], episodes: [] } as unknown as Parameters<SlateStore["adoptSnapshot"]>[0],
-    {
-      hasUI: true,
-      ui: { notify: (message: string) => notices.push(message) },
-    } as unknown as ExtensionContext,
-  );
-  assert.equal(store.threads.size, 0);
-  assert.equal(notices.length, 1);
-  assert.match(notices[0] ?? "", /thread review:main: invalid id cannot form a canonical episode filename/);
-  assert.doesNotMatch(notices[0] ?? "", /record without a usable id/);
-});
-
-test("restored episode counters accept only non-negative safe integers", () => {
-  for (const value of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
-    const repairs: string[] = [];
-    const adopted = sanitizeThreadRecord({ id: "review-main", episodeIds: ["review-main.e1"], episodeSeq: value }, repairs);
-    assert.equal(adopted?.episodeSeq, 1);
-    assert.deepEqual(repairs, [`thread review-main: ignoring episodeSeq (number)`]);
-  }
-  for (const value of [0, Number.MAX_SAFE_INTEGER]) {
-    const repairs: string[] = [];
-    assert.equal(sanitizeThreadRecord({ id: "review-main", episodeSeq: value }, repairs)?.episodeSeq, value);
-    assert.deepEqual(repairs, []);
-  }
-});
-
 interface DispatchOutcome {
   warnings: readonly string[];
   episode: { status: string; file: string; observations?: unknown };
@@ -397,10 +361,22 @@ test("public dispatch gates each grammar warning by outcome and judgement type",
     ];
     for (const item of cases) {
       const progress: DispatchProgress[] = [];
+      if (item.message?.stopReason === "error" || item.noMessage === true) {
+        const result = await dispatchOnce({
+          root,
+          message: item.message,
+          noMessage: item.noMessage,
+          dispatch: { type: item.type },
+          onProgress: (update) => progress.push({ ...update, lines: [...update.lines] }),
+        });
+        assert.equal(result.episode.status, "failed", item.label);
+        assert.equal(progress.filter((update) => update.done).length, 1, item.label);
+        assert.equal(progress.find((update) => update.done)?.status, "failed", item.label);
+        continue;
+      }
       const result = await dispatchOnce({
         root,
         message: item.message,
-        noMessage: item.noMessage,
         dispatch: { type: item.type },
         onProgress: (update) => progress.push({ ...update, lines: [...update.lines] }),
       });
@@ -495,304 +471,3 @@ test("episode persistence failure recovers with a retained or externally removed
     rmSync(scratch, { recursive: true, force: true });
   }
 });
-
-test("two queued actions plan consecutive episode ids inside per-thread execution", { timeout: 1000 }, async () => {
-  const root = temporaryRoot();
-  try {
-    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-    const manager = new ThreadManager(store, {});
-    const messages: unknown[] = [];
-    const subscribers = new Set<(event: unknown) => void>();
-    const session = {
-      messages,
-      model: undefined,
-      thinkingLevel: undefined,
-      sessionFile: undefined,
-      getContextUsage: () => undefined,
-      subscribe: (listener: (event: unknown) => void) => {
-        subscribers.add(listener);
-        return () => subscribers.delete(listener);
-      },
-      prompt: async (task: string) => {
-        const message = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: task }] };
-        messages.push(message);
-        for (const listener of subscribers) listener({ type: "message_end", message });
-      },
-    };
-    const view = manager as unknown as {
-      live: Map<string, unknown>;
-      openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: unknown; baseline: unknown }>;
-    };
-    view.openWorkerFor = async ({ thread }) => {
-      view.live.set(thread.id, session);
-      return { session, baseline: {} };
-    };
-    const ctx = { cwd: root } as ExtensionContext;
-
-    const first = manager.dispatch({ name: "queued", task: "first", type: "reviewer" }, ctx, undefined);
-    const second = manager.dispatch({ threadId: "t1", task: "second" }, ctx, undefined);
-    const results = await Promise.all([first, second]);
-
-    assert.deepEqual(results.map((result) => result.episode.id), ["t1.e1", "t1.e2"]);
-    assert.deepEqual(store.threads.get("t1")?.episodeIds, ["t1.e1", "t1.e2"]);
-    assert.equal(store.threads.get("t1")?.episodeSeq, 2);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("a queued action rechecks its episode id after its predecessor finishes", { timeout: 1000 }, async () => {
-  const root = temporaryRoot();
-  try {
-    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-    const manager = new ThreadManager(store, {});
-    const messages: unknown[] = [];
-    const subscribers = new Set<(event: unknown) => void>();
-    let prompts = 0;
-    const session = {
-      messages,
-      model: undefined,
-      thinkingLevel: undefined,
-      sessionFile: undefined,
-      getContextUsage: () => undefined,
-      subscribe: (listener: (event: unknown) => void) => {
-        subscribers.add(listener);
-        return () => subscribers.delete(listener);
-      },
-      prompt: async () => {
-        prompts++;
-        const message = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "No findings." }] };
-        messages.push(message);
-        for (const listener of subscribers) listener({ type: "message_end", message });
-      },
-    };
-    const view = manager as unknown as {
-      live: Map<string, unknown>;
-      openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: unknown; baseline: unknown }>;
-    };
-    view.openWorkerFor = async ({ thread }) => {
-      view.live.set(thread.id, session);
-      return { session, baseline: {} };
-    };
-    const ctx = { cwd: root } as ExtensionContext;
-
-    const first = manager.dispatch(
-      { name: "queued-recheck", task: "first", type: "reviewer" },
-      ctx,
-      undefined,
-      (update) => {
-        if (update.done) {
-          const thread = store.threads.get("t1");
-          if (thread) thread.episodeSeq = Number.MAX_SAFE_INTEGER;
-        }
-      },
-    );
-    const second = manager.dispatch({ threadId: "t1", task: "must not run" }, ctx, undefined);
-
-    assert.equal((await first).episode.id, "t1.e1");
-    await assert.rejects(second, /restored id or episode counter cannot form the next canonical episode filename/);
-    assert.equal(prompts, 1, "the rejected queued action performs no worker turn");
-    assert.deepEqual(store.threads.get("t1")?.episodeIds, ["t1.e1"]);
-    assert.deepEqual([...store.episodes.keys()], ["t1.e1"]);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("invalid restored ids and exhausted counters reject before worker work without state changes", async () => {
-  const root = temporaryRoot();
-  try {
-    for (const [id, episodeSeq] of [["restored\nforeign", 0], ["review-main", Number.MAX_SAFE_INTEGER]] as const) {
-      let store: SlateStore | undefined;
-      let opens = 0;
-      await assert.rejects(
-        dispatchOnce({
-          root,
-          dispatch: { threadId: id },
-          onOpen: () => { opens++; },
-          onStore: (value) => {
-            store = value;
-            value.workerCostUsd = 4.5;
-            value.threads.set(id, {
-              id,
-              name: "restored",
-              sessionFile: "",
-              status: "idle",
-              type: "reviewer",
-              episodeIds: [],
-              episodeSeq,
-              createdAt: 1,
-              updatedAt: 1,
-            });
-          },
-        }),
-        /restored id or episode counter cannot form the next canonical episode filename/,
-      );
-      assert.equal(opens, 0);
-      assert.equal(store?.workerCostUsd, 4.5);
-      assert.equal(store?.threads.get(id)?.episodeSeq, episodeSeq);
-      assert.equal(store?.threads.get(id)?.status, "idle");
-      assert.equal(store?.episodes.size, 0);
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("repeated dispatch of an invalid restored thread never opens a worker or mutates state", async () => {
-  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-  const id = "invalid:restored";
-  const thread: ThreadRecord = {
-    id,
-    name: "invalid",
-    sessionFile: "",
-    status: "idle",
-    type: "reviewer",
-    episodeIds: [],
-    episodeSeq: 0,
-    createdAt: 1,
-    updatedAt: 1,
-  };
-  store.threads.set(id, thread);
-  store.workerCostUsd = 7;
-  const manager = new ThreadManager(store, {});
-  let opens = 0;
-  (manager as unknown as { openWorkerFor(): Promise<never> }).openWorkerFor = async () => {
-    opens++;
-    throw new Error("worker opener must not run");
-  };
-  for (let attempt = 0; attempt < 2; attempt++) {
-    await assert.rejects(
-      manager.dispatch({ threadId: id, task: "retry" }, { cwd: process.cwd() } as ExtensionContext, undefined),
-      /restored id or episode counter/,
-    );
-  }
-  assert.equal(opens, 0);
-  assert.equal(store.workerCostUsd, 7);
-  assert.deepEqual(store.threads.get(id), thread);
-  assert.equal((manager as unknown as { queues: Map<string, unknown> }).queues.has(id), false, "public validation rejects before queue adoption");
-});
-
-/**
- * BG6: every step of the capture must sit inside the guard. Each case makes ONE
- * step throw and requires that the dispatch still completes, still records an
- * episode, and still reports the problem as a warning.
- *
- * Every throw is ONE-SHOT and armed when the worker turn ends. That scoping is
- * deliberate: `compressEpisode`'s uncompressed fallback reads the same message
- * object again through its own unguarded `lastAssistantText`, so a permanently
- * throwing getter would fail the dispatch inside episodes.ts and prove nothing
- * about this guard. A one-shot throw hits the capture and only the capture.
- */
-function throwOnce(message: string, later: unknown, skip = 0): { get(): unknown; arm(): void } {
-  let armed = false;
-  let remaining = skip;
-  return {
-    arm() {
-      armed = true;
-    },
-    get() {
-      if (armed) {
-        if (remaining > 0) {
-          remaining--;
-        } else {
-          armed = false;
-          throw new Error(message);
-        }
-      }
-      return later;
-    },
-  };
-}
-
-const NOT_STORED = { stored: false, reason: "write-failed", grammar: "absent" };
-
-const THROWING_STEPS: Array<{
-  step: string;
-  build: (root: string) => Parameters<typeof dispatchOnce>[0];
-  /** What the durable record must hold once the throw has been absorbed. */
-  expected: unknown;
-}> = [
-  {
-    step: "scanning for the final assistant message",
-    expected: NOT_STORED,
-    build: (root) => {
-      // `skip: 1` because `deriveOutcome` reads `role` through the SAME helper
-      // first, to decide the action's status. That read is pre-existing and is
-      // already covered by the dispatch's own catch, so letting it pass puts the
-      // throw on the capture's read, which is the one this guard owns.
-      const role = throwOnce("role read exploded", "assistant", 1);
-      return {
-        root,
-        arm: role.arm,
-        message: { get role() { return role.get(); }, stopReason: "stop", content: [{ type: "text", text: "No findings." }] },
-      };
-    },
-  },
-  {
-    step: "extracting the final message text",
-    expected: NOT_STORED,
-    build: (root) => {
-      const content = throwOnce("content read exploded", [{ type: "text", text: "No findings." }]);
-      return {
-        root,
-        arm: content.arm,
-        message: { role: "assistant", stopReason: "stop", get content() { return content.get(); } },
-      };
-    },
-  },
-  {
-    step: "reading the project directory for the write",
-    expected: NOT_STORED,
-    build: (root) => {
-      const cwd = throwOnce("cwd read exploded", root);
-      return {
-        root,
-        arm: cwd.arm,
-        defineCtx: (fields) => {
-          Object.defineProperty(fields, "cwd", { get: () => cwd.get(), enumerable: true });
-        },
-      };
-    },
-  },
-  {
-    step: "emitting the observation progress line",
-    // The capture SUCCEEDED before this step threw, so its real facts are kept:
-    // the guard absorbs the throw without inventing a failure.
-    expected: { stored: true, truncated: false, grammar: "absent", bytes: 16 },
-    build: (root) => ({
-      root,
-      message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Review complete." }] },
-      onProgress: (update: DispatchProgress) => {
-        // Target the capture's OWN interim emit, so the throw lands on that step
-        // rather than on the dispatch's final progress event.
-        if (!update.done && update.lines.some((line) => line.includes("findings row"))) {
-          throw new Error("progress channel exploded");
-        }
-      },
-    }),
-  },
-];
-
-for (const { step, build, expected } of THROWING_STEPS) {
-  test(`a throw while ${step} still completes the dispatch`, async () => {
-    const root = temporaryRoot();
-    try {
-      const result = await dispatchOnce(build(root));
-
-      assert.equal(result.episode.status, "ok");
-      assert.equal(existsSync(result.episode.file), true);
-      assert.equal(result.thread.status, "idle");
-      const observations = result.episode.observations as Record<string, unknown>;
-      for (const [key, value] of Object.entries(expected as Record<string, unknown>)) {
-        assert.equal(observations[key], value, `observations.${key}`);
-      }
-      assert.ok(
-        result.warnings.some((warning) => /could not (record|store) observations/.test(warning)),
-        `expected an observation warning, got ${JSON.stringify(result.warnings)}`,
-      );
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-}

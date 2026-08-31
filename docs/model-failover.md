@@ -72,8 +72,8 @@ What NEVER triggers failover:
 - **Aborts** — a user abort is not a model failure.
 - **Context overflow** — a different model does not fix an oversized
   prompt; the existing overflow handling applies unchanged.
-- **Worker task-level failures** — the model answered but the action's
-  outcome was bad; those surface as failed episodes, as before.
+- **Worker task-level failures** — the model answered but the action failed.
+  Slate compresses the action transcript and marks the episode as failed.
 
 Before any switch, the mapped model is resolved against pi's model
 registry and auth-checked. If it is unknown or unauthenticated, no
@@ -86,14 +86,10 @@ cannot loop.
 Failover applies at three sites:
 
 - **Worker threads.** The live worker session switches to the mapped
-  model and the failed action is re-prompted once with a continuation
-  nudge. The transcript is preserved; usage and cost accumulate across
-  both attempts. The thread stays on the mapped model while its
-  session is live, including across later model-less actions, and the
-  `threads` listing marks it `live=<model> (failover)`. The hold, the
-  marker and the retry inside the failing dispatch are cases M1, M6
-  and M2 of [Known cases where the model or level
-  differs](model-routing.md#known-cases-where-the-model-or-level-differs).
+  model and re-prompts once during the same action. The transcript is preserved.
+  Usage and cost accumulate across both attempts. The session closes when the
+  action ends. The hold, marker, and retry are documented in [Known cases where
+  the model or level differs](model-routing.md#known-cases-where-the-model-or-level-differs).
 - **Episode compression.** The compression call is retried once with
   the mapped compressor model — only if it is distinct from the
   original, resolvable, and authed. If the retry also fails, the
@@ -116,10 +112,9 @@ Failover applies at three sites:
   the failed action. A skipped or failed switch (no API key, auth
   throw) also notifies, and the original failure stands.
 - **Worker threads:** a `⚠ failover <old> ⇒ <new>` line in the thread
-  tool's progress output; if the retry also fails, the episode's
-  failure diagnostics carry a `(failover to <new> also failed)`
-  suffix. The `threads` listing shows the live-model marker while the
-  switched session is live.
+  tool progress output. If the retry also fails after producing a response, Slate
+  compresses that partial work into a failed episode. Without a response, Slate
+  writes a fixed failure episode. The live-model marker exists only during the action.
 - **Episode compression:** no live signal — the episode header's
   `compressor:` line names whichever model actually produced the
   episode.

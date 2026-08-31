@@ -30,7 +30,7 @@ export {
 	isSafeThreadId,
 	isSlateArtifactId,
 	isSlateArtifactReference,
-	nextSlateEpisodeId,
+	slateEpisodeId,
 	slateArtifactReference,
 	SLATE_ARTIFACT_REFERENCE_MAX_BYTES,
 	type SlateArtifactKind,

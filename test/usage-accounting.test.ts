@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { register } from "node:module";
@@ -10,6 +10,7 @@ register("../verification/test-resolve-hooks.mjs", import.meta.url);
 
 const load = <T>(specifier: string): Promise<T> => import(specifier) as Promise<T>;
 const { ThreadManager } = await load<typeof import("../extension/threads.ts")>("../extension/threads.ts");
+const { writeFailedEpisode } = await load<typeof import("../extension/episodes.ts")>("../extension/episodes.ts");
 const { SlateStore, sanitizeEpisodeRecord } = await load<typeof import("../extension/state.ts")>("../extension/state.ts");
 const { NO_SESSION_BASELINE } = await load<typeof import("../extension/route.ts")>("../extension/route.ts");
 const { piAiCompatStub } = await load<{
@@ -168,6 +169,290 @@ function completeResponse(usage: TokenUsage, stopReason = "stop") {
   };
 }
 
+test("model authorization failures are sanitized before thread creation", async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const ctx = context(cwd, [ran]);
+  ctx.modelRegistry.hasConfiguredAuth = () => { throw new Error("auth backend\nfailed"); };
+  const manager = managerWithSessions([]);
+  await assert.rejects(
+    manager.dispatch({ task: "validate auth", type: "general", model: "test/worker" }, ctx, undefined),
+    /could not be validated: auth backendfailed/,
+  );
+  const internalStore = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+  assert.equal(internalStore.threads.size, 0);
+});
+
+test("pre-start aborts leave no thread or episode record", async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+
+  const internal = fakeSession(async () => {});
+  internal.setModel = async () => { throw new Error("switch unavailable"); };
+  const internalManager = managerWithSessions([internal]);
+  await assert.rejects(
+    internalManager.dispatch({ task: "internal abort", type: "general", model: "test/worker" }, context(cwd, [ran]), undefined),
+    /switching its worker session/,
+  );
+  const internalStore = (internalManager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+  assert.equal(internalStore.threads.size, 0);
+  assert.equal(internalStore.episodes.size, 0);
+
+  const controller = new AbortController();
+  const cancelled = fakeSession(async () => {});
+  cancelled.setModel = async (next) => {
+    cancelled.model = next;
+    controller.abort();
+  };
+  const cancelledManager = managerWithSessions([cancelled]);
+  await assert.rejects(
+    cancelledManager.dispatch({ task: "caller abort", type: "general", model: "test/worker" }, context(cwd, [ran]), controller.signal),
+    /aborted by the orchestrator/,
+  );
+  const cancelledStore = (cancelledManager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+  assert.equal(cancelledStore.threads.size, 0);
+  assert.equal(cancelledStore.episodes.size, 0);
+});
+
+test("fixed failure episodes use bounded fallbacks and report write failures", (t) => {
+  const cwd = temporaryProject(t);
+  const result = writeFailedEpisode({
+    ctx: { cwd }, episodeId: "t9.e1", threadId: "", threadName: " \n ",
+    task: "\t", diagnostics: "", workerCostUsd: Number.NaN,
+  });
+  const text = readFileSync(result.file, "utf8");
+  assert.match(text, /thread \(unknown\) \(\(unknown\)\)/);
+  assert.match(text, /> task: \(no task recorded\)/);
+  assert.match(text, /> error: the worker action failed/);
+  assert.match(text, /> model: \(unknown\)/);
+  assert.match(text, /> cost: USD 0\.000000/);
+  assert.throws(
+    () => writeFailedEpisode({
+      ctx: { cwd }, episodeId: "../bad", threadId: "t9", threadName: "bad",
+      task: "bad", diagnostics: "bad", workerCostUsd: 0,
+    }),
+    /episode persistence failed/,
+  );
+});
+
+test("failed actions compress a worker response into one failed episode", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const compressor = model("test", "compressor");
+  const session = fakeSession((current) => {
+    const message = {
+      role: "assistant", stopReason: "error", errorMessage: "provider stopped",
+      content: [{ type: "text", text: "partial work to preserve" }],
+      usage: { input: 5, output: 2, cost: { total: 0.125 } },
+    };
+    current.messages.push(message);
+    current.emit({ type: "message_end", message });
+  }, ran);
+  let compressionCalls = 0;
+  piAiCompatStub.complete = async (...args: unknown[]) => {
+    compressionCalls++;
+    assert.match(JSON.stringify(args[1]), /partial work to preserve/);
+    return completeResponse({ input: 3, output: 1, cost: { total: 0.01 } });
+  };
+  const manager = managerWithSessions([session], { episodeModel: "test/compressor" });
+  const result = await manager.dispatch(
+    { task: "record failed work", type: "general" },
+    context(cwd, [ran, compressor]),
+    undefined,
+  );
+  const internalStore = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+  const episode = internalStore.episodes.get("t1.e1");
+  assert.equal(compressionCalls, 1);
+  assert.equal(result.episode.id, "t1.e1");
+  assert.equal(result.episodeText, readFileSync(result.episode.file, "utf8"));
+  assert.equal(episode?.status, "failed");
+  assert.equal(episode?.model, "test/worker");
+  assert.equal(episode?.workerCostUsd, 0.125);
+  assert.equal(episode?.compressorCostUsd, 0.01);
+  assert.equal(internalStore.threads.get("t1")?.status, "failed");
+  assert.equal(internalStore.threads.get("t1")?.episodeId, "t1.e1");
+  const text = readFileSync(episode!.file, "utf8");
+  assert.match(text, /STATUS: FAILED/);
+  assert.match(text, /## Intent\ncompressed/);
+  assert.doesNotMatch(text, /> status: FAILED/);
+});
+
+test("a throwing initial progress callback still leaves a terminal failed action", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const manager = managerWithSessions([]);
+  const result = await manager.dispatch(
+    { task: "survive progress failure", type: "general" },
+    context(cwd),
+    undefined,
+    () => { throw new Error("progress sink failed"); },
+  );
+  const internalStore = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+  assert.equal(result.episode.status, "failed");
+  assert.equal(internalStore.threads.get("t1")?.status, "failed");
+  assert.equal(internalStore.threads.get("t1")?.episodeId, "t1.e1");
+  assert.match(internalStore.threads.get("t1")?.outcomeReason ?? "", /progress sink failed/);
+});
+
+test("failed actions without a worker response write one fixed episode without compression", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const compressor = model("test", "compressor");
+  const session = fakeSession(async () => {
+    throw new Error("provider stopped before response");
+  }, ran);
+  let compressionCalls = 0;
+  piAiCompatStub.complete = async () => {
+    compressionCalls++;
+    throw new Error("the no-response path must not call compression");
+  };
+  const manager = managerWithSessions([session], { episodeModel: "test/compressor" });
+  const result = await manager.dispatch(
+    { task: "record empty failure", type: "general" },
+    context(cwd, [ran, compressor]),
+    undefined,
+  );
+  const internalStore = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+  const episode = internalStore.episodes.get("t1.e1");
+  assert.equal(compressionCalls, 0);
+  assert.equal(result.episode.status, "failed");
+  assert.equal(result.episodeText, readFileSync(result.episode.file, "utf8"));
+  assert.equal(episode?.status, "failed");
+  assert.equal(episode?.model, "test/worker");
+  assert.equal(internalStore.episodes.size, 1);
+  assert.equal(internalStore.threads.get("t1")?.episodeId, "t1.e1");
+  const text = readFileSync(episode!.file, "utf8");
+  assert.match(text, /STATUS: FAILED/);
+  assert.match(text, /> task: record empty failure/);
+  assert.match(text, /> status: FAILED/);
+  assert.match(text, /> error: provider stopped before response/);
+  assert.match(text, /> model: test\/worker/);
+  assert.match(text, /> cost: USD 0\.000000/);
+  assert.match(text, /failed before the worker produced a response/);
+});
+
+test("an empty output block does not trigger paid failure compression", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const compressor = model("test", "compressor");
+  const session = fakeSession((current) => {
+    const message = assistant({}, "");
+    current.emit({ type: "message_update", message, assistantMessageEvent: { type: "text_start" } });
+    throw new Error("provider stopped after opening an empty block");
+  });
+  let compressionCalls = 0;
+  piAiCompatStub.complete = async () => {
+    compressionCalls++;
+    return completeResponse({});
+  };
+  const result = await managerWithSessions([session], { episodeModel: "test/compressor" }).dispatch(
+    { task: "do not summarize emptiness", type: "general" },
+    context(cwd, [compressor]),
+    undefined,
+  );
+  assert.equal(compressionCalls, 0);
+  assert.match(result.episodeText, /failed before the worker produced a response/);
+});
+
+test("a recorded zero cost triggers failure compression for empty output", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const compressor = model("test", "compressor");
+  const session = fakeSession((current) => {
+    const message = {
+      role: "assistant", stopReason: "error", errorMessage: "provider stopped",
+      content: [{ type: "text", text: "" }],
+      usage: { cost: { total: 0 } },
+    };
+    current.messages.push(message);
+    current.emit({ type: "message_end", message });
+  });
+  let compressionCalls = 0;
+  piAiCompatStub.complete = async () => {
+    compressionCalls++;
+    return completeResponse({ cost: { total: 0 } });
+  };
+  const result = await managerWithSessions([session], { episodeModel: "test/compressor" }).dispatch(
+    { task: "preserve zero-cost evidence", type: "general" },
+    context(cwd, [compressor]),
+    undefined,
+  );
+  assert.equal(compressionCalls, 1);
+  assert.equal(result.episode.status, "failed");
+  assert.equal(result.episode.workerCostUsd, 0);
+  assert.doesNotMatch(result.episodeText, /failed before the worker produced a response/);
+});
+
+test("response evidence survives a rewritten worker message list", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const compressor = model("test", "compressor");
+  const session = fakeSession((current) => {
+    const message = {
+      role: "assistant", stopReason: "error", errorMessage: "provider stopped",
+      content: [{ type: "text", text: "partial work" }],
+      usage: { input: 2, output: 1, cost: { total: 0.05 } },
+    };
+    current.messages.push(message);
+    current.emit({ type: "message_update", message, assistantMessageEvent: { type: "text_delta", delta: "partial" } });
+    current.messages.length = 0;
+    throw new Error("host rewrote the transcript");
+  }, ran);
+  let compressionCalls = 0;
+  piAiCompatStub.complete = async () => {
+    compressionCalls++;
+    return completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
+  };
+  const result = await managerWithSessions([session], { episodeModel: "test/compressor" }).dispatch(
+    { task: "preserve rewritten response", type: "general" },
+    context(cwd, [ran, compressor]),
+    undefined,
+  );
+  assert.equal(compressionCalls, 1);
+  assert.equal(result.episode.status, "failed");
+  assert.doesNotMatch(result.episodeText, /failed before the worker produced a response/);
+});
+
+test("fixed episode write failure leaves a terminal reason and no orphan episode", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  mkdirSync(join(cwd, ".pi", "slate", "episodes", "t1.e1.md"), { recursive: true });
+  const session = fakeSession(async () => { throw new Error("provider stopped before response"); });
+  const manager = managerWithSessions([session]);
+  await assert.rejects(
+    manager.dispatch({ task: "fail durably", type: "general" }, context(cwd), undefined),
+    (error: Error) => {
+      assert.match(error.message, /provider stopped before response/);
+      assert.match(error.message, /could not store episode t1\.e1/);
+      assert.match(error.message, /not a regular file/);
+      assert.doesNotMatch(error.message, /slate episode persistence failed/);
+      return true;
+    },
+  );
+  const internalStore = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+  const thread = internalStore.threads.get("t1");
+  assert.equal(thread?.status, "failed");
+  assert.match(thread?.outcomeReason ?? "", /provider stopped before response/);
+  assert.match(thread?.outcomeReason ?? "", /persistence failed/);
+  assert.match(thread?.outcomeReason ?? "", /not a regular file/);
+  assert.equal(thread?.episodeId, undefined);
+  assert.equal(internalStore.episodes.size, 0);
+});
+
+test("fixed failure reports a thread-record save failure", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const session = fakeSession(async () => { throw new Error("worker failed without output"); });
+  const manager = managerWithSessions([session]);
+  const internalStore = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+  const originalSave = internalStore.save.bind(internalStore);
+  internalStore.save = () => {
+    if (internalStore.episodes.size > 0) throw new Error("snapshot storage unavailable");
+    originalSave();
+  };
+  await assert.rejects(
+    manager.dispatch({ task: "persist fixed result", type: "general" }, context(cwd), undefined),
+    /stored episode t1\.e1, but could not save its thread record: snapshot storage unavailable/,
+  );
+  assert.equal(internalStore.threads.get("t1")?.status, "failed");
+  assert.equal(internalStore.threads.get("t1")?.episodeId, "t1.e1");
+});
+
 test("worker episode usage preserves all quantities and accumulates several turns", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const session = fakeSession(successfulPrompt([
@@ -320,27 +605,48 @@ test("dispatch subscriptions are removed after normal completion and error", { t
 
   await manager.dispatch({ task: "normal teardown", type: "general" }, context(cwd), undefined);
   const failedResult = await manager.dispatch({ task: "error teardown", type: "general" }, context(cwd), undefined);
+  assert.equal(failedResult.episode.status, "failed");
 
   assert.equal(normal.listenerCount(), 0);
   assert.equal(failed.listenerCount(), 0);
-  assert.equal(failedResult.episode.status, "failed");
+  const failedThread = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store.threads.get("t2");
+  assert.equal(failedThread?.status, "failed");
+  assert.match(failedThread?.outcomeReason ?? "", /scripted prompt failure/);
+  assert.equal(failedThread?.episodeId, "t2.e1");
 });
 
-test("dispatch subscription is removed after abort", { timeout: 1000 }, async (t) => {
+test("caller abort and manager disposal record cancellation without an episode", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const controller = new AbortController();
   const aborted = fakeSession(async () => {
     controller.abort();
     throw new Error("prompt stopped after abort");
   });
-  const result = await managerWithSessions([aborted]).dispatch(
-    { task: "abort teardown", type: "general" },
-    context(cwd),
-    controller.signal,
+  const callerManager = managerWithSessions([aborted]);
+  await assert.rejects(
+    callerManager.dispatch({ task: "caller cancellation", type: "general" }, context(cwd), controller.signal),
+    /cancelled by the caller.*No episode was recorded/,
   );
-
   assert.equal(aborted.listenerCount(), 0);
-  assert.equal(result.episode.status, "failed");
+  const callerStore = (callerManager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+  assert.equal(callerStore.threads.get("t1")?.status, "cancelled");
+  assert.equal(callerStore.threads.get("t1")?.episodeId, undefined);
+  assert.equal(callerStore.episodes.size, 0);
+
+  let disposalManager: InstanceType<typeof ThreadManager>;
+  const disposed = fakeSession(async () => {
+    disposalManager.disposeAll();
+    throw new Error("disposed session stopped");
+  });
+  disposalManager = managerWithSessions([disposed]);
+  await assert.rejects(
+    disposalManager.dispatch({ task: "session disposal", type: "general" }, context(cwd), undefined),
+    /cancelled during session teardown.*No episode was recorded/,
+  );
+  const disposalStore = (disposalManager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+  assert.equal(disposalStore.threads.get("t1")?.status, "cancelled");
+  assert.equal(disposalStore.threads.get("t1")?.episodeId, undefined);
+  assert.equal(disposalStore.episodes.size, 0);
 });
 
 test("snapshot sanitizer loads old records without accounting fields", () => {
@@ -363,11 +669,24 @@ test("snapshot sanitizer loads old records without accounting fields", () => {
   assert.deepEqual(repairs, []);
 });
 
+test("snapshot sanitizer rejects noncanonical and mismatched episode ids", () => {
+  for (const candidate of [
+    { id: "t1.e2", threadId: "t1" },
+    { id: "t2.e1", threadId: "t1" },
+    { id: "legacy.e1", threadId: "legacy" },
+  ]) {
+    const repairs: string[] = [];
+    const record = sanitizeEpisodeRecord({ ...candidate, task: "bad", status: "ok", file: "/tmp/bad.md" }, repairs);
+    assert.equal(record, undefined);
+    assert.match(repairs.join("\n"), /canonical \.e1 id/);
+  }
+});
+
 test("snapshot sanitizer rejects negative and fractional token quantities with repairs", () => {
   const repairs: string[] = [];
   const record = sanitizeEpisodeRecord(
     {
-      id: "t1.e3",
+      id: "t1.e1",
       threadId: "t1",
       task: "damaged usage",
       status: "ok",
@@ -400,7 +719,7 @@ test("snapshot sanitizer restores fractional and zero dollar costs while preserv
   const repairs: string[] = [];
   const restored = sanitizeEpisodeRecord(
     {
-      id: "t4.e2",
+      id: "t4.e1",
       threadId: "t4",
       task: "restore costs",
       status: "ok",
@@ -413,7 +732,7 @@ test("snapshot sanitizer restores fractional and zero dollar costs while preserv
     repairs,
   );
   const absent = sanitizeEpisodeRecord(
-    { id: "t4.e3", threadId: "t4", task: "absent costs", status: "ok", file: "/tmp/absent.md", createdAt: 5 },
+    { id: "t5.e1", threadId: "t5", task: "absent costs", status: "ok", file: "/tmp/absent.md", createdAt: 5 },
     repairs,
   );
 
@@ -432,7 +751,7 @@ test("snapshot sanitizer repairs malformed usage without destroying valid record
   const repairs: string[] = [];
   const record = sanitizeEpisodeRecord(
     {
-      id: "t2.e3",
+      id: "t2.e1",
       threadId: "t2",
       task: "needed history",
       status: "failed",
@@ -451,7 +770,7 @@ test("snapshot sanitizer repairs malformed usage without destroying valid record
   );
 
   assert.ok(record);
-  assert.equal(record.id, "t2.e3");
+  assert.equal(record.id, "t2.e1");
   assert.equal(record.task, "needed history");
   assert.equal(record.status, "failed");
   assert.equal(record.model, "test/model");

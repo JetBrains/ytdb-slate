@@ -38,7 +38,7 @@ const originalSave = store.save.bind(store);
 store.save = () => {
   saves++;
   const thread = store.threads.get("t1");
-  if (thread?.status === "idle" && thread.episodeSeq === 1 && store.episodes.size === 0) recoverySaves++;
+  if (thread?.status === "failed" && store.episodes.size === 0) recoverySaves++;
   originalSave();
 };
 
@@ -63,8 +63,9 @@ const session = {
     for (const listener of subscribers) listener(compaction);
     const message = {
       role: "assistant",
-      stopReason: "stop",
-      content: [{ type: "text", text: "No findings." }],
+      stopReason: "error",
+      errorMessage: "review action failed",
+      content: [{ type: "text", text: "Partial findings." }],
       usage: { cost: { total: 1.25 } },
     };
     messages.push(message);
@@ -106,16 +107,20 @@ await assert.rejects(
     (update) => progress.push(update),
   ),
   (error: unknown) => {
-    assert.equal(String(error), "Error: slate could not store episode t1.e1.");
+    assert.equal(
+      String(error),
+      "Error: Thread t1 failed: review action failed. Slate could not store episode t1.e1: slate refused an artifact file because that path is not a regular file.",
+    );
+    assert.match(String(error), /review action failed/);
+    assert.match(String(error), /not a regular file/);
     assert.equal(String(error).includes(root), false);
-    assert.doesNotMatch(String(error), /directory|regular|symbolic|E[A-Z]+/);
     return true;
   },
 );
 
 const thread = store.threads.get("t1");
-assert.equal(thread?.status, "idle");
-assert.equal(thread?.sessionFile, sessionFile);
+assert.equal(thread?.status, "failed");
+assert.equal(thread?.episodeId, undefined);
 assert.equal(store.workerCostUsd, 2.5, "worker, compressor, and compaction costs are each added once");
 assert.ok(saves >= 2, "dispatch state is saved");
 assert.equal(recoverySaves, 1, "episode-persistence recovery is saved exactly once");

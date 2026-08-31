@@ -8,11 +8,9 @@ import { Type } from "typebox";
 import { renderThreadCall, renderThreadResult } from "./render.ts";
 import {
 	displayThreadType,
-	isThreadType,
 	parseThreadType,
 	resolveEpisodeFile,
 	renderThreadId,
-	restartLineageText,
 	threadTypeMarker,
 	THREAD_TYPE_GLOSSES,
 	THREAD_TYPES,
@@ -20,66 +18,17 @@ import {
 	type EpisodeUsage,
 	type SlateStore,
 } from "./state.ts";
-import {
-	MAX_FRESH_CONTEXT_EPISODES,
-	type DispatchProgress,
-	type DispatchResult,
-	type ThreadManager,
-} from "./threads.ts";
+import { MAX_CONTEXT_EPISODES, type DispatchProgress, type ThreadManager } from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
 
 const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
 const judgementThreadTypes = JUDGEMENT_THREAD_TYPES.join(" and ");
 
 const THREAD_TYPE_PARAMETER_DESCRIPTION =
-	`Required for a new thread and immutable after creation. Pick by main job: ${threadTypeGlosses}. ` +
+	`Required. Pick by main job: ${threadTypeGlosses}. ` +
 	`Slate adds its reviewer evidence charter to ${judgementThreadTypes} threads.`;
 
-const FRESH_CONTEXT_PARAMETER_DESCRIPTION =
-	"Continuation: [] refuses a restart and episode ids permit one. Required with threadChoice.act=true. Every value is validated.";
-
 const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
-
-function choicePrice(value: number | undefined): string {
-	if (value === undefined) return "unpriced";
-	return `$${value < 0.01 ? value.toFixed(6) : value.toFixed(4)}`;
-}
-
-function compactWarmth(warmth: {
-	warm: boolean;
-	code: string;
-	elapsedSeconds?: number;
-	windowSeconds?: number;
-}): string {
-	const state = warmth.warm ? "warm" : "cold";
-	if (warmth.code === "within-retention") {
-		return `${state}: age ${Math.round(warmth.elapsedSeconds ?? 0)}s/${Math.round(warmth.windowSeconds ?? 0)}s retention`;
-	}
-	if (warmth.code === "retention-expired") {
-		return `${state}: age ${Math.round(warmth.elapsedSeconds ?? 0)}s exceeds ${Math.round(warmth.windowSeconds ?? 0)}s retention`;
-	}
-	const reasons: Record<string, string> = {
-		"no-previous-dispatch": "no prior dispatch",
-		"model-change": "model changed",
-		"effort-change": "effort changed",
-		"measured-cache-miss": "cache read and write were zero",
-		"no-retention-data": "no retention data",
-		"unknown-elapsed-time": "cache age unknown",
-	};
-	return `${state}: ${reasons[warmth.code] ?? warmth.code.replace(/-/g, " ")}`;
-}
-
-/** Compact context line. The structured result retains the planner's full reason and estimate. */
-export function threadChoiceLine(choice: NonNullable<DispatchResult["choice"]>): string {
-	const estimate = "estimate" in choice ? choice.estimate : undefined;
-	const continuation = estimate
-		? `${choicePrice(estimate.continuation.usd)}/${estimate.continuation.turns}t`
-		: "unpriced";
-	const fresh = estimate ? `${choicePrice(estimate.fresh.usd)}/${estimate.fresh.turns}t` : "unpriced";
-	const warmth = "warmth" in choice ? choice.warmth : undefined;
-	const reason = `${choice.code.replace(/-/g, " ")}${warmth ? `; ${compactWarmth(warmth)}` : ""}`;
-	return `Choice: ${choice.kind.toUpperCase()} | continue ${continuation} | fresh ${fresh} | ${reason}`;
-}
 
 /** Render recorded costs and usage without turning an unreported quantity into zero. */
 function dispatchCostLine(episode: EpisodeRecord): string {
@@ -110,72 +59,59 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		name: "thread",
 		label: "Thread",
 		description: [
-			"Dispatch ONE bounded action to a persistent worker thread; receive an episode",
+			"Dispatch one bounded action in a new worker thread and receive an episode",
 			"(a compressed, structured record of its work).",
-			"Omit `thread` and give a short `name` to create one; pass its id to continue with all prior-action context.",
+			"Every call creates a new thread. Use a short `name` to describe the action.",
 			"See the `type` parameter for the thread-type choices and their meanings.",
-			"A thread type is immutable. A legacy untyped thread may be typed once before it has a live worker session.",
+			"Every new thread requires a type.",
 			"Use `context` to inject episodes by id from any thread.",
-			"Each thread is serial; use DIFFERENT threads in one message for parallel work.",
-			"`model` (\"provider/id\") and `effort` (pi thinking level) route THIS ACTION ONLY on new or continued threads.",
-			"With routing on, omission plans for the thread's base pair. With routing off, an omitted model",
-			"plans for its pre-router pin; no pin gives no target. Omitted effort resolves no level. The session",
-			"then returns to what it opened on. See docs/model-routing.md § Known cases where the model or level",
-			"differs for what can run instead.",
-			"`tools` applies only when creating a thread.",
+			"Independent calls can run in parallel within the global concurrency limit.",
+			"`model` (\"provider/id\") and `effort` (pi thinking level) route this action only.",
+			"With routing on, omission uses the selected base pair. With routing off, an omitted model uses the host model.",
+			"`tools` sets the new thread's worker tool allowlist.",
 			"Slate rejects a level the model does not offer and, when configured, a model outside the routable list.",
-			"⚠ advisory notices before the episode report evidence gaps, cost cliffs, or window substitution.",
-			"STATUS: FAILED means the action failed — read the episode and adapt.",
+			"Advisory notices before the episode report routing evidence gaps.",
+			"A failed action produces one failed episode. Slate compresses any worker response and uses a fixed episode when no response exists.",
 			"File-changing tasks require the track workflow's pre-implementation gates first.",
 		].join(" "),
-		promptSnippet: "Dispatch one bounded action to a persistent worker thread; returns a compressed episode",
+		promptSnippet: "Dispatch one bounded action to a new worker thread and return a compressed episode",
 		promptGuidelines: [
 			"Use the thread tool to delegate bounded tactical actions to worker threads; dispatch independent actions to different threads in the same message to run them in parallel.",
 			"Pass prior episode ids in the thread tool's context parameter instead of restating their content.",
 		],
 		parameters: Type.Object({
-			thread: Type.Optional(Type.String({ description: "Existing thread id to continue (e.g. \"t1\")" })),
 			name: Type.Optional(Type.String({ description: "Short name for a NEW thread (e.g. \"recon\")" })),
-			type: Type.Optional(
-				Type.Union(THREAD_TYPES.map((value) => Type.Literal(value)), {
-					description: THREAD_TYPE_PARAMETER_DESCRIPTION,
-				}),
-			),
+			type: Type.Union(THREAD_TYPES.map((value) => Type.Literal(value)), {
+				description: THREAD_TYPE_PARAMETER_DESCRIPTION,
+			}),
 			task: Type.String({ description: "The single bounded action to execute" }),
 			context: Type.Optional(
-				Type.Array(Type.String(), { description: "Episode ids to inject as context (e.g. [\"t1.e2\"])" }),
-			),
-			freshContext: Type.Optional(
-				Type.Array(Type.String(), {
-					description: FRESH_CONTEXT_PARAMETER_DESCRIPTION,
-					maxItems: MAX_FRESH_CONTEXT_EPISODES,
-				}),
+				Type.Array(Type.String(), { description: "Earlier episode ids to load in caller order", maxItems: MAX_CONTEXT_EPISODES }),
 			),
 			model: Type.Optional(
 				Type.String({
-					description:
-						"Worker model \"provider/id\" for THIS action. Omit it to plan for the thread's base model with " +
-						"routing on, or for its pre-router pin with routing off. With no pin the worker session returns to " +
-						"the model it opened on. Cases M1, M3 and M7 in docs/model-routing.md § Known cases where the model " +
-						"or level differs are when it does not.",
+					description: "Worker model \"provider/id\" for this action. Omit it to use Slate's selected base model.",
 				}),
 			),
 			effort: Type.Optional(
 				Type.String({
 					description:
-						"Thinking level for THIS action: off, minimal, low, medium, high, xhigh or max. " +
-						"Slate refuses a level the routed model's known ladder lacks, outside case E2 in " +
-						"docs/model-routing.md. Omit it to plan for the thread's default or a measured level with routing " +
-						"on, or for the level the worker session opened on with routing off.",
+						"Thinking level for this action: off, minimal, low, medium, high, xhigh or max. " +
+						"Slate refuses a level outside the routed model's known ladder.",
 				}),
 			),
 			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
 		}),
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			// pi does not enforce extension tool schemas. Validate the conditional
-			// requirement and closed vocabulary before dispatch can mutate state.
-			const type = parseThreadType(params.type, params.thread === undefined);
+			const raw = params as unknown as Record<string, unknown>;
+			if (Object.prototype.hasOwnProperty.call(raw, "thread")) {
+				throw new Error('The "thread" field was removed. Create a new thread and pass earlier episode ids through "context".');
+			}
+			if (Object.prototype.hasOwnProperty.call(raw, "freshContext")) {
+				throw new Error('The "freshContext" field was removed. Pass earlier episode ids through "context".');
+			}
+			const type = parseThreadType(params.type, true);
 			const displayedType = (threadId: string) => displayThreadType(store.threads.get(threadId)?.type ?? type);
 			const onProgress = (p: DispatchProgress) => {
 				onUpdate?.({
@@ -189,7 +125,6 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 						threadId: p.threadId,
 						threadName: p.threadName,
 						type: displayedType(p.threadId),
-						restartOf: store.threads.get(p.threadId)?.restartOf,
 						lines: p.lines,
 						usage: p.usage,
 						done: p.done,
@@ -199,12 +134,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 
 			const result = await getManager().dispatch(
 				{
-					threadId: params.thread,
 					name: params.name,
 					type,
 					task: params.task,
 					contextEpisodeIds: params.context,
-					freshContext: params.freshContext,
 					model: params.model,
 					effort: params.effort,
 					tools: params.tools,
@@ -222,34 +155,28 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			// it is the DURABLE copy: it is written into the episode file, comes back through
 			// the `episode` tool, and travels into every later prompt that cites the episode,
 			// while this line is framing that exists only for this one tool result.
-			const restartText = restartLineageText(result.thread.restartOf, result.thread.id);
-			const restart = restartText ? ` | ${restartText}` : "";
 			const threadId = renderThreadId(result.thread.id) ?? "(unknown)";
-			const headline = `[episode ${result.episode.id} | thread ${threadId} "${result.thread.name}"${restart} | STATUS: ${result.episode.status === "ok" ? "OK" : "FAILED"}]`;
-			// Routing notices reach the ORCHESTRATOR, not just the TUI: an evidence gap,
-			// a window substitution or a long-context billing cliff changes what the next
-			// dispatch should ask for, so they ride in the tool result above the episode.
+			const resultStatus = result.episode.status === "failed" ? "FAILED" : "OK";
+			const headline = `[episode ${result.episode.id} | thread ${threadId} "${result.thread.name}" | STATUS: ${resultStatus}]`;
+			// Routing notices reach the orchestrator in the tool result.
 			const notices = result.warnings.length > 0 ? `${result.warnings.map((w) => `⚠ ${w}`).join("\n")}\n\n` : "";
 			const cost = dispatchCostLine(result.episode);
-			const choice = result.choice === undefined ? "" : `\n${threadChoiceLine(result.choice)}`;
 			return {
-				content: [{ type: "text", text: `${headline}\n${cost}${choice}\n\n${notices}${result.episodeText}` }],
+				content: [{ type: "text", text: `${headline}\n${cost}\n\n${notices}${result.episodeText}` }],
 				details: {
 					threadId: result.thread.id,
 					threadName: result.thread.name,
 					type: displayThreadType(result.thread.type),
-					restartOf: result.thread.restartOf,
 					episodeId: result.episode.id,
 					status: result.episode.status,
 					episodeFile: result.episode.file,
 					// `ran*` and not `model`/`effort`: these are what the action ACTUALLY ran on,
-					// post-clamp, post-substitution and post-failover — NOT the `model`/`effort`
-					// arguments the call was made with, which a renderer shows on the call line and
+					// post-clamp and post-failover — NOT the `model`/`effort` arguments the call
+					// was made with, which a renderer shows on the call line and
 					// which can differ from these. The names say which of the two a reader has.
 					ranModel: result.episode.model,
 					ranEffort: result.episode.effort,
 					ranEffortUnmeasured: result.episode.effortUnmeasured,
-					choice: result.choice,
 					warnings: result.warnings,
 					usage: result.usage,
 					done: true,
@@ -258,9 +185,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		},
 
 		renderCall(args, theme) {
-			const storedType = args.thread === undefined ? undefined : store.threads.get(args.thread)?.type;
-			const type = displayThreadType(isThreadType(storedType) ? storedType : args.type);
-			return renderThreadCall({ ...args, type } as never, theme as never);
+			return renderThreadCall({ ...args, type: displayThreadType(args.type) } as never, theme as never);
 		},
 		renderResult(result, options, theme) {
 			return renderThreadResult(result as never, options as never, theme as never);
@@ -285,14 +210,13 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				return { content: [{ type: "text", text: "No threads yet. Use the thread tool to create one." }], details: { count: 0 } };
 			}
 			const lines = threads.map((t) => {
-				const episodes = t.episodeIds.length > 0 ? t.episodeIds.join(", ") : "(none)";
+				const episode = t.episodeId ?? "(none)";
 				const typeMarker = threadTypeMarker(displayThreadType(t.type));
 				const marks: string[] = [];
 				// The thread's NOMINAL model — the planner target for a dispatch that omits
 				// `model` (?? t.model: an older thread carries only the pre-router pin).
-				// Absent means the plan has no model: a NEW session then opens on the host
-				// model and a reused one is reverted to the model it opened on. A separate
-				// `live=` marker below overrides this display while failover holds the session.
+				// Absent means the plan has no model. The new session opens on the host model.
+				// A `live=` marker below reports an in-action failover switch.
 				const base = t.baseModel ?? t.model;
 				// CQ19: the MODEL half is authoritative as nominal planning state (an unroutable
 				// base is re-seeded, so this is what an omitted `model` resolves to), but the
@@ -302,10 +226,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				// contact with the next action as fact — the `?` says so, and the tool description
 				// says what it means. `last=` below carries no such caveat: that one is what ran.
 				if (base) marks.push(`base=${base}${t.baseEffort ? `@${t.baseEffort}?` : ""}`);
-				// The LAST ACTION's model — which may differ from the base on every axis:
-				// an explicit per-action route, a window substitution, or a failover.
-				const lastEpisodeId = t.episodeIds.at(-1);
-				const lastEpisode = lastEpisodeId === undefined ? undefined : store.episodes.get(lastEpisodeId);
+				// The action's model may differ from the base after an explicit route or failover.
+				const lastEpisode = t.episodeId === undefined ? undefined : store.episodes.get(t.episodeId);
 				if (lastEpisode?.model) {
 					marks.push(
 						`last=${lastEpisode.model}${lastEpisode.effort ? `@${lastEpisode.effort}` : ""}${
@@ -323,11 +245,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const live = getManager().liveFailoverModel(t.id);
 				if (live) marks.push(`live=${live} (failover)`);
 				const models = marks.length > 0 ? ` ${marks.join(" ")}` : "";
-				const lineage = [restartLineageText(t.restartOf, t.id), restartLineageText(t.id, t.supersededBy)]
-					.filter((value): value is string => value !== undefined)
-					.map((value) => ` ${value}`)
-					.join("");
-				return `${renderThreadId(t.id) ?? "(unknown)"} "${t.name}" [${t.status}]${typeMarker}${lineage}${models} — episodes: ${episodes} — updated ${new Date(t.updatedAt).toISOString()}`;
+				return `${renderThreadId(t.id)} "${t.name}" [${t.status}]${typeMarker}${models} — episode: ${episode} — updated ${new Date(t.updatedAt).toISOString()}`;
 			});
 			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length } };
 		},

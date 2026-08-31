@@ -69,9 +69,6 @@ const baseLoad = await tryImport("extension/base-model.ts");
 // PURE module for exactly this harness (threads.ts transitively imports
 // @earendil-works/pi-ai, which this repo does not install).
 const routeLoad = await tryImport("extension/route.ts");
-// The continue-or-fresh planner is pure and receives every environment fact as
-// an input. Its caller and automatic restart execution remain outside this net.
-const choiceLoad = await tryImport("extension/thread-choice.ts");
 const router = routerLoad.module;
 const table = profilesLoad.module;
 const state = stateLoad.module;
@@ -81,7 +78,6 @@ const handoff = handoffLoad.module;
 const worker = workerLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
-const choice = choiceLoad.module;
 const checker = await import(pathToFileURL(`${REPO}/extension/writing-check.mjs`).href);
 const CHECKER_PATH = `${REPO}/extension/writing-check.mjs`;
 
@@ -370,22 +366,6 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-no-test-structure",
 	"contract-section-targets",
 ];
-/** Checks that need extension/thread-choice.ts — the pure continue-or-fresh planner. */
-const CHOICE_IDS = [
-	"choice-order",
-	"choice-refusals",
-	"choice-new-stream",
-	"choice-warmth",
-	"choice-effort-cold",
-	"choice-short-work",
-	"choice-abstentions",
-	"choice-token-buckets",
-	"choice-long-context",
-	"choice-rediscovery",
-	"choice-final-verdict",
-	"choice-verdict-shape",
-	"choice-hostile",
-];
 /**
  * Checks that need extension/route.ts — the dispatch guards. They also need
  * extension/model-router.ts, because the planner consumes its resolutions AND
@@ -399,13 +379,11 @@ const ROUTE_IDS = [
 	"route-list-off",
 	"route-base-reseed",
 	"route-base-reseed-guarded",
-	"route-effort-derived-for-model",
 	"route-off-invisible",
 	"route-stored-effort-refresh",
 	"route-stored-effort-vocabulary",
 	"route-switch-decision",
 	"route-open-plan-inputs",
-	"route-switch-opening-baseline",
 	"route-switch-lifecycle-i1",
 	"route-baseline-capture",
 	"route-read-failure-inert",
@@ -414,16 +392,13 @@ const ROUTE_IDS = [
 	"route-ladder-per-model",
 	"route-evidence-gap",
 	"route-api-rejected",
-	"route-window-substitute",
-	"route-window-skip",
-	"route-window-reserve",
-	"route-long-context",
 	"route-price-divergence-golden",
 	"route-price-divergence-tolerance",
 	"route-price-divergence-absence",
 	"route-price-divergence-output",
 	"route-price-divergence-date",
 	"route-failover",
+	"route-context-checks-removed",
 	"route-lowest-effort",
 	"route-off-ladder-source",
 	"route-hostile",
@@ -462,7 +437,6 @@ const VOIDABLE = [
 	// "route-" (the sixth character is "r", not "-"), so the two lists cannot claim
 	// each other's checks.
 	["route-", ROUTE_IDS, "route-load"],
-	["choice-", CHOICE_IDS, "choice-load"],
 	["router-", ROUTER_IDS, "router-load"],
 	["profiles-", PROFILE_IDS, "profiles-load"],
 	["worker-", WORKER_IDS, "worker-load"],
@@ -889,7 +863,7 @@ try {
 			["every isolated pending mutation leaves the snapshot equal", isolatedPendingResults.length === pendingKeys.length && isolatedPendingResults.every((result) => result.equal), isolatedPendingResults.filter((result) => !result.equal)],
 			["every runtime value was batch-mutated", automaticallyMutatedRuntime !== undefined && JSON.stringify(automaticallyMutatedRuntime) !== JSON.stringify(populatedRuntime), automaticallyMutatedRuntime],
 			["batch mutation changes no persisted value", baselineSnapshot !== undefined && JSON.stringify(mutatedRuntimeSnapshot) === JSON.stringify(baselineSnapshot), { baselineSnapshot, mutatedRuntimeSnapshot }],
-			["real snapshot exact top-level shape", exactSnapshotKeys === "carriedCostUsd,episodes,orchestratorMode,paused,threadSeq,threads,workerCostUsd", exactSnapshotKeys],
+			["real snapshot exact top-level shape", exactSnapshotKeys === "carriedCostUsd,episodes,format,orchestratorMode,paused,threadSeq,threads,workerCostUsd", exactSnapshotKeys],
 			["source shape also omits runtime object", snapshotType !== "" && snapshotMethod !== "" && adoptMethod !== "" && !/writingReminder/.test(snapshotType + snapshotMethod + adoptMethod), { snapshotType: snapshotType.length, snapshotMethod: snapshotMethod.length, adoptMethod: adoptMethod.length }],
 		]);
 
@@ -1763,7 +1737,7 @@ try {
 			const toolGrown = await asTrusted(MAX_EXT_PLUS_TOOL, onReal, maximalConfig);
 			const maxToolIncrement = portable(toolGrown).length - maximalPortable;
 			const maxCandidate = realCandidates.find((candidate) => candidate.spec === maxModelIncrement.spec);
-			const overBudget = await asTrusted(MAX_EXT_PLUS_TOOL, onWith([...realCandidates, maxCandidate, maxCandidate, maxCandidate, maxCandidate]), maximalConfig);
+			const overBudget = await asTrusted(MAX_EXT_PLUS_TOOL, onWith([...realCandidates, maxCandidate, maxCandidate, maxCandidate, maxCandidate, maxCandidate, maxCandidate]), maximalConfig);
 			const overBudgetPortable = portable(overBudget).length;
 			// Exact measurements catch every size change. Bounds are coarse ceilings and
 			// retain at least five percent reserve, so one ordinary edit does not force a
@@ -1782,10 +1756,10 @@ try {
 			const MAXIMAL_BOUND = 8500;
 			checkAll(
 				"doctrine-budget",
-				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and four copies of the largest model row, so budget growth cannot pass vacuously",
+				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and six copies of the largest model row, so budget growth cannot pass vacuously",
 				[
-					["the normalisation bites: the doctrine really does embed the authoritative docs directory", docPaths === 5 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC), { docPaths, DOCS_DIR }],
-					["every fixture has the exact embedded-path occurrence count", pathOccurrences(off) === 4 && pathOccurrences(on) === 5 && pathOccurrences(writingOn) === 5 && pathOccurrences(writingRouterOn) === 6 && pathOccurrences(writingExtensionsOn) === 5 && pathOccurrences(writingAllOn) === 6 && pathOccurrences(maximal) === 7 && pathOccurrences(maximalNoDraft) === 6 && pathOccurrences(maximalFollowUp) === 7 && pathOccurrences(overBudget) === 7, { off: pathOccurrences(off), on: pathOccurrences(on), writing: pathOccurrences(writingOn), writingRouter: pathOccurrences(writingRouterOn), writingExtensions: pathOccurrences(writingExtensionsOn), all: pathOccurrences(writingAllOn), maximal: pathOccurrences(maximal), maximalNoDraft: pathOccurrences(maximalNoDraft), followUp: pathOccurrences(maximalFollowUp), positive: pathOccurrences(overBudget) }],
+					["the normalisation bites: the doctrine really does embed the authoritative docs directory", docPaths === 4 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC), { docPaths, DOCS_DIR }],
+					["every fixture has the exact embedded-path occurrence count", pathOccurrences(off) === 3 && pathOccurrences(on) === 4 && pathOccurrences(writingOn) === 4 && pathOccurrences(writingRouterOn) === 5 && pathOccurrences(writingExtensionsOn) === 4 && pathOccurrences(writingAllOn) === 5 && pathOccurrences(maximal) === 6 && pathOccurrences(maximalNoDraft) === 5 && pathOccurrences(maximalFollowUp) === 6 && pathOccurrences(overBudget) === 6, { off: pathOccurrences(off), on: pathOccurrences(on), writing: pathOccurrences(writingOn), writingRouter: pathOccurrences(writingRouterOn), writingExtensions: pathOccurrences(writingExtensionsOn), all: pathOccurrences(writingAllOn), maximal: pathOccurrences(maximal), maximalNoDraft: pathOccurrences(maximalNoDraft), followUp: pathOccurrences(maximalFollowUp), positive: pathOccurrences(overBudget) }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
 					["space-bearing docs directories normalize without parsing rendered text", spacedPortable === "read /track-workflow.md", spacedPortable],
 					["the whole rule stays under 4000 portable chars with five percent reserve", ruleChars <= 4000 && hasDoctrineReserve(ruleChars, 4000), { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
@@ -1795,26 +1769,26 @@ try {
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the configured-model fixture is the exact six-model project list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
-					["the router-off doctrine is the measured 2908 portable chars and 48 lines", portable(off).length === 2908 && off.split("\n").length === 48, { portable: portable(off).length, lines: off.split("\n").length }],
-					["...and the whole router-on doctrine is the measured 5493 portable chars and 72 lines, and stays under 6500 with five percent reserve", portable(on).length === 5493 && on.split("\n").length === 72 && portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
-					["writing-only doctrine is the measured 3978 portable chars and 70 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 3978 && writingOn.split("\n").length === 70 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
-					["draft-enabled router-off doctrine is 2927 portable chars and 48 lines", portable(offDraft).length === 2927 && offDraft.split("\n").length === 48, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
-					["draft-enabled router-off writing doctrine is 3997 portable chars and 70 lines", portable(offDraftWriting).length === 3997 && offDraftWriting.split("\n").length === 70, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
-					["the six-model fixture is 4938 portable chars and 69 lines without draft publishing or writing", portable(configuredOffDraft).length === 4938 && configuredOffDraft.split("\n").length === 69, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
-					["the six-model fixture is 6008 portable chars and 91 lines with writing", portable(configuredOffDraftWriting).length === 6008 && configuredOffDraftWriting.split("\n").length === 91, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
-					["the six-model draft fixture is 4957 portable chars and 69 lines", portable(configuredDraft).length === 4957 && configuredDraft.split("\n").length === 69, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
-					["the six-model draft and writing fixture is 6027 portable chars and 91 lines", portable(configuredDraftWriting).length === 6027 && configuredDraftWriting.split("\n").length === 91, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
-					[`writing plus router is the measured 6563 portable chars and 94 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 6563 && writingRouterOn.split("\n").length === 94 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
-					["writing plus extensions is the measured 4233 portable chars and 76 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 4233 && writingExtensionsOn.split("\n").length === 76 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
-					[`all three tail features are the measured 6818 portable chars and 100 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 6818 && writingAllOn.split("\n").length === 100 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
-					["the all-nine draft fixture is 5512 portable chars and 72 lines", portable(allDraft).length === 5512 && allDraft.split("\n").length === 72, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
-					["the all-nine draft and writing fixture is 6582 portable chars and 94 lines", portable(allDraftWriting).length === 6582 && allDraftWriting.split("\n").length === 94, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
+					["the router-off doctrine is the measured 2584 portable chars and 43 lines", portable(off).length === 2584 && off.split("\n").length === 43, { portable: portable(off).length, lines: off.split("\n").length }],
+					["...and the whole router-on doctrine is the measured 5169 portable chars and 67 lines, and stays under 6500 with five percent reserve", portable(on).length === 5169 && on.split("\n").length === 67 && portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
+					["writing-only doctrine is the measured 3654 portable chars and 65 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 3654 && writingOn.split("\n").length === 65 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
+					["draft-enabled router-off doctrine is 2603 portable chars and 43 lines", portable(offDraft).length === 2603 && offDraft.split("\n").length === 43, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
+					["draft-enabled router-off writing doctrine is 3673 portable chars and 65 lines", portable(offDraftWriting).length === 3673 && offDraftWriting.split("\n").length === 65, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
+					["the six-model fixture is 4614 portable chars and 64 lines without draft publishing or writing", portable(configuredOffDraft).length === 4614 && configuredOffDraft.split("\n").length === 64, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
+					["the six-model fixture is 5684 portable chars and 86 lines with writing", portable(configuredOffDraftWriting).length === 5684 && configuredOffDraftWriting.split("\n").length === 86, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
+					["the six-model draft fixture is 4633 portable chars and 64 lines", portable(configuredDraft).length === 4633 && configuredDraft.split("\n").length === 64, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
+					["the six-model draft and writing fixture is 5703 portable chars and 86 lines", portable(configuredDraftWriting).length === 5703 && configuredDraftWriting.split("\n").length === 86, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
+					[`writing plus router is the measured 6239 portable chars and 89 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 6239 && writingRouterOn.split("\n").length === 89 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
+					["writing plus extensions is the measured 3909 portable chars and 71 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 3909 && writingExtensionsOn.split("\n").length === 71 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
+					[`all three tail features are the measured 6494 portable chars and 95 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 6494 && writingAllOn.split("\n").length === 95 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
+					["the all-nine draft fixture is 5188 portable chars and 67 lines", portable(allDraft).length === 5188 && allDraft.split("\n").length === 67, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
+					["the all-nine draft and writing fixture is 6258 portable chars and 89 lines", portable(allDraftWriting).length === 6258 && allDraftWriting.split("\n").length === 89, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
 					// Update exact measurements with production wording in the same commit.
-					[`the maximum all-feature fixture is the measured 7929 portable chars and 104 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 7929 && maximal.split("\n").length === 104 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					[`the draft-PR-disabled maximum fixture is pinned independently at 7910 portable chars and 104 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 7910 && maximalNoDraft.split("\n").length === 104 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the maximum all-feature fixture is the measured 7605 portable chars and 99 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 7605 && maximal.split("\n").length === 99 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the draft-PR-disabled maximum fixture is pinned independently at 7586 portable chars and 99 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 7586 && maximalNoDraft.split("\n").length === 99 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and 11 split lines, and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					[`the positive control is the measured 8877 portable chars and 109 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 8877 && overBudget.split("\n").length === 109 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
+					[`the positive control is the measured 8921 portable chars and 106 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 8921 && overBudget.split("\n").length === 106 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
@@ -1830,7 +1804,7 @@ try {
 				"doctrine-budget-follow-up",
 				"the trusted follow-up-issues configuration has its own pinned maximum fixture and preserves the existing maximum bound",
 				[
-					[`the maximal follow-up fixture is the measured 8007 portable chars and 105 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8007 && maximalFollowUp.split("\n").length === 105 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
+					[`the maximal follow-up fixture is the measured 7683 portable chars and 100 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 7683 && maximalFollowUp.split("\n").length === 100 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
 				],
 			);
 		});
@@ -1916,7 +1890,6 @@ try {
 	check("state-load", state !== undefined, "extension/state.ts loads", stateLoad.error?.message);
 	check("base-load", tracker !== undefined, "extension/base-model.ts loads", baseLoad.error?.message);
 	check("route-load", route !== undefined, "extension/route.ts loads", routeLoad.error?.message);
-	check("choice-load", choice !== undefined, "extension/thread-choice.ts loads", choiceLoad.error?.message);
 
 	if (!router) {
 		for (const id of ROUTER_IDS) skip(id, "extension/model-router.ts could not be loaded");
@@ -4056,70 +4029,6 @@ production behaviour.`);
 			]);
 		});
 
-		await section("route-effort-derived-for-model", async () => {
-			// THE ONE RULE, effort half (route.ts's header): the level a plan resolves
-			// ALWAYS belongs to the model it routes to. A level stored on the thread was
-			// derived for the BASE model, so the moment the plan routes somewhere else — an
-			// explicit `model`, or a window substitution — it is dropped and re-derived for
-			// the routed model. Carrying it across was BG14: an action routed
-			// elsewhere inherited a budget derived for the base and was warned about, or
-			// (with allowUnmeasuredEffort false) REJECTED, for a level nobody requested.
-			//
-			// The two ladders below are DISJOINT on purpose: "low" does not exist on
-			// p/other and "high" does not exist on p/base, so an implementation that
-			// inherits instead of deriving cannot pass — it produces an off-ladder
-			// rejection where this asserts a proceed.
-			const res = routeResolution([
-				{ spec: "p/base", tier: 1, price: 1, ladder: ["low", "medium"], measured: ["low", "medium"] },
-				{ spec: "p/other", tier: 2, price: 2, ladder: ["high", "max"], measured: ["high", "max"] },
-			]);
-			const thread = { id: "t1", baseModel: "p/base", baseEffort: "low" };
-			const elsewhere = plan({ resolution: res, thread, requestedModel: "p/other" });
-			const strict = plan({ resolution: res, thread, requestedModel: "p/other", allowUnmeasuredEffort: false });
-			const onBase = plan({ resolution: res, thread });
-			const explicitLevel = plan({ resolution: res, thread, requestedModel: "p/other", requestedEffort: "low" });
-			const explicitOk = plan({ resolution: res, thread, requestedModel: "p/other", requestedEffort: "max" });
-			// The same rule through guard 5: the window guard settles the model FIRST, so a
-			// stored level is re-derived for the model the action was moved to.
-			const subRes = routeResolution([
-				{ spec: "p/small", tier: 1, price: 1, window: 100_000, ladder: ["low", "medium"], measured: ["low", "medium"] },
-				{ spec: "p/wide", tier: 2, price: 2, window: 1_000_000, ladder: ["high", "max"], measured: ["high", "max"] },
-			]);
-			const substituted = plan({
-				resolution: subRes,
-				thread: { id: "t2", baseModel: "p/small", baseEffort: "low" },
-				contextTokens: 90_000,
-				wouldCompact: compactAt(20_000),
-				reserveTokens: 20_000,
-			});
-			// OVERLAPPING ladders, the other half of BG14 — and a gap a re-verification of
-			// this file's own teeth exposed. With DISJOINT ladders an implementation that
-			// inherits is caught only because the inherited level is invalid on the new model,
-			// and BG23's re-validation now corrects exactly that: it re-derives, so the
-			// disjoint fixture can no longer tell inheriting from deriving. When the stored
-			// level is VALID on the routed model, nothing corrects it — the plan simply
-			// carries a level chosen for a different model, which is the whole of BG14. Here
-			// the stored level is `medium`, legal on both, while the target's own lowest
-			// measured level is `low`: deriving says `low`, inheriting says `medium`.
-			const shared = routeResolution([
-				{ spec: "p/from", tier: 1, price: 1, ladder: ["low", "medium"], measured: ["low", "medium"] },
-				{ spec: "p/to", tier: 2, price: 2, ladder: ["low", "medium"], measured: ["low", "medium"] },
-			]);
-			const overlapping = plan({ resolution: shared, thread: { id: "t3", baseModel: "p/from", baseEffort: "medium" }, requestedModel: "p/to" });
-			checkAll("route-effort-derived-for-model", "a level stored on the thread is INHERITED only while the planner routes to the base model it was derived for: an explicit per-action model gets that MODEL's own lowest measured level instead (so an inheriting implementation, which would refuse a level absent from the new model's ladder, cannot pass), and so does a model the window guard substituted in — while an EXPLICIT level is still judged hard against the routed model, and `effortJudgedFor` always names the model used for that judgement", [
-				["an explicit model derives its OWN lowest measured level", verdict(elsewhere) === "proceed:p/other@high", verdict(elsewhere)],
-				["...naming the model the level was judged for", elsewhere.effortJudgedFor === "p/other", elsewhere.effortJudgedFor],
-				["...with no warning: a derived level is measured by construction", elsewhere.warnings.length === 0 && elsewhere.effortUnmeasured === false, [elsewhere.warnings, elsewhere.effortUnmeasured]],
-				["...and no rejection even under allowUnmeasuredEffort:false (BG14)", verdict(strict) === "proceed:p/other@high", verdict(strict)],
-				["the stored level DOES apply while the planner routes to its own base", verdict(onBase) === "proceed:p/base@low" && onBase.effortJudgedFor === "p/base", [verdict(onBase), onBase.effortJudgedFor]],
-				["an EXPLICIT level is still judged against the routed model", explicitLevel.kind === "reject" && /p\/other's effort ladder \(high, max\)/.test(why(explicitLevel)), verdict(explicitLevel)],
-				["...and an explicit level that model HAS is honoured", verdict(explicitOk) === "proceed:p/other@max" && explicitOk.effortJudgedFor === "p/other", [verdict(explicitOk), explicitOk.effortJudgedFor]],
-				["a window substitution re-derives the level for the substituted model", verdict(substituted) === "proceed:p/wide@high" && substituted.effortJudgedFor === "p/wide", [verdict(substituted), substituted.effortJudgedFor]],
-				["with OVERLAPPING ladders the level is still DERIVED, not inherited", verdict(overlapping) === "proceed:p/to@low" && overlapping.effortJudgedFor === "p/to", verdict(overlapping)],
-				["...reporting the substitution and nothing about the level", warns(substituted, /widest listed model/).length === 1 && warns(substituted, /Dropping the effort level/).length === 0, substituted.warnings],
-			]);
-		});
-
 		await section("route-off-invisible", async () => {
 			// ROUTER-OFF PLANNER STATE. Nothing is seeded or persisted, no tracker is
 			// consulted, and candidate-dependent guards do not fire. The explicit-effort
@@ -4321,190 +4230,28 @@ production behaviour.`);
 			]);
 		});
 
-		await section("route-window-substitute", async () => {
-			// GUARD 5 is never a hard block: a model that cannot hold the thread's context
-			// is REPLACED by the widest candidate, and the substitution is reported as one.
-			const res = routeResolution([
-				{ spec: "p/small", tier: 1, price: 1, window: 100_000, ladder: ["low", "medium"], measured: ["low", "medium"] },
-				{ spec: "p/mid", tier: 2, price: 2, window: 200_000, ladder: ["low", "medium"], measured: ["low", "medium"] },
-				{ spec: "p/big", tier: 3, price: 3, window: 1_000_000, ladder: ["medium"], measured: ["medium"] },
-			]);
-			const thread = { id: "t3", baseModel: "p/small" };
-			const sub = plan({ resolution: res, thread, contextTokens: 90_000, wouldCompact: compactAt(20_000), reserveTokens: 20_000 });
-			// The effort was valid on the ORIGINAL model and is off the SUBSTITUTED model's
-			// ladder: a context size must never turn into a rejection, so the level is
-			// dropped with a warning instead (pi's own default then applies).
-			const soft = plan({
-				resolution: res,
-				thread,
-				requestedEffort: "low",
-				contextTokens: 90_000,
-				wouldCompact: compactAt(20_000),
-				reserveTokens: 20_000,
-			});
-			const fits = plan({ resolution: res, thread: { id: "t3", baseModel: "p/big" }, contextTokens: 90_000, wouldCompact: compactAt(20_000) });
-			checkAll("route-window-substitute", "a model that cannot hold the thread's context is REPLACED by the WIDEST candidate (not the next one, not the cheapest), the verdict still PROCEEDS and records what it substituted from, the warning names both models and the widest window, and an effort level that is invalid on the substituted model is dropped with a warning rather than rejecting the action", [
-				["proceeds — never a hard rejection", sub.kind === "proceed", verdict(sub)],
-				["routed to the WIDEST candidate", sub.model === "p/big", sub.model],
-				["records the substitution", sub.substitutedFrom === "p/small", sub.substitutedFrom],
-				["one warning, naming both models and the widest window", sub.warnings.length === 1 && /p\/small/.test(sub.warnings[0]) && /p\/big \(1,000,000 tokens\)/.test(sub.warnings[0]), sub.warnings],
-				["...and the thread and its token count", /thread t3's context \(~90,000 tokens\)/.test(sub.warnings[0]), sub.warnings],
-				["a level invalid on the substituted model is DROPPED, not rejected", verdict(soft) === "proceed:p/big@undefined", verdict(soft)],
-				["...and said so", warns(soft, /Dropping the effort level for this action/).length === 1, soft.warnings],
-				["a model that fits is left alone, silently, at its own derived level", verdict(fits) === "proceed:p/big@medium" && fits.warnings.length === 0 && fits.substitutedFrom === undefined, [verdict(fits), fits.warnings]],
-			]);
-		});
-
-		await section("route-window-skip", async () => {
-			// The window guard is SKIPPED when capacity is not knowable, and NEVER blocks:
-			// when nothing on the list can hold the context the action still runs and says
-			// so, which is the difference between a cost/quality notice and an outage.
-			const res = routeResolution([
-				{ spec: "p/small", tier: 1, price: 1, window: 100_000, measured: ["medium"] },
-				{ spec: "p/mid", tier: 2, price: 2, window: 150_000, measured: ["medium"] },
-			]);
-			const thread = { id: "t5", baseModel: "p/small" };
-			const noTokens = plan({ resolution: res, thread, wouldCompact: compactAt(20_000), reserveTokens: 20_000 });
-			const noPredicate = plan({ resolution: res, thread, contextTokens: 900_000, reserveTokens: 20_000 });
-			const throwing = plan({
-				resolution: res,
-				thread,
-				contextTokens: 900_000,
-				wouldCompact: () => {
-					throw new Error("compaction settings unreadable");
-				},
-			});
-			const nothingFits = plan({ resolution: res, thread, contextTokens: 900_000, wouldCompact: compactAt(20_000), reserveTokens: 20_000 });
-			const singleRes = routeResolution([{ spec: "p/only", window: 100_000, measured: ["medium"] }]);
-			const noneWider = plan({
-				resolution: singleRes,
-				thread: { id: "t5", baseModel: "p/only" },
-				contextTokens: 900_000,
-				wouldCompact: compactAt(20_000),
-				reserveTokens: 20_000,
-			});
-			checkAll("route-window-skip", "the window guard is SKIPPED when the context size is unknowable, when pi supplies no compaction predicate, and when that predicate throws — and it never rejects: when NO listed model can hold the context the widest one is used anyway with a warning saying pi will compact, and when nothing is wider the resolved model is kept with a warning", [
-				["no context size ⇒ no check, no warning", noTokens.kind === "proceed" && noTokens.model === "p/small" && noTokens.warnings.length === 0, [verdict(noTokens), noTokens.warnings]],
-				["no compaction predicate ⇒ no basis to refuse", noPredicate.model === "p/small" && noPredicate.warnings.length === 0, [verdict(noPredicate), noPredicate.warnings]],
-				["a throwing predicate cannot condemn a dispatch", throwing.kind === "proceed" && throwing.model === "p/small" && throwing.warnings.length === 0, [verdict(throwing), throwing.warnings]],
-				["nothing fits ⇒ still proceeds, on the widest", nothingFits.kind === "proceed" && nothingFits.model === "p/mid" && nothingFits.substitutedFrom === "p/small", [verdict(nothingFits), nothingFits.substitutedFrom]],
-				["...saying no listed model can hold it and pi will compact", /NO listed model can hold it/.test(nothingFits.warnings[0] ?? "") && /pi will compact/.test(nothingFits.warnings[0] ?? ""), nothingFits.warnings],
-				["nothing wider ⇒ keeps the model, no substitution", noneWider.kind === "proceed" && noneWider.model === "p/only" && noneWider.substitutedFrom === undefined, [verdict(noneWider), noneWider.substitutedFrom]],
-				["...and says so", /no listed model is wider/.test(noneWider.warnings[0] ?? ""), noneWider.warnings],
-			]);
-		});
-
-		await section("route-window-reserve", async () => {
-			// The capacity DECISION is pi's own predicate, applied to the candidate's
-			// REGISTRY window — not a comparison against the bare window here. The
-			// discriminating case: a context that fits the raw window but not the window
-			// minus pi's compaction reserve.
-			const res = routeResolution([
-				{ spec: "p/only", tier: 1, price: 1, window: 200_000, measured: ["medium"] },
-				{ spec: "p/wider", tier: 2, price: 2, window: 400_000, measured: ["medium"] },
-			]);
-			const thread = { id: "t4", baseModel: "p/only" };
-			const calls = [];
-			const reserved = plan({ resolution: res, thread, contextTokens: 150_000, wouldCompact: compactAt(60_000, calls), reserveTokens: 60_000 });
-			// Same numbers, a predicate that says everything fits: nothing happens. So the
-			// planner is not second-guessing pi in either direction.
-			const pretendFits = plan({ resolution: res, thread, contextTokens: 150_000, wouldCompact: () => false, reserveTokens: 60_000 });
-			// reserveTokens is TEXT only — omitting it changes the wording, never the verdict.
-			const noReserveFigure = plan({ resolution: res, thread, contextTokens: 150_000, wouldCompact: compactAt(60_000) });
-			checkAll("route-window-reserve", "capacity is judged by pi's OWN compaction predicate on the candidate's registry window — a context that fits the bare window but not the window minus pi's reserve is substituted, the predicate is asked with exactly (tokens, window), a predicate that says it fits is obeyed, and reserveTokens only shapes the warning text", [
-				["substituted although the context fits the BARE window", reserved.model === "p/wider" && reserved.substitutedFrom === "p/only", [reserved.model, reserved.substitutedFrom]],
-				["the predicate was asked with (tokens, registry window)", calls.includes("150000/200000"), calls],
-				["the warning names pi's reserve", /60,000-token compaction reserve/.test(reserved.warnings[0] ?? ""), reserved.warnings],
-				["a predicate that says it fits is obeyed", pretendFits.model === "p/only" && pretendFits.warnings.length === 0, [verdict(pretendFits), pretendFits.warnings]],
-				["an absent reserve figure changes the text, not the verdict", noReserveFigure.model === "p/wider" && /0-token compaction reserve/.test(noReserveFigure.warnings[0] ?? ""), [noReserveFigure.model, noReserveFigure.warnings]],
-			]);
-		});
-
-		await section("route-long-context", async () => {
-			// GUARD 6 is a COST cliff, not a capacity limit: warned once per thread and
-			// model, on the FINAL model, naming the multipliers that start applying.
-			const res = routeResolution([
-				{ spec: "p/lc", window: 1_000_000, threshold: 200_000, multipliers: { in: 2, out: 1.5 }, measured: ["medium"] },
-			]);
-			const base = { resolution: res, thread: { id: "t9", baseModel: "p/lc" }, wouldCompact: () => false };
-			const first = plan({ ...base, contextTokens: 250_000 });
-			const again = plan({ ...base, contextTokens: 250_000, warnedLongContext: ["p/lc"] });
-			const atThreshold = plan({ ...base, contextTokens: 200_000 });
-			const below = plan({ ...base, contextTokens: 199_999 });
-			const nonArrayMemory = plan({ ...base, contextTokens: 250_000, warnedLongContext: "p/lc" });
-			const otherModel = plan({ ...base, contextTokens: 250_000, warnedLongContext: ["p/somethingelse"] });
-			// No figures recorded for the multipliers: say that, rather than "×undefined".
-			const noFigures = plan({
-				resolution: routeResolution([{ spec: "p/lc", window: 1_000_000, threshold: 200_000, measured: ["medium"] }]),
-				thread: { id: "t9", baseModel: "p/lc" },
-				contextTokens: 250_000,
-				wouldCompact: () => false,
-			});
-			// The notice belongs to the model the planner routes to, so a window
-			// substitution moves it to the substituted model.
-			const subRes = routeResolution([
-				{ spec: "p/small", tier: 1, price: 1, window: 100_000, measured: ["medium"] },
-				{ spec: "p/big", tier: 2, price: 2, window: 1_000_000, threshold: 200_000, multipliers: { in: 2, out: 3 }, measured: ["medium"] },
-			]);
-			const afterSub = plan({
-				resolution: subRes,
-				thread: { id: "t9", baseModel: "p/small" },
-				contextTokens: 250_000,
-				wouldCompact: compactAt(20_000),
-				reserveTokens: 20_000,
-			});
-			checkAll("route-long-context", "the long-context BILLING notice fires once per thread and model, at or above the profile's threshold, naming the threshold and the multipliers; the caller's memory suppresses the second one (and only for that model); a non-array memory degrades instead of throwing; a profile with no multiplier figures says so; and after a window substitution the notice belongs to the model the planner routes to", [
-				["fires above the threshold", warns(first, /long-context billing threshold/).length === 1, first.warnings],
-				["reports the spec for the caller to remember", first.longContextWarned === "p/lc", first.longContextWarned],
-				["names the threshold and both multipliers", /\(200,000 tokens\)/.test(first.warnings[0]) && /input bills ×2 and output ×1.5/.test(first.warnings[0]), first.warnings],
-				["says it is a cost event, not a capacity limit", /cost event, not a capacity limit/.test(first.warnings[0]), first.warnings],
-				["does NOT fire twice for the same thread and model", again.warnings.length === 0 && again.longContextWarned === undefined, [again.warnings, again.longContextWarned]],
-				["a memory for a DIFFERENT model does not suppress it", otherModel.longContextWarned === "p/lc", otherModel.longContextWarned],
-				["fires exactly AT the threshold", atThreshold.longContextWarned === "p/lc", atThreshold.longContextWarned],
-				["silent below it", below.warnings.length === 0 && below.longContextWarned === undefined, [below.warnings, below.longContextWarned]],
-				["a non-array memory degrades instead of throwing", nonArrayMemory.kind === "proceed" && nonArrayMemory.longContextWarned === "p/lc", verdict(nonArrayMemory)],
-				["no recorded multipliers ⇒ says so, never ×undefined", /records no figure/.test(noFigures.warnings[0] ?? "") && !/undefined/.test(noFigures.warnings[0] ?? ""), noFigures.warnings],
-				["after a substitution the notice is about the FINAL model", afterSub.longContextWarned === "p/big" && warns(afterSub, /p\/big's long-context billing threshold/).length === 1, [afterSub.longContextWarned, afterSub.warnings]],
-			]);
-		});
-
 		await section("route-failover", async () => {
-			// GUARD 7 — the carve-out. A model that just failed is worse than an unlisted
-			// one that works, so the router may NEVER veto a failover: guards 1-4 are
-			// bypassed and the window check warns instead of substituting. The one rule
-			// failover itself must obey is never selecting the model that just failed.
-			const res = routeResolution([{ spec: "p/listed", window: 200_000, ladder: ["medium"], measured: ["medium"] }]);
+			const res = routeResolution([{ spec: "p/listed", measured: ["medium"] }]);
 			const bypass = plan({ resolution: res, failoverSwitch: true, requestedModel: "p/unlisted", requestedEffort: "turbo" });
-			const sameModel = plan({ resolution: res, failoverSwitch: true, requestedModel: "p/failed", failoverFrom: "p/failed" });
-			const noTarget = plan({ resolution: res, failoverSwitch: true, failoverFrom: "p/failed" });
-			const tooSmall = plan({
-				resolution: res,
-				thread: { id: "t6", baseModel: "p/listed" },
-				failoverSwitch: true,
-				requestedModel: "p/target",
-				contextTokens: 300_000,
-				contextWindow: 200_000,
-				wouldCompact: compactAt(20_000),
-			});
-			const offWindow = plan({
-				resolution: router.ROUTER_OFF,
-				thread: { id: "t6" },
-				failoverSwitch: true,
-				requestedModel: "p/target",
-				contextTokens: 300_000,
-				contextWindow: 200_000,
-				wouldCompact: compactAt(20_000),
-			});
-			checkAll("route-failover", "a failover switch bypasses the list and effort guards entirely, never sets an effort level, keeps a NON-SUBSTITUTING window check that warns and proceeds, refuses the model that just failed, and refuses an unresolved target — while a router-OFF failover emits no window warning at all, which is the only pre-router equivalence asserted here", [
-				["an unlisted target is allowed", bypass.kind === "proceed" && bypass.model === "p/unlisted", verdict(bypass)],
-				["an off-vocabulary effort argument is ignored, not rejected", bypass.effort === undefined && bypass.effortUnmeasured === false, verdict(bypass)],
-				["silently", bypass.warnings.length === 0, bypass.warnings],
-				["the model that just failed is refused", sameModel.kind === "reject" && /resolves to the model that just failed/.test(why(sameModel)), verdict(sameModel)],
-				["an unresolved target is refused", noTarget.kind === "reject" && /no failover target was resolved/.test(why(noTarget)), verdict(noTarget)],
-				["a too-small target still proceeds", tooSmall.kind === "proceed" && tooSmall.model === "p/target", verdict(tooSmall)],
-				["...with NO substitution", tooSmall.substitutedFrom === undefined, tooSmall.substitutedFrom],
-				["...and one warning saying failover is never vetoed on window size", tooSmall.warnings.length === 1 && /failing over anyway/.test(tooSmall.warnings[0]) && /never vetoed/.test(tooSmall.warnings[0]), tooSmall.warnings],
-				["router OFF ⇒ no window warning at all", offWindow.kind === "proceed" && offWindow.model === "p/target" && offWindow.warnings.length === 0, [verdict(offWindow), offWindow.warnings]],
+			const same = plan({ resolution: res, failoverSwitch: true, requestedModel: "p/failed", failoverFrom: "p/failed" });
+			const absent = plan({ resolution: res, failoverSwitch: true });
+			checkAll("route-failover", "failover bypasses action route guards but still refuses an absent target or the model that failed", [
+				["unlisted target proceeds without effort or warnings", bypass.kind === "proceed" && bypass.model === "p/unlisted" && bypass.effort === undefined && bypass.warnings.length === 0, verdict(bypass)],
+				["the failed model is refused", same.kind === "reject", verdict(same)],
+				["an absent target is refused", absent.kind === "reject", verdict(absent)],
+			]);
+		});
+
+		await section("route-context-checks-removed", async () => {
+			const res = routeResolution([
+				{ spec: "p/small", tier: 1, price: 1, window: 10, threshold: 5, measured: ["medium"] },
+				{ spec: "p/wide", tier: 2, price: 2, window: 1_000_000, threshold: 5, measured: ["medium"] },
+			]);
+			const result = plan({ resolution: res, requestedModel: "p/small", contextTokens: 999_999, wouldCompact: () => true, reserveTokens: 20_000, warnedLongContext: [] });
+			checkAll("route-context-checks-removed", "removed context-size inputs cannot substitute a model or produce a billing notice", [
+				["the requested model remains selected", result.kind === "proceed" && result.model === "p/small", verdict(result)],
+				["no context-size warning appears", result.warnings.length === 0, result.warnings],
+				["no removed result marker appears", result.substitutedFrom === undefined && result.longContextWarned === undefined, result],
 			]);
 		});
 
@@ -4848,115 +4595,6 @@ production behaviour.`);
 				["...while a truly EMPTY string is absent, as it is for planRoute", emptyPlan === "switch:p/open/revert", emptyPlan],
 				["planRoute and the decision agree on the same value, character for character", paddedPlanned.model === "  p/x  " && paddedDecision.kind === "switch" && paddedDecision.spec === "  p/x  ", [paddedPlanned.model, paddedDecision]],
 				["every switch carries the right source label (BG24)", mislabelled.length === 0, mislabelled.map(([label, d]) => `${label} \u2192 ${JSON.stringify(d)}`)],
-			]);
-		});
-
-		await section("route-switch-opening-baseline", async () => {
-			// THE DEFECT ed6d18d FIXED, and the one this check exists for: the revert target
-			// must be what a MODEL-LESS plan resolves to, not what the routed open happened to
-			// use. When the dispatch that OPENS the session is itself carrying an explicit
-			// `model`, capturing the opened model as the baseline makes that per-action model
-			// the thread's PERMANENT default — BG22 surviving its own first fix, on the
-			// opening path.
-			//
-			// Both halves are pure, so the whole lifecycle is expressible here: plan the
-			// routed dispatch, plan the SAME dispatch with no model (which is what the caller
-			// opens the session with, and reads the baseline from), then ask the helper what
-			// the NEXT model-less action does. The defect and the fix differ only in which of
-			// those two plans supplied the baseline.
-			const off = router.ROUTER_OFF;
-			const lifecycle = (thread, resolution, hostModel) => {
-				const routed = plan({ resolution, thread, requestedModel: "p/x", ...(hostModel ? { hostModel } : {}) });
-				const modelless = plan({ resolution, thread, ...(hostModel ? { hostModel } : {}) });
-				// What the caller opens on, and therefore what the session reports as its model:
-				// the model-less plan's model, or the host's when it resolved none.
-				const opensOn = (modelless.kind === "proceed" ? modelless.model : undefined) ?? hostModel;
-				const next = plan({ resolution, thread, ...(hostModel ? { hostModel } : {}) });
-				// TQ7: the baseline the decision takes is the branded object, so a lifecycle
-				// fixture wraps the model it is standing in for; nothing opened yet is
-				// NO_SESSION_BASELINE, exactly as the caller passes it.
-				const decide = (baselineModel) => {
-					const baseline = baselineModel === undefined ? route.NO_SESSION_BASELINE : { model: baselineModel };
-					const d = route.decideModelSwitch({ planned: next.model, openOnly: next.openOnly, current: "p/x", baseline });
-					return d.kind === "switch" ? `switch:${d.spec}/${d.source}` : `keep:${d.reason}`;
-				};
-				return { routed, modelless, fixed: decide(opensOn), defective: decide(routed.kind === "proceed" ? routed.model : undefined) };
-			};
-			// A PINNED thread, router off: the routed open used p/x, the model-less plan says
-			// p/pin. Only the second is a legitimate baseline.
-			const pinned = lifecycle({ id: "t1", model: "p/pin" }, off);
-			// A thread with NO pin: the model-less plan resolves nothing, so the session opens
-			// on the HOST model and that is the baseline — the shape most real router-off
-			// threads have.
-			const bare = lifecycle({ id: "t2" }, off, "p/host");
-			// Router ON: the base is a candidate, so the next plan supplies it as a PLAN
-			// target and the revert is not even needed — which is why this defect was
-			// router-off only, and why a router-on fixture could never have caught it.
-			const on = routeResolution([
-				{ spec: "p/cheap", tier: 1, price: 1, measured: ["medium"], ladder: ["medium"] },
-				{ spec: "p/dear", tier: 2, price: 2, measured: ["medium"], ladder: ["medium"] },
-			]);
-			const routerOn = lifecycle({ id: "t3", baseModel: "p/cheap", baseEffort: "medium" }, on);
-			// THE WIRING. Everything above pins the RULE — which baseline is correct and what
-			// the other one costs — but the caller is the one that has to obey it, and
-			// threads.ts cannot be loaded here. That used to make the two facts that complete
-			// the composition regexes over the caller's source: the session-open plan drops the
-			// `model` argument, and the baseline is read from the SESSION that plan opened
-			// rather than from the routed plan.
-			// TQ4: the caller's half is EXECUTABLE now. `planSessionOpen` decides what the
-			// session opens on and `captureSessionBaseline` decides what is recorded as the
-			// revert target, both pure — so the two facts that used to be regexes are checks.
-			// The regexes are deleted rather than kept alongside: a brittle term next to a
-			// real one only adds false alarms.
-			const openOf = (input) => route.planSessionOpen(input);
-			const openedPinned = openOf({ resolution: off, thread: { id: "t1", model: "p/pin" }, requestedModel: "p/x" });
-			const openedBare = openOf({ resolution: off, thread: { id: "t2" }, requestedModel: "p/x", hostModel: "p/host" });
-			// THE DEFECT SHAPE THE GATE PROVED INVISIBLE: `?? opts.model` in the open
-			// derivation silently reinstates BG22 on the opening path while every other check
-			// stays green. Executably, that is "the open decision must not fall back to the
-			// action's own model" — with a pin present the answer is the pin, and with no pin
-			// it is nothing (the caller then opens on the host), never `p/x`.
-			const openNeverRouted = openedPinned.model !== "p/x" && openedBare.model !== "p/x";
-			// TQ8: every fixture above is router-OFF, where the open model and the thread's
-			// BASE happen to coincide — so returning `baseModel` instead of `model` looks
-			// identical. They diverge under router-ON WINDOW SUBSTITUTION: the base stays the
-			// thread's own, while the model this action (and therefore the open) resolves to
-			// is the widest candidate. The open must report the RESOLVED model.
-			const wideRes = routeResolution([
-				{ spec: "p/small", tier: 1, price: 1, window: 100_000, ladder: ["medium"], measured: ["medium"] },
-				{ spec: "p/big", tier: 2, price: 2, window: 1_000_000, ladder: ["medium"], measured: ["medium"] },
-			]);
-			const openedSubstituted = openOf({
-				resolution: wideRes,
-				thread: { id: "t4", baseModel: "p/small" },
-				contextTokens: 90_000,
-				wouldCompact: compactAt(20_000),
-				reserveTokens: 20_000,
-			});
-			// The baseline is taken from what the SESSION reports, and it is validated on the
-			// way in (BG21's vocabulary rule applies to the level, the spec rule to the model).
-			// TQ7: the parameter is the SESSION OBJECT — `model.provider`/`model.id` and
-			// `thinkingLevel` — and not a record the caller assembles, which is what takes the
-			// late-capture expressions away from the decision sites.
-			const baselineOf = (session) => route.captureSessionBaseline(session);
-			const baselineGood = baselineOf({ model: { provider: "p", id: 7 }, thinkingLevel: "medium" });
-			const baselineSpec = baselineOf({ model: { provider: "p", id: "opened" }, thinkingLevel: "medium" });
-			const baselineJunk = baselineOf({ model: 7, thinkingLevel: "HIGH" });
-
-			checkAll("route-switch-opening-baseline", "the revert target is what a MODEL-LESS plan resolves to, never what a routed open happened to use: when the dispatch that opens the session carries an explicit `model`, using the opened model as the baseline makes that per-action model the thread's permanent default (BG22 on the opening path). Pinned by composing both plans with the switch decision \u2014 the correct baseline reverts, the defective one reports the session is already where it should be and the explicit model never goes away", [
-				["the routed plan and the model-less plan really differ", pinned.routed.model === "p/x" && pinned.modelless.model === "p/pin", [pinned.routed.model, pinned.modelless.model]],
-				["...and only the model-less one is open-only", pinned.modelless.openOnly === true && pinned.routed.openOnly === undefined, [pinned.modelless.openOnly, pinned.routed.openOnly]],
-				["pinned thread: the correct baseline reverts off the per-action model", pinned.fixed === "switch:p/pin/revert", pinned.fixed],
-				["pinned thread: the DEFECTIVE baseline makes it permanent", pinned.defective === "keep:already-current", pinned.defective],
-				["no pin: the session opens on the host model, and that is the baseline", bare.modelless.model === undefined && bare.fixed === "switch:p/host/revert", [bare.modelless.model, bare.fixed]],
-				["no pin: the DEFECTIVE baseline makes it permanent too", bare.defective === "keep:already-current", bare.defective],
-				["router ON: the base arrives as a PLAN target, so the defect cannot bite", routerOn.fixed === "switch:p/cheap/plan" && routerOn.defective === "switch:p/cheap/plan", [routerOn.fixed, routerOn.defective]],
-				["the session-open decision ignores the action's own model (TQ4: the `?? opts.model` shape)", openNeverRouted, [openedPinned, openedBare]],
-				["...resolving the thread's pin when it has one", openedPinned.model === "p/pin", openedPinned],
-				["...and nothing when it has none, so the caller opens on the host", openedBare.model === undefined && openedBare.unplanned === undefined, openedBare],
-				["the open reports the RESOLVED model, not the thread's base (TQ8)", openedSubstituted.model === "p/big", openedSubstituted],
-				["the baseline is taken from the SESSION and validated on the way in", baselineSpec.model === "p/opened" && baselineSpec.effort === "medium", baselineSpec],
-				["...a non-spec model and a non-vocabulary level are discarded, not recorded", baselineJunk.model === undefined && baselineJunk.effort === undefined && baselineGood.model === undefined, [baselineJunk, baselineGood]],
 			]);
 		});
 
@@ -5423,190 +5061,6 @@ production behaviour.`);
 	}
 
 	// =========================================================================
-	// Continue-or-fresh choice planner (extension/thread-choice.ts)
-	// =========================================================================
-	if (!choice) {
-		for (const id of CHOICE_IDS) skip(id, "extension/thread-choice.ts could not be loaded");
-	} else {
-		const input = (overrides = {}) => ({
-			now: 100_000,
-			thread: { id: "t1", tools: ["read"] },
-			last: { status: "ok", model: "p/a", effort: "low", cacheRead: 1000, cacheWrite: 0, contextTokens: 100_000, createdAt: 40_000 },
-			action: { model: "p/a", effort: "low", expectedTurns: 3 },
-			retention: { documentedSeconds: 300 },
-			rates: { inUsdPerMTok: 1, outUsdPerMTok: 1, cachedInUsdPerMTok: 0.1, cacheWriteUsdPerMTok: 1.25 },
-			sizes: { freshSeedTokens: 10_000, episodeTokens: 1000, taskTokens: 100, growthTokensPerTurn: 100, outputTokensPerTurn: 0, rediscoveryTurns: 1, freshSeedCache: "write" },
-			allowance: ["e1"],
-			knownEpisodeIds: ["e1"],
-			...overrides,
-		});
-		const planChoice = (overrides = {}) => choice.planThreadChoice(input(overrides));
-		const code = (value) => `${value?.kind ?? "none"}:${value?.code ?? "none"}`;
-
-		await section("choice-order", async () => {
-			const noAction = choice.planThreadChoice({ thread: { id: "t1" } });
-			const noPermission = planChoice({ allowance: undefined, action: { model: "p/a", effort: "low", expectedTurns: 1 } });
-			const noIndex = planChoice({ knownEpisodeIds: undefined });
-			checkAll("choice-order", "unusable input and safety refusals settle before source selection, warmth, the short-work guard, or arithmetic", [
-				["no action is the first decision", code(noAction) === "abstain:no-action", code(noAction)],
-				["missing permission outranks the one-turn guard", code(noPermission) === "refused:allowance-absent", code(noPermission)],
-				["an uncheckable episode seed outranks all cache and price evidence", code(noIndex) === "abstain:episode-index-unavailable", code(noIndex)],
-			]);
-		});
-
-		await section("choice-refusals", async () => {
-			const cases = [
-				["allowance-absent", { allowance: undefined }],
-				["allowance-empty", { allowance: [] }],
-				["episode-missing", { allowance: ["missing"] }],
-				["tool-allowance-unrecorded", { thread: { id: "t1" } }],
-				["tool-allowance-empty", { thread: { id: "t1", tools: [] } }],
-				["last-dispatch-failed", { last: { ...input().last, status: "failed" } }],
-			];
-			const got = cases.map(([expected, override]) => [expected, planChoice(override)]);
-			checkAll("choice-refusals", "each permission, episode, equipment, and failed-dispatch refusal returns its own code before economics can permit a restart", [
-				["all six refusal codes are reached exactly", got.every(([expected, value]) => code(value) === `refused:${expected}`), got.map(([expected, value]) => `${expected} -> ${code(value)}`)],
-				["every refusal explains itself", got.every(([, value]) => typeof value.reason === "string" && value.reason.length > 20), got.map(([, value]) => value.reason)],
-			]);
-		});
-
-		await section("choice-new-stream", async () => {
-			const fresh = choice.planThreadChoice({ action: { model: "p/a", effort: "low", expectedTurns: 3 } });
-			check("choice-new-stream", code(fresh) === "fresh:no-thread-to-continue", "a dispatch with no source thread starts a fresh work stream without requiring allowance or economic inputs", code(fresh));
-		});
-
-		await section("choice-warmth", async () => {
-			const warm = (overrides) => choice.classifyPrefixWarmth({ now: 100_000, model: "p/a", effort: "low", last: input().last, retention: { documentedSeconds: 60 }, ...overrides });
-			const got = {
-				none: warm({ last: undefined }),
-				model: warm({ model: "p/b" }),
-				miss: warm({ last: { ...input().last, cacheRead: 0, cacheWrite: 0 } }),
-				boundary: warm({}),
-				expired: warm({ now: 100_001 }),
-				noData: warm({ retention: undefined }),
-				unknownAge: warm({ now: undefined }),
-			};
-			checkAll("choice-warmth", "warmth uses positive cache evidence, expires strictly after the retention boundary, and treats missing retention or age conservatively", [
-				["no previous dispatch is cold", got.none.code === "no-previous-dispatch" && !got.none.warm, got.none],
-				["a model change is cold", got.model.code === "model-change" && !got.model.warm, got.model],
-				["zero read and write is a measured miss", got.miss.code === "measured-cache-miss" && !got.miss.warm, got.miss],
-				["the exact retention boundary stays warm", got.boundary.code === "within-retention" && got.boundary.warm, got.boundary],
-				["one millisecond past it is expired", got.expired.code === "retention-expired" && !got.expired.warm, got.expired],
-				["missing retention data favours warmth", got.noData.code === "no-retention-data" && got.noData.warm, got.noData],
-				["unknown age is not an expiry", got.unknownAge.code === "unknown-elapsed-time" && got.unknownAge.warm, got.unknownAge],
-			]);
-		});
-
-		await section("choice-effort-cold", async () => {
-			const common = { now: 100_000, model: "p/a", last: input().last, retention: { documentedSeconds: 300 } };
-			const changed = choice.classifyPrefixWarmth({ ...common, effort: "high" });
-			const control = choice.classifyPrefixWarmth({ ...common, effort: "low" });
-			checkAll("choice-effort-cold", "a known effort change makes an otherwise warm prefix cold, while the same-effort control remains warm", [
-				["changed effort is the measured cold path", changed.code === "effort-change" && !changed.warm, changed],
-				["same effort control stays warm", control.code === "within-retention" && control.warm, control],
-			]);
-		});
-
-		await section("choice-short-work", async () => {
-			const at = (expectedTurns) => planChoice({ action: { model: "p/a", effort: "low", expectedTurns }, rates: undefined });
-			const one = at(1);
-			const two = at(2);
-			const three = at(3);
-			checkAll("choice-short-work", "one and two turns continue before pricing, while three turns cross the exact guard boundary and require economic inputs", [
-				["one turn continues", code(one) === "continue:short-work", code(one)],
-				["two turns continue", code(two) === "continue:short-work", code(two)],
-				["three turns reaches pricing", code(three) === "abstain:prices-unusable", code(three)],
-			]);
-		});
-
-		await section("choice-abstentions", async () => {
-			const cases = [
-				["no-action", choice.planThreadChoice({})],
-				["episode-index-unavailable", planChoice({ knownEpisodeIds: undefined })],
-				["prices-unusable", planChoice({ rates: undefined })],
-				["prefix-size-unknown", planChoice({ last: { ...input().last, contextTokens: undefined } })],
-				["fresh-size-unknown", planChoice({ sizes: { ...input().sizes, freshSeedTokens: undefined } })],
-				["episode-size-unknown", planChoice({ sizes: { ...input().sizes, episodeTokens: undefined } })],
-			];
-			check("choice-abstentions", cases.every(([expected, value]) => code(value) === `abstain:${expected}`), "each unusable decision input abstains with its exact code instead of fabricating an economic choice", cases.map(([expected, value]) => `${expected} -> ${code(value)}`));
-		});
-
-		await section("choice-token-buckets", async () => {
-			const rates = { cacheRead: 0.1, fresh: 1, output: 2, freshFromInputPrice: false };
-			const estimated = choice.estimateArmCost({ cachedPrefixTokens: 100, uncachedPrefixTokens: 50, turns: 3, growthTokensPerTurn: 10, outputTokensPerTurn: 5, rates });
-			const zeroWrite = choice.resolveTokenRates({ inUsdPerMTok: 1, outUsdPerMTok: 2, cachedInUsdPerMTok: 0.1, cacheWriteUsdPerMTok: 0 });
-			const absentWrite = choice.resolveTokenRates({ inUsdPerMTok: 1, outUsdPerMTok: 2, cachedInUsdPerMTok: 0.1 });
-			checkAll("choice-token-buckets", "cache reads, fresh tokens, and output stay disjoint across turns, while zero or absent write premiums fall back to input price", [
-				["three turns have exact disjoint totals", estimated.cacheReadTokens === 410 && estimated.freshTokens === 70 && estimated.outputTokens === 15, estimated],
-				["the exact cost prices each bucket once", Math.abs(estimated.usd - 0.000141) < 1e-12, estimated.usd],
-				["zero and absent write premiums use input price", zeroWrite?.fresh === 1 && absentWrite?.fresh === 1 && zeroWrite.freshFromInputPrice && absentWrite.freshFromInputPrice, { zeroWrite, absentWrite }],
-			]);
-		});
-
-		await section("choice-long-context", async () => {
-			const rates = { cacheRead: 1, fresh: 1, output: 1, freshFromInputPrice: false };
-			const longContext = choice.resolveLongContext({ threshold: 100, multipliers: { in: 2, out: 3, cachedIn: 4, cacheWrite: 5 } });
-			const at = choice.estimateArmCost({ cachedPrefixTokens: 60, uncachedPrefixTokens: 40, turns: 1, growthTokensPerTurn: 0, outputTokensPerTurn: 10, rates, longContext });
-			const below = choice.estimateArmCost({ cachedPrefixTokens: 59, uncachedPrefixTokens: 40, turns: 1, growthTokensPerTurn: 0, outputTokensPerTurn: 10, rates, longContext });
-			const both = planChoice({ longContext: { threshold: 1, multipliers: { in: 2, out: 2, cachedIn: 2, cacheWrite: 2 } } });
-			checkAll("choice-long-context", "long-context billing starts at the exact threshold, prices each bucket with its multiplier, and applies independently to both planner arms", [
-				["exact threshold is multiplied", at.longContextTurns === 1 && Math.abs(at.usd - 0.00047) < 1e-12, at],
-				["one token below is not multiplied", below.longContextTurns === 0 && Math.abs(below.usd - 0.000109) < 1e-12, below],
-				["both planner arms cross independently", both.estimate?.continuation.longContextTurns > 0 && both.estimate?.fresh.longContextTurns > 0, both.estimate],
-			]);
-		});
-
-		await section("choice-rediscovery", async () => {
-			const ordinary = planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 3 } });
-			const clamped = planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 1000 } });
-			checkAll("choice-rediscovery", "the fresh arm keeps its extra rediscovery turn in ordinary pricing and at the maximum-turn clamp", [
-				["ordinary fresh arm has one extra turn", ordinary.estimate?.continuation.turns === 3 && ordinary.estimate?.fresh.turns === 4, ordinary.estimate],
-				["clamping preserves the gap", clamped.estimate?.continuation.turns === 99 && clamped.estimate?.fresh.turns === 100 && clamped.estimate?.turnsClamped === true, clamped.estimate],
-			]);
-		});
-
-		await section("choice-final-verdict", async () => {
-			const fresh = planChoice({ sizes: { ...input().sizes, freshSeedTokens: 1000, episodeTokens: 0 }, last: { ...input().last, contextTokens: 1_000_000 } });
-			const continuation = planChoice({ sizes: { ...input().sizes, freshSeedTokens: 1_000_000, episodeTokens: 100_000 }, last: { ...input().last, contextTokens: 1000 } });
-			const equal = planChoice({ rates: { inUsdPerMTok: 0, outUsdPerMTok: 0, cachedInUsdPerMTok: 0, cacheWriteUsdPerMTok: 0 } });
-			const gap = fresh.estimate ? fresh.estimate.continuation.usd - fresh.estimate.fresh.usd : 0;
-			checkAll("choice-final-verdict", "widely separated costs choose fresh or continuation in the correct direction, while an exact tie preserves the existing thread", [
-				["positive control produces a fresh verdict", code(fresh) === "fresh:fresh-cheaper", { verdict: code(fresh), gap }],
-				["the positive gap dwarfs floating-point noise", gap > 0.1, gap],
-				["opposite economics continue", code(continuation) === "continue:continuation-cheaper", { verdict: code(continuation), estimate: continuation.estimate }],
-				["an exact tie continues", code(equal) === "continue:equal-cost", { verdict: code(equal), estimate: equal.estimate }],
-			]);
-		});
-
-		await section("choice-verdict-shape", async () => {
-			const values = [
-				choice.planThreadChoice({}),
-				choice.planThreadChoice({ action: {} }),
-				planChoice({ allowance: undefined }),
-				planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 1 } }),
-				planChoice(),
-			];
-			checkAll("choice-verdict-shape", "every verdict carries a non-empty reason, and priced choices carry both their estimate and warmth evidence", [
-				["all verdicts explain themselves", values.every((value) => typeof value.reason === "string" && value.reason.trim().length > 0), values.map((value) => [code(value), value.reason])],
-				["priced choices carry estimate and warmth", values.filter((value) => value.estimate).every((value) => value.warmth && value.estimate.continuation && value.estimate.fresh), values.map((value) => [code(value), !!value.estimate, !!value.warmth])],
-			]);
-		});
-
-		await section("choice-hostile", async () => {
-			const hostile = [null, [], "bad", { action: [] }, { action: { expectedTurns: Number.POSITIVE_INFINITY } }, input({ action: { model: {}, effort: [], expectedTurns: 101 } })];
-			const got = hostile.map((value) => {
-				try { return { value: choice.planThreadChoice(value) }; } catch (error) { return { error: String(error) }; }
-			});
-			const bounded = planChoice({ action: { model: "p/a", effort: "low", expectedTurns: 101 } });
-			checkAll("choice-hostile", "malformed values degrade to bounded verdicts without throwing, and oversized turn estimates stay within the planner limit", [
-				["no hostile shape throws", got.every((entry) => entry.error === undefined), got],
-				["every result has a closed verdict kind", got.every((entry) => ["continue", "fresh", "abstain", "refused"].includes(entry.value?.kind)), got.map((entry) => code(entry.value))],
-				["oversized work is clamped", bounded.estimate?.fresh.turns === choice.MAX_PRICED_TURNS && bounded.estimate?.turnsClamped === true, bounded.estimate],
-			]);
-		});
-	}
-
-	// =========================================================================
 	// Config-sanitizer WIRING (extension/index.ts) — a TEXT check, deliberately
 	// =========================================================================
 	// A sanitizer that exists but is never called is the exact silent failure this
@@ -5735,125 +5189,33 @@ production behaviour.`);
 		});
 
 		await section("state-thread-record", async () => {
-			// BG26. Every thread record is re-validated FIELD BY FIELD on the session-restore
-			// path, because nothing downstream re-checks it: a snapshot that was hand-edited,
-			// truncated, or written by another version of slate used to reach the dispatch
-			// path as-is, and the symptom was an exception thrown out of the `thread` tool
-			// from inside a warning message. This is the highest-blast-radius pure function in
-			// the track — it runs over the user's whole thread history at every restore — and
-			// the danger cuts both ways: a MISSED repair crashes a tool, and a FALSE repair
-			// silently destroys a thread the user still needs.
-			const sane = (raw) => {
-				const repairs = [];
-				return { out: state.sanitizeThreadRecord(raw, repairs), repairs };
+			const sane = (raw) => { const repairs = []; return { out: state.sanitizeThreadRecord(raw, repairs), repairs }; };
+			const complete = {
+				id: "t2", name: "impl", status: "successful", type: "reviewer", model: "p/pin",
+				baseModel: "p/base", baseEffort: "medium", cacheKeyShard: 1, tools: ["read"],
+				episodeId: "t2.e1", outcomeReason: "done", createdAt: 111, updatedAt: 222,
 			};
-			// A well-formed record must come back BYTE-IDENTICAL. This is the term that stands
-			// between a user's history and an over-eager sanitizer.
-			const wellFormed = {
-				id: "t2",
-				name: "impl",
-				sessionFile: "/tmp/x.jsonl",
-				status: "idle",
-				type: "reviewer",
-				restartOf: "t1",
-				restartGeneration: 1,
-				supersededBy: "t3",
-				model: "p/pin",
-				baseModel: "p/base",
-				baseEffort: "medium",
-				cacheKeyShard: 1,
-				tools: ["read", "grep"],
-				choiceEvidenceStale: true,
-				episodeIds: ["t2.e1"],
-				episodeSeq: 1,
-				createdAt: 111,
-				updatedAt: 222,
-			};
-			const roundTrip = sane(wellFormed);
-			// A record nothing can address is DROPPED, and silently — the caller writes that
-			// note, because only it knows what the record was.
-			const unaddressable = [
-				["no id", { name: "x" }],
-				["empty id", { id: "" }],
-				["non-string id", { id: 7 }],
-				["null", null],
-				["a bare string", "t1"],
-			].map(([label, raw]) => [label, sane(raw)]);
-			const kept = unaddressable.filter(([, r]) => r.out !== undefined).map(([label]) => label);
-			const noisy = unaddressable.filter(([, r]) => r.repairs.length > 0).map(([label]) => label);
-			// Per-field behaviour: a wrong TYPE is dropped to the documented default AND
-			// noted; the note names the field and the type it saw.
-			const nameBad = sane({ id: "t1", name: 7 });
-			const fileBad = sane({ id: "t1", sessionFile: {} });
-			const seqBad = sane({ id: "t1", episodeSeq: Number.NaN });
-			const stampBad = sane({ id: "t1", createdAt: "111" });
-			const idsBad = sane({ id: "t1", episodeIds: "a" });
-			const idsMixed = sane({ id: "t1", episodeIds: ["a", 7, "b"] });
-			const seqFromIds = sane({ id: "t1", episodeIds: ["a", "b"] });
-			const running = sane({ ...wellFormed, status: "running" });
-			// TYPE-CHECK ONLY on the specs and the level (the CQ13/RG1 and BG21 rule): a
-			// malformed-but-STRING value survives untouched, so pi still produces its own
-			// "unknown model" error and route.ts's `storedLevel` still owns the vocabulary.
-			// Repairing here would convert a caller's error into a silent substitution — the
-			// exact class of defect this track spent two rounds removing.
-			const padded = sane({ id: "t1", type: "future-type", model: "  p/x  ", baseModel: "not a spec", baseEffort: "HIGH" });
-			const typeBad = sane({ id: "t1", type: 7 });
-			const effortBad = sane({ id: "t1", baseEffort: 7 });
-			const stampBadUpdated = sane({ id: "t1", updatedAt: {} });
-			// ABSENT is a third case, distinct from wrong-typed and from present-and-valid: a
-			// bare id must fill every default and say NOTHING, because nothing was repaired.
-			// (Only the wrong-type half was covered when this section was recovered.)
-			const minimal = sane({ id: "t1" });
-			const filled =
-				minimal.out?.name === "t1" &&
-				minimal.out?.sessionFile === "" &&
-				minimal.out?.status === "idle" &&
-				JSON.stringify(minimal.out?.episodeIds) === "[]" &&
-				minimal.out?.episodeSeq === 0 &&
-				typeof minimal.out?.createdAt === "number" &&
-				typeof minimal.out?.updatedAt === "number";
-			// CQ22, from the OUTSIDE. state.ts exports the adoption checklist and the notice
-			// precisely so a checker can walk them: hand the sanitizer a record with every
-			// field valid and every key on the list must come back. That generalises the
-			// round-trip term above, which can only speak for the fields its fixture happens
-			// to carry — a field added to ThreadRecord and forgotten by the sanitizer would
-			// slip past a fixture nobody updated, and this term is what notices.
+			const roundTrip = sane(complete);
+			const bad = [undefined, null, {}, { id: "legacy" }, { id: "t1", name: "x", status: "idle", type: "general" }].map(sane);
+			const successfulWithoutEpisode = sane({ id: "t1", name: "x", status: "successful", type: "general", createdAt: 1, updatedAt: 1 });
+			const wrongEpisodeIds = [8, "t1.e2"].map((episodeId) => sane({ id: "t1", name: "x", status: "failed", type: "general", episodeId, createdAt: 1, updatedAt: 1 }));
+			const cancelled = sane({ id: "t1", name: "x", status: "cancelled", type: "general", outcomeReason: "before start", createdAt: 1, updatedAt: 1 });
+			const unfinished = ["queued", "running"].map((status) => sane({ id: "t3", name: "x", status, type: "general", createdAt: 1, updatedAt: 1 }));
+			const hostile = sane({
+				id: "t4", name: "bad fields", status: "failed", type: "general",
+				model: 7, baseModel: {}, baseEffort: false, cacheKeyShard: "1", tools: "read",
+				episodeId: 8, outcomeReason: [], createdAt: "1", updatedAt: null,
+			});
 			const adoptedKeys = Object.keys(state.ADOPTED_THREAD_FIELDS ?? {});
-			const builtKeys = Object.keys(roundTrip.out ?? {});
-			const unadopted = adoptedKeys.filter((k) => !builtKeys.includes(k));
-			const surplus = builtKeys.filter((k) => !adoptedKeys.includes(k));
-			// And the notice itself, driven directly — the one situation this codebase cannot
-			// produce on purpose (a field the snapshot has, that adoption claims to know, that
-			// the built record lacks and nobody refused).
-			const lost = [];
-			state.noteUnadoptedFields?.("thread", "t1", { ...wellFormed }, { id: "t1" }, new Set(), lost);
-			const lostRefused = [];
-			state.noteUnadoptedFields?.("thread", "t1", { ...wellFormed }, { id: "t1" }, new Set(["name"]), lostRefused);
-			const lostForeign = [];
-			state.noteUnadoptedFields?.("thread", "t1", { id: "t1", fieldFromAnotherVersion: 1 }, { id: "t1" }, new Set(), lostForeign);
-			checkAll("state-thread-record", "a thread record is re-validated field by field on the restore path (BG26): a well-formed one round-trips BYTE-IDENTICALLY and reports no repair, an unaddressable one is dropped silently (the caller owns that note), every wrong-typed field falls back to its documented default WITH a note naming the field and the type \u2014 and the model, pin and level are TYPE-CHECKED ONLY, so a malformed-but-string value still reaches pi's own error and route.ts's vocabulary rule instead of being silently repaired here", [
-				["a well-formed record round-trips byte-identically", JSON.stringify(roundTrip.out) === JSON.stringify(wellFormed), roundTrip.out],
-				["...and reports no repair at all", roundTrip.repairs.length === 0, roundTrip.repairs],
-				["every unaddressable shape is dropped", kept.length === 0, kept],
-				["...silently, because the caller writes that note", noisy.length === 0, noisy],
-				["a live status is normalised to idle, silently", running.out?.status === "idle" && running.repairs.length === 0, [running.out?.status, running.repairs]],
-				["a wrong-typed name falls back to the id, noted", nameBad.out?.name === "t1" && nameBad.repairs.join() === "thread t1: ignoring name (number)", [nameBad.out?.name, nameBad.repairs]],
-				["a wrong-typed sessionFile falls back to empty, noted as an object", fileBad.out?.sessionFile === "" && /sessionFile \(object\)/.test(fileBad.repairs.join()), [fileBad.out?.sessionFile, fileBad.repairs]],
-				["a non-finite episodeSeq falls back to the id count, noted", seqBad.out?.episodeSeq === 0 && /episodeSeq \(number\)/.test(seqBad.repairs.join()), [seqBad.out?.episodeSeq, seqBad.repairs]],
-				["...and an absent one is derived from the ids, silently", seqFromIds.out?.episodeSeq === 2 && seqFromIds.repairs.length === 0, [seqFromIds.out?.episodeSeq, seqFromIds.repairs]],
-				["a wrong-typed timestamp becomes a real number, noted", typeof stampBad.out?.createdAt === "number" && /createdAt \(string\)/.test(stampBad.repairs.join()), [stampBad.out?.createdAt, stampBad.repairs]],
-				["a non-array episodeIds becomes empty, noted", JSON.stringify(idsBad.out?.episodeIds) === "[]" && /episodeIds \(string\)/.test(idsBad.repairs.join()), [idsBad.out?.episodeIds, idsBad.repairs]],
-				["...while a mixed array keeps its strings, silently", JSON.stringify(idsMixed.out?.episodeIds) === '["a","b"]' && idsMixed.repairs.length === 0, [idsMixed.out?.episodeIds, idsMixed.repairs]],
-				["a malformed-but-STRING type, spec or level survives untouched", padded.out?.type === "future-type" && padded.out?.model === "  p/x  " && padded.out?.baseModel === "not a spec" && padded.out?.baseEffort === "HIGH", padded.out],
-				["...and is not reported as a repair, because nothing was repaired", padded.repairs.length === 0, padded.repairs],
-				["a non-string type IS dropped and noted", typeBad.out?.type === undefined && /type \(number\)/.test(typeBad.repairs.join()), [typeBad.out?.type, typeBad.repairs]],
-				["a non-string level IS dropped and noted", effortBad.out?.baseEffort === undefined && /baseEffort \(number\)/.test(effortBad.repairs.join()), [effortBad.out?.baseEffort, effortBad.repairs]],
-				["...and so is a non-number updatedAt, on the same rule as createdAt", typeof stampBadUpdated.out?.updatedAt === "number" && /updatedAt \(object\)/.test(stampBadUpdated.repairs.join()), [stampBadUpdated.out?.updatedAt, stampBadUpdated.repairs]],
-				["a bare id fills every default — ABSENT is not the same case as wrong-typed", filled, minimal.out],
-				["...and says nothing, because an absent field is not a repair", minimal.repairs.length === 0, minimal.repairs],
-				["every field the ADOPTION CHECKLIST names comes back, and no other (CQ22)", adoptedKeys.length > 0 && unadopted.length === 0 && surplus.length === 0, { unadopted, surplus, adoptedKeys }],
-				["...a field the snapshot has and the build lost is reported as a SLATE BUG, by name", lost.length === adoptedKeys.length - 1 && lost.every((m) => /^thread t1: field \w+ is in the snapshot but adoption does not handle it \(slate bug\)/.test(m)), lost],
-				["...one deliberately REFUSED is not reported twice, and a foreign key not at all", lostRefused.length === lost.length - 1 && !lostRefused.join().includes(" field name ") && lostForeign.length === 0, [lostRefused.length, lostForeign]],
+			checkAll("state-thread-record", "current-format single-action records round-trip while invalid fields are rejected or normalized", [
+				["all current fields round-trip", JSON.stringify(roundTrip.out) === JSON.stringify(complete) && roundTrip.repairs.length === 0, roundTrip],
+				["old and incomplete records are rejected", bad.every((entry) => entry.out === undefined), bad],
+				["successful without a valid episode normalizes to failed", successfulWithoutEpisode.out?.status === "failed" && successfulWithoutEpisode.out?.episodeId === undefined && successfulWithoutEpisode.repairs.some((note) => /normalized successful/.test(note)), successfulWithoutEpisode],
+				["wrong-typed and wrong-valued episode ids both keep the failed record", wrongEpisodeIds.every((entry) => entry.out?.status === "failed" && entry.out?.episodeId === undefined && entry.repairs.some((note) => /ignoring episodeId/.test(note))), wrongEpisodeIds],
+				["cancelled may carry a reason without an episode", cancelled.out?.outcomeReason === "before start" && cancelled.out?.episodeId === undefined, cancelled],
+				["unfinished records normalize to failed with a reason", unfinished.every((entry) => entry.out?.status === "failed" && /session ended/.test(entry.out?.outcomeReason ?? "") && entry.repairs.some((note) => /normalized unfinished/.test(note))), unfinished],
+				["every malformed optional field is refused by name", ["model", "baseModel", "baseEffort", "cacheKeyShard", "tools", "episodeId", "outcomeReason", "createdAt", "updatedAt"].every((field) => hostile.repairs.some((note) => note.includes(`ignoring ${field}`))) && hostile.out?.status === "failed", hostile],
+				["the adoption roster matches the output", adoptedKeys.every((key) => Object.hasOwn(complete, key)), adoptedKeys],
 			]);
 		});
 
@@ -5882,7 +5244,7 @@ production behaviour.`);
 			].map(([label, raw]) => [label, sane(raw)]);
 			const kept = unusable.filter(([, r]) => r.out !== undefined).map(([label]) => label);
 			const noisy = unusable.filter(([, r]) => r.repairs.length > 0).map(([label]) => label);
-			const base = { id: "t1.e1", threadId: "t", file: "f" };
+			const base = { id: "t1.e1", threadId: "t1", file: "f" };
 			const statusOther = sane({ ...base, status: "FAILED" });
 			const taskBad = sane({ ...base, task: 9 });
 			const markerString = sane({ ...base, effortUnmeasured: "true" });
@@ -5923,10 +5285,10 @@ production behaviour.`);
 				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: 3.7, truncated: false, grammar: "present" },
 				{ stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: 2 ** 53, truncated: false, grammar: "present" },
 			].map((observations) => sane({ ...base, observations }));
-			const referenceOverhead = Buffer.byteLength(".pi/slate/observations/.md");
-			const boundaryId = `${"p".repeat(240 - referenceOverhead - 3)}.e1`;
+			const boundaryThreadId = "t9007199254740991";
+			const boundaryId = `${boundaryThreadId}.e1`;
 			const longestPath = `.pi/slate/observations/${boundaryId}.md`;
-			const boundaryObservations = sane({ ...base, id: boundaryId, observations: { stored: true, path: longestPath, bytes: 0, truncated: false, grammar: "absent" } });
+			const boundaryObservations = sane({ ...base, id: boundaryId, threadId: boundaryThreadId, observations: { stored: true, path: longestPath, bytes: 0, truncated: false, grammar: "absent" } });
 			const usageBad = sane({
 				...base,
 				input: -1000,
@@ -5975,7 +5337,7 @@ production behaviour.`);
 				["...and `false` is refused too, not read as `measured`", markerFalse.out?.effortUnmeasured === undefined && /effortUnmeasured \(boolean\)/.test(markerFalse.repairs.join()), [markerFalse.out, markerFalse.repairs]],
 				["all four valid observation variants survive whole and unchanged", JSON.stringify(roundTrip.out?.observations) === JSON.stringify(storedObservations) && noFinalObservations.out?.observations?.stored === false && noFinalObservations.out.observations.reason === "no-final-message" && noFinalTextObservations.out?.observations?.stored === false && noFinalTextObservations.out.observations.reason === "no-final-text" && writeFailedObservations.out?.observations?.stored === false && writeFailedObservations.out.observations.reason === "write-failed", [roundTrip.out?.observations, noFinalObservations.out?.observations, noFinalTextObservations.out?.observations, writeFailedObservations.out?.observations]],
 				["every defective observation shape drops the whole field and is refused once by name", defectiveObservations.every((r) => r.out?.observations === undefined && r.repairs.length === 1 && /ignoring observations \(/.test(r.repairs[0] ?? "")), defectiveObservations],
-				["...while the longest permitted path and a zero byte count are still adopted, silently", boundaryObservations.out?.observations?.path === longestPath && boundaryObservations.out?.observations?.bytes === 0 && boundaryObservations.repairs.length === 0, [boundaryObservations.out?.observations, boundaryObservations.repairs]],
+				["...while the largest canonical thread id and a zero byte count are still adopted, silently", boundaryObservations.out?.observations?.path === longestPath && boundaryObservations.out?.observations?.bytes === 0 && boundaryObservations.repairs.length === 0, [boundaryObservations.out?.observations, boundaryObservations.repairs]],
 				["a bare id/thread/file fills every default and invents no optional key", filled, minimal.out],
 				["...in silence, because an absent field is not a repair", minimal.repairs.length === 0, minimal.repairs],
 				["a malformed-but-STRING spec or level survives untouched", specs.out?.model === "  p/x  " && specs.out?.effort === "HIGH", specs.out],
@@ -7129,17 +6491,14 @@ production behaviour.`);
 		"router-hostile", "router-robust",
 		"router-config-default", "router-config-invalid", "router-shipped-default",
 		"route-load", "route-vocabulary", "route-effort-type", "route-list-on", "route-list-off",
-		"route-base-reseed", "route-base-reseed-guarded", "route-effort-derived-for-model", "route-off-invisible",
+		"route-base-reseed", "route-base-reseed-guarded", "route-off-invisible",
 		"route-stored-effort-refresh", "route-stored-effort-vocabulary",
-		"route-switch-decision", "route-open-plan-inputs", "route-switch-opening-baseline", "route-switch-lifecycle-i1",
+		"route-switch-decision", "route-open-plan-inputs", "route-switch-lifecycle-i1",
 		"route-baseline-capture",
 		"route-read-failure-inert", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
-		"route-window-substitute", "route-window-skip", "route-window-reserve", "route-long-context",
-		"route-price-divergence-golden", "route-price-divergence-tolerance", "route-price-divergence-absence", "route-price-divergence-output", "route-price-divergence-date",
-		"route-failover", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
-		"choice-load", "choice-order", "choice-refusals", "choice-new-stream", "choice-warmth", "choice-effort-cold", "choice-short-work",
-		"choice-abstentions", "choice-token-buckets", "choice-long-context", "choice-rediscovery", "choice-final-verdict", "choice-verdict-shape", "choice-hostile",
+			"route-price-divergence-golden", "route-price-divergence-tolerance", "route-price-divergence-absence", "route-price-divergence-output", "route-price-divergence-date",
+		"route-failover", "route-context-checks-removed", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
 		"wiring", "spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
