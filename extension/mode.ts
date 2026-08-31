@@ -26,7 +26,6 @@ import {
 	MODEL_ROUTING_DOC,
 	PR_PUBLISHING_DOC,
 	REVIEW_RULES_DOC,
-	THREAD_CACHE_COST_DOC,
 	TRACK_WORKFLOW_DOC,
 	WRITING_CHECKER_URL,
 	WRITING_GUIDANCE_DOC,
@@ -482,20 +481,15 @@ threads execute. Rules:
    commands yourself.
 2. Dispatch independent actions in PARALLEL by emitting several \`thread\`
    calls in one turn. Never serialize what can run concurrently.
-3. Keep each work stream in one thread. Omit \`freshContext\` on creation. On
-   continuations, it is required with \`threadChoice.act: true\` and optional otherwise.
-   With acting off, omit it for no permission or supply it for a reported choice. \`[]\`
-   refuses a restart and preserves the live transcript. A non-empty list of existing
-   episode ids permits a restart and seeds the new thread. Slate restarts only when
-   cheaper. A blanket refusal of a thread restart has a price. Refuse only when the
-   next action depends on context from the previous action that the thread's episodes
-   do not carry. Continue the successor. Details: ${THREAD_CACHE_COST_DOC}
-4. Compose context by reference: pass prior episode ids in \`context\` instead
-   of restating their content.
+3. Every \`thread\` call creates a new thread for one action. A follow-up action
+   must use another new thread. No worker conversation crosses that boundary.
+4. Compose context by reference. Pass prior episode ids in \`context\` instead
+   of restating their content. Slate loads those episodes into the new worker prompt.
 5. Your read-only tools (read/grep/find/ls) are for cheap orientation only;
    anything substantial goes to a thread.
-6. After every episode, update your strategy. Episodes marked STATUS: FAILED
-   require adaptation, not blind retry.
+6. After every episode, update your strategy. Slate compresses partial worker
+   responses into failed episodes. A failure without a worker response uses a fixed
+   episode. Episodes marked STATUS: FAILED require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.
 8. Scale change gates by size grade: SMALL, MEDIUM, or LARGE. Predict focus
    areas separately. The orchestrator owns the track split. For repository changes,
@@ -565,7 +559,7 @@ episode ids, immediate next actions) and direct the user to run
 
 export function renderThreadWidgetLine(thread: ThreadRecord): string {
 	const marker = threadTypeMarker(displayThreadType(thread.type));
-	return `  ${thread.status === "running" ? "⏳" : "·"} ${renderThreadId(thread.id) ?? "(unknown)"} ${thread.name} [${thread.status}]${marker} ${thread.episodeIds.length} episode${thread.episodeIds.length === 1 ? "" : "s"}`;
+	return `  ${thread.status === "running" ? "⏳" : "·"} ${renderThreadId(thread.id)} ${thread.name} [${thread.status}]${marker} ${thread.episodeId === undefined ? "no episode" : `episode ${thread.episodeId}`}`;
 }
 
 export function registerSlateMode(

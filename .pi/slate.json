@@ -1,7 +1,6 @@
 {
   "orchestratorModeDefault": true,
   "workflow": { "draftPRs": true },
-  "threadChoice": { "report": true, "act": true },
   "writing": {
     "check": true,
     "remind": true

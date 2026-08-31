@@ -96,13 +96,10 @@ or two problems for the others:
 
 ## 3. Slate's answer: threads, episodes, thread weaving
 
-- **Thread** — a persistent worker that executes ONE bounded action at a
-  time, then pauses and hands control back. A thread has an immutable
-  thread type. The thread type does not make it a fixed persona. It records the
-  work stream's purpose and can select Slate-owned guidance. Reviewer and
-  adversarial threads receive the reviewer evidence charter. A thread
-  accumulates context across its actions, acting as a reusable store for one
-  work stream.
+- **Thread** — one worker session that executes one bounded action and ends.
+  A thread has an immutable thread type. The type records the action's purpose
+  and can select Slate-owned guidance. Reviewer and adversarial threads receive
+  the reviewer evidence charter.
 - **Episode** — the compressed, structured record of the steps a thread
   took to complete one action: important results retained, tactical trace
   dropped. Episodes — not message passing — are the synchronization
@@ -159,7 +156,7 @@ or two problems for the others:
 | Principle | Implementation |
 |---|---|
 | P1 bounded actions | `tools.ts` `thread` tool contract; doctrine rule 1 in `mode.ts` |
-| P2 episodes as sync | `threads.ts` dispatch lifecycle returns an episode per action |
+| P2 episodes as sync | `threads.ts` returns one episode for completed or failed work |
 | P3 boundary compression | `episodes.ts` episode compression on action completion |
 | P4 context by reference | `tools.ts` `context` parameter injects prior episodes by id |
 | P5 adaptive decomposition | doctrine rule 6 in `mode.ts`; no plan structure imposed anywhere |
@@ -171,8 +168,7 @@ or two problems for the others:
 
 Repo-local note (not from the report): the `maxConcurrent` cap defaults
 to 4. Its failure modes are asymmetric: excess dispatches wait for a
-slot (actions on the same thread additionally serialize in dispatch
-order), so a low cap costs only latency, while a cap above the
+slot, so a low cap costs only latency, while a cap above the
 provider's effective rate limits turns rate-limit exhaustion into
 FAILED episodes and raises the unattended cost burn rate. Over its
 lifetime a slot covers a multi-turn worker conversation followed by its
@@ -190,11 +186,9 @@ be up to the task and no more, instead of every action inheriting
 whatever model the orchestrator happens to be running. It is also a P1
 corollary: an action is only a bounded unit if what it may cost is
 bounded too, and the closed model list plus a derived (never inflated)
-effort level is what bounds it. The two disciplines even share
-machinery — pi's compaction settings, which clamp the orchestrator's
-context budget, also decide per dispatch whether a worker thread still
-fits the model it is routed to, in which case the action moves to the
-widest listed model rather than being blocked.
+effort level is what bounds it. The two disciplines remain separate.
+Pi's compaction settings clamp the orchestrator context budget. Action
+routing selects from the configured model list without using prompt size.
 
 Candidate routing is OFF until `router.models` lists something — the
 per-action `model` and `effort` arguments, and a fallback a failover
