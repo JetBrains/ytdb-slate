@@ -55,7 +55,10 @@ const EXPECTED_CHARTER_BY_THREAD_TYPE = {
   general: false,
 } as const satisfies Record<ThreadType, boolean>;
 
-test("workerPreamble composes base, writing, and reviewer guidance independently", () => {
+const PARALLEL_TOOL_RULE =
+  "Issue all independent tool calls simultaneously in one worker turn. Use separate turns only when results depend on each other or conflict.";
+
+test("workerPreamble composes common, writing, and reviewer guidance independently", () => {
   const base = workerPreamble(false, false);
   const writing = workerPreamble(true, false);
   const charter = workerPreamble(false, true);
@@ -65,6 +68,9 @@ test("workerPreamble composes base, writing, and reviewer guidance independently
   assert.equal(writing, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}`);
   assert.equal(charter, `${WORKER_PREAMBLE}\n${REVIEWER_CHARTER}`);
   assert.equal(both, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}\n${REVIEWER_CHARTER}`);
+  for (const preamble of [base, writing, charter, both]) {
+    assert.equal(preamble.split(PARALLEL_TOOL_RULE).length - 1, 1);
+  }
   assert.equal(charter.match(/^- /gm)?.length, 10);
   assert.equal(both.match(/^- /gm)?.length, 10);
   assert.doesNotMatch(base, /Trace, don't guess/);
@@ -112,6 +118,7 @@ test("real worker assembly delivers the charter only to review thread types", as
       assert.deepEqual(appendSystemPrompt, [workerPreamble(true, hasCharter)], type ?? "untyped");
       const assembled = appendSystemPrompt?.[0];
       assert.equal(typeof assembled === "string" && assembled.includes(REVIEWER_CHARTER), hasCharter, type ?? "untyped");
+      assert.equal(typeof assembled === "string" && assembled.includes(PARALLEL_TOOL_RULE), true, type ?? "untyped");
     }
     assert.equal(opened.length, cases.length);
     assert.deepEqual(reports, []);

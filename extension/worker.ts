@@ -62,11 +62,13 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 // import that deep subpath. The node test pins this copy to pi-ai's declaration.
 export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH = 64;
 
-// Keep this historical feature-off preamble byte-identical. Optional guidance is
+// Common guidance reaches every worker configuration. Optional guidance is
 // added by workerPreamble only when its corresponding switch is on.
 export const WORKER_PREAMBLE = [
 	"You are a worker thread executing ONE bounded action for an orchestrator.",
 	"Do the action fully, then stop.",
+	"Issue all independent tool calls simultaneously in one worker turn.",
+	"Use separate turns only when results depend on each other or conflict.",
 	"Your final message must state: what you did, what you found, files you touched,",
 	"and anything the orchestrator must know.",
 ].join(" ");
