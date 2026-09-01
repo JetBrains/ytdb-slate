@@ -418,11 +418,19 @@ research log.
 
 ## Commit discipline for drift and boundaries
 
-[track-workflow.md](track-workflow.md) owns marker commits, track-title prefixes
-and the source of truth for track boundaries. This section owns the remaining
-commit discipline.
+[track-workflow.md](track-workflow.md) owns marker commits, track-title
+prefixes and the source of truth for track boundaries. This section owns the
+remaining commit discipline.
 
-Every implementation commit body has exactly two parts:
+When the track has a high-level design, the track-boundary squash commit body
+carries the track high-level design followed by the track low-level design.
+When the track has no high-level design, the ordinary two-part Intent and
+Deviation-delta shape applies to the boundary commit as well. This conditional
+body rule is also stated in [track-workflow.md](track-workflow.md) § Delivery
+and termination.
+
+Every non-boundary implementation commit body has exactly two parts. This rule
+includes each fix commit inside a track:
 
 1. **Intent:** what the commit accomplishes, not how it accomplishes it.
 2. **Deviation delta:** only what differs from the original track task. Leave
@@ -433,10 +441,10 @@ and re-confirmation, a design-delta approval, or an immaterial design change.
 A material deviation discovered at commit time fires a halt. The commit body
 must never become a side channel for unapproved drift.
 
-Do not put implementation rationale, self-assessment or verification claims in
-the body. Examples of forbidden claims include `tested`, `verified
-thread-safe` and `reviewed edge cases`. Fresh reviewers receive repository
-state and declared intent, not implementer confidence.
+In those non-boundary bodies, do not put implementation rationale,
+self-assessment or verification claims. Examples of forbidden claims include
+`tested`, `verified thread-safe` and `reviewed edge cases`. Fresh reviewers
+receive repository state and declared intent, not implementer confidence.
 
 For a multi-track change, every commit in a track's review range must belong to
 that track. A reviewer checks the range against the track brief, its boundary

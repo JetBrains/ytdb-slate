@@ -151,6 +151,22 @@ or two problems for the others:
   pause dispatching and hand off to a fresh session rather than degrading
   in the Dumb Zone.
 
+- **P11 — Proportional process.** *(Repo-local note, not from the report.)*
+  Required gates and artifacts follow the confirmed size grade and the engaged
+  focus set. The scope paragraph below states which rules add cost. No rule that
+  adds cost is unconditional. A rule that adds cost names the condition that
+  engages it, and that condition is the size grade, the engaged focus set, or
+  an artifact whose own existence those two decide.
+
+Repo-local note (not from the report): Principle P11 governs the count of
+required gates, required artifacts and required review actions. A rule that
+changes how an existing step is performed does not add cost under P11. A rule
+that fires only when specific evidence appears is conditional, unless that
+evidence appears in every track, in which case the rule is unconditional.
+Prompt text and output quality floors are not process steps, and a published
+size budget governs them instead. P11 constrains the authors of future rules
+and makes no claim about the shape of the current gate curve.
+
 ## 5. Where each principle lives in the code
 
 | Principle | Implementation |
@@ -165,6 +181,7 @@ or two problems for the others:
 | P8 per-episode feedback | `threads.ts` synchronous dispatch; episode returned to orchestrator |
 | P9 parallelism | `threads.ts` `maxConcurrent` queueing; doctrine rule 2 in `mode.ts` |
 | P10 context as RAM | `handoff.ts` context-budget auto-pause + fresh-session handoff |
+| P11 proportional process | no code home; the shipped workflow documents apply it to gates, artifacts and review actions |
 
 Repo-local note (not from the report): the `maxConcurrent` cap defaults
 to 4. Its failure modes are asymmetric: excess dispatches wait for a

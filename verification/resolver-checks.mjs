@@ -3226,8 +3226,9 @@ evidence.`);
 10. One mechanical validation can establish the result.
 
 When all ten conditions pass, the fast path omits the high-level design,
-adversarial design review, machine reviewer, research log, and closing review.
-Another rule can still require any omitted gate or artifact.
+adversarial design review, machine reviewer, research log, implementer report,
+and closing review. Another rule can still require any omitted gate or
+artifact.
 
 The fast-path sequence is prediction → confirmation → implementation →
 mechanical validation → focus declaration → committed-boundary size measurement
@@ -3239,7 +3240,7 @@ If any item fails, return to the ordinary SMALL workflow before packet delivery.
 Any project test artifact voids the fast path. Any verification or gate
 machinery also voids it. Carved-out SMALL verification work receives Reviewer I.
 Other SMALL work receives every reviewer whose canonical focus-area gate runs per track.`);
-			const widenedFastGrant = fastPath.replace("Another rule can still require any omitted gate or artifact.", "Another rule can still require any omitted gate or artifact. A widened fast path may also omit the track reviewer.");
+			const widenedFastGrant = fastPath.replace("artifact.\n\nThe fast-path sequence", "artifact. A widened fast path may also omit the track reviewer.\n\nThe fast-path sequence");
 			const widenedFastSequence = fastPath.replace("→ delivery.", "→ delivery → undocumented shortcut.");
 			const grantMutationApplied = widenedFastGrant !== fastPath;
 			const sequenceMutationApplied = widenedFastSequence !== fastPath;

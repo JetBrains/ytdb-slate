@@ -127,7 +127,9 @@ of these options:
 
 The follow-up ledger is the single register for suggestions and deferred work.
 It replaces any separate Suggestions section in the research log. The ledger is
-created when the first finding or user note is ledgered.
+created when the first finding, user note, or scope exception is ledgered.
+[track-workflow.md](track-workflow.md) § Confirmation gate defines a scope
+exception.
 
 Every ledger entry uses the register shape in § Register entry shape. Its
 statement is self-contained. It states what the finding or deferred work is,
