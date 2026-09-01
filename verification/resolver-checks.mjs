@@ -24,7 +24,7 @@
 // piped output): 1 if anything failed, or if a NOT RUN happened under --strict.
 // See verification/README.md.
 // =============================================================================
-import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -63,6 +63,8 @@ const reminderLoad = await tryImport("extension/writing-reminder.ts");
 const handoffLoad = await tryImport("extension/handoff.ts");
 const handoffRecordLoad = await tryImport("extension/handoff-record.ts");
 const corpusLoad = await tryImport("extension/corpus.ts");
+const sessionRecordLoad = await tryImport("extension/session-record.ts");
+const runtimeAuthorityLoad = await tryImport("extension/runtime-authority.ts");
 const workerLoad = await tryImport("extension/worker.ts");
 // The base-model tracker is a PURE reducer over model-selection events (its own
 // module header says so), so it belongs here rather than in the ladder: it
@@ -80,6 +82,8 @@ const reminder = reminderLoad.module;
 const handoff = handoffLoad.module;
 const handoffRecord = handoffRecordLoad.module;
 const corpus = corpusLoad.module;
+const sessionRecord = sessionRecordLoad.module;
+const runtimeAuthority = runtimeAuthorityLoad.module;
 const worker = workerLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
@@ -393,7 +397,6 @@ const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "pro
 const STATE_IDS = [
 	"spec-invisible",
 	"spec-config-key",
-	"state-snapshot-identity",
 	"state-thread-record",
 	"state-episode-record",
 	"state-runtime-root",
@@ -876,9 +879,8 @@ try {
 		check("writing-reminder-cleared-retry", dropped.sent.length === 2 && dropped.store.writingReminder.forceNext && dropped.store.writingReminder.sentThisRound && dropped.store.writingReminder.deliverySequence === 2 && dropped.store.writingReminder.pending?.deliveryId === 2 && dropped.store.writingReminder.pending?.consumeForce, "the next assistant message retries a claim after a wrong-content collision or cleared queue, using a new delivery id", { sent: dropped.sent.length, runtime: dropped.store.writingReminder });
 
 		const stateSource = readFileSync(join(REPO, "extension", "state.ts"), "utf8");
-		const snapshotType = /export interface SlateSnapshot \{([\s\S]*?)\n\}/.exec(stateSource)?.[1] ?? "";
-		const snapshotMethod = /\n\tsnapshot\(\): SlateSnapshot \{([\s\S]*?)\n\t\}/.exec(stateSource)?.[1] ?? "";
-		const adoptMethod = /\n\tadoptSnapshot\([^)]*\): void \{([\s\S]*?)\n\t\}\n\}/.exec(stateSource)?.[1] ?? "";
+		const runtimeType = /export interface CanonicalRuntimeState \{([\s\S]*?)\n\}/.exec(stateSource)?.[1] ?? "";
+		const runtimeMethod = /\n\tprivate runtimeMemorySnapshot\(\): CanonicalRuntimeState \{([\s\S]*?)\n\t\}/.exec(stateSource)?.[1] ?? "";
 		const realStore = state ? new state.SlateStore({ appendEntry() {} }) : undefined;
 		const makePopulatedRuntime = () =>
 			reminder.claimWritingReminder(
@@ -888,7 +890,7 @@ try {
 			);
 		const populatedRuntime = makePopulatedRuntime();
 		if (realStore) Object.assign(realStore.writingReminder, populatedRuntime);
-		const baselineSnapshot = realStore?.snapshot();
+		const baselineRuntime = realStore?.runtimeMemorySnapshot();
 		const visitedRuntime = [];
 		const visitedPending = [];
 		let mutationError;
@@ -921,8 +923,8 @@ try {
 		} catch (error) {
 			mutationError = error instanceof Error ? error.message : String(error);
 		}
-		const mutatedRuntimeSnapshot = realStore?.snapshot();
-		const exactSnapshotKeys = baselineSnapshot ? Object.keys(baselineSnapshot).sort().join(",") : "";
+		const mutatedStoredRuntime = realStore?.runtimeMemorySnapshot();
+		const exactRuntimeKeys = baselineRuntime ? Object.keys(baselineRuntime).sort().join(",") : "";
 		const runtimeKeys = Object.keys(populatedRuntime).sort();
 		const pendingKeys = Object.keys(populatedRuntime.pending ?? {}).sort();
 		const isolatedRuntimeVisited = [];
@@ -935,13 +937,13 @@ try {
 				const isolatedStore = new state.SlateStore({ appendEntry() {} });
 				const isolatedRuntime = makePopulatedRuntime();
 				Object.assign(isolatedStore.writingReminder, isolatedRuntime);
-				const before = isolatedStore.snapshot();
+				const before = isolatedStore.runtimeMemorySnapshot();
 				const oneMutation = {
 					...isolatedRuntime,
 					[key]: key === "pending" ? undefined : mutateScalar(isolatedRuntime[key], key),
 				};
 				Object.assign(isolatedStore.writingReminder, oneMutation);
-				const after = isolatedStore.snapshot();
+				const after = isolatedStore.runtimeMemorySnapshot();
 				isolatedRuntimeVisited.push(key);
 				isolatedRuntimeResults.push({ key, equal: JSON.stringify(after) === JSON.stringify(before), before, after });
 			}
@@ -949,33 +951,33 @@ try {
 				const isolatedStore = new state.SlateStore({ appendEntry() {} });
 				const isolatedRuntime = makePopulatedRuntime();
 				Object.assign(isolatedStore.writingReminder, isolatedRuntime);
-				const before = isolatedStore.snapshot();
+				const before = isolatedStore.runtimeMemorySnapshot();
 				const pending = isolatedRuntime.pending ?? {};
 				const oneMutation = {
 					...isolatedRuntime,
 					pending: { ...pending, [key]: mutateScalar(pending[key], `pending.${key}`) },
 				};
 				Object.assign(isolatedStore.writingReminder, oneMutation);
-				const after = isolatedStore.snapshot();
+				const after = isolatedStore.runtimeMemorySnapshot();
 				isolatedPendingVisited.push(key);
 				isolatedPendingResults.push({ key, equal: JSON.stringify(after) === JSON.stringify(before), before, after });
 			}
 		} catch (error) {
 			isolatedMutationError = error instanceof Error ? error.message : String(error);
 		}
-		checkAll("writing-reminder-runtime-only", "batch and isolated automatic mutations prove every actual runtime field is independent from a real SlateStore snapshot", [
+		checkAll("writing-reminder-runtime-only", "batch and isolated automatic mutations prove every actual runtime field is independent from real SlateStore canonical runtime", [
 			["every runtime type is supported", mutationError === undefined, mutationError],
 			["runtime traversal roster is complete", visitedRuntime.sort().join() === runtimeKeys.join(), { visitedRuntime, runtimeKeys }],
 			["pending traversal roster is complete", pendingKeys.length > 0 && visitedPending.sort().join() === pendingKeys.join(), { visitedPending, pendingKeys }],
 			["isolated mutation types are supported", isolatedMutationError === undefined, isolatedMutationError],
 			["isolated runtime roster is complete", isolatedRuntimeVisited.sort().join() === runtimeKeys.join(), { isolatedRuntimeVisited, runtimeKeys }],
 			["isolated pending roster is complete", pendingKeys.length > 0 && isolatedPendingVisited.sort().join() === pendingKeys.join(), { isolatedPendingVisited, pendingKeys }],
-			["every isolated runtime mutation leaves the snapshot equal", isolatedRuntimeResults.length === runtimeKeys.length && isolatedRuntimeResults.every((result) => result.equal), isolatedRuntimeResults.filter((result) => !result.equal)],
-			["every isolated pending mutation leaves the snapshot equal", isolatedPendingResults.length === pendingKeys.length && isolatedPendingResults.every((result) => result.equal), isolatedPendingResults.filter((result) => !result.equal)],
+			["every isolated runtime mutation leaves canonical runtime equal", isolatedRuntimeResults.length === runtimeKeys.length && isolatedRuntimeResults.every((result) => result.equal), isolatedRuntimeResults.filter((result) => !result.equal)],
+			["every isolated pending mutation leaves canonical runtime equal", isolatedPendingResults.length === pendingKeys.length && isolatedPendingResults.every((result) => result.equal), isolatedPendingResults.filter((result) => !result.equal)],
 			["every runtime value was batch-mutated", automaticallyMutatedRuntime !== undefined && JSON.stringify(automaticallyMutatedRuntime) !== JSON.stringify(populatedRuntime), automaticallyMutatedRuntime],
-			["batch mutation changes no persisted value", baselineSnapshot !== undefined && JSON.stringify(mutatedRuntimeSnapshot) === JSON.stringify(baselineSnapshot), { baselineSnapshot, mutatedRuntimeSnapshot }],
-			["real snapshot exact top-level shape", exactSnapshotKeys === "carriedCostUsd,episodes,format,orchestratorMode,paused,threadSeq,threads,workerCostUsd", exactSnapshotKeys],
-			["source shape also omits runtime object", snapshotType !== "" && snapshotMethod !== "" && adoptMethod !== "" && !/writingReminder/.test(snapshotType + snapshotMethod + adoptMethod), { snapshotType: snapshotType.length, snapshotMethod: snapshotMethod.length, adoptMethod: adoptMethod.length }],
+			["batch mutation changes no canonical runtime value", baselineRuntime !== undefined && JSON.stringify(mutatedStoredRuntime) === JSON.stringify(baselineRuntime), { baselineRuntime, mutatedStoredRuntime }],
+			["real canonical runtime exact top-level shape", exactRuntimeKeys === "carriedCostUsd,episodes,orchestratorMode,paused,slateSessionParentChain,threadSeq,threads,workerCostUsd", exactRuntimeKeys],
+			["source shape also omits reminder state", runtimeType !== "" && runtimeMethod !== "" && !/writingReminder/.test(runtimeType + runtimeMethod), { runtimeType: runtimeType.length, runtimeMethod: runtimeMethod.length }],
 		]);
 
 		if (!handoff) {
@@ -1012,45 +1014,35 @@ try {
 			const events = [];
 			let forceValue = false;
 			const sourceIdentity = "20260820T010203Z-0123456789abcdef";
-			const adopterIdentity = "20260820T020304Z-fedcba9876543210";
-			const source = corpus.createCorpusSession({
+			// Track 14: the receiving session adopts one EXTERNAL NAMESPACE, so the source
+			// of a handoff is a durable session and the record carries no record set.
+			const handoffProject = corpus.resolveCorpusProject(handoffCwd);
+			const sourceName = "calm-otter-7f3a";
+			const created = sessionRecord.createDurableSession({
+				project: handoffProject,
 				cwd: handoffCwd,
 				identity: sourceIdentity,
-				initialNameBytes: Uint8Array.from([1, 2, 3, 4]),
+				name: sourceName,
+				creatorSessionDigest: "a".repeat(64),
+				runtime: {
+					threads: [], episodes: [], threadSeq: 0, slateSessionParentChain: [],
+					orchestratorMode: true, paused: true, workerCostUsd: 0, carriedCostUsd: 0,
+				},
 			});
 			const record = {
 				version: 1,
-				author: { identity: sourceIdentity, name: source.name },
-				authorSessionDirectory: source.directory,
+				author: { identity: sourceIdentity, name: sourceName },
+				authorSessionDirectory: created.directory,
 				createdAt: Date.now(),
-				worktreePath: handoffCwd,
+				worktreePath: realpathSync(handoffCwd),
 				branchLabel: corpus.currentBranchLabel(handoffCwd),
 				parentChain: [],
 				brief: "continue",
-				snapshot: {
-					format: state.SLATE_STATE_FORMAT,
-					threads: [], episodes: [], orchestratorMode: true, paused: false,
-					workerCostUsd: 0, carriedCostUsd: 0,
-					slateSessionId: sourceIdentity, slateSessionName: source.name,
-					ownerSessionDigest: "a".repeat(64),
-				},
+				carriedCostUsd: 0,
 			};
-			handoffRecord.writeCorpusHandoffRecord(source.project, record);
+			handoffRecord.writeCorpusHandoffRecord(handoffProject, record);
 			const appended = [];
-			const adoptedStore = new state.SlateStore({ appendEntry: (_type, data) => appended.push(data) });
-			adoptedStore.corpusProject = source.project;
-			adoptedStore.slateSessionId = adopterIdentity;
-			adoptedStore.slateSessionName = "brisk-bison-abcd";
-			adoptedStore.ownerSessionDigest = "b".repeat(64);
-			const runtime = adoptedStore.writingReminder;
-			Object.defineProperty(runtime, "forceNext", {
-				enumerable: true,
-				configurable: true,
-				get: () => forceValue,
-				set: (value) => { forceValue = value; if (value) events.push("force"); },
-			});
-			const originalAdopt = adoptedStore.adoptSnapshot.bind(adoptedStore);
-			adoptedStore.adoptSnapshot = (...args) => { events.push("adopt"); return originalAdopt(...args); };
+			const entries = [];
 			const handoffHandlers = {};
 			const commands = {};
 			const sent = [];
@@ -1058,31 +1050,68 @@ try {
 				on: (event, handler) => { (handoffHandlers[event] ??= []).push(handler); },
 				sendMessage: (message) => sent.push(message),
 				registerCommand: (name, command) => { commands[name] = command.handler; },
+				appendEntry: (customType, data) => {
+					appended.push(data);
+					entries.push({ type: "custom", customType, data });
+				},
 				getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [], getThinkingLevel: () => undefined,
+			};
+			const adoptedStore = new state.SlateStore(handoffPi);
+			runtimeAuthority.activateSlateStorage({
+				store: adoptedStore,
+				session: {
+					key: "pi-session:adopter",
+					cwd: handoffCwd,
+					sessionDigest: "b".repeat(64),
+					project: handoffProject,
+					entries,
+					branch: entries,
+				},
+				backend: runtimeAuthority.createRuntimeAuthorityBackend(handoffPi, { branch: () => entries }),
+				report: () => {},
+			});
+			const runtime = adoptedStore.writingReminder;
+			Object.defineProperty(runtime, "forceNext", {
+				enumerable: true,
+				configurable: true,
+				get: () => forceValue,
+				set: (value) => { forceValue = value; if (value) events.push("force"); },
+			});
+			// TQ1502: the ORDER claim is about the COMPLETED namespace read, so the event
+			// is recorded when the adopting read returns. Recording it on entry let a
+			// force-write that happened DURING the read still read as "adopt then force".
+			const originalAdopt = adoptedStore.adoptExternalAuthority.bind(adoptedStore);
+			adoptedStore.adoptExternalAuthority = (...args) => {
+				events.push("adopt-start");
+				const result = originalAdopt(...args);
+				events.push("adopt-done");
+				return result;
 			};
 			const realHooks = handoff.registerSlateHandoff(handoffPi, adoptedStore, () => ({ writing: { check: true, remind: true } }), () => ({}));
 			mode.registerSlateMode(handoffPi, adoptedStore, realHooks, () => ({ writing: { check: true, remind: true } }), () => ({ units: [] }));
 			const handoffCtx = {
 				cwd: handoffCwd, mode: "tui", hasUI: false, model: undefined,
 				isProjectTrusted: () => true,
-				sessionManager: { getEntries: () => [], getBranch: () => [] },
+				getContextUsage: () => undefined,
+				sessionManager: { getEntries: () => entries, getBranch: () => entries },
 				ui: { setStatus() {}, setWidget() {}, notify() {} },
 			};
 			const successLines = [];
 			const originalWarn = console.warn;
 			console.warn = (message) => successLines.push(String(message));
 			try {
-				await commands.slate(`adopt ${source.name}`, handoffCtx);
+				await commands.slate(`adopt ${sourceName}`, handoffCtx);
 			} finally {
 				console.warn = originalWarn;
 			}
 			const afterAdoption = { ...adoptedStore.writingReminder };
 			for (const handler of handoffHandlers.session_start ?? []) await handler({}, handoffCtx);
 			const afterNextStart = { ...adoptedStore.writingReminder };
-			checkAll("writing-reminder-handoff-order", "explicit adoption sets force only after state adoption, emits a success marker, and the next generic start clears it", [
-				["adoption precedes force", events[0] === "adopt" && events[1] === "force", events],
+			checkAll("writing-reminder-handoff-order", "explicit namespace adoption sets force only after the adopted read, writes one locator note, emits a success marker, and the next generic start clears it", [
+				["the completed adopting read precedes force", JSON.stringify(events.slice(0, 3)) === JSON.stringify(["adopt-start", "adopt-done", "force"]), events],
 				["force survives the adoption command", afterAdoption.forceNext === true, afterAdoption],
-				["adoption persisted", appended.length === 1, appended.length],
+				["adoption wrote exactly one locator note", appended.length === 1
+					&& entries[0]?.customType === "slate-binding" && entries[0]?.data?.name === sourceName, { appended, entries }],
 				["kickoff queued after success", sent.length === 1 && sent[0]?.customType === "slate-kickoff", sent],
 				["positive success marker is non-vacuous", successLines.some((line) => line.includes("adopted successfully")), successLines],
 				["next generic start clears force", !afterNextStart.forceNext, afterNextStart],
@@ -4250,7 +4279,7 @@ production behaviour.`);
 
 		await section("route-stored-effort-vocabulary", async () => {
 			// BG21. `ThreadRecord.baseEffort` is TYPED as a thinking level, but the value
-			// arrives from an UNVERSIONED snapshot on disk — the type is a claim about the
+			// arrives from an UNVERSIONED external record on disk — the type is a claim about the
 			// writer, not the reader. A value outside pi's vocabulary must be discarded, never
 			// replayed onto a dispatch: pi would clamp a junk level silently, and the episode
 			// would then report a level nothing ran at.
@@ -4280,11 +4309,11 @@ production behaviour.`);
 			// trusted the table instead would let the junk value through into that echo.
 			const blindJunk = junk.slice(0, 3).map(([label, value]) => [label, withStored(unreadableLadder, value)]);
 			const blindValid = withStored(unreadableLadder, "low");
-			checkAll("route-stored-effort-vocabulary", "a stored base effort outside pi's thinking-level vocabulary \u2014 wrong case, a non-vocabulary string, a number, an object, an empty string, null, an array \u2014 is DISCARDED rather than replayed onto the dispatch (the record is an unversioned snapshot, so its type is a claim about the writer); the boundary is the vocabulary itself, not the profile table, so it still holds when the ladder is unreadable and there is nothing to re-derive from", [
+			checkAll("route-stored-effort-vocabulary", "a stored base effort outside pi's thinking-level vocabulary \u2014 wrong case, a non-vocabulary string, a number, an object, an empty string, null, an array \u2014 is DISCARDED rather than replayed onto the dispatch (the record is an unversioned external record, so its type is a claim about the writer); the boundary is the vocabulary itself, not the profile table, so it still holds when the ladder is unreadable and there is nothing to re-derive from", [
 				["no junk value is ever replayed as the action's level", replayed.length === 0, replayed.map(([label, v]) => `${label}: ${verdict(v)}`)],
 				["...the action runs on the level derived for the model instead", known.every(([, v]) => v.effort === "low" && v.effortJudgedFor === "p/base"), known.map(([label, v]) => `${label}: ${v.effort}`)],
 				["...and the junk never reaches the verdict's own base-effort echo", echoed.length === 0, echoed.map(([label, v]) => `${label}: ${JSON.stringify(v.baseEffort)}`)],
-				["silently: a snapshot from an older slate is not a user error", known.every(([, v]) => v.warnings.length === 0), known.map(([label, v]) => `${label}: ${v.warnings.length}`)],
+				["silently: a record from an older Slate version is not a user error", known.every(([, v]) => v.warnings.length === 0), known.map(([label, v]) => `${label}: ${v.warnings.length}`)],
 				["with an UNREADABLE ladder the junk is still discarded", blindJunk.every(([, v]) => v.kind === "proceed" && v.effort === undefined && v.baseEffort === undefined), blindJunk.map(([label, v]) => `${label}: ${verdict(v)} base=${JSON.stringify(v.baseEffort)}`)],
 				["...while a vocabulary-VALID stored level survives the same read", blindValid.kind === "proceed" && blindValid.baseEffort === "low", [verdict(blindValid), blindValid.baseEffort]],
 			]);
@@ -5403,6 +5432,94 @@ production behaviour.`);
 	});
 
 	// =========================================================================
+	// Storage-rule SOURCE SCANS over shipped TypeScript and JavaScript modules
+	// =========================================================================
+	// These lexical checks walk extension/ recursively. They inventory direct API
+	// references and exact known call sites. They do not claim to resolve arbitrary
+	// computed properties or runtime aliases (TQ1506).
+	await section("source-storage-rules", async () => {
+		const extensionRoot = join(REPO, "extension");
+		const collectModuleFiles = (directory, prefix = "") => readdirSync(directory, { withFileTypes: true })
+			.flatMap((entry) => {
+				const name = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+				if (entry.isDirectory()) return collectModuleFiles(join(directory, entry.name), name);
+				return entry.isFile() && /\.(?:ts|mjs)$/.test(entry.name) ? [name] : [];
+			});
+		const moduleFiles = collectModuleFiles(extensionRoot).sort();
+		const stripped = new Map(moduleFiles.map((name) => [
+			name,
+			readFileSync(join(extensionRoot, name), "utf8")
+				.replace(/\/\*[\s\S]*?\*\//g, " ")
+				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 "),
+		]));
+		const matchesRe = (pattern) => moduleFiles.filter((name) => pattern.test(stripped.get(name)));
+		const matchSites = (pattern) => moduleFiles.flatMap((name) => {
+			const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+			return [...stripped.get(name).matchAll(new RegExp(pattern.source, flags))].map(() => name);
+		});
+		const scansPlainJavaScript = moduleFiles.includes("size-grade.mjs") && moduleFiles.includes("writing-check.mjs");
+
+		// GOAL 6. This proves the direct save-API inventory. It also pins the low-level
+		// durable writer calls to their definitions and the runtime backend adapter.
+		const preparers = matchesRe(/\bprepareMutation\s*\(/);
+		const savers = matchesRe(/\.\s*save\s*\(/).filter((name) => name !== "state.ts");
+		const committers = matchesRe(/\.commit\s*\(\s*\)/).filter((name) => name !== "state.ts");
+		const permitHolders = matchesRe(/RuntimeMutationPermit/).filter((name) => name !== "state.ts");
+		const lowLevelWriterSites = matchSites(/\b(?:createDurableSession|updateDurableSession)\s*\(/);
+		const expectedLowLevelWriterSites = [
+			"runtime-authority.ts", "runtime-authority.ts", "session-record.ts", "session-record.ts",
+		];
+		checkAll("source-goal6", "the recursive shipped-source scan pins every direct state-save API site: production callers use commit(), while durable creation and update stay at the backend boundary (goal 6)", [
+			["the scan includes shipped .mjs modules", scansPlainJavaScript, moduleFiles],
+			["prepareMutation stays inside state.ts", preparers.length === 1 && preparers[0] === "state.ts", preparers],
+			["no module outside state.ts calls a save method directly", savers.length === 0, savers],
+			["at least one production module commits", committers.length > 0, committers],
+			["no module outside state.ts names the permit type", permitHolders.length === 0, permitHolders],
+			["low-level durable writers stay at their exact boundary sites", JSON.stringify(lowLevelWriterSites) === JSON.stringify(expectedLowLevelWriterSites), lowLevelWriterSites],
+		]);
+
+		// GOAL 7. This proves the lexical appendEntry inventory. Any binding, alias or
+		// call that names that API creates another reference and fails the inventory.
+		const appendEntryRefs = matchSites(/\bappendEntry\b/);
+		const bindingWrite = /pi\.appendEntry\(SLATE_BINDING_CUSTOM_TYPE, binding as unknown as Record<string, unknown>\)/
+			.test(stripped.get("runtime-authority.ts"));
+		const otherAppendArguments = matchesRe(/appendEntry\(\s*(?!SLATE_BINDING_CUSTOM_TYPE)/);
+		const oldEntryType = matchesRe(/["'`]slate-state["'`]|["'`]slate["'`]\s*,\s*["'`]state["'`]|SLATE_STATE_FORMAT/);
+		const snapshotWriters = matchesRe(/\bsnapshot\s*\(\s*\)\s*as unknown as Record|appendEntry\([^)]*snapshot/);
+		checkAll("source-goal7", "the recursive shipped-source scan finds one lexical appendEntry API reference, verifies its direct locator call, and finds no old full-record type or snapshot writer (goal 7)", [
+			["the scan includes shipped .mjs modules", scansPlainJavaScript, moduleFiles],
+			["only runtime-authority.ts references appendEntry", appendEntryRefs.length === 1 && appendEntryRefs[0] === "runtime-authority.ts", appendEntryRefs],
+			["that direct call writes the locator binding", bindingWrite, bindingWrite],
+			["no direct append carries another custom type", otherAppendArguments.length === 0, otherAppendArguments],
+			["no module names or constructs the old entry type", oldEntryType.length === 0, oldEntryType],
+			["no module appends a record snapshot", snapshotWriters.length === 0, snapshotWriters],
+		]);
+
+		// GOAL 8. This proves an exact direct getEntries()/getBranch() inventory and
+		// pins each current site to its reviewed locator, freshness, brief or cost use.
+		const entryReaderSites = matchSites(/\b(?:getEntries|getBranch)\s*\(\s*\)/);
+		const expectedEntryReaderSites = [
+			"handoff.ts", "index.ts", "index.ts", "index.ts", "mode.ts", "state.ts",
+		];
+		const startupReaderWiring = /activateSlateStorage\(\{[\s\S]*?entries: ctx\.sessionManager\.getEntries\(\),[\s\S]*?branch: ctx\.sessionManager\.getBranch\(\),[\s\S]*?backend: createRuntimeAuthorityBackend\(pi, \{[\s\S]*?branch: \(\) => ctx\.sessionManager\.getBranch\(\)/
+			.test(stripped.get("index.ts"));
+		const readerPurposes = startupReaderWiring
+			&& stripped.get("handoff.ts").includes("for (const entry of ctx.sessionManager.getBranch())")
+			&& stripped.get("state.ts").includes("for (const entry of ctx.sessionManager.getEntries())");
+		const removedReaders = matchesRe(/\bSlateSnapshot\b|\brestoreFromSession\b|\badoptSnapshot\b|\bhasLegacyStateEntry\b|["'`]slate-state["'`]|["'`]slate["'`]\s*,\s*["'`]state["'`]/);
+		const freshness = /const fresh = ![\s\S]*?\n\t\t\t\}\);/.exec(stripped.get("mode.ts"))?.[0] ?? "";
+		const freshnessReadsLocatorOnly = freshness.includes("customType === SLATE_BINDING_CUSTOM_TYPE")
+			&& !/customType === (?!SLATE_BINDING_CUSTOM_TYPE)/.test(freshness);
+		checkAll("source-goal8", "the recursive shipped-source scan pins every direct Pi entry-reader site to reviewed locator, freshness, brief or cost wiring, and finds no old-entry token or reader symbol (goal 8)", [
+			["the scan includes shipped .mjs modules", scansPlainJavaScript, moduleFiles],
+			["the direct entry-reader inventory is exact", JSON.stringify(entryReaderSites) === JSON.stringify(expectedEntryReaderSites), entryReaderSites],
+			["the inventoried readers remain in their reviewed wiring", readerPurposes, readerPurposes],
+			["the freshness test keys on the locator note", freshnessReadsLocatorOnly, freshnessReadsLocatorOnly],
+			["no removed reader symbol or old-entry token survives", removedReaders.length === 0, removedReaders],
+		]);
+	});
+
+	// =========================================================================
 	// Model-spec vocabulary (extension/state.ts)
 	// =========================================================================
 	// The canonical predicate/splitter/reasons that failover.ts, episodes.ts,
@@ -5491,30 +5608,6 @@ production behaviour.`);
 			]);
 		});
 
-		await section("state-snapshot-identity", async () => {
-			const sane = (raw) => {
-				const repairs = [];
-				return { out: state.sanitizeSnapshotIdentity(raw, repairs), repairs };
-			};
-			const base = { threads: [], episodes: [], orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
-			const id = "20260818T101112Z-0123abcd0123abcd";
-			const owner = "a".repeat(64);
-			const valid = sane({ ...base, slateSessionId: id, ownerSessionDigest: owner });
-			const absent = sane(base);
-			const noSnapshot = sane(undefined);
-			const badIdentities = ["20260818T101112Z-0123ABCD0123abcd", "2026-08-18T10:11:12Z-0123abcd0123abcd", "20260818T101112Z-0123abcd0123abc/", 7, null]
-				.map((slateSessionId) => sane({ ...base, slateSessionId, ownerSessionDigest: owner }));
-			const badOwners = ["", "a".repeat(63), "a".repeat(65), "A".repeat(64), "owner/path", 7, null]
-				.map((ownerSessionDigest) => sane({ ...base, slateSessionId: id, ownerSessionDigest }));
-			checkAll("state-snapshot-identity", "snapshot lineage identity fields are validated independently at adoption: exact values round-trip, absence stays distinct and silent, malformed values are removed with one field-naming repair, and an absent snapshot remains distinguishable from a legacy snapshot", [
-				["both valid fields round-trip exactly and silently", valid.out.slateSessionId === id && valid.out.ownerSessionDigest === owner && valid.repairs.length === 0, valid],
-				["a legacy snapshot has neither field and stays silent", absent.out.snapshotPresent === true && absent.out.slateSessionIdPresent === false && absent.out.ownerSessionDigestPresent === false && absent.repairs.length === 0, absent],
-				["no snapshot remains distinguishable from a legacy snapshot", noSnapshot.out.snapshotPresent === false && noSnapshot.repairs.length === 0, noSnapshot],
-				["every malformed identity is removed and reported once by field name", badIdentities.every((r) => r.out.slateSessionId === undefined && r.out.slateSessionIdPresent === true && r.repairs.length === 1 && /slateSessionId/.test(r.repairs[0])), badIdentities],
-				["every malformed owner digest is removed and reported once by field name", badOwners.every((r) => r.out.ownerSessionDigest === undefined && r.out.ownerSessionDigestPresent === true && r.repairs.length === 1 && /ownerSessionDigest/.test(r.repairs[0])), badOwners],
-			]);
-		});
-
 		await section("state-thread-record", async () => {
 			const sane = (raw) => { const repairs = []; return { out: state.sanitizeThreadRecord(raw, repairs), repairs }; };
 			const complete = {
@@ -5554,7 +5647,7 @@ production behaviour.`);
 			// since CQ22, the same REFUSE-BY-NAME discipline: this sanitizer used to accept a
 			// repairs sink and never write to it, so an episode's dropped fields vanished in
 			// silence while a thread's were reported. That asymmetry is gone; the two kinds of
-			// note (`ignoring <field>` for a corrupt snapshot, the adoption note for a slate
+			// note (`ignoring <field>` for a corrupt stored record, the adoption note for a slate
 			// bug) are what keep the two problems distinguishable.
 			const sane = (raw) => {
 				const repairs = [];
@@ -5682,7 +5775,7 @@ production behaviour.`);
 				["...while accepted values and an old record with no observations report nothing at all", [roundTrip, failed, specs, markerTrue, noFinalObservations, noFinalTextObservations, writeFailedObservations, minimal].every((r) => r.repairs.length === 0), [roundTrip.repairs, failed.repairs, specs.repairs, markerTrue.repairs, noFinalObservations.repairs, writeFailedObservations.repairs, minimal.repairs]],
 				["every field the ADOPTION CHECKLIST names comes back, and no other (CQ22)", adoptedKeys.length > 0 && unadopted.length === 0 && surplus.length === 0, { unadopted, surplus, adoptedKeys }],
 				["...and that all-fields record round-trips byte-identically too", JSON.stringify(everyRoundTrip.out) === JSON.stringify(everyField) && everyRoundTrip.repairs.length === 0, [everyRoundTrip.out, everyRoundTrip.repairs]],
-				["...a field the snapshot has and the build lost is reported as a SLATE BUG, by name", lost.length === adoptedKeys.length - 1 && lost.every((m) => /^episode e: field \w+ is in the snapshot but adoption does not handle it \(slate bug\)/.test(m)), lost],
+				["...a field storage has and the build lost is reported as a SLATE BUG, by name", lost.length === adoptedKeys.length - 1 && lost.every((m) => /^episode e: field \w+ is in storage but adoption does not handle it \(slate bug\)/.test(m)), lost],
 			]);
 		});
 
@@ -5771,7 +5864,7 @@ production behaviour.`);
 			const mutations = [
 				["thread missing", (runtime) => { delete runtime.threads[0].name; }],
 				["thread unknown", (runtime) => { runtime.threads[0].unknown = true; }],
-				["thread silent normalization", (runtime) => { runtime.threads[0].status = "running"; }],
+				["thread status vocabulary", (runtime) => { runtime.threads[0].status = "halted"; }],
 				["thread relationship repair", (runtime) => { delete runtime.threads[0].episodeId; }],
 				["episode missing", (runtime) => { delete runtime.episodes[0].task; }],
 				["episode unknown", (runtime) => { runtime.episodes[0].unknown = true; }],
@@ -5781,9 +5874,23 @@ production behaviour.`);
 				["nested counter repair", (runtime) => { runtime.episodes[0].compressorUsage = { input: -1 }; }],
 			];
 			const outcomes = mutations.map(runtimeMutationOutcome);
-			checkAll("state-runtime-records", "canonical records reject missing or unknown fields and every explicit or silent sanitizer repair", [
+			// A queued or running action is LEGITIMATE external state since Track 14:
+			// slate saves a worker thread before it starts the worker session, so the
+			// decoder keeps that status and the state store applies the
+			// unfinished-means-failed rule when it adopts a namespace.
+			const unfinished = ["queued", "running"].map((status) => {
+				const runtime = runtimeFixture();
+				runtime.threads[0].status = status;
+				try {
+					return state.decodeCanonicalRuntime(runtimeOptions(runtime)).threads[0].status === status;
+				} catch (error) {
+					return `refused: ${error?.message}`;
+				}
+			});
+			checkAll("state-runtime-records", "canonical records reject missing or unknown fields and every explicit or silent sanitizer repair, while an unfinished action stays storable", [
 				["the mutation roster is complete", outcomes.length === 10, outcomes.map((outcome) => outcome.label)],
 				["every record mutation changes its fixture and is defeated", outcomes.every((outcome) => outcome.changed && outcome.refused), outcomes],
+				["an unfinished action decodes with its own status", unfinished.every((outcome) => outcome === true), unfinished],
 			]);
 		});
 
@@ -6971,8 +7078,8 @@ production behaviour.`);
 		"route-read-failure-inert", "route-resolution",
 		"route-resolved-pair", "route-ladder-per-model", "route-evidence-gap", "route-api-rejected",
 			"route-price-divergence-golden", "route-price-divergence-tolerance", "route-price-divergence-absence", "route-price-divergence-output", "route-price-divergence-date",
-		"route-failover", "route-context-checks-removed", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
-		"wiring", "spec-invisible", "spec-config-key", "state-snapshot-identity", "state-thread-record", "state-episode-record",
+			"route-failover", "route-context-checks-removed", "route-lowest-effort", "route-off-ladder-source", "route-hostile",
+		"wiring", "source-goal6", "source-goal7", "source-goal8", "spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record",
 		"state-runtime-root", "state-runtime-records", "state-runtime-graph", "state-runtime-artifacts",
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",

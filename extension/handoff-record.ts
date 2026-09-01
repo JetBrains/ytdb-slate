@@ -15,31 +15,19 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
-import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "./model-profiles.ts";
-import {
-	ADOPTED_EPISODE_FIELDS,
-	ADOPTED_THREAD_FIELDS,
-	OWNER_SESSION_DIGEST_PATTERN,
-	SLATE_SESSION_ID_PATTERN,
-	SLATE_STATE_FORMAT,
-	sanitizeEpisodeRecord,
-	sanitizeThreadRecord,
-	type SlateSessionParent,
-	type SlateSnapshot,
-} from "./state.ts";
+import { SLATE_SESSION_ID_PATTERN, type SlateSessionParent } from "./state.ts";
 import {
 	insideRoot,
-	isContainedOrMissingFile,
 	resolveCorpusProject,
-	validateCorpusSession,
 	type CorpusProject,
 } from "./corpus.ts";
+// The author namespace of a handoff is an external namespace once startup selects
+// external storage, so both handoff paths accept either namespace shape.
+import { validateSessionNamespace } from "./session-record.ts";
 import { isSlateSessionName } from "./session-names.ts";
 
 const HANDOFF_MAX_BYTES = 1024 * 1024;
-const HANDOFF_MAX_THREADS = 512;
-const HANDOFF_MAX_EPISODES = 4096;
 const HANDOFF_MAX_DEPTH = 8;
 const HANDOFF_MAX_WIRE_STRING_BYTES = 8192;
 const HANDOFF_MAX_PARENTS = 256;
@@ -64,7 +52,8 @@ export interface CorpusHandoffRecord {
 	focus?: string;
 	model?: { provider: string; id: string };
 	thinkingLevel?: ThinkingLevel;
-	snapshot: SlateSnapshot;
+	/** Orchestrator spend banked by the sending session. */
+	carriedCostUsd: number;
 }
 
 export type HandoffRecordReadResult =
@@ -131,11 +120,7 @@ function validWireString(value: unknown): value is WireString {
 	);
 }
 
-const ROOT_KEYS = ["version", "author", "authorSessionDirectory", "createdAt", "worktreePath", "branchLabel", "parentChain", "brief", "focus", "model", "thinkingLevel", "snapshot"] as const;
-const SNAPSHOT_KEYS = ["format", "threads", "episodes", "threadSeq", "slateSessionId", "slateSessionName", "ownerSessionDigest", "slateSessionParentChain", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"] as const;
-const USAGE_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
-const THREAD_STRING_KEYS = new Set(["id", "name", "status", "type", "model", "baseModel", "baseEffort", "episodeId", "outcomeReason"]);
-const EPISODE_STRING_KEYS = new Set(["id", "threadId", "task", "status", "file", "model", "effort"]);
+const ROOT_KEYS = ["version", "author", "authorSessionDirectory", "createdAt", "worktreePath", "branchLabel", "parentChain", "brief", "focus", "model", "thinkingLevel", "carriedCostUsd"] as const;
 
 function validWireObject(value: unknown, allowed: readonly string[], required: readonly string[]): value is WireObject {
 	return object(value) && exactKeys(value, allowed, required);
@@ -146,55 +131,11 @@ function validateWireParent(value: unknown): boolean {
 		&& validWireString(value.identity) && validWireString(value.name);
 }
 
-function validateWireUsage(value: unknown): boolean {
-	return validWireObject(value, USAGE_KEYS, []) && Object.values(value).every((entry) => typeof entry === "number");
-}
-
-function validateWireObservation(value: unknown): boolean {
-	if (!object(value) || typeof value.stored !== "boolean") return false;
-	if (value.stored) {
-		return validWireObject(value, ["stored", "path", "bytes", "truncated", "grammar"], ["stored", "path", "bytes", "truncated", "grammar"])
-			&& validWireString(value.path) && validWireString(value.grammar);
-	}
-	return validWireObject(value, ["stored", "reason", "grammar"], ["stored", "reason", "grammar"])
-		&& validWireString(value.reason) && validWireString(value.grammar);
-}
-
-function validateWireThread(value: unknown): boolean {
-	if (!validWireObject(value, Object.keys(ADOPTED_THREAD_FIELDS), ["id", "name", "status", "type", "createdAt", "updatedAt"])) return false;
-	for (const [key, entry] of Object.entries(value)) {
-		if (THREAD_STRING_KEYS.has(key) && !validWireString(entry)) return false;
-		if (key === "tools" && (!Array.isArray(entry) || !entry.every(validWireString))) return false;
-		if (!THREAD_STRING_KEYS.has(key) && key !== "tools" && object(entry)) return false;
-	}
-	return true;
-}
-
-function validateWireEpisode(value: unknown): boolean {
-	if (!validWireObject(value, Object.keys(ADOPTED_EPISODE_FIELDS), ["id", "threadId", "task", "status", "file", "createdAt"])) return false;
-	for (const [key, entry] of Object.entries(value)) {
-		if (EPISODE_STRING_KEYS.has(key) && !validWireString(entry)) return false;
-		if ((key === "compressorUsage" || key === "compactionUsage") && !validateWireUsage(entry)) return false;
-		if (key === "observations" && !validateWireObservation(entry)) return false;
-		if (!EPISODE_STRING_KEYS.has(key) && key !== "compressorUsage" && key !== "compactionUsage" && key !== "observations" && object(entry)) return false;
-	}
-	return true;
-}
-
-function validateWireSnapshot(value: unknown): boolean {
-	if (!validWireObject(value, SNAPSHOT_KEYS, ["format", "threads", "episodes", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"])) return false;
-	if (!Array.isArray(value.threads) || !value.threads.every(validateWireThread)) return false;
-	if (!Array.isArray(value.episodes) || !value.episodes.every(validateWireEpisode)) return false;
-	for (const key of ["slateSessionId", "slateSessionName", "ownerSessionDigest"] as const) {
-		if (value[key] !== undefined && !validWireString(value[key])) return false;
-	}
-	return value.slateSessionParentChain === undefined
-		|| (Array.isArray(value.slateSessionParentChain) && value.slateSessionParentChain.every(validateWireParent));
-}
-
 function validateWireRecord(value: unknown): value is WireObject {
-	if (!handoffTreeWithinDepth(value) || !validWireObject(value, ROOT_KEYS, ["version", "author", "authorSessionDirectory", "createdAt", "worktreePath", "branchLabel", "parentChain", "brief", "snapshot"])) return false;
-	if (value.version !== 2 || !validateWireParent(value.author) || !validateWireSnapshot(value.snapshot)) return false;
+	if (!handoffTreeWithinDepth(value) || !validWireObject(value, ROOT_KEYS, ["version", "author", "authorSessionDirectory", "createdAt", "worktreePath", "branchLabel", "parentChain", "brief", "carriedCostUsd"])) return false;
+	if (value.version !== 2 || !validateWireParent(value.author)
+		|| typeof value.carriedCostUsd !== "number" || !Number.isFinite(value.carriedCostUsd)
+		|| value.carriedCostUsd < 0) return false;
 	for (const key of ["authorSessionDirectory", "worktreePath", "branchLabel", "brief", "focus", "thinkingLevel"] as const) {
 		if (value[key] !== undefined && !validWireString(value[key])) return false;
 	}
@@ -213,13 +154,9 @@ function decodeWireValue(value: unknown, stringKeys: Set<string>): unknown {
 	for (const [key, entry] of Object.entries(value)) {
 		if (stringKeys.has(key)) decoded[key] = decodeWireString(entry as WireString);
 		else if (key === "tools") decoded[key] = (entry as WireString[]).map(decodeWireString);
-		else if (key === "threads") decoded[key] = (entry as WireObject[]).map((item) => decodeWireValue(item, THREAD_STRING_KEYS));
-		else if (key === "episodes") decoded[key] = (entry as WireObject[]).map((item) => decodeWireValue(item, EPISODE_STRING_KEYS));
-		else if (key === "parentChain" || key === "slateSessionParentChain") decoded[key] = (entry as WireObject[]).map((item) => decodeWireValue(item, new Set(["identity", "name"])));
+		else if (key === "parentChain") decoded[key] = (entry as WireObject[]).map((item) => decodeWireValue(item, new Set(["identity", "name"])));
 		else if (key === "author") decoded[key] = decodeWireValue(entry, new Set(["identity", "name"]));
 		else if (key === "model") decoded[key] = decodeWireValue(entry, new Set(["provider", "id"]));
-		else if (key === "snapshot") decoded[key] = decodeWireValue(entry, new Set(["slateSessionId", "slateSessionName", "ownerSessionDigest"]));
-		else if (key === "observations") decoded[key] = decodeWireValue(entry, new Set(["path", "reason", "grammar", "warning"]));
 		else decoded[key] = entry;
 	}
 	return decoded;
@@ -231,80 +168,15 @@ function validParent(value: unknown): value is SlateSessionParent {
 		&& isSlateSessionName(value.name);
 }
 
-function validThread(value: unknown): boolean {
-	if (!object(value)) return false;
-	const allowed = Object.keys(ADOPTED_THREAD_FIELDS);
-	const required = ["id", "name", "status", "type", "createdAt", "updatedAt"];
-	if (!exactKeys(value, allowed, required)) return false;
-	const repairs: string[] = [];
-	const parsed = sanitizeThreadRecord(value, repairs);
-	return parsed !== undefined && repairs.length === 0;
-}
-
-function validEpisode(value: unknown): boolean {
-	if (!object(value)) return false;
-	const allowed = Object.keys(ADOPTED_EPISODE_FIELDS);
-	const required = ["id", "threadId", "task", "status", "file", "createdAt"];
-	if (!exactKeys(value, allowed, required)) return false;
-	const repairs: string[] = [];
-	return sanitizeEpisodeRecord(value, repairs) !== undefined && repairs.length === 0;
-}
-
-function validSnapshotGraph(value: SlateSnapshot): boolean {
-	const episodes = new Map(value.episodes.map((episode) => [episode.id, episode]));
-	let maxThreadOrdinal = 0;
-	for (const thread of value.threads) {
-		const ordinal = /^t([1-9]\d*)$/u.exec(thread.id);
-		if (ordinal !== null) {
-			const parsed = Number(ordinal[1]);
-			if (!Number.isSafeInteger(parsed)) return false;
-			maxThreadOrdinal = Math.max(maxThreadOrdinal, parsed);
-		}
-		if (thread.episodeId !== undefined && episodes.get(thread.episodeId)?.threadId !== thread.id) return false;
-	}
-	return (value.threadSeq ?? 0) >= maxThreadOrdinal;
-}
-
-function validSnapshot(value: unknown): value is SlateSnapshot {
-	if (!object(value)) return false;
-	const allowed = [
-		"threads", "episodes", "threadSeq", "slateSessionId", "slateSessionName", "ownerSessionDigest", "slateSessionParentChain",
-		"orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd",
-	];
-	const required = ["format", "threads", "episodes", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"];
-	if (!exactKeys(value, ["format", ...allowed], required) || value.format !== SLATE_STATE_FORMAT
-		|| !Array.isArray(value.threads) || !Array.isArray(value.episodes)) return false;
-	if (value.threads.length > HANDOFF_MAX_THREADS || value.episodes.length > HANDOFF_MAX_EPISODES) return false;
-	if (!value.threads.every(validThread) || !value.episodes.every(validEpisode)) return false;
-	const threadIds = new Set(value.threads.map((thread) => thread.id));
-	const episodeIds = new Set(value.episodes.map((episode) => episode.id));
-	if (threadIds.size !== value.threads.length || episodeIds.size !== value.episodes.length) return false;
-	if (value.episodes.some((episode) => !threadIds.has(episode.threadId))) return false;
-	for (const thread of value.threads) {
-		if (thread.episodeId !== undefined && !episodeIds.has(thread.episodeId)) return false;
-		if (value.episodes.some((episode) => episode.threadId === thread.id && thread.episodeId !== episode.id)) return false;
-	}
-	if (!validSnapshotGraph(value as unknown as SlateSnapshot)) return false;
-	if (typeof value.orchestratorMode !== "boolean" || typeof value.paused !== "boolean") return false;
-	if (typeof value.workerCostUsd !== "number" || !Number.isFinite(value.workerCostUsd) || value.workerCostUsd < 0) return false;
-	if (typeof value.carriedCostUsd !== "number" || !Number.isFinite(value.carriedCostUsd) || value.carriedCostUsd < 0) return false;
-	if (value.threadSeq !== undefined && !(typeof value.threadSeq === "number" && Number.isSafeInteger(value.threadSeq) && value.threadSeq >= 0)) return false;
-	if (value.slateSessionId !== undefined && !(typeof value.slateSessionId === "string" && SLATE_SESSION_ID_PATTERN.test(value.slateSessionId))) return false;
-	if (value.slateSessionName !== undefined && !isSlateSessionName(value.slateSessionName)) return false;
-	if (value.ownerSessionDigest !== undefined && !(typeof value.ownerSessionDigest === "string" && OWNER_SESSION_DIGEST_PATTERN.test(value.ownerSessionDigest))) return false;
-	if (value.slateSessionParentChain !== undefined && (!Array.isArray(value.slateSessionParentChain) || !value.slateSessionParentChain.every(validParent))) return false;
-	return true;
-}
-
 export function validateCorpusHandoffRecord(value: unknown): CorpusHandoffRecord | undefined {
 	if (!handoffTreeWithinDepth(value) || !object(value)) return undefined;
 	const allowed = [
 		"version", "author", "authorSessionDirectory", "createdAt", "worktreePath", "branchLabel",
-		"parentChain", "brief", "focus", "model", "thinkingLevel", "snapshot",
+		"parentChain", "brief", "focus", "model", "thinkingLevel", "carriedCostUsd",
 	];
 	const required = [
 		"version", "author", "authorSessionDirectory", "createdAt", "worktreePath", "branchLabel",
-		"parentChain", "brief", "snapshot",
+		"parentChain", "brief", "carriedCostUsd",
 	];
 	if (!exactKeys(value, allowed, required) || value.version !== 1 || !validParent(value.author)) return undefined;
 	if (typeof value.authorSessionDirectory !== "string" || typeof value.worktreePath !== "string") return undefined;
@@ -318,9 +190,8 @@ export function validateCorpusHandoffRecord(value: unknown): CorpusHandoffRecord
 		if (typeof value.model.id !== "string" || value.model.id === "") return undefined;
 	}
 	if (value.thinkingLevel !== undefined && typeof value.thinkingLevel !== "string") return undefined;
-	if (!validSnapshot(value.snapshot)) return undefined;
-	if (value.snapshot.slateSessionId !== value.author.identity || value.snapshot.slateSessionName !== value.author.name) return undefined;
-	if (JSON.stringify(value.snapshot.slateSessionParentChain ?? []) !== JSON.stringify(value.parentChain)) return undefined;
+	if (typeof value.carriedCostUsd !== "number" || !Number.isFinite(value.carriedCostUsd)
+		|| value.carriedCostUsd < 0) return undefined;
 	return value as unknown as CorpusHandoffRecord;
 }
 
@@ -486,26 +357,11 @@ export function readCorpusHandoffRecord(options: {
 		if (projectReal !== project.directory || authorReal !== expectedDirectory || !insideRoot(projectReal, authorReal)) {
 			return { ok: false, reason: "slate refused an author session directory outside the corpus project" };
 		}
-		if (!validateCorpusSession(project, record.author.name, record.author.identity)) {
+		if (!validateSessionNamespace(project, record.author.name, record.author.identity)) {
 			return { ok: false, reason: "slate refused author session metadata that does not match the handoff record" };
 		}
 		if (!validLineage(record)) {
 			return { ok: false, reason: "slate refused duplicated or cyclic parent lineage" };
-		}
-		for (const episode of record.snapshot.episodes) {
-			if (!isContainedOrMissingFile(options.cwd, episode.file, project.directory)) {
-				return { ok: false, reason: `slate refused episode ${episode.id} because its file is linked or outside slate storage` };
-			}
-			if (episode.observations?.stored === true) {
-				const reference = episode.observations.path;
-				const sessionPrefix = `${CONFIG_DIR_NAME}/slate/sessions/`;
-				const observationFile = reference.startsWith(sessionPrefix)
-					? join(project.directory, reference.slice(sessionPrefix.length))
-					: join(options.cwd, reference);
-				if (!isContainedOrMissingFile(options.cwd, observationFile, project.directory)) {
-					return { ok: false, reason: `slate refused episode ${episode.id} because its observation file is linked or outside slate storage` };
-				}
-			}
 		}
 		const after = lstatSync(file, { throwIfNoEntry: false });
 		if (!after?.isFile() || after.isSymbolicLink() || !sameFile(held, after)) {
@@ -603,7 +459,7 @@ export function writeCorpusHandoffRecord(
 		throw new Error("slate refused an invalid corpus project directory");
 	}
 	const expectedAuthorDirectory = join(project.directory, record.author.name);
-	if (record.authorSessionDirectory !== expectedAuthorDirectory || !validateCorpusSession(project, record.author.name, record.author.identity)) {
+	if (record.authorSessionDirectory !== expectedAuthorDirectory || !validateSessionNamespace(project, record.author.name, record.author.identity)) {
 		throw new Error("slate refused handoff author metadata that does not match its corpus session");
 	}
 	if (!validLineage(record)) throw new Error("slate refused duplicated or cyclic handoff parent lineage");

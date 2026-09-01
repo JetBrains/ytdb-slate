@@ -568,6 +568,17 @@ function lastAssistantText(messages: unknown[]): string {
 
 export interface FailedEpisodeOptions {
 	ctx: Pick<ExtensionContext, "cwd">;
+	/**
+	 * The external namespace of this Slate session, and the corpus project that
+	 * holds it. The compression path takes the same two values, and this path used
+	 * to take neither: it wrote the episode file into the project directory, where
+	 * the canonical decoder refuses the reference and the failed action becomes
+	 * unsavable (CN1502). A production caller always supplies both, because its
+	 * store refuses to name an artifact location while the namespace is
+	 * unavailable.
+	 */
+	sessionName?: string;
+	projectDirectory?: string;
 	episodeId: string;
 	threadId: string;
 	threadName: string;
@@ -604,7 +615,14 @@ export function writeFailedEpisode(opts: FailedEpisodeOptions): CompressedEpisod
 		"",
 	].join("\n");
 	try {
-		const written = writeSlateArtifact({ cwd: opts.ctx.cwd, kind: "episodes", id: opts.episodeId, content: text });
+		const written = writeSlateArtifact({
+			cwd: opts.ctx.cwd,
+			sessionName: opts.sessionName,
+			projectDirectory: opts.projectDirectory,
+			kind: "episodes",
+			id: opts.episodeId,
+			content: text,
+		});
 		return { text, file: written.absolutePath, compressor: "(fixed failed-action episode)" };
 	} catch (error) {
 		throw new EpisodePersistenceError(undefined, error);

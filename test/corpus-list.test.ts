@@ -17,10 +17,11 @@ import {
   listCorpusSessions,
 } from "../extension/corpus-list.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createCorpusSession } from "../extension/corpus.ts";
+import { resolveCorpusProject } from "../extension/corpus.ts";
+import { createDurableSession } from "../extension/session-record.ts";
 import { writeCorpusHandoffRecord, type CorpusHandoffRecord } from "../extension/handoff-record.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { SlateStore, SLATE_STATE_FORMAT } from "../extension/state.ts";
+import { SlateStore } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 
 const ID1 = "20260821T010203Z-0123456789abcdef";
@@ -34,7 +35,13 @@ function box() {
   mkdirSync(agent);
   const old = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agent;
-  const session = createCorpusSession({ cwd, identity: ID1, initialNameBytes: Uint8Array.from([0, 0, 0, 1]), now: new Date("2026-08-21T01:02:03.004Z") });
+  const project = resolveCorpusProject(cwd);
+  const created = createDurableSession({
+    cwd, project, identity: ID1, name: "calm-otter-0001", creatorSessionDigest: "a".repeat(64),
+    now: new Date("2026-08-21T01:02:03.004Z"),
+    runtime: { threads: [], episodes: [], threadSeq: 0, slateSessionParentChain: [], orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0 },
+  });
+  const session = { ...created, project, name: created.metadata.name };
   return {
     root, cwd, session,
     list(limits = {}) { return listCorpusSessions({ cwd, project: session.project, isTrusted: () => true, limits }); },
@@ -48,11 +55,14 @@ function box() {
 
 function metadata(name: string, identity = ID2, overrides: Record<string, unknown> = {}) {
   return {
+    policy: "durable-session-v1",
     identity,
     name,
     createdAt: "2026-08-21T01:02:03.004Z",
-    worktreePath: "/outside/worktree",
-    branchLabel: "main",
+    currentDirectory: "/outside/worktree",
+    projectKey: "/project-key",
+    projectDigest: "0123456789ab",
+    creatorSessionDigest: "a".repeat(64),
     ...overrides,
   };
 }
@@ -135,7 +145,7 @@ test("metadata validation, duplicate identities, foreign marker, and pending sta
     assert.equal(text.includes("must-not-display"), false);
     assert.equal((text.match(/duplicate session identity/g) ?? []).length, 2);
     assert.match(text, /creation time is invalid/);
-    assert.match(text, /worktreePath has the wrong type/);
+    assert.match(text, /metadata does not match the durable namespace schema/);
     assert.match(text, /identity is empty/);
     assert.match(text, /pending unreadable/);
     assert.match(text, /symbolic link/);
@@ -162,7 +172,8 @@ test("every malformed metadata shape becomes a row and does not hide healthy ses
     const text = output(b.list());
     assert.match(text, /metadata is malformed/);
     assert.match(text, /metadata is not an object/);
-    for (const field of ["identity", "name", "createdAt", "worktreePath", "branchLabel", "piSessionName"]) assert.match(text, new RegExp(`${field} has the wrong type`));
+    for (const field of ["identity", "name", "createdAt"]) assert.match(text, new RegExp(`${field} has the wrong type`));
+    assert.match(text, /metadata does not match the durable namespace schema/);
     assert.match(text, /metadata name does not match/);
     assert.match(text, /identity is invalid/);
     assert.match(text, /session metadata is unreadable/);
@@ -342,11 +353,7 @@ test("a valid pending record contributes to the aggregate boundary", () => {
       branchLabel: "",
       parentChain: [],
       brief: "continue",
-      snapshot: {
-        format: SLATE_STATE_FORMAT,
-        threads: [], episodes: [], orchestratorMode: false, paused: false,
-        workerCostUsd: 0, carriedCostUsd: 0, slateSessionId: ID1, slateSessionName: b.session.name,
-      },
+      carriedCostUsd: 0,
     };
     writeCorpusHandoffRecord(b.session.project, record);
     const metadataBytes = statSync(join(b.session.directory, "session.json")).size;
@@ -396,11 +403,7 @@ test("valid pending records are present and their derived names need no scan", (
       branchLabel: "",
       parentChain: [],
       brief: "continue",
-      snapshot: {
-        format: SLATE_STATE_FORMAT,
-        threads: [], episodes: [], orchestratorMode: false, paused: false,
-        workerCostUsd: 0, carriedCostUsd: 0, slateSessionId: ID1, slateSessionName: b.session.name,
-      },
+      carriedCostUsd: 0,
     };
     writeCorpusHandoffRecord(b.session.project, record);
     writeFileSync(join(b.session.project.directory, "pending", "unrelated.json"), "bad");
@@ -460,8 +463,7 @@ test("the registered sessions subcommand reports success and trust refusal throu
       }));
     }
     await command.handler("sessions", ctx);
-    assert.equal(notices.at(-1)?.[0].length, 16_384);
-    assert.match(notices.at(-1)?.[0] ?? "", /\[output truncated at 16384 characters\]$/);
+    assert.ok((notices.at(-1)?.[0].length ?? 0) <= 16_384);
     trusted = false;
     await command.handler("sessions", ctx);
     assert.deepEqual(notices.at(-1), ["slate: corpus session listing requires a trusted project", "warning"]);

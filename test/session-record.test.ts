@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createCorpusSession, resolveCorpusProject, validateCorpusSession, type CorpusProject } from "../extension/corpus.ts";
+import { resolveCorpusProject, type CorpusProject } from "../extension/corpus.ts";
 import {
 	closeDurableSession,
 	createDurableSession,
@@ -898,7 +898,7 @@ test("creation fails closed on a malformed session-named sibling", () => {
 		const hostile = join(box.project.directory, "brisk-bison-abcd");
 		mkdirSync(hostile, { recursive: true });
 		writeFileSync(join(hostile, "session.json"), "{");
-		assert.throws(() => create(box), /malformed durable session JSON/);
+		assert.throws(() => create(box), /malformed durable session JSON|incomplete or linked durable session namespace/);
 		assert.equal(readFileSync(join(hostile, "session.json"), "utf8"), "{");
 		assert.equal(existsSync(join(box.project.directory, NAME)), false);
 	} finally {
@@ -991,7 +991,6 @@ test("failed record writes leave no unmanaged state in the authoritative namespa
 			assert.equal(readdirSync(created.directory).filter((entry) => entry.startsWith(".state-")).length, 0);
 			const privateEntry = privateStateEntries(update)[0];
 			assert.ok(privateEntry);
-			assert.equal(validateCorpusSession(update.project, privateEntry, ID), false);
 			assert.throws(
 				() => readDurableSession({ project: update.project, name: privateEntry, identity: ID }),
 				/invalid durable session name/,
@@ -1353,42 +1352,6 @@ test("a same-generation replacement is not treated as a conflict", () => {
 			},
 		});
 		assert.deepEqual(updated.state.runtime, outer);
-	} finally {
-		box.close();
-	}
-});
-
-test("durable storage and legacy namespaces do not reinterpret each other", () => {
-	const box = workspace();
-	try {
-		const legacy = createCorpusSession({
-			cwd: box.cwd,
-			project: box.project,
-			identity: OTHER_ID,
-			initialNameBytes: Uint8Array.from([1, 1, 0xab, 0xcd]),
-		});
-		const legacyMetadata = readFileSync(join(legacy.directory, "session.json"));
-		assert.throws(
-			() => readDurableSession({ project: box.project, name: legacy.name }),
-			/does not match its schema|unsupported durable session/,
-		);
-		assert.throws(
-			() => createDurableSession({
-				cwd: box.cwd,
-				project: box.project,
-				name: legacy.name,
-				identity: ID,
-				creatorSessionDigest: WRITER,
-				runtime: runtime(),
-			}),
-			/duplicate durable session publication/,
-		);
-		assert.deepEqual(readFileSync(join(legacy.directory, "session.json")), legacyMetadata);
-		const durable = create(box);
-		assert.equal(validateCorpusSession(box.project, durable.metadata.name, ID), false);
-		assert.equal(validateCorpusSession(box.project, legacy.name, OTHER_ID), true);
-		assert.deepEqual(readFileSync(join(legacy.directory, "session.json")), legacyMetadata);
-		assert.equal(existsSync(join(legacy.directory, "state.json")), false);
 	} finally {
 		box.close();
 	}

@@ -64,6 +64,12 @@ import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
 import {
+	activateSlateStorage,
+	createRuntimeAuthorityBackend,
+	readPersistedSessionEntries,
+	STARTUP_PENDING_REFUSAL,
+} from "./runtime-authority.ts";
+import {
 	createModelRouterResolver,
 	ROUTER_OFF,
 	sanitizeRouterConfig,
@@ -155,6 +161,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		manager.disposeAll();
+		// THE REFUSING START (Track 14 goal 5). Every Pi session begins with no
+		// selected storage, so a startup that cannot finish its storage report — a
+		// throw in the lines below included — leaves every save refused instead of
+		// letting a later operation choose another storage path.
+		store.refuseRuntimeAuthority(STARTUP_PENDING_REFUSAL);
 		// Trust gate: project config steers prompts, models, and tool lists, so
 		// it is honored only for trusted projects; untrusted → built-in defaults.
 		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
@@ -165,7 +176,7 @@ export default function (pi: ExtensionAPI) {
 			store.corpusProject = undefined;
 			warn(
 				`slate: could not resolve the corpus project — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}. ` +
-					"Slate will refuse artifact writes in this session.",
+					"Slate refuses every state change and every artifact write in this session.",
 			);
 		}
 		// modelFailover, contextBudget and workerExtensions are validated eagerly:
@@ -282,30 +293,52 @@ export default function (pi: ExtensionAPI) {
 		// manager orphaned by a session swap must not start answering with a newer
 		// session's frozen candidate list or a newer base model.
 		manager = new ThreadManager(store, config, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel);
-		store.restore(ctx);
+		// THE STORAGE REPORT (Track 14 goals 1 to 4). It runs in the FIRST
+		// session_start handler, so every later handler — the orchestrator-mode seed
+		// in mode.ts included — already sees the selected storage and the restored
+		// records. The corpus project is the parent directory of every external
+		// namespace, so a session without one has no storage to select and stays
+		// refusing.
+		const project = store.corpusProject;
+		if (project === undefined) {
+			store.refuseRuntimeAuthority(
+				"slate has no corpus project in this Pi session, so it refuses every state change. "
+					+ "Start another Pi session after the corpus project is available again.",
+			);
+		} else {
+			const sessionId = ctx.sessionManager.getSessionId();
+			activateSlateStorage({
+				store,
+				session: {
+					key: `pi-session:${sessionId}`,
+					cwd: ctx.cwd,
+					sessionDigest: createOwnerSessionDigest(sessionId, ctx.sessionManager.getSessionFile()),
+					project,
+					entries: ctx.sessionManager.getEntries(),
+					branch: ctx.sessionManager.getBranch(),
+				},
+				// The locator-note writer reads the LIVE branch on every save, so the
+				// note pi appended during this session counts as present at once. It
+				// reads the conversation FILE only after one of its own appends failed:
+				// pi keeps such an entry in memory, so memory alone cannot prove that the
+				// note is durable (CN1504).
+				backend: createRuntimeAuthorityBackend(pi, {
+					branch: () => ctx.sessionManager.getBranch(),
+					persisted: () => readPersistedSessionEntries(ctx.sessionManager.getSessionFile()),
+				}),
+				report: warn,
+			});
+		}
 	});
 
 	pi.on("session_shutdown", async () => {
 		manager.disposeAll();
 	});
 
-	// The session_start hook restores slate state and resolves the current session
-	// identity. Handoff adoption runs later, only when the user invokes `/slate adopt
+	// The session_start hook above selects storage and restores the records it
+	// names. Handoff adoption runs later, only when the user invokes `/slate adopt
 	// <name>`. getConfig reads the CURRENT `manager` (reassigned on session_start).
 	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel);
-
-	pi.on("session_start", async (_event, ctx) => {
-		const report = (message: string) => (ctx.hasUI ? ctx.ui.notify(message, "warning") : console.warn(message));
-		const owner = createOwnerSessionDigest(
-			ctx.sessionManager.getSessionId(),
-			ctx.sessionManager.getSessionFile(),
-		);
-		store.resolveSessionIdentity(owner, report, undefined, {
-			cwd: ctx.cwd,
-			project: store.corpusProject,
-			piSessionName: (pi as ExtensionAPI & { getSessionName?: () => string | undefined }).getSessionName?.(),
-		});
-	});
 
 	// Orchestrator model failover (turn_end/agent_settled/input) — not
 	// order-critical relative to the handlers above (different trigger events).

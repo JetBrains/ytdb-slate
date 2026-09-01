@@ -32,6 +32,7 @@ import {
 	WRITING_GUIDANCE_DOC,
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import { SLATE_BINDING_CUSTOM_TYPE } from "./runtime-authority.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import { isSlateSessionName } from "./session-names.ts";
 import { THINKING_LEVELS } from "./route.ts";
@@ -650,8 +651,22 @@ export function registerSlateMode(
 		}
 		if (!on) store.paused = false; // a pause is meaningless outside orchestrator mode
 		store.orchestratorMode = on;
-		if (persist) store.save();
+		// A refused save throws here, so no caller can present an unsaved mode change
+		// as a saved one (Track 14 goal 5).
+		if (persist) store.commit();
 		updateWidget();
+	};
+
+	/** Report one refused or failed save through both channels. */
+	const reportSaveRefusal = (ctx: ExtensionContext, action: string, error: unknown): void => {
+		const detail = sanitizeForNotify(error instanceof Error ? error.message : String(error), 240);
+		const message = `slate: ${action} was not saved: ${detail}`;
+		console.warn(message);
+		try {
+			if (ctx.hasUI) ctx.ui.notify(message, "warning");
+		} catch {
+			/* stale context — the console line above stands */
+		}
 	};
 
 	const enterAdoptionMode = (): (() => void) => {
@@ -726,13 +741,30 @@ export function registerSlateMode(
 				return;
 			}
 			if (arg === "resume") {
+				const pausedBefore = store.paused;
 				store.paused = false;
-				store.save();
+				try {
+					store.commit();
+				} catch (error) {
+					store.paused = pausedBefore;
+					updateWidget();
+					reportSaveRefusal(ctx, "the resume", error);
+					return;
+				}
 				if (ctx.hasUI) ctx.ui.notify("slate: pause cleared — dispatches allowed again.", "info");
 				return;
 			}
 			const target = arg === "on" ? true : arg === "off" ? false : !store.orchestratorMode;
-			setMode(target, true);
+			const modeBefore = store.orchestratorMode;
+			try {
+				setMode(target, true);
+			} catch (error) {
+				// The mode is runtime state, so an unsaved change is reverted rather than
+				// left showing a mode this session could not record.
+				try { setMode(modeBefore, false); } catch { /* the report below stands */ }
+				reportSaveRefusal(ctx, "the mode change", error);
+				return;
+			}
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					target
@@ -891,11 +923,22 @@ export function registerSlateMode(
 		// gate limits the seed to interactive terminal sessions — hasUI would not
 		// do: it is also true in RPC mode, and scripted/automated runs
 		// (print/JSON/RPC) must not silently lose tactical tools.
-		if (!store.orchestratorMode && ctx.mode === "tui" && getConfig().orchestratorModeDefault === true) {
+		//
+		// FRESHNESS IS A LOCATOR NOTE QUESTION (Track 14): a branch that names an
+		// external namespace continues a Slate session and keeps its stored mode, and a
+		// branch that names none is new. Slate no longer looks for a full record copy
+		// in the conversation, so a branch holding only such copies reads as new.
+		//
+		// The storage report has priority over this seed: a refusing session must not
+		// present an active orchestrator mode it cannot record.
+		if (
+			!store.orchestratorMode && ctx.mode === "tui" && getConfig().orchestratorModeDefault === true
+			&& store.authorityState().kind !== "unavailable"
+		) {
 			const fresh = !ctx.sessionManager.getBranch().some((entry) => {
-				// Loose cast like state.ts restore(): tolerate malformed/legacy entries.
+				// Loose cast: tolerate malformed entries.
 				const e = entry as { type: string; customType?: string };
-				return e.type === "message" || (e.type === "custom" && e.customType === "slate-state");
+				return e.type === "message" || (e.type === "custom" && e.customType === SLATE_BINDING_CUSTOM_TYPE);
 			});
 			if (fresh) store.orchestratorMode = true;
 		}

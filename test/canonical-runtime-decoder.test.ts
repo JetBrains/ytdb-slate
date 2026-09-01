@@ -141,7 +141,6 @@ test("thread and episode sanitizer changes are refusals rather than repairs", ()
 	const cases: Array<[string, (value: CanonicalRuntimeState) => void, RegExp]> = [
 		["thread missing required", (value) => { delete (value.threads[0] as Partial<ThreadRecord>).name; }, /missing or unknown fields/],
 		["thread unknown field", (value) => { Object.assign(value.threads[0]!, { unknown: true }); }, /missing or unknown fields/],
-		["running normalization", (value) => { value.threads[0]!.status = "running"; }, /requires sanitizer repair/],
 		["wrong episode id", (value) => { value.threads[0]!.episodeId = "t2.e1"; }, /requires sanitizer repair/],
 		["episode missing required", (value) => { delete (value.episodes[0] as Partial<EpisodeRecord>).task; }, /missing or unknown fields/],
 		["episode unknown field", (value) => { Object.assign(value.episodes[0]!, { unknown: true }); }, /missing or unknown fields/],
@@ -151,6 +150,18 @@ test("thread and episode sanitizer changes are refusals rather than repairs", ()
 		["nested usage", (value) => { value.episodes[0]!.compressorUsage = { input: -1 }; }, /requires sanitizer repair/],
 	];
 	for (const [label, mutate, expected] of cases) rejects(label, mutate, expected);
+});
+
+test("a queued or running action is legitimate external state", () => {
+	// Slate saves a worker thread BEFORE it starts the worker session, so external
+	// storage must hold an unfinished action. "Unfinished means failed" is a restore
+	// rule that the state store applies when it adopts a namespace.
+	for (const status of ["queued", "running"] as const) {
+		const value = runtime();
+		value.threads[0]!.status = status;
+		const decoded = decodeCanonicalRuntime(options(value));
+		assert.equal(decoded.threads[0]?.status, status);
+	}
 });
 
 test("identifier and one-action episode graph mutations are rejected", () => {
@@ -232,7 +243,7 @@ test("lexically unsafe artifact references are rejected", () => {
 test("the refusal matrix has independent mutations and an unmutated control", () => {
 	const mutations: Array<(value: CanonicalRuntimeState) => void> = [
 		(value) => { value.threadSeq = -1; },
-		(value) => { value.threads[0]!.status = "running"; },
+		(value) => { value.threads[0]!.status = "other" as "failed"; },
 		(value) => { value.episodes[0]!.workerCostUsd = -1; },
 		(value) => { value.threads.push(structuredClone(value.threads[0]!)); },
 		(value) => { value.episodes.push(structuredClone(value.episodes[0]!)); },

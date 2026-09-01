@@ -1,326 +1,46 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-	classifyRuntimeAuthority,
-	parseSlateBindingRecord,
-	type RuntimeAuthorityClassification,
-	type RuntimeAuthorityRefusal,
-	type SlateBindingRecord,
+  parseSlateBindingRecord,
+  selectStartupAuthority,
+  type SlateBindingRecord,
 } from "../extension/runtime-authority.ts";
 
 const ID = "20260827T090000Z-0123abcd0123abcd";
-const OTHER_ID = "20260827T090001Z-deadbeefdeadbeef";
 const NAME = "calm-otter-7f3a";
-const OTHER_NAME = "brisk-bison-abcd";
 
 function binding(overrides: Partial<SlateBindingRecord> = {}): SlateBindingRecord {
-	return {
-		policy: "durable-session-v1",
-		identity: ID,
-		name: NAME,
-		...overrides,
-	};
-}
-
-function legacy(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-	return {
-		threads: [],
-		episodes: [],
-		threadSeq: 0,
-		orchestratorMode: false,
-		paused: false,
-		workerCostUsd: 0,
-		carriedCostUsd: 0,
-		...overrides,
-	};
-}
-
-function legacyThread(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-	return {
-		id: "t1",
-		name: "thread",
-		status: "successful",
-		type: "general",
-		episodeId: "t1.e1",
-		createdAt: 1,
-		updatedAt: 1,
-		...overrides,
-	};
-}
-
-function legacyEpisode(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-	return {
-		id: "t1.e1",
-		threadId: "t1",
-		task: "task",
-		status: "ok",
-		file: "/tmp/t1.e1.md",
-		createdAt: 1,
-		...overrides,
-	};
-}
-
-function legacyGraph(
-	thread: Record<string, unknown> = legacyThread(),
-	episode: Record<string, unknown> = legacyEpisode(),
-): Record<string, unknown> {
-	return legacy({ threads: [thread], episodes: [episode] });
+  return { policy: "durable-session-v1", identity: ID, name: NAME, ...overrides };
 }
 
 function entry(customType: string, data: unknown): Record<string, unknown> {
-	return { type: "custom", customType, data };
+  return { type: "custom", customType, data };
 }
 
-function bindingEntry(value: unknown = binding()): Record<string, unknown> {
-	return entry("slate-binding", value);
-}
-
-function legacyEntry(value: unknown = legacy()): Record<string, unknown> {
-	return entry("slate-state", value);
-}
-
-function expectRefused(
-	result: RuntimeAuthorityClassification,
-	reason: RuntimeAuthorityRefusal,
-	message?: string,
-): void {
-	assert.equal(result.kind, "refused", message);
-	if (result.kind === "refused") {
-		assert.equal(result.reason, reason);
-		assert.match(result.message, /slate refused/);
-	}
-}
-
-test("exact binding parsing accepts only the non-authoritative locator schema", () => {
-	const source = binding();
-	const parsed = parseSlateBindingRecord(source);
-	assert.deepEqual(parsed, source);
-	assert.deepEqual(Object.keys(parsed ?? {}).sort(), ["identity", "name", "policy"]);
-	assert.equal("threads" in (parsed ?? {}), false);
-	assert.equal("runtime" in (parsed ?? {}), false);
+test("exact binding parsing accepts only the locator schema", () => {
+  const source = binding();
+  assert.deepEqual(parseSlateBindingRecord(source), source);
+  for (const value of [null, [], { ...source, extra: true }, { ...source, policy: "old" }, { ...source, identity: "bad" }]) {
+    assert.equal(parseSlateBindingRecord(value), undefined);
+  }
 });
 
-test("exact binding parsing rejects every malformed plain-data field class and competing payload", () => {
-	const cases: ReadonlyArray<readonly [string, unknown]> = [
-		["non-object", null],
-		["array", []],
-		["missing field", (() => { const value = { ...binding() } as Record<string, unknown>; delete value.name; return value; })()],
-		["unknown field", { ...binding(), extra: true }],
-		["policy", { ...binding(), policy: "legacy" }],
-		["identity", { ...binding(), identity: "bad" }],
-		["name", { ...binding(), name: "bad/name" }],
-		["removed ownership payload", { ...binding(), ownerSessionDigest: "a".repeat(64) }],
-		["removed generation payload", { ...binding(), generation: 1 }],
-		["canonical snapshot payload", { ...binding(), threads: [] }],
-	];
-	for (const [label, value] of cases) assert.equal(parseSlateBindingRecord(value), undefined, label);
+test("startup selects one coherent active-branch locator", () => {
+  const note = entry("slate-binding", binding());
+  assert.deepEqual(selectStartupAuthority([note], [note]), { kind: "durable", binding: binding() });
+  assert.deepEqual(selectStartupAuthority([], []), { kind: "fresh" });
 });
 
-test("malformed plain persisted Slate evidence is refused", () => {
-	const malformedBinding = bindingEntry({ ...binding(), generation: "four" });
-	expectRefused(
-		classifyRuntimeAuthority([malformedBinding], [malformedBinding]),
-		"malformed-binding",
-	);
-	const malformedLegacy = legacyEntry(legacy({ threads: [null] }));
-	expectRefused(
-		classifyRuntimeAuthority([malformedLegacy], [malformedLegacy]),
-		"malformed-legacy",
-	);
+test("startup refuses malformed, conflicting, and off-branch locator evidence", () => {
+  const note = entry("slate-binding", binding());
+  const malformed = entry("slate-binding", { ...binding(), extra: true });
+  const conflict = entry("slate-binding", binding({ name: "brisk-bison-abcd" }));
+  assert.equal(selectStartupAuthority([malformed], [malformed]).kind, "refused");
+  assert.equal(selectStartupAuthority([note, conflict], [note, conflict]).kind, "refused");
+  assert.equal(selectStartupAuthority([note], []).kind, "refused");
 });
 
-test("absence of binding and legacy evidence is fresh", () => {
-	const unrelated = [
-		{ type: "message", message: { role: "user" } },
-		entry("another-extension", { value: true }),
-	];
-	assert.deepEqual(classifyRuntimeAuthority(unrelated, unrelated), { kind: "fresh" });
-});
-
-test("known Slate custom entries with missing or invalid Pi types refuse", () => {
-	for (const [customType, reason, data] of [
-		["slate-binding", "malformed-binding", binding()],
-		["slate-state", "malformed-legacy", legacy()],
-	] as const) {
-		for (const [label, candidate] of [
-			["missing", { customType, data }],
-			["invalid", { type: "message", customType, data }],
-		] as const) {
-			expectRefused(
-				classifyRuntimeAuthority([candidate], [candidate]),
-				reason,
-				`${customType} ${label}`,
-			);
-		}
-	}
-});
-
-test("the active branch selects one coherent durable relationship", () => {
-	const first = bindingEntry();
-	const offBranchLatest = bindingEntry();
-	const activeLatest = bindingEntry();
-	const result = classifyRuntimeAuthority([first, offBranchLatest, activeLatest], [first, activeLatest]);
-	assert.equal(result.kind, "durable");
-	if (result.kind === "durable") assert.deepEqual(result.binding, binding());
-});
-
-test("repeated bindings refuse every conflicting stable relationship", () => {
-	for (const [label, changed] of [
-		["identity", binding({ identity: OTHER_ID })],
-		["name", binding({ name: OTHER_NAME })],
-	] as const) {
-		const first = bindingEntry();
-		const conflict = bindingEntry(changed);
-		expectRefused(classifyRuntimeAuthority([first, conflict], [first, conflict]), "conflicting-bindings");
-		assert.ok(label);
-	}
-});
-
-test("any malformed binding evidence refuses before older or active valid bindings", () => {
-	const active = bindingEntry();
-	const malformed = bindingEntry({ ...binding(), generation: "2" });
-	expectRefused(classifyRuntimeAuthority([active, malformed], [active]), "malformed-binding");
-	expectRefused(classifyRuntimeAuthority([active, malformed], [malformed]), "malformed-binding");
-});
-
-test("legacy and durable evidence refuse as mixed across the whole Pi session", () => {
-	const durable = bindingEntry();
-	const historical = legacyEntry();
-	expectRefused(classifyRuntimeAuthority([historical, durable], [durable]), "mixed-authority");
-	expectRefused(classifyRuntimeAuthority([historical, durable], [historical]), "mixed-authority");
-});
-
-test("a binding found only outside the active branch refuses instead of appearing fresh", () => {
-	const durable = bindingEntry();
-	const unrelated = entry("another-extension", {});
-	expectRefused(classifyRuntimeAuthority([durable, unrelated], [unrelated]), "off-branch-binding");
-});
-
-test("valid active legacy evidence selects only the latest active snapshot", () => {
-	const oldSnapshot = legacy({ paused: false });
-	const latestSnapshot = legacy({ paused: true, extraFutureField: "preserved" });
-	const oldEntry = legacyEntry(oldSnapshot);
-	const latestEntry = legacyEntry(latestSnapshot);
-	const offBranchEntry = legacyEntry(legacy({ workerCostUsd: 9 }));
-	const result = classifyRuntimeAuthority([oldEntry, offBranchEntry, latestEntry], [oldEntry, latestEntry]);
-	assert.equal(result.kind, "legacy");
-	if (result.kind === "legacy") {
-		assert.deepEqual(result.snapshot, latestSnapshot);
-	}
-});
-
-test("legacy snapshots may omit additive pause and cost fields", () => {
-	const historical = legacy();
-	delete historical.paused;
-	delete historical.workerCostUsd;
-	delete historical.carriedCostUsd;
-	const result = classifyRuntimeAuthority([legacyEntry(historical)], [legacyEntry(historical)]);
-	assert.equal(result.kind, "legacy");
-	if (result.kind === "legacy") assert.deepEqual(result.snapshot, historical);
-});
-
-test("session-wide legacy evidence remains non-fresh without active branch state", () => {
-	const historical = legacyEntry();
-	assert.deepEqual(classifyRuntimeAuthority([historical], []), { kind: "legacy" });
-});
-
-test("a malformed latest active legacy snapshot refuses without using an older snapshot", () => {
-	const oldSnapshot = legacy({ paused: true });
-	for (const [label, latestEntry] of [
-		["missing data", entry("slate-state", undefined)],
-		["missing required field", legacyEntry({ threads: [], episodes: [] })],
-		["non-object", legacyEntry(null)],
-		["invalid counter", legacyEntry(legacy({ threadSeq: -1 }))],
-		["invalid identity", legacyEntry(legacy({ slateSessionId: "bad" }))],
-		["invalid parent chain", legacyEntry(legacy({
-			slateSessionParentChain: [{ identity: ID, name: "bad/name" }],
-		}))],
-		["malformed thread", legacyEntry(legacy({ threads: [null] }))],
-		["malformed episode", legacyEntry(legacy({ episodes: [null] }))],
-	] as const) {
-		const oldEntry = legacyEntry(oldSnapshot);
-		const result = classifyRuntimeAuthority([oldEntry, latestEntry], [oldEntry, latestEntry]);
-		expectRefused(result, "malformed-legacy", label);
-	}
-});
-
-test("legacy threads must contain every required schema field", () => {
-	const complete = {
-		id: "t1",
-		name: "thread",
-		status: "failed",
-		type: "general",
-		createdAt: 1,
-		updatedAt: 1,
-	};
-	for (const field of ["id", "name", "status", "type", "createdAt", "updatedAt"] as const) {
-		const malformed = { ...complete } as Partial<typeof complete>;
-		delete malformed[field];
-		const evidence = legacyEntry(legacy({ threads: [malformed] }));
-		expectRefused(classifyRuntimeAuthority([evidence], [evidence]), "malformed-legacy", field);
-	}
-});
-
-test("legacy episodes must contain every original required schema field", () => {
-	const required = ["id", "threadId", "task", "status", "file", "createdAt"] as const;
-	for (const field of required) {
-		const malformed = legacyEpisode();
-		delete malformed[field];
-		const snapshot = legacyGraph(legacyThread(), malformed);
-		const evidence = legacyEntry(snapshot);
-		expectRefused(classifyRuntimeAuthority([evidence], [evidence]), "malformed-legacy", field);
-	}
-});
-
-test("legacy classification refuses every sanitizer change instead of accepting repaired evidence", () => {
-	const cases: ReadonlyArray<readonly [string, Record<string, unknown>, Record<string, unknown>]> = [
-		["invalid thread status", legacyThread({ status: 17 }), legacyEpisode()],
-		["running thread status", legacyThread({ status: "running" }), legacyEpisode()],
-		["foreign episode identifier", legacyThread({ episodeId: "t2.e1" }), legacyEpisode()],
-		["invalid episode status", legacyThread(), legacyEpisode({ status: 17 })],
-		["invalid episode task", legacyThread(), legacyEpisode({ task: 17 })],
-		["changed episode timestamp", legacyThread(), legacyEpisode({ createdAt: "1" })],
-		["unknown thread field", legacyThread({ unknown: true }), legacyEpisode()],
-		["unknown episode field", legacyThread(), legacyEpisode({ unknown: true })],
-	];
-	for (const [label, thread, episode] of cases) {
-		const snapshot = legacyGraph(thread, episode);
-		const evidence = legacyEntry(snapshot);
-		expectRefused(classifyRuntimeAuthority([evidence], [evidence]), "malformed-legacy", label);
-	}
-});
-
-test("malformed off-branch legacy evidence refuses without an active fallback", () => {
-	const valid = legacyEntry();
-	const malformed = legacyEntry(legacy({ threads: [null] }));
-	expectRefused(classifyRuntimeAuthority([valid, malformed], [valid]), "malformed-legacy");
-});
-
-test("legacy graph validation rejects duplicate thread identifiers", () => {
-	const snapshot = legacy({ threads: [legacyThread(), legacyThread()], episodes: [legacyEpisode()] });
-	expectRefused(classifyRuntimeAuthority([legacyEntry(snapshot)], [legacyEntry(snapshot)]), "malformed-legacy");
-});
-
-test("legacy graph validation rejects malformed or mismatched episode identifiers", () => {
-	for (const [label, threadId, episodeId] of [
-		["foreign id", "foreign", "foreign"],
-		["zero ordinal", "t1.e0", "t1.e0"],
-		["mismatched id", "t1.e1", "t2.e1"],
-	] as const) {
-		const snapshot = legacy({
-			threads: [legacyThread({ episodeId: threadId })],
-			episodes: [legacyEpisode({ id: episodeId })],
-		});
-		expectRefused(
-			classifyRuntimeAuthority([legacyEntry(snapshot)], [legacyEntry(snapshot)]),
-			"malformed-legacy",
-			label,
-		);
-	}
-});
-
-test("malformed binding refusal precedes mixed-policy refusal", () => {
-	const malformed = bindingEntry({ ...binding(), extra: true });
-	const historical = legacyEntry();
-	expectRefused(classifyRuntimeAuthority([historical, malformed], [historical, malformed]), "malformed-binding");
+test("entries from removed conversation storage have no meaning", () => {
+  const oldEntry = entry("slate-state", { threads: [{ id: "t1" }], orchestratorMode: true });
+  assert.deepEqual(selectStartupAuthority([oldEntry], [oldEntry]), { kind: "fresh" });
 });

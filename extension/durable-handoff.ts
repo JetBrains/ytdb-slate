@@ -1,13 +1,24 @@
+/**
+ * Namespace validation for a handoff between two Pi sessions.
+ *
+ * A handoff continues ONE Slate session in another Pi session, so the receiving
+ * session keeps the records that its own validating read returns. This module
+ * therefore takes a reference and answers with the stored record, and it accepts
+ * no record set from its caller: a caller-supplied set could replace durable
+ * records, which is the defect Track 14 repaired.
+ *
+ * It claims no ownership and grants no exclusive access. The storage layer
+ * performs no ownership check, so a later save from the sending Pi session
+ * remains possible and Slate reports no conflict.
+ */
+
 import { SlateWriteRefused, type CorpusProject } from "./corpus.ts";
 import {
 	DURABLE_SESSION_POLICY,
 	readDurableSession,
-	updateDurableSession,
-	type CanonicalSlateRuntime,
-	type DurableSessionHooks,
 	type DurableSessionRecord,
 } from "./session-record.ts";
-import { isOwnerSessionDigest, isSlateSessionId } from "./session-identity.ts";
+import { isSlateSessionId } from "./session-identity.ts";
 import { isSlateSessionName } from "./session-names.ts";
 import type { RuntimeAuthorityBinding } from "./state.ts";
 
@@ -18,7 +29,7 @@ export interface DurableHandoffReference {
 	readonly name: string;
 }
 
-/** A completed save and structural read-back. This result grants no write access. */
+/** One validated read. This result grants no write access and no exclusive access. */
 export interface DurableHandoffCompletion {
 	readonly kind: "complete";
 	readonly record: DurableSessionRecord;
@@ -29,9 +40,6 @@ export interface DurableHandoffOptions {
 	project: CorpusProject;
 	cwd: string;
 	reference: unknown;
-	recipientSessionDigest: string;
-	recipientState: CanonicalSlateRuntime;
-	hooks?: DurableSessionHooks;
 }
 
 export class DurableHandoffRefused extends SlateWriteRefused {
@@ -79,37 +87,23 @@ export function durableHandoffReference(record: DurableSessionRecord): DurableHa
 	};
 }
 
-function saveAndReadBack(options: DurableHandoffOptions): DurableHandoffCompletion {
+/**
+ * Validate the named namespace and return the records it stores.
+ *
+ * The read is the whole operation. It writes nothing, so an interruption before
+ * the receiving Pi session records the namespace loses no Slate record, and a
+ * repeated call validates the namespace again.
+ */
+function validatingRead(options: DurableHandoffOptions): DurableHandoffCompletion {
 	const reference = parseDurableHandoffReference(options.reference);
 	if (reference === undefined) {
 		throw new DurableHandoffRefused("slate refused a malformed or unsupported durable handoff reference");
-	}
-	if (!isOwnerSessionDigest(options.recipientSessionDigest)) {
-		throw new DurableHandoffRefused("slate refused invalid recipient session provenance");
 	}
 
 	/*
 	 * This read validates the selected durable-session identity and storage boundary.
 	 * The writer provenance, generation, and lifecycle status do not authorize access.
 	 */
-	readDurableSession({
-		project: options.project,
-		name: reference.name,
-		identity: reference.identity,
-		cwd: options.cwd,
-	});
-
-	updateDurableSession({
-		project: options.project,
-		name: reference.name,
-		identity: reference.identity,
-		cwd: options.cwd,
-		writerSessionDigest: options.recipientSessionDigest,
-		runtime: options.recipientState,
-		...(options.hooks === undefined ? {} : { hooks: options.hooks }),
-	});
-
-	/* Completion is only this structural read-back after the save. */
 	const record = readDurableSession({
 		project: options.project,
 		name: reference.name,
@@ -127,12 +121,12 @@ function saveAndReadBack(options: DurableHandoffOptions): DurableHandoffCompleti
 	};
 }
 
-/** Save recipient state, read it back, and structurally validate the saved state. */
+/** Validate the namespace a handoff names, and return the records it holds. */
 export function completeDurableHandoff(options: DurableHandoffOptions): DurableHandoffCompletion {
-	return saveAndReadBack(options);
+	return validatingRead(options);
 }
 
-/** Retry later after the caller has stopped every process using this durable session. */
+/** Retry the same validation later. No earlier attempt changed a stored record. */
 export function recoverDurableHandoff(options: DurableHandoffOptions): DurableHandoffCompletion {
-	return saveAndReadBack(options);
+	return validatingRead(options);
 }

@@ -658,10 +658,9 @@ A net much smaller than the ladder, for these subjects:
   predicate, splitter, defect reasons and confusable annotation that the router
   shares with `failover.ts`, `episodes.ts` and `worker.ts`, plus the
   single-spec config-key sanitizer (`episodeModel`);
-- the **snapshot record sanitizers** in `extension/state.ts` (`state-*`) — BG26:
-  `sanitizeThreadRecord` / `sanitizeEpisodeRecord`, re-run over the user's whole
-  thread and episode history at every session restore, plus the CQ22 adoption
-  checklist they are audited against;
+- the **stored-record sanitizers** in `extension/state.ts` (`state-*`) — BG26:
+  `sanitizeThreadRecord` / `sanitizeEpisodeRecord`, applied to records read from
+  the external namespace, plus the CQ22 adoption checklist they are audited against;
 - the **orchestrator base-model tracker** in `extension/base-model.ts` (`base-*`)
   — the reducer that decides which model switches move the base model new worker
   threads inherit;
@@ -675,6 +674,15 @@ A net much smaller than the ladder, for these subjects:
   The `writing-reminder-*` family covers the reminder policy module, requirement
   roster, cadence, gates, real mode handlers, runtime-only state, and handoff
   ordering. The checker module has two nets of its own. See § The writing checker.
+- the **recursive lexical storage scans** for Track 14 goals 6, 7 and 8
+  (`source-goal6`, `source-goal7`, `source-goal8`) — source scans over every
+  `.ts` and `.mjs` module under `extension/`, including nested modules, with
+  comments removed. They pin the direct save APIs and low-level durable writer
+  sites, the lexical `appendEntry` inventory and canonical locator call, and the
+  exact direct `getEntries()` and `getBranch()` sites with their reviewed uses.
+  They also reject the removed symbols and old-entry tokens. These source-text
+  checks do not resolve arbitrary computed properties or runtime aliases that
+  avoid the inspected API identifiers (TQ1506);
 - the **worker preamble and reviewer charter** across `extension/worker.ts`,
   `extension/threads.ts` and the marked block in `docs/review-rules.md`
   (`worker-preamble`, `reviewer-charter-sync`). The checks cover historical
@@ -870,7 +878,7 @@ The **human-only writing status line** is covered through `registerSlateMode` wi
 | `writing-status-cap-skip` | the **checker's own** 1 MiB input cap (`MAX_INPUT_BYTES`) fails open: an oversized message is skipped rather than counted or thrown. It calls `measureWritingTurn` directly with `MAX_INPUT_BYTES + 1` bytes, so it says nothing about the 16 KiB turn bound — that is the row below |
 | `writing-status-cap-visible` | the **turn** bound (`WRITING_TURN_MAX_BYTES`, 16 KiB in `mode.ts`): a larger assistant message goes through the real `turn_end` hook, is never handed to the checker, and the status line says `writing skipped (message too large)` |
 | `writing-status-counting` | only fail findings count; warnings, house-style findings and advisories do not |
-| `writing-status-no-store-write` | counter updates do not call `SlateStore.save()` or persist the orchestrator-mode seed |
+| `writing-status-no-store-write` | counter updates do not call `SlateStore.commit()` or persist the orchestrator-mode seed |
 
 `measureWritingTurn` lives in `extension/writing.ts`, beside the writing config
 boundary. This keeps the pi-shaped message handling typechecked while the standalone
@@ -900,7 +908,7 @@ The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`
 | `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, writing check, reminder switch, pause state and the one-send round slot close independently; force does not bypass policy gates; no UI gate exists |
 | `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-rearm` / `writing-reminder-mode-force` | claim queues a pending mark without consuming force; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; only assistant `message_end` re-arms the next round |
 | `writing-reminder-send-retry` / `writing-reminder-cleared-retry` | a synchronous `sendMessage` throw releases the claim for retry; an assistant response that arrives before delivery also clears the pending claim without consuming cadence or force |
-| `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters snapshots; the explicit `/slate adopt <name>` command sets force before mode reset; reset preserves that force while clearing mark, round and pending state |
+| `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters canonical runtime storage; the explicit `/slate adopt <name>` command adopts one external namespace, sets force after the adopting read RETURNS (the event is recorded at completion, so a force write during the read fails the order claim) and before mode reset, and writes exactly one locator note; reset preserves that force while clearing mark, round and pending state |
 
 The family uses the real `registerSlateMode` handlers with fabricated contexts.
 It remains a pure harness with no pi session. The live hook and persistence path
@@ -1283,15 +1291,15 @@ Config-sanitizer wiring (`extension/index.ts`) — a **text** check:
 | --- | --- |
 | `wiring` | every config sanitizer is imported by `index.ts` and called at `session_start` with its own key and a live diagnostic sink. The router receives the class-aware `routerWarn` wrapper. Every other sanitizer receives the shared `warn` sink. A missing call or throwaway sink is precisely the silent failure RG20 was. `index.ts` cannot be loaded here, so this check asserts against source text. It proves wiring, not wrapper behavior |
 
-Model-spec vocabulary and snapshot sanitizers (`extension/state.ts`):
+Model-spec vocabulary and stored-record sanitizers (`extension/state.ts`):
 
 | id | what it proves |
 | --- | --- |
 | `state-load` | the module loads; a failure converts the `spec-*` **and `state-*`** checks into explicit NOT RUN lines (both prefixes are paired with `STATE_IDS` in `VOIDABLE` — with only `spec-` there the roster's coverage audit walked past the two sanitizer checks entirely, since it filters `EXPECTED` by prefix and never notices a list member that matches none) |
 | `spec-invisible` | every zero-width or direction-changing character is **rejected** by the shared predicate — controls, bidi, soft hyphen, BOM, **variation selectors** (BMP *and* astral), **tag characters** and **Hangul fillers**, the three classes the first BG2 fix missed — each named by code point in the reason; a non-breaking space reports as whitespace; a *visible* non-ASCII spec (homoglyph, emoji) is accepted and merely annotated; a valid spec still splits on the first slash |
 | `spec-config-key` | an unusable `episodeModel` is dropped **with** a warning naming the key, the reason and the fallback (RG20), while absent and valid values stay silent and the returned value is unchanged from the old silent behaviour; an unstringifiable value warns instead of throwing |
-| `state-thread-record` | **BG26** — `sanitizeThreadRecord` re-validates the whole restored thread record. A well-formed record round-trips byte-identically; absent fields receive documented defaults silently; wrong types are refused by name and type; unsafe ids are dropped; live status normalizes to idle; counters and mixed episode-id arrays are repaired; thread type is preserved only as a string for later legacy resolution; model, pin and effort strings remain byte-identical for their owning validators; and the CQ22 adoption checklist proves every owned field returns without reporting a deliberate refusal twice |
-| `state-episode-record` | the episode half of BG26, same restore path and same obligations. A well-formed record round-trips byte-identically, and so does an **all-fields** one (`wellFormed` omits the optional unmeasured marker, so the checklist walk needs its own fixture); a record with no id, no thread or no file is dropped, silently. `failed` is the only value that survives as a failure — `"FAILED"` reads as `ok` and is noted. The unmeasured marker needs the boolean: a truthy string is refused, and so is `false`, which is not a legal value of a `true`-only field. Model and effort are type-checked only, exactly as above. Since CQ22 this sanitizer has the thread sanitizer's **refuse-by-name** discipline — it used to take a repairs sink and never write to it, so an episode's dropped fields vanished while a thread's were reported — and every refusable axis is checked, while an accepted value, a bare record and a well-formed one report nothing at all |
+| `state-thread-record` | **BG26** — `sanitizeThreadRecord` re-validates a stored thread record. A well-formed record round-trips byte-identically; absent fields receive documented defaults silently; wrong types are refused by name and type; unsafe ids are dropped; unfinished status normalizes to failed at adoption; counters and mixed episode-id arrays are repaired; model, pin and effort strings remain byte-identical for their owning validators; and the CQ22 adoption checklist proves every owned field returns without reporting a deliberate refusal twice |
+| `state-episode-record` | the episode half of BG26, with the same external-read path and obligations. A well-formed record round-trips byte-identically, and so does an **all-fields** one (`wellFormed` omits the optional unmeasured marker, so the checklist walk needs its own fixture); a record with no id, no thread or no file is dropped, silently. `failed` is the only value that survives as a failure — `"FAILED"` reads as `ok` and is noted. The unmeasured marker needs the boolean: a truthy string is refused, and so is `false`, which is not a legal value of a `true`-only field. Model and effort are type-checked only, exactly as above. Since CQ22 this sanitizer has the thread sanitizer's **refuse-by-name** discipline — it used to take a repairs sink and never write to it, so an episode's dropped fields vanished while a thread's were reported — and every refusable axis is checked, while an accepted value, a bare record and a well-formed one report nothing at all |
 
 Orchestrator base-model tracker (`extension/base-model.ts`) — driven with
 fabricated `model_select` events and fabricated declarations. There is **no clock
@@ -2384,7 +2392,7 @@ selected declared identity with every reported identity.
 | `L4` | the canary saw all three dispatch tools: `thread`, `threads` and `episode`. Nothing else detects their removal |
 | `L5` | the canary reported a **non-empty** tool list, and it named the place. This check stops `L4` from a pass when the canary never loaded, or when `session_start` runs before the registration |
 | `L6` | pi registered the `/slate` command **and attributed it to a path inside the checkout under test**, which proves that the run used the working tree and not an installed release |
-| `L7` | `/slate on` completes through the command handler offline: the prompt response succeeded, the handler appended a `slate-state` entry, and the widget holds lines |
+| `L7` | `/slate on` completes through the command handler offline: the prompt response succeeded, the handler appended **exactly one** `slate-binding` locator note, appended **no** `slate-state` full record copy, and the widget holds lines. The two entry counts are the storage rule of Track 14 read from a real session: the records live in one external namespace, and the Pi conversation holds only the note that names it |
 | `L8` | the run left `.pi/npm` in the checkout unchanged, so the run stayed offline and npm-installed nothing into the working tree |
 | `T1` | pi exited 0 on the trusted (`-a`) run, **and** the `trusted` field of the canary reads `true` (the `canary-trusted` query of the driver). This check protects `T2`: without trust slate reads no `.pi/slate.json`, and a clean `T2` then means nothing |
 | `T2` | slate's config sanitizers emitted **no warning** for the tracked `.pi/slate.json` of this checkout. That result is the whole claim: sanitizers warn for three keys only (`modelFailover`, `contextBudget` and `workerExtensions`), so a clean `T2` excludes a warning and nothing else |

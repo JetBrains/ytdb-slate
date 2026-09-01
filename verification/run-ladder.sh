@@ -1366,13 +1366,25 @@ import { pathToFileURL } from "node:url";
 const [repo, cwd, provider, id, thinking] = process.argv.slice(2);
 const corpus = await import(pathToFileURL(`${repo}/extension/corpus.ts`).href);
 const handoff = await import(pathToFileURL(`${repo}/extension/handoff-record.ts`).href);
-const { SLATE_STATE_FORMAT } = await import(pathToFileURL(`${repo}/extension/state.ts`).href);
+const sessions = await import(pathToFileURL(`${repo}/extension/session-record.ts`).href);
 const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 const identity = `${stamp}-${randomBytes(8).toString("hex")}`;
-const source = corpus.createCorpusSession({ cwd, identity, initialNameBytes: randomBytes(4) });
+const name = `calm-otter-${randomBytes(2).toString("hex")}`;
+const project = corpus.resolveCorpusProject(cwd);
+const source = sessions.createDurableSession({
+  cwd,
+  project,
+  identity,
+  name,
+  creatorSessionDigest: "a".repeat(64),
+  runtime: {
+    threads: [], episodes: [], threadSeq: 0, slateSessionParentChain: [],
+    orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0,
+  },
+});
 const record = {
   version: 1,
-  author: { identity, name: source.name },
+  author: { identity, name },
   authorSessionDirectory: source.directory,
   createdAt: Date.now(),
   worktreePath: realpathSync(cwd),
@@ -1381,16 +1393,10 @@ const record = {
   brief: "ladder",
   model: { provider, id },
   ...(thinking === "-" ? {} : { thinkingLevel: thinking }),
-  snapshot: {
-    format: SLATE_STATE_FORMAT,
-    threads: [], episodes: [], threadSeq: 0,
-    slateSessionId: identity, slateSessionName: source.name,
-    ownerSessionDigest: "a".repeat(64),
-    orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0,
-  },
+  carriedCostUsd: 0,
 };
-const file = handoff.writeCorpusHandoffRecord(source.project, record);
-process.stdout.write(`${source.name}\t${file}`);
+const file = handoff.writeCorpusHandoffRecord(project, record);
+process.stdout.write(`${name}\t${file}`);
 NODE
 	) || die "could not seed a corpus handoff record"
 	HANDOFF_NAME=${result%%$'\t'*}

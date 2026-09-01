@@ -1,14 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { once } from "node:events";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -24,9 +15,7 @@ import {
 import {
 	closeDurableSession,
 	createDurableSession,
-	DurableCommitUncertain,
 	readDurableSession,
-	updateDurableSession,
 	type CanonicalSlateRuntime,
 } from "../extension/session-record.ts";
 
@@ -35,7 +24,6 @@ const OTHER_ID = "20260828T120001Z-deadbeefdeadbeef";
 const NAME = "calm-otter-7f3a";
 const OTHER_NAME = "brisk-bison-abcd";
 const SOURCE = "a".repeat(64);
-const RECIPIENT = "b".repeat(64);
 const RIVAL = "c".repeat(64);
 
 function runtime(overrides: Partial<CanonicalSlateRuntime> = {}): CanonicalSlateRuntime {
@@ -94,26 +82,20 @@ function create(box: Workspace, options: { identity?: string; name?: string; val
 	});
 }
 
-function handoffOptions(
-	box: Workspace,
-	recipientState: CanonicalSlateRuntime,
-	overrides: Partial<DurableHandoffOptions> = {},
-): DurableHandoffOptions {
+function handoffOptions(box: Workspace, overrides: Partial<DurableHandoffOptions> = {}): DurableHandoffOptions {
 	const record = readDurableSession({ project: box.project, name: NAME, identity: ID, cwd: box.cwd });
 	return {
 		project: box.project,
 		cwd: box.cwd,
 		reference: durableHandoffReference(record),
-		recipientSessionDigest: RECIPIENT,
-		recipientState,
 		...overrides,
 	};
 }
 
-function materializeArtifacts(directory: string): CanonicalSlateRuntime {
-	writeFileSync(join(directory, "threads", "t1.jsonl"), "{}\n");
+/** Store one thread and one episode in the namespace, as a saving session would. */
+function storeRecords(box: Workspace, directory: string): CanonicalSlateRuntime {
 	writeFileSync(join(directory, "episodes", "t1.e1.md"), "episode\n");
-	return runtime({
+	const value = runtime({
 		threads: [{
 			id: "t1",
 			name: "durable thread",
@@ -134,35 +116,51 @@ function materializeArtifacts(directory: string): CanonicalSlateRuntime {
 		threadSeq: 1,
 		workerCostUsd: 7,
 	});
+	closeDurableSession({
+		project: box.project,
+		cwd: box.cwd,
+		identity: ID,
+		name: NAME,
+		writerSessionDigest: SOURCE,
+		outcome: "delivered",
+		now: new Date("2026-08-28T12:30:00.000Z"),
+	});
+	return value;
 }
 
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForFile(path: string): Promise<void> {
-	for (let attempt = 0; attempt < 100; attempt++) {
-		if (existsSync(path)) return;
-		await delay(20);
-	}
-	throw new Error(`timed out waiting for ${path}`);
-}
-
-test("handoff completion saves recipient state and returns a structural read-back", () => {
+test("handoff validation returns the stored records and writes nothing", () => {
 	const box = workspace();
 	try {
 		const created = create(box);
-		const recipientState = materializeArtifacts(created.directory);
-		const result = completeDurableHandoff(handoffOptions(box, recipientState));
+		writeFileSync(join(created.directory, "episodes", "t1.e1.md"), "episode\n");
+		const before = readFileSync(join(created.directory, "state.json"));
+		const result = completeDurableHandoff(handoffOptions(box));
 		assert.equal(result.kind, "complete");
 		assert.deepEqual(result.binding, { policy: "durable-session-v1", identity: ID, name: NAME });
-		assert.deepEqual(result.record.state.runtime, recipientState);
-		assert.equal(result.record.state.lastWriterSessionDigest, RECIPIENT);
-		assert.equal(readFileSync(join(created.directory, "threads", "t1.jsonl"), "utf8"), "{}\n");
+		// The read returns the stored records. No caller record set can reach storage.
+		assert.deepEqual(result.record.state.runtime, runtime());
+		assert.equal(result.record.state.lastWriterSessionDigest, SOURCE);
+		assert.equal(result.record.state.generation, 0);
+		assert.deepEqual(readFileSync(join(created.directory, "state.json")), before);
 		assert.equal(readFileSync(join(created.directory, "episodes", "t1.e1.md"), "utf8"), "episode\n");
+	} finally {
+		box.close();
+	}
+});
+
+test("a repeated validation keeps every stored record", () => {
+	const box = workspace();
+	try {
+		const created = create(box);
+		const stored = storeRecords(box, created.directory);
+		void stored;
+		const first = recoverDurableHandoff(handoffOptions(box));
+		const second = recoverDurableHandoff(handoffOptions(box));
+		assert.deepEqual(first.record, second.record);
+		assert.equal(first.record.state.status, "delivered");
 		assert.deepEqual(
 			readDurableSession({ project: box.project, name: NAME, identity: ID, cwd: box.cwd }),
-			result.record,
+			second.record,
 		);
 	} finally {
 		box.close();
@@ -182,46 +180,17 @@ test("handoff references contain only stable namespace identity", () => {
 	]) assert.equal(parseDurableHandoffReference(invalid), undefined);
 });
 
-test("public handoff completion rejects a malformed reference before saving", () => {
-	const box = workspace();
-	try {
-		const created = create(box);
-		const before = readFileSync(join(created.directory, "state.json"));
-		assert.throws(() => completeDurableHandoff(handoffOptions(box, runtime(), {
-			reference: { policy: "durable-session-v1", identity: "bad", name: NAME },
-		})), /malformed or unsupported durable handoff reference/);
-		assert.deepEqual(readFileSync(join(created.directory, "state.json")), before);
-	} finally {
-		box.close();
-	}
-});
-
-test("public handoff completion rejects invalid recipient session provenance before saving", () => {
-	const box = workspace();
-	try {
-		const created = create(box);
-		const before = readFileSync(join(created.directory, "state.json"));
-		assert.throws(() => completeDurableHandoff(handoffOptions(box, runtime(), {
-			recipientSessionDigest: "bad",
-		})), /invalid recipient session provenance/);
-		assert.deepEqual(readFileSync(join(created.directory, "state.json")), before);
-	} finally {
-		box.close();
-	}
-});
-
-test("malformed recipient state and incomplete saved data are rejected without replacement", () => {
+test("handoff validation rejects a malformed reference and an incomplete namespace", () => {
 	const box = workspace();
 	try {
 		const created = create(box);
 		const before = readFileSync(join(created.directory, "state.json"));
 		assert.throws(() => completeDurableHandoff(handoffOptions(box, {
-			...runtime(),
-			threads: [null as unknown as CanonicalSlateRuntime["threads"][number]],
-		})), /thread 0 is not an object/);
-		assert.deepEqual(readFileSync(join(created.directory, "state.json")), before);
+			reference: { policy: "durable-session-v1", identity: "bad", name: NAME },
+		})), /malformed or unsupported durable handoff reference/);
 		rmSync(join(created.directory, "threads"), { recursive: true });
-		assert.throws(() => completeDurableHandoff(handoffOptions(box, runtime())), /incomplete.*namespace/);
+		assert.throws(() => completeDurableHandoff(handoffOptions(box)), /incomplete.*namespace/);
+		assert.deepEqual(readFileSync(join(created.directory, "state.json")), before);
 	} finally {
 		box.close();
 	}
@@ -232,10 +201,10 @@ test("different durable sessions remain isolated", () => {
 	try {
 		create(box);
 		create(box, { identity: OTHER_ID, name: OTHER_NAME, value: runtime({ workerCostUsd: 9 }) });
-		const first = completeDurableHandoff(handoffOptions(box, runtime({ workerCostUsd: 4 })));
+		const first = completeDurableHandoff(handoffOptions(box));
 		assert.equal(first.record.metadata.identity, ID);
 		assert.equal(readDurableSession({ project: box.project, name: OTHER_NAME }).state.runtime.workerCostUsd, 9);
-		assert.throws(() => completeDurableHandoff(handoffOptions(box, runtime(), {
+		assert.throws(() => completeDurableHandoff(handoffOptions(box, {
 			reference: { policy: "durable-session-v1", identity: OTHER_ID, name: NAME },
 		})), /identity mismatch/);
 	} finally {
@@ -243,7 +212,7 @@ test("different durable sessions remain isolated", () => {
 	}
 });
 
-test("writer provenance and terminal history do not block a later handoff", () => {
+test("writer provenance and terminal history do not block a validation", () => {
 	const box = workspace();
 	try {
 		create(box);
@@ -256,149 +225,22 @@ test("writer provenance and terminal history do not block a later handoff", () =
 			outcome: "delivered",
 			now: new Date("2026-08-28T13:00:00.000Z"),
 		});
-		const recipientState = runtime({ paused: false, workerCostUsd: 11 });
-		const result = completeDurableHandoff(handoffOptions(box, recipientState));
+		const result = completeDurableHandoff(handoffOptions(box));
 		assert.equal(result.record.state.status, "delivered");
-		assert.equal(result.record.state.lastWriterSessionDigest, RECIPIENT);
-		assert.deepEqual(result.record.state.runtime, recipientState);
-	} finally {
-		box.close();
-	}
-});
-
-test("recipient input changes during one handoff cannot alter the decoded candidate", () => {
-	const box = workspace();
-	try {
-		create(box);
-		const recipientState = runtime({ workerCostUsd: 5 });
-		const result = completeDurableHandoff(handoffOptions(box, recipientState, {
-			hooks: {
-				beforeStatePublish() {
-					recipientState.workerCostUsd = 99;
-				},
-			},
-		}));
-		assert.equal(result.record.state.runtime.workerCostUsd, 5);
-		assert.equal(recipientState.workerCostUsd, 99);
-	} finally {
-		box.close();
-	}
-});
-
-test("valid same-session writes are not rejected or conflict-resolved", () => {
-	const box = workspace();
-	try {
-		create(box);
-		const rivalState = runtime({ workerCostUsd: 8 });
-		const result = completeDurableHandoff(handoffOptions(box, runtime({ workerCostUsd: 6 }), {
-			hooks: {
-				afterStatePublish() {
-					updateDurableSession({
-						project: box.project,
-						cwd: box.cwd,
-						identity: ID,
-						name: NAME,
-						writerSessionDigest: RIVAL,
-						runtime: rivalState,
-					});
-				},
-			},
-		}));
-		assert.deepEqual(result.record.state.runtime, rivalState);
 		assert.equal(result.record.state.lastWriterSessionDigest, RIVAL);
+		assert.deepEqual(result.record.state.runtime, runtime());
 	} finally {
 		box.close();
 	}
 });
 
-test("a pre-publication interruption leaves the prior state for sequential recovery", () => {
-	const box = workspace();
-	try {
-		create(box);
-		const recipientState = runtime({ workerCostUsd: 12 });
-		assert.throws(() => completeDurableHandoff(handoffOptions(box, recipientState, {
-			hooks: { beforeStatePublish() { throw new Error("interrupted before save"); } },
-		})), (error: unknown) => error instanceof Error
-			&& error.cause instanceof Error
-			&& /interrupted before save/.test(error.cause.message));
-		assert.equal(readDurableSession({ project: box.project, name: NAME }).state.runtime.workerCostUsd, 3);
-		const recovered = recoverDurableHandoff(handoffOptions(box, recipientState));
-		assert.deepEqual(recovered.record.state.runtime, recipientState);
-	} finally {
-		box.close();
-	}
-});
-
-test("a post-publication interruption preserves saved data for sequential recovery", () => {
-	const box = workspace();
-	try {
-		create(box);
-		const recipientState = runtime({ workerCostUsd: 13 });
-		let caught: unknown;
-		try {
-			completeDurableHandoff(handoffOptions(box, recipientState, {
-				hooks: { afterStatePublish() { throw new Error("interrupted after save"); } },
-			}));
-		} catch (error) {
-			caught = error;
-		}
-		assert.ok(caught instanceof DurableCommitUncertain);
-		assert.deepEqual(readDurableSession({ project: box.project, name: NAME }).state.runtime, recipientState);
-		const recovered = recoverDurableHandoff(handoffOptions(box, recipientState));
-		assert.deepEqual(recovered.record.state.runtime, recipientState);
-	} finally {
-		box.close();
-	}
-});
-
-test("a terminated handoff process leaves state that a later caller-controlled retry can save", { timeout: 8_000 }, async () => {
-	const box = workspace();
-	let child: ChildProcess | undefined;
-	try {
-		create(box);
-		const barrier = join(box.root, "published");
-		const script = join(box.root, "child.mjs");
-		const moduleUrl = new URL("../extension/durable-handoff.ts", import.meta.url).href;
-		const corpusUrl = new URL("../extension/corpus.ts", import.meta.url).href;
-		const recipientState = runtime({ workerCostUsd: 21 });
-		writeFileSync(script, `
-import { writeFileSync } from "node:fs";
-import { completeDurableHandoff } from ${JSON.stringify(moduleUrl)};
-import { resolveCorpusProject } from ${JSON.stringify(corpusUrl)};
-process.env.PI_CODING_AGENT_DIR = ${JSON.stringify(box.agent)};
-const cwd = ${JSON.stringify(box.cwd)};
-completeDurableHandoff({
-  project: resolveCorpusProject(cwd, "handoff"),
-  cwd,
-  reference: ${JSON.stringify({ policy: "durable-session-v1", identity: ID, name: NAME })},
-  recipientSessionDigest: ${JSON.stringify(RECIPIENT)},
-  recipientState: ${JSON.stringify(recipientState)},
-  hooks: { afterStatePublish() {
-    writeFileSync(${JSON.stringify(barrier)}, "published\\n");
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
-  } },
-});
-`);
-		child = spawn(process.execPath, [script], { stdio: "ignore" });
-		await waitForFile(barrier);
-		assert.equal(child.kill("SIGKILL"), true);
-		await Promise.race([
-			once(child, "exit"),
-			delay(2_000).then(() => { throw new Error("child exit timed out"); }),
-		]);
-		assert.deepEqual(readDurableSession({ project: box.project, name: NAME }).state.runtime, recipientState);
-		const nextState = runtime({ workerCostUsd: 22 });
-		const recovered = recoverDurableHandoff(handoffOptions(box, nextState));
-		assert.deepEqual(recovered.record.state.runtime, nextState);
-	} finally {
-		if (child !== undefined && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-		box.close();
-	}
-});
-
-test("Track 12 handoff code stays outside normal startup", () => {
+test("normal startup reaches the storage report and no removed module", () => {
 	assert.equal(existsSync(new URL("../extension/authority-transition.ts", import.meta.url)), false);
-	const forbidden = new Set(["durable-handoff.ts", "runtime-authority.ts", "session-record.ts"]);
+	// Track 14 activates external storage during startup, so startup MUST reach the
+	// runtime authority check. The dormant handoff module stays outside startup.
+	const forbidden = new Set(["durable-handoff.ts"]);
+	const required = new Set(["runtime-authority.ts", "session-record.ts"]);
+	const reached = new Set<string>();
 	const pending = [new URL("../extension/index.ts", import.meta.url)];
 	const visited = new Set<string>();
 	while (pending.length > 0) {
@@ -412,9 +254,12 @@ test("Track 12 handoff code stays outside normal startup", () => {
 			const specifier = statement.moduleSpecifier;
 			if (specifier === undefined || !ts.isStringLiteral(specifier) || !specifier.text.startsWith(".")) continue;
 			const dependency = new URL(specifier.text, file);
-			assert.equal(forbidden.has(dependency.pathname.split("/").at(-1)!), false, `${file.pathname} reaches ${specifier.text}`);
+			const leaf = dependency.pathname.split("/").at(-1)!;
+			assert.equal(forbidden.has(leaf), false, `${file.pathname} reaches ${specifier.text}`);
+			reached.add(leaf);
 			pending.push(dependency);
 		}
 	}
+	for (const module of required) assert.equal(reached.has(module), true, `startup does not reach ${module}`);
 	assert.equal([...visited].some((file) => file.endsWith("/tools.ts")), true);
 });

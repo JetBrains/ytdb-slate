@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { resolveCorpusProject, type CorpusProject } from "../extension/corpus.ts";
 import {
 	DurableCommitUncertain,
@@ -15,7 +15,6 @@ import {
 } from "../extension/runtime-authority.ts";
 import {
 	SlateStore,
-	SLATE_STATE_FORMAT,
 	type CanonicalRuntimeState,
 	type RuntimeAuthorityBackend,
 	type RuntimeAuthorityBinding,
@@ -24,7 +23,6 @@ import {
 } from "../extension/state.ts";
 
 const ID = "20260827T120000Z-0123abcd0123abcd";
-const OTHER_ID = "20260827T120001Z-deadbeefdeadbeef";
 const NAME = "calm-otter-7f3a";
 const OWNER = "a".repeat(64);
 
@@ -199,270 +197,24 @@ function runtimeReentryOutcomes(
 	backend: RuntimeAuthorityBackend,
 ): boolean[] {
 	const replacement = context({ key: `${ctx.key}:replacement` });
-	const legacyContext = {
-		cwd: ctx.cwd,
-		sessionManager: { getBranch: () => [], getEntries: () => [] },
-	} as unknown as ExtensionContext;
 	const attempts = [
 		() => value.configureRuntimeAuthority({ kind: "fresh" }, replacement, backend),
 		() => value.prepareMutation(ctx),
 		() => value.save(),
-		() => value.restore(legacyContext),
-		() => value.adoptSnapshot(undefined, legacyContext),
-		() => value.resolveSessionIdentity(OWNER, () => {}),
 		() => value.claimNextThreadId(),
 	];
 	return attempts.map((attempt) => {
-		try {
-			attempt();
-			return false;
-		} catch (error) {
-			return error instanceof Error && /nested runtime transaction/.test(error.message);
-		}
+		try { attempt(); return false; }
+		catch (error) { return error instanceof Error && /nested runtime transaction/.test(error.message); }
 	});
 }
 
-test("legacy remains the default and keeps historical Pi snapshot saves", () => {
+test("the state store defaults to refusing every save", () => {
 	const harness = store();
-	assert.deepEqual(harness.value.authorityState(), { kind: "legacy" });
-	harness.value.paused = true;
-	harness.value.save();
-	assert.deepEqual(harness.piSnapshots, ["slate-state"]);
-});
-
-test("legacy save establishes its transaction guard before Pi persistence", () => {
-	let value: SlateStore;
-	let appends = 0;
-	const nestedOutcomes: boolean[] = [];
-	const pi = {
-		appendEntry() {
-			appends += 1;
-			for (const attempt of [() => value.save(), () => value.prepareMutation(context())]) {
-				try {
-					attempt();
-					nestedOutcomes.push(false);
-				} catch (error) {
-					nestedOutcomes.push(error instanceof Error && /nested runtime transaction/.test(error.message));
-				}
-			}
-		},
-	} as unknown as ExtensionAPI;
-	value = new SlateStore(pi);
-	value.save();
-	assert.equal(appends, 1);
-	assert.deepEqual(nestedOutcomes, [true, true]);
-});
-
-test("legacy restore establishes its transaction guard before the branch read", () => {
-	const value = store().value;
-	const outcomes: boolean[] = [];
-	const observe = (attempt: () => unknown): void => {
-		try {
-			attempt();
-			outcomes.push(false);
-		} catch (error) {
-			outcomes.push(error instanceof Error && /nested runtime transaction/.test(error.message));
-		}
-	};
-	const ctx = {
-		cwd: "/project",
-		sessionManager: {
-			getBranch() {
-				observe(() => value.restore({} as ExtensionContext));
-				observe(() => value.save());
-				return [];
-			},
-			getEntries: () => [],
-		},
-	} as unknown as ExtensionContext;
-	value.restore(ctx);
-	assert.deepEqual(outcomes, [true, true]);
-});
-
-test("legacy save preserves persisted state when its observer throws", () => {
-	const snapshots: Array<Record<string, unknown>> = [];
-	const value = new SlateStore({
-		appendEntry(_type: string, data: Record<string, unknown>) { snapshots.push(structuredClone(data)); },
-	} as unknown as ExtensionAPI);
-	value.paused = true;
-	let observed: boolean | undefined;
-	value.onDidChange = () => {
-		observed = value.paused;
-		throw new Error("legacy observer failed");
-	};
-	assert.throws(() => value.save(), /legacy observer failed/);
-	assert.equal(observed, true);
-	assert.equal(snapshots[0]?.paused, true);
-	assert.equal(value.paused, true);
-});
-
-test("failed legacy restoration exposes no prior-branch state", async (t) => {
-	const seeded = (): SlateStore => {
-		const value = store().value;
-		value.paused = true;
-		value.workerCostUsd = 5;
-		value.carriedCostUsd = 7;
-		value.slateSessionParentChain = [{ identity: ID, name: NAME }];
-		return value;
-	};
-	const assertCleared = (value: SlateStore, changes: number): void => {
-		assert.equal(value.paused, false);
-		assert.equal(value.workerCostUsd, 0);
-		assert.equal(value.carriedCostUsd, 0);
-		assert.deepEqual(value.slateSessionParentChain, []);
-		assert.equal(value.threads.size, 0);
-		assert.equal(value.episodes.size, 0);
-		assert.equal(changes, 1);
-	};
-
-	await t.test("branch read failure", () => {
-		const value = seeded();
-		let changes = 0;
-		value.onDidChange = () => { changes += 1; };
-		const ctx = {
-			cwd: "/project",
-			sessionManager: {
-				getBranch() { throw new Error("branch read failed"); },
-				getEntries: () => [],
-			},
-		} as unknown as ExtensionContext;
-		assert.throws(() => value.restore(ctx), /branch read failed/);
-		assertCleared(value, changes);
-	});
-
-	await t.test("session entry read failure after branch read", () => {
-		const value = seeded();
-		const selected = runtime({ paused: false, workerCostUsd: 2, carriedCostUsd: 3 });
-		const custom = { type: "custom", customType: "slate-state", data: selected };
-		const observations: boolean[] = [];
-		let changes = 0;
-		value.onDidChange = () => { changes += 1; };
-		const ctx = {
-			cwd: "/project",
-			sessionManager: {
-				getBranch: () => [custom],
-				getEntries() {
-					observations.push(value.paused);
-					throw new Error("session read failed");
-				},
-			},
-		} as unknown as ExtensionContext;
-		assert.throws(() => value.restore(ctx), /session read failed/);
-		assert.deepEqual(observations, [false]);
-		assertCleared(value, changes);
-	});
-});
-
-test("legacy restore notifies once after session-wide cost restoration completes", () => {
-	const value = store().value;
-	const latest = runtime({ workerCostUsd: 2, carriedCostUsd: 3 });
-	const olderBranchCost = runtime({ workerCostUsd: 7, carriedCostUsd: 11 });
-	const custom = (data: CanonicalRuntimeState) => ({
-		type: "custom",
-		customType: "slate-state",
-		data: { format: SLATE_STATE_FORMAT, ...data },
-	});
-	const ctx = {
-		cwd: "/project",
-		sessionManager: {
-			getBranch: () => [custom(latest)],
-			getEntries: () => [custom(latest), custom(olderBranchCost)],
-		},
-	} as unknown as ExtensionContext;
-	const observations: Array<readonly [number, number]> = [];
-	value.onDidChange = () => { observations.push([value.workerCostUsd, value.carriedCostUsd]); };
-	value.restore(ctx);
-	assert.deepEqual(observations, [[7, 11]]);
-	assert.equal(value.workerCostUsd, 7);
-	assert.equal(value.carriedCostUsd, 11);
-});
-
-test("legacy restore without Slate state clears memory and notifies once", () => {
-	const value = store().value;
-	value.paused = true;
-	value.workerCostUsd = 5;
-	value.slateSessionParentChain = [{ identity: ID, name: NAME }];
-	const observations: CanonicalRuntimeState[] = [];
-	value.onDidChange = () => observations.push(runtime({
-		threads: [...value.threads.values()],
-		episodes: [...value.episodes.values()],
-		threadSeq: 0,
-		slateSessionParentChain: structuredClone(value.slateSessionParentChain),
-		orchestratorMode: value.orchestratorMode,
-		paused: value.paused,
-		workerCostUsd: value.workerCostUsd,
-		carriedCostUsd: value.carriedCostUsd,
-	}));
-	value.restore({
-		cwd: "/project",
-		sessionManager: { getBranch: () => [], getEntries: () => [] },
-	} as unknown as ExtensionContext);
-	assert.equal(observations.length, 1);
-	assert.equal(observations[0]?.paused, false);
-	assert.equal(observations[0]?.workerCostUsd, 0);
-	assert.deepEqual(observations[0]?.slateSessionParentChain, []);
-	assert.equal(value.paused, false);
-	assert.equal(value.workerCostUsd, 0);
-});
-
-test("legacy restore keeps selected-branch state when its observer fails", () => {
-	const value = store().value;
-	value.paused = true;
-	const selected = runtime({ paused: false, workerCostUsd: 7 });
-	const custom = { type: "custom", customType: "slate-state", data: { format: SLATE_STATE_FORMAT, ...selected } };
-	let changes = 0;
-	let observedPaused: boolean | undefined;
-	value.onDidChange = () => {
-		changes += 1;
-		observedPaused = value.paused;
-		throw new Error("selected branch display failed");
-	};
-	assert.doesNotThrow(() => value.restore({
-		cwd: "/project",
-		sessionManager: { getBranch: () => [custom], getEntries: () => [custom] },
-	} as unknown as ExtensionContext));
-	assert.equal(changes, 1);
-	assert.equal(observedPaused, false);
-	assert.equal(value.paused, false);
-	assert.equal(value.workerCostUsd, 7);
-});
-
-test("legacy restore keeps selected state when its advisory repair notice throws", () => {
-	const value = store().value;
-	const selected = runtime({
-		threads: [{
-			id: "t1",
-			name: "selected",
-			status: "failed",
-			type: "general",
-			model: 5 as unknown as string,
-			outcomeReason: "stopped",
-			createdAt: 1,
-			updatedAt: 1,
-		}],
-		threadSeq: 1,
-		paused: true,
-		workerCostUsd: 7,
-	});
-	const custom = { type: "custom", customType: "slate-state", data: { format: SLATE_STATE_FORMAT, ...selected } };
-	let notices = 0;
-	const ctx = {
-		cwd: "/project",
-		hasUI: true,
-		ui: {
-			notify() {
-				notices += 1;
-				throw new Error("repair notice display failed");
-			},
-		},
-		sessionManager: { getBranch: () => [custom], getEntries: () => [custom] },
-	} as unknown as ExtensionContext;
-	assert.doesNotThrow(() => value.restore(ctx));
-	assert.equal(notices, 1);
-	assert.equal(value.paused, true);
-	assert.equal(value.workerCostUsd, 7);
-	assert.equal(value.threads.get("t1")?.name, "selected");
-	assert.equal(value.threads.get("t1")?.model, undefined);
+	assert.equal(harness.value.authorityState().kind, "unavailable");
+	assert.throws(() => harness.value.commit(), /storage has not been selected/);
+	assert.throws(() => harness.value.save(), /storage has not been selected/);
+	assert.deepEqual(harness.piSnapshots, []);
 });
 
 test("fresh selection stays unbound until an authorized mutation commits", () => {
@@ -474,12 +226,6 @@ test("fresh selection stays unbound until an authorized mutation commits", () =>
 	assert.equal(harness.value.slateSessionId, undefined);
 	assert.deepEqual(backend.events, []);
 	assert.throws(() => harness.value.save(), /authorized mutation permit/);
-	assert.throws(() => harness.value.resolveSessionIdentity(OWNER, () => {}), /legacy identity persistence/);
-	assert.throws(
-		() => harness.value.adoptSnapshot(undefined, { cwd: ctx.cwd } as ExtensionContext),
-		/Pi-held canonical state/,
-	);
-
 	const permit = harness.value.prepareMutation(ctx);
 	permit.runtime.paused = true;
 	const result = harness.value.save(permit);
@@ -540,42 +286,6 @@ test("durable selection reads current external generation and content", () => {
 		binding: binding(),
 		generation: 4,
 	});
-});
-
-test("every authority selection clears state from the previous Pi context", () => {
-	const harness = activeStore(runtime({ paused: true, workerCostUsd: 7 }));
-	harness.store.slateSessionParentChain = [{ identity: ID, name: NAME }];
-	let changes = 0;
-	harness.store.onDidChange = () => { changes += 1; };
-	const next = context({ key: "pi-session:legacy-branch" });
-	harness.store.configureRuntimeAuthority({ kind: "legacy" }, next, harness.backend);
-	assert.deepEqual(harness.store.authorityState(), { kind: "legacy" });
-	assert.equal(harness.store.paused, false);
-	assert.equal(harness.store.workerCostUsd, 0);
-	assert.deepEqual(harness.store.slateSessionParentChain, []);
-	assert.equal(harness.store.slateSessionId, undefined);
-	assert.equal(changes, 1);
-});
-
-test("a legacy selection without a snapshot cannot reuse a prior context identity", () => {
-	const harness = store();
-	const backend = new FakeBackend();
-	const first = context({ key: "pi-session:legacy-first" });
-	harness.value.configureRuntimeAuthority({
-		kind: "legacy",
-		snapshot: {
-			...runtime(),
-			slateSessionId: ID,
-			slateSessionName: NAME,
-			ownerSessionDigest: OWNER,
-		},
-	}, first, backend, { cwd: first.cwd, hasUI: false } as unknown as ExtensionContext);
-	const second = context({ key: "pi-session:legacy-second" });
-	harness.value.configureRuntimeAuthority({ kind: "legacy" }, second, backend);
-	const minted = harness.value.resolveSessionIdentity(OWNER, () => {}, () => OTHER_ID);
-	assert.equal(minted, true);
-	assert.equal(harness.value.slateSessionId, OTHER_ID);
-	assert.notEqual(harness.value.slateSessionId, ID);
 });
 
 test("mutation permits remain drafts until an authorized save commits", () => {
@@ -843,6 +553,95 @@ test("a field-identical A-to-B-to-A switch rejects the first selection context",
 	assert.equal(value.paused, true);
 });
 
+test("selecting another authority clears every stale record, figure, and record object", () => {
+	const a = context();
+	const backend = new FakeBackend();
+	const stale = runtime({
+		threads: [{
+			id: "t1", name: "old action", status: "successful", type: "general",
+			episodeId: "t1.e1", createdAt: 1, updatedAt: 1,
+		}],
+		episodes: [{
+			id: "t1.e1", threadId: "t1", task: "old action", status: "ok",
+			file: join(project().directory, NAME, "episodes", "t1.e1.md"), createdAt: 1,
+		}],
+		threadSeq: 1,
+		orchestratorMode: true,
+		paused: true,
+		workerCostUsd: 9,
+		carriedCostUsd: 4,
+	});
+	backend.current = record(a, binding(), 4, stale);
+	const value = store().value;
+	value.configureRuntimeAuthority({ kind: "durable", binding: binding() }, a, backend);
+	const held = value.threads.get("t1");
+	assert.ok(held);
+	assert.equal(value.episodes.size, 1);
+
+	// A selection in another Pi context keeps NOTHING of the previous one, so no
+	// display and no later save can present a record of the previous namespace.
+	const b = context({ key: "pi-session:branch-b" });
+	value.configureRuntimeAuthority({ kind: "fresh" }, b, backend);
+	assert.equal(value.threads.size, 0);
+	assert.equal(value.episodes.size, 0);
+	assert.equal(value.orchestratorMode, false);
+	assert.equal(value.paused, false);
+	assert.equal(value.workerCostUsd, 0);
+	assert.equal(value.carriedCostUsd, 0);
+	assert.equal(value.slateSessionId, undefined);
+	assert.equal(value.slateSessionName, undefined);
+
+	// Reselecting the same namespace produces NEW record objects: identity survives
+	// one selection only, so a holder from the first selection cannot reach these.
+	const again = context();
+	backend.current = record(again, binding(), 4, stale);
+	value.configureRuntimeAuthority({ kind: "durable", binding: binding() }, again, backend);
+	assert.equal(value.threads.get("t1")?.name, "old action");
+	assert.notStrictEqual(value.threads.get("t1"), held);
+});
+
+test("accepted deletions evict remembered thread and episode identities", () => {
+	const harness = activeStore();
+	const identities = harness.store as unknown as {
+		threadIdentities: Map<string, unknown>;
+		episodeIdentities: Map<string, unknown>;
+		threadSeq: number;
+	};
+	for (let index = 1; index <= 5; index++) {
+		const threadId = `t${index}`;
+		const episodeId = `${threadId}.e1`;
+		harness.store.threads.set(threadId, {
+			id: threadId,
+			name: `action ${index}`,
+			status: "successful",
+			type: "general",
+			episodeId,
+			createdAt: index,
+			updatedAt: index,
+		});
+		harness.store.episodes.set(episodeId, {
+			id: episodeId,
+			threadId,
+			task: `action ${index}`,
+			status: "ok",
+			file: join(project().directory, NAME, "episodes", `${episodeId}.md`),
+			createdAt: index,
+		});
+		identities.threadSeq = index;
+		assert.equal(harness.store.commit().kind, "committed");
+		assert.equal(identities.threadIdentities.size, 1);
+		assert.equal(identities.episodeIdentities.size, 1);
+
+		harness.store.threads.delete(threadId);
+		harness.store.episodes.delete(episodeId);
+		assert.equal(harness.store.commit().kind, "committed");
+		assert.equal(harness.store.threads.size, 0);
+		assert.equal(harness.store.episodes.size, 0);
+		assert.equal(identities.threadIdentities.size, 0);
+		assert.equal(identities.episodeIdentities.size, 0);
+	}
+});
+
 test("the identical context object cannot revive a permit after an A-to-B-to-A reselection", () => {
 	const a = context();
 	const backend = new FakeBackend();
@@ -958,7 +757,9 @@ test("every authority backend boundary refuses reentrant selection and mutation"
 		const observeBoundary = () => observe(observations, harness.store, harness.context, harness.backend);
 		harness.backend.onIsCommitUncertain = observeBoundary;
 		harness.backend.onRead = observeBoundary;
-		assert.equal(harness.store.save(permit)?.kind, "committed");
+		// A reread after a failure past publication proves the visible file only, so the
+		// outcome stays uncertain (CN1503).
+		assert.equal(harness.store.save(permit)?.kind, "uncertain");
 		assertObserved(observations, 2);
 	});
 
@@ -1037,7 +838,11 @@ test("a valid uncertain commit aligns memory with external storage reread", () =
 	harness.backend.uncertain.add(uncertain);
 	harness.backend.current = record(harness.context, binding(), 5, runtime({ paused: true, workerCostUsd: 3 }));
 	const result = harness.store.save(permit);
-	assert.equal(result?.kind, "committed");
+	assert.equal(result?.kind, "uncertain");
+	assert.match(
+		result?.kind === "uncertain" ? result.message : "",
+		/could not confirm that its external update is durable: durability uncertain/,
+	);
 	assert.equal(harness.store.paused, true);
 	assert.equal(harness.store.workerCostUsd, 3);
 	const authority = harness.store.authorityState();
@@ -1053,7 +858,7 @@ test("an uncertain update restores a valid newer active external generation", ()
 	harness.backend.uncertain.add(uncertain);
 	harness.backend.current = record(harness.context, binding(), 6, runtime({ paused: true, workerCostUsd: 12 }));
 	const result = harness.store.save(permit);
-	assert.equal(result?.kind, "committed");
+	assert.equal(result?.kind, "uncertain");
 	assert.deepEqual(result?.binding, binding());
 	assert.equal(harness.store.paused, true);
 	assert.equal(harness.store.workerCostUsd, 12);
@@ -1077,7 +882,7 @@ test("uncertain updates accept any structurally valid generation and lifecycle i
 			harness.backend.updateError = uncertain;
 			harness.backend.uncertain.add(uncertain);
 			harness.backend.current = record(harness.context, binding(), generation, runtime({ paused: true }), status);
-			assert.equal(harness.store.save(permit)?.kind, "committed");
+			assert.equal(harness.store.save(permit)?.kind, "uncertain");
 			assert.equal(harness.store.authorityState().kind, "durable");
 			assert.equal(harness.store.paused, true);
 			assert.equal(harness.backend.bindings.length, 1);
@@ -1112,7 +917,7 @@ test("an uncertain first publication accepts structurally valid terminal history
 	backend.createError = uncertain;
 	backend.uncertain.add(uncertain);
 	backend.current = record(ctx, binding(), 0, runtime({ paused: true }), "abandoned");
-	assert.equal(harness.value.save(permit)?.kind, "committed");
+	assert.equal(harness.value.save(permit)?.kind, "uncertain");
 	assert.equal(harness.value.authorityState().kind, "durable");
 	assert.equal(harness.value.paused, true);
 });
@@ -1131,7 +936,7 @@ test("a valid uncertain first publication establishes only its reconciled namesp
 	backend.uncertain.add(uncertain);
 	backend.current = record(ctx, binding(), 2, runtime({ paused: true }));
 	const result = harness.value.save(permit);
-	assert.equal(result?.kind, "committed");
+	assert.equal(result?.kind, "uncertain");
 	assert.deepEqual(result?.binding, binding());
 	assert.equal(harness.value.authorityState().kind, "durable");
 	assert.equal(harness.value.paused, true);
@@ -1243,41 +1048,6 @@ test("concurrent first-mutation permits publish one namespace and preserve winne
 	assert.equal(backend.current?.state.runtime.workerCostUsd, 0);
 });
 
-test("legacy classification can adopt its validated snapshot without durable writes", () => {
-	const harness = store();
-	const backend = new FakeBackend();
-	const ctx = context();
-	const legacy = {
-		format: SLATE_STATE_FORMAT,
-		threads: [], episodes: [], threadSeq: 0, orchestratorMode: true, paused: false,
-		workerCostUsd: 2, carriedCostUsd: 0,
-	};
-	harness.value.configureRuntimeAuthority(
-		{ kind: "legacy", snapshot: legacy },
-		ctx,
-		backend,
-		{ cwd: ctx.cwd, hasUI: false } as unknown as ExtensionContext,
-	);
-	assert.equal(harness.value.authorityState().kind, "legacy");
-	assert.equal(harness.value.orchestratorMode, true);
-	harness.value.save();
-	assert.deepEqual(harness.piSnapshots, ["slate-state"]);
-	assert.deepEqual(backend.events, []);
-});
-
-test("new-policy authority refuses every Pi snapshot restore path", () => {
-	const harness = activeStore(runtime({ paused: true }));
-	const extensionContext = {
-		sessionManager: {
-			getBranch: () => [],
-			getEntries: () => [],
-		},
-	} as unknown as ExtensionContext;
-	assert.throws(() => harness.store.restore(extensionContext), /Pi snapshot restore/);
-	assert.equal(harness.store.paused, true);
-	assert.equal(harness.store.authorityState().kind, "durable");
-});
-
 test("caller-created uncertainty records never replace actual external authority", () => {
 	const root = mkdtempSync(join(tmpdir(), "slate-runtime-authority-forgery-test-"));
 	const cwd = join(root, "project");
@@ -1315,7 +1085,7 @@ test("caller-created uncertainty records never replace actual external authority
 		const candidate = value.prepareMutation(ctx);
 		candidate.runtime.paused = true;
 		attack = true;
-		assert.equal(value.save(candidate)?.kind, "committed");
+		assert.equal(value.save(candidate)?.kind, "uncertain");
 		assert.equal(value.authorityState().kind, "durable");
 		const actual = readDurableSession({ project: corpus, name: NAME, identity: ID, cwd });
 		assert.equal(actual.state.generation, 0);

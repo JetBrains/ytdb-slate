@@ -761,17 +761,17 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		pin = argModel(thread?.model); // same BG26 reader as the base above
 	} else if (thread) {
 		// ?? thread.model: a thread created before per-action routing existed (the
-		// snapshot is unversioned, so absence means "unknown", and the pre-router pin
+		// external record is unversioned, so absence means "unknown", and the pre-router pin
 		// is the best available answer).
 		// Read through `argModel`, not raw (BG26): these fields come from the same
-		// unversioned snapshot as the stored level, and a wrong-typed one used to reach
+		// unversioned external record as the stored level, and a wrong-typed one reached
 		// the warning builder below as `s.replace is not a function` — an exception out of
 		// a guard, from a module whose whole discipline is that unreadable data degrades.
 		// state.ts validates them on adoption too; this is the reader's half, and it is
 		// what makes the value safe however it got into the record. Byte-for-byte (RG1):
 		// only a non-string or the empty string reads as absent.
 		baseModel = argModel(thread.baseModel) ?? argModel(thread.model);
-		// A STORED level is disk JSON, not a typed value: the snapshot is unversioned and
+		// A STORED level is disk JSON, not a typed value: the external record is unversioned and
 		// hand-editable, and TypeScript's `ThinkingLevel` on the record is a claim about
 		// what slate wrote, not a guarantee about what it reads back. So it is re-validated
 		// against pi's vocabulary HERE, at the boundary it crosses (BG21) — exactly as the

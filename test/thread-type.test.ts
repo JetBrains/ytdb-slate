@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test, { type TestContext } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { resolveCorpusProject } from "../extension/corpus.ts";
+import { activateSlateStorage, createRuntimeAuthorityBackend } from "../extension/runtime-authority.ts";
 import { SlateStore, THREAD_TYPES, type ThreadRecord } from "../extension/state.ts";
 import { ThreadManager, type DispatchOptions } from "../extension/threads.ts";
 import { registerSlateTools } from "../extension/tools.ts";
@@ -26,14 +31,61 @@ function record(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
   };
 }
 
-function storeHarness(): { store: SlateStore; snapshots: Record<string, unknown>[] } {
-  const snapshots: Record<string, unknown>[] = [];
+function storeHarness(): { store: SlateStore } {
+  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  store.artifactSessionName = () => undefined;
+  store.commit = () => ({ kind: "committed", binding: { policy: "durable-session-v1", identity: "20260820T010203Z-0123456789abcdef", name: "calm-otter-7f3a" } });
+  return { store };
+}
+
+/**
+ * THE PRODUCTION STORE over a real external namespace, with no stubbed save.
+ *
+ * The two tests below claim that a new record PERSISTS. A stubbed save cannot
+ * support that claim: it returns success, stores nothing, and stays green when
+ * the production save path breaks (TQ1505). These tests therefore read the
+ * stored file back.
+ */
+function durableHarness(t: TestContext): { store: SlateStore; stored: () => Record<string, unknown> } {
+  const root = mkdtempSync(join(tmpdir(), "slate-thread-type."));
+  const cwd = join(root, "project");
+  const agent = join(root, "agent");
+  mkdirSync(cwd);
+  mkdirSync(agent);
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agent;
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  });
+  const project = resolveCorpusProject(cwd);
+  const entries: Array<{ type: "custom"; customType: string; data: Record<string, unknown> }> = [];
   const pi = {
-    appendEntry(_customType: string, data: Record<string, unknown>) {
-      snapshots.push(data);
+    appendEntry(customType: string, data: Record<string, unknown>) {
+      entries.push({ type: "custom", customType, data });
     },
   } as unknown as ExtensionAPI;
-  return { store: new SlateStore(pi), snapshots };
+  const store = new SlateStore(pi);
+  activateSlateStorage({
+    store,
+    session: {
+      key: "pi-session:thread-type",
+      cwd,
+      sessionDigest: "a".repeat(64),
+      project,
+      entries,
+      branch: entries,
+    },
+    backend: createRuntimeAuthorityBackend(pi, { branch: () => entries }),
+    report: () => {},
+  });
+  const stored = () => {
+    const name = store.slateSessionName;
+    assert.ok(name);
+    return (JSON.parse(readFileSync(join(project.directory, name, "state.json"), "utf8")) as { runtime: Record<string, unknown> }).runtime;
+  };
+  return { store, stored };
 }
 
 interface RegisteredThreadTool {
@@ -127,8 +179,8 @@ test("thread tool returns a failed episode with failed status", async () => {
   assert.equal(result.details.episodeId, "t1.e1");
 });
 
-test("new records persist every valid type", () => {
-  const { store } = storeHarness();
+test("new records persist every valid type", (t) => {
+  const { store, stored } = durableHarness(t);
   const manager = new ThreadManager(store, {});
   const view = internals(manager);
 
@@ -136,12 +188,16 @@ test("new records persist every valid type", () => {
     const created = view.createThread({ task: "x", type }, {});
     assert.equal(created.type, type);
     assert.equal(store.threads.get(created.id)?.type, type);
+    // The stored file, not the in-memory map, is the persistence claim.
+    const threads = stored().threads as ThreadRecord[];
+    assert.equal(threads.find((thread) => thread.id === created.id)?.type, type);
   }
+  assert.equal((stored().threads as ThreadRecord[]).length, THREAD_TYPES.length);
 });
 
 
-test("public dispatch creates and persists every thread type", async () => {
-  const { store } = storeHarness();
+test("public dispatch creates and persists every thread type", async (t) => {
+  const { store, stored } = durableHarness(t);
   const manager = new ThreadManager(store, {});
   const view = internals(manager);
   view.runDispatch = async (thread: unknown) => thread;
@@ -154,6 +210,10 @@ test("public dispatch creates and persists every thread type", async () => {
     ) as unknown as ThreadRecord;
     assert.equal(result.name, `fresh-${type}`);
     assert.equal(result.type, type);
+    // The accepted save keeps the identity of the record the dispatch holds, so a
+    // later change of that record still reaches the store (BG1501/CN1501).
     assert.strictEqual(store.threads.get(result.id), result);
+    const threads = stored().threads as ThreadRecord[];
+    assert.equal(threads.find((thread) => thread.id === result.id)?.name, `fresh-${type}`);
   }
 });

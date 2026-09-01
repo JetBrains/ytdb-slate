@@ -52,6 +52,8 @@ test("each completed action opens and disposes a distinct real worker session", 
     return { session: created };
   };
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  store.artifactSessionName = () => undefined;
+  store.commit = () => ({ kind: "committed", binding: { policy: "durable-session-v1", identity: "20260820T010203Z-0123456789abcdef", name: "calm-otter-7f3a" } });
   const manager = new ThreadManager(store, { cacheKeyEnabled: false });
   const ctx = {
     cwd,

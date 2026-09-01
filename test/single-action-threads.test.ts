@@ -5,11 +5,29 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerSlateTools } from "../extension/tools.ts";
-import { sanitizeThreadRecord, SLATE_STATE_FORMAT, SlateStore, type EpisodeRecord, type ThreadRecord } from "../extension/state.ts";
+import { sanitizeThreadRecord, SlateStore, type EpisodeRecord, type ThreadRecord } from "../extension/state.ts";
 import { MAX_CONTEXT_EPISODES, messagesForCompression, ThreadManager, type DispatchOptions, type DispatchResult } from "../extension/threads.ts";
 
-function managerHarness(root: string) {
+/**
+ * A store whose save is a stub. Every test in this file is about the DISPATCH
+ * logic around a save — identifiers, context references, validation order — and
+ * not about the save itself.
+ *
+ * The stub is deliberate and bounded: it stores nothing, so no test here can
+ * support a claim about persistence. The real save path has its own tests in
+ * test/dispatch-persistence.test.ts, which drive a dispatch through the
+ * production store, the production durable backend and a real external
+ * namespace (TQ1601).
+ */
+function memoryStore(): SlateStore {
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  store.artifactSessionName = () => undefined;
+  store.commit = () => ({ kind: "committed", binding: { policy: "durable-session-v1", identity: "20260820T010203Z-0123456789abcdef", name: "calm-otter-7f3a" } });
+  return store;
+}
+
+function managerHarness(root: string) {
+  const store = memoryStore();
   const manager = new ThreadManager(store, {});
   const prompts: string[] = [];
   const internal = manager as unknown as {
@@ -57,7 +75,7 @@ test("every accepted action creates a distinct single-action thread", async () =
     assert.equal(first.thread.episodeId, "t1.e1");
     assert.equal(second.thread.episodeId, "t2.e1");
 
-    const routedStore = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const routedStore = memoryStore();
     const routedManager = new ThreadManager(
       routedStore,
       {},
@@ -79,7 +97,7 @@ test("every accepted action creates a distinct single-action thread", async () =
 test("an action cancelled before its worker call leaves no record", async () => {
   const root = mkdtempSync(join(tmpdir(), "slate-cancelled-action-"));
   try {
-    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const store = memoryStore();
     const manager = new ThreadManager(store, {});
     const controller = new AbortController();
     controller.abort();
@@ -173,7 +191,7 @@ test("task and pause validation run before thread creation", async () => {
 test("removed fields are absent from the schema and rejected before creation", async () => {
   let threadTool: any;
   const pi = { registerTool(tool: any) { if (tool.name === "thread") threadTool = tool; } } as ExtensionAPI;
-  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  const store = memoryStore();
   const manager = new ThreadManager(store, {});
   registerSlateTools(pi, store, () => manager);
   assert.ok(threadTool);
@@ -231,12 +249,12 @@ test("the current thread record sanitizer covers every terminal shape", () => {
 
 test("a save failure before worker startup rolls back the new thread", async () => {
   let saves = 0;
-  const store = new SlateStore({
-    appendEntry() {
-      saves++;
-      if (saves === 2) throw new Error("session file unavailable");
-    },
-  } as unknown as ExtensionAPI);
+  const store = memoryStore();
+  store.commit = () => {
+    saves++;
+    if (saves === 2) throw new Error("session file unavailable");
+    return { kind: "committed", binding: { policy: "durable-session-v1", identity: "20260820T010203Z-0123456789abcdef", name: "calm-otter-7f3a" } };
+  };
   const manager = new ThreadManager(store, {});
   await assert.rejects(
     manager.dispatch({ task: "must not start", type: "general" }, {} as ExtensionContext, undefined),
@@ -246,30 +264,6 @@ test("a save failure before worker startup rolls back the new thread", async () 
   assert.equal(store.episodes.size, 0);
 });
 
-test("restoration keeps only the one canonical episode referenced by its thread", () => {
-  const root = mkdtempSync(join(tmpdir(), "slate-single-restore-"));
-  try {
-    const episodesDir = join(root, ".pi", "slate", "episodes");
-    mkdirSync(episodesDir, { recursive: true });
-    writeFileSync(join(episodesDir, "t1.e1.md"), "canonical");
-    writeFileSync(join(episodesDir, "t1.e2.md"), "extra");
-    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-    store.adoptSnapshot({
-      format: SLATE_STATE_FORMAT,
-      threads: [{ id: "t1", name: "done", status: "successful", type: "general", episodeId: "t1.e1", createdAt: 1, updatedAt: 1 }],
-      episodes: [
-        { id: "t1.e1", threadId: "t1", task: "one", status: "ok", file: join(episodesDir, "t1.e1.md"), createdAt: 1 },
-        { id: "t1.e2", threadId: "t1", task: "extra", status: "ok", file: join(episodesDir, "t1.e2.md"), createdAt: 2 },
-      ],
-      threadSeq: 1, orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0,
-    }, { cwd: root, hasUI: false } as ExtensionContext);
-    assert.deepEqual([...store.episodes.keys()], ["t1.e1"]);
-    assert.equal(store.threads.get("t1")?.episodeId, "t1.e1");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("dropped thread records report the invalid field", () => {
   for (const [field, value] of [["name", undefined], ["type", "unknown"], ["status", "idle"]] as const) {
     const repairs: string[] = [];
@@ -277,30 +271,4 @@ test("dropped thread records report the invalid field", () => {
     assert.equal(sanitizeThreadRecord(raw, repairs), undefined);
     assert.deepEqual(repairs, [`thread t1: invalid ${field}`]);
   }
-});
-
-test("state restoration accepts only the current format marker", () => {
-  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-  const ctx = { hasUI: false } as ExtensionContext;
-  const thread: ThreadRecord = {
-    id: "t1", name: "done", status: "cancelled", type: "general", outcomeReason: "cancelled", createdAt: 1, updatedAt: 1,
-  };
-  for (const status of ["queued", "running"] as const) {
-    store.adoptSnapshot({ format: SLATE_STATE_FORMAT, threads: [{ ...thread, status }], episodes: [], threadSeq: 1, orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0 }, ctx);
-    assert.equal(store.threads.get("t1")?.status, "failed");
-    assert.match(store.threads.get("t1")?.outcomeReason ?? "", /session ended/);
-  }
-  for (const status of ["failed", "cancelled"] as const) {
-    store.adoptSnapshot({ format: SLATE_STATE_FORMAT, threads: [{ ...thread, status }], episodes: [], threadSeq: 1, orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0 }, ctx);
-    assert.equal(store.threads.get("t1")?.status, status);
-  }
-  store.adoptSnapshot({ threads: [thread], episodes: [], threadSeq: 1, orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0 } as any, ctx);
-  assert.equal(store.threads.size, 0);
-  store.adoptSnapshot({ format: SLATE_STATE_FORMAT, threads: [thread], episodes: [], threadSeq: 1, orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0 }, ctx);
-  assert.equal(store.threads.size, 1);
-  store.adoptSnapshot({ format: SLATE_STATE_FORMAT, threads: [{ ...thread, status: "successful", episodeId: "t1.e1" }], episodes: [], threadSeq: 1, orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0 }, ctx);
-  assert.equal(store.threads.size, 0);
-  store.adoptSnapshot({ format: SLATE_STATE_FORMAT, threads: [{ ...thread, status: "successful", episodeId: "t1.e2" }], episodes: [], threadSeq: 1, orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0 }, ctx);
-  assert.equal(store.threads.get("t1")?.status, "failed");
-  assert.equal(store.threads.get("t1")?.episodeId, undefined);
 });

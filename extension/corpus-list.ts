@@ -216,10 +216,15 @@ function readRow(
 			return { row, readBytes: readBytes + read.bytes.byteLength };
 		}
 		const value = raw as Record<string, unknown>;
-		for (const field of ["identity", "name", "createdAt", "worktreePath", "branchLabel"] as const) {
+		const expected = ["policy", "identity", "name", "createdAt", "currentDirectory", "projectKey", "projectDigest", "creatorSessionDigest"];
+		const keys = Object.keys(value);
+		if (keys.length !== expected.length || !keys.every((key) => expected.includes(key))) {
+			row.notes.push("metadata does not match the durable namespace schema");
+		}
+		for (const field of expected) {
 			if (typeof value[field] !== "string") row.notes.push(`${field} has the wrong type`);
 		}
-		if (value.piSessionName !== undefined && typeof value.piSessionName !== "string") row.notes.push("piSessionName has the wrong type");
+		if (value.policy !== "durable-session-v1") row.notes.push("storage policy is invalid");
 		if (typeof value.identity === "string") {
 			row.identity = value.identity;
 			if (!SLATE_SESSION_ID_PATTERN.test(value.identity)) row.notes.push(value.identity === "" ? "identity is empty" : "identity is invalid");
@@ -229,11 +234,10 @@ function readRow(
 			row.createdAt = value.createdAt;
 			if (!exactWriterTimestamp(value.createdAt)) row.notes.push("creation time is invalid");
 		}
-		if (typeof value.worktreePath === "string") {
-			row.worktreePath = value.worktreePath;
-			if (!insideOrEqual(worktreeRoot, value.worktreePath)) row.markers.push("session started outside this working tree");
+		if (typeof value.currentDirectory === "string") {
+			row.worktreePath = value.currentDirectory;
+			if (!insideOrEqual(worktreeRoot, value.currentDirectory)) row.markers.push("session started outside this working tree");
 		}
-		if (typeof value.branchLabel === "string") row.branchLabel = value.branchLabel;
 		return { row, readBytes: readBytes + read.bytes.byteLength };
 	} catch (error) {
 		row.notes.push(`session entry read failed: ${errorText(error)}`);

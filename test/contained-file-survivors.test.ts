@@ -14,18 +14,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test, { type TestContext } from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	readContainedFile,
 	withContainedFile,
 	type CorpusProject,
 } from "../extension/corpus.ts";
-import {
-	SLATE_STATE_FORMAT,
-	SlateStore,
-	type EpisodeRecord,
-	type ThreadRecord,
-} from "../extension/state.ts";
 
 interface Workspace {
 	root: string;
@@ -57,29 +50,6 @@ function workspace(t: TestContext): Workspace {
 	};
 }
 
-function completedThread(): ThreadRecord {
-	return {
-		id: "t1",
-		name: "completed action",
-		status: "successful",
-		type: "general",
-		episodeId: "t1.e1",
-		createdAt: 1,
-		updatedAt: 2,
-	};
-}
-
-function episode(file: string): EpisodeRecord {
-	return {
-		id: "t1.e1",
-		threadId: "t1",
-		task: "preserve evidence",
-		status: "ok",
-		file,
-		createdAt: 2,
-	};
-}
-
 test("ordinary contained reads accept a hard-linked episode", (t) => {
 	const box = workspace(t);
 	const file = join(box.sessionDirectory, "episodes", "t1.e1.md");
@@ -90,39 +60,6 @@ test("ordinary contained reads accept a hard-linked episode", (t) => {
 		readContainedFile(box.cwd, file, box.project.directory)?.toString("utf8"),
 		"durable evidence",
 	);
-});
-
-test("snapshot adoption retains episode metadata when its file open is refused", (t) => {
-	const box = workspace(t);
-	const outside = join(box.root, "outside-episode.md");
-	writeFileSync(outside, "evidence outside approved storage");
-	const appended: unknown[] = [];
-	const notices: string[] = [];
-	const store = new SlateStore({
-		appendEntry(_type: string, data: unknown) { appended.push(data); },
-	} as unknown as ExtensionAPI);
-	store.corpusProject = box.project;
-	store.adoptSnapshot({
-		format: SLATE_STATE_FORMAT,
-		threads: [completedThread()],
-		episodes: [episode(outside)],
-		threadSeq: 1,
-		orchestratorMode: false,
-		paused: false,
-		workerCostUsd: 0,
-		carriedCostUsd: 0,
-	}, {
-		cwd: box.cwd,
-		hasUI: true,
-		ui: { notify(message: string) { notices.push(message); } },
-	} as unknown as ExtensionContext);
-
-	assert.equal(store.threads.get("t1")?.episodeId, "t1.e1");
-	assert.equal(store.episodes.get("t1.e1")?.file, outside);
-	assert.match(notices.join("\n"), /episode t1\.e1: retaining file, but refusing its use/);
-	store.save();
-	const saved = appended.at(-1) as { episodes?: EpisodeRecord[] } | undefined;
-	assert.equal(saved?.episodes?.[0]?.file, outside);
 });
 
 test("contained reads refuse a named pipe without blocking", { timeout: 30000 }, (t) => {

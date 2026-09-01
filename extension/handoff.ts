@@ -13,10 +13,20 @@
  * legacy percent behavior (compaction untouched) when set WITHOUT
  * contextBudget.
  *
- * /slate handoff [focus] → startHandoff(): captures the orchestrator's last
- * assistant message as the brief and atomically writes the author-addressed
- * corpus handoff record. Adoption is explicit. Session startup never reads,
- * claims, consumes, or adopts a handoff record.
+ * /slate handoff [focus] → startHandoff(): saves the records, captures the
+ * orchestrator's last assistant message as the brief, and atomically writes the
+ * author-addressed corpus handoff record. Adoption is explicit. Session startup
+ * never reads, claims, consumes, or adopts a handoff record.
+ *
+ * /slate adopt <name> → adoptHandoff(): the receiving Pi session CONTINUES the
+ * same Slate session. The handoff record names the external namespace, and the
+ * records come from the receiving session's own validating read of that
+ * namespace. No record set travels with the record, and adoption creates no
+ * second copy. A finished adoption leaves exactly one locator note in the
+ * receiving conversation, and the receiving store saves into the adopted
+ * namespace from then on. Adoption grants no exclusive access: the storage layer
+ * performs no ownership check, so a later save from the sending Pi session
+ * remains possible and Slate reports no conflict.
  */
 
 import { existsSync, readFileSync, realpathSync } from "node:fs";
@@ -43,12 +53,11 @@ import {
 	orchestratorCostUsd,
 	type ContextBudgetObject,
 	type ContextBudgetOverride,
-	OWNER_SESSION_DIGEST_PATTERN,
-	SLATE_SESSION_ID_PATTERN,
+	type RuntimeAuthorityBinding,
 	type SlateConfig,
 	type SlateStore,
 } from "./state.ts";
-import { isSlateSessionName } from "./session-names.ts";
+import { DURABLE_SESSION_POLICY } from "./session-record.ts";
 
 /** Legacy percent mode only (DEPRECATED pauseThresholdPercent without contextBudget). */
 const DEFAULT_PAUSE_THRESHOLD_PERCENT = 40;
@@ -83,6 +92,11 @@ export interface SlateHandoffHooks {
 // gate, since an unconditional stderr write scribbles pi-tui's differentially
 // rendered frame. ctx.hasUI is a getter that THROWS on a stale context, so it
 // is guarded: an unguarded check would be a crash, not a test.
+/** One save refusal, as a sentence for a user-facing report. */
+function saveRefusalDetail(error: unknown): string {
+	return sanitizeForNotify(error instanceof Error ? error.message : String(error), 240);
+}
+
 export function reportFailure(ctx: ExtensionContext, message: string): void {
 	console.warn(message);
 	try {
@@ -318,7 +332,7 @@ export function registerSlateHandoff(
 			"(1) a concise HANDOFF BRIEF — overall goal, per-thread state with episode ids, immediate next actions;",
 			"(2) instructions: run /slate handoff [optional focus] to write a handoff record, then run /slate adopt <name> in the successor session to restore the threads and episodes;",
 
-			`alternatively, start a new pi session manually, run /slate on, and have the new orchestrator read the episode files under ${CONFIG_DIR_NAME}/slate/episodes/.`,
+			"alternatively, run /slate sessions to see the external namespace of this Slate session, and read its episode files under the namespace directory that command reports.",
 		].join("\n");
 
 	const checkBudget = (ctx: ExtensionContext) => {
@@ -376,7 +390,17 @@ export function registerSlateHandoff(
 		}
 
 		store.paused = true;
-		store.save();
+		// The pause holds in memory whatever storage answers, and the steer below must
+		// still reach the orchestrator. A refused save is therefore reported, not
+		// swallowed and not allowed to cancel the pause (Track 14 goal 5).
+		try {
+			store.commit();
+		} catch (error) {
+			reportFailure(
+				ctx,
+				`slate: the automatic pause was not saved: ${saveRefusalDetail(error)}. The pause applies to this Pi session only.`,
+			);
+		}
 		if (ctx.hasUI) ctx.ui.notify(notifyText, "warning");
 		pi.sendMessage(
 			{ customType: "slate-pause", content: pauseInstructions(headline), display: true },
@@ -401,7 +425,14 @@ export function registerSlateHandoff(
 		if (!budgetModeActive(getConfig())) return;
 		if (event.reason !== "threshold") return;
 		store.paused = true;
-		store.save();
+		try {
+			store.commit();
+		} catch (error) {
+			reportFailure(
+				ctx,
+				`slate: the intercepted compaction pause was not saved: ${saveRefusalDetail(error)}. The pause applies to this Pi session only.`,
+			);
+		}
 		if (ctx.hasUI) {
 			ctx.ui.notify(
 				"slate: auto-compaction intercepted — paused instead. Run /slate handoff [focus], then run /slate adopt <name> in the successor session.",
@@ -505,6 +536,41 @@ export function registerSlateHandoff(
 		];
 	};
 
+	/**
+	 * COMPLETE one partial adoption of the namespace this Pi session already
+	 * continues (BG1502/CN1506).
+	 *
+	 * The records are durable and validated already, and the receiving conversation
+	 * has no locator note. One save therefore revalidates the namespace and writes
+	 * the missing note. It changes no record, sends no second kickoff and restores no
+	 * model, because the note was the only missing part.
+	 */
+	const completeAdoption = (ctx: ExtensionCommandContext, name: string): boolean => {
+		let result: ReturnType<SlateStore["commit"]>;
+		try {
+			result = store.commit();
+		} catch (error) {
+			reportFailure(
+				ctx,
+				`slate: adoption could not complete the locator note of ${sanitizeForNotify(name)}: ${saveRefusalDetail(error)}. `
+					+ `Every Slate record remains in namespace ${sanitizeForNotify(name)}.`,
+			);
+			return false;
+		}
+		if (result?.kind === "partial" || result?.kind === "uncertain") {
+			reportFailure(
+				ctx,
+				`slate: adoption of ${sanitizeForNotify(name)} is still incomplete: ${sanitizeForNotify(result.message, 240)}. `
+					+ `Every Slate record remains in namespace ${sanitizeForNotify(name)}.`,
+			);
+			return false;
+		}
+		const message = `slate: handoff ${sanitizeForNotify(name)} was already adopted in this Pi session, and slate completed its locator note.`;
+		console.warn(message);
+		if (ctx.hasUI) ctx.ui.notify(message, "info");
+		return true;
+	};
+
 	const adoptHandoff = async (
 		ctx: ExtensionCommandContext,
 		name: string | undefined,
@@ -524,18 +590,26 @@ export function registerSlateHandoff(
 			if (ctx.hasUI) ctx.ui.notify(message, "info");
 			return false;
 		}
-		const ownIdentity = store.slateSessionId;
-		const ownName = store.slateSessionName;
-		const ownOwner = store.ownerSessionDigest;
-		if (
-			ownIdentity === undefined || !SLATE_SESSION_ID_PATTERN.test(ownIdentity)
-			|| ownName === undefined || !isSlateSessionName(ownName)
-			|| ownOwner === undefined || !OWNER_SESSION_DIGEST_PATTERN.test(ownOwner)
-		) {
-			reportFailure(ctx, "slate: adoption requires this session's persisted identity, name, and owner digest. Start a fresh session, then retry.");
+		// ADOPTION CONTINUES ONE SLATE SESSION IN THIS PI SESSION, so this session must
+		// have selected no storage of its own yet. A refusing session reports its own
+		// refusal, and a session that already names ANOTHER external namespace keeps it:
+		// abandoning that namespace here would leave its records unreachable.
+		//
+		// A session that already continues the namespace of THIS handoff is the one
+		// exception, and the design requires it: a partial adoption keeps every record
+		// and leaves the locator note missing, and the repeated command completes that
+		// note. Refusing it made the advertised recovery impossible (BG1502/CN1506). The
+		// comparison happens below, where the named record supplies the namespace.
+		const authority = store.authorityState();
+		if (authority.kind === "unavailable") {
+			reportFailure(
+				ctx,
+				`slate: adoption refused because this session selected no storage — ${sanitizeForNotify(authority.message, 240)}`,
+			);
 			return false;
 		}
-		if (store.threads.size > 0 || store.episodes.size > 0) {
+		const continuing = authority.kind === "durable" ? authority.binding : undefined;
+		if (continuing === undefined && (store.threads.size > 0 || store.episodes.size > 0)) {
 			reportFailure(ctx, "slate: adoption refused because this session already has threads or episodes. Start a fresh session and run the command again.");
 			return false;
 		}
@@ -567,13 +641,6 @@ export function registerSlateHandoff(
 			);
 			return false;
 		}
-		if (
-			ownIdentity === read.record.author.identity || ownName === read.record.author.name
-			|| read.record.parentChain.some((parent) => parent.identity === ownIdentity || parent.name === ownName)
-		) {
-			reportFailure(ctx, "slate: adoption refused because this handoff lineage already contains the current session.");
-			return false;
-		}
 		const now = Date.now();
 		if (read.record.createdAt > now) {
 			reportFailure(ctx, `slate: adoption refused because ${sanitizeForNotify(name)} has a future creation time. Correct the clock or record, then retry.`);
@@ -585,49 +652,78 @@ export function registerSlateHandoff(
 			console.warn(warning);
 			if (ctx.hasUI) ctx.ui.notify(warning, "warning");
 		}
-		const expectedThreads = read.record.snapshot.threads.length;
-		const expectedEpisodes = read.record.snapshot.episodes.length;
-		const priorSnapshot = store.snapshot();
 		const priorReminder = {
 			...store.writingReminder,
 			...(store.writingReminder.pending === undefined ? {} : { pending: { ...store.writingReminder.pending } }),
 		};
-		let undoMode = () => {};
+		// THE RECORD SET COMES FROM THE VALIDATING READ OF THE NAMED NAMESPACE, and from
+		// nothing else. The handoff record supplies the namespace name, the brief, the
+		// focus and the model, so no record copy travels with it and adoption cannot
+		// replace durable records with a caller-supplied set (Track 14 goals 10 to 12).
+		const binding: RuntimeAuthorityBinding = {
+			policy: DURABLE_SESSION_POLICY,
+			identity: read.record.author.identity,
+			name: read.record.author.name,
+		};
+		if (continuing !== undefined) {
+			if (continuing.identity !== binding.identity || continuing.name !== binding.name) {
+				reportFailure(
+					ctx,
+					`slate: adoption refused because this Pi session already continues Slate session ${sanitizeForNotify(continuing.name, 80)}. `
+						+ `Start a fresh Pi session, then run /slate adopt ${sanitizeForNotify(name)} there.`,
+				);
+				return false;
+			}
+			return completeAdoption(ctx, name);
+		}
 		try {
-			store.adoptSnapshot(read.record.snapshot, ctx, { foreignSessionIdentity: true });
-			if (store.threads.size !== expectedThreads || store.episodes.size !== expectedEpisodes) {
-				throw new Error(`adoption retained ${store.threads.size}/${expectedThreads} threads and ${store.episodes.size}/${expectedEpisodes} episodes`);
-			}
-			store.paused = false;
-			undoMode = enterOrchestratorMode();
-			store.writingReminder.forceNext = true;
-			store.save();
+			store.adoptExternalAuthority(binding);
 		} catch (error) {
-			let rollbackFailure: string | undefined;
-			try { store.adoptSnapshot(priorSnapshot, ctx); }
-			catch (rollbackError) { rollbackFailure = sanitizeForNotify(rollbackError instanceof Error ? rollbackError.message : String(rollbackError)); }
-			delete store.writingReminder.pending;
-			Object.assign(store.writingReminder, priorReminder);
-			try { undoMode(); }
-			catch (rollbackError) { rollbackFailure ??= sanitizeForNotify(rollbackError instanceof Error ? rollbackError.message : String(rollbackError)); }
-			try {
-				// pi appends custom state in memory before disk persistence. A rollback entry
-				// must therefore follow the failed adopted entry even when this write also throws.
-				store.save();
-			} catch (rollbackError) {
-				rollbackFailure ??= sanitizeForNotify(rollbackError instanceof Error ? rollbackError.message : String(rollbackError));
-			}
-			const rollbackClause = rollbackFailure === undefined ? "" : ` Rollback persistence also reported: ${rollbackFailure}.`;
 			reportFailure(
 				ctx,
-				`slate: adoption could not persist its state: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}. Runtime state was rolled back. No kickoff was sent.${rollbackClause}`,
+				`slate: adoption refused the external namespace ${sanitizeForNotify(name)}: ${saveRefusalDetail(error)}. `
+					+ "No Slate record changed, so you can correct the cause and run the command again.",
 			);
 			return false;
+		}
+		const adoptedThreads = store.threads.size;
+		const adoptedEpisodes = store.episodes.size;
+		let undoMode = () => {};
+		let partial: string | undefined;
+		try {
+			store.paused = false;
+			// The sending session banked its own orchestrator spend in the handoff record.
+			// It is one carried number and never a record set, and it never decreases.
+			store.carriedCostUsd = Math.max(store.carriedCostUsd, read.record.carriedCostUsd);
+			undoMode = enterOrchestratorMode();
+			store.writingReminder.forceNext = true;
+			const result = store.commit();
+			if (result?.kind === "partial" || result?.kind === "uncertain") partial = sanitizeForNotify(result.message, 240);
+		} catch (error) {
+			delete store.writingReminder.pending;
+			Object.assign(store.writingReminder, priorReminder);
+			let rollbackFailure: string | undefined;
+			try { undoMode(); }
+			catch (rollbackError) { rollbackFailure = saveRefusalDetail(rollbackError); }
+			const rollbackClause = rollbackFailure === undefined ? "" : ` Restoring the previous tool set also reported: ${rollbackFailure}.`;
+			reportFailure(
+				ctx,
+				`slate: adoption could not save the receiving session state: ${saveRefusalDetail(error)}. `
+					+ `Every Slate record remains in namespace ${sanitizeForNotify(name)}. No kickoff was sent.${rollbackClause}`,
+			);
+			return false;
+		}
+		if (partial !== undefined) {
+			reportFailure(
+				ctx,
+				`slate: adoption saved every Slate record, but ${partial}. Run /slate adopt ${sanitizeForNotify(name)} again to complete it.`,
+			);
 		}
 		await restoreAdoptedModel(ctx, read.record);
 		const kickoff = buildKickoff(ctx.cwd, true, read.record.brief, read.record.focus);
 		pi.sendMessage({ customType: "slate-kickoff", content: kickoff, display: true }, { deliverAs: "steer", triggerTurn: true });
-		const success = `slate: handoff ${sanitizeForNotify(name)} adopted successfully.`;
+		const success = `slate: handoff ${sanitizeForNotify(name)} adopted successfully with `
+			+ `${adoptedThreads} thread${adoptedThreads === 1 ? "" : "s"} and ${adoptedEpisodes} episode${adoptedEpisodes === 1 ? "" : "s"}.`;
 		console.warn(success);
 		if (ctx.hasUI) ctx.ui.notify(success, "info");
 		return true;
@@ -635,6 +731,19 @@ export function registerSlateHandoff(
 
 	const startHandoff = async (ctx: ExtensionCommandContext, focus?: string): Promise<void> => {
 		await ctx.waitForIdle();
+
+		// SAVE THE RECORDS FIRST. The receiving session reads them from the external
+		// namespace, so a handoff record written over unsaved records would name a
+		// namespace that is behind this session. A refused save stops the handoff.
+		try {
+			store.commit();
+		} catch (error) {
+			reportFailure(
+				ctx,
+				`slate: handoff stopped because slate could not save its records: ${saveRefusalDetail(error)}. No handoff record was written.`,
+			);
+			return;
+		}
 
 		const brief = lastAssistantText(ctx);
 		const identity = store.slateSessionId;
@@ -657,12 +766,7 @@ export function registerSlateHandoff(
 			brief,
 			...(focus === undefined ? {} : { focus }),
 			...(model === undefined ? {} : { model, thinkingLevel: pi.getThinkingLevel() }),
-			snapshot: {
-				...store.snapshot(),
-				paused: false,
-				orchestratorMode: true,
-				carriedCostUsd: store.carriedCostUsd + orchestratorCostUsd(ctx),
-			},
+			carriedCostUsd: store.carriedCostUsd + orchestratorCostUsd(ctx),
 		};
 		try {
 			writeCorpusHandoffRecord(project, record);

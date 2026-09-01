@@ -110,7 +110,6 @@ interface ProjectArea {
 
 interface IdentityRead {
 	metadata?: DurableIdentityRecord;
-	outOfScope?: boolean;
 	fileLimited?: boolean;
 	aggregateLimited?: boolean;
 	closeFailed?: boolean;
@@ -152,20 +151,6 @@ function validateIdentity(raw: unknown, area: ProjectArea, expectedName: string)
 	if (createHash("sha256").update(value.projectKey).digest("hex").slice(0, 12) !== area.digest) return undefined;
 	if (!isOwnerSessionDigest(value.creatorSessionDigest)) return undefined;
 	return value as unknown as DurableIdentityRecord;
-}
-
-function validLegacyIdentity(raw: unknown, expectedName: string): boolean {
-	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return false;
-	const value = raw as Record<string, unknown>;
-	const required = ["identity", "name", "createdAt", "worktreePath", "branchLabel"];
-	const keys = Object.keys(value);
-	if (keys.length !== required.length && keys.length !== required.length + 1) return false;
-	if (!required.every((key) => keys.includes(key))) return false;
-	if (keys.length > required.length && !keys.includes("piSessionName")) return false;
-	return typeof value.identity === "string" && value.name === expectedName
-		&& canonicalTimestamp(value.createdAt) && boundedAbsolutePath(value.worktreePath)
-		&& typeof value.branchLabel === "string"
-		&& (value.piSessionName === undefined || typeof value.piSessionName === "string");
 }
 
 function singleNamedFile(entry: { isFile(): boolean; isSymbolicLink(): boolean; nlink: number } | undefined): boolean {
@@ -217,9 +202,7 @@ function readIdentityRecord(
 				return { bytes: used };
 			}
 			const metadata = validateIdentity(raw, area, name);
-			return metadata === undefined && validLegacyIdentity(raw, name)
-				? { outOfScope: true, bytes: used }
-				: { metadata, bytes: used };
+			return { metadata, bytes: used };
 		} catch {
 			return { bytes: used };
 		}
@@ -389,7 +372,6 @@ export function discoverCorpusSession(options: {
 						unreadable += 1;
 						continue;
 					}
-					if (read.outOfScope === true) continue;
 					const metadata = read.metadata;
 					if (metadata === undefined || !corpusDirectoryMatches(candidate)
 						|| !corpusDirectoryMatches(project) || (root !== undefined && !corpusDirectoryMatches(root))) {

@@ -132,7 +132,10 @@ function context(cwd: string, models: FakeModel[] = []): ExtensionContext {
 }
 
 function store(): InstanceType<typeof SlateStore> {
-  return new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  const value = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  value.artifactSessionName = () => undefined;
+  value.commit = () => ({ kind: "committed", binding: { policy: "durable-session-v1", identity: "20260820T010203Z-0123456789abcdef", name: "calm-otter-7f3a" } });
+  return value;
 }
 
 function managerWithSessions(
@@ -216,10 +219,16 @@ test("pre-start aborts leave no thread or episode record", async (t) => {
 
 test("fixed failure episodes use bounded fallbacks and report write failures", (t) => {
   const cwd = temporaryProject(t);
+  // Every episode file lands in the external namespace (CN1502), so the fixed
+  // failure writer needs the namespace of this Slate session.
+  const projectDirectory = join(cwd, "corpus-project-0123456789ab");
+  const sessionName = "calm-otter-7f3a";
+  mkdirSync(join(projectDirectory, sessionName, "episodes"), { recursive: true });
   const result = writeFailedEpisode({
-    ctx: { cwd }, episodeId: "t9.e1", threadId: "", threadName: " \n ",
+    ctx: { cwd }, sessionName, projectDirectory, episodeId: "t9.e1", threadId: "", threadName: " \n ",
     task: "\t", diagnostics: "", workerCostUsd: Number.NaN,
   });
+  assert.equal(result.file, join(projectDirectory, sessionName, "episodes", "t9.e1.md"));
   const text = readFileSync(result.file, "utf8");
   assert.match(text, /thread \(unknown\) \(\(unknown\)\)/);
   assert.match(text, /> task: \(no task recorded\)/);
@@ -228,8 +237,17 @@ test("fixed failure episodes use bounded fallbacks and report write failures", (
   assert.match(text, /> cost: USD 0\.000000/);
   assert.throws(
     () => writeFailedEpisode({
-      ctx: { cwd }, episodeId: "../bad", threadId: "t9", threadName: "bad",
+      ctx: { cwd }, sessionName, projectDirectory, episodeId: "../bad", threadId: "t9", threadName: "bad",
       task: "bad", diagnostics: "bad", workerCostUsd: 0,
+    }),
+    /episode persistence failed/,
+  );
+  // A namespace that does not exist is refused instead of falling back to the
+  // project directory.
+  assert.throws(
+    () => writeFailedEpisode({
+      ctx: { cwd }, sessionName: "brisk-bison-abcd", projectDirectory, episodeId: "t9.e2", threadId: "t9",
+      threadName: "absent namespace", task: "bad", diagnostics: "bad", workerCostUsd: 0,
     }),
     /episode persistence failed/,
   );
@@ -440,14 +458,13 @@ test("fixed failure reports a thread-record save failure", { timeout: 1000 }, as
   const session = fakeSession(async () => { throw new Error("worker failed without output"); });
   const manager = managerWithSessions([session]);
   const internalStore = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
-  const originalSave = internalStore.save.bind(internalStore);
-  internalStore.save = () => {
-    if (internalStore.episodes.size > 0) throw new Error("snapshot storage unavailable");
-    originalSave();
+  internalStore.commit = () => {
+    if (internalStore.episodes.size > 0) throw new Error("external storage unavailable");
+    return { kind: "committed", binding: { policy: "durable-session-v1", identity: "20260820T010203Z-0123456789abcdef", name: "calm-otter-7f3a" } };
   };
   await assert.rejects(
     manager.dispatch({ task: "persist fixed result", type: "general" }, context(cwd), undefined),
-    /stored episode t1\.e1, but could not save its thread record: snapshot storage unavailable/,
+    /stored episode t1\.e1, but could not save its thread record: external storage unavailable/,
   );
   assert.equal(internalStore.threads.get("t1")?.status, "failed");
   assert.equal(internalStore.threads.get("t1")?.episodeId, "t1.e1");
@@ -649,7 +666,7 @@ test("caller abort and manager disposal record cancellation without an episode",
   assert.equal(disposalStore.episodes.size, 0);
 });
 
-test("snapshot sanitizer loads old records without accounting fields", () => {
+test("stored-record sanitizer loads old records without accounting fields", () => {
   const repairs: string[] = [];
   const record = sanitizeEpisodeRecord(
     { id: "t1.e1", threadId: "t1", task: "legacy", status: "ok", file: "/tmp/legacy.md", createdAt: 1 },
@@ -669,7 +686,7 @@ test("snapshot sanitizer loads old records without accounting fields", () => {
   assert.deepEqual(repairs, []);
 });
 
-test("snapshot sanitizer rejects noncanonical and mismatched episode ids", () => {
+test("stored-record sanitizer rejects noncanonical and mismatched episode ids", () => {
   for (const candidate of [
     { id: "t1.e2", threadId: "t1" },
     { id: "t2.e1", threadId: "t1" },
@@ -682,7 +699,7 @@ test("snapshot sanitizer rejects noncanonical and mismatched episode ids", () =>
   }
 });
 
-test("snapshot sanitizer rejects negative and fractional token quantities with repairs", () => {
+test("stored-record sanitizer rejects negative and fractional token quantities with repairs", () => {
   const repairs: string[] = [];
   const record = sanitizeEpisodeRecord(
     {
@@ -715,7 +732,7 @@ test("snapshot sanitizer rejects negative and fractional token quantities with r
   assert.match(repairs.join("\n"), /compactionUsage\.output \(number\)/);
 });
 
-test("snapshot sanitizer restores fractional and zero dollar costs while preserving absence", () => {
+test("stored-record sanitizer restores fractional and zero dollar costs while preserving absence", () => {
   const repairs: string[] = [];
   const restored = sanitizeEpisodeRecord(
     {
@@ -747,7 +764,7 @@ test("snapshot sanitizer restores fractional and zero dollar costs while preserv
   assert.deepEqual(repairs, []);
 });
 
-test("snapshot sanitizer repairs malformed usage without destroying valid record data", () => {
+test("stored-record sanitizer repairs malformed usage without destroying valid record data", () => {
   const repairs: string[] = [];
   const record = sanitizeEpisodeRecord(
     {

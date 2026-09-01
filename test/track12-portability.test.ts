@@ -14,7 +14,6 @@ import {
 const ID = "20260828T120000Z-0123abcd0123abcd";
 const NAME = "calm-otter-7f3a";
 const SOURCE = "a".repeat(64);
-const RECIPIENT = "b".repeat(64);
 
 function runtime(workerCostUsd: number): CanonicalSlateRuntime {
 	return {
@@ -29,7 +28,7 @@ function runtime(workerCostUsd: number): CanonicalSlateRuntime {
 	};
 }
 
-test("Track 12 saves and reads back recipient state on a supported platform", () => {
+test("Track 12 validates and reads back stored records on a supported platform", () => {
 	const root = mkdtempSync(join(tmpdir(), "slate-track12-portability."));
 	const cwd = join(root, "project");
 	const agent = join(root, "agent");
@@ -51,12 +50,10 @@ test("Track 12 saves and reads back recipient state on a supported platform", ()
 			project,
 			cwd,
 			reference: durableHandoffReference(created),
-			recipientSessionDigest: RECIPIENT,
-			recipientState: runtime(7),
 		});
 		assert.equal(result.kind, "complete");
-		assert.equal(result.record.state.lastWriterSessionDigest, RECIPIENT);
-		assert.equal(result.record.state.runtime.workerCostUsd, 7);
+		assert.equal(result.record.state.lastWriterSessionDigest, SOURCE);
+		assert.equal(result.record.state.runtime.workerCostUsd, 3);
 		assert.deepEqual(readDurableSession({ project, name: NAME }), result.record);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;

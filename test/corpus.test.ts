@@ -4,23 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-  createCorpusSession,
   ensureCorpusProjectDirectory,
   ensureCorpusRoot,
-  findCorpusSessionByIdentity,
   readContainedFile,
-  removeCorpusSession,
   resolveContainedFile,
   resolveCorpusProject,
   sanitizeCorpusLabel,
   SlateWriteRefused,
-  validateCorpusSession,
   withContainedFile,
 } from "../extension/corpus.ts";
 import { isSlateArtifactReference, slateArtifactReference } from "../extension/artifact-names.ts";
 import { isMintedSlateSessionName, isSlateSessionName, SESSION_ADJECTIVES, SESSION_NOUNS } from "../extension/session-names.ts";
 import { writeSlateArtifact } from "../extension/slate-files.ts";
 import { captureObservation } from "../extension/observations.ts";
+import { createDurableSession } from "../extension/session-record.ts";
 
 function workspace(): { root: string; project: string; agent: string } {
   const root = mkdtempSync(join(tmpdir(), "slate-corpus-test."));
@@ -39,6 +36,23 @@ function withAgent<T>(agent: string, run: () => T): T {
     if (old === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = old;
   }
+}
+
+function durableSession(cwd: string) {
+  const project = resolveCorpusProject(cwd);
+  const name = "calm-otter-7f3a";
+  const created = createDurableSession({
+    cwd,
+    project,
+    identity: "20260820T010203Z-0123456789abcdef",
+    name,
+    creatorSessionDigest: "a".repeat(64),
+    runtime: {
+      threads: [], episodes: [], threadSeq: 0, slateSessionParentChain: [],
+      orchestratorMode: false, paused: false, workerCostUsd: 0, carriedCostUsd: 0,
+    },
+  });
+  return { ...created, project, name };
 }
 
 function distance(a: string, b: string): number {
@@ -187,78 +201,6 @@ test("project derivation refuses several directories with one digest", () => {
   } finally { rmSync(paths.root, { recursive: true, force: true }); }
 });
 
-test("exclusive session creation retries a collision with fresh four-byte input", () => {
-  const paths = workspace();
-  try {
-    withAgent(paths.agent, () => {
-      const firstBytes = Uint8Array.from([0, 0, 0x12, 0x34]);
-      const first = createCorpusSession({ cwd: paths.project, identity: "id-one", initialNameBytes: firstBytes, piSessionName: "pi-one" });
-      let retries = 0;
-      const second = createCorpusSession({
-        cwd: paths.project,
-        identity: "id-two",
-        initialNameBytes: firstBytes,
-        drawRetry: () => { retries++; return Uint8Array.from([1, 1, 0xab, 0xcd]); },
-      });
-      assert.equal(retries, 1);
-      assert.notEqual(first.name, second.name);
-      const metadata = JSON.parse(readFileSync(join(second.directory, "session.json"), "utf8"));
-      assert.equal(metadata.identity, "id-two");
-      assert.equal(metadata.name, second.name);
-      assert.equal(metadata.worktreePath, paths.project);
-      assert.equal(statSync(second.directory).mode & 0o777, 0o700);
-      for (const category of ["episodes", "observations", "threads"]) {
-        assert.equal(statSync(join(second.directory, category)).mode & 0o777, 0o700);
-      }
-    });
-  } finally { rmSync(paths.root, { recursive: true, force: true }); }
-});
-
-test("exclusive session creation refuses after all eight candidates collide", () => {
-  const paths = workspace();
-  try {
-    withAgent(paths.agent, () => {
-      const bytes = Uint8Array.from([4, 4, 0x55, 0x55]);
-      createCorpusSession({ cwd: paths.project, identity: "first", initialNameBytes: bytes });
-      let retries = 0;
-      assert.throws(() => createCorpusSession({
-        cwd: paths.project,
-        identity: "second",
-        initialNameBytes: bytes,
-        drawRetry: () => { retries++; return bytes; },
-      }), /after eight attempts/);
-      assert.equal(retries, 7);
-    });
-  } finally { rmSync(paths.root, { recursive: true, force: true }); }
-});
-
-test("session metadata lookup ignores unrelated entries and recovers the matching identity", () => {
-  const paths = workspace();
-  try {
-    withAgent(paths.agent, () => {
-      const session = createCorpusSession({ cwd: paths.project, identity: "wanted", initialNameBytes: Uint8Array.from([5, 5, 0, 3]) });
-      mkdirSync(join(session.project.directory, "not-a-session"));
-      const malformedName = "amber-badger-0000";
-      mkdirSync(join(session.project.directory, malformedName));
-      writeFileSync(join(session.project.directory, malformedName, "session.json"), "not json");
-      const linkedName = "brisk-bison-0001";
-      mkdirSync(join(session.project.directory, linkedName));
-      const foreign = join(paths.root, "foreign-session.json");
-      writeFileSync(foreign, JSON.stringify({ identity: "wanted", name: linkedName }));
-      symlinkSync(foreign, join(session.project.directory, linkedName, "session.json"));
-      assert.deepEqual(findCorpusSessionByIdentity(session.project, "wanted"), { name: session.name, directory: session.directory });
-      const arrayName = "calm-cedar-0002";
-      mkdirSync(join(session.project.directory, arrayName));
-      writeFileSync(join(session.project.directory, arrayName, "session.json"), "[]");
-      assert.equal(findCorpusSessionByIdentity(session.project, "missing"), undefined);
-      assert.equal(validateCorpusSession(session.project, "bad/name", undefined), false);
-      assert.equal(validateCorpusSession(session.project, session.name, undefined), true);
-      removeCorpusSession(session.project, "wrong identity", session.name);
-      assert.equal(validateCorpusSession(session.project, session.name, "wanted"), true);
-    });
-  } finally { rmSync(paths.root, { recursive: true, force: true }); }
-});
-
 test("a symlinked agent path resolves before corpus children are created", () => {
   const paths = workspace();
   const target = join(paths.root, "real-agent");
@@ -301,7 +243,7 @@ test("new artifact writes use the corpus session namespace and logical session r
   const paths = workspace();
   try {
     withAgent(paths.agent, () => {
-      const session = createCorpusSession({ cwd: paths.project, identity: "id", initialNameBytes: Uint8Array.from([3, 3, 0, 2]) });
+      const session = durableSession(paths.project)
       mkdirSync(join(session.project.root, `other-${session.project.digest}`));
       const written = writeSlateArtifact({ cwd: paths.project, sessionName: session.name, projectDirectory: session.project.directory, kind: "episodes", id: "t1.e1", content: "episode" });
       assert.equal(written.absolutePath, join(session.directory, "episodes", "t1.e1.md"));
@@ -361,7 +303,7 @@ test("followed paths accept both roots and reject outside files and symlinks", (
   const paths = workspace();
   try {
     withAgent(paths.agent, () => {
-      const session = createCorpusSession({ cwd: paths.project, identity: "id", initialNameBytes: Uint8Array.from([2, 2, 0, 1]) });
+      const session = durableSession(paths.project)
       const corpusFile = join(session.directory, "episodes", "t1.e1.md");
       writeFileSync(corpusFile, "episode");
       assert.equal(resolveContainedFile(paths.project, corpusFile, session.project.directory), corpusFile);

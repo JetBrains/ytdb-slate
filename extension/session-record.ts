@@ -430,18 +430,6 @@ function validateNamespace(
 	return { metadata, state };
 }
 
-function validLegacyMetadata(raw: unknown, name: string): boolean {
-	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return false;
-	const value = raw as Record<string, unknown>;
-	const keys = Object.keys(value);
-	const expected = ["identity", "name", "createdAt", "worktreePath", "branchLabel"];
-	if (!(exactKeys(value, expected) || exactKeys(value, [...expected, "piSessionName"]))) return false;
-	return typeof value.identity === "string" && value.name === name && canonicalTimestamp(value.createdAt)
-		&& boundedAbsolutePath(value.worktreePath) && typeof value.branchLabel === "string"
-		&& (value.piSessionName === undefined || typeof value.piSessionName === "string")
-		&& keys.length >= expected.length;
-}
-
 function assertIdentityAvailable(project: CorpusProject, identity: string): void {
 	let names: string[];
 	try {
@@ -458,11 +446,6 @@ function assertIdentityAvailable(project: CorpusProject, identity: string): void
 		}
 		const held = holdCorpusDirectory(path);
 		try {
-			const raw = readJsonFile(join(path, "session.json"), held, METADATA_MAX_BYTES);
-			if (typeof raw === "object" && raw !== null && !Array.isArray(raw)
-				&& !("policy" in raw) && validLegacyMetadata(raw, name)) {
-				continue;
-			}
 			const records = validateNamespace(project, name, held);
 			if (records.metadata.identity === identity) {
 				refuse("slate refused duplicate durable session identity publication");
@@ -630,6 +613,20 @@ export function createDurableSession(options: {
 		/* Hostile replacement makes pathname cleanup unsafe. Private failed staging remains ignored. */
 		if (stagingHeld !== undefined) closeSync(stagingHeld.fd);
 		closeSync(projectHeld.fd);
+	}
+}
+
+/** Validate one durable namespace name and identity without claiming access. */
+export function validateSessionNamespace(
+	project: CorpusProject,
+	name: string,
+	identity: string | undefined,
+): boolean {
+	try {
+		readDurableSession({ project, name, ...(identity === undefined ? {} : { identity }) });
+		return true;
+	} catch {
+		return false;
 	}
 }
 

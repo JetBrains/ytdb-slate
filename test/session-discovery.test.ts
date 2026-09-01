@@ -386,25 +386,6 @@ test("every durable identity field validates before query comparison", () => {
 	}
 });
 
-test("validated legacy records stay outside durable lookup", () => {
-	const box = workspace();
-	try {
-		const area = addArea(box.corpus, "alpha", "/keys/alpha");
-		addSession(area, NAME, ID, {
-			identity: ID,
-			name: NAME,
-			createdAt: "2026-08-26T14:15:00.000Z",
-			worktreePath: "/legacy/project",
-			branchLabel: "main",
-		});
-		for (const query of [NAME, ID]) {
-			const result = accepted(discoverCorpusSession({ query, root: box.corpus, isTrusted: () => true }));
-			assert.equal(result.outcome, "no match");
-			assert.equal(result.unreadable, 0);
-		}
-	} finally { box.close(); }
-});
-
 test("name lookup excludes unreadable candidates at other stored names", () => {
 	const box = workspace();
 	try {

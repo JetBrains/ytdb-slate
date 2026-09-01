@@ -109,9 +109,23 @@ pi install -l npm:ytdb-slate@<version>
 
 ## Commands
 
-Use `/slate sessions` to list the persisted corpus sessions for the current project. The command is read-only. It reports session names, identities, branch labels, worktree paths, creation times, pending handoff state, and safety markers. It writes nothing and removes nothing.
+Use `/slate sessions` to list the persisted corpus sessions for the current project. The command is read-only. It reports session names, identities, the directory each session was started in, creation times, pending handoff state, and safety markers. It writes nothing and removes nothing.
 
 Use `/slate on`, `/slate off`, `/slate handoff [focus]`, `/slate adopt <name>`, and `/slate resume` for orchestrator mode and handoff operations.
+
+## Where Slate keeps its records
+
+Slate keeps its worker threads, episodes, cost figures, and operating state in one **external namespace**. An external namespace is a directory outside your project directory. Each Slate session uses one such namespace.
+
+A start of pi asks for a storage report. A small **locator note** in the pi conversation names the external namespace of that conversation. A start with a valid locator note restores every record from the named namespace. A start with no locator note prepares a new namespace. The first change of the records creates the directory.
+
+A start that cannot select storage safely leaves Slate refusing every save. Every later save then reports that refusal. Start another pi session after you correct the cause.
+
+**Breaking change.** Earlier versions of Slate kept a full copy of the records inside the pi conversation. This version reads no such copy. A resumed conversation from an earlier version therefore holds no locator note. Slate starts a new Slate session in it, with an empty namespace. The old copies stay in the conversation file as unused data, and Slate reports no special message about them. The records of such a conversation are no longer reachable.
+
+A pi conversation holds the locator note and no copy of the records. `/slate handoff [focus]` saves the records and writes a handoff record that names the namespace. `/slate adopt <name>` in the receiving session reads that namespace. The receiving session keeps the records the read returned. It saves into the same namespace from then on.
+
+The handoff copies no record and creates no second namespace. Adoption grants no exclusive access, so stop working in the sending session after a handoff.
 
 ## Configuration
 
