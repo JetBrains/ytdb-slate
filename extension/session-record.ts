@@ -30,6 +30,7 @@ import {
 	type CorpusProject,
 	type HeldCorpusDirectory,
 } from "./corpus.ts";
+import { RESEARCH_LOG_FILENAME } from "./research-log.ts";
 import { isOwnerSessionDigest, isSlateSessionId } from "./session-identity.ts";
 import { isSlateSessionName } from "./session-names.ts";
 import {
@@ -106,6 +107,8 @@ export interface DurableSessionHooks {
 	beforeStatePublish?: () => void;
 	afterStatePublish?: () => void;
 	beforeRecordWrite?: (file: string, fd: number) => void;
+	/** Fires before the staged research log write, so a test can occupy that name. */
+	beforeResearchLogWrite?: (file: string) => void;
 	beforeRecordFsync?: (file: string, fd: number) => void;
 	drawStateNonce?: () => string;
 	syncDirectory?: (directory: HeldCorpusDirectory, point: DurableDirectorySyncPoint) => void;
@@ -345,9 +348,17 @@ function readJsonFile(file: string, directory: HeldCorpusDirectory, maxBytes: nu
 	}
 }
 
-function writeExclusiveJson(
+/**
+ * Create one staged record file exclusively and make its bytes durable.
+ *
+ * It is the ONE exclusive-create path of this module. `writeExclusiveJson` uses
+ * it for the two JSON records, and the research log of a new Slate session uses
+ * it with empty content (Track 15 goal 1). One shared path keeps the link, the
+ * symbolic link and the replacement refusals identical for every staged record.
+ */
+function writeExclusiveContent(
 	file: string,
-	value: unknown,
+	content: string,
 	directory: HeldCorpusDirectory,
 	maxBytes: number,
 	hooks?: DurableSessionHooks,
@@ -355,7 +366,6 @@ function writeExclusiveJson(
 	if (dirname(file) !== directory.path || !corpusDirectoryMatches(directory)) {
 		refuse("slate refused a durable session write outside its namespace");
 	}
-	const content = `${JSON.stringify(value, null, 2)}\n`;
 	if (Buffer.byteLength(content, "utf8") > maxBytes) refuse("slate refused an oversized durable session record");
 	let fd: number | undefined;
 	try {
@@ -381,6 +391,17 @@ function writeExclusiveJson(
 	}
 }
 
+/** One staged JSON record, through the shared exclusive-create path above. */
+function writeExclusiveJson(
+	file: string,
+	value: unknown,
+	directory: HeldCorpusDirectory,
+	maxBytes: number,
+	hooks?: DurableSessionHooks,
+): Stats {
+	return writeExclusiveContent(file, `${JSON.stringify(value, null, 2)}\n`, directory, maxBytes, hooks);
+}
+
 function sameMetadata(left: DurableSessionMetadata, right: DurableSessionMetadata): boolean {
 	return METADATA_KEYS.every((key) => left[key] === right[key]);
 }
@@ -390,6 +411,29 @@ function sameState(left: DurableSessionState, right: DurableSessionState): boole
 		&& left.lastWriterSessionDigest === right.lastWriterSessionDigest
 		&& JSON.stringify(left.runtime) === JSON.stringify(right.runtime)
 		&& (left.status === "active" || (right.status !== "active" && left.terminalAt === right.terminalAt));
+}
+
+/**
+ * The staged research log must be one plain, unshared, unlinked file.
+ *
+ * CREATION TIME ONLY. A staged research log can be replaced between its write
+ * and the publishing rename, and a symbolic link there would send a worker's
+ * write outside the session directory, because Pi's write tool follows a link.
+ * This check refuses a symbolic link, a hard link, a directory and a missing
+ * file at that moment.
+ *
+ * READ TIME NEVER USES IT. A user is invited to read the research log, and many
+ * editors replace a file instead of rewriting it. A read-time requirement or a
+ * read-time identity check would turn ordinary editing into an unreadable Slate
+ * session. A missing research log at read time is acceptable, because a worker
+ * recreates the file at the path Slate gives.
+ */
+function assertRequiredResearchLog(directory: HeldCorpusDirectory): void {
+	const path = join(directory.path, RESEARCH_LOG_FILENAME);
+	const entry = lstatSync(path, { throwIfNoEntry: false });
+	if (!singleNamedRecord(entry) || realpathSync(path) !== path || !corpusDirectoryMatches(directory)) {
+		refuse("slate refused a missing, linked, or non-regular durable session research log");
+	}
 }
 
 function assertRequiredDirectories(directory: HeldCorpusDirectory): void {
@@ -409,9 +453,12 @@ function validateNamespace(
 	directory: HeldCorpusDirectory,
 	expectedMetadata?: DurableSessionMetadata,
 	expectedState?: DurableSessionState,
+	/** Creation only. A sibling scan and a state replacement leave it "ignored". */
+	researchLog: "required" | "ignored" = "ignored",
 ): { metadata: DurableSessionMetadata; state: DurableSessionState } {
 	if (!corpusDirectoryMatches(directory)) refuse("slate refused a changing durable session namespace");
 	assertRequiredDirectories(directory);
+	if (researchLog === "required") assertRequiredResearchLog(directory);
 	const metadata = validateMetadata(
 		readJsonFile(join(directory.path, "session.json"), directory, METADATA_MAX_BYTES),
 		project,
@@ -554,15 +601,23 @@ export function createDurableSession(options: {
 		for (const category of ["episodes", "observations", "threads"]) {
 			mkdirSync(join(staging, category), { mode: PRIVATE_DIRECTORY_MODE });
 		}
+		const stagedRuntime = decodeRuntime(options.runtime, {
+			metadata,
+			directory: stagingHeld,
+			canonicalDirectory: directory,
+		});
+		// Track 15 goal 1: EVERY session directory holds one research log, and Slate
+		// creates it here. No worker has a reliable path before this transition.
+		// No hooks are passed. The research log carries no JSON record, so the record
+		// seams of the two JSON writes keep their existing call counts.
+		const researchLogFile = join(staging, RESEARCH_LOG_FILENAME);
+		options.hooks?.beforeResearchLogWrite?.(researchLogFile);
+		writeExclusiveContent(researchLogFile, "", stagingHeld, 0);
 		stagedState = {
 			generation: 0,
 			status: "active",
 			lastWriterSessionDigest: options.creatorSessionDigest,
-			runtime: decodeRuntime(options.runtime, {
-				metadata,
-				directory: stagingHeld,
-				canonicalDirectory: directory,
-			}),
+			runtime: stagedRuntime,
 		};
 		writeExclusiveJson(join(staging, "session.json"), metadata, stagingHeld, METADATA_MAX_BYTES, options.hooks);
 		writeExclusiveJson(join(staging, "state.json"), stagedState, stagingHeld, STATE_MAX_BYTES, options.hooks);
@@ -572,7 +627,9 @@ export function createDurableSession(options: {
 		if (!corpusDirectoryMatches(stagingHeld) || !corpusDirectoryMatches(projectHeld)) {
 			refuse("slate refused a changing staged durable session namespace");
 		}
-		validateNamespace(project, options.name, stagingHeld, metadata, stagedState);
+		// "required" here is the guard against a staged research log replaced after its
+		// write: the check runs after the last test seam and before the rename.
+		validateNamespace(project, options.name, stagingHeld, metadata, stagedState, "required");
 		if (lstatSync(directory, { throwIfNoEntry: false }) !== undefined) {
 			refuse("slate refused duplicate durable session publication");
 		}
@@ -591,7 +648,7 @@ export function createDurableSession(options: {
 		if (!corpusDirectoryMatches(stagingHeld) || !corpusDirectoryMatches(projectHeld)) {
 			refuse("slate refused a durable session namespace modified during publication");
 		}
-		const committed = validateNamespace(project, options.name, stagingHeld, metadata, stagedState);
+		const committed = validateNamespace(project, options.name, stagingHeld, metadata, stagedState, "required");
 		syncDirectory(projectHeld, "project-after-publication", options.hooks);
 		return { directory, metadata: committed.metadata, state: committed.state };
 	} catch (error) {
@@ -599,7 +656,7 @@ export function createDurableSession(options: {
 			let record: DurableSessionRecord | undefined;
 			let cause = error;
 			try {
-				const reconciled = validateNamespace(project, options.name, stagingHeld, metadata);
+				const reconciled = validateNamespace(project, options.name, stagingHeld, metadata, undefined, "required");
 				record = { directory, metadata: reconciled.metadata, state: reconciled.state };
 			} catch (reconcileError) {
 				cause = new AggregateError([error, reconcileError], "visible durable session publication could not be reconciled");

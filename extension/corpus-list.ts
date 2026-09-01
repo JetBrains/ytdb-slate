@@ -58,6 +58,18 @@ export function corpusListCell(value: unknown): string {
 	return characters.length <= CORPUS_LIST_CELL_CHARS ? clean : `${characters.slice(0, CORPUS_LIST_CELL_CHARS - 1).join("")}…`;
 }
 
+/**
+ * One exact visible directory, or an empty refusal.
+ *
+ * Directory lines sit outside the pipe-separated summary, so every legal visible
+ * path character remains unambiguous. A changed path is never presented as exact.
+ * The whole command output still has its own cap in `capCorpusSessionOutput`.
+ */
+export function corpusListPath(value: unknown): string {
+	if (typeof value !== "string" || value === "") return "";
+	return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u.test(value) ? "" : value;
+}
+
 function errorText(error: unknown): string {
 	return corpusListCell(error instanceof Error ? error.message : String(error)) || "read failed";
 }
@@ -142,6 +154,13 @@ interface DraftRow {
 	name: string;
 	identity?: string;
 	createdAt?: string;
+	/**
+	 * The directory that holds the records of this Slate session (Track 15 goal 5).
+	 *
+	 * It is composed from the corpus project directory and the session name, so a
+	 * row that could not be read still reports where its records belong.
+	 */
+	sessionDirectory?: string;
 	worktreePath?: string;
 	branchLabel?: string;
 	pending: "absent" | "present" | "unreadable";
@@ -187,6 +206,7 @@ function readRow(
 ): { row: DraftRow; readBytes: number } {
 	const row: DraftRow = { name, pending: "absent", markers: [], notes: [] };
 	const directory = join(project.directory, name);
+	row.sessionDirectory = directory;
 	let readBytes = 0;
 	try {
 		const pending = pendingState(project, name, limits.fileBytes);
@@ -248,7 +268,13 @@ function readRow(
 function renderRow(row: DraftRow): string {
 	const markers = row.markers.length === 0 ? "none" : row.markers.map(corpusListCell).join(", ");
 	const notes = row.notes.length === 0 ? "none" : row.notes.map(corpusListCell).join(", ");
-	return `- ${corpusListCell(row.name)} | identity ${corpusListCell(row.identity) || "(invalid)"} | branch ${corpusListCell(row.branchLabel) || "(unknown)"} | worktree ${corpusListCell(row.worktreePath) || "(invalid)"} | created ${corpusListCell(row.createdAt) || "(invalid)"} | pending ${corpusListCell(row.pending)} | marker ${corpusListCell(markers)} | defect ${corpusListCell(notes)}`;
+	// Exact paths use separate labelled lines. A legal vertical bar in a path must
+	// not become a cell separator or be replaced with different text.
+	return [
+		`- ${corpusListCell(row.name)} | identity ${corpusListCell(row.identity) || "(invalid)"} | branch ${corpusListCell(row.branchLabel) || "(unknown)"} | created ${corpusListCell(row.createdAt) || "(invalid)"} | pending ${corpusListCell(row.pending)} | marker ${corpusListCell(markers)} | defect ${corpusListCell(notes)}`,
+		`  session directory: ${corpusListPath(row.sessionDirectory) || "(invalid)"}`,
+		`  project directory: ${corpusListPath(row.worktreePath) || "(invalid)"}`,
+	].join("\n");
 }
 
 /** Read and render the current project's corpus without creating any path. */
@@ -361,18 +387,27 @@ export function listCorpusSessions(options: {
 	return { ok: true, lines, rows: rows.length, truncated: omitted > 0 };
 }
 
-/** Keep the command channel bounded and state when rows were omitted from it. */
+/** Keep the command channel bounded without printing a partial exact-path entry. */
 export function capCorpusSessionOutput(rendered: string): string {
 	const notice = "\n[output truncated at 16384 characters]";
 	if (rendered.length <= CORPUS_LIST_OUTPUT_CHARS) return rendered;
 	const bodyLimit = CORPUS_LIST_OUTPUT_CHARS - notice.length;
+	const lines = rendered.split("\n");
+	const kept: string[] = [];
+	for (let index = 0; index < lines.length;) {
+		const line = lines[index] ?? "";
+		const pathEntry = line.startsWith("- ")
+			&& lines[index + 1]?.startsWith("  session directory: ") === true
+			&& lines[index + 2]?.startsWith("  project directory: ") === true;
+		const chunk = pathEntry ? lines.slice(index, index + 3) : [line];
+		const candidate = [...kept, ...chunk].join("\n");
+		if (candidate.length > bodyLimit) break;
+		kept.push(...chunk);
+		index += chunk.length;
+	}
 	const summary = /^Lookup found (\d+) matches?\. The printed list contains \d+ matches?\.$/mu;
-	if (!summary.test(rendered)) return `${rendered.slice(0, bodyLimit)}${notice}`;
-	const sliced = rendered.slice(0, bodyLimit);
-	const lastLineBreak = sliced.lastIndexOf("\n");
-	const completeLines = lastLineBreak < 0 ? "" : sliced.slice(0, lastLineBreak);
-	const printed = completeLines.match(/^- /gmu)?.length ?? 0;
-	const body = completeLines.replace(summary, (_line, foundText: string) => {
+	const printed = kept.filter((line) => line.startsWith("- ")).length;
+	const body = kept.join("\n").replace(summary, (_line, foundText: string) => {
 		const found = Number(foundText);
 		return `Lookup found ${found} ${found === 1 ? "match" : "matches"}. The printed list contains ${printed} ${printed === 1 ? "match" : "matches"}.`;
 	});

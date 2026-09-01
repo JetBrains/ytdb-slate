@@ -278,6 +278,7 @@ test("both lookup inputs return one validated identity record without disclosing
 				name: NAME,
 				identity: ID,
 				createdAt: "2026-08-26T14:15:00.000Z",
+				sessionDirectory: join(area.path, NAME),
 				currentDirectory: "/removed/alpha",
 				projectLabel: "alpha",
 				projectDigest: area.digest,
@@ -326,6 +327,8 @@ test("a long match list keeps the advisory and reports command-channel truncatio
 		assert.equal(Number(summary[1]), 100);
 		const printed = capped.match(/^- /gmu)?.length ?? 0;
 		assert.equal(Number(summary[2]), printed);
+		assert.equal(capped.match(/^  session directory: /gmu)?.length ?? 0, printed);
+		assert.equal(capped.match(/^  project directory: /gmu)?.length ?? 0, printed);
 		assert.ok(printed < 100);
 		assert.match(capped, /\[output truncated at 16384 characters\]$/u);
 		assert.ok(capped.length <= 16_384);

@@ -196,7 +196,8 @@ test("a durable session publishes complete metadata and active state", () => {
 		assert.equal(created.directory, join(box.project.directory, NAME));
 		assert.deepEqual(created.state, activeState(0));
 		assert.deepEqual(readDurableSession({ project: box.project, name: NAME, identity: ID, cwd: box.cwd }), created);
-		assert.deepEqual(readdirSync(created.directory).sort(), ["episodes", "observations", "session.json", "state.json", "threads"]);
+		// Track 15: every published session directory also holds one research log.
+		assert.deepEqual(readdirSync(created.directory).sort(), ["episodes", "observations", "research-log.md", "session.json", "state.json", "threads"]);
 		assert.equal(statSync(created.directory).mode & 0o777, 0o700);
 		assert.equal(statSync(join(created.directory, "session.json")).mode & 0o777, 0o600);
 		assert.equal(statSync(join(created.directory, "state.json")).mode & 0o777, 0o600);
@@ -1129,7 +1130,7 @@ test("creation uncertainty surfaces valid different-writer provenance", () => {
 		assert.equal(error.operation, "create");
 		assert.deepEqual(error.record?.state, foreignState);
 		assert.deepEqual(readDurableSession({ project: box.project, name: NAME }).state, foreignState);
-		assert.deepEqual(readdirSync(directory).sort(), ["episodes", "observations", "session.json", "state.json", "threads"]);
+		assert.deepEqual(readdirSync(directory).sort(), ["episodes", "observations", "research-log.md", "session.json", "state.json", "threads"]);
 		assert.deepEqual(parse(stateFile), foreignState);
 	} finally {
 		box.close();

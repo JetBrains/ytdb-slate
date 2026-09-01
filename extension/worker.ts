@@ -42,6 +42,7 @@ import {
 import { sanitizeForNotify } from "./notify.ts";
 import { isSlateSessionName } from "./session-names.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import { renderResearchLogWorkerGuidance } from "./research-log.ts";
 import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
@@ -114,9 +115,16 @@ export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code a
   project's checks.
 `;
 
-export function workerPreamble(writingCheck: boolean, reviewerCharter: boolean): string {
+export function workerPreamble(
+	writingCheck: boolean,
+	reviewerCharter: boolean,
+	// Track 15 goal 3. The exact research log path of this Slate session, or
+	// undefined when Slate owns no such path. A worker never derives the path.
+	researchLogPath?: string,
+): string {
 	const additions: string[] = [];
 	if (writingCheck === true) additions.push(WORKER_WRITING_GUIDANCE);
+	if (typeof researchLogPath === "string") additions.push(renderResearchLogWorkerGuidance(researchLogPath));
 	const prose = [WORKER_PREAMBLE, ...additions].join(" ");
 	return reviewerCharter === true ? `${prose}\n${REVIEWER_CHARTER}` : prose;
 }
@@ -198,6 +206,7 @@ export async function openWorkerSession(opts: {
 	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
 	writingCheck?: boolean; // sanitized writing.check; only literal true enables worker guidance
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
+	researchLogPath?: string; // Track 15: the exact research log path Slate owns for this session
 	promptCacheKey?: string; // optional OpenAI Responses cache-routing key
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
@@ -277,7 +286,7 @@ export async function openWorkerSession(opts: {
 		// untrusted project's switch. The reviewer charter is not trust-gated:
 		// writing guidance points at a project-configured checker, while the charter
 		// is slate's own constant and contains no project input.
-		appendSystemPrompt: [workerPreamble(trusted && opts.writingCheck === true, opts.reviewerCharter === true), ...promptDocs],
+		appendSystemPrompt: [workerPreamble(trusted && opts.writingCheck === true, opts.reviewerCharter === true, opts.researchLogPath), ...promptDocs],
 	});
 	await loader.reload();
 

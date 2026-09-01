@@ -18,7 +18,7 @@ import {
 	sameFileIdentity,
 	type HeldCorpusDirectory,
 } from "./corpus.ts";
-import { corpusListCell } from "./corpus-list.ts";
+import { corpusListCell, corpusListPath } from "./corpus-list.ts";
 import { isSlateSessionId, isOwnerSessionDigest } from "./session-identity.ts";
 import { isSlateSessionName } from "./session-names.ts";
 
@@ -64,6 +64,8 @@ export interface DiscoveredSession {
 	name: string;
 	identity: string;
 	createdAt: string;
+	/** The directory that holds the records of this Slate session (Track 15 goal 5). */
+	sessionDirectory: string;
 	currentDirectory: string;
 	projectLabel: string;
 	projectDigest: string;
@@ -217,7 +219,13 @@ function readIdentityRecord(
 }
 
 function renderMatch(match: DiscoveredSession): string {
-	return `- ${corpusListCell(match.name)} | identity ${corpusListCell(match.identity)} | project ${corpusListCell(match.projectLabel)}-${corpusListCell(match.projectDigest)} | worktree ${corpusListCell(match.currentDirectory)} | created ${corpusListCell(match.createdAt)}`;
+	// The query form uses the same separate exact-path lines as the no-argument
+	// form. A legal vertical bar therefore remains path data, not a separator.
+	return [
+		`- ${corpusListCell(match.name)} | identity ${corpusListCell(match.identity)} | project ${corpusListCell(match.projectLabel)}-${corpusListCell(match.projectDigest)} | created ${corpusListCell(match.createdAt)}`,
+		`  session directory: ${corpusListPath(match.sessionDirectory) || "(invalid)"}`,
+		`  project directory: ${corpusListPath(match.currentDirectory) || "(invalid)"}`,
+	].join("\n");
 }
 
 function render(
@@ -383,6 +391,7 @@ export function discoverCorpusSession(options: {
 							name: metadata.name,
 							identity: metadata.identity,
 							createdAt: metadata.createdAt,
+							sessionDirectory: path,
 							currentDirectory: metadata.currentDirectory,
 							projectLabel: area.label,
 							projectDigest: area.digest,

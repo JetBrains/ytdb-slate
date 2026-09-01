@@ -45,8 +45,9 @@ approval form one gate.
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
 [pr-publishing.md](pr-publishing.md). When disabled, the working log is the
-durable workflow record while its worktree remains available. Removing that
-worktree destroys its root-owned working log.
+durable workflow record while its location remains available. Removing a
+worktree destroys a project-directory working log. A session-directory working
+log survives worktree removal.
 
 ## Size script and focus prediction
 
@@ -210,10 +211,32 @@ A later track builds on the accepted boundary before it.
 
 ## Session handoff and the research log
 
-MEDIUM and LARGE changes always use `research-log.md`, called the working log,
-at the root of the worktree that holds the change. For a single-checkout clone,
-that root is the checkout root. A SMALL change opens the working log when any
-retained trigger fires.
+MEDIUM and LARGE changes always use `research-log.md`, called the working log. A
+SMALL change opens the working log when any retained trigger fires.
+
+Every Slate session directory holds one working log. A session directory is the
+directory outside the project that holds the records of one Slate session. Slate
+creates the empty working log in the same accepted record change that creates
+the session directory. Slate then supplies the exact path in the orchestrator
+instructions and in every worker that receives a working-log action.
+
+Before that first accepted record change, no session directory exists and no
+exact path exists. The orchestrator instructions state the pending rule and
+supply no path. Do not create `research-log.md` in the project directory as a
+fallback. Keep early decisions in the conversation, and record them in the first
+working-log update.
+
+Slate moves, copies, renames and deletes no working log that already exists
+elsewhere. A working log that a change created at a project directory path stays
+at that path, and no Slate code manages that file.
+
+A worker that updates the working log takes the path from Slate. A worker never
+derives the path from the current project directory. Slate withholds a path that
+it cannot present exactly, and it says so in that case. Ask the user to restart
+Pi with an agent directory whose path is nonblank and contains no control,
+format, line-separator, paragraph-separator, or lone-surrogate characters. The
+path must avoid `<<` and `>>`. The resulting research log path must stay within
+Slate's 4,096-JavaScript-unit sanity guard.
 
 | trigger | SMALL | MEDIUM and LARGE |
 | --- | --- | --- |
@@ -341,8 +364,9 @@ Abandonment is not delivery. Resolve or hand every open question to the user.
 Follow [user-notes.md](user-notes.md) for final accounting. Never delete the
 working log during a change.
 
-Before removing an abandoned worktree, explain that removal destroys its
-root-owned working log. Obtain the user's informed confirmation. The user may
+Before removing an abandoned worktree, explain that removal destroys a
+project-directory working log. A session-directory working log survives that
+removal. Obtain the user's informed confirmation. The user may
 retain the worktree. The user may instead arrange a manual copy through project
 guidance. Slate does not create, verify, or require that copy. The copy is not a
 delivery gate or a condition for abandonment.

@@ -718,6 +718,9 @@ export class ThreadManager {
 		report: (message: string) => void;
 	}): Promise<{ session: WorkerSession; baseline: SessionBaseline }> {
 		const type = effectiveThreadType(args.thread, args.report);
+		// Track 15 goal 3: the worker receives the exact path from Slate. The store
+		// answers undefined for a session whose research log is not Slate owned.
+		const researchLogPath = this.store.researchLogPath();
 		const session = await openWorkerSession({
 			ctx: args.ctx,
 			sessionName: this.artifactSessionName(),
@@ -728,6 +731,7 @@ export class ThreadManager {
 			extensionPaths: this.resolveExtensions().paths,
 			writingCheck: this.config.writing?.check === true,
 			reviewerCharter: isJudgementThreadType(type),
+			...(researchLogPath === undefined ? {} : { researchLogPath }),
 			promptCacheKey:
 				this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
 					? undefined

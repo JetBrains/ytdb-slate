@@ -29,8 +29,9 @@ This repo runs slate on itself from the main worktree's sources:
 - Run the slate orchestrator session in the main worktree. Give each change a branch named `<branch>` and a sibling worktree at `../<branch>`; do not develop in main. From a clean, current main worktree, create both with `git worktree add -b <branch> ../<branch> main`.
 - Dispatch every action with absolute paths into its change worktree. A relative path can resolve against main and edit the live sources.
 - Run `npm ci --ignore-scripts` in every new worktree before verification or an isolated smoke test.
-- Keep `research-log.md` at the change worktree root for the life of the change.
-- Never delete the working log during a change. Worktree removal disposes of that checkout copy.
+- **Every Slate session directory holds one working log** (Track 15). Slate creates `research-log.md` inside the session directory in the same accepted record change that creates that directory. THERE IS NO STORED LOCATION CHOICE: the session directory feature and this rule ship in one release, so no session directory without a working log can exist. Slate manages no working log outside a session directory, so THE PRESENT CHANGE'S OWN LOG stays where it is at the worktree root and no Slate code touches it (`extension/research-log.ts`, `extension/session-record.ts`).
+- Take the exact path from Slate. The orchestrator doctrine and the worker preamble both carry it once the session directory exists, delimited by `<<` and `>>` and named as a path rather than an instruction. Never derive it from the current project directory. Slate withholds a path it cannot present exactly, and it says so.
+- Never delete the working log during a change. Worktree removal disposes of a working log kept at a worktree root.
 - Keep the main worktree clean. Verify that it is clean before every user review.
 - After a change merges, run `git fetch origin` in the clean main worktree, then `git merge --ff-only origin/main`. If the fast-forward fails, stop and reconcile the divergence without a merge commit before restarting the orchestrator. The restarted session then loads the merged sources.
 
@@ -57,6 +58,7 @@ This repo runs slate on itself from the main worktree's sources:
      - the writing checker's correctness suite.
      - the writing checker's scaling gate (§ Writing-checker nets).
      - the writing-reminder integration check (§ Writing-reminder integration check).
+     - the research-log integration check (§ Research-log integration check).
 
      Each section states its own re-run trigger. CI excludes the ladder on purpose. The other hand-run nets are not wired into the workflow. The unit tests and the patch-coverage gate are NOT in this set any more: CI runs them (§ Unit tests and the coverage gate).
 
@@ -167,7 +169,7 @@ pi **stays silent** for each failure below: it exits 0, and it prints neither ma
 
   **Run the typecheck after ANY TypeScript change.** That trigger is wide on purpose, and the deep nets below use a narrow trigger instead. The run takes about 2 seconds, and it checks every file that it covers in one pass. Spend no time on a decision about the type relevance of your edit.
 
-  The silent-failure nets are the ladder, pure-resolver checks, packaging guards, extension-load check, unit tests with the patch-coverage gate, and package-content check. They also include both writing-checker nets and the writing-reminder integration check. The sections below define their scope.
+  The silent-failure nets are the ladder, pure-resolver checks, packaging guards, extension-load check, unit tests with the patch-coverage gate, and package-content check. They also include both writing-checker nets, the writing-reminder integration check and the research-log integration check. The sections below define their scope.
 
   This inventory intentionally has no total. Earlier totals went stale twice. Add each new net to this inventory when you add it.
 
@@ -217,6 +219,7 @@ Concurrent pi sessions are permitted only when they cannot write this checkout. 
 - **Re-run it after any change to a covered module or source path.** Covered production modules are:
   - `extension/worker-extensions.ts`, `model-router.ts`, `route.ts`, `model-profiles.ts`, `base-model.ts` and `episodes.ts`.
   - `extension/writing.ts`, `writing-reminder.ts` and `writing-check.mjs`.
+  - `extension/research-log.ts` and the research log lines of rule 8 in `extension/mode.ts` (`doctrine-research-log`). Doctrine budgets exclude the variable session-directory prefix and retain `research-log.md`; production prompts keep the full path.
   - The worker preamble or config plumbing in `extension/worker.ts` and `extension/threads.ts`.
   - `extension/state.ts` spec helpers or stored-record sanitizers.
   - `extension/handoff.ts` reminder force ordering.
@@ -278,6 +281,70 @@ Re-run it after these changes:
 A change to `extension/handoff.ts` still requires the full ladder. Run the
 pure-resolver checks for reminder policy, config, mode, doctrine or ordering
 changes.
+
+### Research-log integration check (Track 15 connected paths)
+
+`bash verification/run-research-log-check.sh --repo .` starts **two** real pi
+sessions against a deterministic in-process fake provider. The first session
+accepts one record change through `/slate on`, which is the transition that mints
+the session directory. The second session runs `pi --continue` on the same
+conversation, so it restores the same Slate session through the real locator
+note. No other harness in this repo continues a pi conversation across processes,
+and that second process is the only automated proof that a restored session
+resolves the same research log path.
+
+It is the only net that covers these connected paths at once:
+
+- slate creates exactly one session directory and one `research-log.md`, then a
+  real worker writes one unique marker through the exact prompt path;
+- `state.json` records NO research log location key, which is the removed field;
+- every orchestrator system prompt of the run carries the EXACT research log
+  path, and no system prompt blends two cases (the doctrine renders through the
+  real `before_agent_start` hook, so this is the wiring the resolver checks
+  cannot reach);
+- the system prompt of one REAL dispatched worker carries the same exact path.
+  The scratch project sets `workerExtensions` so the worker loads the canary,
+  because slate takes worker-extension candidates from registered TOOLS and a
+  worker session resolves its provider key from the agent configuration;
+- the shipped `README.md` carries eleven non-empty numbered storage situations
+  in order, with the decisive facts of every situation;
+- the continued session reports the SAME path;
+- `/slate sessions` prints the exact session and project paths on separate
+  labelled lines, prints no `worktree` label, and the reported session directory
+  holds `episodes`, `observations` and `threads`.
+
+Structure follows `verification/run-writing-reminder-check.sh`: `PI_BIN` then
+`node_modules/.bin/pi` with an exact version pin, an isolated `mktemp` scratch
+root resolved physically and refused inside the checkout, `env -i` with only
+throwaway values, `PI_OFFLINE=1`, GNU `timeout --kill-after`, one
+`CHECK <id> <PASS|FAIL> — <detail>` line per check, a roster audit and a summary.
+Exit 0 means every check passed. Exit 1 means a check failed. Exit 2 means the
+harness refused to start with `verification: refused to start — <reason>`. A
+failed run keeps its scratch directory and inlines both pi stderr and stdout
+streams. A Node producer keeps stdin open until the parent receives the completed
+thread result. The producer stops after 45 seconds. GNU `timeout` sends TERM at
+60 seconds and KILL five seconds later.
+
+`PI_OFFLINE=1` keeps pi startup offline, and the fake provider performs no
+network operation. This is not a network sandbox, because reviewed extension code
+can still open raw sockets.
+
+It does NOT cover the pending-instruction case. A real rpc session reaches
+orchestrator mode only through `/slate on`, and that command is itself the first
+accepted record change, so no reachable rpc state has orchestrator mode on with
+no session directory. The pending case is covered by `doctrine-research-log` in
+the pure-resolver checks and by `test/research-log.test.ts`.
+
+Re-run it after these changes:
+
+- `extension/research-log.ts`, or `researchLogPath()` in `extension/state.ts`.
+- Research log creation or its staged validation in `extension/session-record.ts`.
+- The research log lines of rule 8 in `extension/mode.ts`.
+- The worker path wiring in `extension/worker.ts` or `extension/threads.ts`.
+- The row shape of `extension/corpus-list.ts` or `extension/session-discovery.ts`.
+- The pause-instruction sentence in `extension/handoff.ts`.
+- The shipped storage guidance section of `README.md`.
+- The canary, the harness, the pi pin or the rpc shape.
 
 ### Package-content check (package-resolved runtime files)
 

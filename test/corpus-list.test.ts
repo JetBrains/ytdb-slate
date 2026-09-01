@@ -14,6 +14,7 @@ import {
   CORPUS_LIST_ROW_ENTRIES,
   CORPUS_LIST_SESSION_ENTRIES,
   corpusListCell,
+  corpusListPath,
   listCorpusSessions,
 } from "../extension/corpus-list.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -419,6 +420,14 @@ test("the row-cell cap strips unsafe categories and cannot collide valid session
   const long = corpusListCell("x".repeat(1000));
   assert.equal(long.length, CORPUS_LIST_CELL_CHARS);
   assert.equal(long.endsWith("…"), true);
+});
+
+test("exact path lines preserve visible punctuation and refuse invisible text", () => {
+  const path = "/tmp/agent|team/project with spaces";
+  assert.equal(corpusListPath(path), path);
+  assert.equal(corpusListPath(`${path}\u0000forged`), "");
+  assert.equal(corpusListPath(`${path}\u200bforged`), "");
+  assert.equal(corpusListPath(`${path}\ud800forged`), "");
 });
 
 test("the registered sessions subcommand reports success and trust refusal through the command channel", async (t) => {

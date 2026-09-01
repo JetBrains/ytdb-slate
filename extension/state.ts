@@ -33,6 +33,7 @@ import {
 	slateArtifactReference,
 	slateEpisodeId,
 } from "./artifact-names.ts";
+import { resolveResearchLogPath } from "./research-log.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 import {
 	resolveContainedFile,
@@ -1485,6 +1486,19 @@ export class SlateStore {
 		return this.slateSessionName;
 	}
 
+	/**
+	 * The exact research log path, or undefined while no session directory exists.
+	 *
+	 * Every session directory holds one research log, so the answer is the exact
+	 * path whenever this Slate session owns a session directory (Track 15 goal 1).
+	 */
+	researchLogPath(): string | undefined {
+		const name = this.slateSessionName;
+		const directory = this.corpusProject?.directory;
+		if (name === undefined || directory === undefined) return undefined;
+		return resolveResearchLogPath(directory, name);
+	}
+
 	private runtimeMemorySnapshot(): CanonicalRuntimeState {
 		return cloneCanonicalRuntime({
 			threads: [...this.threads.values()].map(copyThreadRecord),
@@ -1743,7 +1757,8 @@ export class SlateStore {
 		if (selection.kind === "fresh") {
 			// PREPARATION ONLY. The identity and the namespace directory are minted by
 			// the first accepted mutation, so a start that changes nothing creates no
-			// directory (Track 14 goal 2).
+			// directory (Track 14 goal 2). It therefore owns no research log path yet
+			// either, because Slate creates that file with the session directory.
 			this.runtimeAuthority = { kind: "fresh", contextKey: selectedContext.key };
 			this.notifyDidChange(selectedContext);
 			return;

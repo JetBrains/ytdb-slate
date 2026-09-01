@@ -32,6 +32,7 @@ import {
 	WRITING_GUIDANCE_DOC,
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import { renderResearchLogDoctrine, type ResearchLogDoctrineState } from "./research-log.ts";
 import { SLATE_BINDING_CUSTOM_TYPE } from "./runtime-authority.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import { isSlateSessionName } from "./session-names.ts";
@@ -465,6 +466,9 @@ function buildDoctrine(
 	trusted: boolean,
 	extensions: WorkerExtensionSet,
 	router: ModelRouterResolution,
+	// Track 15 goal 3. The doctrine states the research log path of THIS Slate
+	// session. An absent path is the pending case, which is the default.
+	researchLog: ResearchLogDoctrineState = {},
 ): string {
 	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
 	// one of the gates; otherwise durable records live in the research log.
@@ -472,8 +476,8 @@ function buildDoctrine(
 		config.workflow?.draftPRs === true
 			? `An umbrella draft PR is part of the pre-implementation gates; PR
    publishing mechanics are in ${PR_PUBLISHING_DOC}.`
-			: `Durable workflow records anchor in the retained worktree-root research
-   log per the workflow doc.`;
+			: `Durable workflow records anchor in the retained research log per the
+   workflow doc.`;
 	const followUpTail = trusted && config.workflow?.followUpIssues === true
 		? "\n   After review, ask the user which review suggestions become tracker issues."
 		: "";
@@ -510,6 +514,7 @@ threads execute. Rules:
    areas separately. The orchestrator owns the track split. For repository changes,
    read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).
    MEDIUM and LARGE always keep a research log; SMALL opens one on a listed trigger.
+${renderResearchLogDoctrine(researchLog)}
    Track packets are non-blocking, but final change acceptance is blocking. Before
    the first file-modifying dispatch, confirm the user confirmed the predicted grade
    and focus set, and every required pre-implementation gate ran. Validate each
@@ -791,8 +796,13 @@ export function registerSlateMode(
 		// Blocks carry no separators — prefix each here. When paused, the
 		// addendum goes LAST so the pause directive is the final word in the
 		// prompt, undiluted by the role guidelines.
+		// The research log facts come from the store, so the doctrine states the
+		// pending rule before the session directory exists and the exact path after.
+		const researchLogPath = store.researchLogPath();
+		const researchLog: ResearchLogDoctrineState =
+			researchLogPath === undefined ? {} : { path: researchLogPath };
 		const parts = [
-			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRouter()),
+			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRouter(), researchLog),
 			...loadDoctrineExtra(ctx.cwd, config, trusted).map((d) => `\n\n${d}`),
 			...docs.map((d) => `\n\n${d}`),
 		];

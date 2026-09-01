@@ -839,8 +839,9 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
 | `session-name-vocabulary` | both ordered 32-word rosters and all 1,024 minted adjective-noun pairs remain frozen and valid |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It reads no project config. The draft-enabled maximum is **7,605 of 8,500** portable characters. The draft-disabled pin is **7,590**. Writing plus routing is **6,243 of 6,900**. All tails are **6,498 of 7,200**. The capped worker rule is **1,347 of 1,600**. An **8,921-character** positive control exceeds the maximal bound by 421. These are verification budgets, not runtime limits. |
-| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **7,683 of 8,500** portable characters and 100 lines and keeps 817 characters of reserve. |
+| `doctrine-research-log` | the research log rule of Track 15 renders exactly ONE case. Two cases exist: no session directory yet, and one exact path. There is no stored location choice. The check drives the real `before_agent_start` handler with a fabricated `researchLogPath()`. It pins the pending text, fallback prohibition, exact marked path, injection defences, 4,096-unit Slate sanity guard, and accurate agent-directory restart guidance. A withheld path prints no fragment or ellipsis. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence. It removes the variable research-log session-directory prefix only inside the marked path. It keeps every literal filename, including `research-log.md`. One long prefix and a different non-basic Unicode prefix must normalize to identical text and counts. A mutation control keeps a matching prefix in authored wording outside the marked path. Other controls catch missing or extra normalization, a duplicated path, and a missing filename. Production fixtures still carry the full path. The draft-enabled maximum is **7,763 of 8,500** portable characters. The draft-disabled pin is **7,734**. Writing plus routing is **6,387 of 6,900**. All tails are **6,642 of 7,200**. The capped worker rule is **1,347 of 1,600**. A **9,079-character** positive control exceeds the maximal bound by 579. |
+| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **7,841 of 8,500** portable characters and 103 lines. It keeps 659 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
@@ -852,7 +853,7 @@ The doctrine contract checks read the shipped workflow documents directly:
 | `contract-fast-path-artifact` | the ten-item SMALL checklist, omitted gates, retained sequence, and fallback to ordinary SMALL remain present |
 | `contract-test-composite` | the composite charter requires both behavioral effectiveness and structure and isolation sections |
 | `contract-no-test-structure` | the retired standalone test-structure role does not return or merge into another reviewer |
-| `contract-section-targets` | every named level-two target across the five workflow documents occurs exactly once. Regex metacharacters are escaped, and a duplicated Fast path counterfactual fails uniqueness |
+| `contract-section-targets` | every named level-two target across the five workflow documents occurs exactly once. In user notes, a line that holds exactly three backtick characters and nothing else toggles fence exclusion. Outside that exclusion, the check rejects unexpected lines that start with `## `. Regex metacharacters are escaped, and a duplicated Fast path counterfactual fails uniqueness |
 | `contract-archive-retirement` | old archive symbols and the removed document stay absent. Retired corpus state changes neither doctrine nor warnings. A mandatory copy, hash, verification, waiver, or corpus rule fails, including a renamed counterfactual |
 | `contract-retained-safety` | the handoff summary, working-log retention, five direct doctrine documents, and publishing acceptance sequence remain present. Each assertion defeats its own deletion mutation |
 
@@ -1009,11 +1010,12 @@ real session rather than against a fixture, and it agrees with these checks.
 > batch. The model-visible price-divergence warning is not deduplicated. Its exact-rate
 > `model-data-note` companion uses condition-key deduplication and the same display gate.
 
-**Recorded sizes use one portable basis.** The doctrine embeds ABSOLUTE doc
-paths. Raw size therefore changes with the install directory. `portable` removes
-each occurrence of the docs directory and keeps the filename. This is the figure
-that `doctrine-budget` enforces. To recover a raw count, add `paths × docs directory
-length`.
+**Recorded sizes use one portable basis.** Raw size changes with documentation
+locations and the research log session directory. `portable` removes each docs
+directory. It removes the variable research-log session-directory prefix only
+inside the marked research log path. It keeps every literal filename. The raw
+prompt still carries every complete path. To recover a raw count, add each
+removed prefix length.
 
 The full multi-basis table lives in `docs/context-budget.md`. The resolver check
 owns these stable verification fixtures.
@@ -1023,16 +1025,16 @@ owns these stable verification fixtures.
 | routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
 | writing rule | 1 | **1,070** | 23 | 1,150 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| router-off doctrine | 3 | **2,588** | 43 | — |
-| router-on doctrine | 4 | **5,173** | 67 | 6,500 |
-| writing-only doctrine | 4 | **3,658** | 65 | 5,600 |
-| writing plus router | 5 | **6,243** | 89 | 6,900 |
-| writing plus extensions | 4 | **3,913** | 71 | 6,000 |
-| writing plus router and extensions | 5 | **6,498** | 95 | 7,200 |
-| maximal doctrine with draft PRs enabled | 6 | **7,605** | 99 | 8,500 |
-| maximal doctrine with draft PRs disabled | 5 | **7,590** | 99 | 8,500 |
-| maximal doctrine with follow-up issues enabled | 6 | **7,683** | 100 | 8,500 |
-| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **8,921** | 106 | must exceed 8,500 |
+| router-off doctrine | 3 | **2,732** | 46 | — |
+| router-on doctrine | 4 | **5,317** | 70 | 6,500 |
+| writing-only doctrine | 4 | **3,802** | 68 | 5,600 |
+| writing plus router | 5 | **6,387** | 92 | 6,900 |
+| writing plus extensions | 4 | **4,057** | 74 | 6,000 |
+| writing plus router and extensions | 5 | **6,642** | 98 | 7,200 |
+| maximal doctrine with draft PRs enabled | 6 | **7,763** | 102 | 8,500 |
+| maximal doctrine with draft PRs disabled | 5 | **7,734** | 102 | 8,500 |
+| maximal doctrine with follow-up issues enabled | 6 | **7,841** | 103 | 8,500 |
+| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,079** | 109 | must exceed 8,500 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
 maximal pins cover draft pull requests enabled, draft pull requests disabled,
@@ -1042,18 +1044,26 @@ upper bound must exceed the current measurement by at least five percent.
 Required character raises round up to the next hundred, while line bounds use
 the next whole line.
 
+Every raw doctrine row above includes one complete research log path. Portable
+measurement excludes its variable session-directory prefix only inside that
+marked path. It retains `research-log.md`. Authored occurrences of the same
+prefix outside the marked path remain counted. The authored-wording budget does
+not limit mandatory environment data. Production rendering performs no such
+normalization.
+
 A doctrine change updates its exact literal. A bound changes only when this
 reserve policy requires it. Writing plus routing uses
-`6,243 × 1.05 = 6,555.15`. Ceiling gives 6,556. The existing 6,900 bound remains larger.
+`6,387 × 1.05 = 6,706.35`. Ceiling gives 6,707. The existing 6,900 bound remains larger.
 
-All tails use `6,498 × 1.05 = 6,822.9`. Ceiling gives 6,823. The existing
+All tails use `6,642 × 1.05 = 6,974.1`. Ceiling gives 6,975. The existing
 7,200 bound remains larger.
 
-The largest maximal fixture uses `7,683 × 1.05 = 8,067.15`. The existing 8,500 bound remains larger. The enabled, disabled, and follow-up
-maximal reserves are 895, 910, and 817.
+The largest maximal fixture uses `7,841 × 1.05 = 8,233.05`. Ceiling gives 8,234.
+The existing 8,500 bound remains larger. The enabled, disabled, and follow-up
+maximal reserves are 737, 766, and 659.
 
 The largest model-row growth is 184 characters. The capped tool-line growth is
-212 characters. The positive control exceeds the maximal bound by 421.
+212 characters. The positive control exceeds the maximal bound by 579.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
@@ -2052,6 +2062,72 @@ wiring, doctrine rendering, or handoff ordering contract.
 | --- | --- |
 | `run-writing-reminder-check.sh` | driver, environment isolation, real pi session, evidence parser, assertions, roster, and artifact policy |
 | `writing-reminder-canary.mjs` | real canary tool, offline provider, pre-normalization hook observation, and provider evidence |
+
+# Research log integration check — `run-research-log-check.sh`
+
+This harness is the integrated net of Track 15. It starts TWO real pi sessions
+against a deterministic in-process fake provider. Run it from the repository
+root:
+
+```sh
+bash verification/run-research-log-check.sh --repo .
+```
+
+The first session turns orchestrator mode on, which is its first accepted record
+change, so slate mints its session directory and creates one empty research log.
+The same session dispatches ONE real worker action. That worker writes a unique
+marker through the exact prompt path. The second session continues the same pi
+conversation with `--continue`, so it restores the same Slate session.
+
+The checks cover clean pi exits, parsed evidence, checkout identity, trust, hook
+errors, one session directory, research-log creation, the exact worker marker,
+the completion signal, stored-state shape, prompt paths, worker and parent tool
+results, one completed episode, public guidance, restore, exact labelled session
+list paths, record placement, and a roster audit.
+
+Three of those checks answer review findings:
+
+- `worker-exact-path` reads the system prompt of the REAL worker session. The
+  scratch project therefore sets `workerExtensions` so the worker loads the
+  canary, because slate takes worker-extension candidates from registered TOOLS
+  and a worker session resolves its provider key from the agent configuration.
+  The scratch agent directory holds a matching fake catalogue for that key.
+- `guidance-shipped` parses only the intended README section. It requires eleven
+  non-empty numbered situations in order and decisive facts for every situation.
+- `no-stored-location` requires that `state.json` records no research log
+  location key, which is the removed field of the approved simplification.
+
+Pi's rpc mode exits at stdin EOF without waiting for a running tool. A Node
+producer keeps standard input open until the parent provider observes the thread
+tool result. The canary then writes an exclusive completion file. The producer
+has a 45-second signal deadline. GNU `timeout` sends TERM after 60 seconds and
+KILL five seconds later.
+
+Exit status: **0** every check passed · **1** a check failed · **2** the harness
+refused to start. Every refusal starts with `verification: refused to start — `.
+Pi resolution, the version pin, the scratch isolation rules and the artifact
+policy match the writing-reminder harness above. A failed run keeps its scratch
+directory and inlines both pi streams.
+
+`PI_OFFLINE=1` keeps pi startup offline, and the fake provider performs no
+network operation. This is not a network sandbox, because reviewed extension
+code can still open raw sockets.
+
+One case stays out of reach. A real session cannot show the PENDING instruction
+text, because `/slate on` is itself the first accepted record change that mints
+the session directory. The `doctrine-research-log` resolver check and the unit
+tests cover that case.
+
+Re-run the harness after changes to `extension/research-log.ts`, to research log
+creation in `extension/session-record.ts`, to the doctrine wiring in
+`extension/mode.ts`, to the worker path wiring in `extension/worker.ts` and
+`extension/threads.ts`, to the session list renderers, or to the shipped storage
+guidance in `README.md`.
+
+| file | role |
+| --- | --- |
+| `run-research-log-check.sh` | driver, environment isolation, two real pi sessions, evidence parser, assertions, roster, and artifact policy |
+| `research-log-canary.mjs` | offline provider, worker write call, parent completion signal, prompt evidence, and one selectable canary tool |
 
 # Packaging guards — `run-packaging-checks.sh`
 

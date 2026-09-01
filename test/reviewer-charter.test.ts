@@ -90,7 +90,9 @@ test("real worker assembly delivers the charter only to review thread types", as
     model: undefined,
     isProjectTrusted: () => true,
   } as unknown as ExtensionContext;
-  const manager = new ThreadManager({} as never, { writing: { check: true } });
+  // Track 15: worker assembly asks the store for the Slate-owned research log
+  // path. This session owns none, so the stub answers undefined.
+  const manager = new ThreadManager({ researchLogPath: () => undefined } as never, { writing: { check: true } });
   const view = manager as unknown as ManagerInternals;
   const cases: Array<[ThreadType | undefined, boolean]> = [
     ...THREAD_TYPES.map((type): [ThreadType, boolean] => [type, EXPECTED_CHARTER_BY_THREAD_TYPE[type]]),

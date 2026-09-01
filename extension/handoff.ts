@@ -332,7 +332,7 @@ export function registerSlateHandoff(
 			"(1) a concise HANDOFF BRIEF — overall goal, per-thread state with episode ids, immediate next actions;",
 			"(2) instructions: run /slate handoff [optional focus] to write a handoff record, then run /slate adopt <name> in the successor session to restore the threads and episodes;",
 
-			"alternatively, run /slate sessions to see the external namespace of this Slate session, and read its episode files under the namespace directory that command reports.",
+			"Alternatively, run /slate sessions to list the Slate sessions of this project. That listing can omit entries when it reaches a scan or output limit. Read the episode files under the exact session directory on the labelled line for this Slate session.",
 		].join("\n");
 
 	const checkBudget = (ctx: ExtensionContext) => {
