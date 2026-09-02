@@ -3210,7 +3210,7 @@ evidence.`);
 				["negated counterfactual fails exact comparison", negatedArea9 !== expectedArea9Definition, negatedArea9],
 			]);
 
-			const fastPath = workflow.match(/^## Fast path\n([\s\S]*?)(?=^## Short packet shape)/m)?.[1] ?? "";
+			const fastPath = workflow.match(/^## Fast path\n([\s\S]*?)(?=^## Track packet shape)/m)?.[1] ?? "";
 			const checklist = [...fastPath.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
 			const expectedFastPath = normalizeText(`A SMALL single-track change may use the fast path only when every item passes.
 
@@ -3232,7 +3232,7 @@ artifact.
 
 The fast-path sequence is prediction → confirmation → implementation →
 mechanical validation → focus declaration → committed-boundary size measurement
-→ mechanical checklist → short packet → blocking final acceptance → delivery.
+→ mechanical checklist → track packet → blocking final acceptance → delivery.
 After boundary measurement, run all ten checklist items against the committed
 range and actual declarations.
 If any item fails, return to the ordinary SMALL workflow before packet delivery.
@@ -3294,7 +3294,7 @@ production behaviour.`);
 			const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 			const headingCount = (source, name) => (source.match(new RegExp(`^## ${escapeRegex(name)}$`, "gm")) ?? []).length;
 			const targetDocs = [
-				["track-workflow.md", workflow, ["Lifecycle and phases", "Size script and focus prediction", "Confirmation gate", "Focus touchpoints", "Fast path", "Short packet shape", "Track intention block and focus declaration", "Session handoff and the research log", "Resume order and reconciliation", "Closing review", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
+				["track-workflow.md", workflow, ["Lifecycle and phases", "Size script and focus prediction", "Confirmation gate", "Focus touchpoints", "Fast path", "Track packet shape", "Track intention block and focus declaration", "Session handoff and the research log", "Resume order and reconciliation", "Closing review", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
 				["review-rules.md", reviews, ["Reviewer sets, merge rule and charters", "Findings and output", "Reviewer evidence standards", "Observation files and evidence recovery", "Fix loop and gate verdicts", "Stuck-fix consultation", "Termination and follow-up routing"]],
 				["blast-radius.md", blast, ["Two independent axes", "Size measurement and the exclusion list", "Track function and track constraints", "Focus areas and their gates", "Optional path declarations", "Lifecycle rules owned by the spine", "Halt, re-derivation and grade correction", "Review coverage and the coverage register", "Commit discipline for drift and boundaries"]],
 				["user-notes.md", userNotes, ["Track packets", "Receiving and routing a user note", "Note queue and drain", "Follow-up ledger", "Override log", "Register entry shape", "Mandatory escalation set", "User note accounting", "Final report"]],
