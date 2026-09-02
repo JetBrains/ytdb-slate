@@ -8,7 +8,7 @@ import slateExtension from "../extension/index.ts";
 import { PROFILES_AS_OF, MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
 import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC } from "../extension/paths.ts";
+import { PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 
@@ -181,6 +181,33 @@ test("untrusted follow-up issue configuration leaves doctrine byte-identical", {
   const absent = await renderDoctrine(undefined, {}, false);
   assert.equal(enabled, absent);
   assert.doesNotMatch(enabled, /After review, ask the user which review suggestions become tracker issues\./);
+});
+
+test("writing doctrine pins every substantive writing clause and complete scope", { timeout: 5000 }, async () => {
+  const doctrine = await renderDoctrine(ROUTER_OFF, { writing: { check: true } });
+  const normalized = doctrine.replace(/\s+/g, " ");
+  const requiredClauses = [
+    "Check user-facing prose before delivery.",
+    "Write sentences a non-native reader understands on one reading.",
+    "Use short, active, plain language.",
+    "Keep exact technical terms.",
+    "Do not use semicolons or contractions.",
+    "The checker does not test vocabulary.",
+    "Follow these requirements:",
+    "Avoid idioms.",
+    "Replace bare-reference openers with the subject they reference.",
+    "Explain each project-specific term at first use.",
+    "Define each abbreviation at first use.",
+    "Express one idea in each sentence.",
+    "Use one term for each concept.",
+    "Apply them to README and documentation text, code comments, pull request text, commit bodies, issues, review comments, release notes, and user messages.",
+    "Exclude research logs, worker task text, and the project's own agent instruction file.",
+    "Read it only for an unusual prose decision.",
+    "Skip it if already in context.",
+  ];
+  for (const clause of requiredClauses) assert.ok(normalized.includes(clause), `missing doctrine clause: ${clause}`);
+  assert.ok(normalized.includes(`Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}.`));
+  assert.doesNotMatch(normalized, /20 words|25 words|SENT20|SENT25/);
 });
 
 test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {

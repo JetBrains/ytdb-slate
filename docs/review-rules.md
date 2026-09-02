@@ -22,9 +22,9 @@ it from this document's absolute installed path. Write the unified review diff
 to a regular temporary file outside the checkout. See
 [writing-guidance.md](writing-guidance.md) for checker scope and limits.
 
-The checker is diagnostic. In governed prose, a `fail` is normally major. A
-`warning` is at most minor without independent evidence. A `house-style` match
-is at most a nit when the convention applies.
+The checker is diagnostic. In governed prose, a `fail` is normally major. No
+current rule emits a `warning`. A `warning` is at most minor without independent
+evidence. A `house-style` match is at most a nit when the convention applies.
 
 An `advisory` is never a finding by itself. Independent evidence may justify
 another severity. Reviewer judgment remains authoritative.

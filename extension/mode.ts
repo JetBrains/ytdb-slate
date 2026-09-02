@@ -425,23 +425,17 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
  */
 function buildWritingRule(n: number): string {
 	return `
-${n}. Check all user-facing prose before delivery. Use short, active sentences and
-   plain language. A sentence over 25 words fails the check. Rewrite it.
-   A sentence over 20 words warns. Shorten it when meaning stays clear.
-
-   Do not use semicolons or contractions. Keep exact technical terms. The check
-   does not test vocabulary. Follow these writing requirements:
-
+${n}. Check user-facing prose before delivery. Write sentences a non-native reader
+   understands on one reading. Use short, active, plain language. Keep exact
+   technical terms. Do not use semicolons or contractions. The checker does not
+   test vocabulary. Follow these requirements:
 ${renderWritingDoctrineRequirements("   ")}
 
-   Apply these requirements to README text, documentation, code comments, and
-   pull request text. Apply them to commit bodies, issues, review comments,
-   release notes, and messages to the user.
+   Apply them to README and documentation text, code comments, pull request text,
+   commit bodies, issues, review comments, release notes, and user messages.
 ${renderWritingScopeExclusion("   ")}
-
-   Rules, limits and the checker command:
-   ${WRITING_GUIDANCE_DOC}
-   — read it only for an unusual prose decision. Skip it if already in context.`;
+   Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}. Read it only for an unusual
+   prose decision. Skip it if already in context.`;
 }
 
 function buildDoctrine(

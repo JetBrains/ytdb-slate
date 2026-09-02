@@ -721,8 +721,8 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It reads no project config. The draft-enabled maximum is **7,605 of 8,500** portable characters. The draft-disabled pin is **7,586**. Writing plus routing is **6,239 of 6,900**. All tails are **6,494 of 7,200**. The capped worker rule is **1,347 of 1,600**. An **8,921-character** positive control exceeds the maximal bound by 421. These are verification budgets, not runtime limits. |
-| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **7,683 of 8,500** portable characters and 100 lines and keeps 817 characters of reserve. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It reads no project config. The draft-enabled maximum is **7,463 of 8,500** portable characters. The draft-disabled pin is **7,444**. Writing plus routing is **6,097 of 6,900**. All tails are **6,352 of 7,200**. The capped worker rule is **1,347 of 1,600**. An **8,779-character** positive control exceeds the maximal bound by 279. These are verification budgets, not runtime limits. |
+| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **7,541 of 8,500** portable characters and 94 lines and keeps 959 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
@@ -743,7 +743,7 @@ own — see § The writing checker:
 
 | id | what it proves |
 | --- | --- |
-| `writing-checker-length` / `writing-checker-para` / `writing-checker-semicolon` / `writing-checker-contraction` | each fail rule has positive and negative cases; 21–25 words produce one warning, more than 25 words produce one fail, and no sentence produces both length levels |
+| `writing-checker-length` / `writing-checker-para` / `writing-checker-semicolon` / `writing-checker-contraction` | sentence length stays telemetry-only and emits no finding; the warning class stays empty; each surviving rule has positive and negative cases; `PARA6` stays house-style |
 | `writing-checker-class` / `writing-checker-not-checked` | house-style findings stay out of fail counts; the fixed not-checked list is non-empty and every item has a reason |
 | `writing-checker-caps` | spawned command input caps reject an oversized regular file and a symlink to a special file with non-zero, explanatory errors |
 | `writing-checker-modes` / `writing-checker-determinism` | JSONL, direct-file and unified-diff modes work; diff mode checks added lines in prose files; repeated input produces byte-identical output |
@@ -800,6 +800,10 @@ The **worker preamble** (`extension/worker.ts`):
 | --- | --- |
 | `worker-load` / `worker-preamble` | the module loads; feature-off keeps the exact historical bounded-action preamble; writing and reviewer guidance compose independently; only their explicit gates add them; and `ThreadManager` passes the sanitized writing switch and review-thread decision into the worker system prompt |
 | `reviewer-charter-sync` | the non-empty marked generic charter block in `docs/review-rules.md` matches the shipped `REVIEWER_CHARTER` after whitespace normalization. The role-specific composite test charter remains in the document and is not injected into every review worker |
+
+The current measured preamble forms are 365 bytes for base, 617 with writing,
+2,520 with the reviewer charter, and 2,772 with both additions. The worker check
+pins the first two exact boundaries. `docs/context-budget.md` records all four.
 
 The worker check was mutation-verified three ways: weaken the literal-true gate to a
 truthiness gate, replace `ThreadManager`'s config value with `false`, and change one
@@ -901,22 +905,26 @@ owns these stable verification fixtures:
 | fixture | paths | portable | lines | bound |
 | --- | ---: | ---: | ---: | ---: |
 | routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
-| writing rule | 1 | **1,070** | 23 | 1,150 |
+| writing rule | 1 | **928** | 17 | 1,150 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
 | router-off doctrine | 3 | **2,584** | 43 | — |
 | router-on doctrine | 4 | **5,169** | 67 | 6,500 |
-| writing-only doctrine | 4 | **3,654** | 65 | 5,600 |
-| writing plus router | 5 | **6,239** | 89 | 6,900 |
-| writing plus extensions | 4 | **3,909** | 71 | 6,000 |
-| writing plus router and extensions | 5 | **6,494** | 95 | 7,200 |
-| maximal doctrine with draft PRs enabled | 6 | **7,605** | 99 | 8,500 |
-| maximal doctrine with draft PRs disabled | 5 | **7,586** | 99 | 8,500 |
-| maximal doctrine with follow-up issues enabled | 6 | **7,683** | 100 | 8,500 |
-| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **8,921** | 106 | must exceed 8,500 |
+| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **6,319** | 89 | — |
+| writing-only doctrine | 4 | **3,512** | 59 | 5,600 |
+| writing plus router | 5 | **6,097** | 83 | 6,900 |
+| writing plus extensions | 4 | **3,767** | 65 | 6,000 |
+| writing plus router and extensions | 5 | **6,352** | 89 | 7,200 |
+| maximal doctrine with draft PRs enabled | 6 | **7,463** | 93 | 8,500 |
+| maximal doctrine with draft PRs disabled | 5 | **7,444** | 93 | 8,500 |
+| maximal doctrine with follow-up issues enabled | 6 | **7,541** | 94 | 8,500 |
+| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **8,779** | 100 | must exceed 8,500 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
-maximal pins cover draft pull requests enabled, draft pull requests disabled,
-and follow-up issues enabled.
+fabricated dogfood fixture mirrors the five configured models and resolves them
+through the real router. It uses pi-registry windows of 272,000 for OpenAI and
+1,000,000 for Anthropic. It pins the two configured extension versions and
+their four tool descriptions. The maximal pins cover draft pull requests
+enabled, draft pull requests disabled, and follow-up issues enabled.
 The upper bounds are coarse growth ceilings, not single-edit detectors. Every
 upper bound must exceed the current measurement by at least five percent.
 Required character raises round up to the next hundred, while line bounds use
@@ -924,16 +932,16 @@ the next whole line.
 
 A doctrine change updates its exact literal. A bound changes only when this
 reserve policy requires it. Writing plus routing uses
-`6,239 × 1.05 = 6,550.95`. Ceiling gives 6,551. The existing 6,900 bound remains larger.
+`6,097 × 1.05 = 6,401.85`. Ceiling gives 6,402. The existing 6,900 bound remains larger.
 
-All tails use `6,494 × 1.05 = 6,818.7`. Ceiling gives 6,819. The existing
+All tails use `6,352 × 1.05 = 6,669.6`. Ceiling gives 6,670. The existing
 7,200 bound remains larger.
 
-The largest maximal fixture uses `7,683 × 1.05 = 8,067.15`. The existing 8,500 bound remains larger. The enabled, disabled, and follow-up
-maximal reserves are 895, 914, and 817.
+The largest maximal fixture uses `7,541 × 1.05 = 7,918.05`. Ceiling gives 7,919. The existing 8,500 bound remains larger. The enabled, disabled, and follow-up
+maximal reserves are 1,037, 1,056, and 959.
 
 The largest model-row growth is 184 characters. The capped tool-line growth is
-212 characters. The positive control exceeds the maximal bound by 421.
+212 characters. The positive control exceeds the maximal bound by 279.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
@@ -2416,11 +2424,11 @@ transcribed here before and both went stale.
 
 ### What it covers
 
-- **Every rule, positively and negatively.** `SENT20`, `SENT25`, `PARA6`,
-  `SEMICOLON`, `CONTRACTION`, `PARENTHETICAL_PAREN`, `PARENTHETICAL_DASH`,
-  `SLASHED`, `PASSIVE`, `INGFORM`, `NOUNCLUSTER` and `MULTICMD` each have a case
-  that fires and a case that must stay silent, and no sentence produces both
-  length levels.
+- **Every rule, positively and negatively.** `PARA6`, `SEMICOLON`,
+  `CONTRACTION`, `PARENTHETICAL_PAREN`, `PARENTHETICAL_DASH`, `SLASHED`,
+  `PASSIVE`, `INGFORM`, `NOUNCLUSTER` and `MULTICMD` each have a case that fires
+  and a case that must stay silent. Separate cases prove sentence length remains
+  telemetry-only and the warning class remains empty.
 - **The class boundary.** House-style and advisory findings never enter the
   fail count, and the fixed `NOT CHECKED` list is non-empty with a reason per
   item.
@@ -2674,7 +2682,7 @@ same in intent.
 Each excerpt is at most **2000 characters, including its two framing
 characters**. Longer excerpts keep equal-sized head and tail sections with a
 `[middle elided]` marker, which keeps the opening and the conclusion of
-whole-unit SENT20, SENT25 and PARA6 findings. The limit was set above the longest
+whole-unit findings, including `PARA6`. The limit was set above the longest
 excerpt in the measured repository and assistant-message corpora (1640
 characters). The number of findings is bounded separately — see § The run budget.
 
@@ -2806,15 +2814,14 @@ as before.
 | `example.test.` | leave the scheme-less domain as prose; keep its period as the sentence terminator |
 | `https://example.test/path?a=1;b=two` | keep the internal semicolon because URL data follows it |
 
-The length-rule fixture has 21 words, a sentence-final URL and a five-word
-second sentence. Before BG5, URL stripping swallowed the first period and made
-one 26-word sentence: one `SENT25`, no `SENT20`. After BG5, segmentation returns
-two sentences: one `SENT20`, no `SENT25`.
-
-Two direct checks cover the boundary table and the length-rule effect. Restoring
-the greedy `[^\s<>()]+` tail in a throwaway copy fails `BG5 URL boundaries keep
-sentence punctuation and strip URL data`. The scaling roster names the revised
-pattern and adds a punctuation-heavy hostile generator.
+The `BG5 URL boundaries keep sentence punctuation and strip URL data` check
+covers the first six boundary-table rows and asserts each resulting sentence
+count. The `URL query remains stripped` check covers the final semicolon-query
+row. The separate `200-word prose sentence keeps telemetry and surviving
+findings` check proves sentence-length telemetry remains available. Restoring
+the greedy `[^\s<>()]+` tail in a throwaway copy fails the BG5 check. The
+scaling roster names the revised pattern and adds a punctuation-heavy hostile
+generator.
 
 ### The run budget (BG6/FX3)
 
@@ -2967,7 +2974,7 @@ The status-line and wiring mutations run against the **resolver** suite:
 | count house-style findings as fail-level | `writing-status-counting` |
 | remove the trust gate | `writing-status-gate-trust` |
 | rethrow checker errors | `writing-status-crash` (the fail-open section cannot complete) |
-| emit a fail with the 21–25-word warning | `writing-checker-length` |
+| emit a sentence-length finding or populate the warning class | `writing-checker-length` |
 | blank the rendered writing status line | `writing-status-positive` |
 | remove the `measureWritingTurn` call | `writing-status-positive` |
 | break the checker import path | `writing-status-positive` |

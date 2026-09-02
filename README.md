@@ -12,9 +12,9 @@ An opt-in **model-failover** map adds high availability: when a model API fails,
 
 ## Why Slate?
 
-Long-horizon agentic work fails on context management, not model capability. Existing architectures each solve a piece of the problem and trade away the rest. Compaction is unpredictably lossy; naive subagents isolate context but hand back only a single response string; markdown plans go stale and get under-executed. Rigid task trees can't adapt to information discovered mid-task, and planner/executor stacks synchronize through compress-and-return boundaries that risk dropping critical state.
+Long-horizon agentic work fails on context management, not model capability. Existing architectures each solve a piece of the problem and trade away the rest. Compaction is unpredictably lossy. Naive subagents isolate context but hand back only a single response string. Markdown plans go stale and get under-executed. Rigid task trees cannot adapt to information discovered mid-task, and planner/executor stacks synchronize through compress-and-return boundaries that risk dropping critical state.
 
-Slate's answer is the **thread**: the orchestrator dispatches one bounded action at a time; the worker executes it and returns an **episode**. The orchestrator keeps the reactivity of a plain agent loop while gaining the context isolation, compaction, and parallelism that the single-context loop lacks.
+Slate's answer is the **thread**: the orchestrator dispatches one bounded action at a time. The worker executes it and returns an **episode**. The orchestrator keeps the reactivity of a plain agent loop while gaining the context isolation, compaction, and parallelism that the single-context loop lacks.
 
 | Aspect | ReAct | Markdown plan | Task trees | RLM (Recursive Language Models) | Devin / Manus / Altera | Claude Code / Codex subagents | Slate |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -28,7 +28,7 @@ Slate's answer is the **thread**: the orchestrator dispatches one bounded action
 | Expressivity | high | high | low | high | medium | medium | high |
 | Adaptability | yes | if plan updated | no | limited — no mid-run course correction | yes | limited by message passing | yes |
 
-Characterizations of third-party systems reflect their publicly described designs at the time of writing. The taxonomy is adapted from the Random Labs technical report introducing the thread-weaving "Slate" architecture (its agent ships as the npm package `@randomlabs/slate`); ytdb-slate is an independent implementation of that architecture for pi.
+Characterizations of third-party systems reflect their publicly described designs at the time of writing. The taxonomy is adapted from the Random Labs technical report introducing the thread-weaving "Slate" architecture (its agent ships as the npm package `@randomlabs/slate`). ytdb-slate is an independent implementation of that architecture for pi.
 
 **Threads are not subagents:**
 
@@ -65,11 +65,11 @@ SMALL has a mechanical fast path. Any focus area, project test artifact, or
 verification machinery voids it. Umbrella draft-PR publishing activates only
 when `workflow.draftPRs` is `true`.
 
-This summary is orientation only; the shipped docs listed below are normative.
+This summary provides orientation only. The shipped docs listed below are normative.
 
 ## Model failover
 
-Slate can ride through model API outages. The opt-in `modelFailover` map in `.pi/slate.json` (trusted projects only) maps a model (`provider/id`) to an equal-quality alternative; on an eligible model API failure — not an abort or a context overflow, and for the orchestrator and worker sites only after pi's own retries are exhausted — the affected site (orchestrator, worker thread, or episode compression) retries once on the mapped model (single hop, never chained). An orchestrator failover — like the handoff adoption that re-applies a parent session's model — would otherwise leave pi's global model defaults changed, so Slate restores them on a best-effort basis unless `preserveGlobalModelDefault` is `false`. The map is empty by default (feature off) and read once at session start. Full semantics: the `modelFailover` row in [Configuration](#configuration) and the shipped [`docs/model-failover.md`](docs/model-failover.md) — if they disagree, that document wins.
+Slate can ride through model API outages. The opt-in `modelFailover` map in `.pi/slate.json` (trusted projects only) maps a model (`provider/id`) to an equal-quality alternative. On an eligible model API failure — not an abort or a context overflow, and for the orchestrator and worker sites only after pi's own retries are exhausted — the affected site (orchestrator, worker thread, or episode compression) retries once on the mapped model (single hop, never chained). An orchestrator failover — like the handoff adoption that re-applies a parent session's model — would otherwise leave pi's global model defaults changed, so Slate restores them on a best-effort basis unless `preserveGlobalModelDefault` is `false`. The map is empty by default (feature off) and read once at session start. Full semantics: the `modelFailover` row in [Configuration](#configuration) and the shipped [`docs/model-failover.md`](docs/model-failover.md) — if they disagree, that document wins.
 
 ## Action-level model routing
 
@@ -87,7 +87,7 @@ The dispatch guards refuse an unlisted model and an invalid effort level. They m
 
 ## Optional writing guidance
 
-Set `writing.check` to `true` to add writing guidance and human-only telemetry. In orchestrator mode, Slate adds a doctrine rule that states the convention. It also adds a status value such as `writing 1/4`. This value means that one of four measured prose turns had a fail-level finding. Each worker gets a shorter preamble reminder about sentence length, semicolons, and contractions.
+Set `writing.check` to `true` to add writing guidance and human-only telemetry. In orchestrator mode, Slate adds a doctrine rule that states the convention. It also adds a status value such as `writing 1/4`. This value means that one of four measured prose turns had a fail-level finding. Each worker gets a shorter preamble reminder about reader understanding, semicolons, and contractions.
 
 The option has prompt cost. Each orchestrator system prompt contains the doctrine rule. You pay for this text on every turn. Each worker session also gets a gated preamble addition. Both additions are absent when the option is off. The worker preamble then stays byte-identical to its pre-feature form.
 
@@ -173,11 +173,11 @@ Every worker then gets the fetch and web-search tools **on top of** `workerTools
 **What to know before whitelisting** — it reaches past Slate's isolation, so it is an operator decision:
 
 - **Delegation is unbounded.** Slate guarantees only that no worker obtains Slate's own `thread`/`threads`/`episode` tools. A whitelisted extension that ships its own sub-agent or delegation tool under any other name gives workers delegation Slate can neither detect, bound, nor account for.
-- **Credential and filesystem reach.** Inside a worker the extension has the same filesystem and credential access it has in the host; Slate's read-only settings snapshot blocks pi-settings writes and nothing else.
+- **Credential and filesystem reach.** Inside a worker the extension has the same filesystem and credential access it has in the host. Slate's read-only settings snapshot blocks pi-settings writes and nothing else.
 - **Unsynced model-scoped tools.** Worker sessions never fire the session-start event, so an extension whose tool set is model-scoped stays unsynced and may offer a tool the worker's model cannot serve (e.g. pi-web-search's `url_context` on a non-Google worker model) — the call simply fails and the episode records it.
 - **Abort.** A third-party extension may ignore the abort signal, so its network activity can outlive an abort or a context-budget pause.
 - **Cost.** Provider-native tool billing can escape Slate's worker cost accounting.
-- **Pathological patterns.** The patterns are regexes from your own trusted config — the same file that already steers models, prompts, and tool lists — matched with no time bound while the extension set is resolved once per session. A pattern with catastrophic backtracking can stall that resolution; treat it as a footgun to avoid, not a privilege boundary.
+- **Pathological patterns.** The patterns are regexes from your own trusted config — the same file that already steers models, prompts, and tool lists — matched with no time bound while the extension set is resolved once per session. A pattern with catastrophic backtracking can stall that resolution. Avoid such patterns. They are not a privilege boundary.
 
 The load-time recursion guard behind this — and the risks it does and does not cover — is in [`docs/design-principles.md`](docs/design-principles.md).
 
@@ -187,7 +187,7 @@ Slate reads project configuration (`.pi/slate.json`) and injects project files (
 
 ## Shipped docs
 
-In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths are also why the block's character count depends on your install location; [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
+In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths make the block's character count depend on your install location. [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
 
 - `docs/track-workflow.md` — the size-grade and focus-area lifecycle for research, design, implementation, review, and delivery
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)

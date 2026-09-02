@@ -16,7 +16,7 @@ A session pays for the detail only when it reads this file.
 reads text, strips the parts that are not prose, splits what remains
 into blocks and sentences, and reports surface facts about them:
 sentence length, sentence count per paragraph, and matches for a
-closed list of twelve patterns. It emits per-rule counts, length
+closed list of ten patterns. It emits per-rule counts, length
 distributions and one finding record per match, each with a source
 offset and a framed excerpt.
 
@@ -30,15 +30,12 @@ It reports those limits in its own output, under `NOT CHECKED` — see
 **It establishes no conformance with any writing standard.** ASD-STE100
 inspired the choice of what to measure. Slate claims no conformance
 with it. No text, example or dictionary entry from the standard is
-reproduced here or in the checker. TechScribe's
-[public analysis](https://www.simplified-english.co.uk/analysis.html#write-short-sentences)
-is the source for the 20- and 25-word figures. Boeing's
+reproduced here or in the checker. Boeing's
 [public checker page](https://www.boeing.com/company/simplified-english-checker)
-also publishes that pair and is the source for the six-sentence figure.
+is the source for the six-sentence figure.
 The source repository keeps the citation trail in its non-published
 `research/writing-threshold-provenance.md`. Slate defines the severity
-classes, patterns and suppression lists, and applies one band uniformly
-to all prose rather than selecting a limit by text type. A clean run
+classes, patterns and suppression lists. A clean run
 is evidence about surface form only. It is not a certificate.
 
 **It is not an authority over a reviewer.** A match is a place to
@@ -122,8 +119,8 @@ A reminder repeats five lines. It omits this doctrine-only line:
 
 `Express one idea in each sentence.`
 
-The sentence-length rules provide a nearby mechanical signal. They do
-not test idea count. The reminder then includes this exact scope guard:
+The checker does not test idea count. The reminder then includes this exact
+scope guard:
 
 `Exclude research logs, worker task text, and the project's own agent instruction file.`
 
@@ -268,40 +265,32 @@ A word is a run of letters and digits, with internal apostrophes and
 hyphens kept, that contains at least one letter. So a hyphenated
 compound counts as one word and a bare number counts as none.
 
-Four of the twelve rules ignore identifier-shaped text. `PASSIVE`,
+Four of the ten rules ignore identifier-shaped text. `PASSIVE`,
 `INGFORM`, `NOUNCLUSTER` and `MULTICMD` run over a filtered token
 list with path-like tokens, dotted names, `snake_case`, `camelCase`
 and em-dash-bearing quotations removed, so a file name or a symbol
-cannot trip them. The length, punctuation and parenthetical rules see
-the unfiltered text.
+cannot trip them. The punctuation and parenthetical rules see the unfiltered
+text.
 
 ## The rules
 
-Twelve rules in four severity classes. The class is the checker's own
+Ten rules in four severity classes. The class is the checker's own
 label, reported with every finding and in the per-rule summary.
 
 **`fail` — a mechanical violation of the convention.**
 
 | rule | what it flags |
 | --- | --- |
-| `SENT25` | a sentence of more than 25 words |
-| `PARA6` | a paragraph block of more than 6 sentences |
 | `SEMICOLON` | each `;` in a prose block |
 | `CONTRACTION` | a contracted form. Two shapes match: a pronoun or one of `that`, `there`, `here`, `what`, `who`, `how`, `where`, `when`, `why`, `let` carrying `n't` or `'re`, `'ll`, `'ve`, `'d`, `'m`, `'s`; and a negated auxiliary such as `don't`, `won't` or `shan't`. Straight and curly apostrophes both match |
 
-**`warning` — over the comfortable length, under the failing one.**
-
-| rule | what it flags |
-| --- | --- |
-| `SENT20` | a sentence of more than 20 words and at most 25 |
-
-A sentence reports one length result at most: `SENT25` when it is
-over 25 words, `SENT20` when it is over 20, and nothing otherwise.
+**`warning` — no rule currently emits this severity.**
 
 **`house-style` — legitimate constructions this convention avoids.**
 
 | rule | what it flags |
 | --- | --- |
+| `PARA6` | a paragraph block of more than 6 sentences |
 | `PARENTHETICAL_PAREN` | a parenthesis pair whose content looks like a clause rather than an aside. The test is a surface one: an auxiliary or `be` form, a word ending in `ed` or `es`, or a non-initial word ending in `s` |
 | `PARENTHETICAL_DASH` | a paired em dash, or a spaced en dash pair, enclosing text. A pair inside a quotation that itself contains an em dash is suppressed |
 | `SLASHED` | a letters-only `word/word` construction such as `and/or`. Paths and URLs are already blanked, and a longer slash run does not match |

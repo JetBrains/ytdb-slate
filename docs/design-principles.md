@@ -155,8 +155,9 @@ or two problems for the others:
   Required gates and artifacts follow the confirmed size grade and the engaged
   focus set. The scope paragraph below states which rules add cost. No rule that
   adds cost is unconditional. A rule that adds cost names the condition that
-  engages it, and that condition is the size grade, the engaged focus set, or
-  an artifact whose own existence those two decide.
+  engages it. The condition is the size grade, the engaged focus set, an
+  artifact whose own existence those two decide, or specific evidence that does
+  not appear in every track.
 
 Repo-local note (not from the report): Principle P11 governs the count of
 required gates, required artifacts and required review actions. A rule that
@@ -166,6 +167,13 @@ evidence appears in every track, in which case the rule is unconditional.
 Prompt text and output quality floors are not process steps, and a published
 size budget governs them instead. P11 constrains the authors of future rules
 and makes no claim about the shape of the current gate curve.
+
+- **P12 — Reader understanding decides the form.** *(Repo-local note, not from the report.)*
+  Write so that a reader whose first language is not English, and who knows
+  nothing about the project,
+  understands the text on one reading. Sentence length is a result of that goal,
+  never a target. Do not compress when compression removes information the
+  reader needs. Do not add words that carry no information.
 
 ## 5. Where each principle lives in the code
 
@@ -182,6 +190,7 @@ and makes no claim about the shape of the current gate curve.
 | P9 parallelism | `threads.ts` `maxConcurrent` queueing; doctrine rule 2 in `mode.ts` |
 | P10 context as RAM | `handoff.ts` context-budget auto-pause + fresh-session handoff |
 | P11 proportional process | no code home; the shipped workflow documents apply it to gates, artifacts and review actions |
+| P12 reader understanding | no code home; the writing guidance and review rules apply it to project prose |
 
 Repo-local note (not from the report): the `maxConcurrent` cap defaults
 to 4. Its failure modes are asymmetric: excess dispatches wait for a
