@@ -701,10 +701,66 @@ Worker-extension resolver:
 | `off-inert` / `off-doctrine` | an empty pattern list resolves to the shared empty set without walking the registry, and the doctrine is byte-identical to the feature-off baseline |
 | `cand-builtin-sdk` / `cand-missing-path` | builtin- and sdk-sourced tools, and a tool whose entry path is absent, are never candidates |
 | `unit-directory` / `unit-glob-fallback` / `unit-unrun-fallback` | a single literal manifest entry the host runs yields the package directory; a glob, or a declared entry the host is not running, fall back to entry-file paths |
-| `bar-self-exclude` / `bar-collision` | a unit under slate's own root is dropped even under `.*`; a unit registering a slate dispatch name or a pi built-in is dropped whole and warned, survivors intact |
+| `bar-self-exclude` / `bar-self-nested` / `bar-self-split-layout` / `bar-self-second-entry` / `bar-self-symlink` / `bar-self-escape` / `bar-self-trailing` / `bar-self-fallback` / `bar-self-case` / `bar-self-name` / `bar-self-name-origins` / `bar-self-name-unitpath` / `bar-self-checkout-root` / `bar-collision` | the self-load barrier uses real source paths and the `ytdb-slate` package name; the name is read only at a directory unit path; pi's reported base directory is never a separate read location, but a promoted directory unit path can equal it; the split layout accepts a project extension while refusing slate by source path and package name; collision units are dropped whole and warned |
 | `match-*` | patterns test unanchored against source spec, unit path and each tool entry path; a non-match yields nothing; an invalid regex is dropped with a warning while its valid siblings apply |
 | `inject-safety` | a newline-bearing tool name, a 2000-char label and a backtick/markdown description all render into the doctrine without breaking its structure or exceeding the caps |
 | `memoization` | the memoizing resolver walks the registry exactly once across repeated calls |
+
+**The single package-name read location.**
+
+The resolver reads a manifest `name` at exactly ONE location: **the unit path**.
+The read occurs only when that path is a directory. A file unit path yields
+nothing. The resolver never walks upward. It does not consult pi's reported base
+directory (`sourceInfo.baseDir`) as an independent name-read location.
+
+A directory unit promotes the reported base directory to the unit path. Both
+paths can therefore be equal. The resolver then reads that directory's manifest
+through the unit path.
+
+Three resolver checks cover the read: `bar-self-name`, `bar-self-name-origins`
+and `bar-self-name-unitpath`. Two unit tests also cover it. They are `the
+candidate-path name read refuses every directory-owned slate shape` and `the
+resolver reads a candidate package name from its own package root`. Deleting the
+read fails those three resolver checks plus `bar-self-split-layout`. It also
+fails three unit tests.
+
+**Locations outside the package-name read.**
+
+The resolver does not consult the directory that CONTAINS an entry file. It also
+does not consult pi's reported base directory as an additional package-name
+location. pi computes `baseDir` for the candidate. For a single-file source, pi
+reports the CONTAINING directory. `package-manager.js:1050` covers the local-file
+package route. `resource-loader.js:635`, `:640` and `:648` also report a
+directory above the entry file. For an entry file in a checkout root, that
+directory identifies the checkout rather than the candidate. This project's
+checkout manifest is named `ytdb-slate`, but it must not withhold a legitimate
+extension beneath it. `bar-self-name-unitpath` pins the single read location
+directly. The SAME manifest refuses a directory unit at its unit path. It does
+not refuse a file unit from one level above its path. A promoted directory unit
+can have a unit path equal to pi's reported base directory. In that case, the
+resolver reads the manifest through the unit path.
+
+`bar-self-checkout-root` pins ten accepted shapes inside a fake
+checkout whose root manifest is named `ytdb-slate` — a manifest-less store
+candidate, an unrelated store manifest, a checkout-root entry file with no
+reported base directory, the same file with the checkout root as its base
+directory, the same file through pi's local-file package route, a directory entry
+with an unrelated manifest, a candidate two levels below the checkout root, a
+symbolically linked candidate, an unreadable manifest and a malformed manifest.
+
+**Residual gap.** The name rule refuses a slate copy only when the candidate's
+own path is a directory carrying slate's manifest — that is, a package source
+whose manifest declares the entries the host loaded (a directory unit), or a
+candidate whose entry path IS a directory. Every other reported shape is missed
+by name, and the gap is **wider** than "a file entry with no reported base
+directory": a file entry that DOES report a base directory is missed too. That
+covers pi's `top-level` sources, its local-file package route, a package manifest
+whose entries are globbed, and slate's own published `extension/index.ts`
+layout. The **name-collision barrier** covers every missed shape: any real slate
+copy registers `thread`, `threads` and `episode`. `bar-self-name-origins`,
+`bar-self-name-unitpath` and the unit test `the collision barrier covers every
+shape the candidate-path name read misses` pin both halves — the miss, and its
+cover at zero units and exactly one warning.
 
 The **action-routing doctrine rule** (`extension/mode.ts`, `b092f92`) — driven
 through `registerSlateMode`'s `before_agent_start` handler with a fabricated
@@ -1237,9 +1293,35 @@ concern, not something a structural check can own.
 
 These checks were validated by **mutation testing**: copy the repo to a scratch
 directory outside it, apply one textual change to `extension/model-router.ts`,
-`extension/route.ts`, `extension/state.ts`, `extension/base-model.ts` or
-`extension/model-profiles.ts`, and re-run the suite against the copy
-(`--repo <copy>`). Each behaviour listed
+`extension/route.ts`, `extension/state.ts`, `extension/base-model.ts`,
+`extension/model-profiles.ts` or `extension/worker-extensions.ts`, and re-run the
+suite against the copy (`--repo <copy>`).
+
+For the worker-extension resolver the recipe is exact, because an approximate
+one produced a list nobody could reproduce. In the copy's
+`extension/worker-extensions.ts`, delete the candidate-path name read and the
+`isSlateSelfLoad` call in barrier (a) and put the former single-line
+subtree-containment rule in their place:
+
+```ts
+if (pathContains(SLATE_PACKAGE_ROOT, unit.path) || pathContains(unit.path, SLATE_PACKAGE_ROOT)) continue;
+```
+
+Real-path resolution does **not** survive that reversion, and that detail decides
+the list. The former rule compared plain module-derived strings, so it consulted
+neither `realpathSync` nor `comparisonPath`; it also read `unit.path` only, never
+the tool entry paths, and it had no package-name rule at all. Change nothing
+else: leave `comparisonPath`, `isSlateSelfPath` and `readPackageNameAt` in the
+file, unused.
+
+That mutation fails exactly seven checks: `bar-self-nested`,
+`bar-self-split-layout`, `bar-self-second-entry`, `bar-self-symlink`,
+`bar-self-name`, `bar-self-name-origins` and `bar-self-name-unitpath`. The
+summary reads `200 pass, 7 fail, 0 not run`. `bar-self-symlink` is in the list
+because real-path resolution disappears with the rule.
+`bar-self-checkout-root` is NOT in the list: the subtree rule is anchored at the
+copy's own root, so it never reaches the fake checkout that check builds. Each
+behaviour listed
 above has at least one mutation that it catches — including the two that used to
 pass vacuously (the
 dedup mechanism and the shipped-table default), the ordering tie-breaks, the

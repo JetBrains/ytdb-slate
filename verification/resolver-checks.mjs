@@ -24,9 +24,9 @@
 // piped output): 1 if anything failed, or if a NOT RUN happened under --strict.
 // See verification/README.md.
 // =============================================================================
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const [, , REPO, JITI, WORK, STRICT_ARG] = process.argv;
@@ -255,7 +255,7 @@ async function writingTurn(fixture, message = { role: "assistant", content: "Ope
 function mkpkg(name, entries, files) {
 	const dir = join(WORK, name);
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, "package.json"), JSON.stringify({ pi: { extensions: entries } }));
+	writeFileSync(join(dir, "package.json"), JSON.stringify({ name, pi: { extensions: entries } }));
 	const paths = {};
 	for (const f of files) paths[f] = file(join(name, f));
 	return { dir, paths };
@@ -527,7 +527,218 @@ try {
 			],
 		};
 		const set = we.resolveWorkerExtensions(pi, [".*"]);
-		check("bar-self-exclude", !set.toolNames.includes("inside_tool") && set.toolNames.includes("outside_tool"), "a unit under slate's own package root is dropped even with a .* pattern", set.toolNames);
+		check("bar-self-exclude", !set.toolNames.includes("inside_tool") && set.toolNames.includes("outside_tool"), "an entry inside slate's own source directory is dropped while an unrelated entry survives", set.toolNames);
+
+		const checkout = join(WORK, "slate-checkout");
+		const checkoutSource = join(checkout, "extension");
+		mkdirSync(checkoutSource, { recursive: true });
+		copyFileSync(join(REPO, "extension", "worker-extensions.ts"), join(checkoutSource, "worker-extensions.ts"));
+		copyFileSync(join(REPO, "extension", "notify.ts"), join(checkoutSource, "notify.ts"));
+		const nestedDir = join(checkout, ".pi", "npm", "node_modules", "nested-package");
+		const nestedPath = join(nestedDir, "extension", "index.ts");
+		mkdirSync(dirname(nestedPath), { recursive: true });
+		writeFileSync(nestedPath, "// nested extension fixture\n");
+		writeFileSync(join(nestedDir, "package.json"), JSON.stringify({ name: "nested-package", pi: { extensions: ["extension/index.ts"] } }));
+		const checkoutResolver = await jiti.import(join(checkoutSource, "worker-extensions.ts"));
+		const nested = checkoutResolver.resolveWorkerExtensions({
+			getAllTools: () => [tool("nested_tool", { source: "npm:nested-package", baseDir: nestedDir, path: nestedPath })],
+		}, [".*"]);
+		check("bar-self-nested", nested.units.length === 1 && nested.units[0].path === nestedDir && nested.toolNames[0] === "nested_tool", "a package installed under <slate root>/.pi/npm/node_modules resolves to a unit", nested);
+
+		const splitProject = join(WORK, "split-project");
+		const splitSafeDir = join(splitProject, ".pi", "npm", "node_modules", "split-safe");
+		const splitSlateDir = join(splitProject, ".pi", "npm", "node_modules", "split-slate");
+		const splitSafePath = join(splitSafeDir, "index.ts");
+		const splitSlatePath = join(splitSlateDir, "index.ts");
+		for (const [dir, path, name] of [
+			[splitSafeDir, splitSafePath, "split-safe"],
+			[splitSlateDir, splitSlatePath, checkoutResolver.SLATE_PACKAGE_NAME],
+		]) {
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(path, "// split-layout extension fixture\n");
+			writeFileSync(join(dir, "package.json"), JSON.stringify({ name, pi: { extensions: ["index.ts"] } }));
+		}
+		const split = checkoutResolver.resolveWorkerExtensions({
+			getAllTools: () => [
+				tool("split_safe_tool", { source: "npm:split-safe", baseDir: splitSafeDir, path: splitSafePath }),
+				tool("split_slate_tool", { source: "npm:split-slate", baseDir: splitSlateDir, path: splitSlatePath }),
+				tool("split_source_tool", { source: "local:slate", origin: "top-level", path: join(checkoutSource, "worker-extensions.ts") }),
+			],
+		}, [".*"]);
+		checkAll("bar-self-split-layout", "a split project accepts its own extension while refusing slate by source path and package name", [
+			["fixture separates slate source and project", !splitProject.startsWith(checkout + sep), { checkout, splitProject }],
+			["project extension accepted", split.toolNames.includes("split_safe_tool"), split],
+			["slate source refused", !split.toolNames.includes("split_source_tool"), split],
+			["slate package name refused", !split.toolNames.includes("split_slate_tool"), split],
+		]);
+
+		const second = mkpkg("bar-second-entry", ["first.ts", "second.ts"], ["first.ts"]);
+		const secondPath = join(second.dir, "second.ts");
+		symlinkSync(insideRepo, secondPath);
+		const secondSet = we.resolveWorkerExtensions({
+			getAllTools: () => [
+				tool("first_entry", { source: "npm:bar-second-entry", baseDir: second.dir, path: second.paths["first.ts"] }),
+				tool("second_entry", { source: "npm:bar-second-entry", baseDir: second.dir, path: secondPath }),
+			],
+		}, [".*"]);
+		check("bar-self-second-entry", secondSet.units.length === 0, "a second unit entry resolving inside slate's source directory withholds the whole unit", secondSet);
+
+		const symlinkPath = join(WORK, "bar", "source-link.ts");
+		mkdirSync(dirname(symlinkPath), { recursive: true });
+		symlinkSync(insideRepo, symlinkPath);
+		const symlinkSet = we.resolveWorkerExtensions({
+			getAllTools: () => [tool("symlink_tool", { source: "local", origin: "top-level", path: symlinkPath })],
+		}, [".*"]);
+		check("bar-self-symlink", symlinkSet.units.length === 0, "a symlink targeting slate's source directory is rejected after realpath resolution", symlinkSet);
+
+		check("bar-self-escape", we.isSlateSelfLoad(dirname(REPO), []) === true, "a candidate ancestor of slate's package root is rejected", dirname(REPO));
+		checkAll("bar-self-trailing", "trailing separators do not change self-load classification", [
+			["root without separator", we.isSlateSelfLoad(REPO, []) === true],
+			["root with separator", we.isSlateSelfLoad(REPO + sep, []) === true],
+		]);
+		const missingSourceEntry = join(REPO, "extension", "resolver-fallback-path-must-not-exist");
+		checkAll("bar-self-fallback", "a missing source entry forces realpath failure and remains classified through plain resolution", [
+			["fixture is missing", !existsSync(missingSourceEntry), missingSourceEntry],
+			["source entry rejected", we.isSlateSelfLoad(missingSourceEntry, []) === true],
+		]);
+		const caseParent = join(WORK, "case-fixture");
+		const lowerRoot = join(caseParent, "slate-checkout");
+		const lowerSource = join(lowerRoot, "extension");
+		const upperRoot = join(caseParent, "SLATE-CHECKOUT");
+		check("bar-self-case", we.isSlateSelfPath(upperRoot, lowerRoot, lowerSource) === false, "a known case-only path difference remains accepted without consulting the filesystem", { upperRoot, lowerRoot });
+
+		const named = mkpkg(we.SLATE_PACKAGE_NAME, ["index.ts"], ["index.ts"]);
+		const namedSet = we.resolveWorkerExtensions({
+			getAllTools: () => [tool("duplicate_tool", { source: "npm:duplicate", baseDir: named.dir, path: named.paths["index.ts"] })],
+		}, [".*"]);
+		check("bar-self-name", namedSet.units.length === 0, "a package carrying slate's name is rejected outside slate's package root", namedSet);
+
+		// The name rule refuses a candidate exactly when the candidate's own path is
+		// a directory carrying slate's manifest. Every other
+		// reported shape is missed by name and must fall to the collision barrier.
+		const originPkg = mkpkg("bar-name-origins", ["index.ts"], ["index.ts"]);
+		writeFileSync(join(originPkg.dir, "package.json"), JSON.stringify({ name: we.SLATE_PACKAGE_NAME, pi: { extensions: ["index.ts"] } }));
+		const originNamedPath = originPkg.paths["index.ts"];
+		const nameForOrigin = (origin, baseDir, names = ["origin_named_tool"]) => {
+			const warned = [];
+			const set = checkoutResolver.resolveWorkerExtensions({
+				getAllTools: () => names.map((name) => ({
+					name,
+					description: "d",
+					sourceInfo: { source: `fixture:${origin}`, origin, baseDir, path: originNamedPath },
+				})),
+			}, [".*"], (m) => warned.push(m));
+			return { units: set.units.length, warnings: warned.length };
+		};
+		// A candidate whose entry path IS a directory, under both pi origins.
+		const dirEntryNamed = join(WORK, "bar-name-directory-entry");
+		mkdirSync(dirEntryNamed, { recursive: true });
+		writeFileSync(join(dirEntryNamed, "package.json"), JSON.stringify({ name: we.SLATE_PACKAGE_NAME }));
+		const dirEntrySet = (origin) => we.resolveWorkerExtensions({
+			getAllTools: () => [tool("dir_entry_tool", { source: "local", origin, path: dirEntryNamed, baseDir: dirEntryNamed })],
+		}, [".*"]);
+		// The missed shapes: a FILE entry, with and without a reported base directory.
+		const SLATE_TOOLS = we.SLATE_TOOL_NAMES;
+		checkAll("bar-self-name-origins", "slate's package name is read at the candidate path only, and every missed reported shape falls to the collision barrier", [
+			["package source declaring the loaded entry refused", nameForOrigin("package", originPkg.dir).units === 0, nameForOrigin("package", originPkg.dir)],
+			["package-origin directory entry refused", dirEntrySet("package").units.length === 0, dirEntrySet("package")],
+			["top-level directory entry refused", dirEntrySet("top-level").units.length === 0, dirEntrySet("top-level")],
+			["file entry without baseDir missed by name", nameForOrigin("top-level", undefined).units === 1, nameForOrigin("top-level", undefined)],
+			["file entry with baseDir missed by name because the base-directory read is gone", nameForOrigin("top-level", originPkg.dir).units === 1, nameForOrigin("top-level", originPkg.dir)],
+			["barrier covers the no-baseDir miss with 0 units and 1 warning", JSON.stringify(nameForOrigin("top-level", undefined, SLATE_TOOLS)) === '{"units":0,"warnings":1}', nameForOrigin("top-level", undefined, SLATE_TOOLS)],
+			["barrier covers the baseDir miss with 0 units and 1 warning", JSON.stringify(nameForOrigin("top-level", originPkg.dir, SLATE_TOOLS)) === '{"units":0,"warnings":1}', nameForOrigin("top-level", originPkg.dir, SLATE_TOOLS)],
+		]);
+
+		// No read may reach a directory the candidate does not own. Every
+		// candidate below sits inside a fake checkout whose ROOT manifest is named
+		// ytdb-slate, and the checkout owns that manifest, not the candidate.
+		const fakeCheckout = join(WORK, "rg10-checkout");
+		const fakeStore = join(fakeCheckout, ".pi", "npm", "node_modules");
+		mkdirSync(fakeStore, { recursive: true });
+		writeFileSync(join(fakeCheckout, "package.json"), JSON.stringify({ name: we.SLATE_PACKAGE_NAME }));
+		const c1Dir = join(fakeStore, "rg10-plain");
+		const c1Path = join(c1Dir, "index.ts");
+		mkdirSync(c1Dir, { recursive: true });
+		writeFileSync(c1Path, "// C1 fixture\n");
+		const c2Dir = join(fakeStore, "rg10-named");
+		const c2Path = join(c2Dir, "index.ts");
+		mkdirSync(c2Dir, { recursive: true });
+		writeFileSync(c2Path, "// C2 fixture\n");
+		writeFileSync(join(c2Dir, "package.json"), JSON.stringify({ name: "rg10-named", pi: { extensions: ["index.ts"] } }));
+		const c3Path = join(fakeCheckout, "rg10-root-entry.ts");
+		writeFileSync(c3Path, "// C3 fixture\n");
+		const c4Dir = join(fakeCheckout, "rg10-directory-entry");
+		mkdirSync(c4Dir, { recursive: true });
+		writeFileSync(join(c4Dir, "package.json"), JSON.stringify({ name: "rg10-directory-entry" }));
+		const c5Dir = join(fakeCheckout, "one", "two");
+		const c5Path = join(c5Dir, "index.ts");
+		mkdirSync(c5Dir, { recursive: true });
+		writeFileSync(c5Path, "// C5 fixture\n");
+		const c6Target = join(WORK, "rg10-outside-entry.ts");
+		writeFileSync(c6Target, "// C6 fixture\n");
+		const c6Path = join(fakeCheckout, "rg10-linked-entry.ts");
+		symlinkSync(c6Target, c6Path);
+		const c7Dirs = {};
+		for (const [label, body] of [["unreadable", JSON.stringify({ name: "rg10-unreadable", pi: { extensions: ["index.ts"] } })], ["malformed", "{ not json"]]) {
+			const dir = join(fakeStore, `rg10-${label}`);
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(join(dir, "index.ts"), `// C7 ${label} fixture\n`);
+			writeFileSync(join(dir, "package.json"), body);
+			if (label === "unreadable") chmodSync(join(dir, "package.json"), 0o000);
+			c7Dirs[label] = dir;
+		}
+		const rg10 = (name, info) => we.resolveWorkerExtensions({ getAllTools: () => [tool(name, info)] }, [".*"]);
+		const c1 = rg10("c1_tool", { source: "npm:rg10-plain", baseDir: c1Dir, path: c1Path });
+		const c2 = rg10("c2_tool", { source: "npm:rg10-named", baseDir: c2Dir, path: c2Path });
+		const c3 = rg10("c3_tool", { source: "local", origin: "top-level", path: c3Path });
+		const c3b = rg10("c3b_tool", { source: "local", origin: "top-level", path: c3Path, baseDir: fakeCheckout });
+		const c3c = rg10("c3c_tool", { source: "local:./rg10-root-entry.ts", origin: "package", path: c3Path, baseDir: fakeCheckout });
+		const c4 = rg10("c4_tool", { source: "local", baseDir: c4Dir, path: c4Dir });
+		const c5 = rg10("c5_tool", { source: "local", origin: "top-level", path: c5Path, baseDir: c5Dir });
+		const c6 = rg10("c6_tool", { source: "local", origin: "top-level", path: c6Path, baseDir: fakeCheckout });
+		const c7a = rg10("c7a_tool", { source: "npm:rg10-unreadable", baseDir: c7Dirs.unreadable, path: join(c7Dirs.unreadable, "index.ts") });
+		const c7b = rg10("c7b_tool", { source: "npm:rg10-malformed", baseDir: c7Dirs.malformed, path: join(c7Dirs.malformed, "index.ts") });
+		checkAll("bar-self-checkout-root", "a checkout root manifest named ytdb-slate never supplies a candidate's identity across counterexamples C1-C7", [
+			["C1 manifest-less store candidate accepted", c1.toolNames.join() === "c1_tool", c1],
+			["C2 unrelated store manifest accepted", c2.toolNames.join() === "c2_tool", c2],
+			["C3 checkout-root entry file accepted", c3.toolNames.join() === "c3_tool", c3],
+			["C3b checkout-root entry file with checkout-root baseDir accepted", c3b.toolNames.join() === "c3b_tool", c3b],
+			["C3c local-file package route accepted", c3c.toolNames.join() === "c3c_tool", c3c],
+			["C4 directory entry with unrelated manifest accepted", c4.toolNames.join() === "c4_tool", c4],
+			["C5 candidate two levels below the checkout root accepted", c5.toolNames.join() === "c5_tool", c5],
+			["C6 symbolically linked candidate accepted", c6.toolNames.join() === "c6_tool", c6],
+			["C7 unreadable candidate manifest accepted", c7a.toolNames.join() === "c7a_tool", c7a],
+			["C7 malformed candidate manifest accepted", c7b.toolNames.join() === "c7b_tool", c7b],
+		]);
+
+		// This isolates the single name-read location. The same manifest refuses the
+		// candidate when it sits at the candidate path. It does not refuse the
+		// candidate when it sits one level ABOVE that path.
+		const unitNamedDir = join(WORK, "bar-name-unitpath");
+		const unitNamedPath = join(unitNamedDir, "extension", "index.ts");
+		mkdirSync(dirname(unitNamedPath), { recursive: true });
+		writeFileSync(unitNamedPath, "// candidate-path name fixture\n");
+		writeFileSync(join(unitNamedDir, "package.json"), JSON.stringify({ name: we.SLATE_PACKAGE_NAME }));
+		const atPath = we.resolveWorkerExtensions({
+			getAllTools: () => [tool("unit_named_tool", { source: "local", origin: "top-level", path: unitNamedDir, baseDir: unitNamedDir })],
+		}, [".*"]);
+		const abovePath = we.resolveWorkerExtensions({
+			getAllTools: () => [tool("above_named_tool", { source: "npm:base-named", baseDir: unitNamedDir, path: unitNamedPath })],
+		}, [".*"]);
+		const aboveWarned = [];
+		const aboveCovered = we.resolveWorkerExtensions({
+			getAllTools: () => we.SLATE_TOOL_NAMES.map((name) => ({
+				name,
+				description: "d",
+				sourceInfo: { source: "npm:base-named", origin: "package", baseDir: unitNamedDir, path: unitNamedPath },
+			})),
+		}, [".*"], (m) => aboveWarned.push(m));
+		checkAll("bar-self-name-unitpath", "the candidate path is the only name-read location, and a manifest above it never refuses", [
+			["entry directory carries no manifest", !existsSync(join(dirname(unitNamedPath), "package.json")), unitNamedPath],
+			["manifest at the candidate path refuses", atPath.units.length === 0, atPath],
+			["the same manifest above the candidate path does not refuse", abovePath.toolNames.join() === "above_named_tool", abovePath],
+			["the barrier covers that miss with 0 units and 1 warning", aboveCovered.units.length === 0 && aboveWarned.length === 1, { units: aboveCovered.units.length, warnings: aboveWarned.length }],
+		]);
 
 		const warned = [];
 		const piColl = {
@@ -6616,7 +6827,7 @@ production behaviour.`);
 		...DOCTRINE_CONTRACT_IDS,
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",
-		"bar-self-exclude", "bar-collision",
+		"bar-self-exclude", "bar-self-nested", "bar-self-split-layout", "bar-self-second-entry", "bar-self-symlink", "bar-self-escape", "bar-self-trailing", "bar-self-fallback", "bar-self-case", "bar-self-name", "bar-self-name-origins", "bar-self-name-unitpath", "bar-self-checkout-root", "bar-collision",
 		"match-source", "match-path", "match-toolpath", "match-none", "match-invalid-regex",
 		"inject-safety", "memoization",
 		"router-load", "profiles-load", "state-load",
