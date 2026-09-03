@@ -183,8 +183,13 @@ test("untrusted follow-up issue configuration leaves doctrine byte-identical", {
   assert.doesNotMatch(enabled, /After review, ask the user which review suggestions become tracker issues\./);
 });
 
-test("writing doctrine pins every substantive writing clause and complete scope", { timeout: 5000 }, async () => {
-  const doctrine = await renderDoctrine(ROUTER_OFF, { writing: { check: true } });
+test("writing doctrine is active for trusted projects regardless of ignored writing keys", { timeout: 5000 }, async () => {
+  const doctrine = await renderDoctrine(ROUTER_OFF, { writing: { check: false, remind: false } });
+  const absent = await renderDoctrine(ROUTER_OFF);
+  const untrusted = await renderDoctrine(ROUTER_OFF, { writing: { check: true, remind: true } }, false);
+  assert.match(absent, /Check user-facing prose before delivery\./);
+  assert.equal(absent, doctrine);
+  assert.doesNotMatch(untrusted, /Check user-facing prose before delivery\./);
   const normalized = doctrine.replace(/\s+/g, " ");
   const requiredClauses = [
     "Check user-facing prose before delivery.",
@@ -217,6 +222,24 @@ test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {
   assert.doesNotMatch(explicitOff, /Routable this session/);
   assert.doesNotMatch(explicitOff, /Prices include dated updates/);
   assert.doesNotMatch(explicitOff, /Prices as of/);
+});
+
+test("entry configuration reports either ignored writing key through the shared warning sink", { timeout: 5000 }, async () => {
+  const run = async (name: string, writing: Record<string, unknown> | undefined): Promise<string[]> => {
+    const cwd = join(scratch, name);
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify(writing === undefined ? {} : { writing }));
+    const api = new FakeExtensionApi();
+    slateExtension(api as unknown as ExtensionAPI);
+    const warnings: string[] = [];
+    await api.emit("session_start", {}, extensionContext(cwd, warnings));
+    return warnings;
+  };
+  const notice = "slate: writing.check and writing.remind are ignored writing keys. Remove them from slate.json. Slate controls writing checks and reminders automatically for trusted projects in orchestrator mode.";
+
+  assert.deepEqual(await run("writing-check-true", { check: true }), [notice]);
+  assert.deepEqual(await run("writing-remind-false", { remind: false }), [notice]);
+  assert.deepEqual(await run("writing-keys-absent", { remindPercent: 10 }), []);
 });
 
 test("entry configuration accepts valid cache shards and rejects invalid counts", { timeout: 5000 }, async () => {

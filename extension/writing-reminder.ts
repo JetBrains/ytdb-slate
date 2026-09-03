@@ -43,8 +43,6 @@ export interface WritingReminderRuntime {
 export interface WritingReminderGate {
 	orchestratorMode: boolean;
 	trusted: boolean;
-	check: boolean;
-	remind: boolean;
 	paused: boolean;
 }
 
@@ -70,7 +68,7 @@ export function writingReminderInterval(effectiveBudgetTokens: number, remindPer
 
 /** Decide whether policy gates permit a reminder before checking its cadence. */
 export function writingReminderGateOpen(gate: WritingReminderGate, sentThisRound: boolean): boolean {
-	return gate.orchestratorMode && gate.trusted && gate.check && gate.remind && !gate.paused && !sentThisRound;
+	return gate.orchestratorMode && gate.trusted && !gate.paused && !sentThisRound;
 }
 
 /**

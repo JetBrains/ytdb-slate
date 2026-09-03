@@ -569,7 +569,7 @@ A net much smaller than the ladder, for these subjects:
 - the **worker preamble and reviewer charter** across `extension/worker.ts`,
   `extension/threads.ts` and the marked block in `docs/review-rules.md`
   (`worker-preamble`, `reviewer-charter-sync`). The checks cover historical
-  feature-off bytes, writing and charter gates, and worker prompt plumbing. They
+  untrusted bytes, the trust and charter gates, and worker prompt plumbing. They
   also cover normalized byte identity between the shipped charter and its source
   block. Nothing else in these modules is in scope here (see the load-path note
   below).
@@ -716,12 +716,12 @@ rather than tidy. The group is voided by `profiles-load`, because
 
 | id | what it proves |
 | --- | --- |
-| `doctrine-router-off` | **I2** — with the router off the rule contributes NOTHING. Every off-shaped resolution a session can hand the doctrine renders **byte-identically** to the default 5-argument call: explicitly off, off *while carrying candidates* (the shape that isolates the `on` flag — without it a guard weakened to `on === undefined` survives, because the empty-list guard catches it two lines later), on-with-no-candidates, on-with-only-unusable-candidates, a non-array candidate list, and no resolution at all. Asserted with and without the worker-extension rule beside it, plus a non-vacuity term proving the same helper *does* render the rule when the router is on. Note that `off-doctrine` above reaches this path only by OMISSION — it calls the helper with five arguments, so `getRouter` takes its default |
-| `doctrine-untrusted` | **SE3** — an UNTRUSTED project gets **no routing rule even with `router.models` fully configured**, and its doctrine is byte-identical to the untrusted router-off one. `74a728c` re-gated the rule on `trusted` at the injection point, mirroring rule 9's tail: defence in depth (index.ts reads project config for trusted projects only) and therefore exactly the kind of guard that can be removed with no visible symptom. Its **own** check, not a term in `doctrine-router-off`, because untrusted-with-config and trusted-with-router-off render the same text by different mechanisms — folded together they are indistinguishable, and a baseline that is itself untrusted would keep comparing equal while one path broke. Here the baseline is the untrusted one and the discriminator is explicit: the SAME resolution, trusted, must render the rule. Two further terms separate "routing is gated" from "untrusted gets no tail rules at all": the worker-extension rule, which is NOT trust-gated, still renders for an untrusted project and keeps slot 11, with no gap where the suppressed rule would have been |
-| `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
+| `doctrine-router-off` | **I2** — with the router off the routing rule contributes NOTHING. Every off-shaped resolution renders byte-identically to the default call. The trusted baseline still contains the independent writing tail in slot 11. The same helper must render routing before writing when the router is on |
+| `doctrine-untrusted` | **SE3** — an untrusted project gets no routing or writing rule even with full configuration. The same resolution under trust renders routing followed by writing. The worker-extension rule remains independently visible to untrusted projects and keeps slot 11 |
+| `doctrine-numbering` | tail rules are numbered by **position**, not identity. Trusted writing is always last. It is 11 alone, 12 behind either routing or extensions, and 13 behind both. Every combination stays contiguous, and the routing body remains identical when its number moves |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It reads no project config. The draft-enabled maximum is **7,463 of 8,500** portable characters. The draft-disabled pin is **7,444**. Writing plus routing is **6,097 of 6,900**. All tails are **6,352 of 7,200**. The capped worker rule is **1,347 of 1,600**. An **8,779-character** positive control exceeds the maximal bound by 279. These are verification budgets, not runtime limits. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,584 portable characters, 43 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **7,463 of 8,500** portable characters. The draft-disabled pin is **7,444**. Writing plus routing is **6,097 of 6,900**. All tails are **6,352 of 7,200**. The capped worker rule is **1,347 of 1,600**. An **8,779-character** positive control exceeds the maximal bound by 279. These are verification budgets, not runtime limits. |
 | `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **7,541 of 8,500** portable characters and 94 lines and keeps 959 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
@@ -754,7 +754,9 @@ The **human-only writing status line** is covered through `registerSlateMode` wi
 | --- | --- |
 | `writing-status-fresh` / `writing-status-clean` / `writing-status-positive` | real hook cycles distinguish no completed turns (`0/0`), one clean turn (`0/1`), and one failing turn (`1/1`) |
 | `writing-status-import-fail` / `writing-status-fail-open` | a rejected checker import and a checker throw both fail open through `turn_end` and render `writing unavailable` |
-| `writing-status-gate-switch` / `writing-status-gate-trust` / `writing-status-gate-mode` / `writing-status-gate-ui` | each visibility condition independently suppresses the rate: switch off, untrusted project, orchestrator mode off and no UI |
+| `writing-status-ignored-keys` | `writing.check: false` leaves the checker and status active |
+| `writing-status-gate-trust` / `writing-status-gate-mode` / `writing-status-gate-ui` | each surviving gate keeps the checker inactive. The checks observe checker loading and calls, not only status output |
+| `writing-status-non-gate-pause` | a paused trusted orchestrator session with a UI still loads and runs the checker. Reminder pause gating remains separate |
 | `writing-status-cap-skip` | the **checker's own** 1 MiB input cap (`MAX_INPUT_BYTES`) fails open: an oversized message is skipped rather than counted or thrown. It calls `measureWritingTurn` directly with `MAX_INPUT_BYTES + 1` bytes, so it says nothing about the 16 KiB turn bound — that is the row below |
 | `writing-status-cap-visible` | the **turn** bound (`WRITING_TURN_MAX_BYTES`, 16 KiB in `mode.ts`): a larger assistant message goes through the real `turn_end` hook, is never handed to the checker, and the status line says `writing skipped (message too large)` |
 | `writing-status-counting` | only fail findings count; warnings, house-style findings and advisories do not |
@@ -770,13 +772,13 @@ doctrine rule** (`extension/mode.ts`), rendered through the same
 
 | id | what it proves |
 | --- | --- |
-| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ check: false, remind: false, remindPercent: 10 }`; old check-only configs keep their behavior; malformed shapes warn and default; an unknown key warns and is not rebuilt; a non-boolean `check` warns and defaults; explicit `false` stays silent |
-| `writing-config-reminder-valid` / `writing-config-reminder-inert` / `writing-config-reminder-percent` | reminder fields accept booleans and a finite percentage in `(0, 100]`; `check: false` makes reminders inert without changing a valid percentage; bad percentages warn once and fall back to 10 |
-| `writing-config-hostile` | a prototype-polluting object, a throwing getter, an inherited `check` and a 30,000-deep value neither crash nor pollute: every result is a fresh object that defaults to off, and only the malformed shapes warn |
-| `writing-doctrine-off` / `writing-doctrine-untrusted` | `writing.check: false` renders the doctrine byte-identically to an absent writing config, and an untrusted project renders byte-identically to `false` even with the rule configured. Both carry the discriminator: the same config, on and trusted, must render the rule |
-| `writing-doctrine-numbering` | the writing rule is numbered by tail **position** over all combinations of the three conditional tail rules, and adding it renumbers nothing before it: alone it is 11, behind the routing rule or the worker-extension rule it is 12, and with all three it is 13 while those two keep their own numbers |
-| `writing-doctrine-inject` | the rule is **static**: three configs carrying extra and nested keys beside the boolean render byte-identically to the plain on-rendering, so no config-derived text reaches the prompt |
-| `writing-doctrine-cite` | the rule's **doc citation** (`docs/writing-guidance.md`, absolute and package-resolved like rules 8–10) renders **exactly once**, **only** while the rule renders — feature-off, absent-config, untrusted, router-on-writing-off and extensions-on-writing-off carry no occurrence of it — and inside the rule rather than anywhere else in the block. The path is read from `paths.ts`, never re-derived from the rendered text, so a rename that leaves the doctrine citing a document the package no longer ships fails here; the named file must also exist on disk, which is the half `package-content-check.mjs` cannot see (it checks the publish set, not the rendering). Two terms guard the shape: the rule still carries exactly **one** numbered line, so a citation line cannot become a forged tail rule, and `off + rule` is byte-identically `on`. Its per-turn **cost** is bounded by `doctrine-budget`, which since the citation landed also bounds the writing rule's own portable size, its line count and its **one** embedded path |
+| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ remindPercent: 10 }`; malformed shapes warn and default; unknown keys warn and disappear; any own `check` or `remind` key produces one exact notice, including `false` and both keys together |
+| `writing-config-reminder-valid` / `writing-config-reminder-ignored` / `writing-config-reminder-percent` | a finite percentage in `(0, 100]` survives; both ignored writing keys produce one notice without changing it; bad percentages warn once and fall back to 10 |
+| `writing-config-hostile` | a prototype-polluting object, a getter on an ignored writing key, a throwing percentage getter, an inherited `check` and a 30,000-deep value neither crash nor pollute. Ignored writing key values are never read, every result is fresh, and inherited keys stay absent |
+| `writing-doctrine-off` / `writing-doctrine-untrusted` | trusted doctrine renders the writing rule byte-identically for `writing.check` false, true, or absent; untrusted doctrine renders no writing rule. The same configured input under both trust states makes the trust gate observable |
+| `writing-doctrine-numbering` | the writing rule is numbered by tail **position** over every routing and worker-extension combination. It is 11 alone, 12 behind either optional rule, and 13 behind both while their numbers remain stable |
+| `writing-doctrine-inject` | the rule is **static**: configs carrying extra and nested keys render byte-identically to the plain trusted rendering, so no config-derived text reaches the prompt |
+| `writing-doctrine-cite` | the rule's **doc citation** (`docs/writing-guidance.md`, absolute and package-resolved like rules 8–10) renders **exactly once** in every trusted doctrine and never in untrusted doctrine. It remains inside the rule rather than elsewhere in the block. The path is read from `paths.ts`, never re-derived from the rendered text, so a rename that leaves the doctrine citing a document the package no longer ships fails here; the named file must also exist on disk, which is the half `package-content-check.mjs` cannot see (it checks the publish set, not the rendering). Two terms guard the shape: the rule still carries exactly **one** numbered line, so a citation line cannot become a forged tail rule, and ignored writing keys add no bytes. Its per-turn **cost** is bounded by `doctrine-budget`, which since the citation landed also bounds the writing rule's own portable size, its line count and its **one** embedded path |
 
 The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`,
 `extension/mode.ts`, and the handoff ordering contract):
@@ -785,7 +787,7 @@ The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`
 | --- | --- |
 | `writing-reminder-load` / `writing-reminder-roster` / `writing-reminder-render` | the pure module loads; the frozen six-line requirement roster keeps exact order and markers; doctrine renders all six bulleted lines while reminders render the exact five eligible lines |
 | `writing-reminder-interval` / `writing-reminder-cadence` / `writing-reminder-budget` | the percentage derives cadence from the effective clamped budget with an 8,192-token floor; equality sends; lower usage repairs a stale mark; unusable usage does not send; force works without usage; override, scalar, Anthropic default, global default and clamp branches reach the real hook |
-| `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, writing check, reminder switch, pause state and the one-send round slot close independently; force does not bypass policy gates; no UI gate exists |
+| `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, pause state and the one-send round slot close independently; false ignored writing keys cannot close delivery; force does not bypass surviving policy gates; no UI gate exists |
 | `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-rearm` / `writing-reminder-mode-force` | claim queues a pending mark without consuming force; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; only assistant `message_end` re-arms the next round |
 | `writing-reminder-send-retry` / `writing-reminder-cleared-retry` | a synchronous `sendMessage` throw releases the claim for retry; an assistant response that arrives before delivery also clears the pending claim without consuming cadence or force |
 | `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters snapshots; the real handoff adoption handler sets force before mode reset; reset preserves that force while clearing mark, round and pending state |
@@ -798,16 +800,16 @@ The **worker preamble** (`extension/worker.ts`):
 
 | id | what it proves |
 | --- | --- |
-| `worker-load` / `worker-preamble` | the module loads; feature-off keeps the exact historical bounded-action preamble; writing and reviewer guidance compose independently; only their explicit gates add them; and `ThreadManager` passes the sanitized writing switch and review-thread decision into the worker system prompt |
+| `worker-load` / `worker-preamble` | the module loads; untrusted workers keep the exact historical bounded-action preamble; trust adds writing guidance; the review-thread decision independently adds the charter; and no writing configuration parameter remains |
 | `reviewer-charter-sync` | the non-empty marked generic charter block in `docs/review-rules.md` matches the shipped `REVIEWER_CHARTER` after whitespace normalization. The role-specific composite test charter remains in the document and is not injected into every review worker |
 
 The current measured preamble forms are 365 bytes for base, 617 with writing,
 2,520 with the reviewer charter, and 2,772 with both additions. The worker check
 pins the first two exact boundaries. `docs/context-budget.md` records all four.
 
-The worker check was mutation-verified three ways: weaken the literal-true gate to a
-truthiness gate, replace `ThreadManager`'s config value with `false`, and change one
-word of the guidance. Each mutation makes `worker-preamble` fail.
+The worker check was mutation-verified against the trust gate, the removed
+configuration parameter, and the exact guidance. Each mutation makes
+`worker-preamble` fail.
 
 The mutations that give all of these checks teeth are recorded with the module
 they defend, in § The writing checker.
@@ -907,8 +909,8 @@ owns these stable verification fixtures:
 | routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
 | writing rule | 1 | **928** | 17 | 1,150 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| router-off doctrine | 3 | **2,584** | 43 | — |
-| router-on doctrine | 4 | **5,169** | 67 | 6,500 |
+| trusted router-off doctrine | 4 | **3,512** | 59 | — |
+| trusted router-on doctrine | 5 | **6,097** | 83 | 6,500 |
 | fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **6,319** | 89 | — |
 | writing-only doctrine | 4 | **3,512** | 59 | 5,600 |
 | writing plus router | 5 | **6,097** | 83 | 6,900 |
@@ -1861,12 +1863,13 @@ proxy variables and the canary evidence paths. `PI_OFFLINE=1` keeps pi startup
 offline. The fake provider performs no network operation. This is **not** a
 network sandbox because reviewed extension code can still open raw sockets.
 
-The project config enables orchestrator mode, writing checks and reminders. It
-sets `contextBudget: 200000` and `remindPercent: 10`. The fake model advertises a
-1,000,000-token window and the first response reports 25,000 input tokens. The
-correct effective interval is 20,000 and fires. A broken path using the model
-window would derive 100,000 and stay silent. This makes budget selection and the
-clamp load-bearing.
+The project config enables orchestrator mode and sets both ignored writing keys
+to false. It sets `contextBudget: 200000` and `remindPercent: 12.5`. Delivery
+proves that the ignored writing keys cannot disable reminders. The fake model
+advertises a 1,000,000-token window. The first response reports 25,000 input
+tokens. The correct effective interval is 25,000 and fires. A broken path using
+the model window would derive 125,000 and stay silent. This makes budget
+selection and the clamp load-bearing.
 
 The canary registers an in-process fake provider and one real tool. The first
 provider response emits two parallel calls to that tool. Both executions append a

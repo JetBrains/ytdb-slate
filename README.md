@@ -85,17 +85,17 @@ With this repository's six-model list and pi's stock registry, Slate hides eleve
 
 The dispatch guards refuse an unlisted model and an invalid effort level. They mark an unmeasured level. They refuse that level only when `router.allowUnmeasuredEffort` is `false`. Slate does not substitute models by context size. Slate does not print a long-prompt price notice. The doctrine states profile-based obligations that code does not enforce. Full semantics appear in the `router.*` configuration rows and [`docs/model-routing.md`](docs/model-routing.md).
 
-## Optional writing guidance
+## Writing guidance
 
-Set `writing.check` to `true` to add writing guidance and human-only telemetry. In orchestrator mode, Slate adds a doctrine rule that states the convention. It also adds a status value such as `writing 1/4`. This value means that one of four measured prose turns had a fail-level finding. Each worker gets a shorter preamble reminder about reader understanding, semicolons, and contractions.
+Writing guidance and human-only telemetry are active for every trusted project in orchestrator mode. Slate adds a doctrine rule that states the convention. It also adds a status value such as `writing 1/4` in interactive sessions. This value means one of four measured prose turns had a fail-level finding. Each trusted worker gets a shorter reminder about reader understanding, semicolons, and contractions.
 
-The option has prompt cost. Each orchestrator system prompt contains the doctrine rule. You pay for this text on every turn. Each worker session also gets a gated preamble addition. Both additions are absent when the option is off. The worker preamble then stays byte-identical to its pre-feature form.
+The guidance has prompt cost. Each orchestrator system prompt contains the doctrine rule. You pay for this text on every turn. Each trusted worker session also gets the preamble addition.
 
 > **No conformance claim:** This is a dictionary-free proxy. It embeds no controlled vocabulary and claims no ASD-STE100 conformance.
 
 The shipped CLI checks plain files, JSONL records, and unified diffs. See [`docs/writing-guidance.md`](docs/writing-guidance.md) for its rules, limits, output, and command examples.
 
-Set `writing.remind` to `true` to add context-paced reminders after eligible tool results. Context-paced means Slate waits for configured context growth between reminders. The reminders are hidden from the normal TUI. They repeat five writing requirements and the scope exclusion before the next assistant response. This option remains off unless `writing.check` is also `true`.
+Slate sends context-paced reminders after eligible tool results. Context-paced means Slate waits for configured context growth between reminders. The reminders are hidden from the normal terminal user interface. They repeat five writing requirements and the scope exclusion before the next assistant response.
 
 ## Install
 
@@ -123,8 +123,8 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `workerPromptDocs` | string[] | `[]` | Project markdown files whose **contents** are appended to every worker-thread system prompt. |
 | `workflow.draftPRs` | boolean | `false` | Enable umbrella draft-PR publishing for tracks. |
 | `workflow.followUpIssues` | boolean | `false` | When true, the orchestrator asks which suggestions become follow-up issues in the project tracker. Suggestions are always reported whatever the value. |
-| `writing.check` | boolean | `false` | Add the writing doctrine rule, per-turn status, and worker guidance. An absent option is silently off. A malformed `writing` value, or a non-boolean `check` value, warns and defaults to off. Unknown `writing` keys warn and are ignored. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
-| `writing.remind` | boolean | `false` | Send a hidden reminder after an eligible tool result. All gates must pass: orchestrator mode, project trust, `writing.check`, this option, no pause, cadence or handoff force, and one-per-round control. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
+| `writing.check` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Guidance is automatic in trusted projects during orchestrator mode. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
+| `writing.remind` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Reminder gates are orchestrator mode, project trust, no pause, cadence or handoff force, and one-per-round control. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remindPercent` | number | `10` | Set cadence as a percentage of Slate's current effective context budget. The value must be finite and in `(0, 100]`. The interval has an 8,192-token floor and no cap. A handoff force bypasses this threshold. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `doctrineExtraPath` | string | — | Project markdown whose **content** is appended to the orchestrator doctrine (project-specific workflow additions). |
 | `reviewPerspectivesPath` | string | — | Project review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
@@ -144,11 +144,7 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
   "orchestratorPromptDocs": ["docs/agents/orchestrator-guidelines.md"],
   "workerPromptDocs": ["docs/agents/thread-guidelines.md"],
   "workflow": { "draftPRs": true, "followUpIssues": false },
-  "writing": {
-    "check": true,
-    "remind": false,
-    "remindPercent": 10
-  },
+  "writing": { "remindPercent": 10 },
   "doctrineExtraPath": "docs/agents/workflow-additions.md",
   "reviewPerspectivesPath": "docs/agents/review-perspectives.md",
   "modelFailover": { "anthropic/claude-sonnet-5": "openai/gpt-5.2" },
@@ -156,7 +152,7 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
 }
 ```
 
-Older Slate releases warn about these reminder keys and ignore them. Use a Slate release whose documentation includes these keys.
+Remove `writing.check` and `writing.remind` when copying an older configuration. Current Slate reports these ignored writing keys.
 
 > **Silent skip:** the project-file keys fail silently — no error is shown. For the content-injected keys (`orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`) a missing, unreadable, or empty file is skipped and nothing is injected. For `reviewPerspectivesPath` the pointer is omitted only when the file is missing — the file is not read at injection time, so an unreadable or empty file is still cited. Verify your paths after copying the example.
 
@@ -195,7 +191,7 @@ In orchestrator mode, Slate appends a short **doctrine** (a block of numbered ru
 - `docs/design-principles.md` — Slate's own design rationale
 - `docs/model-failover.md` — the opt-in `modelFailover` map (**reference documentation** — unlike the entries above it is not workflow doctrine and is not cited by the doctrine)
 - `docs/context-budget.md` — the orchestrator `contextBudget`: defaults, per-model overrides, the window clamp, and the pricing rationale (also **reference documentation**, not cited by the doctrine)
-- `docs/writing-guidance.md` — the optional writing convention, `writing.check` behavior, status line, and checker CLI
+- `docs/writing-guidance.md` — the always-active writing convention, ignored writing keys, status line, and checker CLI
 - `docs/model-routing.md` — the action-level model routing reference. It covers the three `router` keys, model eligibility, omitted effort, and dispatch guards. It also covers first-session warnings. The doctrine cites this absolute path only while the routing rule renders. This path is fourth normally and fifth when `workflow.draftPRs` is on. The rule renders the live list because it depends on the session registry and credentials.
 
 Project-specific additions layer on top — they extend, not replace, the shipped doctrine — via two distinct mechanisms:

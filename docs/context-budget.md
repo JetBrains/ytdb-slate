@@ -110,8 +110,8 @@ half-window floor keeps small-window models usable.
 
 ## Writing-reminder cadence
 
-The effective budget also sets the optional hidden writing-reminder cadence.
-When `writing.check` and `writing.remind` are both true, Slate computes:
+The effective budget also sets the hidden writing-reminder cadence. In every
+trusted project with orchestrator mode active, Slate computes:
 
 ```
 interval = max(8192, floor(effectiveBudget × remindPercent / 100))
@@ -124,7 +124,7 @@ slot can fire after each assistant response.
 
 A successful handoff adoption sets `forceNext`. The next eligible tool result
 then bypasses token cadence and missing usage. It does not bypass trust,
-orchestrator mode, `writing.check`, `writing.remind`, or pause gates. Slate
+orchestrator mode, or the pause gate. Slate
 commits the cadence mark only when pi starts delivery of the custom message.
 
 The current hidden message is 320 ASCII characters, including its `[slate]`
@@ -180,9 +180,9 @@ are embedded in the block — three at minimum
 (`track-workflow.md`, `review-rules.md`,
 `design-principles.md`), plus `pr-publishing.md` when
 `workflow.draftPRs` is on, plus `model-routing.md` when the routing
-rule renders, plus `writing-guidance.md` when `writing.check` is on.
+rule renders, plus the always-present trusted `writing-guidance.md` citation.
 Every additional character in the installed `docs/` directory therefore
-costs 3–6 characters of doctrine.
+costs 4–6 characters of trusted doctrine.
 
 The figures below are **portable characters**, defined exactly as
 Slate's own automated `doctrine-budget` check defines them: the
@@ -200,34 +200,32 @@ the same shipped-profile fixture as that check. The six-model rows use a fixed
 fabricated roster of six resolvable shipped profile specs. The roster is
 independent of this repository's current five-model config. The check never
 reads that config. Every row
-states its full basis, because router state, model count, `draftPRs`,
-and `writing.check` each move the number. Rows with the same fixture
-and basis must agree with `verification/README.md`. A different basis
-must be named instead of presented as the same measurement:
+states its full basis, because router state, model count, and `draftPRs` move
+the number. The ignored writing keys do not. Rows with the same fixture and basis
+must agree with `verification/README.md`:
 
-| router | models | `draftPRs` | `writing.check` | paths | portable | lines |
+| router | models | `draftPRs` | writing keys | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | off | 3 | 2,584 | 43 |
-| off | — | off | on | 4 | 3,512 | 59 |
-| off | — | on | off | 4 | 2,603 | 43 |
-| off | — | on | on | 5 | 3,531 | 59 |
-| on | fixed six-model fixture | off | off | 4 | 4,614 | 64 |
-| on | fixed six-model fixture | off | on | 5 | 5,542 | 80 |
-| on | fixed six-model fixture | on | off | 5 | 4,633 | 64 |
-| on | fixed six-model fixture | on | on | 6 | 5,561 | 80 |
-| on | all 9 shipped | off | off | 4 | 5,169 | 67 |
-| on | all 9 shipped | off | on | 5 | 6,097 | 83 |
-| on | all 9 shipped | on | off | 5 | 5,188 | 67 |
-| on | all 9 shipped | on | on | 6 | 6,116 | 83 |
+| off | — | off | absent | 4 | 3,512 | 59 |
+| off | — | off | set | 4 | 3,512 | 59 |
+| off | — | on | absent | 5 | 3,531 | 59 |
+| off | — | on | set | 5 | 3,531 | 59 |
+| on | fixed six-model fixture | off | absent | 5 | 5,542 | 80 |
+| on | fixed six-model fixture | off | set | 5 | 5,542 | 80 |
+| on | fixed six-model fixture | on | absent | 6 | 5,561 | 80 |
+| on | fixed six-model fixture | on | set | 6 | 5,561 | 80 |
+| on | all 9 shipped | off | absent | 5 | 6,097 | 83 |
+| on | all 9 shipped | off | set | 5 | 6,097 | 83 |
+| on | all 9 shipped | on | absent | 6 | 6,116 | 83 |
+| on | all 9 shipped | on | set | 6 | 6,116 | 83 |
 
-An untrusted project reads the first row whatever its `slate.json`
-says: no project config is loaded, so no optional rule renders. Line
-counts do not vary with the install path. Enabling `draftPRs` costs
-19 portable characters plus one embedded path. Enabling
-`writing.check` costs 928 portable characters, adds 16 lines to the
-whole doctrine, and adds one embedded path. Considered alone, the
-writing rule is 928 portable characters / 17 lines. Its leading
-newline becomes the separator when appended.
+An untrusted project receives no writing or routing tail whatever its
+`slate.json` says. Its fixed doctrine remains 2,584 portable characters, 43
+lines, and three embedded paths. Line counts do not vary with the install path.
+Enabling `draftPRs` costs 19 portable characters plus one embedded path. Setting
+either ignored writing key costs nothing. The writing rule is 928 portable
+characters and 17 lines. Its leading newline becomes the separator when
+appended.
 
 Two parts of the block grow with configuration rather than with the
 path:
@@ -254,7 +252,7 @@ worker extensions and support verification decisions:
 | stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 7,463 | 93 | ≈1,866 |
 | follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 7,541 | 94 | ≈1,885 |
 
-The dogfood fixture mirrors `workflow.draftPRs: true`, `writing.check: true`,
+The dogfood fixture mirrors `workflow.draftPRs: true`, both ignored writing keys,
 and the five models in this repository's `.pi/slate.json`. A change to that
 configuration requires re-measuring this row. The fabricated context-window
 cells mirror pi's model registry, which is the routing authority: 272,000 for
@@ -300,7 +298,7 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | routing rule lines | 25 | 34 | 9 |
 | routing fixed prose | 1,110 | 1,500 | 390 |
 | largest model row | 183 | 300 | 117 |
-| router-on doctrine | 5,169 | 6,500 | 1,331 |
+| trusted router-on doctrine | 6,097 | 6,500 | 403 |
 | writing-only doctrine | 3,512 | 5,600 | 2,088 |
 | writing plus router | 6,097 | 6,900 | 803 |
 | writing plus extensions | 3,767 | 6,000 | 2,233 |
@@ -313,9 +311,9 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | writing rule lines | 17 | 25 | 8 |
 
 Slate replaced the four-class prompt with size grades and focus areas. The
-fixed rules grew by 207 portable characters and two lines. The writing-plus-
-router fixture requires `6,097 × 1.05 = 6,401.85`. Ceiling gives 6,402. The
-existing 6,900 bound remains larger. The all-tail fixture requires
+fixed rules grew by 207 portable characters and two lines. The trusted
+router-on fixture requires `6,097 × 1.05 = 6,401.85`. Ceiling gives 6,402. The
+existing 6,500 bound remains larger. The all-tail fixture requires
 `6,352 × 1.05 = 6,669.6`. Ceiling gives 6,670. The existing 7,200 bound remains larger.
 
 The follow-up fixture requires `7,541 × 1.05 = 7,918.05`. Ceiling gives 7,919.

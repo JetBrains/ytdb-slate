@@ -1,13 +1,13 @@
 # Writing guidance and the prose checker
 
-Slate ships an optional writing convention and a command that measures
-prose against a mechanical proxy. With `writing.check` absent or false,
-Slate loads no writing guidance. The command remains available.
+Slate ships an always-active writing convention and a command that measures
+prose against a mechanical proxy. Trusted projects receive the guidance in
+orchestrator mode. The command remains available.
 
 This document is reference documentation, not workflow doctrine. It
 is the definition of record for the rule set, the severity classes,
-the command line and the caps. The enabled doctrine rule states the
-convention in a few lines and cites this file for everything else.
+the command line and the caps. The doctrine rule states the convention
+in a few lines and cites this file for everything else.
 A session pays for the detail only when it reads this file.
 
 ## What the checker is, and what it is not
@@ -46,58 +46,40 @@ document to follow when reviewing prose. The short version: a
 never a defect on its own, and the checker cannot see meaning,
 accuracy, structure or completeness at all.
 
-## Enabling it
+## Configuration
 
-Configure writing features in the project's `.pi/slate.json`:
+Writing guidance and reminders need no enable switch. They are active in every
+trusted project while orchestrator mode is active.
 
-```json
-{
-  "writing": {
-    "check": true,
-    "remind": false,
-    "remindPercent": 10
-  }
-}
-```
+Slate still accepts `writing.check` and `writing.remind` for compatibility.
+They are ignored writing keys and have no effect. Remove them from `slate.json`.
+Either explicitly set key produces one configuration notice, even when its
+value is `false`. When both keys are present, Slate sends one notice.
 
-All three values are optional. `check` and `remind` default to false.
-`remindPercent` defaults to 10. `remind` is inert unless `check` is
-true.
-
-A malformed `writing` value warns once and uses all defaults. A
-non-boolean `check` or `remind` value warns and uses its default.
-Unknown keys under `writing` also warn and are ignored.
-
-`remindPercent` must be a finite number in `(0, 100]`. An invalid
-value warns and defaults to 10. The validator is
+`writing.remindPercent` remains configurable. It defaults to 10 and must be a
+finite number in `(0, 100]`. An invalid value warns and defaults to 10. Unknown
+keys under `writing` also warn and are ignored. The validator is
 `sanitizeWritingConfig` in `extension/writing.ts`.
 
-Slate reads project config only for a TRUSTED project. The doctrine,
-worker preamble, and reminder gates also check trust at their injection
-points. These checks provide defense in depth because
-`extension/index.ts` already gates the current config path. An
-untrusted project behaves as if the switches were off.
+Slate reads project config only for a trusted project. The doctrine, worker
+preamble, status, and reminder paths also check trust. An untrusted project
+receives none of this writing guidance.
 
-The `check` switch turns on three things:
+Trusted orchestrator sessions receive three writing-check surfaces:
 
-1. **The doctrine rule.** One numbered rule is appended to the
-   orchestrator's system prompt while orchestrator mode is on. It
-   states the convention and cites this file by absolute path.
-2. **The worker preamble sentence.** Every worker thread dispatched
-   while the switch is on gets one extra sentence of guidance in its
-   preamble. With the switch off the preamble is byte-identical to
-   its pre-feature text.
-3. **The turn status line.** In an interactive session, the Slate
-   status line gains a `writing <n>/<m>` counter. `m` counts measured
-   prose turns. `n` counts turns with at least one `fail` finding.
+1. **The doctrine rule.** One numbered rule is appended to the orchestrator's
+   system prompt. It states the convention and cites this file by absolute path.
+2. **The worker preamble sentence.** Every trusted worker thread receives one
+   extra sentence of guidance in its preamble.
+3. **The turn status line.** In an interactive session, the Slate status line
+   gains a `writing <n>/<m>` counter. `m` counts measured prose turns. `n`
+   counts turns with at least one `fail` finding.
 
-The separate `remind` switch adds a hidden, context-paced message.
-Context-paced means Slate waits for configured context growth between
-reminders. It works only while `check` remains on. The next section
-defines this channel and its gates.
+Slate also sends a hidden, context-paced message after eligible tool results.
+Context-paced means Slate waits for configured context growth between reminders.
+The next section defines this channel and its gates.
 
-Running the command by hand needs no config. It is a plain Node
-command and works whether either switch is on.
+Running the command by hand needs no config. It is a plain Node command.
 
 ## Writing requirements and reminders
 
@@ -126,8 +108,8 @@ scope guard:
 
 This guard is a coarse summary wherever Slate renders it, including the
 doctrine rule and the reminder. The summary names research logs as excluded.
-When `writing.check` is true, the high-level design remains governed even
-while it lives inside a research log. This document is the authority on the
+A high-level design remains governed even while it lives inside a research
+log. This document is the authority on the
 precise scope of every rendering.
 
 These requirements are not mechanical checker findings. The shipped
@@ -152,7 +134,6 @@ Every reminder gate must be open:
 
 - orchestrator mode is on
 - the project is trusted
-- `writing.check` and `writing.remind` are true
 - Slate is not paused
 - the context threshold is reached, or a handoff forces the next reminder
 - no reminder has been sent in the current assistant response round
@@ -219,7 +200,7 @@ separate from the command's 1 MiB input cap.
 
 The checker hook is human-only telemetry. It does not change model
 input. A checker failure reports `writing unavailable` instead of
-failing the turn. The optional reminder uses the separate model-visible
+failing the turn. The hidden reminder uses the separate model-visible
 channel described above.
 
 ## What counts as prose
@@ -426,13 +407,12 @@ These are settled decisions. Read them as scope, not as a backlog.
   run is a pass. `review-rules.md` owns the mapping from a match to a
   severity, and a reviewer owns the judgement.
 - **Not a gate.** The checker hook is telemetry. It changes no model
-  input and cannot fail a turn. The optional reminder is guidance,
-  not a checker verdict.
+  input and cannot fail a turn. The reminder is guidance, not a checker
+  verdict.
 - **Not universal.** The convention covers prose written for people:
   documents, README text, pull request and commit text, issues,
   review comments, release notes and messages to the user. Research
   logs, worker task text and this repository's own agent instruction
   file are excluded, because a dense exact register serves them
-  better. When a project sets `writing.check` to true, its high-level
-  design is governed prose even while it lives inside an otherwise
-  excluded research log.
+  better. A high-level design is governed prose even while it lives
+  inside an otherwise excluded research log.

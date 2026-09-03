@@ -73,12 +73,15 @@ export function measureWritingTurn(
 /** The known `writing` keys. Report anything else as a likely typo. */
 const WRITING_KEYS = ["check", "remind", "remindPercent"];
 
-/** Validate the raw `writing` config value and apply independent defaults. */
-export function sanitizeWritingConfig(raw: unknown, warn: (msg: string) => void): Required<WritingConfig> {
-	const defaults: Required<WritingConfig> = { check: false, remind: false, remindPercent: 10 };
+/** Validate the raw `writing` config and retain its configurable percentage. */
+export function sanitizeWritingConfig(
+	raw: unknown,
+	warn: (msg: string) => void,
+): Pick<Required<WritingConfig>, "remindPercent"> {
+	const defaults = { remindPercent: 10 };
 	if (raw === undefined) return defaults;
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-		warn('slate: ignoring writing — expected an object like { "check": true }');
+		warn('slate: ignoring writing — expected an object like { "remindPercent": 10 }');
 		return defaults;
 	}
 	const value = raw as { check?: unknown; remind?: unknown; remindPercent?: unknown };
@@ -92,27 +95,23 @@ export function sanitizeWritingConfig(raw: unknown, warn: (msg: string) => void)
 		);
 	}
 
-	const read = (key: keyof typeof value): unknown => {
-		if (!Object.prototype.hasOwnProperty.call(value, key)) return undefined;
-		try {
-			return value[key];
-		} catch {
-			const fallback = key === "remindPercent" ? 10 : false;
-			warn(`slate: ignoring writing.${key} — could not read the value (defaulting to ${fallback})`);
-			return undefined;
-		}
-	};
-	const booleanValue = (key: "check" | "remind", fallback: boolean): boolean => {
-		const candidate = read(key);
-		if (candidate === undefined) return fallback;
-		if (typeof candidate === "boolean") return candidate;
-		warn(`slate: ignoring writing.${key} — expected true or false (defaulting to ${fallback})`);
-		return fallback;
-	};
+	if (
+		Object.prototype.hasOwnProperty.call(value, "check") ||
+		Object.prototype.hasOwnProperty.call(value, "remind")
+	) {
+		warn(
+			"slate: writing.check and writing.remind are ignored writing keys. Remove them from slate.json. Slate controls writing checks and reminders automatically for trusted projects in orchestrator mode.",
+		);
+	}
 
-	const check = booleanValue("check", defaults.check);
-	const requestedRemind = booleanValue("remind", defaults.remind);
-	const rawPercent = read("remindPercent");
+	let rawPercent: unknown;
+	if (Object.prototype.hasOwnProperty.call(value, "remindPercent")) {
+		try {
+			rawPercent = value.remindPercent;
+		} catch {
+			warn("slate: ignoring writing.remindPercent — could not read the value (defaulting to 10)");
+		}
+	}
 	let remindPercent = defaults.remindPercent;
 	if (rawPercent !== undefined) {
 		if (typeof rawPercent === "number" && Number.isFinite(rawPercent) && rawPercent > 0 && rawPercent <= 100) {
@@ -122,6 +121,5 @@ export function sanitizeWritingConfig(raw: unknown, warn: (msg: string) => void)
 		}
 	}
 
-	// A reminder without the checker is disabled at the config boundary.
-	return { check, remind: check && requestedRemind, remindPercent };
+	return { remindPercent };
 }

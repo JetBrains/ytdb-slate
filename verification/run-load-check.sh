@@ -512,18 +512,18 @@ if run_wanted T1 T2 T3; then
 		else check T1 0 "pi exited 0 on the trusted (-a) run, still offline, project trusted ($(rpcq canary-where "$WORK/run2.err"))"; fi
 	}
 
-	# TQ2: this asserts ONE thing — that slate's sanitizers emitted no warning — and
-	# the wording says so. Only three keys have sanitizers that warn (modelFailover,
-	# contextBudget, workerExtensions); everything else in the file, and the file's
-	# syntax and shape, is outside what a warning can ever report. T4 covers the
-	# syntax and shape; nothing here covers unknown keys or wrong-typed values for
-	# the unsanitized ones.
+	# TQ2 pins the one intentional warning from this checkout's retained ignored
+	# writing keys. Any missing, additional, or different warning still fails, so a
+	# malformed modelFailover, contextBudget, workerExtensions, or writing value
+	# cannot hide behind the expected notice. T4 separately covers JSON shape.
 	want T2 && {
 		N="$(rpcq warnings "$WORK/run2.out")"
 		U="$(rpcq unparseable "$WORK/run2.out")"
+		DETAIL="$(rpcq warning-detail "$WORK/run2.out")"
+		EXPECTED='slate: writing.check and writing.remind are ignored writing keys. Remove them from slate.json. Slate controls writing checks and reminders automatically for trusted projects in orchestrator mode.'
 		if [ "$U" != 0 ]; then check T2 1 "$U line(s) of stdout look like JSON but do not parse, so a warning notification could have been missed rather than absent"
-		elif [ "$N" = 0 ]; then check T2 0 "slate's config sanitizers emitted no warning for the checkout's own .pi/slate.json (they cover the shape of modelFailover, contextBudget and workerExtensions only — not the file's syntax, which is T4, nor any other key)"
-		else check T2 1 "$N warning notification(s) from slate's config sanitizers on .pi/slate.json: $(rpcq warning-detail "$WORK/run2.out")"; fi
+		elif [ "$N" = 1 ] && [ "$DETAIL" = "$EXPECTED" ]; then check T2 0 "the trusted config emitted exactly the expected ignored writing keys notice and no sanitizer fault"
+		else check T2 1 "$N warning notification(s) did not equal the one expected ignored writing keys notice: $DETAIL"; fi
 	}
 
 	want T3 && {

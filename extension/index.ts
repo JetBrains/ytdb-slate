@@ -42,7 +42,7 @@
  *     "reviewPerspectivesPath": "docs/review-perspectives.md",
  *     "router": { "models": ["provider/id", ...], "allowUnmeasuredEffort": true,
  *                 "showWarnings": false },
- *     "writing": { "check": false } }
+ *     "writing": { "remindPercent": 10 } }
  * router.models is the closed list of models an action may be routed to (empty
  * or absent = router off, the default); allowUnmeasuredEffort (default true)
  * governs effort levels with no capability evidence; showWarnings (default
