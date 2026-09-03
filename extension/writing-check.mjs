@@ -74,16 +74,22 @@ export const NOT_CHECKED = [
   { id: 'APPROVED_MEANING_POS', reason: 'Approved meaning and part of speech need authorized dictionary data and contextual review.' },
   { id: 'NOUNCLUSTER_CORRECTNESS', reason: 'The token-run heuristic cannot decide whether a noun cluster is linguistically correct or an approved technical term.' },
   { id: 'TOPIC_UNITY', reason: 'Topic unity and topic-sentence adequacy require semantic review.' },
+  { id: 'IDEA_COUNT', reason: 'Counting ideas in a sentence requires semantic review.' },
   { id: 'WARNING_CAUTION_CONTENT', reason: 'Risk level, placement, command adequacy, and consequences require structured metadata and human review.' },
 ];
 
 export const RULES = [
-  ['SENT20', 'warning'], ['SENT25', 'fail'], ['PARA6', 'fail'],
-  ['SEMICOLON', 'fail'], ['CONTRACTION', 'fail'],
+  ['PARA6', 'house-style'], ['SEMICOLON', 'fail'], ['CONTRACTION', 'fail'],
   ['PARENTHETICAL_PAREN', 'house-style'], ['PARENTHETICAL_DASH', 'house-style'],
   ['SLASHED', 'house-style'], ['PASSIVE', 'advisory'], ['INGFORM', 'advisory'],
   ['NOUNCLUSTER', 'advisory'], ['MULTICMD', 'advisory'],
 ];
+
+function ruleClass(rule) {
+  const entry = RULES.find(([id]) => id === rule);
+  if (entry === undefined) throw new Error(`Unknown writing rule: ${rule}`);
+  return entry[1];
+}
 
 export function makeAbbreviationSet(values) {
   for (const value of values) {
@@ -540,7 +546,7 @@ export function excerpt(text, start, end) {
     .replace(/\s+/g, ' ')
     .trim();
   // The 2000-character limit INCLUDES the frame. Keep both ends so whole-unit
-  // findings (SENT20, SENT25 and PARA6) retain their opening and conclusion.
+  // findings such as PARA6 retain their opening and conclusion.
   // Avoid cutting a valid surrogate pair; that can make the result shorter than
   // the cap by one code unit but never longer.
   const marker = ' … [middle elided] … ';
@@ -618,15 +624,15 @@ export function checkRecord(record, ordinal = 0, options = {}) {
    * reverse mistake: every rule added `block.start`, which is only correct while
    * the block text is a verbatim slice).
    */
-  const add = (rule, cls, block, sentence, start, end) => {
+  const add = (rule, block, sentence, start, end) => {
     if (findings.length >= maxFindings) { omittedFindings++; return; }
     const from = blockOffset(block, start), to = blockOffset(block, end);
-    findings.push({ id: rule, class: cls, block: block.index, sentence, offset: { start: from, end: to }, excerpt: excerpt(source, from, to) });
+    findings.push({ id: rule, class: ruleClass(rule), block: block.index, sentence, offset: { start: from, end: to }, excerpt: excerpt(source, from, to) });
   };
   /** PARA6 marks the whole block, whose bounds are already source offsets. */
-  const addSourceSpan = (rule, cls, block, start, end) => {
+  const addSourceSpan = (rule, block, start, end) => {
     if (findings.length >= maxFindings) { omittedFindings++; return; }
-    findings.push({ id: rule, class: cls, block: block.index, sentence: null, offset: { start, end }, excerpt: excerpt(source, start, end) });
+    findings.push({ id: rule, class: ruleClass(rule), block: block.index, sentence: null, offset: { start, end }, excerpt: excerpt(source, start, end) });
   };
 
   for (const block of blocks) {
@@ -635,16 +641,16 @@ export function checkRecord(record, ordinal = 0, options = {}) {
     if (!prose(block.type)) continue;
     sentenceCount += block.sentences.length; totalWords += block.words;
     if (block.type === 'paragraph') paragraphSentences.push(block.sentences.length);
-    if (block.type === 'paragraph' && block.sentences.length > 6) addSourceSpan('PARA6', 'fail', block, block.start, block.end);
+    if (block.type === 'paragraph' && block.sentences.length > 6) addSourceSpan('PARA6', block, block.start, block.end);
 
     const scans = [
       ['SEMICOLON', /;/g],
       ['CONTRACTION', /\b(?:i|you|we|they|he|she|it|that|there|here|what|who|how|where|when|why|let)(?:n['’]t|['’](?:re|ll|ve|d|m|s))\b|\b(?:is|are|was|were|do|does|did|has|have|had|can|could|should|would|will|must|might|need|dare|wo|sha)n['’]t\b/gi],
     ];
-    for (const [rule, re] of scans) for (const m of block.text.matchAll(re)) add(rule, 'fail', block, null, m.index, m.index + m[0].length);
-    for (const m of block.text.matchAll(/(?<!\/)\b[\p{L}]+\/[\p{L}]+\b(?!\/)/gu)) add('SLASHED', 'house-style', block, null, m.index, m.index + m[0].length);
+    for (const [rule, re] of scans) for (const m of block.text.matchAll(re)) add(rule, block, null, m.index, m.index + m[0].length);
+    for (const m of block.text.matchAll(/(?<!\/)\b[\p{L}]+\/[\p{L}]+\b(?!\/)/gu)) add('SLASHED', block, null, m.index, m.index + m[0].length);
 
-    for (const m of block.text.matchAll(/\(([^()]*)\)/g)) if (finiteCandidate(m[1])) add('PARENTHETICAL_PAREN', 'house-style', block, null, m.index, m.index + m[0].length);
+    for (const m of block.text.matchAll(/\(([^()]*)\)/g)) if (finiteCandidate(m[1])) add('PARENTHETICAL_PAREN', block, null, m.index, m.index + m[0].length);
     // Only a block with a dash candidate can produce one, and quotedDashSpans
     // costs two scans of the block.
     const quoted = block.text.includes('—') || block.text.includes('–') ? quotedDashSpans(block.text) : [];
@@ -654,7 +660,7 @@ export function checkRecord(record, ordinal = 0, options = {}) {
       while (quotedIndex < quoted.length && quoted[quotedIndex].end < dashEnd) quotedIndex++;
       const span = quoted[quotedIndex];
       const inQuote = span !== undefined && span.start <= dashStart && span.end >= dashEnd;
-      if (!inQuote) add('PARENTHETICAL_DASH', 'house-style', block, null, dashStart, dashEnd);
+      if (!inQuote) add('PARENTHETICAL_DASH', block, null, dashStart, dashEnd);
     }
 
     block.sentences.forEach((sentence, si) => {
@@ -662,25 +668,21 @@ export function checkRecord(record, ordinal = 0, options = {}) {
       sentenceLengths.push(tokens.length);
       const excluded = excludedHeuristicRanges(sentence.text, sentence.start).sort((a, b) => a.start - b.start || a.end - b.end);
       const heuristicTokens = withoutExcluded(tokens, excluded);
-      // Emit one length result: 21–25 words warns; more than 25 fails.
-      if (tokens.length > 25) add('SENT25', 'fail', block, si, sentence.start, sentence.end);
-      else if (tokens.length > 20) add('SENT20', 'warning', block, si, sentence.start, sentence.end);
-
       for (let i = 0; i < heuristicTokens.length - 1; i++) {
         if (!BE.has(heuristicTokens[i].lower)) continue;
         let j = i + 1;
         if (j < heuristicTokens.length && /ly$/.test(heuristicTokens[j].lower)) j++;
         const p = heuristicTokens[j]?.lower;
-        if (p && ((/ed$/.test(p) && !PASSIVE_ADJECTIVAL.has(p)) || IRREGULAR_PARTICIPLES.has(p))) add('PASSIVE', 'advisory', block, si, heuristicTokens[i].start, heuristicTokens[j].end);
+        if (p && ((/ed$/.test(p) && !PASSIVE_ADJECTIVAL.has(p)) || IRREGULAR_PARTICIPLES.has(p))) add('PASSIVE', block, si, heuristicTokens[i].start, heuristicTokens[j].end);
       }
       heuristicTokens.forEach((t, i) => {
         if (!/ing$/.test(t.lower) || BE.has(heuristicTokens[i - 1]?.lower)) return;
         if (i === 0 && heuristicTokens.length > 1) return; // likely a heading-like/gerund-subject noun; intentionally conservative
-        add('INGFORM', 'advisory', block, si, t.start, t.end);
+        add('INGFORM', block, si, t.start, t.end);
       });
 
       let run = [];
-      const flushRun = () => { if (run.length >= 4) add('NOUNCLUSTER', 'advisory', block, si, run[0].start, run.at(-1).end); run = []; };
+      const flushRun = () => { if (run.length >= 4) add('NOUNCLUSTER', block, si, run[0].start, run.at(-1).end); run = []; };
       for (const t of heuristicTokens) { if (FUNCTION.has(t.lower)) flushRun(); else run.push(t); } flushRun();
 
       let commandRangeIndex = 0;
@@ -691,7 +693,7 @@ export function checkRecord(record, ordinal = 0, options = {}) {
         while (commandRangeIndex < excluded.length && excluded[commandRangeIndex].end < matchStart) commandRangeIndex++;
         const range = excluded[commandRangeIndex];
         const excludedMatch = range && range.start <= matchStart && range.end >= matchEnd;
-        if (first && !FUNCTION.has(first) && !FUNCTION.has(second) && !excludedMatch) add('MULTICMD', 'advisory', block, si, matchStart, matchEnd);
+        if (first && !FUNCTION.has(first) && !FUNCTION.has(second) && !excludedMatch) add('MULTICMD', block, si, matchStart, matchEnd);
       }
     });
   }

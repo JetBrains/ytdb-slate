@@ -685,7 +685,6 @@ export class ThreadManager {
 			tools: args.tools,
 			promptDocs: this.config.workerPromptDocs,
 			extensionPaths: this.resolveExtensions().paths,
-			writingCheck: this.config.writing?.check === true,
 			reviewerCharter: isJudgementThreadType(type),
 			promptCacheKey:
 				this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined

@@ -810,7 +810,7 @@ export function sanitizeWorkflowConfig(raw: unknown, warn: (msg: string) => void
 	return { ...draftPRs, followUpIssues: false };
 }
 
-/** Optional writing checks and context-cadenced reminders. */
+/** Writing configuration. Ignored writing keys remain accepted for compatibility. */
 export interface WritingConfig {
 	check?: boolean;
 	remind?: boolean;
@@ -835,7 +835,7 @@ export interface SlateConfig {
 	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
 	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
 	router?: RouterConfig; // action-level model router: the closed model list + the evidence-gap policy (default: off) — see model-router.ts
-	writing?: WritingConfig; // writing guidance for orchestrator output (default: off) — see writing.ts
+	writing?: WritingConfig; // always-active writing guidance and configurable reminder cadence — see writing.ts
 }
 
 export class SlateStore {

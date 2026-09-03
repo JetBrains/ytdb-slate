@@ -159,6 +159,8 @@ const COVERAGE = {
   '[A-Za-z]': { bounded: 'applied to one character or one already-bounded slice' },
 
   // --- tokens and rules ----------------------------------------------------
+  // Sentence-length findings are absent. Keep the word-token regex because
+  // sentence telemetry and surviving rules still use it.
   '[\\p{L}\\p{N}]+(?:[\'’][\\p{L}]+)*(?:-[\\p{L}\\p{N}]+(?:[\'’][\\p{L}]+)*)*': { gen: { word: rep("a-a' ") } },
   ';': { gen: { semicolon: rep(';') } },
   '\\b(?:i|you|we|they|he|she|it|that|there|here|what|who|how|where|when|why|let)(?:n[\'’]t|[\'’](?:re|ll|ve|d|m|s))\\b|\\b(?:is|are|was|were|do|does|did|has|have|had|can|could|should|would|will|must|might|need|dare|wo|sha)n[\'’]t\\b':

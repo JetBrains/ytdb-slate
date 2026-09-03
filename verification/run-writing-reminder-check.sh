@@ -86,7 +86,7 @@ cat > "$PROJECT/.pi/slate.json" <<'JSON' || die "could not write scratch slate c
 {
   "orchestratorModeDefault": true,
   "contextBudget": 200000,
-  "writing": { "check": true, "remind": true, "remindPercent": 10 }
+  "writing": { "check": false, "remind": false, "remindPercent": 12.5 }
 }
 JSON
 printf '%s\n' \

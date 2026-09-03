@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -8,9 +8,10 @@ import slateExtension from "../extension/index.ts";
 import { PROFILES_AS_OF, MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
 import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC } from "../extension/paths.ts";
+import { PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
+import { DESIGN_REQUIREMENTS, WRITING_REQUIREMENTS } from "../extension/writing-reminder.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "slate-doctrine-contract-"));
 
@@ -20,6 +21,7 @@ type Handler = (event: any, context: ExtensionContext) => unknown;
 
 class FakeExtensionApi {
   readonly handlers = new Map<string, Handler[]>();
+  readonly sentMessages: Array<{ message: unknown; options: unknown }> = [];
 
   on(event: string, handler: Handler): void {
     const handlers = this.handlers.get(event) ?? [];
@@ -33,7 +35,7 @@ class FakeExtensionApi {
   setActiveTools(): void {}
   getAllTools(): Array<{ name: string }> { return []; }
   appendEntry(): void {}
-  sendMessage(): void {}
+  sendMessage(message: unknown, options: unknown): void { this.sentMessages.push({ message, options }); }
   getThinkingLevel(): undefined { return undefined; }
 
   async emit(event: string, payload: unknown, context: ExtensionContext): Promise<unknown[]> {
@@ -183,6 +185,135 @@ test("untrusted follow-up issue configuration leaves doctrine byte-identical", {
   assert.doesNotMatch(enabled, /After review, ask the user which review suggestions become tracker issues\./);
 });
 
+test("writing doctrine is active for trusted projects regardless of ignored writing keys", { timeout: 5000 }, async () => {
+  const doctrine = await renderDoctrine(ROUTER_OFF, { writing: { check: false, remind: false } });
+  const absent = await renderDoctrine(ROUTER_OFF);
+  const untrusted = await renderDoctrine(ROUTER_OFF, { writing: { check: true, remind: true } }, false);
+  assert.match(absent, /Check user-facing prose before delivery\./);
+  assert.equal(absent, doctrine);
+  assert.doesNotMatch(untrusted, /Check user-facing prose before delivery\./);
+  const normalized = doctrine.replace(/\s+/g, " ");
+  const requiredClauses = [
+    "Check user-facing prose before delivery.",
+    "Write sentences a non-native reader understands on one reading.",
+    "Use short, active, plain language.",
+    "Keep exact technical terms.",
+    "Do not use semicolons or contractions.",
+    "The checker does not test vocabulary.",
+    "Follow these requirements:",
+    "Avoid idioms.",
+    "Replace bare-reference openers with the subject they reference.",
+    "Explain each project-specific term at first use.",
+    "Define each abbreviation at first use.",
+    "Express one idea in each sentence.",
+    "Use one term for each concept.",
+    "Do not explain an idea with a metaphor.",
+    "Do not invent a term when the project already has one.",
+    "Use plain words that appear in standard libraries and textbooks.",
+    "Keep a design statement only if a different reasonable implementation keeps it true.",
+    "Present to the user any item the approved goals do not list.",
+    "Never add or remove an approved goal yourself.",
+    "Propose a repeated regression as a non-goal candidate.",
+    "Present what changed when you update a design.",
+    "Assume the user knows software but not this project.",
+    "Apply them to README and documentation text, code comments, pull request text, commit bodies, issues, review comments, release notes, and user messages.",
+    "Exclude research logs, worker task text, and the project's own agent instruction file.",
+    "Read it only for an unusual prose decision.",
+    "Skip it if already in context.",
+  ];
+  for (const clause of requiredClauses) assert.ok(normalized.includes(clause), `missing doctrine clause: ${clause}`);
+  assert.ok(
+    normalized.includes(DESIGN_REQUIREMENTS.map((entry) => entry.text).join(" ")),
+    "design doctrine must match the reminder roster word for word",
+  );
+  assert.ok(normalized.includes(`Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}.`));
+  assert.doesNotMatch(normalized, /20 words|25 words|SENT20|SENT25/);
+});
+
+test("writing guide rosters match the frozen production rosters", () => {
+  const guide = readFileSync(WRITING_GUIDANCE_DOC, "utf8");
+  const bullets = (start: string, end: string): string[] => {
+    const from = guide.indexOf(start);
+    const to = guide.indexOf(end, from + start.length);
+    assert.ok(from >= 0 && to > from, "roster markers missing; update docs/writing-guidance.md in the same commit");
+    const lines = guide.slice(from + start.length, to).split("\n");
+    while (lines[0] === "") lines.shift();
+    while (lines.at(-1) === "") lines.pop();
+    assert.ok(lines.every((line) => /^- .+$/.test(line)), "invalid roster line; update docs/writing-guidance.md in the same commit");
+    return lines.map((line) => line.slice(2));
+  };
+  assert.ok(Object.isFrozen(WRITING_REQUIREMENTS) && Object.isFrozen(DESIGN_REQUIREMENTS));
+  assert.deepEqual(
+    bullets("The doctrine includes these nine requirements in this order:", "The first six project-authored summaries"),
+    WRITING_REQUIREMENTS.map((entry) => entry.text),
+    "writing roster changed; update docs/writing-guidance.md in the same commit",
+  );
+  assert.deepEqual(
+    bullets("six-line design requirement block:", "The reminder then includes this exact scope guard:"),
+    DESIGN_REQUIREMENTS.map((entry) => entry.text),
+    "design roster changed; update docs/writing-guidance.md in the same commit",
+  );
+});
+
+test("mode skips reminder cadence when no effective budget exists", { timeout: 5000 }, async () => {
+  const api = new FakeExtensionApi();
+  const store = new SlateStore(api as unknown as ExtensionAPI);
+  store.orchestratorMode = true;
+  registerSlateMode(
+    api as unknown as ExtensionAPI,
+    store,
+    { startHandoff: async () => {}, effectiveContextBudget: () => undefined } as any,
+    () => ({}),
+    () => EMPTY_WORKER_EXTENSION_SET,
+    () => ROUTER_OFF,
+  );
+  const context = {
+    ...extensionContext(scratch),
+    getContextUsage: () => ({ tokens: 10_000, contextWindow: 200_000 }),
+  } as ExtensionContext;
+  await api.emit("tool_result", {}, context);
+  assert.deepEqual(api.sentMessages, []);
+  assert.equal(store.writingReminder.sentThisRound, false);
+  assert.equal(store.writingReminder.pending, undefined);
+});
+
+test("mode uses the five-percent reminder fallback when writing config is absent", { timeout: 5000 }, async () => {
+  const api = new FakeExtensionApi();
+  const store = new SlateStore(api as unknown as ExtensionAPI);
+  store.orchestratorMode = true;
+  registerSlateMode(
+    api as unknown as ExtensionAPI,
+    store,
+    { startHandoff: async () => {}, effectiveContextBudget: () => 200_000 } as any,
+    () => ({}),
+    () => EMPTY_WORKER_EXTENSION_SET,
+    () => ROUTER_OFF,
+  );
+  const context = {
+    ...extensionContext(scratch),
+    getContextUsage: () => ({ tokens: 10_000, contextWindow: 200_000 }),
+  } as ExtensionContext;
+  await api.emit("tool_result", {}, context);
+  assert.equal(api.sentMessages.length, 1, "the default 5 percent interval must fire at 10,000 of 200,000 tokens");
+  assert.equal(store.writingReminder.markTokens, 0, "cadence stays uncommitted before delivery");
+  assert.equal(store.writingReminder.pending?.nextMarkTokens, 10_000, "the fallback interval records the reached usage");
+
+  const configuredApi = new FakeExtensionApi();
+  const configuredStore = new SlateStore(configuredApi as unknown as ExtensionAPI);
+  configuredStore.orchestratorMode = true;
+  registerSlateMode(
+    configuredApi as unknown as ExtensionAPI,
+    configuredStore,
+    { startHandoff: async () => {}, effectiveContextBudget: () => 200_000 } as any,
+    () => ({ writing: { remindPercent: 10 } }),
+    () => EMPTY_WORKER_EXTENSION_SET,
+    () => ROUTER_OFF,
+  );
+  await configuredApi.emit("tool_result", {}, context);
+  assert.deepEqual(configuredApi.sentMessages, [], "a configured 10 percent interval must not fire at 10,000 tokens");
+  assert.equal(configuredStore.writingReminder.pending, undefined);
+});
+
 test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {
   const defaultOff = await renderDoctrine();
   const explicitOff = await renderDoctrine(ROUTER_OFF);
@@ -190,6 +321,24 @@ test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {
   assert.doesNotMatch(explicitOff, /Routable this session/);
   assert.doesNotMatch(explicitOff, /Prices include dated updates/);
   assert.doesNotMatch(explicitOff, /Prices as of/);
+});
+
+test("entry configuration reports either ignored writing key through the shared warning sink", { timeout: 5000 }, async () => {
+  const run = async (name: string, writing: Record<string, unknown> | undefined): Promise<string[]> => {
+    const cwd = join(scratch, name);
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify(writing === undefined ? {} : { writing }));
+    const api = new FakeExtensionApi();
+    slateExtension(api as unknown as ExtensionAPI);
+    const warnings: string[] = [];
+    await api.emit("session_start", {}, extensionContext(cwd, warnings));
+    return warnings;
+  };
+  const notice = "slate: writing.check and writing.remind are ignored writing keys. Remove them from slate.json. Slate controls writing checks and reminders automatically for trusted projects in orchestrator mode.";
+
+  assert.deepEqual(await run("writing-check-true", { check: true }), [notice]);
+  assert.deepEqual(await run("writing-remind-false", { remind: false }), [notice]);
+  assert.deepEqual(await run("writing-keys-absent", { remindPercent: 10 }), []);
 });
 
 test("entry configuration accepts valid cache shards and rejects invalid counts", { timeout: 5000 }, async () => {

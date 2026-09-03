@@ -228,7 +228,7 @@ Record `pi --version` with the run. The ladder accepts pi from `PATH` as a last 
 
   Doctrine rendering is an injection surface and per-turn cost that only this suite watches. A `route.ts` guard change is the highest-stakes case. Re-read `threads.ts` when a guard input changes because the harness fabricates those inputs. Changes to shared `state.ts` helpers also need the ladder. Router errors can remain invisible while dispatch still works, so a smoke test proves nothing. `verification/README.md` records the checks and mutation method.
 - It imports `extension/worker.ts` for the preamble builder and reads the prompt/config plumbing in that module and `extension/threads.ts`; nothing else in either module is covered. The worker-session load path — the allowlist-mode extension load, the `excludeTools` deny list that keeps slate's dispatch tools out of a worker, and the post-load collision re-check — is out of its scope. Exercise those with the isolated-load smoke test (`pi --no-extensions -e .`) above after changing `extension/worker.ts`, and the ladder's `WK1` rung for that module's settings isolation. It likewise stops at the PURE boundary: it proves what the planner DECIDES, not what `threads.ts` does with a verdict (applying the switch, raising a tool error, aborting without an episode, remembering the long-context notice). Those are separate mechanisms; the ladder's `WK1` rung covers one slice of the first.
-- **Doctrine size figures are install-path dependent, so compare portable counts.** The doctrine embeds four to seven absolute docs paths. Each docs-directory character therefore costs four to seven rendered characters. `doctrine-budget` removes each docs-directory occurrence while keeping filenames. Exact checks pin each fixture's occurrence count. `docs/context-budget.md` defines the same convention, and `docs/model-routing.md` defers to it. Rows using the same fixture and basis MUST agree across `docs/context-budget.md` and `verification/README.md`. A different basis must be named explicitly. Deliberate wording, roster, cap or fixture changes require fresh renders. Update resolver exact expectations and every published figure in the same commit.
+- **Doctrine size figures are install-path dependent, so compare portable counts.** The trusted doctrine embeds four to six absolute docs paths. Each docs-directory character therefore costs four to six rendered characters. `doctrine-budget` removes each docs-directory occurrence while keeping filenames. Exact checks pin each fixture's occurrence count. `docs/context-budget.md` defines the same convention, and `docs/model-routing.md` defers to it. Rows using the same fixture and basis MUST agree across `docs/context-budget.md` and `verification/README.md`. A different basis must be named explicitly. Deliberate wording, roster, cap or fixture changes require fresh renders. A change to `.pi/slate.json` requires a fresh render of the dogfood row in `docs/context-budget.md`. Update resolver exact expectations and every published figure in the same commit.
 
 ### Writing-reminder integration check
 
@@ -254,9 +254,11 @@ operation. This is not a network sandbox because reviewed extension code can
 still open raw sockets.
 
 The canary uses a 1,000,000-token model window and reports 25,000 input tokens.
-The project config sets a 200,000-token budget and `remindPercent: 10`. The
-correct 20,000-token interval fires, while an incorrect 100,000-token interval
-does not. This makes the effective-budget path load-bearing.
+The project config sets both ignored writing keys to false. It also sets a
+200,000-token budget and `remindPercent: 12.5`. Delivery proves those keys cannot
+disable reminders. The correct 25,000-token interval fires, while an incorrect
+125,000-token interval does not. This makes the effective-budget path
+load-bearing.
 
 The pi phase is about one second on the reference machine. The wrapper's observed
 wall clock is around two seconds. These figures describe one machine, not a speed
@@ -340,9 +342,9 @@ A missing, all-zero, absent or HEAD-equal base exits 2. `workflow_dispatch` has 
 
 ## Writing convention
 
-The convention governs new or changed prose in the root `README.md`, PR descriptions and delivery commit bodies. It also governs issues, comments, release notes and agent messages to users. Use short, active, plain language. Keep exact technical terms. Do not use semicolons or contractions.
+The convention governs new or changed prose in the root `README.md`, PR descriptions and delivery commit bodies. It also governs issues, comments, release notes and agent messages to users. Use short, active, plain language. Write sentences a non-native reader understands on one reading. Keep exact technical terms. Do not use semicolons or contractions.
 
-These six requirements are project-authored:
+These nine requirements are project-authored:
 
 1. Avoid idioms.
 2. Replace bare-reference openers with the subject they reference.
@@ -350,10 +352,13 @@ These six requirements are project-authored:
 4. Define each abbreviation at first use.
 5. Express one idea in each sentence.
 6. Use one term for each concept.
+7. Do not explain an idea with a metaphor.
+8. Do not invent a term when the project already has one.
+9. Use plain words that appear in standard libraries and textbooks.
 
-Research logs and worker-thread task text are excluded. A high-level design is governed when `writing.check` is true, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. `docs/` and `verification/README.md` remain precision-first mechanism references and are excluded too.
+Research logs and worker-thread task text are excluded. A high-level design is always governed, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. The requirements govern `docs/`, but every checker finding there remains advisory. `verification/README.md` remains a precision-first mechanism reference and is excluded.
 
-The writing checker is diagnostic everywhere and authoritative nowhere. A match directs reviewer attention, and the reviewer decides whether the text has a defect. Changed convention-governed text should carry no fail-level findings. Findings in unchanged text are pre-existing debt, not an unrelated blocker. Every checker class is advisory in excluded files because length limits can conflict with required precision. ASD-STE100 inspires only, Slate claims no conformance, and contributors must copy no standard material or examples.
+The writing checker is diagnostic everywhere and authoritative nowhere. A match directs reviewer attention, and the reviewer decides whether the text has a defect. Changed convention-governed text should carry no fail-level findings. Findings in unchanged text are pre-existing debt, not an unrelated blocker. Every checker class is advisory in excluded files because mechanical findings can conflict with required precision. ASD-STE100 inspires only, Slate claims no conformance, and contributors must copy no standard material or examples.
 
 ## Packaging rules
 

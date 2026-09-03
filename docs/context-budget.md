@@ -110,29 +110,29 @@ half-window floor keeps small-window models usable.
 
 ## Writing-reminder cadence
 
-The effective budget also sets the optional hidden writing-reminder cadence.
-When `writing.check` and `writing.remind` are both true, Slate computes:
+The effective budget also sets the hidden writing-reminder cadence. In every
+trusted project with orchestrator mode active, Slate computes:
 
 ```
 interval = max(8192, floor(effectiveBudget × remindPercent / 100))
 ```
 
-`remindPercent` defaults to 10 and accepts a finite value in `(0, 100]`. The
+`remindPercent` defaults to 5 and accepts a finite value in `(0, 100]`. The
 context-window clamp therefore shortens the cadence on a model whose configured
 budget does not fit. Slate checks the cadence after tool results. One reminder
 slot can fire after each assistant response.
 
 A successful handoff adoption sets `forceNext`. The next eligible tool result
 then bypasses token cadence and missing usage. It does not bypass trust,
-orchestrator mode, `writing.check`, `writing.remind`, or pause gates. Slate
+orchestrator mode, or the pause gate. Slate
 commits the cadence mark only when pi starts delivery of the custom message.
 
-The current hidden message is 320 ASCII characters, including its `[slate]`
-header, five reminder requirements, blank separator, and scope exclusion. That
-is about 80 tokens at four characters per token. This count is for the exact
-rendered production string, without JSONL framing or provider-role overhead. The
-message enters conversation context only when a reminder fires. Later requests
-resend it with the rest of the conversation.
+The current hidden message is 920 ASCII characters, including its `[slate]`
+header, nine writing requirements, six design requirements, separators, and
+scope exclusion. That is about 230 tokens at four characters per token. This
+count is for the exact rendered production string, without JSONL framing or
+provider-role overhead. The message enters conversation context only when a
+reminder fires. Later requests resend it with the rest of the conversation.
 
 ## What always-loaded tool definitions cost the budget
 
@@ -180,9 +180,9 @@ are embedded in the block — three at minimum
 (`track-workflow.md`, `review-rules.md`,
 `design-principles.md`), plus `pr-publishing.md` when
 `workflow.draftPRs` is on, plus `model-routing.md` when the routing
-rule renders, plus `writing-guidance.md` when `writing.check` is on.
+rule renders, plus the always-present trusted `writing-guidance.md` citation.
 Every additional character in the installed `docs/` directory therefore
-costs 3–6 characters of doctrine.
+costs 4–6 characters of trusted doctrine.
 
 The figures below are **portable characters**, defined exactly as
 Slate's own automated `doctrine-budget` check defines them: the
@@ -197,36 +197,35 @@ construction and makes the arithmetic one multiplication:
 definition of record for this convention and its enforced bounds.
 This table is a measured snapshot, not a second authority. It uses
 the same shipped-profile fixture as that check. The six-model rows use a fixed
-fabricated roster of six resolvable shipped profile specs. The roster currently
-matches this repository's config, but the check never reads that config. Every row
-states its full basis, because router state, model count, `draftPRs`,
-and `writing.check` each move the number. Rows with the same fixture
-and basis must agree with `verification/README.md`. A different basis
-must be named instead of presented as the same measurement:
+fabricated roster of six resolvable shipped profile specs. The roster is
+independent of this repository's current five-model config. The check never
+reads that config. Every row
+states its full basis, because router state, model count, and `draftPRs` move
+the number. The ignored writing keys do not. Rows with the same fixture and basis
+must agree with `verification/README.md`:
 
-| router | models | `draftPRs` | `writing.check` | paths | portable | lines |
+| router | models | `draftPRs` | writing keys | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | off | 3 | 2,584 | 43 |
-| off | — | off | on | 4 | 3,654 | 65 |
-| off | — | on | off | 4 | 2,603 | 43 |
-| off | — | on | on | 5 | 3,673 | 65 |
-| on | fixed six-model fixture | off | off | 4 | 4,614 | 64 |
-| on | fixed six-model fixture | off | on | 5 | 5,684 | 86 |
-| on | fixed six-model fixture | on | off | 5 | 4,633 | 64 |
-| on | fixed six-model fixture | on | on | 6 | 5,703 | 86 |
-| on | all 9 shipped | off | off | 4 | 5,169 | 67 |
-| on | all 9 shipped | off | on | 5 | 6,239 | 89 |
-| on | all 9 shipped | on | off | 5 | 5,188 | 67 |
-| on | all 9 shipped | on | on | 6 | 6,258 | 89 |
+| off | — | off | absent | 4 | 4,051 | 67 |
+| off | — | off | set | 4 | 4,051 | 67 |
+| off | — | on | absent | 5 | 4,070 | 67 |
+| off | — | on | set | 5 | 4,070 | 67 |
+| on | fixed six-model fixture | off | absent | 5 | 6,081 | 88 |
+| on | fixed six-model fixture | off | set | 5 | 6,081 | 88 |
+| on | fixed six-model fixture | on | absent | 6 | 6,100 | 88 |
+| on | fixed six-model fixture | on | set | 6 | 6,100 | 88 |
+| on | all 9 shipped | off | absent | 5 | 6,636 | 91 |
+| on | all 9 shipped | off | set | 5 | 6,636 | 91 |
+| on | all 9 shipped | on | absent | 6 | 6,655 | 91 |
+| on | all 9 shipped | on | set | 6 | 6,655 | 91 |
 
-An untrusted project reads the first row whatever its `slate.json`
-says: no project config is loaded, so no optional rule renders. Line
-counts do not vary with the install path. Enabling `draftPRs` costs
-19 portable characters plus one embedded path. Enabling
-`writing.check` costs 1,070 portable characters, adds 22 lines to the
-whole doctrine, and adds one embedded path. Considered alone, the
-writing rule is 1,070 portable characters / 23 lines. Its leading
-newline becomes the separator when appended.
+An untrusted project receives no writing or routing tail whatever its
+`slate.json` says. Its fixed doctrine remains 2,584 portable characters, 43
+lines, and three embedded paths. Line counts do not vary with the install path.
+Enabling `draftPRs` costs 19 portable characters plus one embedded path. Setting
+either ignored writing key costs nothing. The writing rule is 1,103 portable
+characters and 20 lines. Its leading newline becomes the separator when
+appended.
 
 Two parts of the block grow with configuration rather than with the
 path:
@@ -249,12 +248,16 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| current `.pi/slate.json` dogfood config | 6 | pinned-package 2 units / 4 tools | 6 | 6,619 | 96 | ≈1,655 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 7,605 | 99 | ≈1,901 |
-| follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 7,683 | 100 | ≈1,921 |
+| fixture mirroring current `.pi/slate.json`: draft PRs + writing, pi-registry windows | 5 resolved | pinned-package 2 units / 4 tools | 6 | 6,858 | 97 | ≈1,715 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,002 | 101 | ≈2,001 |
+| follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,080 | 102 | ≈2,020 |
 
-The dogfood row uses `workflow.draftPRs: true`, `writing.check: true`, and the
-six models in `.pi/slate.json`. Its extension basis is
+The dogfood fixture mirrors `workflow.draftPRs: true`, both ignored writing keys,
+and the five models in this repository's `.pi/slate.json`. A change to that
+configuration requires re-measuring this row. The fabricated context-window
+cells mirror pi's model registry, which is the routing authority: 272,000 for
+the three OpenAI models and 1,000,000 for the two Anthropic models. Its
+extension basis is
 `pi-smart-fetch@0.3.12` plus `pi-web-search@1.3.1`. Those packages resolve to two
 units and four tools. Their worker-extension rule is 916 portable characters /
 11 lines. Raw size remains symbolic: `portable + 6 × length(installed docs
@@ -295,30 +298,31 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | routing rule lines | 25 | 34 | 9 |
 | routing fixed prose | 1,110 | 1,500 | 390 |
 | largest model row | 183 | 300 | 117 |
-| router-on doctrine | 5,169 | 6,500 | 1,331 |
-| writing-only doctrine | 3,654 | 5,600 | 1,946 |
-| writing plus router | 6,239 | 6,900 | 661 |
-| writing plus extensions | 3,909 | 6,000 | 2,091 |
-| writing plus router and extensions | 6,494 | 7,200 | 706 |
-| maximal doctrine, draft PRs enabled | 7,605 | 8,500 | 895 |
-| maximal doctrine, draft PRs disabled | 7,586 | 8,500 | 914 |
-| maximal doctrine, follow-up issues enabled | 7,683 | 8,500 | 817 |
+| trusted router-on doctrine | 6,636 | 7,000 | 364 |
+| writing and design doctrine | 4,051 | 5,600 | 1,549 |
+| writing plus router | 6,636 | 7,000 | 364 |
+| writing plus extensions | 4,306 | 6,000 | 1,694 |
+| writing plus router and extensions | 6,891 | 7,300 | 409 |
+| maximal doctrine, draft PRs enabled | 8,002 | 8,500 | 498 |
+| maximal doctrine, draft PRs disabled | 7,983 | 8,500 | 517 |
+| maximal doctrine, follow-up issues enabled | 8,080 | 8,500 | 420 |
 | capped worker rule | 1,347 | 1,600 | 253 |
-| writing rule characters | 1,070 | 1,150 | 80 |
-| writing rule lines | 23 | 25 | 2 |
+| writing rule characters | 1,103 | 1,200 | 97 |
+| writing rule lines | 20 | 25 | 5 |
+| design rule characters | 364 | 450 | 86 |
 
-Slate replaced the four-class prompt with size grades and focus areas. The
-fixed rules grew by 207 portable characters and two lines. The writing-plus-
-router fixture requires `6,239 × 1.05 = 6,550.95`. Ceiling gives 6,551. The
-existing 6,900 bound remains larger. The all-tail fixture requires
-`6,494 × 1.05 = 6,818.7`. The existing 7,200 bound remains larger.
+The design rule and nine-entry writing roster contribute 539 portable characters
+and eight lines to each trusted fixture. The trusted router-on fixture requires
+`6,636 × 1.05 = 6,967.8`. Ceiling gives 6,968. The 7,000 bound remains larger.
+The all-tail fixture requires `6,891 × 1.05 = 7,235.55`. Ceiling gives 7,236.
+The 7,300 bound remains larger.
 
-The follow-up fixture requires `7,683 × 1.05 = 8,067.15`. Ceiling gives 8,068.
-The shared 8,500 bound keeps the required reserve for every maximal fixture.
+The follow-up fixture requires `8,080 × 1.05 = 8,484`. The shared 8,500 bound
+keeps the required reserve for every maximal fixture.
 
 The positive control adds one capped tool and six copies of the largest
-measured model row. It measures 8,921 portable characters. It exceeds the
-8,500-character maximal bound by 421. That margin remains larger than the
+measured model row. It measures 9,318 portable characters. It exceeds the
+8,500-character maximal bound by 818. That margin remains larger than the
 184-character maximum model-row growth and the 212-character capped tool growth.
 The raised bound does not blunt the positive control.
 
@@ -328,10 +332,10 @@ unless the fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. The rough
 estimate divides each measured portable-character render by four and rounds to
-the nearest whole token. The shipped-rule table ranges from about 758 tokens to
-about 1,677 tokens. The current dogfood basis is about 1,767 tokens. The stable
-representative maximum is about 2,013 tokens. The follow-up-issues maximum is
-about 2,033 tokens, or 0.79 percent of the default budget.
+the nearest whole token. The shipped-rule table ranges from about 1,013 tokens
+to about 1,664 tokens. The current dogfood basis is about 1,715 tokens. The
+stable representative maximum is about 2,001 tokens. The follow-up-issues
+maximum is about 2,020 tokens, or 0.79 percent of the default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
 much headroom Slate consumes before conversation content.
@@ -344,12 +348,12 @@ per-turn doctrine.
 
 | Worker preamble form | UTF-8 bytes | Increase from base |
 | --- | ---: | ---: |
-| Base | 226 | — |
-| Base + writing guidance | 384 | 158 |
-| Base + reviewer charter | 2,381 | 2,155 |
-| Base + writing guidance + reviewer charter | 2,539 | 2,313 |
+| Base | 365 | — |
+| Base + writing guidance | 617 | 252 |
+| Base + reviewer charter | 2,520 | 2,155 |
+| Base + writing guidance + reviewer charter | 2,772 | 2,407 |
 
-The writing guidance is 157 bytes. The reviewer charter constant is
+The writing guidance is 251 bytes. The reviewer charter constant is
 2,154 bytes. The writing addendum needs one separating space. The reviewer
 charter addendum needs one separating newline. The current text uses UTF-8
 punctuation, so byte and character counts can differ.

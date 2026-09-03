@@ -9,7 +9,7 @@ import { measureWritingTurn } from '../extension/writing.ts';
 import {
   checkRecord, checkText, normalizeMarkdown, makeBlocks, segmentSentences, wordTokens, run, formatText,
   recordsFromFiles, recordsFromUnifiedDiff, parseJsonl, readRegularFile, findingAllowance,
-  NOT_CHECKED, MAX_FINDINGS, MAX_TOTAL_FINDINGS, MAX_INPUT_BYTES, MAX_RECORDS,
+  NOT_CHECKED, RULES, MAX_FINDINGS, MAX_TOTAL_FINDINGS, MAX_INPUT_BYTES, MAX_RECORDS,
   MAX_STRIPPED, MAX_BLOCK_DETAILS, MAX_EXCERPT_CHARS,
   scanHtmlComments, scanAutolinks, scanInlineCode, scanLogLines, scanPathTokens,
   sanitizeReportId, REGULAR_FILE_OPEN_FLAGS, excerpt, isProseDiffPath, decodeGitPath, makeAbbreviationSet,
@@ -39,22 +39,29 @@ const has = (result, id) => ids(result).includes(id);
 const lacks = (result, id) => !has(result, id);
 const words = n => Array.from({ length: n }, (_, i) => `word${i + 1}`).join(' ');
 
-test('SENT20 warns at 21 words', () => {
-  const r = check(words(21) + '.');
-  assert.equal(has(r, 'SENT20'), true); assert.equal(r.findings.find(f => f.id === 'SENT20').class, 'warning');
+test('sentence length is telemetry only across short and long prose', () => {
+  assert.equal(RULES.some(([, cls]) => cls === 'warning'), false);
+  for (const length of [1, 20, 21, 25, 26, 50, 200]) {
+    const r = check(words(length) + '.');
+    assert.equal(r.findings.some(f => f.class === 'fail' || f.class === 'warning'), false, `length ${length}: ${JSON.stringify(r.findings)}`);
+  }
 });
-test('SENT20 stays silent at 20 words', () => assert.equal(lacks(check(words(20) + '.'), 'SENT20'), true));
-test('SENT25 fails at 26 words without a duplicate SENT20', () => {
-  const r = check(words(26) + '.');
-  assert.equal(has(r, 'SENT25'), true); assert.equal(lacks(r, 'SENT20'), true);
-  assert.equal(r.findings.find(f => f.id === 'SENT25').class, 'fail');
-});
-test('SENT25 stays silent at 25 words', () => assert.equal(lacks(check(words(25) + '.'), 'SENT25'), true));
 test('declared text types have no effect and are absent from output', () => {
-  const r = checkRecord({ textType: 'descriptive', steType: 'procedural', text: words(23) + '.' });
-  assert.equal(has(r, 'SENT20'), true); assert.equal('textType' in r, false); assert.equal('thresholdPolicy' in r, false);
+  const text = 'Open the panel; inspect the seal.';
+  const baseline = checkRecord({ text });
+  for (const field of ['textType', 'steType']) {
+    for (const type of ['procedural', 'descriptive']) {
+      const declared = checkRecord({ [field]: type, text });
+      assert.deepEqual(declared, baseline, `${field}=${type}`);
+      assert.equal(field in declared, false);
+      assert.equal('thresholdPolicy' in declared, false);
+    }
+  }
 });
-test('PARA6 fires at seven paragraph sentences',  () => assert.equal(has(check('One. Two. Three. Four. Five. Six. Seven.'), 'PARA6'), true));
+test('PARA6 is house-style at seven paragraph sentences', () => {
+  const finding = check('One. Two. Three. Four. Five. Six. Seven.').findings.find(f => f.id === 'PARA6');
+  assert.equal(finding?.class, 'house-style');
+});
 test('PARA6 stays silent at six sentences', () => assert.equal(lacks(check('One. Two. Three. Four. Five. Six.'), 'PARA6'), true));
 test('SEMICOLON fires in prose', () => assert.equal(has(check('Open the panel; inspect the seal.'), 'SEMICOLON'), true));
 test('SEMICOLON stays silent without one', () => assert.equal(lacks(check('Open the panel. Inspect the seal.'), 'SEMICOLON'), true));
@@ -109,12 +116,15 @@ test('sentence-final punctuation inside a quote terminates', () => assert.equal(
 test('sentence-final punctuation inside parentheses terminates', () => assert.equal(segmentSentences('Do this (if needed.) Continue now.').length, 2));
 test('hyphenated compound counts as one word', () => assert.equal(wordTokens('A high-pressure pump.').length, 3));
 test('numeric-only token does not count as a word', () => assert.equal(wordTokens('Set 123 4.5 values.').length, 2));
-test('markdown table row is excluded from SENT20 prose checks', () => {
+test('markdown table rows are excluded from prose statistics', () => {
   const row = `| ${words(30)} | value |`;
   const r = check(`| Name | Value |\n| --- | --- |\n${row}`);
-  assert.equal(lacks(r, 'SENT20'), true); assert.equal(r.words, 0);
+  assert.equal(r.words, 0); assert.equal(r.sentences, 0);
 });
-test('heading is excluded from prose sentence limits', () => assert.equal(lacks(check(`# ${words(30)}`), 'SENT20'), true));
+test('headings are excluded from prose statistics', () => {
+  const r = check(`# ${words(30)}`);
+  assert.equal(r.words, 0); assert.equal(r.sentences, 0);
+});
 test('list item is classified separately and checked as prose', () => {
   const r = check('- Open the valve; then wait.');
   assert.equal(r.blockDetails[0].type, 'list-item'); assert.equal(has(r, 'SEMICOLON'), true);
@@ -174,20 +184,15 @@ test('BG5 URL boundaries keep sentence punctuation and strip URL data', () => {
     assert.equal(segmentSentences(blocks[0].text).length, fixture.sentences, fixture.name);
   }
 });
-test('BG5 terminal URL periods preserve SENT20 instead of merging into SENT25', () => {
-  const first = words(21);
-  const text = `${first} https://example.com. Next simple words appear now.`;
-  const result = checkText(text);
-  assert.equal(segmentSentences(makeBlocks(normalizeMarkdown(text).normalized)[0].text).length, 2);
-  assert.equal(result.findings.filter(f => f.id === 'SENT20').length, 1);
-  assert.equal(result.findings.filter(f => f.id === 'SENT25').length, 0);
-  assert.equal(result.findings.find(f => f.id === 'SENT20').offset.end, text.indexOf('. Next') + 1);
-});
 test('nested lists remain clean', () => assert.deepEqual(check('- Main item\n  - Nested item\n    1. First nested step\n    2. Second nested step').findings, []));
 test('bulleted sentence fragments remain clean', () => assert.deepEqual(check('- Verify input\n- Output path\n- No errors').findings, []));
 test('quoted prose semicolon remains visible', () => assert.equal(has(check('The user wrote, “Open the panel; then inspect the seal.”'), 'SEMICOLON'), true));
 test('curly quote en-dash aside remains visible', () => assert.equal(has(check('Use “the safe path” – when the input is valid – before release.'), 'PARENTHETICAL_DASH'), true));
-test('200-word prose sentence keeps the highest length finding', () => { const r = check(words(200) + '.'); assert.equal(lacks(r, 'SENT20'), true); assert.equal(has(r, 'SENT25'), true); assert.equal(has(r, 'NOUNCLUSTER'), true); });
+test('200-word prose sentence keeps telemetry and surviving findings', () => {
+  const result = run([{ text: words(200) + '.' }]);
+  assert.equal(result.aggregate.sentenceLength.max, 200);
+  assert.equal(result.records[0].findings.some(f => f.id === 'NOUNCLUSTER'), true);
+});
 test('blockquote is classified separately', () => assert.equal(check('> The unit operates.').blockDetails[0].type, 'blockquote'));
 test('stripped offsets preserve the original source length', () => {
   const text = 'α `hidden` omega'; const n = normalizeMarkdown(text);
@@ -205,6 +210,10 @@ test('aggregate gives count, record count, and rate for every rule', () => {
   const x = run([{ text: 'Use and/or inspect.' }]).aggregate.rules.SLASHED;
   assert.equal(x.findings, 1); assert.equal(x.records, 1); assert.equal(x.ratePer1000Words > 0, true);
 });
+test('aggregate rule severities match RULES for every rule', () => {
+  const summary = run([{ text: 'One. Two. Three. Four. Five. Six. Seven; stop.' }]).aggregate.rules;
+  for (const [id, cls] of RULES) assert.equal(summary[id].class, cls, id);
+});
 test('aggregate reuses checked analysis and reports exact distributions', () => {
   let conversions = 0;
   const text = { toString() { conversions++; return 'One two. Three.'; } };
@@ -219,7 +228,7 @@ test('abbreviation tables reject entries that violate the lowercase invariant', 
   assert.deepEqual([...makeAbbreviationSet(['e.g.', 'fig.'])], ['e.g.', 'fig.']);
 });
 test('NOT CHECKED is a fixed nonempty reason list', () => {
-  assert.equal(NOT_CHECKED.length, 5); assert.equal(NOT_CHECKED.every(x => x.id && x.reason), true);
+  assert.equal(NOT_CHECKED.length, 6); assert.equal(NOT_CHECKED.every(x => x.id && x.reason), true);
 });
 test('text reporting renders the summary, rule, limit, reasons, and finding fields', () => {
   const result = run([{ id: 'r', text: 'Use and/or inspect.' }]);
@@ -865,12 +874,9 @@ test('SC6 regular-file opens are nonblocking and legitimate files still read', (
 // and fail it. Keep the names, not a transcribed count: the suite computes and
 // publishes the arithmetic below.
 const EXPECTED = [
-  'SENT20 warns at 21 words',
-  'SENT20 stays silent at 20 words',
-  'SENT25 fails at 26 words without a duplicate SENT20',
-  'SENT25 stays silent at 25 words',
+  'sentence length is telemetry only across short and long prose',
   'declared text types have no effect and are absent from output',
-  'PARA6 fires at seven paragraph sentences',
+  'PARA6 is house-style at seven paragraph sentences',
   'PARA6 stays silent at six sentences',
   'SEMICOLON fires in prose',
   'SEMICOLON stays silent without one',
@@ -909,23 +915,23 @@ const EXPECTED = [
   'sentence-final punctuation inside parentheses terminates',
   'hyphenated compound counts as one word',
   'numeric-only token does not count as a word',
-  'markdown table row is excluded from SENT20 prose checks',
-  'heading is excluded from prose sentence limits',
+  'markdown table rows are excluded from prose statistics',
+  'headings are excluded from prose statistics',
   'list item is classified separately and checked as prose',
   'numbered procedure remains clean',
   'URL query remains stripped',
   'BG5 URL boundaries keep sentence punctuation and strip URL data',
-  'BG5 terminal URL periods preserve SENT20 instead of merging into SENT25',
   'nested lists remain clean',
   'bulleted sentence fragments remain clean',
   'quoted prose semicolon remains visible',
   'curly quote en-dash aside remains visible',
-  '200-word prose sentence keeps the highest length finding',
+  '200-word prose sentence keeps telemetry and surviving findings',
   'blockquote is classified separately',
   'stripped offsets preserve the original source length',
   'finding offsets select original text',
   'aggregate reports advisories separately from fail-level findings',
   'aggregate gives count, record count, and rate for every rule',
+  'aggregate rule severities match RULES for every rule',
   'aggregate reuses checked analysis and reports exact distributions',
   'abbreviation tables reject entries that violate the lowercase invariant',
   'NOT CHECKED is a fixed nonempty reason list',

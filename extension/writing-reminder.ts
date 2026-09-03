@@ -1,17 +1,29 @@
-/** One writing requirement and the channels that render it. */
+/** One writing or design requirement rendered in prompt guidance. */
 export interface WritingRequirement {
 	text: string;
-	reminder: boolean;
 }
 
 /** The ordered source of truth for writing doctrine and reminders. */
 export const WRITING_REQUIREMENTS: readonly WritingRequirement[] = Object.freeze([
-	Object.freeze({ text: "Avoid idioms.", reminder: true }),
-	Object.freeze({ text: "Replace bare-reference openers with the subject they reference.", reminder: true }),
-	Object.freeze({ text: "Explain each project-specific term at first use.", reminder: true }),
-	Object.freeze({ text: "Define each abbreviation at first use.", reminder: true }),
-	Object.freeze({ text: "Express one idea in each sentence.", reminder: false }),
-	Object.freeze({ text: "Use one term for each concept.", reminder: true }),
+	Object.freeze({ text: "Avoid idioms." }),
+	Object.freeze({ text: "Replace bare-reference openers with the subject they reference." }),
+	Object.freeze({ text: "Explain each project-specific term at first use." }),
+	Object.freeze({ text: "Define each abbreviation at first use." }),
+	Object.freeze({ text: "Express one idea in each sentence." }),
+	Object.freeze({ text: "Use one term for each concept." }),
+	Object.freeze({ text: "Do not explain an idea with a metaphor." }),
+	Object.freeze({ text: "Do not invent a term when the project already has one." }),
+	Object.freeze({ text: "Use plain words that appear in standard libraries and textbooks." }),
+]);
+
+/** The ordered source of truth for design reminders. */
+export const DESIGN_REQUIREMENTS: readonly WritingRequirement[] = Object.freeze([
+	Object.freeze({ text: "Keep a design statement only if a different reasonable implementation keeps it true." }),
+	Object.freeze({ text: "Present to the user any item the approved goals do not list." }),
+	Object.freeze({ text: "Never add or remove an approved goal yourself." }),
+	Object.freeze({ text: "Propose a repeated regression as a non-goal candidate." }),
+	Object.freeze({ text: "Present what changed when you update a design." }),
+	Object.freeze({ text: "Assume the user knows software but not this project." }),
 ]);
 
 /** The shared exclusion guard for doctrine and hidden reminders. */
@@ -43,8 +55,6 @@ export interface WritingReminderRuntime {
 export interface WritingReminderGate {
 	orchestratorMode: boolean;
 	trusted: boolean;
-	check: boolean;
-	remind: boolean;
 	paused: boolean;
 }
 
@@ -70,7 +80,7 @@ export function writingReminderInterval(effectiveBudgetTokens: number, remindPer
 
 /** Decide whether policy gates permit a reminder before checking its cadence. */
 export function writingReminderGateOpen(gate: WritingReminderGate, sentThisRound: boolean): boolean {
-	return gate.orchestratorMode && gate.trusted && gate.check && gate.remind && !gate.paused && !sentThisRound;
+	return gate.orchestratorMode && gate.trusted && !gate.paused && !sentThisRound;
 }
 
 /**
@@ -171,14 +181,25 @@ export function renderWritingScopeExclusion(indent = ""): string {
 	return `${indent}${WRITING_SCOPE_EXCLUSION}`;
 }
 
+const WRITING_REMINDER_HEADER = "[slate] Reminder:";
+
+const WRITING_REMINDER_MESSAGE = [
+	WRITING_REMINDER_HEADER,
+	"",
+	"Writing requirements:",
+	...WRITING_REQUIREMENTS.map((requirement) => `- ${requirement.text}`),
+	"",
+	"Design requirements:",
+	...DESIGN_REQUIREMENTS.map((requirement) => `- ${requirement.text}`),
+	"",
+	WRITING_SCOPE_EXCLUSION,
+].join("\n");
+
 export function renderWritingReminder(): string {
-	const requirements = WRITING_REQUIREMENTS.filter((requirement) => requirement.reminder)
-		.map((requirement) => `- ${requirement.text}`)
-		.join("\n");
-	return `${requirements}\n\n${WRITING_SCOPE_EXCLUSION}`;
+	return WRITING_REMINDER_MESSAGE.slice(`${WRITING_REMINDER_HEADER}\n\n`.length);
 }
 
 /** The complete hidden custom-message content. */
 export function renderWritingReminderMessage(): string {
-	return `[slate] Writing reminder:\n${renderWritingReminder()}`;
+	return WRITING_REMINDER_MESSAGE;
 }
