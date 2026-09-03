@@ -311,8 +311,8 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | writing rule lines | 20 | 25 | 5 |
 | design rule characters | 364 | 450 | 86 |
 
-The design rule and expanded writing roster add 539 portable characters and
-eight lines to each trusted fixture. The trusted router-on fixture requires
+The design rule and nine-entry writing roster contribute 539 portable characters
+and eight lines to each trusted fixture. The trusted router-on fixture requires
 `6,636 × 1.05 = 6,967.8`. Ceiling gives 6,968. The 7,000 bound remains larger.
 The all-tail fixture requires `6,891 × 1.05 = 7,235.55`. Ceiling gives 7,236.
 The 7,300 bound remains larger.

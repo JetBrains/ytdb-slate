@@ -101,12 +101,12 @@ The first six project-authored summaries came from the investigation for
 [issue #96](https://github.com/JetBrains/ytdb-slate/issues/96). ASD-STE100
 informed that work. Slate copied no standard text or controlled
 vocabulary, and it claims no conformance. The final three requirements come from
-[issue #257](https://github.com/JetBrains/ytdb-slate/issues/257). The restored
-ninth requirement is item four from that issue.
+[issue #257](https://github.com/JetBrains/ytdb-slate/issues/257). The ninth
+requirement is item four from that issue.
 
-The doctrine also renders `Use short, active, plain language.` That instruction
-shortens words. The restored requirement limits which words a writer may assume
-the reader already knows. The two instructions govern different failures.
+The doctrine also renders `Use short, active, plain language.` That rule
+shortens words. The ninth requirement fixes which words a writer may assume
+the reader knows. The two rules govern different failures.
 
 The reminder repeats all nine writing requirements. It also carries this
 six-line design requirement block:
@@ -117,10 +117,6 @@ six-line design requirement block:
 - Propose a repeated regression as a non-goal candidate.
 - Present what changed when you update a design.
 - Assume the user knows software but not this project.
-
-The earlier wording caused a real defect. An orchestrator message explained
-elementary software terms such as `line`, `branch`, and `base`. The replacement
-states the boundary of the reader's knowledge instead.
 
 The reminder then includes this exact scope guard:
 

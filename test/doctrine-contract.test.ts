@@ -249,7 +249,7 @@ test("writing guide rosters match the frozen production rosters", () => {
     "writing roster changed; update docs/writing-guidance.md in the same commit",
   );
   assert.deepEqual(
-    bullets("six-line design requirement block:", "The earlier wording caused a real defect."),
+    bullets("six-line design requirement block:", "The reminder then includes this exact scope guard:"),
     DESIGN_REQUIREMENTS.map((entry) => entry.text),
     "design roster changed; update docs/writing-guidance.md in the same commit",
   );
