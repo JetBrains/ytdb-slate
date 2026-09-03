@@ -228,7 +228,7 @@ test('abbreviation tables reject entries that violate the lowercase invariant', 
   assert.deepEqual([...makeAbbreviationSet(['e.g.', 'fig.'])], ['e.g.', 'fig.']);
 });
 test('NOT CHECKED is a fixed nonempty reason list', () => {
-  assert.equal(NOT_CHECKED.length, 5); assert.equal(NOT_CHECKED.every(x => x.id && x.reason), true);
+  assert.equal(NOT_CHECKED.length, 6); assert.equal(NOT_CHECKED.every(x => x.id && x.reason), true);
 });
 test('text reporting renders the summary, rule, limit, reasons, and finding fields', () => {
   const result = run([{ id: 'r', text: 'Use and/or inspect.' }]);

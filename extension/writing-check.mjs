@@ -74,6 +74,7 @@ export const NOT_CHECKED = [
   { id: 'APPROVED_MEANING_POS', reason: 'Approved meaning and part of speech need authorized dictionary data and contextual review.' },
   { id: 'NOUNCLUSTER_CORRECTNESS', reason: 'The token-run heuristic cannot decide whether a noun cluster is linguistically correct or an approved technical term.' },
   { id: 'TOPIC_UNITY', reason: 'Topic unity and topic-sentence adequacy require semantic review.' },
+  { id: 'IDEA_COUNT', reason: 'Counting ideas in a sentence requires semantic review.' },
   { id: 'WARNING_CAUTION_CONTENT', reason: 'Risk level, placement, command adequacy, and consequences require structured metadata and human review.' },
 ];
 

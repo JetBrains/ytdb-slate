@@ -433,6 +433,16 @@ ${renderWritingScopeExclusion("   ")}
    prose decision. Skip it if already in context.`;
 }
 
+/** Render the final trusted doctrine rule for design discipline. */
+function buildDesignRule(n: number): string {
+	return `
+${n}. Keep a design statement only if a different reasonable implementation keeps
+   it true. Present to the user any item the approved goals do not list. Never
+   add or remove an approved goal yourself. Propose a repeated regression as a
+   non-goal candidate. Present what changed when you update a design. Assume
+   the user knows software but not this project.`;
+}
+
 function buildDoctrine(
 	cwd: string,
 	config: SlateConfig,
@@ -513,6 +523,7 @@ threads execute. Rules:
 		// Append-only conditional tail. Writing guidance is active for every trusted
 		// project in orchestrator mode, independent of the ignored writing keys.
 		(n) => (trusted ? buildWritingRule(n) : ""),
+		(n) => (trusted ? buildDesignRule(n) : ""),
 	])}`;
 }
 
@@ -723,7 +734,7 @@ export function registerSlateMode(
 		const usage = ctx.getContextUsage();
 		const effectiveBudget = usage ? hooks.effectiveContextBudget(usage.contextWindow, ctx) : undefined;
 		const interval =
-			effectiveBudget === undefined ? undefined : writingReminderInterval(effectiveBudget, config?.remindPercent ?? 10);
+			effectiveBudget === undefined ? undefined : writingReminderInterval(effectiveBudget, config?.remindPercent ?? 5);
 		const decision = decideWritingReminder(runtime.markTokens, usage?.tokens, interval, runtime.forceNext);
 		const reminderContent = renderWritingReminderMessage();
 		Object.assign(runtime, claimWritingReminder(runtime, decision, reminderContent));

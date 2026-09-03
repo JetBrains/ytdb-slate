@@ -117,7 +117,7 @@ trusted project with orchestrator mode active, Slate computes:
 interval = max(8192, floor(effectiveBudget × remindPercent / 100))
 ```
 
-`remindPercent` defaults to 10 and accepts a finite value in `(0, 100]`. The
+`remindPercent` defaults to 5 and accepts a finite value in `(0, 100]`. The
 context-window clamp therefore shortens the cadence on a model whose configured
 budget does not fit. Slate checks the cadence after tool results. One reminder
 slot can fire after each assistant response.
@@ -127,12 +127,12 @@ then bypasses token cadence and missing usage. It does not bypass trust,
 orchestrator mode, or the pause gate. Slate
 commits the cadence mark only when pi starts delivery of the custom message.
 
-The current hidden message is 320 ASCII characters, including its `[slate]`
-header, five reminder requirements, blank separator, and scope exclusion. That
-is about 80 tokens at four characters per token. This count is for the exact
-rendered production string, without JSONL framing or provider-role overhead. The
-message enters conversation context only when a reminder fires. Later requests
-resend it with the rest of the conversation.
+The current hidden message is 920 ASCII characters, including its `[slate]`
+header, nine writing requirements, six design requirements, separators, and
+scope exclusion. That is about 230 tokens at four characters per token. This
+count is for the exact rendered production string, without JSONL framing or
+provider-role overhead. The message enters conversation context only when a
+reminder fires. Later requests resend it with the rest of the conversation.
 
 ## What always-loaded tool definitions cost the budget
 
@@ -206,25 +206,25 @@ must agree with `verification/README.md`:
 
 | router | models | `draftPRs` | writing keys | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | absent | 4 | 3,512 | 59 |
-| off | — | off | set | 4 | 3,512 | 59 |
-| off | — | on | absent | 5 | 3,531 | 59 |
-| off | — | on | set | 5 | 3,531 | 59 |
-| on | fixed six-model fixture | off | absent | 5 | 5,542 | 80 |
-| on | fixed six-model fixture | off | set | 5 | 5,542 | 80 |
-| on | fixed six-model fixture | on | absent | 6 | 5,561 | 80 |
-| on | fixed six-model fixture | on | set | 6 | 5,561 | 80 |
-| on | all 9 shipped | off | absent | 5 | 6,097 | 83 |
-| on | all 9 shipped | off | set | 5 | 6,097 | 83 |
-| on | all 9 shipped | on | absent | 6 | 6,116 | 83 |
-| on | all 9 shipped | on | set | 6 | 6,116 | 83 |
+| off | — | off | absent | 4 | 4,051 | 67 |
+| off | — | off | set | 4 | 4,051 | 67 |
+| off | — | on | absent | 5 | 4,070 | 67 |
+| off | — | on | set | 5 | 4,070 | 67 |
+| on | fixed six-model fixture | off | absent | 5 | 6,081 | 88 |
+| on | fixed six-model fixture | off | set | 5 | 6,081 | 88 |
+| on | fixed six-model fixture | on | absent | 6 | 6,100 | 88 |
+| on | fixed six-model fixture | on | set | 6 | 6,100 | 88 |
+| on | all 9 shipped | off | absent | 5 | 6,636 | 91 |
+| on | all 9 shipped | off | set | 5 | 6,636 | 91 |
+| on | all 9 shipped | on | absent | 6 | 6,655 | 91 |
+| on | all 9 shipped | on | set | 6 | 6,655 | 91 |
 
 An untrusted project receives no writing or routing tail whatever its
 `slate.json` says. Its fixed doctrine remains 2,584 portable characters, 43
 lines, and three embedded paths. Line counts do not vary with the install path.
 Enabling `draftPRs` costs 19 portable characters plus one embedded path. Setting
-either ignored writing key costs nothing. The writing rule is 928 portable
-characters and 17 lines. Its leading newline becomes the separator when
+either ignored writing key costs nothing. The writing rule is 1,103 portable
+characters and 20 lines. Its leading newline becomes the separator when
 appended.
 
 Two parts of the block grow with configuration rather than with the
@@ -248,9 +248,9 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| fixture mirroring current `.pi/slate.json`: draft PRs + writing, pi-registry windows | 5 resolved | pinned-package 2 units / 4 tools | 6 | 6,319 | 89 | ≈1,580 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 7,463 | 93 | ≈1,866 |
-| follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 7,541 | 94 | ≈1,885 |
+| fixture mirroring current `.pi/slate.json`: draft PRs + writing, pi-registry windows | 5 resolved | pinned-package 2 units / 4 tools | 6 | 6,858 | 97 | ≈1,715 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,002 | 101 | ≈2,001 |
+| follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,080 | 102 | ≈2,020 |
 
 The dogfood fixture mirrors `workflow.draftPRs: true`, both ignored writing keys,
 and the five models in this repository's `.pi/slate.json`. A change to that
@@ -298,30 +298,31 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | routing rule lines | 25 | 34 | 9 |
 | routing fixed prose | 1,110 | 1,500 | 390 |
 | largest model row | 183 | 300 | 117 |
-| trusted router-on doctrine | 6,097 | 6,500 | 403 |
-| writing-only doctrine | 3,512 | 5,600 | 2,088 |
-| writing plus router | 6,097 | 6,900 | 803 |
-| writing plus extensions | 3,767 | 6,000 | 2,233 |
-| writing plus router and extensions | 6,352 | 7,200 | 848 |
-| maximal doctrine, draft PRs enabled | 7,463 | 8,500 | 1,037 |
-| maximal doctrine, draft PRs disabled | 7,444 | 8,500 | 1,056 |
-| maximal doctrine, follow-up issues enabled | 7,541 | 8,500 | 959 |
+| trusted router-on doctrine | 6,636 | 7,000 | 364 |
+| writing and design doctrine | 4,051 | 5,600 | 1,549 |
+| writing plus router | 6,636 | 7,000 | 364 |
+| writing plus extensions | 4,306 | 6,000 | 1,694 |
+| writing plus router and extensions | 6,891 | 7,300 | 409 |
+| maximal doctrine, draft PRs enabled | 8,002 | 8,500 | 498 |
+| maximal doctrine, draft PRs disabled | 7,983 | 8,500 | 517 |
+| maximal doctrine, follow-up issues enabled | 8,080 | 8,500 | 420 |
 | capped worker rule | 1,347 | 1,600 | 253 |
-| writing rule characters | 928 | 1,150 | 222 |
-| writing rule lines | 17 | 25 | 8 |
+| writing rule characters | 1,103 | 1,200 | 97 |
+| writing rule lines | 20 | 25 | 5 |
+| design rule characters | 364 | 450 | 86 |
 
-Slate replaced the four-class prompt with size grades and focus areas. The
-fixed rules grew by 207 portable characters and two lines. The trusted
-router-on fixture requires `6,097 × 1.05 = 6,401.85`. Ceiling gives 6,402. The
-existing 6,500 bound remains larger. The all-tail fixture requires
-`6,352 × 1.05 = 6,669.6`. Ceiling gives 6,670. The existing 7,200 bound remains larger.
+The design rule and expanded writing roster add 539 portable characters and
+eight lines to each trusted fixture. The trusted router-on fixture requires
+`6,636 × 1.05 = 6,967.8`. Ceiling gives 6,968. The 7,000 bound remains larger.
+The all-tail fixture requires `6,891 × 1.05 = 7,235.55`. Ceiling gives 7,236.
+The 7,300 bound remains larger.
 
-The follow-up fixture requires `7,541 × 1.05 = 7,918.05`. Ceiling gives 7,919.
-The shared 8,500 bound keeps the required reserve for every maximal fixture.
+The follow-up fixture requires `8,080 × 1.05 = 8,484`. The shared 8,500 bound
+keeps the required reserve for every maximal fixture.
 
 The positive control adds one capped tool and six copies of the largest
-measured model row. It measures 8,779 portable characters. It exceeds the
-8,500-character maximal bound by 279. That margin remains larger than the
+measured model row. It measures 9,318 portable characters. It exceeds the
+8,500-character maximal bound by 818. That margin remains larger than the
 184-character maximum model-row growth and the 212-character capped tool growth.
 The raised bound does not blunt the positive control.
 
@@ -331,10 +332,10 @@ unless the fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. The rough
 estimate divides each measured portable-character render by four and rounds to
-the nearest whole token. The shipped-rule table ranges from about 646 tokens to
-about 1,529 tokens. The current dogfood basis is about 1,580 tokens. The stable
-representative maximum is about 1,866 tokens. The follow-up-issues maximum is
-about 1,885 tokens, or 0.74 percent of the default budget.
+the nearest whole token. The shipped-rule table ranges from about 1,013 tokens
+to about 1,664 tokens. The current dogfood basis is about 1,715 tokens. The
+stable representative maximum is about 2,001 tokens. The follow-up-issues
+maximum is about 2,020 tokens, or 0.79 percent of the default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
 much headroom Slate consumes before conversation content.

@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TurnEndEvent } from "@earendil-works/pi-coding-agent";
-import { writingReminderGateOpen } from "../extension/writing-reminder.ts";
+import {
+  DESIGN_REQUIREMENTS,
+  renderWritingReminder,
+  renderWritingReminderMessage,
+  WRITING_REQUIREMENTS,
+  WRITING_SCOPE_EXCLUSION,
+  writingReminderGateOpen,
+} from "../extension/writing-reminder.ts";
 import {
   measureWritingTurn,
   sanitizeWritingConfig,
@@ -22,6 +29,13 @@ function assistant(content: unknown): TurnEndEvent["message"] {
   return { role: "assistant", content } as TurnEndEvent["message"];
 }
 
+test("malformed writing config warns and uses the five-percent default", () => {
+  assert.deepEqual(sanitize("invalid"), {
+    result: { remindPercent: 5 },
+    warnings: ['slate: ignoring writing — expected an object like { "remindPercent": 5 }'],
+  });
+});
+
 test("writing.check true is an ignored writing key and emits the shared notice", () => {
   const { result, warnings } = sanitize({ check: true, remindPercent: 7 });
   assert.deepEqual(result, { remindPercent: 7 });
@@ -30,7 +44,7 @@ test("writing.check true is an ignored writing key and emits the shared notice",
 
 test("writing.remind false is an ignored writing key and emits the shared notice", () => {
   const { result, warnings } = sanitize({ remind: false });
-  assert.deepEqual(result, { remindPercent: 10 });
+  assert.deepEqual(result, { remindPercent: 5 });
   assert.deepEqual(warnings, [IGNORED_KEYS_NOTICE]);
 });
 
@@ -47,10 +61,10 @@ test("both ignored writing keys produce one notice", () => {
 
 test("invalid remindPercent falls back without hiding the ignored writing keys notice", () => {
   const { result, warnings } = sanitize({ check: false, remindPercent: 0 });
-  assert.deepEqual(result, { remindPercent: 10 });
+  assert.deepEqual(result, { remindPercent: 5 });
   assert.deepEqual(warnings, [
     IGNORED_KEYS_NOTICE,
-    "slate: ignoring writing.remindPercent — expected a finite number in (0, 100] (defaulting to 10)",
+    "slate: ignoring writing.remindPercent — expected a finite number in (0, 100] (defaulting to 5)",
   ]);
 });
 
@@ -64,9 +78,26 @@ test("a throwing remindPercent getter warns and falls back", () => {
   });
 
   assert.deepEqual(sanitize(raw), {
-    result: { remindPercent: 10 },
-    warnings: ["slate: ignoring writing.remindPercent — could not read the value (defaulting to 10)"],
+    result: { remindPercent: 5 },
+    warnings: ["slate: ignoring writing.remindPercent — could not read the value (defaulting to 5)"],
   });
+});
+
+test("renderWritingReminder returns both exact roster blocks and the exclusion", () => {
+  const expected = [
+    "Writing requirements:",
+    ...WRITING_REQUIREMENTS.map((entry) => `- ${entry.text}`),
+    "",
+    "Design requirements:",
+    ...DESIGN_REQUIREMENTS.map((entry) => `- ${entry.text}`),
+    "",
+    WRITING_SCOPE_EXCLUSION,
+  ].join("\n");
+  assert.equal(renderWritingReminder(), expected);
+});
+
+test("renderWritingReminderMessage adds the exact header once", () => {
+  assert.equal(renderWritingReminderMessage(), `[slate] Reminder:\n\n${renderWritingReminder()}`);
 });
 
 test("writing reminder gates exclude the ignored writing keys", () => {

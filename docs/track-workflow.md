@@ -161,14 +161,16 @@ required pre-implementation gate.
 
 When an approved high-level design exists, a **scope exception** is a design
 proposal, reviewer finding, or implemented change that covers something the
-approved goals do not list. The orchestrator presents every scope exception to
-the user. The user chooses exactly one outcome:
+approved goals do not list. A proposal to remove an approved goal is also a
+scope exception. The orchestrator presents every scope exception to the user.
+The user chooses exactly one outcome:
 
 1. add a goal.
 2. approve a non-goal and require the work reverted.
 3. approve a non-goal and keep the work, with the reason recorded.
 4. defer the item to a later change and record it in the existing follow-up
    ledger.
+5. approve the removal of a goal, with the reason recorded.
 
 Repeated regressions on one item make the orchestrator propose that item as a
 non-goal candidate. The orchestrator marks nothing automatically. Every

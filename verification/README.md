@@ -716,13 +716,13 @@ rather than tidy. The group is voided by `profiles-load`, because
 
 | id | what it proves |
 | --- | --- |
-| `doctrine-router-off` | **I2** — with the router off the routing rule contributes NOTHING. Every off-shaped resolution renders byte-identically to the default call. The trusted baseline still contains the independent writing tail in slot 11. The same helper must render routing before writing when the router is on |
-| `doctrine-untrusted` | **SE3** — an untrusted project gets no routing or writing rule even with full configuration. The same resolution under trust renders routing followed by writing. The worker-extension rule remains independently visible to untrusted projects and keeps slot 11 |
-| `doctrine-numbering` | tail rules are numbered by **position**, not identity. Trusted writing is always last. It is 11 alone, 12 behind either routing or extensions, and 13 behind both. Every combination stays contiguous, and the routing body remains identical when its number moves |
+| `doctrine-router-off` | **I2** — with the router off the routing rule contributes NOTHING. Every off-shaped resolution renders byte-identically to the default call. The trusted baseline still contains writing in slot 11 and design in slot 12. The same helper must render routing before both when the router is on |
+| `doctrine-untrusted` | **SE3** — an untrusted project gets no routing, writing, or design rule even with full configuration. The same resolution under trust renders all three. The worker-extension rule remains independently visible to untrusted projects and keeps slot 11 |
+| `doctrine-numbering` | tail rules are numbered by **position**, not identity. Trusted design is always last. Writing keeps its former number in every combination. Every combination stays contiguous, and the routing body remains identical when its number moves |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,584 portable characters, 43 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **7,463 of 8,500** portable characters. The draft-disabled pin is **7,444**. Writing plus routing is **6,097 of 6,900**. All tails are **6,352 of 7,200**. The capped worker rule is **1,347 of 1,600**. An **8,779-character** positive control exceeds the maximal bound by 279. These are verification budgets, not runtime limits. |
-| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **7,541 of 8,500** portable characters and 94 lines and keeps 959 characters of reserve. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,584 portable characters, 43 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **8,002 of 8,500** portable characters. The draft-disabled pin is **7,983**. Writing plus routing is **6,636 of 7,000**. All tails are **6,891 of 7,300**. The capped worker rule is **1,347 of 1,600**. A **9,318-character** positive control exceeds the maximal bound by 818. These are verification budgets, not runtime limits. |
+| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,080 of 8,500** portable characters and 102 lines and keeps 420 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
@@ -772,11 +772,13 @@ doctrine rule** (`extension/mode.ts`), rendered through the same
 
 | id | what it proves |
 | --- | --- |
-| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ remindPercent: 10 }`; malformed shapes warn and default; unknown keys warn and disappear; any own `check` or `remind` key produces one exact notice, including `false` and both keys together |
-| `writing-config-reminder-valid` / `writing-config-reminder-ignored` / `writing-config-reminder-percent` | a finite percentage in `(0, 100]` survives; both ignored writing keys produce one notice without changing it; bad percentages warn once and fall back to 10 |
+| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ remindPercent: 5 }`; malformed shapes warn and default; unknown keys warn and disappear; any own `check` or `remind` key produces one exact notice, including `false` and both keys together |
+| `writing-config-reminder-valid` / `writing-config-reminder-ignored` / `writing-config-reminder-percent` | a finite percentage in `(0, 100]` survives; both ignored writing keys produce one notice without changing it; bad percentages warn once and fall back to 5 |
 | `writing-config-hostile` | a prototype-polluting object, a getter on an ignored writing key, a throwing percentage getter, an inherited `check` and a 30,000-deep value neither crash nor pollute. Ignored writing key values are never read, every result is fresh, and inherited keys stay absent |
 | `writing-doctrine-off` / `writing-doctrine-untrusted` | trusted doctrine renders the writing rule byte-identically for `writing.check` false, true, or absent; untrusted doctrine renders no writing rule. The same configured input under both trust states makes the trust gate observable |
-| `writing-doctrine-numbering` | the writing rule is numbered by tail **position** over every routing and worker-extension combination. It is 11 alone, 12 behind either optional rule, and 13 behind both while their numbers remain stable |
+| `writing-doctrine-numbering` | the writing rule keeps its tail **position** over every routing and worker-extension combination. The trust-gated design rule follows it in every combination while earlier numbers remain stable |
+| `design-doctrine-size` | the two-digit design rule is exactly 364 characters and six lines; its 450-character bound retains at least five percent reserve |
+| `writing-prompt-check` | the design rule keeps exactly six sentences with spaces after terminators, and the shipped checker reports no finding above advisory for either prompt; positive controls require a seventh sentence to trigger `PARA6` and a byte-neutral glued boundary to fail spacing |
 | `writing-doctrine-inject` | the rule is **static**: configs carrying extra and nested keys render byte-identically to the plain trusted rendering, so no config-derived text reaches the prompt |
 | `writing-doctrine-cite` | the rule's **doc citation** (`docs/writing-guidance.md`, absolute and package-resolved like rules 8–10) renders **exactly once** in every trusted doctrine and never in untrusted doctrine. It remains inside the rule rather than elsewhere in the block. The path is read from `paths.ts`, never re-derived from the rendered text, so a rename that leaves the doctrine citing a document the package no longer ships fails here; the named file must also exist on disk, which is the half `package-content-check.mjs` cannot see (it checks the publish set, not the rendering). Two terms guard the shape: the rule still carries exactly **one** numbered line, so a citation line cannot become a forged tail rule, and ignored writing keys add no bytes. Its per-turn **cost** is bounded by `doctrine-budget`, which since the citation landed also bounds the writing rule's own portable size, its line count and its **one** embedded path |
 
@@ -785,7 +787,8 @@ The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`
 
 | id | what it proves |
 | --- | --- |
-| `writing-reminder-load` / `writing-reminder-roster` / `writing-reminder-render` | the pure module loads; the frozen six-line requirement roster keeps exact order and markers; doctrine renders all six bulleted lines while reminders render the exact five eligible lines |
+| `writing-reminder-load` / `writing-reminder-roster` / `writing-reminder-render` | the pure module loads; the frozen nine-line writing roster and six-line design roster keep exact order; doctrine renders every writing line; the reminder renders every entry from both rosters and the shared exclusion |
+| `writing-reminder-size` | the 920-byte, 22-line message stays pure ASCII and within 1,280 bytes with five percent reserve; two renders match; no absolute-path shape appears; five adversarial path forms must match the detector; the header, labels, and exclusion each appear once. To prove the check fires, omit one roster entry from the module-load render or append one ASCII character to the message |
 | `writing-reminder-interval` / `writing-reminder-cadence` / `writing-reminder-budget` | the percentage derives cadence from the effective clamped budget with an 8,192-token floor; equality sends; lower usage repairs a stale mark; unusable usage does not send; force works without usage; override, scalar, Anthropic default, global default and clamp branches reach the real hook |
 | `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, pause state and the one-send round slot close independently; false ignored writing keys cannot close delivery; force does not bypass surviving policy gates; no UI gate exists |
 | `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-rearm` / `writing-reminder-mode-force` | claim queues a pending mark without consuming force; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; only assistant `message_end` re-arms the next round |
@@ -907,19 +910,20 @@ owns these stable verification fixtures:
 | fixture | paths | portable | lines | bound |
 | --- | ---: | ---: | ---: | ---: |
 | routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
-| writing rule | 1 | **928** | 17 | 1,150 |
+| writing rule | 1 | **1,103** | 20 | 1,200 |
+| design rule | 0 | **364** | 6 | 450 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| trusted router-off doctrine | 4 | **3,512** | 59 | — |
-| trusted router-on doctrine | 5 | **6,097** | 83 | 6,500 |
-| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **6,319** | 89 | — |
-| writing-only doctrine | 4 | **3,512** | 59 | 5,600 |
-| writing plus router | 5 | **6,097** | 83 | 6,900 |
-| writing plus extensions | 4 | **3,767** | 65 | 6,000 |
-| writing plus router and extensions | 5 | **6,352** | 89 | 7,200 |
-| maximal doctrine with draft PRs enabled | 6 | **7,463** | 93 | 8,500 |
-| maximal doctrine with draft PRs disabled | 5 | **7,444** | 93 | 8,500 |
-| maximal doctrine with follow-up issues enabled | 6 | **7,541** | 94 | 8,500 |
-| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **8,779** | 100 | must exceed 8,500 |
+| trusted router-off doctrine | 4 | **4,051** | 67 | — |
+| trusted router-on doctrine | 5 | **6,636** | 91 | 7,000 |
+| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **6,858** | 97 | — |
+| writing and design doctrine | 4 | **4,051** | 67 | 5,600 |
+| writing plus router | 5 | **6,636** | 91 | 7,000 |
+| writing plus extensions | 4 | **4,306** | 73 | 6,000 |
+| writing plus router and extensions | 5 | **6,891** | 97 | 7,300 |
+| maximal doctrine with draft PRs enabled | 6 | **8,002** | 101 | 8,500 |
+| maximal doctrine with draft PRs disabled | 5 | **7,983** | 101 | 8,500 |
+| maximal doctrine with follow-up issues enabled | 6 | **8,080** | 102 | 8,500 |
+| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,318** | 108 | must exceed 8,500 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
 fabricated dogfood fixture mirrors the five configured models and resolves them
@@ -934,16 +938,17 @@ the next whole line.
 
 A doctrine change updates its exact literal. A bound changes only when this
 reserve policy requires it. Writing plus routing uses
-`6,097 × 1.05 = 6,401.85`. Ceiling gives 6,402. The existing 6,900 bound remains larger.
+`6,636 × 1.05 = 6,967.8`. Ceiling gives 6,968. The 7,000 bound remains larger.
 
-All tails use `6,352 × 1.05 = 6,669.6`. Ceiling gives 6,670. The existing
-7,200 bound remains larger.
+All tails use `6,891 × 1.05 = 7,235.55`. Ceiling gives 7,236. The 7,300 bound
+remains larger.
 
-The largest maximal fixture uses `7,541 × 1.05 = 7,918.05`. Ceiling gives 7,919. The existing 8,500 bound remains larger. The enabled, disabled, and follow-up
-maximal reserves are 1,037, 1,056, and 959.
+The largest maximal fixture uses `8,080 × 1.05 = 8,484`.
+The 8,500 bound remains larger. The enabled, disabled, and follow-up maximal
+reserves are 498, 517, and 420.
 
 The largest model-row growth is 184 characters. The capped tool-line growth is
-212 characters. The positive control exceeds the maximal bound by 279.
+212 characters. The positive control exceeds the maximal bound by 818.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
@@ -1877,8 +1882,8 @@ marker. Each persisted tool result must contain exactly one text block, no extra
 block or key, and the text `CANARY_TOOL_RESULT_ONLY`. Slate's real `tool_result`
 hook sends one hidden custom steer despite the parallel results.
 
-The second provider call must receive the exact five requirements and shared
-scope exclusion once. It writes a unique success response only after observing
+The second provider call must receive the exact nine writing requirements,
+six design requirements, and shared scope exclusion once. It writes a unique success response only after observing
 the exact text and pre-normalized custom metadata.
 
 Pi normalizes custom messages into user messages before the provider call. The

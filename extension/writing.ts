@@ -78,10 +78,10 @@ export function sanitizeWritingConfig(
 	raw: unknown,
 	warn: (msg: string) => void,
 ): Pick<Required<WritingConfig>, "remindPercent"> {
-	const defaults = { remindPercent: 10 };
+	const defaults = { remindPercent: 5 };
 	if (raw === undefined) return defaults;
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-		warn('slate: ignoring writing — expected an object like { "remindPercent": 10 }');
+		warn('slate: ignoring writing — expected an object like { "remindPercent": 5 }');
 		return defaults;
 	}
 	const value = raw as { check?: unknown; remind?: unknown; remindPercent?: unknown };
@@ -109,7 +109,7 @@ export function sanitizeWritingConfig(
 		try {
 			rawPercent = value.remindPercent;
 		} catch {
-			warn("slate: ignoring writing.remindPercent — could not read the value (defaulting to 10)");
+			warn("slate: ignoring writing.remindPercent — could not read the value (defaulting to 5)");
 		}
 	}
 	let remindPercent = defaults.remindPercent;
@@ -117,7 +117,7 @@ export function sanitizeWritingConfig(
 		if (typeof rawPercent === "number" && Number.isFinite(rawPercent) && rawPercent > 0 && rawPercent <= 100) {
 			remindPercent = rawPercent;
 		} else {
-			warn("slate: ignoring writing.remindPercent — expected a finite number in (0, 100] (defaulting to 10)");
+			warn("slate: ignoring writing.remindPercent — expected a finite number in (0, 100] (defaulting to 5)");
 		}
 	}
 

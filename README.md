@@ -87,15 +87,15 @@ The dispatch guards refuse an unlisted model and an invalid effort level. They m
 
 ## Writing guidance
 
-Writing guidance and human-only telemetry are active for every trusted project in orchestrator mode. Slate adds a doctrine rule that states the convention. It also adds a status value such as `writing 1/4` in interactive sessions. This value means one of four measured prose turns had a fail-level finding. Each trusted worker gets a shorter reminder about reader understanding, semicolons, and contractions.
+Writing guidance and human-only telemetry are active for every trusted project in orchestrator mode. Slate adds one doctrine rule for writing and another for design discipline. It also adds a status value such as `writing 1/4` in interactive sessions. This value means one of four measured prose turns had a fail-level finding. Each trusted worker gets a shorter reminder about reader understanding, semicolons, and contractions.
 
-The guidance has prompt cost. Each orchestrator system prompt contains the doctrine rule. You pay for this text on every turn. Each trusted worker session also gets the preamble addition.
+The guidance has prompt cost. Each orchestrator system prompt contains both doctrine rules. You pay for this text on every turn. Each trusted worker session also gets the preamble addition.
 
 > **No conformance claim:** This is a dictionary-free proxy. It embeds no controlled vocabulary and claims no ASD-STE100 conformance.
 
 The shipped CLI checks plain files, JSONL records, and unified diffs. See [`docs/writing-guidance.md`](docs/writing-guidance.md) for its rules, limits, output, and command examples.
 
-Slate sends context-paced reminders after eligible tool results. Context-paced means Slate waits for configured context growth between reminders. The reminders are hidden from the normal terminal user interface. They repeat five writing requirements and the scope exclusion before the next assistant response.
+Slate sends context-paced reminders after eligible tool results. Context-paced means Slate waits for configured context growth between reminders. The reminders are hidden from the normal terminal user interface. They repeat nine writing requirements and six design requirements before the next assistant response. The requirements exclude research logs, worker task text, and this project's agent instruction file.
 
 ## Install
 
@@ -125,7 +125,7 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `workflow.followUpIssues` | boolean | `false` | When true, the orchestrator asks which suggestions become follow-up issues in the project tracker. Suggestions are always reported whatever the value. |
 | `writing.check` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Guidance is automatic in trusted projects during orchestrator mode. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remind` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Reminder gates are orchestrator mode, project trust, no pause, cadence or handoff force, and one-per-round control. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
-| `writing.remindPercent` | number | `10` | Set cadence as a percentage of Slate's current effective context budget. The value must be finite and in `(0, 100]`. The interval has an 8,192-token floor and no cap. A handoff force bypasses this threshold. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
+| `writing.remindPercent` | number | `5` | Set cadence as a percentage of Slate's current effective context budget. The value must be finite and in `(0, 100]`. The interval has an 8,192-token floor and no cap. A handoff force bypasses this threshold. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `doctrineExtraPath` | string | — | Project markdown whose **content** is appended to the orchestrator doctrine (project-specific workflow additions). |
 | `reviewPerspectivesPath` | string | — | Project review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
 | `modelFailover` | object (string → string) | — (empty, failover off) | Map of `provider/id` → equal-quality alternative model; on a model API failure the affected site retries once on the mapped model (worker/orchestrator sites only after pi's own retries are exhausted; episode compression has no pi retry loop). Read once at session start — see [`docs/model-failover.md`](docs/model-failover.md). |
@@ -144,7 +144,7 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
   "orchestratorPromptDocs": ["docs/agents/orchestrator-guidelines.md"],
   "workerPromptDocs": ["docs/agents/thread-guidelines.md"],
   "workflow": { "draftPRs": true, "followUpIssues": false },
-  "writing": { "remindPercent": 10 },
+  "writing": { "remindPercent": 5 },
   "doctrineExtraPath": "docs/agents/workflow-additions.md",
   "reviewPerspectivesPath": "docs/agents/review-perspectives.md",
   "modelFailover": { "anthropic/claude-sonnet-5": "openai/gpt-5.2" },

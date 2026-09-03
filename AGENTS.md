@@ -344,7 +344,7 @@ A missing, all-zero, absent or HEAD-equal base exits 2. `workflow_dispatch` has 
 
 The convention governs new or changed prose in the root `README.md`, PR descriptions and delivery commit bodies. It also governs issues, comments, release notes and agent messages to users. Use short, active, plain language. Write sentences a non-native reader understands on one reading. Keep exact technical terms. Do not use semicolons or contractions.
 
-These six requirements are project-authored:
+These nine requirements are project-authored:
 
 1. Avoid idioms.
 2. Replace bare-reference openers with the subject they reference.
@@ -352,8 +352,11 @@ These six requirements are project-authored:
 4. Define each abbreviation at first use.
 5. Express one idea in each sentence.
 6. Use one term for each concept.
+7. Do not explain an idea with a metaphor.
+8. Do not invent a term when the project already has one.
+9. Use plain words that appear in standard libraries and textbooks.
 
-Research logs and worker-thread task text are excluded. A high-level design is always governed, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. `docs/` and `verification/README.md` remain precision-first mechanism references and are excluded too.
+Research logs and worker-thread task text are excluded. A high-level design is always governed, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. The requirements govern `docs/`, but every checker finding there remains advisory. `verification/README.md` remains a precision-first mechanism reference and is excluded.
 
 The writing checker is diagnostic everywhere and authoritative nowhere. A match directs reviewer attention, and the reviewer decides whether the text has a defect. Changed convention-governed text should carry no fail-level findings. Findings in unchanged text are pre-existing debt, not an unrelated blocker. Every checker class is advisory in excluded files because mechanical findings can conflict with required precision. ASD-STE100 inspires only, Slate claims no conformance, and contributors must copy no standard material or examples.
 
