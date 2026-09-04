@@ -25,12 +25,10 @@
 # (`npm run typecheck` is that): jiti transpiles per module and erases types, so
 # a type error loads perfectly well.
 #
-# Four pi runs, all fully offline: a throwaway PI_CODING_AGENT_DIR (mktemp'd, and
-# carrying no models.json and no auth.json on any of the four — runs 1 and 2 get
-# an empty one, run 3 gets a trust store and nothing else, and run 4 gets the
-# mirror described below), PI_OFFLINE=1, and non-model rpc requests fed from a
-# file so stdin closes at EOF. No provider is ever contacted, so no API key is
-# needed.
+# Two pi runs, both fully offline: an empty throwaway PI_CODING_AGENT_DIR per run
+# (mktemp'd, and carrying no models.json and no auth.json), PI_OFFLINE=1, and
+# non-model rpc requests fed from a file so stdin closes at EOF. No provider is
+# ever contacted, so no API key is needed.
 # THE ENVIRONMENT SCRUB IS A VARIABLE-NAME PATTERN LIST AND NOT AN ALLOWLIST, so
 # "no credentials of any kind" is NOT what these runs deliver. It removes every
 # pi session variable and every name matching one of the patterns below, and a
@@ -45,45 +43,40 @@
 #   RUN 2  trusted explicit load path (--no-extensions -e -a): trust is what
 #          makes slate read the checkout's own .pi/slate.json, so this run puts
 #          the tracked project config through slate's config sanitizers
-#   RUN 3  trusted PACKAGE path (T7): a scratch sibling layout whose project
-#          settings hold exactly {"packages": ["../../main"]}. Slate is passed
-#          through no -e flag at all, so that one package entry is the only
-#          route by which slate can load.
-#   RUN 4  the duplicate-copy OBSERVATION (T8): one ordinary trusted session in
-#          the checkout under test, with extensions ENABLED and both settings
-#          scopes in play, whose agent directory is a throwaway MIRROR of the
-#          real one. T8 reads what that session loaded and counts nothing
-#          itself.
-# Plus three checks that launch nothing at all. T4 requires the project config to
+# Plus two checks that launch nothing at all. T4 requires the project config to
 # be parseable JSON and a JSON object. RUN 2 cannot cover that — slate's config
 # loader try/catches a malformed file and falls back to defaults in silence, so
 # the sanitizers it feeds are never reached and pi emits nothing. Without T4 a
 # checkout whose .pi/slate.json is `{{{` looks perfectly healthy here while every
 # setting in it, workflow.draftPRs included, is being dropped. T5 requires the
 # tracked .pi/settings.json to carry exactly one local package entry, spelled
-# ../../main, and no registry entry for slate. T6 requires the spelling THE FILE
-# actually holds to reach a loadable slate package in the same repository, and
-# it decides the sibling requirement from the checkout's own git evidence, never
-# from the target it is judging. T8 requires that at most one copy of slate is
-# loadable, and it asks a real pi session instead of computing an answer.
+# ../../main, and no registry entry for slate.
 #
-# T5, T6 and T7 model pi's package resolution, and they do it with ONE program
-# that borrows pi's own isLocalPath, parseGitUrl, normalizePath and resolvePath
-# out of the pi build under test (see PKG_MODEL). A hand-written copy of those
-# rules drifted from pi in both directions and produced both a false pass and a
-# false failure, so the rules are imported and never guessed. When they cannot be
-# imported, every check that needs them FAILS.
+# T5 models pi's package resolution, and it does so with ONE program that borrows
+# pi's own isLocalPath and parseGitUrl out of the pi build under test (see
+# PKG_MODEL). A hand-written copy of those rules drifted from pi in both
+# directions and produced both a false pass and a false failure, so the rules are
+# imported and never guessed. When they cannot be imported, T5 FAILS.
 #
-# T8 USED TO MODEL THE SAME RULES AND MUST NOT. Two fix rounds in a row found a
-# divergence between the model and pi: the model skipped an entry that pi loads,
-# counted an entry that pi disables, and never saw the package pi finds one
-# directory below a listed extensions directory. Every one of those was a wrong
-# verdict from correct-looking code. T8 is therefore an OBSERVATION of RUN 4 (see
-# the T8 block for the mirror it runs against and for the two channels it reads),
-# and the static scan that survives beside it only NAMES entries in a failure
-# message. The scan never sets the verdict, and a disagreement between the scan
-# and the session prints a NOTE.
-# PI_OFFLINE=1 is MANDATORY on ALL FOUR runs, and on the three trusted ones above
+# THREE CHECKS WERE DELETED HERE, AND THIS HARNESS NO LONGER PROVES THE SIBLING
+# ARRANGEMENT. T6 classified the layout of the checkout. T7 loaded a scratch
+# sibling package layout through the tracked spelling. T8 counted the copies of
+# slate an ordinary session loaded. All three needed the sibling worktree of this
+# repository to be present. A plain clone has no sibling, and a CI checkout has no
+# sibling, so the three checks established nothing there. On a developer machine
+# every pi session in this checkout already proves the same property by running,
+# because a session with no slate extension has no /slate command and no dispatch
+# tool. The user applied one test: a check earns its place only if it can fail
+# somewhere the property is not already proven by use. T6, T7 and T8 failed that
+# test, and the user approved removing the goal that the arrangement is proven
+# automatically. T5 passes the test, because it reads a tracked file and therefore
+# runs in CI and in a plain clone.
+#
+# WHAT ESTABLISHES THE ARRANGEMENT NOW. Every session in this checkout proves it
+# by running. The manual isolated-load smoke test, `pi --no-extensions -e .`,
+# proves it on demand. T5 protects the tracked settings entry itself in CI.
+# Nothing automatic proves the sibling arrangement any more.
+# PI_OFFLINE=1 is MANDATORY on BOTH runs, and on the trusted one above
 # all: -a makes pi read .pi/settings.json, and without PI_OFFLINE it
 # npm-installs every package listed there — observed hanging for 60 s and
 # writing a .pi/npm directory INTO the checkout under test.
@@ -113,7 +106,7 @@
 # manifest, a specifier or one of pi's own diagnostics. They do NOT redact
 # everything. T4 prints the top-level key names of .pi/slate.json as they stand,
 # and the paths this harness was GIVEN or CREATED are printed as they stand too —
-# the --repo path, the scratch path, the scratch project of run 3 and the working
+# the --repo path, the scratch path and the working
 # directory the canary reports. Only a failing run prints the streams, so a green
 # CI log holds no stream at all. That inlining is what makes a CI failure
 # diagnosable at all: the scratch directory holding the streams dies with the
@@ -127,12 +120,12 @@
 # clean full run prints one more line than there are ids in --list-checks.
 #
 # Exit status: 0 all checks passed · 1 a check failed · 2 refused to start (a
-# missing tool — node, mktemp or git — a bad --repo, no resolvable pi CLI, or a
+# missing tool — node or mktemp — a bad --repo, no resolvable pi CLI, or a
 # CLI/pin version mismatch — that is an out-of-sync environment, not a defect:
-# run `npm ci --ignore-scripts`). git is required and not optional: T6 answers
-# a question that only git evidence can answer, and this harness has no NOT RUN
-# result, so a missing git would otherwise turn a demonstrated failure into a
-# pass.
+# run `npm ci --ignore-scripts`). git is NOT required any more: T6 was the one
+# check that needed git evidence, and its deletion took that requirement with it.
+# The context header still asks git for the short commit of the checkout, and it
+# prints "not a git checkout" when git cannot answer.
 # EVERY exit-2 message says "refused to start" in exactly those words, so that
 # phrase is greppable in a CI log.
 # =============================================================================
@@ -144,7 +137,7 @@ exec 8>&2
 # status (WC2). Callers pass the reason only.
 die() { echo "verification: refused to start — $*" >&8; exit 2; }
 
-ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3 T4 T5 T6 T7 T8"
+ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3 T4 T5"
 
 REPO="."
 ONLY=""
@@ -160,11 +153,11 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-# git joins node and mktemp as a REQUIRED tool. T6 classifies the checkout and
-# compares repositories, and both answers come from git alone. A harness with no
-# NOT RUN result cannot degrade honestly, so absent evidence must stop the run
-# rather than become a pass.
-for t in node mktemp git; do
+# node and mktemp are the required tools. git was required while T6 existed,
+# because T6 classified the checkout and compared repositories, and git alone
+# answered both questions. No surviving check reads git evidence, so a missing
+# git now costs the short commit in the context header and nothing else.
+for t in node mktemp; do
 	command -v "$t" >/dev/null 2>&1 || die "missing required tool: $t"
 done
 
@@ -316,45 +309,6 @@ pirun() { # $1 label, $2 requests file, rest = extra pi args
 	RC=$?
 }
 
-# RUN 3 differs from pirun on purpose, and every difference is load-bearing.
-# Extensions stay ENABLED, slate is never passed with -e, and the working
-# directory is the scratch project — so the project settings package entry is
-# the only route by which slate can load. Only the canary comes in through -e,
-# because the registered tool set has no other reader. -a grants project trust,
-# which pi requires before it resolves a local project-scope package at all.
-# A failed mkdir is deliberately NOT a die: T7 must report a binary result, and
-# this harness adds no refusal condition for it.
-pirun_package() { # $1 label, $2 requests file, $3 scratch project
-	local label="$1" reqs="$2" project="$3"
-	PI_RAN=1
-	PI_RUNS+=("$label")
-	local agent="$WORK/agent-$label"
-	mkdir -p "$agent" 2>/dev/null
-	( cd "$project" && env "${SCRUB[@]}" PI_CODING_AGENT_DIR="$agent" PI_OFFLINE=1 \
-		${TMO[@]+"${TMO[@]}"} "$PI" -e "$CANARY" --mode rpc -a \
-		< "$reqs" ) > "$WORK/$label.out" 2> "$WORK/$label.err"
-	RC=$?
-}
-
-# RUN 4 is the ORDINARY session shape, and that is the whole point of it: T8 asks
-# what a real session loads, so nothing about this launch may narrow the answer.
-# Extensions stay ENABLED, no -e names slate, the working directory is the
-# checkout under test so its project scope is the one pi reads, and -a grants the
-# trust pi requires before it resolves a project-scope local package. The agent
-# directory is the MIRROR of the real one, built by the mirror mode, which is
-# what puts the user scope in play without writing to the real directory.
-# Only the canary comes in through -e, because the registered tool set has no
-# other reader.
-pirun_observe() { # $1 label, $2 requests file, $3 throwaway agent dir
-	local label="$1" reqs="$2" agent="$3"
-	PI_RAN=1
-	PI_RUNS+=("$label")
-	( cd "$REPO" && env "${SCRUB[@]}" PI_CODING_AGENT_DIR="$agent" PI_OFFLINE=1 \
-		${TMO[@]+"${TMO[@]}"} "$PI" -e "$CANARY" --mode rpc -a \
-		< "$reqs" ) > "$WORK/$label.out" 2> "$WORK/$label.err"
-	RC=$?
-}
-
 # Reads one fact out of a captured rpc stream. Every shape this script depends on
 # (get_commands responses, extension_ui_request events, extension_error events,
 # the canary line) is parsed here and nowhere else. Paths go in as ARGV, never
@@ -389,12 +343,6 @@ const commands = () => {
   return [];
 };
 const warnings = ui.filter((o) => o.method === "notify" && o.notifyType === "warning");
-// pi renames a duplicated extension command to <name>:<occurrence>
-// (resolveRegisteredCommands in core/extensions/runner.js), so two loaded copies
-// of slate appear as slate:1 and slate:2 with their own sourceInfo paths. That is
-// the channel that catches a second copy which does NOT collide on a tool name,
-// and it is the reason T8 reads the command list as well as the exit code.
-const slateCommands = () => commands().filter((c) => c && c.source === "extension" && /^slate(:[0-9]+)?$/.test(String(c.name)));
 const say = (v) => process.stdout.write(String(v));
 if (q === "unparseable") say(unparseable);
 else if (q === "canary-count") say(canary.length);
@@ -402,14 +350,7 @@ else if (q === "canary-tools") say(last && Array.isArray(last.tools) ? last.tool
 else if (q === "canary-where") say(last ? [last.cwd, "trusted=" + last.trusted].join(" ") : "");
 else if (q === "canary-trusted") say(last ? String(last.trusted) : "");
 else if (q === "cmd-path") { const c = commands().find((x) => x && x.name === "slate"); say(c && c.sourceInfo ? String(c.sourceInfo.path) : ""); }
-else if (q === "cmd-count") say(commands().filter((c) => c && c.name === "slate").length);
-else if (q === "slate-cmd-count") say(slateCommands().length);
-else if (q === "slate-cmd-paths") say(slateCommands().map((c) => (c.sourceInfo ? String(c.sourceInfo.path) : "<no source path>")).join(" | "));
 else if (q === "cmd-names") say(commands().map((c) => c && c.name).join(","));
-// Whether the command listing arrived AT ALL. An empty slate-cmd-count means
-// "no copy loaded" only when there was a listing to read; without this query the
-// two states are one number (BG3).
-else if (q === "cmd-listing") say(objs.some((o) => o && o.type === "response" && o.command === "get_commands" && o.data && Array.isArray(o.data.commands)) ? "yes" : "no");
 else if (q === "ext-errors") say(objs.filter((o) => o && o.type === "extension_error").length);
 else if (q === "ext-error-detail") say(objs.filter((o) => o && o.type === "extension_error").map((o) => [o.extensionPath, o.event, o.error].join(" @ ")).join(" | "));
 else if (q === "warnings") say(warnings.length);
@@ -553,12 +494,12 @@ CANARY_RX='^[[:space:]]*CI-CANARY '
 first_stderr_line() { redacted "$(grep -v "$CANARY_RX" "$1" 2>/dev/null | grep . | head -1)"; }
 other_stderr_lines() { grep -cv "$CANARY_RX" "$1" 2>/dev/null | tr -d '[:space:]'; }
 
-# ================================ the package-resolution model (T5-T7) =======
-# ONE program for every check that reads a settings file, and for the mirror T8
-# observes a session against. The three earlier copies of the classifier drifted
+# ================================ the package-resolution model (T5) ==========
+# ONE program for every check that reads a settings file. The three earlier
+# copies of the classifier drifted
 # from pi and from each other, so there is now a single program with a mode
-# argument, and the classification rules are pi's OWN: it imports isLocalPath,
-# normalizePath, resolvePath and parseGitUrl out of the pi build under test.
+# argument, and the classification rules are pi's OWN: it imports isLocalPath
+# and parseGitUrl out of the pi build under test.
 # That matters because the differences are not
 # academic. pi treats `github:x/y`, `git@host:x/y`, `git+https://...`,
 # `HTTPS://...` and `file://...` as LOCAL paths, expands `~`, trims a source,
@@ -567,14 +508,8 @@ other_stderr_lines() { grep -cv "$CANARY_RX" "$1" 2>/dev/null | tr -d '[:space:]
 #
 # Modes, all called as: node -e "$PKG_MODEL" <mode> <pi CLI> <args...>
 #   settings-shape   T5 — the tracked project entry, by exact spelling
-#   worktree-target  T6 — where the tracked spelling lands, and whether it loads
-#   fixture          T7 — build the scratch sibling layout from that spelling
-#   mirror           T8 — build the throwaway agent directory RUN 4 observes
-#                         against, and refuse when it cannot be faithful
 #   scratch-guard    the driver — refuse a scratch directory inside the real
 #                         agent directory, which this harness may only read
-#   fingerprint      T8 — prove the real user settings file did not change
-#   scan             T8 — NAME the candidate copies, for a failure message only
 #   redact           any check — put a line pi printed through the same three
 #                         credential passes as every field below
 # Every mode prints the verdict on line one and NOTE lines after it, and every
@@ -586,9 +521,7 @@ PKG_MODEL='
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 const { pathToFileURL, fileURLToPath } = require("node:url");
-const crypto = require("node:crypto");
 
 const notes = [];
 function note(text) { notes.push(String(text)); }
@@ -741,18 +674,13 @@ async function loadPi(piBin) {
   if (!root) throw new Error("found no @earendil-works/pi-coding-agent package around the pi CLI at " + clean(real));
   const paths = await import(pathToFileURL(path.join(root, "dist", "utils", "paths.js")).href);
   const git = await import(pathToFileURL(path.join(root, "dist", "utils", "git.js")).href);
-  const pi = { isLocalPath: paths.isLocalPath, normalizePath: paths.normalizePath, resolvePath: paths.resolvePath, parseGitUrl: git.parseGitUrl, root: root };
-  for (const name of ["isLocalPath", "normalizePath", "resolvePath", "parseGitUrl"]) {
+  const pi = { isLocalPath: paths.isLocalPath, parseGitUrl: git.parseGitUrl, root: root };
+  for (const name of ["isLocalPath", "parseGitUrl"]) {
     if (typeof pi[name] !== "function") throw new Error("the pi installation at " + clean(root) + " exports no " + name + " helper");
   }
   return pi;
 }
 
-// pi resolves a local source with HOME first and the passwd entry second, and
-// it resolves its own agent directory with the passwd entry only. Both are
-// mirrored exactly, because a wrong home directory reads a different settings
-// file and reports an empty scope.
-function homeDir() { return process.env.HOME || os.homedir(); }
 // pi own getAgentDir() (dist/config.js): PI_CODING_AGENT_DIR when that variable
 // carries a value, passed through normalizePath() with pi default options, and
 // <os.homedir()>/.pi/agent otherwise. normalizePath() with those options
@@ -780,14 +708,6 @@ function safeAgentDir() {
   try { return { path: agentDir() }; }
   catch (error) { return { error: why(error) }; }
 }
-function resolveFromBase(pi, input, base) { return pi.resolvePath(input, base, { homeDir: homeDir(), trim: true }); }
-// pi throws on a source it cannot turn into a path, a malformed file URL above
-// all. A throw here must fail the check and not the program, so the caller gets
-// a reason and prints a verdict.
-function safeResolve(pi, input, base) {
-  try { return { path: resolveFromBase(pi, input, base) }; }
-  catch (error) { return { error: why(error) }; }
-}
 function sourceOf(entry) {
   if (typeof entry === "string") return entry;
   if (entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.source === "string") return entry.source;
@@ -809,34 +729,6 @@ function parseSource(pi, source) {
   if (parsed && parsed.host) return { type: "git", host: parsed.host, path: parsed.path || "" };
   return { type: "local", path: source };
 }
-// pi isPattern: a filter entry, not a path.
-function isPattern(value) {
-  return value.startsWith("!") || value.startsWith("+") || value.startsWith("-") || value.indexOf("*") >= 0 || value.indexOf("?") >= 0;
-}
-function readManifest(file) {
-  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (error) { return null; }
-}
-// A target belongs to slate when the nearest package manifest above it names
-// slate. The walk is what makes a manifest-less entry nameable: pi loads
-// <checkout>/extension happily, and its enclosing manifest is the evidence.
-// DIAGNOSIS ONLY. The model that used to decide how many copies pi would load
-// from a target is gone: it was wrong three times, and T8 now reads a real
-// session instead.
-function nearestManifest(target) {
-  let dir = target;
-  try { if (fs.statSync(target).isFile()) dir = path.dirname(target); } catch (error) { dir = path.dirname(target); }
-  for (let depth = 0; depth < 64; depth++) {
-    const file = path.join(dir, "package.json");
-    if (fs.existsSync(file)) {
-      const manifest = readManifest(file);
-      return { file: file, name: manifest && typeof manifest.name === "string" ? manifest.name : "" };
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return { file: "", name: "" };
-}
 function readSettings(file) {
   let text;
   try { text = fs.readFileSync(file, "utf8"); }
@@ -850,71 +742,7 @@ function readSettings(file) {
   }
   return { parsed: parsed };
 }
-// The one place that answers "what does the tracked file actually say". T6 and
-// T7 used to carry their own copy of the literal, so only T5 was tied to the
-// file and a changed spelling left the other two testing the old string.
-function trackedEntry(pi, settings) {
-  const read = readSettings(settings);
-  if (read.error) return { error: read.error };
-  if (!Array.isArray(read.parsed.packages)) return { error: clean(settings) + " has no packages array" };
-  const locals = read.parsed.packages
-    .map(sourceOf)
-    .filter((source) => source)
-    .filter((source) => parseSource(pi, source).type === "local");
-  if (locals.length !== 1) return { error: "expected exactly one local package entry in " + clean(settings) + ", found " + locals.length };
-  return { source: locals[0] };
-}
-
-// git, with every GIT_ variable removed: an inherited GIT_DIR or GIT_WORK_TREE
-// would otherwise decide what the probes below see.
-function gitEnv() {
-  const env = Object.assign({}, process.env);
-  for (const key of Object.keys(env)) if (key.indexOf("GIT_") === 0) delete env[key];
-  return env;
-}
-function gitOut(cwd, args) {
-  try {
-    return String(execFileSync("git", ["-C", cwd].concat(args), { encoding: "utf8", env: gitEnv(), stdio: ["ignore", "pipe", "ignore"] })).trim();
-  } catch (error) { return ""; }
-}
 function realOf(target) { try { return fs.realpathSync(target); } catch (error) { return target; } }
-// git prints a git directory relative to the directory it was asked about, so
-// each value is anchored to its own -C argument before any comparison.
-function anchor(value, base) { return path.isAbsolute(value) ? value : path.resolve(base, value); }
-function commonDir(dir) {
-  const value = gitOut(dir, ["rev-parse", "--git-common-dir"]);
-  return value ? realOf(anchor(value, dir)) : "";
-}
-// THE SHAPE OF THE CHECKOUT COMES FROM THE CHECKOUT ALONE. In this repository a
-// linked worktree stores its git directory INSIDE the sibling package target,
-// so asking git about the checkout stops working the moment that sibling is
-// removed — which is the very state the check must report. The .git entry is
-// the evidence that survives: a directory means a primary worktree, a file with
-// a gitdir line means a linked worktree. git is consulted only when neither is
-// there, and no answer at all is a defect and not a licence to pass.
-function worktreeShape(repo) {
-  const dotGit = path.join(repo, ".git");
-  let stats = null;
-  try { stats = fs.statSync(dotGit); } catch (error) { stats = null; }
-  if (stats && stats.isDirectory()) {
-    return { linked: false, evidence: "the checkout under test holds a .git directory, so it is the primary worktree of a plain clone" };
-  }
-  if (stats && stats.isFile()) {
-    let text = "";
-    try { text = fs.readFileSync(dotGit, "utf8"); }
-    catch (error) { return { error: "cannot read " + clean(dotGit) + " (" + why(error) + "), so the shape of the checkout is unknown and the sibling requirement cannot be decided" }; }
-    const match = text.match(/^gitdir:[ \t]*(.+)$/m);
-    if (!match) return { error: clean(dotGit) + " is a file carrying no gitdir line, so the shape of the checkout is unknown and the sibling requirement cannot be decided" };
-    return { linked: true, evidence: "the checkout under test holds a .git file pointing at " + clean(String(match[1]).trim()) + ", so it is a linked worktree" };
-  }
-  const gitDir = gitOut(repo, ["rev-parse", "--git-dir"]);
-  const common = gitOut(repo, ["rev-parse", "--git-common-dir"]);
-  if (!gitDir || !common) {
-    return { error: "the checkout under test " + clean(repo) + " holds no .git entry and git did not describe it as a work tree, so the shape of the checkout is unknown and the sibling requirement cannot be decided" };
-  }
-  const linked = realOf(anchor(gitDir, repo)) !== realOf(anchor(common, repo));
-  return { linked: linked, evidence: "git reports " + (linked ? "a git directory apart from" : "the same git directory as") + " the common directory of the checkout under test, so it is " + (linked ? "a linked worktree" : "a plain clone") };
-}
 
 function modeSettingsShape(pi, args) {
   const settings = args[0];
@@ -942,359 +770,14 @@ function modeSettingsShape(pi, args) {
   ok(clean(settings) + " carries exactly one local package entry, spelled " + JSON.stringify(clean(only.source)) + ", and no registry entry for " + slateName + " (" + entries.length + " package entry/entries in total)");
 }
 
-function modeWorktreeTarget(pi, args) {
-  const repo = args[0];
-  const settings = args[1];
-  const slateName = args[2];
-  const tracked = trackedEntry(pi, settings);
-  if (tracked.error) bad("the tracked package entry cannot be read, so where it lands cannot be checked: " + tracked.error + " (T5 reports that file in detail)");
-  const entry = tracked.source;
-  const resolved = safeResolve(pi, entry, path.join(repo, ".pi"));
-  if (resolved.error) bad("the tracked entry " + clean(entry) + " cannot be turned into a path by the resolver of pi (" + resolved.error + "), so pi resolves that package to nothing and this check cannot say where it lands");
-  const target = resolved.path;
-  const shape = worktreeShape(repo);
-  if (shape.error) bad(shape.error);
-  let stats = null;
-  try { stats = fs.statSync(target); } catch (error) { stats = null; }
-  if (!stats || !stats.isDirectory()) {
-    if (shape.linked) bad("the package target " + clean(target) + " is not an existing directory, and " + shape.evidence + " — a linked worktree needs that sibling, so the tracked entry " + clean(entry) + " resolves nowhere and pi drops the slate package without a word");
-    ok("the package target " + clean(target) + " does not exist, and none is required: " + shape.evidence);
-  }
-  const manifestFile = path.join(target, "package.json");
-  const manifest = readManifest(manifestFile);
-  if (!manifest) bad("the package target " + clean(target) + " has no parseable manifest at " + clean(manifestFile) + ", so pi finds no package there");
-  if (manifest.name !== slateName) bad("the manifest " + clean(manifestFile) + " names " + JSON.stringify(clean(manifest.name)) + ", expected " + slateName);
-  const declared = manifest.pi && Array.isArray(manifest.pi.extensions) ? manifest.pi.extensions : null;
-  let loads = "";
-  if (declared && declared.length) {
-    const missing = declared.filter((item) => !fs.existsSync(path.resolve(target, String(item))));
-    if (missing.length) bad("the manifest " + clean(manifestFile) + " declares " + declared.length + " extension entry point(s) in pi.extensions, and " + missing.length + " of them do not exist on disk: " + missing.map(clean).join(", ") + " — pi filters a nonexistent entry out of that list without a word, so a session in this checkout loads no slate and reports nothing");
-    loads = declared.length + " declared extension entry point(s), all present on disk,";
-  } else {
-    const fallback = ["index.ts", "index.js"].filter((name) => fs.existsSync(path.join(target, name)));
-    if (!fallback.length) bad("the manifest " + clean(manifestFile) + " declares no pi.extensions list, and the package root holds neither index.ts nor index.js, so pi finds no extension entry point there and loads nothing");
-    loads = "no pi.extensions list and the fallback entry point " + fallback[0] + ",";
-  }
-  const here = commonDir(repo);
-  const there = commonDir(target);
-  if (!here) bad("git gave no common directory for the checkout under test " + clean(repo) + ", so this check cannot establish that the package target belongs to the same repository, and it does not claim what it did not measure");
-  if (!there) bad("git gave no common directory for the package target " + clean(target) + ", so that directory is no work tree of this repository and this check cannot establish where its content comes from");
-  if (here !== there) bad("the package target " + clean(target) + " belongs to another repository: its git common directory is " + clean(there) + ", while the checkout under test uses " + clean(here));
-  const branch = gitOut(target, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const expectedBranch = path.basename(target);
-  if (branch === "HEAD") note("the package target " + clean(target) + " has a detached HEAD. That is allowed, and the loaded package is whatever that commit holds.");
-  else if (branch && branch !== expectedBranch) note("the package target " + clean(target) + " has branch " + clean(branch) + " checked out, not " + clean(expectedBranch) + ". That is allowed, and the loaded package is whatever that branch holds.");
-  ok("the tracked entry " + clean(entry) + " reaches " + clean(target) + ", which holds the " + slateName + " manifest with " + loads + " and shares the git common directory " + clean(here) + " with the checkout under test (" + shape.evidence + ")");
-}
-
-// ------------------------------------------------- the mirror T8 runs against
-// T8 observes a real session, and a real session reads the USER settings scope
-// out of the agent directory. The REAL agent directory must never be written to,
-// so the observed run gets a throwaway MIRROR of it. Every point below was read
-// out of the pi build under test and not assumed:
-//   settings.json IS the user scope, so it is copied;
-//   a local source in user scope resolves against the agent directory
-//     (getBaseDirForScope for "user" returns this.agentDir), so every local
-//     entry is rewritten to the absolute path it resolves to in the REAL
-//     directory. pi resolves such an entry with resolvePathFromBase and then
-//     uses the result, so the rewrite computes exactly what pi computes;
-//   <agent dir>/extensions is one of pi own two automatic discovery directories
-//     (addAutoDiscoveredResources, and discoverAndLoadExtensions in the
-//     extension loader), so its children are mirrored. The other one is
-//     <cwd>/.pi/extensions, and the observed run keeps the real checkout as its
-//     working directory, so that directory needs no mirror at all;
-//   an installed registry package lives under <agent dir>/npm/node_modules and a
-//     git source under <agent dir>/git (getManagedNpmInstallPath and
-//     getGitInstallPath), so both trees are mirrored and the mirror resolves the
-//     same packages.
-// Nothing but settings.json is COPIED, and no credential file is copied at all:
-// models.json and auth.json stay behind, PI_OFFLINE=1 forbids every install, and
-// the session contacts no provider.
-//
-// MEASURED, so that a reader does not blame the mirror for it: the mtime of the
-// real agent DIRECTORY moves during a run, while every entry inside it stays
-// byte-identical. The mover is the mandatory `pi --version` pin probe at the top
-// of this script, which creates and removes a settings.json.lock DIRECTORY
-// beside the real user settings file, exactly as pi does beside the project one.
-// Neither the mirror nor the observed session touches the real directory: both
-// were measured alone and left its mtime where it was. So the fingerprint below
-// watches the CONTENT of settings.json and not the timestamp of its parent.
-//
-// Every mirrored tree is a skeleton of directories OWNED BY THE MIRROR, and each
-// file inside it is one symbolic link. A link to a directory would give pi a
-// write path into the real agent directory, and a copy of an install tree would
-// be slow and would still not be the thing pi resolves.
-//
-// THE MIRROR OWNS EVERY DIRECTORY, at every depth, and only a NON-DIRECTORY
-// child is ever a link. The earlier barrier keyed on the literal name
-// node_modules and on a leading @ sign, so <mirror>/git/<host> stayed a link
-// into the real agent directory, the git target of pi under
-// <agent dir>/git/<host>/<path>
-// landed there, and a source npm/node_modules that was ITSELF a link was linked
-// whole for the same reason (G2-2). A name test cannot know where pi writes, so
-// the mirror stops guessing and owns the whole directory skeleton instead.
-//
-// WHAT THAT GUARANTEES, AND WHAT IT DOES NOT. The mirror owns every directory,
-// so a path the mirror CREATED as a directory keeps every write and every new
-// child inside the mirror. That is the whole guarantee, and it is NOT the
-// absolute claim that nothing pi does can land inside the real agent directory.
-// A non-directory child stays one symbolic link, so a write THROUGH such a link
-// reaches the real file it points at, and a CREATE at the name of a dangling
-// link reaches the real path that link names. The fingerprint below watches
-// settings.json alone (G3-1), so it is the only one of those cases this harness
-// sees. Two other nets carry the rest: PI_OFFLINE=1 forbids every install, which
-// is what keeps pi away from those links, and a full run left the real agent
-// directory byte-identical. The gap stays recorded as a risk and is not closed
-// here. A changed fingerprint hash likewise does not prove an escape on its own,
-// because a concurrent pi session can rewrite the same real file (see AD9).
-//
-// THE DECISION RESOLVES A LINK FIRST. lstat reports a link to a directory as a
-// link, and linking it again would recreate exactly the hole above, so a link
-// that points at a directory is recreated as a mirror-owned directory and its
-// children are linked one level further down. A DANGLING link is not a
-// directory and is copied as the dangling link it is, which is what pi sees in
-// the real directory too. PI_OFFLINE=1 forbids every install as well, and the
-// two nets overlap on purpose.
-//
-// A child that cannot be read is a FAILED MIRROR and never a skipped one: a
-// dropped child is a copy of slate the observation would not see, and this
-// harness has no NOT RUN result. A link that points back at an ancestor would
-// otherwise walk for ever, so the depth is bounded and the bound is a failure
-// with its reason and not a truncated mirror.
-const MIRROR_MAX_DEPTH = 48;
-function linkChildren(source, target, depth) {
-  const level = depth || 0;
-  if (level > MIRROR_MAX_DEPTH) return "cannot mirror " + clean(source) + ": it lies more than " + MIRROR_MAX_DEPTH + " levels below the real agent directory, which a link pointing back at an ancestor also produces";
-  let names = [];
-  try { names = fs.readdirSync(source); }
-  catch (error) { return "cannot list " + clean(source) + " (" + why(error) + ")"; }
-  try { fs.mkdirSync(target, { recursive: true }); }
-  catch (error) { return "cannot create " + clean(target) + " (" + why(error) + ")"; }
-  for (const name of names) {
-    const from = path.join(source, name);
-    let stats = null;
-    try { stats = fs.lstatSync(from); }
-    catch (error) { return "cannot read the child " + clean(from) + " (" + why(error) + ")"; }
-    let isDirectory = stats.isDirectory();
-    if (stats.isSymbolicLink()) {
-      let resolved = null;
-      let code = "";
-      try { resolved = fs.statSync(from); }
-      catch (error) { code = error && error.code ? error.code : ""; }
-      if (resolved) isDirectory = resolved.isDirectory();
-      else if (code !== "ENOENT") return "cannot resolve the link " + clean(from) + " (" + code + "), so the mirror cannot tell whether it points at a directory pi could write into";
-    }
-    if (isDirectory) {
-      const nested = linkChildren(from, path.join(target, name), level + 1);
-      if (nested) return nested;
-      continue;
-    }
-    try { fs.symlinkSync(from, path.join(target, name)); }
-    catch (error) { return "cannot mirror " + clean(from) + " into the throwaway agent directory (" + why(error) + ")"; }
-  }
-  return "";
-}
-// The range half of an npm specifier, or the empty string when it carries none.
-function npmRange(spec) {
-  const body = String(spec);
-  const cut = body.indexOf("@", 1);
-  return cut < 0 ? "" : body.slice(cut + 1);
-}
-// Why an offline session could not resolve a registry copy, or the empty string
-// when it can. A configured range that is not the installed version is refused
-// rather than solved: this harness must never turn a copy it cannot see into a
-// pass, and solving a range here would be model code deciding a verdict again.
-// The managed install root is the only root read here, and pi also falls back to
-// a legacy global npm root for a user-scope entry (getNpmInstallPath). That
-// fallback is deliberately NOT modelled: the answer would be a guess about
-// another package manager, and this reports a stated failure instead. Such a
-// copy still cannot hide, because a session that resolves it loads it and the
-// conflict channel then decides.
-function npmUnresolvable(base, parsed) {
-  const root = path.join(base, "npm", "node_modules");
-  const dir = path.join(root, parsed.name);
-  if (!fs.existsSync(dir)) return "is not installed under " + clean(root);
-  const manifest = readManifest(path.join(dir, "package.json"));
-  const installed = manifest && typeof manifest.version === "string" ? manifest.version : "";
-  if (!installed) return "is installed under " + clean(root) + " with no readable version";
-  const wanted = npmRange(parsed.spec);
-  if (wanted && wanted !== installed) return "is installed at version " + clean(installed) + " under " + clean(root) + ", which is not the configured " + clean(wanted);
-  return "";
-}
-function gitUnresolvable(base, parsed) {
-  const root = path.join(base, "git");
-  const dir = path.join(root, parsed.host, parsed.path);
-  if (!fs.existsSync(dir)) return "is not cloned under " + clean(root);
-  return "";
-}
-// An entry that names a registry or git copy of slate which an OFFLINE session
-// cannot resolve makes the observation incomplete: pi skips such an entry in
-// silence (resolvePackageSources returns early when isOfflineModeEnabled), while
-// a session with the network installs it and loads it. This harness has no NOT
-// RUN result, so that state must fail with a reason and never pass.
-function unresolvableCopy(pi, source, base, scope, list, slateName) {
-  const parsed = parseSource(pi, source);
-  if (parsed.type === "npm" && parsed.name === slateName) {
-    const reason = npmUnresolvable(base, parsed);
-    if (reason) return "the " + scope + "-scope " + list + " entry " + clean(source) + " names a registry copy of " + slateName + " that " + reason + ", so the observed offline session cannot resolve it while a session with the network would install it and load a second copy";
-    return "";
-  }
-  if (parsed.type === "git") {
-    const tail = String(parsed.path).split("/").pop();
-    if (tail !== slateName) return "";
-    const reason = gitUnresolvable(base, parsed);
-    if (reason) return "the " + scope + "-scope " + list + " entry " + clean(source) + " names a git copy of " + slateName + " that " + reason + ", so the observed offline session cannot resolve it while a session with the network would clone it and load a second copy";
-    return "";
-  }
-  return "";
-}
-function fingerprintOf(file) {
-  try {
-    const buffer = fs.readFileSync(file);
-    const stats = fs.statSync(file);
-    return { present: true, size: buffer.length, hash: crypto.createHash("sha256").update(buffer).digest("hex"), mtimeMs: stats.mtimeMs };
-  } catch (error) {
-    return { present: false, code: error && error.code ? error.code : "" };
-  }
-}
-
-function modeMirror(pi, args) {
-  const repo = args[0];
-  const mirror = args[1];
-  const requests = args[2];
-  const fingerprintFile = args[3];
-  const slateName = args[4];
-  const realAgent = agentDir();
-  const userFile = path.join(realAgent, "settings.json");
-  if (mirror === realAgent || mirror.indexOf(realAgent + path.sep) === 0) bad("the throwaway agent directory " + clean(mirror) + " sits inside the real one " + clean(realAgent) + ", and the observation may not write there");
-  if (mirror === repo || mirror.indexOf(repo + path.sep) === 0) bad("the throwaway agent directory " + clean(mirror) + " sits inside the checkout under test " + clean(repo) + ", and no run of this harness may write there");
-  const problems = [];
-
-  // The project scope stays exactly as it is on disk, because the observed run
-  // keeps the real checkout as its working directory. It is only READ here, for
-  // the entries an offline session could not resolve.
-  const projectRead = readSettings(path.join(repo, ".pi", "settings.json"));
-  if (projectRead.error) {
-    if (projectRead.code !== "ENOENT") note(projectRead.error + ", and pi drops such a file with every entry in it, so the observation covers the user scope only");
-  } else {
-    // THE PACKAGES LIST ONLY. The offline preflight asks whether pi could
-    // resolve a REGISTRY or GIT source, and only a packages entry can be one:
-    // pi hands a top-level extensions entry to resolvePathFromBase and resolves
-    // it as a PATH, with no npm and no git step anywhere
-    // (resolveLocalEntries in core/package-manager.js). The earlier version
-    // applied the preflight to that list as well, so an entry spelled like an
-    // npm specifier failed with a stated reason while a real session loaded one
-    // copy and exited 0 (G2-6).
-    const projectPackages = Array.isArray(projectRead.parsed.packages) ? projectRead.parsed.packages : [];
-    for (const entry of projectPackages) {
-      const source = sourceOf(entry);
-      if (!source) continue;
-      const reason = unresolvableCopy(pi, source, path.join(repo, ".pi"), "project", "packages", slateName);
-      if (reason) problems.push(reason);
-    }
-  }
-
-  // The user scope is copied and rewritten.
-  let raw = null;
-  try { raw = fs.readFileSync(userFile); }
-  catch (error) {
-    if (!error || error.code !== "ENOENT") bad("cannot read the real user settings file " + clean(userFile) + " (" + why(error) + "), so the mirror cannot carry the user scope and the observation would miss every copy configured there");
-    note("the real agent directory holds no settings.json at " + clean(userFile) + ", which is the ordinary state, so the user scope of the mirror is empty");
-  }
-  let parsed = null;
-  if (raw !== null) {
-    try { parsed = JSON.parse(raw.toString("utf8")); } catch (error) { parsed = null; }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      parsed = null;
-      note("the real user settings file " + clean(userFile) + " is no JSON object, so the mirror carries its bytes unchanged. pi drops such a file together with every entry in it, and the observed session drops it in the same way");
-    }
-  }
-  if (parsed) {
-    // A path that the mirror cannot place is a problem and never a silent copy:
-    // the entry would then be measured from the mirror instead of from the real
-    // agent directory, and the observation would miss whatever pi loads from it.
-    const rewritePath = (source, list) => {
-      const attempt = safeResolve(pi, source, realAgent);
-      if (attempt.error) {
-        problems.push("the user-scope " + list + " entry " + clean(source) + " cannot be turned into a path by the resolver of pi (" + attempt.error + "), so the mirror cannot place it and the observation would miss whatever pi loads from it");
-        return source;
-      }
-      return attempt.path;
-    };
-    // A packages entry can name a registry copy, a git copy or a local path, so
-    // it gets the offline preflight and the local rewrite.
-    const rewritePackage = (source) => {
-      const reason = unresolvableCopy(pi, source, realAgent, "user", "packages", slateName);
-      if (reason) problems.push(reason);
-      if (parseSource(pi, source).type !== "local") return source;
-      return rewritePath(source, "packages");
-    };
-    if (Array.isArray(parsed.packages)) {
-      parsed.packages = parsed.packages.map((entry) => {
-        if (typeof entry === "string") return rewritePackage(entry);
-        if (entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.source === "string") {
-          return Object.assign({}, entry, { source: rewritePackage(entry.source) });
-        }
-        return entry;
-      });
-    }
-    if (Array.isArray(parsed.extensions)) {
-      parsed.extensions = parsed.extensions.map((entry) => {
-        if (typeof entry !== "string") return entry;
-        // A FILTER PATTERN ENDS THE OBSERVATION, and that is the approved
-        // behaviour. pi measures such a pattern against the base directory it is
-        // given (applyPatterns in resolveLocalEntries, base = the agent
-        // directory), the mirror IS another base, and a pattern cannot be
-        // rewritten the way a path can. Copying it unchanged gave a different
-        // enabled set in BOTH directions: a pass while a real session died on a
-        // tool conflict, and a failure while a real session loaded one copy
-        // (G2-1). Detecting a second copy under a filter pattern is no longer a
-        // goal of this check, so the state is reported and never judged.
-        if (isPattern(entry)) {
-          problems.push("the user-scope extensions entry " + clean(entry) + " is a filter pattern, and THIS CHECK CANNOT JUDGE a configuration that uses one: pi measures a pattern against the agent directory it is given, the mirror is a different directory, and a pattern cannot be rewritten as a path can. So this run reports no verdict on the number of copies rather than a verdict it cannot support");
-          return entry;
-        }
-        // EVERY non-pattern entry is resolved as a PATH, whatever it looks like.
-        // pi hands the whole list to resolvePathFromBase and never parses an
-        // npm specifier or a git URL out of it, so the type of the source says
-        // nothing here and an entry left unrewritten would be measured from the
-        // mirror instead of from the real agent directory.
-        return rewritePath(entry, "extensions");
-      });
-    }
-  }
-  if (problems.length) {
-    for (const problem of problems.slice(1)) note("a further entry with the same defect: " + problem);
-    bad(problems[0]);
-  }
-  try {
-    fs.mkdirSync(mirror, { recursive: true });
-    if (parsed) fs.writeFileSync(path.join(mirror, "settings.json"), JSON.stringify(parsed, null, 2) + "\n");
-    else if (raw !== null) fs.writeFileSync(path.join(mirror, "settings.json"), raw);
-    fs.writeFileSync(requests, JSON.stringify({ id: "1", type: "get_commands" }) + "\n");
-    fs.writeFileSync(fingerprintFile, JSON.stringify(fingerprintOf(userFile)) + "\n");
-  } catch (error) { bad("the throwaway agent directory " + clean(mirror) + " could not be prepared (" + why(error) + "), so the observation cannot be made"); }
-  const mirrored = [];
-  for (const name of ["extensions", "npm", "git"]) {
-    const from = path.join(realAgent, name);
-    if (!fs.existsSync(from)) continue;
-    const failure = linkChildren(from, path.join(mirror, name), 0);
-    if (failure) bad("the mirror of " + clean(from) + " could not be built: " + failure + ", so the observation would miss whatever pi resolves through it");
-    mirrored.push(name);
-  }
-  ok("the throwaway agent directory mirrors " + clean(realAgent) + " (settings.json" + (mirrored.length ? " plus " + mirrored.join(", ") : "") + "), and the real one is only read");
-}
-
 // THE SCRATCH DIRECTORY MAY NOT SIT INSIDE THE REAL AGENT DIRECTORY EITHER.
 // The driver already refuses a scratch directory inside the checkout under
 // test. The real agent directory carries the same rule and had no guard, so
 // TMPDIR=<agent dir>/scratch wrote every throwaway agent directory, every rpc
 // stream and every fixture inside the one directory this harness may only read,
-// and a failing run kept them there (G2-3). The mirror guard cannot cover it: it
-// watches the mirror path alone and it runs long after the scratch directory
-// exists. This mode answers the question with the SAME agentDir() the mirror
-// uses, so the two can never disagree, and the comparison runs on the real
-// paths as well as on the spellings.
+// and a failing run kept them there (G2-3). This mode applies the agent-directory
+// rules of the shared program. It compares the real paths as well as the
+// spellings.
 //
 // A DERIVATION FAILURE IS A LOUD PASS, and neither a refusal nor a silent one.
 // The caller turns a BAD verdict into exit 2, so a refusal here would stop
@@ -1317,140 +800,6 @@ function modeScratchGuard(args) {
   ok("the scratch directory sits outside the real agent directory " + clean(realAgent));
 }
 
-function modeFingerprint(pi, args) {
-  const fingerprintFile = args[0];
-  const userFile = path.join(agentDir(), "settings.json");
-  let before = null;
-  try { before = JSON.parse(fs.readFileSync(fingerprintFile, "utf8")); } catch (error) { before = null; }
-  if (!before || typeof before !== "object") bad("the fingerprint taken before the observation could not be read back from " + clean(fingerprintFile) + ", so this run cannot show that it left the real user settings file alone");
-  const after = fingerprintOf(userFile);
-  if (before.present !== after.present) bad("the real user settings file " + clean(userFile) + " was " + (before.present ? "present before the observation and is gone now" : "absent before the observation and exists now") + " — this harness must only read it");
-  if (before.present && (before.hash !== after.hash || before.size !== after.size)) bad("the real user settings file " + clean(userFile) + " changed while the observation ran: " + before.size + " bytes before and " + after.size + " after. A changed hash does not prove on its own that this harness escaped its mirror, because a concurrent pi session can rewrite the same file while the observation runs. Stop every other pi that shares the real agent directory, then run the harness again before reading the failure as an escape");
-  if (before.present && before.mtimeMs !== after.mtimeMs) note("the modification time of " + clean(userFile) + " moved while its bytes stayed identical, so another pi session touched it. This run wrote nothing there");
-  ok(before.present ? "the real user settings file is byte-identical after the observation" : "there is no real user settings file, and none was created");
-}
-
-// ------------------------------------------------------- the static scan (T8)
-// DIAGNOSIS ONLY, AND NEVER A VERDICT. It names the entries that could be a
-// second copy so that a failure message can point at one. Its own count is
-// printed as the verdict line because the caller compares the two and prints a
-// NOTE when they disagree, and the SESSION always decides.
-function modeScan(pi, args) {
-  const repo = args[0];
-  const slateName = args[1];
-  const realAgent = agentDir();
-  const keys = [];
-  function add(key, description) {
-    if (keys.indexOf(key) >= 0) return;
-    keys.push(key);
-    note("candidate copy " + keys.length + ": " + description);
-  }
-  function addPath(target, description) {
-    if (!fs.existsSync(target)) return;
-    const real = realOf(target);
-    const near = nearestManifest(real);
-    if (near.name === slateName) {
-      add("path:" + real, description + ", which resolves to " + clean(real) + ", whose nearest package manifest " + clean(near.file) + " names " + slateName);
-      return;
-    }
-    if (!near.file) note(description + " resolves to " + clean(real) + ", which sits under no readable package manifest, so the scan cannot name it and only the session can say what pi loads from it");
-  }
-  function addLocal(source, base, scope, list) {
-    const attempt = safeResolve(pi, source, base);
-    if (attempt.error) {
-      note("the " + scope + "-scope " + list + " entry " + clean(source) + " cannot be turned into a path by the resolver of pi (" + attempt.error + ")");
-      return;
-    }
-    addPath(attempt.path, "the " + scope + "-scope " + list + " entry " + clean(source));
-  }
-  const scopes = [
-    ["project", path.join(repo, ".pi", "settings.json"), path.join(repo, ".pi")],
-    ["user", path.join(realAgent, "settings.json"), realAgent],
-  ];
-  for (const scope of scopes) {
-    const name = scope[0];
-    const read = readSettings(scope[1]);
-    if (read.error) {
-      if (read.code !== "ENOENT") note(read.error + ", so the scan named no entry from it");
-      continue;
-    }
-    const packages = Array.isArray(read.parsed.packages) ? read.parsed.packages : [];
-    const extensions = Array.isArray(read.parsed.extensions) ? read.parsed.extensions : [];
-    for (const entry of packages) {
-      const source = sourceOf(entry);
-      if (!source) continue;
-      const parsed = parseSource(pi, source);
-      if (parsed.type === "npm") {
-        if (parsed.name === slateName) add("npm:" + parsed.name, "the " + name + "-scope packages entry " + clean(source));
-        continue;
-      }
-      if (parsed.type === "git") {
-        const tail = String(parsed.path).split("/").pop();
-        if (tail === slateName) add("git:" + parsed.host + "/" + parsed.path, "the " + name + "-scope packages entry " + clean(source));
-        continue;
-      }
-      addLocal(source, scope[2], name, "packages");
-    }
-    for (const entry of extensions) {
-      if (typeof entry !== "string") continue;
-      if (isPattern(entry)) continue;
-      addLocal(entry, scope[2], name, "extensions");
-    }
-  }
-  // pi discovers extensions in two directories without any entry at all. It
-  // takes the directory itself when it resolves, and otherwise every child one
-  // level down, skipping a dotted name and node_modules (collectAutoExtensionEntries).
-  for (const dir of [path.join(repo, ".pi", "extensions"), path.join(realAgent, "extensions")]) {
-    let names = [];
-    try { names = fs.readdirSync(dir); } catch (error) { continue; }
-    addPath(dir, "the automatically discovered directory " + clean(dir));
-    for (const child of names) {
-      if (child.indexOf(".") === 0 || child === "node_modules") continue;
-      addPath(path.join(dir, child), "the automatically discovered entry " + clean(child) + " in " + clean(dir));
-    }
-  }
-  ok(String(keys.length));
-}
-
-function modeFixture(pi, args) {
-  const repo = args[0];
-  const settings = args[1];
-  const lab = args[2];
-  const requests = args[3];
-  const trustFile = args[4];
-  const tracked = trackedEntry(pi, settings);
-  if (tracked.error) bad("the tracked package entry cannot be read, so the fixture cannot be built from the spelling this checkout really uses: " + tracked.error);
-  const entry = tracked.source;
-  const project = path.join(lab, "project");
-  const attempt = safeResolve(pi, entry, path.join(project, ".pi"));
-  if (attempt.error) bad("the tracked entry " + clean(entry) + " cannot be turned into a path by the resolver of pi (" + attempt.error + "), so no fixture can mirror it");
-  const main = attempt.path;
-  const insideLab = main === lab || main.indexOf(lab + path.sep) === 0;
-  const insideProject = main === project || main.indexOf(project + path.sep) === 0;
-  if (!insideLab || insideProject || main === lab) bad("the tracked entry " + clean(entry) + " resolves from the scratch project to " + clean(main) + ", which is no package directory inside the scratch layout " + clean(lab) + " — this fixture can only mirror an entry that names a sibling of the project");
-  try {
-    for (const input of ["package.json", "extension", "docs", "node_modules"]) {
-      if (!fs.existsSync(path.join(repo, input))) throw new Error("a required fixture input is missing: " + clean(path.join(repo, input)));
-    }
-    fs.mkdirSync(main, { recursive: true });
-    fs.mkdirSync(path.join(project, ".pi"), { recursive: true });
-    fs.copyFileSync(path.join(repo, "package.json"), path.join(main, "package.json"));
-    fs.cpSync(path.join(repo, "extension"), path.join(main, "extension"), { recursive: true });
-    fs.cpSync(path.join(repo, "docs"), path.join(main, "docs"), { recursive: true });
-    fs.symlinkSync(path.join(repo, "node_modules"), path.join(main, "node_modules"), "dir");
-    fs.writeFileSync(path.join(project, ".pi", "settings.json"), JSON.stringify({ packages: [entry] }, null, 2) + "\n");
-    fs.writeFileSync(requests, JSON.stringify({ id: "1", type: "get_commands" }) + "\n");
-    // pi keys its trust store on the canonical project path, so both spellings
-    // go in: a scratch root reached through a symbolic link would otherwise miss.
-    const trust = {};
-    trust[path.resolve(project)] = true;
-    try { trust[fs.realpathSync(project)] = true; } catch (error) { trust[path.resolve(project)] = true; }
-    fs.mkdirSync(path.dirname(trustFile), { recursive: true });
-    fs.writeFileSync(trustFile, JSON.stringify(trust, null, 2) + "\n");
-  } catch (error) { bad(why(error)); }
-  ok(main);
-}
-
 async function main() {
   const mode = process.argv[1];
   const piBin = process.argv[2];
@@ -1468,11 +817,6 @@ async function main() {
   try { pi = await loadPi(piBin); }
   catch (error) { bad("the classification helpers of the pi build under test could not be loaded (" + why(error) + ") — this check applies pi own rules and refuses to guess them"); }
   if (mode === "settings-shape") return modeSettingsShape(pi, args);
-  if (mode === "worktree-target") return modeWorktreeTarget(pi, args);
-  if (mode === "fixture") return modeFixture(pi, args);
-  if (mode === "mirror") return modeMirror(pi, args);
-  if (mode === "fingerprint") return modeFingerprint(pi, args);
-  if (mode === "scan") return modeScan(pi, args);
   bad("unknown package-model mode " + clean(mode));
 }
 main().catch((error) => { bad("the package model crashed: " + why(error)); });
@@ -1717,9 +1061,10 @@ fi
 # leftover registry pin does not replace the local entry — it joins it, and both
 # copies load.
 #
-# T5 is the ONE check that owns the literal spelling. T6 and T7 read the value
-# out of the file instead of repeating it, so a changed spelling is reported
-# here and tested there (TQ7).
+# T5 is the ONE check that owns the literal spelling, and it is now the only
+# check that reads that file at all. T6 and T7 read the value out of the file
+# beside it, and both were deleted with the sibling-worktree goal (see the
+# header).
 #
 # The entry must also be the bare source. pi treats an entry carrying
 # autoload: false as a delta over a user-scope entry and loads nothing from it,
@@ -1738,272 +1083,6 @@ if run_wanted T5; then
 			"BAD "*) check T5 1 "${VERDICT#BAD }" ;;
 			*) check T5 1 "could not classify $PKG_SETTINGS — the reader printed no verdict line on the first line of its output" ;;
 		esac
-	}
-fi
-
-# =============================================================================
-# PROJECT PACKAGE SETTINGS, TARGET — read straight off disk, no pi session
-# =============================================================================
-# T5 proves the spelling. T6 proves where that spelling lands, and whether a pi
-# session there would load anything at all. pi resolves a project-scope local
-# package against <cwd>/.pi, so the tracked entry names a sibling directory of
-# the checkout under test.
-#
-# WHETHER THAT SIBLING IS REQUIRED IS A PROPERTY OF THE CHECKOUT, NEVER OF THE
-# SIBLING. A LINKED WORKTREE needs it: without the sibling the tracked entry
-# resolves nowhere and pi drops the slate package without a word. A PLAIN CLONE
-# does not, so a missing target passes there with the reason stated. The earlier
-# version asked git about the checkout, and in this repository the linked
-# worktree keeps its git directory INSIDE the sibling — so removing the sibling
-# also silenced git, the check read that silence as a plain clone, and the whole
-# harness passed while a real session loaded no slate. The shape now comes from
-# the .git entry of the checkout, which survives the sibling.
-#
-# When the target does exist, four things must hold: a parseable manifest, the
-# slate name, every extension entry point the manifest declares present on disk,
-# and the same git common directory as the checkout. Silence from git is a FAIL
-# and not a note, because this harness has no NOT RUN result and a claim that
-# was never measured must never be printed.
-#
-# A branch other than the directory name at the target is a NOTE and not a
-# failure: which branch is checked out there is the developer's business.
-if run_wanted T6; then
-	want T6 && {
-		T6OUT="$(node -e "$PKG_MODEL" worktree-target "$PI" "$REPO" "$REPO/.pi/settings.json" "$SLATE_NAME")"
-		split_verdict "$T6OUT"
-		case "$VERDICT" in
-			"OK "*) check T6 0 "${VERDICT#OK }" ;;
-			"BAD "*) check T6 1 "${VERDICT#BAD }" ;;
-			*) check T6 1 "could not classify the package target named by $REPO/.pi/settings.json — the reader printed no verdict line on the first line of its output" ;;
-		esac
-	}
-fi
-
-# =============================================================================
-# RUN 3 — the sibling layout, loaded as a PACKAGE and never through -e
-# =============================================================================
-# T5 and T6 read files. T7 makes pi do the work. It builds the committed layout
-# in the scratch directory — a package beside a project at lab/project whose
-# .pi/settings.json holds exactly the tracked entry — and starts pi inside that
-# project with no -e for slate at all. The package entry is then the only route
-# by which slate can load, so a registration observed here came through the
-# tracked spelling and through nothing else.
-#
-# The spelling is READ FROM THE TRACKED FILE, not repeated here (TQ7), and the
-# fixture refuses to build unless it resolves to a package directory inside the
-# scratch layout. So the fixture keeps testing the string the checkout really
-# uses, and T5 stays the one check that owns the literal.
-#
-# The copy carries a node_modules symbolic link back to the checkout, because
-# the four pi SDK packages are peer dependencies that this repository never
-# installs under the copy itself.
-#
-# Trust is granted by writing the throwaway agent directory's trust.json before
-# the run, and by -a on the command line. pi refuses to resolve a project-scope
-# local package for an untrusted project, so an untrusted run would prove
-# nothing here. Both mechanisms are cheap and neither writes outside $WORK.
-#
-# A fixture that cannot be BUILT is a T7 FAIL and never a refusal. An abort
-# would throw away every verdict already printed, and the missing input is a
-# real defect in the checkout, not a broken invocation.
-#
-# The tool-conflict branch below stays as a guard, but the PASS text makes no
-# claim about it (RI9): this fixture configures one entry in a fresh agent
-# directory, so no second copy can be there for it to find. T8 is the check that
-# looks for a second copy.
-if run_wanted T7; then
-	want T7 && {
-		LAB="$WORK/lab"
-		T7PROJ="$LAB/project"
-		T7MAIN=""
-		T7BUILD="$(node -e "$PKG_MODEL" fixture "$PI" "$REPO" "$REPO/.pi/settings.json" "$LAB" "$WORK/run3.in" "$WORK/agent-run3/trust.json")"
-		split_verdict "$T7BUILD"
-		case "$VERDICT" in
-			"OK "*) T7MAIN="${VERDICT#OK }" ;;
-			"BAD "*) check T7 1 "cannot build the scratch sibling fixture under $LAB — ${VERDICT#BAD }" ;;
-			*) check T7 1 "cannot build the scratch sibling fixture under $LAB — the builder printed no verdict line on the first line of its output" ;;
-		esac
-		if [ -n "$T7MAIN" ]; then
-			T7REAL="$(node -e 'const fs = require("node:fs"); let p = process.argv[1]; try { p = fs.realpathSync(p); } catch {} process.stdout.write(p)' "$T7MAIN")"
-			pirun_package run3 "$WORK/run3.in" "$T7PROJ"
-			RC7=$RC
-			OUT7="$WORK/run3.out"; ERR7="$WORK/run3.err"
-			DIAG7="$(first_stderr_line "$ERR7")"
-			MARKER7="$(grep -F -m1 -e 'Failed to load extension' -e 'Extension error (' "$ERR7" "$OUT7" 2>/dev/null | head -1)"
-			# A second copy of slate collides on its first tool. pi reports that as a
-			# conflict and exits 1, which is the only channel a duplicate load has.
-			CONFLICT7="$(grep -F -m1 'conflicts with' "$ERR7" "$OUT7" 2>/dev/null | head -1)"
-			U7="$(rpcq unparseable "$OUT7")"
-			E7="$(rpcq ext-errors "$OUT7")"
-			C7="$(rpcq canary-count "$ERR7")"
-			TR7="$(rpcq canary-trusted "$ERR7")"
-			TOOLS7="$(rpcq canary-tools "$ERR7")"
-			CMDN7="$(rpcq cmd-count "$OUT7")"
-			CMDP7="$(rpcq cmd-path "$OUT7")"
-			# pi keys its tool map by name, so the map proves presence and can never
-			# count a duplicate registration. The conflict and exit-code assertions
-			# above are what cover a second copy.
-			MISSING7=""
-			for t in thread threads episode; do
-				case " $TOOLS7 " in *" $t "*) ;; *) MISSING7="$MISSING7 $t" ;; esac
-			done
-			CMDP7SAFE="$(redacted "$CMDP7")"
-			if [ -n "$CONFLICT7" ]; then check T7 1 "the sibling package run reported a tool conflict, so more than one copy of slate loaded: $(redacted "$CONFLICT7")"
-			elif [ "$RC7" != 0 ]; then check T7 1 "pi exited $RC7 loading the tracked package entry from $T7PROJ — first diagnostic: ${DIAG7:-<none>}"
-			elif [ -n "$MARKER7" ]; then check T7 1 "the sibling package run carries a load-failure marker: $(redacted "$MARKER7")"
-			elif [ "$U7" != 0 ]; then check T7 1 "$U7 line(s) of the sibling package run stdout look like JSON but do not parse, so the rpc assertions below are not trustworthy"
-			elif [ "$E7" != 0 ]; then check T7 1 "the sibling package run emitted $E7 extension_error event(s): $(redacted "$(rpcq ext-error-detail "$OUT7")")"
-			elif [ "$C7" != 1 ]; then check T7 1 "expected exactly one canary line from the sibling package run, observed $C7 — the positive control did not load, so every tool assertion is void"
-			elif [ "$TR7" != true ]; then check T7 1 "the canary reports trusted=${TR7:-<no canary line>}, so the scratch project was not trusted and pi never resolved its project-scope package entry"
-			elif [ -n "$MISSING7" ]; then check T7 1 "dispatch tool(s) NOT registered through the package entry:$MISSING7 — the canary observed [$TOOLS7]"
-			elif [ "$CMDN7" != 1 ]; then check T7 1 "expected exactly one /slate command from the package entry, observed $CMDN7: $(redacted "$(rpcq cmd-names "$OUT7")")"
-			else
-				case "$CMDP7" in
-					"$T7MAIN/extension/"*|"$T7REAL/extension/"*) check T7 0 "the scratch project loaded slate through the tracked spelling alone, from $CMDP7SAFE, with thread, threads and episode registered" ;;
-					"") check T7 1 "the /slate command carries no source path, so this run cannot show which copy of slate registered it" ;;
-					*) check T7 1 "/slate is attributed to $CMDP7SAFE, which is OUTSIDE the scratch package $(redacted "$T7MAIN") — slate loaded from some other copy" ;;
-				esac
-			fi
-		fi
-	}
-fi
-
-# =============================================================================
-# RUN 4 — DUPLICATE SLATE ACROSS SETTINGS SCOPES, observed in a real session
-# =============================================================================
-# pi loads extensions from SIX routes: the packages list and the top-level
-# extensions list of the project scope, the same two lists of the user scope, and
-# two directories it discovers with no entry at all — <cwd>/.pi/extensions and
-# <agent dir>/extensions. It deduplicates by package identity and by resolved
-# path, and a registry identity never equals a git identity and never equals a
-# local identity. So a developer whose user settings still pin npm:ytdb-slate,
-# or whose user extensions list names another slate checkout, gets both copies
-# loaded beside the project entry. pi then reports a tool conflict for every
-# dispatch tool and exits 1, and the session is dead before the first prompt.
-#
-# T8 IS AN OBSERVATION AND NO LONGER A MODEL. It used to compute the answer from
-# pi's resolution rules, and two fix rounds in a row found the computation and pi
-# disagreeing: it skipped a filtered entry that pi still loads, counted an entry
-# that pi disables, and never saw the package pi finds one directory below a
-# listed extensions directory. So this check starts an ordinary session instead
-# and reads what that session loaded. The two channels it reads are pi's own:
-#   * the CONFLICT diagnostic. Two copies of slate register the same dispatch
-#     tools, so pi emits `Failed to load extension "<A>": Tool "thread" conflicts
-#     with <B>` and exits 1. Both sources are named in that line;
-#   * the COMMAND listing. pi renames a duplicated extension command to
-#     slate:1 and slate:2 with their own source paths, so a second copy that is
-#     too old to collide on a tool name is still visible.
-# The observation runs against a throwaway MIRROR of the agent directory, so the
-# real one is only ever read. The mirror mode of the shared program builds it and
-# states what it mirrors and why.
-#
-# NO PASS WITHOUT AN OBSERVATION. This harness has no NOT RUN result, so every
-# state in which the answer cannot be read is a FAIL with the reason named: a
-# mirror that cannot be built, an entry an offline session cannot resolve, a pi
-# that refuses to start or dies for another reason, output this script cannot
-# parse, a project pi did not trust, and a real user settings file that changed
-# while the run was in flight.
-#
-# ZERO copies is a PASS, with the count stated. The claim of this check is that
-# no more than one copy is loadable, and a plain clone with no sibling target
-# loads none — which is the shape CI runs. T6 is the check that decides whether
-# this checkout requires that target, and T7 is the check that proves a package
-# entry can load at all.
-#
-# The static scan that survives beside the observation NAMES the candidate
-# entries, so a failure message can point at one. It sets no verdict. When the
-# scan and the session disagree, a NOTE says so and the session decides — an
-# entry with an empty pattern list is exactly that case: the scan names a copy,
-# and pi loads nothing from it.
-if run_wanted T8; then
-	want T8 && {
-		T8AGENT="$WORK/agent-run4"
-		T8FP="$WORK/run4.fingerprint"
-		T8READY=0
-		T8BUILD="$(node -e "$PKG_MODEL" mirror "$PI" "$REPO" "$T8AGENT" "$WORK/run4.in" "$T8FP" "$SLATE_NAME")"
-		split_verdict "$T8BUILD"
-		case "$VERDICT" in
-			"OK "*) T8READY=1; echo "NOTE   T8 ${VERDICT#OK }" ;;
-			"BAD "*) check T8 1 "the observation could not be set up, so this check reports no verdict on the number of copies: ${VERDICT#BAD }" ;;
-			*) check T8 1 "the observation could not be set up: the mirror builder printed no verdict line on the first line of its output" ;;
-		esac
-		if [ "$T8READY" = 1 ]; then
-			pirun_observe run4 "$WORK/run4.in" "$T8AGENT"
-			RC8=$RC
-			OUT8="$WORK/run4.out"; ERR8="$WORK/run4.err"
-			# The conflict line names BOTH sources, and it is the line that decides.
-			CONFLICT8="$(grep -F -m1 'conflicts with' "$ERR8" "$OUT8" 2>/dev/null | head -1)"
-			DIAG8="$(first_stderr_line "$ERR8")"
-			U8="$(rpcq unparseable "$OUT8")"
-			C8="$(rpcq canary-count "$ERR8")"
-			TR8="$(rpcq canary-trusted "$ERR8")"
-			SC8="$(rpcq slate-cmd-count "$OUT8")"
-			T8LIST="$(rpcq cmd-listing "$OUT8")"
-			E8="$(rpcq ext-errors "$OUT8")"
-			# The scan runs whatever the session said: its notes are the only place a
-			# reader learns WHICH entry to go and look at.
-			T8SCAN="$(node -e "$PKG_MODEL" scan "$PI" "$REPO" "$SLATE_NAME")"
-			split_verdict "$T8SCAN"
-			SCANNED=""
-			case "$VERDICT" in
-				"OK "*) SCANNED="${VERDICT#OK }" ;;
-				*) echo "NOTE   the static scan printed no count, so a failure below names no entry. It sets no verdict either way" ;;
-			esac
-			# An extension_error is reported, never decisive: pi detects a conflict
-			# while it loads, which is before any session_start hook can throw.
-			[ -n "$E8" ] && [ "$E8" != 0 ] && echo "NOTE   the observed session emitted $E8 extension_error event(s): $(redacted "$(rpcq ext-error-detail "$OUT8")")"
-			T8FPOUT="$(node -e "$PKG_MODEL" fingerprint "$PI" "$T8FP")"
-			split_verdict "$T8FPOUT"
-			T8FPV="$VERDICT"
-			# The slate tool names are the same three L4 asserts. A conflict on one of
-			# them is a second copy of slate; a conflict on another tool is somebody
-			# else's collision, which kills the session and takes the observation with it.
-			SLATECONFLICT8=""
-			case "$CONFLICT8" in
-				*'"thread"'*|*'"threads"'*|*'"episode"'*) SLATECONFLICT8="$CONFLICT8" ;;
-			esac
-			# The count must be a NUMBER before it is compared. A reader that broke
-			# prints nothing or a message, and an arithmetic error inside [ ] reads
-			# as false, which would carry a broken reader into the pass branch.
-			SC8OK=0
-			case "$SC8" in
-				''|*[!0-9]*) ;;
-				*) SC8OK=1 ;;
-			esac
-			if [ -n "$SLATECONFLICT8" ]; then
-				check T8 1 "MORE THAN ONE COPY of $SLATE_NAME loaded in an ordinary session, and pi reported it: $(redacted "$SLATECONFLICT8") — a session in this checkout exits 1 before the first prompt. The scan named ${SCANNED:-no} candidate entry/entries above"
-			elif [ -n "$CONFLICT8" ]; then
-				check T8 1 "the observed session died on a tool conflict that does not involve $SLATE_NAME, so the number of $SLATE_NAME copies could not be read: $(redacted "$CONFLICT8")"
-			elif [ "$RC8" != 0 ]; then
-				check T8 1 "the observation did not complete: pi exited $RC8 in the checkout under test with both settings scopes in play — first diagnostic: $(redacted "${DIAG8:-<none>}")"
-			elif [ "$U8" != 0 ]; then
-				check T8 1 "$U8 line(s) of the observed session stdout look like JSON but do not parse, so the command listing is not evidence and the number of copies could not be read"
-			elif [ "$C8" != 1 ]; then
-				check T8 1 "expected exactly one canary line from the observed session, observed $C8 — the positive control did not report, so the session cannot be read at all"
-			elif [ "$TR8" != true ]; then
-				check T8 1 "the canary reports trusted=${TR8:-<no canary line>} for the observed session, so pi resolved no project-scope local package and a copy configured there would be invisible"
-			# THE LISTING IS READ BEFORE THE COUNT. A count of zero means "no copy
-			# loaded" only when there was a listing to count; without this order the
-			# two states are one number, and a session that answered nothing at all
-			# would read as a clean zero (BG3).
-			elif [ "$T8LIST" != yes ]; then
-				check T8 1 "the observed session answered the command request with no command listing, so the number of $SLATE_NAME copies could not be read"
-			elif [ "$SC8OK" = 0 ]; then
-				check T8 1 "the command listing arrived, but the reader printed ${SC8:-<nothing>} instead of a number of $SLATE_NAME commands, so the number of copies could not be read"
-			elif [ "$SC8" -gt 1 ]; then
-				check T8 1 "MORE THAN ONE COPY of $SLATE_NAME loaded in an ordinary session: pi listed $SC8 slate commands, from $(redacted "$(rpcq slate-cmd-paths "$OUT8")") — these copies do not collide on a tool name, so only the command listing shows them"
-			else
-				case "$T8FPV" in
-					"BAD "*) check T8 1 "the observation ran, but ${T8FPV#BAD }" ;;
-					"") check T8 1 "the observation ran, but the fingerprint reader printed no verdict, so this run cannot show that it left the real user settings file alone" ;;
-					*)
-						if [ "$SC8" = 0 ]; then T8WHERE=", so nothing can collide"
-						else T8WHERE=", from $(redacted "$(rpcq slate-cmd-paths "$OUT8")")"; fi
-						[ -n "$SCANNED" ] && [ "$SCANNED" != "$SC8" ] && echo "NOTE   the static scan named $SCANNED candidate copy/copies while the session loaded $SC8. The session decides, and the notes above name the entries the scan saw"
-						check T8 0 "$SC8 copy/copies of $SLATE_NAME loaded in an ordinary trusted session with both settings scopes and both automatically discovered directories in play$T8WHERE, and pi reported no tool conflict" ;;
-				esac
-			fi
-		fi
 	}
 fi
 
@@ -2072,9 +1151,8 @@ RECONCILE="$RESULT_LINES result lines = $EXPECTED_COUNT selected checks + this r
 echo "== summary: $PASS pass, $FAIL fail ($RECONCILE) =="
 
 # Only when something failed, and only when a pi run actually produced streams:
-# T4, T5, T6 and the roster start no pi run, and T8 starts none when its mirror
-# refuses to build, so a static-only failure has nothing to show and must not
-# print empty sections (nor keep an empty directory).
+# T4, T5 and the roster start no pi run, so a static-only failure has nothing to
+# show and must not print empty sections (nor keep an empty directory).
 if [ "$FAIL" -ne 0 ] && [ "$PI_RAN" = 1 ]; then
 	KEEP=1
 	echo
@@ -2084,8 +1162,6 @@ if [ "$FAIL" -ne 0 ] && [ "$PI_RAN" = 1 ]; then
 		case "$label" in
 			run1) title="run1 (the untrusted load run)" ;;
 			run2) title="run2 (the trusted config run, -a)" ;;
-			run3) title="run3 (the sibling package run, -a)" ;;
-			run4) title="run4 (the duplicate-copy observation, -a, mirrored agent dir)" ;;
 			*) title="$label" ;;
 		esac
 		# stderr first: pi puts its own diagnostics and the canary line there.
