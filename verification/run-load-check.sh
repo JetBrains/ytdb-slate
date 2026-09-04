@@ -25,25 +25,27 @@
 # (`npm run typecheck` is that): jiti transpiles per module and erases types, so
 # a type error loads perfectly well.
 #
-# Two pi runs, both fully offline and both without credentials of any kind: a
-# throwaway PI_CODING_AGENT_DIR (mktemp'd and EMPTY — no models.json, no
-# auth.json), PI_OFFLINE=1, --no-extensions, and non-model rpc requests fed from
-# a file so stdin closes at EOF. No provider is ever contacted, so no API key is
-# needed — and none is passed: inherited credentials and pi session variables are
-# scrubbed out of the child environment.
-#   RUN 1  untrusted load path: the loader, session_start, the registrations, and
-#          a /slate on round-trip through the command handler
-#   RUN 2  trusted (-a) path: trust is what makes slate read the checkout's own
-#          .pi/slate.json, so this run puts the tracked project config through
+# Three pi runs, all fully offline and without credentials of any kind. Each gets
+# a throwaway PI_CODING_AGENT_DIR (mktemp'd and EMPTY — no models.json, no
+# auth.json), PI_OFFLINE=1, and non-model rpc requests fed from a file so stdin
+# closes at EOF. No provider is ever contacted, so no API key is needed — and
+# none is passed: inherited credentials and pi session variables are scrubbed out
+# of the child environment.
+#   RUN 1  untrusted explicit load path: the loader, session_start, registrations,
+#          and a /slate on round-trip through the command handler
+#   RUN 2  trusted explicit load path: puts the tracked project config through
 #          slate's config sanitizers
-# Plus one check that launches nothing at all (T4): the project config file must
+#   RUN 3  trusted project-package path: loads a reduced package copy through a
+#          settings entry spelled "../" and checks pi accepts it without conflict
+# Plus two checks that launch nothing at all. T4 requires the project config to
 # be parseable JSON and a JSON object. RUN 2 cannot cover that — slate's config
 # loader try/catches a malformed file and falls back to defaults in silence, so
 # the sanitizers it feeds are never reached and pi emits nothing. Without T4 a
 # checkout whose .pi/slate.json is `{{{` looks perfectly healthy here while every
-# setting in it, workflow.draftPRs included, is being dropped.
-# PI_OFFLINE=1 is MANDATORY on BOTH runs, and on RUN 2 above all: -a makes pi
-# read .pi/settings.json, and without PI_OFFLINE it npm-installs every package
+# setting in it, workflow.draftPRs included, is being dropped. T5 reads project
+# package settings and verifies the local package and each manifest entry.
+# PI_OFFLINE=1 is MANDATORY on ALL runs, and on trusted runs above all: -a makes
+# pi read .pi/settings.json, and without PI_OFFLINE it npm-installs every package
 # listed there — observed hanging for 60 s and writing a .pi/npm directory INTO
 # the checkout under test.
 #
@@ -77,6 +79,7 @@
 # EVERY exit-2 message says "refused to start" in exactly those words, so that
 # phrase is greppable in a CI log.
 # =============================================================================
+# END LOAD-CHECK HELP
 set -uo pipefail
 
 exec 8>&2
@@ -85,7 +88,18 @@ exec 8>&2
 # status (WC2). Callers pass the reason only.
 die() { echo "verification: refused to start — $*" >&8; exit 2; }
 
-ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3 T4"
+# The explicit marker closes the reader-facing header. Unlike a line range, it
+# remains correct when that header grows or shrinks. Refuse a missing marker
+# rather than printing implementation lines as help.
+print_help() {
+	for tool in grep awk; do command -v "$tool" >/dev/null 2>&1 || die "missing required tool: $tool"; done
+	grep -Fxq '# END LOAD-CHECK HELP' "$0" || die "the help-block end marker is missing from $0"
+	awk 'NR == 1 { next } $0 == "# END LOAD-CHECK HELP" { exit } { print }' "$0"
+}
+
+# Declared independently from the verdict blocks. The final roster audit compares
+# this list with every identity that check() reported.
+ALL_CHECKS="L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3 T4 T5 T6"
 
 REPO="."
 ONLY=""
@@ -94,7 +108,7 @@ while [ $# -gt 0 ]; do
 		--repo) [ "$#" -ge 2 ] || die "option '--repo' requires a value"; REPO="$2"; shift 2 ;;
 		--only) [ "$#" -ge 2 ] || die "option '--only' requires a value"; ONLY="$2"; shift 2 ;;
 		--list-checks) printf '%s\n' $ALL_CHECKS; exit 0 ;;
-		-h|--help) sed -n '2,79p' "$0"; exit 0 ;;
+		-h|--help) print_help; exit 0 ;;
 		*) die "unknown argument '$1' (try --help)" ;;
 	esac
 done
@@ -251,6 +265,20 @@ pirun() { # $1 label, $2 requests file, rest = extra pi args
 	RC=$?
 }
 
+# RUN 3 differs deliberately. Extensions stay enabled, and slate is not passed
+# with -e. The project package entry is the only route by which slate may load.
+pirun_package() { # $1 label, $2 requests file, $3 scratch project
+	local label="$1" reqs="$2" project="$3"
+	PI_RAN=1
+	PI_RUNS+=("$label")
+	local agent="$WORK/agent-$label"
+	mkdir -p "$agent" || die "cannot create the throwaway agent dir '$agent'"
+	( cd "$project" && env "${SCRUB[@]}" PI_CODING_AGENT_DIR="$agent" PI_OFFLINE=1 \
+		${TMO[@]+"${TMO[@]}"} "$PI" -e "$CANARY" --mode rpc -a < "$reqs" \
+	) > "$WORK/$label.out" 2> "$WORK/$label.err"
+	RC=$?
+}
+
 # Reads one fact out of a captured rpc stream. Every shape this script depends on
 # (get_commands responses, extension_ui_request events, extension_error events,
 # the canary line) is parsed here and nowhere else. Paths go in as ARGV, never
@@ -292,12 +320,15 @@ else if (q === "canary-tools") say(last && Array.isArray(last.tools) ? last.tool
 else if (q === "canary-where") say(last ? [last.cwd, "trusted=" + last.trusted].join(" ") : "");
 else if (q === "canary-trusted") say(last ? String(last.trusted) : "");
 else if (q === "cmd-path") { const c = commands().find((x) => x && x.name === "slate"); say(c && c.sourceInfo ? String(c.sourceInfo.path) : ""); }
+else if (q === "cmd-count") say(commands().filter((c) => c && c.name === "slate").length);
 else if (q === "cmd-names") say(commands().map((c) => c && c.name).join(","));
 else if (q === "ext-errors") say(objs.filter((o) => o && o.type === "extension_error").length);
 else if (q === "ext-error-detail") say(objs.filter((o) => o && o.type === "extension_error").map((o) => [o.extensionPath, o.event, o.error].join(" @ ")).join(" | "));
 else if (q === "warnings") say(warnings.length);
 else if (q === "warning-detail") say(warnings.map((o) => o.message).join(" | "));
 else if (q === "state-entries") say(objs.filter((o) => o && o.type === "entry_appended" && o.entry && o.entry.customType === "slate-state").length);
+else if (q === "binding-entries") say(objs.filter((o) => o && o.type === "entry_appended" && o.entry && o.entry.customType === "slate-binding").length);
+else if (q === "binding-detail") say(objs.filter((o) => o && o.type === "entry_appended" && o.entry && o.entry.customType === "slate-binding").map((o) => JSON.stringify(o.entry.data)).join(" | "));
 else if (q === "widget-lines") { let n = 0; for (const o of ui) if (o.method === "setWidget" && o.widgetKey === "slate" && Array.isArray(o.widgetLines)) n = Math.max(n, o.widgetLines.length); say(n); }
 else if (q === "prompt-ok") say(objs.some((o) => o && o.type === "response" && o.command === "prompt" && o.success === true) ? "yes" : "no");
 else { process.stderr.write("rpcq: unknown query " + q + "\n"); process.exit(3); }
@@ -361,11 +392,13 @@ npmdir_state() {
 
 # ---------------------------------------------------------------- bookkeeping
 PASS=0; FAIL=0; RAN=0
+REPORTED=""
 # The id column is 32 wide across all three check harnesses in verification/: the
 # longest id in any of them is 30 characters (route-stored-effort-vocabulary, in
 # the resolver checks; 24 in the packaging guards, 2 here), plus two. So their
 # output lines up with each other and the verdict column never shifts (CQ1).
 check() { # $1 id, $2 condition (0 = pass), $3 detail
+	REPORTED="$REPORTED $1"
 	if [ "$2" = 0 ]; then PASS=$((PASS+1)); printf 'CHECK %-32s %-4s — %s\n' "$1" "PASS" "$3"
 	else FAIL=$((FAIL+1)); printf 'CHECK %-32s %-4s — %s\n' "$1" "FAIL" "$3"; fi
 }
@@ -395,6 +428,36 @@ other_stderr_lines() { grep -cv "$CANARY_RX" "$1" 2>/dev/null | tr -d '[:space:]
 echo "repo  = $REPO ($(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo 'not a git checkout'))"
 echo "pi    = $PI ($PIVER, pinned $PIN)"
 echo "lab   = $WORK"
+
+# This observation cannot be a gate. Three attempts to mirror pi package identity
+# rules diverged in both directions. User-controlled text may drive this boolean
+# decision, but none of that text reaches output. The bounded raw read covers all
+# package entry shapes without parsing or allocating for an enormous file.
+USER_SETTINGS="${PI_CODING_AGENT_DIR:-${HOME:-}/.pi/agent}/settings.json"
+USER_SCOPE_MAY_NAME="$(node -e '
+const fs = require("node:fs");
+const [userFile, projectManifestFile] = process.argv.slice(1);
+const LIMIT = 1024 * 1024;
+try {
+  const expected = JSON.parse(fs.readFileSync(projectManifestFile, "utf8")).name;
+  if (typeof expected !== "string" || expected.length === 0) process.exit(0);
+  const fd = fs.openSync(userFile, "r");
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) process.exit(0);
+    const buffer = Buffer.alloc(Math.min(stat.size, LIMIT));
+    const bytes = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    if (buffer.subarray(0, bytes).toString("utf8").toLowerCase().includes(expected.toLowerCase())) {
+      process.stdout.write("yes");
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+} catch {}
+' "$USER_SETTINGS" "$REPO/package.json")"
+if [ "$USER_SCOPE_MAY_NAME" = yes ]; then
+	echo "NOTE   USER-SCOPE SLATE MAY ALSO BE CONFIGURED — a user-scope settings file may also name this package. Two copies make a session exit 1 with a tool conflict. Check the settings file inside the agent directory currently in effect."
+fi
 echo
 
 # =============================================================================
@@ -469,14 +532,21 @@ if run_wanted L1 L2 L3 L4 L5 L6 L7 L8; then
 		fi
 	}
 
+	# L7 reads the storage rule of Track 14 from a REAL session: one change of the
+	# Slate records writes exactly ONE locator note, and no full record copy reaches
+	# the Pi conversation. A locator note names one external namespace; a slate-state
+	# entry is the removed full copy.
 	want L7 && {
 		OK="$(rpcq prompt-ok "$WORK/run1.out")"
 		E="$(rpcq state-entries "$WORK/run1.out")"
+		B="$(rpcq binding-entries "$WORK/run1.out")"
 		W="$(rpcq widget-lines "$WORK/run1.out")"
 		if [ "$OK" != yes ]; then check L7 1 "the /slate on request did not complete successfully (prompt response missing or success=false)"
-		elif [ "$E" = 0 ]; then check L7 1 "/slate on appended no slate-state entry — the command handler did not reach the state store"
+		elif [ "$B" = 0 ]; then check L7 1 "/slate on appended no slate-binding entry — the command handler did not reach the state store, or the store refused the save"
+		elif [ "$B" != 1 ]; then check L7 1 "/slate on appended $B slate-binding entries — exactly one locator note must name the external namespace: $(rpcq binding-detail "$WORK/run1.out")"
+		elif [ "$E" != 0 ]; then check L7 1 "/slate on appended $E slate-state entry/entries — a full copy of the Slate records must never reach a Pi conversation"
 		elif [ "$W" = 0 ]; then check L7 1 "/slate on left the slate widget empty (no setWidget carrying widgetLines)"
-		else check L7 0 "/slate on ran offline through the command handler: $E slate-state entry/entries appended, widget populated with $W line(s)"; fi
+		else check L7 0 "/slate on ran offline through the command handler: exactly 1 locator note ($(rpcq binding-detail "$WORK/run1.out")), 0 full record copies, widget populated with $W line(s)"; fi
 	}
 
 	want L8 && {
@@ -592,16 +662,197 @@ say("OK " + f + " parses as a JSON object, " + keys.length + " top-level key(s):
 	}
 fi
 
+# =============================================================================
+# PROJECT PACKAGE SETTINGS — read straight off disk, no pi involved
+# =============================================================================
+# Pi silently drops malformed settings and extension entries that resolve
+# nowhere. T5 reads the tracked package configuration rather than inferring its
+# health from a session that may have ignored it.
+if run_wanted T5; then
+	want T5 && {
+		PACKAGE_SETTINGS="$REPO/.pi/settings.json"
+		PACKAGE_RESULT="$(node -e '
+const fs = require("node:fs");
+const path = require("node:path");
+const [settings, projectManifestFile] = process.argv.slice(1);
+const say = (value) => process.stdout.write(value);
+const fail = (detail) => { say("BAD " + detail); process.exit(0); };
+if (!fs.existsSync(settings)) fail("project package settings are missing: " + settings + " — this checkout requires a tracked slate package entry");
+let text;
+try { text = fs.readFileSync(settings, "utf8"); }
+catch (e) { fail("cannot read project package settings " + settings + ": " + (e && e.message ? e.message : String(e))); }
+let parsed;
+try { parsed = JSON.parse(text); }
+catch (e) { fail(settings + " is not parseable JSON (" + (e && e.message ? e.message : String(e)) + ") — pi drops invalid project settings without reporting the lost package entry"); }
+const kind = parsed === null ? "null" : Array.isArray(parsed) ? "an array" : typeof parsed === "object" ? "an object" : "a " + typeof parsed;
+if (kind !== "an object") fail(settings + " parses, but its top-level value is " + kind + ", not a JSON object");
+function sourceOf(entry) {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.source === "string" && entry.source.length > 0) return entry.source;
+  return "";
+}
+if (!Array.isArray(parsed.packages) || parsed.packages.some((entry) => !sourceOf(entry))) fail(settings + " has no packages source array");
+let projectManifest;
+try { projectManifest = JSON.parse(fs.readFileSync(projectManifestFile, "utf8")); }
+catch (e) { fail("cannot read the checkout manifest " + projectManifestFile + ": " + (e && e.message ? e.message : String(e))); }
+const expected = projectManifest && projectManifest.name;
+const repo = fs.realpathSync(process.argv[3]);
+const settingsDirectory = path.dirname(settings);
+function npmName(source) {
+  if (!source.startsWith("npm:")) return "";
+  const spec = source.slice(4);
+  if (spec.startsWith("@")) {
+    const slash = spec.indexOf("/");
+    const at = spec.indexOf("@", slash + 1);
+    return at < 0 ? spec : spec.slice(0, at);
+  }
+  const at = spec.indexOf("@");
+  return at < 0 ? spec : spec.slice(0, at);
+}
+const local = (source) => path.isAbsolute(source) || source === "." || source === ".." || source.startsWith("./") || source.startsWith("../");
+const records = parsed.packages.map((entry) => {
+  const source = sourceOf(entry);
+  if (npmName(source) === expected) return { entry, source, registry: true };
+  if (!local(source)) return null;
+  const target = path.resolve(settingsDirectory, source);
+  let real = "";
+  let manifestName = "";
+  try { real = fs.realpathSync(target); } catch {}
+  try { manifestName = JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf8")).name; } catch {}
+  return real === repo || manifestName === expected ? { entry, source, target, real, registry: false } : null;
+}).filter(Boolean);
+if (records.length !== 1) fail("expected exactly one " + expected + " package entry in " + settings + ", found " + records.length + ": " + JSON.stringify(records.map((item) => item.source)));
+const record = records[0];
+const source = record.source;
+if (record.registry) fail("the " + expected + " entry is still an npm specifier: " + source + " — track 02 requires a local package path");
+const target = record.target;
+let targetIsDirectory = false;
+try { targetIsDirectory = fs.statSync(target).isDirectory(); } catch {}
+if (!targetIsDirectory) fail("the " + expected + " entry " + source + " resolves relative to " + settingsDirectory + " as " + target + ", which is not a directory");
+const manifestFile = path.join(target, "package.json");
+if (!fs.existsSync(manifestFile)) fail("the local slate package has no manifest at " + manifestFile);
+let manifest;
+try { manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")); }
+catch (e) { fail("the local slate manifest " + manifestFile + " is not parseable JSON (" + (e && e.message ? e.message : String(e)) + ")"); }
+if (!manifest || manifest.name !== expected) fail("the local slate manifest name is " + JSON.stringify(manifest && manifest.name) + ", expected " + expected);
+const realTarget = fs.realpathSync(target);
+if (realTarget !== repo) fail("the local slate target resolves to " + realTarget + ", but the repository under test resolves to " + repo);
+const extensions = manifest.pi && manifest.pi.extensions;
+if (!Array.isArray(extensions) || extensions.length === 0 || extensions.some((item) => typeof item !== "string" || item.length === 0)) fail("the local slate manifest has no non-empty pi.extensions string array");
+for (const manifestEntry of extensions) {
+  const entryFile = path.resolve(target, manifestEntry);
+  let isFile = false;
+  try { isFile = fs.statSync(entryFile).isFile(); } catch {}
+  if (!isFile) fail("the local slate entry file is missing: " + entryFile + " from pi.extensions entry " + manifestEntry + " — pi drops that entry silently");
+}
+say("OK project settings contain one local " + expected + " entry: " + source + " resolves from " + settingsDirectory + " to this repository, with " + extensions.length + " existing pi extension entry file(s)");
+' "$PACKAGE_SETTINGS" "$REPO/package.json" "$REPO")"
+		case "$PACKAGE_RESULT" in
+			"OK "*) check T5 0 "${PACKAGE_RESULT#OK }" ;;
+			"BAD "*) check T5 1 "${PACKAGE_RESULT#BAD }" ;;
+			*) check T5 1 "could not classify $PACKAGE_SETTINGS — the reader printed ${PACKAGE_RESULT:-<nothing>}" ;;
+		esac
+	}
+fi
+
+# =============================================================================
+# RUN 3 — trusted local project-package path
+# =============================================================================
+# The package copy excludes node_modules. Pi must resolve the literal "../" from
+# its .pi directory and alias slate peer imports to its own bundled SDK copies.
+if run_wanted T6; then
+	want T6 && {
+		PACKAGE_ROOT="$WORK/local-package"
+		FIXTURE_RESULT="$(node -e '
+const fs = require("node:fs");
+const [source, target] = process.argv.slice(1);
+try {
+  for (const input of ["package.json", "extension", "docs"]) {
+    if (!fs.existsSync(source + "/" + input)) throw new Error("required fixture input is missing: " + source + "/" + input);
+  }
+  fs.mkdirSync(target + "/.pi", { recursive: true });
+  fs.copyFileSync(source + "/package.json", target + "/package.json");
+  fs.cpSync(source + "/extension", target + "/extension", { recursive: true });
+  fs.cpSync(source + "/docs", target + "/docs", { recursive: true });
+  fs.writeFileSync(target + "/.pi/settings.json", JSON.stringify({ packages: ["../"] }, null, 2) + "\n");
+  process.stdout.write("OK");
+} catch (error) {
+  process.stdout.write("BAD " + (error && error.message ? error.message : String(error)));
+}
+' "$REPO" "$PACKAGE_ROOT")"
+		if [ "$FIXTURE_RESULT" != OK ]; then
+			check T6 1 "cannot build the trusted local-package fixture — ${FIXTURE_RESULT#BAD }"
+		else
+			printf '%s\n' '{"id":"1","type":"get_commands"}' > "$WORK/run3.in" || die "cannot write the local-package rpc request file"
+			pirun_package run3 "$WORK/run3.in" "$PACKAGE_ROOT"
+		RC3=$RC
+		OUT3="$WORK/run3.out"; ERR3="$WORK/run3.err"
+		DIAG3="$(first_stderr_line "$ERR3")"
+		MARKER3="$(grep -F -m1 -e 'Failed to load extension' -e 'Extension error (' "$ERR3" "$OUT3" 2>/dev/null | head -1)"
+		CONFLICT3="$(grep -F -m1 'conflicts with' "$ERR3" "$OUT3" 2>/dev/null | head -1)"
+		U3="$(rpcq unparseable "$OUT3")"
+		E3="$(rpcq ext-errors "$OUT3")"
+		C3="$(rpcq canary-count "$ERR3")"
+		TR3="$(rpcq canary-trusted "$ERR3")"
+		TOOLS3="$(rpcq canary-tools "$ERR3")"
+		CMD_COUNT3="$(rpcq cmd-count "$OUT3")"
+		CMD_PATH3="$(rpcq cmd-path "$OUT3")"
+		EXPECTED_PATH3="$PACKAGE_ROOT/extension/index.ts"
+		# getAllTools() is a name-keyed map, so it proves presence but cannot count
+		# duplicate registrations. Pi rejects the duplicate before startup completes.
+		MISSING3=""
+		for tool in thread threads episode; do
+			case " $TOOLS3 " in *" $tool "*) ;; *) MISSING3="$MISSING3 $tool" ;; esac
+		done
+		if [ -n "$CONFLICT3" ]; then check T6 1 "trusted \"../\" load reported a tool conflict: $CONFLICT3"
+		elif [ "$RC3" != 0 ]; then check T6 1 "pi exited $RC3 loading the trusted \"../\" package entry — first diagnostic: ${DIAG3:-<none>}"
+		elif [ -n "$MARKER3" ]; then check T6 1 "trusted \"../\" load reported an extension-load failure marker: $MARKER3"
+		elif [ "$U3" != 0 ]; then check T6 1 "$U3 line(s) of local-package stdout look like JSON but do not parse, so the rpc assertions are not trustworthy"
+		elif [ "$E3" != 0 ]; then check T6 1 "trusted \"../\" load emitted $E3 extension_error event(s): $(rpcq ext-error-detail "$OUT3")"
+		elif [ "$C3" != 1 ]; then check T6 1 "expected exactly one canary line from the trusted local-package run, observed $C3"
+		elif [ "$TR3" != true ]; then check T6 1 "the canary reported trusted=${TR3:-<no canary line>}, so project settings were not authoritative"
+		elif [ -n "$MISSING3" ]; then check T6 1 "dispatch tool(s) not registered:$MISSING3 — the canary observed [$TOOLS3]"
+		elif [ "$CMD_COUNT3" != 1 ]; then check T6 1 "expected one /slate command, observed $CMD_COUNT3: $(rpcq cmd-names "$OUT3")"
+		elif [ "$CMD_PATH3" != "$EXPECTED_PATH3" ]; then check T6 1 "/slate was attributed to ${CMD_PATH3:-<no path>}, expected $EXPECTED_PATH3"
+		else
+			case "$CMD_PATH3" in
+				"$PACKAGE_ROOT/extension/"*) check T6 0 "trusted scratch project loaded slate through \"../\" from $CMD_PATH3, registered thread, threads and episode, and exited without a duplicate-load conflict" ;;
+				*) check T6 1 "/slate was attributed to $CMD_PATH3, which is outside the trusted scratch project $PACKAGE_ROOT" ;;
+			esac
+		fi
+		fi
+	}
+fi
+
 echo
 if [ "$RAN" -eq 0 ]; then
 	echo "verification: NO CHECK RAN. --only='$ONLY' matched nothing, so this run proves nothing." >&8
 	FAIL=$((FAIL+1))
 fi
+EXPECTED_REPORTED=""
+for id in $ALL_CHECKS; do
+	if [ -z "$ONLY" ]; then EXPECTED_REPORTED="$EXPECTED_REPORTED $id"
+	else case ",$ONLY," in *",$id,"*) EXPECTED_REPORTED="$EXPECTED_REPORTED $id" ;; esac
+	fi
+done
+ROSTER_RESULT="$(node -e '
+const expected = process.argv[1].trim().split(/\s+/).filter(Boolean);
+const reported = process.argv[2].trim().split(/\s+/).filter(Boolean);
+const missing = expected.filter((id) => !reported.includes(id));
+const duplicated = reported.filter((id, index) => reported.indexOf(id) !== index);
+const unexpected = reported.filter((id) => !expected.includes(id));
+const ok = missing.length === 0 && duplicated.length === 0 && unexpected.length === 0;
+process.stdout.write(`${ok ? "OK" : "BAD"} missing=${missing.join(",") || "none"} duplicated=${duplicated.join(",") || "none"} unexpected=${unexpected.join(",") || "none"}`);
+' "$EXPECTED_REPORTED" "$REPORTED")"
+case "$ROSTER_RESULT" in
+	"OK "*) PASS=$((PASS+1)); printf 'CHECK %-32s %-4s — %s\n' "roster" "PASS" "${ROSTER_RESULT#OK }" ;;
+	*) FAIL=$((FAIL+1)); printf 'CHECK %-32s %-4s — %s\n' "roster" "FAIL" "${ROSTER_RESULT#BAD }" ;;
+esac
 echo "== summary: $PASS pass, $FAIL fail =="
 
 # Only when something failed, and only when a pi run actually produced streams:
-# T4 needs no pi, so a T4-only failure has nothing to show and must not print
-# empty sections (nor keep an empty directory).
+# T4 and T5 need no pi, so a static-only failure has nothing to show and must
+# not print empty sections or keep an empty directory.
 if [ "$FAIL" -ne 0 ] && [ "$PI_RAN" = 1 ]; then
 	KEEP=1
 	echo
@@ -611,6 +862,7 @@ if [ "$FAIL" -ne 0 ] && [ "$PI_RAN" = 1 ]; then
 		case "$label" in
 			run1) title="run1 (the untrusted load run)" ;;
 			run2) title="run2 (the trusted config run, -a)" ;;
+			run3) title="run3 (the trusted local-package run, -a)" ;;
 			*) title="$label" ;;
 		esac
 		# stderr first: pi puts its own diagnostics and the canary line there.

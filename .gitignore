@@ -1,5 +1,8 @@
 node_modules/
 .pi/npm/
+# Working notes stay outside repository history.
+track-artifacts/
+research-log.md
 # Slate runtime state (worker transcripts, episodes, pending handoff) —
 # session data must never be committed.
 .pi/slate/

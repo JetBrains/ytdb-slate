@@ -1,6 +1,6 @@
 # Releasing ytdb-slate
 
-Ten steps, numbered 0 to 9, in order. The agent owns most of them. The user owns three: the merge, the publication, and the merge of the pin pull request. Everything that reaches npm or the default branch is the user's act.
+Nine steps, numbered 0 to 8, in order. The agent owns most of them. The user owns two: the merge and the publication. Everything that reaches npm or the default branch is the user's act.
 
 Every command block enables fail-closed shell behavior. Do not continue after a failed command unless the applicable recovery branch says to continue.
 
@@ -8,7 +8,7 @@ Every command block enables fail-closed shell behavior. Do not continue after a 
 
 **Steps may run in separate sessions.** The first real release ran across four agent actions. Nothing carries between them in shell variables, so no step trusts one. Every block reloads machine-written state from a file, revalidates it, and re-derives the facts it gates on. A block that gates on a registry fact re-reads the registry; a typed word never unlocks anything.
 
-**No step assumes the checkout you happen to be standing in.** This repository is worked in many worktrees at once — eleven at the time of writing. Every git command names its repository with `git -C`, and every gh command names its repository with `--repo`. The release itself happens in a dedicated worktree that step 9 removes. One checkout is bound, once: step 0 records the checkout it runs in as `REPO_DIR`, and steps 1, 3, 7, 8 and 9 work in that recorded path rather than the current directory. Run step 0 in the umbrella PR branch checkout.
+**No step assumes the checkout you happen to be standing in.** This repository is worked in many worktrees at once — eleven at the time of writing. Every git command names its repository with `git -C`, and every gh command names its repository with `--repo`. The release itself happens in a dedicated worktree that step 8 removes. One checkout is bound, once: step 0 records the checkout it runs in as `REPO_DIR`, and steps 1, 3, 7 and 8 work in that recorded path rather than the current directory. Run step 0 in the umbrella PR branch checkout.
 
 **Some paths have never executed.** They are marked **Untested.** where they appear, and listed under "Untested paths" below. A marked path is reviewed, not proven. Read it before you run it.
 
@@ -18,10 +18,10 @@ Every command block enables fail-closed shell behavior. Do not continue after a 
 
 ## Before you start
 
-Have all of this before step 0. Steps 5, 7 and 8 act in public, and a missing tool or a missing permission is cheap to fix now and expensive to find after publication.
+Have all of this before step 0. Steps 5 and 7 act in public, and a missing tool or a missing permission is cheap to fix now and expensive to find after publication.
 
-- **Tools on `PATH`:** bash 4 or newer (the blocks use `mapfile`, arrays and `[[ ]]`), git, GNU coreutils, `gh`, `node`, `npm`, `pi`, `tar`, `cmp`, `awk`, `sed`, `grep`, `diff`.
-- **GitHub:** `gh auth status` reports you as logged in, against the host that serves this repository, with write access to it. Step 7 pushes a tag and creates a release; step 8 pushes a branch and opens a pull request.
+- **Tools on `PATH`:** bash 4 or newer (the blocks use `mapfile`, arrays and `[[ ]]`), git, GNU coreutils, `gh`, `node`, `npm`, `pi`, `python3`, `tar`, `cmp`, `awk`, `sed`, `grep`, `diff`.
+- **GitHub:** `gh auth status` reports you as logged in, against the host that serves this repository, with write access to it. Step 7 pushes a tag and creates a release.
 - **npm:** the user who runs step 5 has an account that may publish `ytdb-slate` and can answer its two-factor prompt. The agent never needs npm credentials; it only reads the registry.
 - **The step 1 verification set:** run it as a normal user, not as root. The ladder needs GNU coreutils. The resolver checks need `pi` and `node`. The writing-reminder integration harness needs its checked command set, including GNU `timeout` with `--kill-after`.
 
@@ -37,14 +37,13 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/
     state.cjs          # state loader/writer, written by step 0
     hash.cjs           # tarball hasher, written by step 0
     release-note.md    # release notes, written before step 7
-    artifact/          # the inspected tarball, retained until step 9
+    artifact/          # the inspected tarball, retained until step 8
     registry/          # the tarball downloaded back from npm
-    evidence/          # publish log, registry replies, escalation material
-    checkout/          # the release worktree: detached at the squash commit,
-                       # then on the pin branch from step 8
+    evidence/          # publish log, registry replies, load proof, escalation material
+    checkout/          # the release worktree, detached at the squash commit
 ```
 
-Keep the whole `<version>` directory until the release closes. Step 9 removes the worktree and clears the `current` pointer; it keeps the evidence.
+Keep the whole `<version>` directory until the release closes. Step 8 removes the worktree and clears the `current` pointer; it keeps the evidence.
 
 ## Resume index
 
@@ -60,10 +59,9 @@ What each step changes outside this machine, and how to find out whether it alre
 | 5 | **Publishes to npm. Irreversible.** By the user. | `npm view <package>@<version> version` succeeds. |
 | 6 | None. Read-only; downloads the published tarball. | **Not detectable, and does not need to be.** Re-running it is the intended way to resolve it. |
 | 7 | Pushes a tag and creates a GitHub release. | `git ls-remote --refs origin refs/tags/<tag>` and `gh release view <tag> --repo <repo>`. The block determines this itself before it creates anything. |
-| 8 | Pushes a branch and opens a pull request. The user merges it. | `gh pr list --repo <repo> --head dogfood-<version> --state all` shows the PR and whether it merged. No PR means the attempt stopped before that; step 8's "If it stopped partway" tells you which state you are in and what to run. |
-| 9 | Removes the worktree it added. | `git worktree list` shows no path under the release directory. |
+| 8 | Removes the worktree it added. | `git worktree list` shows no path under the release directory. |
 
-Step 5 is the only irreversible step. Step 7 re-derives its gates on every run and detects its own prior completion. Step 8 reaches the default branch only through a pull request the user merges, so a repeated or stale run proposes a change rather than making one.
+Step 5 is the only irreversible step. Step 7 re-derives its gates on every run and detects its own prior completion.
 
 ## Untested paths
 
@@ -72,8 +70,7 @@ These have never run. Treat any of them as a hypothesis and read the commands be
 - The integrity-mismatch halt in step 6.
 - The inconclusive branch and escalation in step 6.
 - Every restart state in step 7 except "nothing exists yet".
-- The whole of step 8: the pin branch, its validation, the pull request, the recovery after a partway stop, and the checks after the merge. It replaced the earlier direct push to the default branch and has never run as a release path.
-- Teardown after a failure in step 9.
+- Teardown after a failure in step 8.
 
 ## Step 0 — the agent starts the release
 
@@ -87,12 +84,9 @@ Re-running this block for the same version is safe: `init` keeps existing state 
 set -euo pipefail
 PACKAGE='ytdb-slate'
 VERSION='REPLACE_VERSION'
-PRIOR_VERSION='REPLACE_PRIOR_VERSION'
 PR='REPLACE_PR_NUMBER'
-[[ "$VERSION" != REPLACE_* && "$PRIOR_VERSION" != REPLACE_* && "$PR" != REPLACE_* ]]
+[[ "$VERSION" != REPLACE_* && "$PR" != REPLACE_* ]]
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-[[ "$PRIOR_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-[[ "$VERSION" != "$PRIOR_VERSION" ]]
 [[ "$PR" =~ ^[1-9][0-9]*$ ]]
 TAG="v$VERSION"
 
@@ -107,7 +101,7 @@ RELEASE_DIR="$STATE_ROOT/$VERSION"
 if [[ -f "$STATE_ROOT/current" ]]; then
   IN_PROGRESS=$(cat "$STATE_ROOT/current")
   if [[ "$IN_PROGRESS" != "$RELEASE_DIR" ]]; then
-    printf 'A release is already in progress at %s. Finish it, or tear it down with step 9, before starting %s.\n' "$IN_PROGRESS" "$VERSION" >&2
+    printf 'A release is already in progress at %s. Finish it, or tear it down with step 8, before starting %s.\n' "$IN_PROGRESS" "$VERSION" >&2
     exit 1
   fi
 fi
@@ -120,7 +114,6 @@ const nodePath = require("node:path");
 const FIELDS = {
   PACKAGE: /^ytdb-slate$/,
   VERSION: /^[0-9]+\.[0-9]+\.[0-9]+$/,
-  PRIOR_VERSION: /^[0-9]+\.[0-9]+\.[0-9]+$/,
   PR: /^[1-9][0-9]*$/,
   TAG: /^v[0-9]+\.[0-9]+\.[0-9]+$/,
   REPO: /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/,
@@ -136,13 +129,12 @@ const FIELDS = {
   HANDOFF_AT: /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$/,
   REGISTRY_VERIFIED_AT: /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$/,
   TAGGED_AT: /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$/,
-  PINNED_AT: /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$/,
 };
 
 // Values that identify the release. Once written they are facts, not settings:
 // a different value means a different release, which starts again at step 0.
 const IMMUTABLE = new Set([
-  "PACKAGE", "VERSION", "PRIOR_VERSION", "PR", "TAG", "REPO",
+  "PACKAGE", "VERSION", "PR", "TAG", "REPO",
   "REPO_DIR", "GIT_COMMON_DIR", "RELEASE_DIR", "SQUASH_SHA", "WORKTREE",
 ]);
 // The reference bytes may be re-derived by a re-pack, but not after the user
@@ -242,7 +234,7 @@ process.stdout.write(`${sha256} ${integrity}\n`);
 CJS
 
 node "$RELEASE_DIR/state.cjs" init "$RELEASE_DIR/release.json" \
-  PACKAGE="$PACKAGE" VERSION="$VERSION" PRIOR_VERSION="$PRIOR_VERSION" PR="$PR" TAG="$TAG" \
+  PACKAGE="$PACKAGE" VERSION="$VERSION" PR="$PR" TAG="$TAG" \
   REPO="$REPO" REPO_DIR="$REPO_DIR" GIT_COMMON_DIR="$GIT_COMMON_DIR" RELEASE_DIR="$RELEASE_DIR"
 printf '%s\n' "$RELEASE_DIR" >"$STATE_ROOT/current"
 printf 'release state: %s\n' "$RELEASE_DIR"
@@ -263,7 +255,7 @@ eval "$STATE"
 
 ## Step 1 — the agent prepares the umbrella PR
 
-Bump only `version` in `package.json`. Leave `.pi/settings.json` pinned to `npm:ytdb-slate@$PRIOR_VERSION`; step 8 moves the pin, after npm serves the new version. Follow `docs/pr-publishing.md` through the ready flip. Do not publish from the PR branch.
+Bump only `version` in `package.json`. Follow `docs/pr-publishing.md` through the ready flip. Do not publish from the PR branch.
 
 This block works in `REPO_DIR`, the checkout step 0 ran in; it does not use the directory you are standing in, and no release worktree exists yet. If step 0 recorded a checkout that is not the PR branch, the version assertion below stops the block. `REPO_DIR` is immutable, so the repair is to start the state again: steps 0 and 1 change nothing outside this machine, so delete the release directory printed by step 0, then run step 0 from the PR branch checkout.
 
@@ -275,7 +267,7 @@ This block works in `REPO_DIR`, the checkout step 0 ran in; it does not use the 
 - `bash verification/run-resolver-checks.sh --repo . --strict` checks pure pipelines and doctrine rendering.
 - `npm test` runs the unit suite and the patch-coverage gate.
 - `bash verification/run-ladder.sh --repo . --strict` checks model switches and worker settings isolation. It takes about three minutes. Do not run it as root.
-- `node verification/package-content-check.mjs --repo .` checks package-resolved runtime files.
+- Both package-content commands check package-resolved runtime files and their self-test: `node verification/package-content-check.mjs --repo .` and `node verification/package-content-check.mjs --repo . --self-test`.
 - `node verification/writing-check-tests.mjs` checks writing-checker correctness.
 - `node verification/writing-check-scaling.mjs` checks linear growth and output caps.
 - `bash verification/run-writing-reminder-check.sh --repo .` checks the real reminder hook, steer and persistence path. It requires GNU `timeout`.
@@ -287,21 +279,16 @@ The CI set remains the five checks in `AGENTS.md`. The other commands above are 
 set -euo pipefail
 : "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
 RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION PRIOR_VERSION PR REPO_DIR)
+STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION PR REPO_DIR)
 eval "$STATE"
 cd "$REPO_DIR"
 [[ -z "$(git -C "$REPO_DIR" status --porcelain)" ]]
 
-node - "$VERSION" "$PRIOR_VERSION" <<'NODE'
+node - "$VERSION" <<'NODE'
 const fs = require("node:fs");
-const [version, priorVersion] = process.argv.slice(2);
+const version = process.argv[2];
 const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
-const settings = JSON.parse(fs.readFileSync(".pi/settings.json", "utf8"));
 if (manifest.version !== version) throw new Error(`package version is ${manifest.version}`);
-const sources = (settings.packages ?? []).map(value => typeof value === "string" ? value : value.source);
-const slate = sources.filter(value => typeof value === "string" && value.startsWith("npm:ytdb-slate@"));
-const expected = `npm:ytdb-slate@${priorVersion}`;
-if (slate.length !== 1 || slate[0] !== expected) throw new Error(`dogfood pin is ${JSON.stringify(slate)}`);
 NODE
 
 npm run typecheck
@@ -312,6 +299,7 @@ bash verification/run-resolver-checks.sh --repo . --strict
 npm test
 bash verification/run-ladder.sh --repo . --strict
 node verification/package-content-check.mjs --repo .
+node verification/package-content-check.mjs --repo . --self-test
 node verification/writing-check-tests.mjs
 node verification/writing-check-scaling.mjs
 bash verification/run-writing-reminder-check.sh --repo .
@@ -407,27 +395,22 @@ printf 'CI run %s passed at %s with Node 22 and Node 24.\n' "$RUN_ID" "$SQUASH_S
 
 ## Step 4 — the agent verifies and packs the exact commit
 
-Verify the release version and the prior serviceable pin from the merged commit itself, then build the tarball inside the release worktree.
+Verify the release version from the merged commit itself, then build the tarball inside the release worktree.
 
 ```bash
 set -euo pipefail
 : "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
 RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" VERSION PRIOR_VERSION SQUASH_SHA WORKTREE)
+STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" VERSION SQUASH_SHA WORKTREE)
 eval "$STATE"
 [[ "$(git -C "$WORKTREE" rev-parse HEAD)" == "$SQUASH_SHA" ]]
 [[ -z "$(git -C "$WORKTREE" status --porcelain)" ]]
 
-node - "$WORKTREE/package.json" "$WORKTREE/.pi/settings.json" "$VERSION" "$PRIOR_VERSION" <<'NODE'
+node - "$WORKTREE/package.json" "$VERSION" <<'NODE'
 const fs = require("node:fs");
-const [manifestPath, settingsPath, version, priorVersion] = process.argv.slice(2);
+const [manifestPath, version] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
 if (manifest.version !== version) throw new Error(`merged package version is ${manifest.version}`);
-const sources = (settings.packages ?? []).map(value => typeof value === "string" ? value : value.source);
-const slate = sources.filter(value => typeof value === "string" && value.startsWith("npm:ytdb-slate@"));
-const expected = `npm:ytdb-slate@${priorVersion}`;
-if (slate.length !== 1 || slate[0] !== expected) throw new Error(`merged dogfood pin is ${JSON.stringify(slate)}`);
 NODE
 ```
 
@@ -502,6 +485,7 @@ git -C "$WORKTREE" ls-tree -r --name-only HEAD docs | sort >"$EXPECTED_DOCS"
 tar -tzf "$TARBALL" | sed -n 's#^package/\(docs/.*[^/]\)$#\1#p' | sort >"$PACKED_DOCS"
 (( $(wc -l <"$EXPECTED_DOCS") >= 7 ))
 diff "$EXPECTED_DOCS" "$PACKED_DOCS"
+# Keep the five direct doctrine documents in one class.
 for path in \
   docs/track-workflow.md \
   docs/review-rules.md \
@@ -521,7 +505,9 @@ printf 'tarball:   %s\nsha256:    %s\nintegrity: %s\n' "$TARBALL" "$TARBALL_SHA2
 
 The manifest checks cover all four packaging rules in `AGENTS.md`: the four SDK packages stay peers at `*`, the typecheck's tooling stays dev-only and out of the artifact, `keywords` keeps `pi-package`, and the docs check below proves `docs/` shipped.
 
-The docs check compares the tarball against the `docs/` tree of the merged commit and requires exact equality, so it cannot go stale when a document is added — as it did when it named five of the seven shipped documents. The floor of seven catches an empty or truncated `docs/` tree, and the named five are the documents the doctrine dereferences at runtime; a publish without them ships a broken doctrine.
+The docs check compares the tarball against the `docs/` tree of the merged commit and requires exact equality. It cannot go stale when a document is added, as it did when it named five of seven shipped documents. The floor of seven catches an empty or truncated `docs/` tree.
+
+The named group contains the five direct doctrine documents. The package-content checks prove one exported path and one packed copy for every shipped document.
 
 `TARBALL_SHA256` and `TARBALL_INTEGRITY` are the record of the inspected bytes. `TARBALL_INTEGRITY` is in npm's own `dist.integrity` form, so step 6 compares the registry's value against it directly.
 
@@ -581,7 +567,7 @@ A shell may fail to run the line that reports status. The shell then reports a f
 
 Step 6 decides whether the publish succeeded. The registry must contain the artifact. The artifact must match what step 4 packed.
 
-## Step 6 — the agent verifies the published artifact
+## Step 6 — the agent verifies the published artifact and its registry load
 
 This is the check the old runbook threw away: it fetched `dist.integrity` and compared it to nothing. Here the registry's integrity value is compared against the recorded integrity of the inspected bytes, and the served tarball is compared byte for byte against the retained one. A handoff can substitute a different artifact; this is what detects it.
 
@@ -651,13 +637,13 @@ The block clears `$RELEASE_DIR/registry/` and its three evidence files at the to
 
 `cmp` returns 1 for files that differ and more than 1 for a comparison it could not make — an unreadable file, a truncated download, an I/O error. Only 1 is a mismatch. Anything above it leaves the result `inconclusive`, because a failed comparison is not evidence, and reporting it as a mismatch would raise an alarm about a healthy release.
 
-`registry-result.txt` and the recorded timestamp are a record, not a key. Steps 7 and 8 re-run the registry comparison themselves, so writing `verified` into a file or a variable unlocks nothing.
+`registry-result.txt` and the recorded timestamp are a record, not a key. Step 7 re-runs the registry comparison itself, so writing `verified` into a file or a variable unlocks nothing.
 
 Use the matching branch:
 
-- **`verified`.** npm serves the inspected bytes. Continue to step 7.
+- **`verified`.** npm serves the inspected bytes. Continue with the registry-load validation below.
 
-- **`integrity-mismatch`. Untested.** npm serves something other than the inspected artifact under an immutable version number. **Stop.** Do not tag, release or pin.
+- **`integrity-mismatch`. Untested.** npm serves something other than the inspected artifact under an immutable version number. **Stop.** Do not tag or release.
 
   The runbook does not deprecate the version, move a dist-tag or unpublish anything. Those are public, irreversible acts on a package other people install, and an earlier draft of this document automated them: it read a byte difference and reached for `npm deprecate`. Review found two ways that path could fire on evidence that was stale or malformed. The action was worth less than the ways of getting it wrong, so it is gone. The runbook's job here is to put the facts in front of the user; the decision is theirs and is made outside this document.
 
@@ -678,7 +664,471 @@ Use the matching branch:
   4. Escalate if it is still unresolved. Open a ticket at <https://www.npmjs.com/support> against the package `ytdb-slate`. Include: the version, the publish timestamp from `publish.log`, the full publish log, the `npm view` error output, the recorded sha256 and sha512 integrity, and the question asked plainly — was the publish transaction for this version accepted?
   5. Do not retry step 5 until npm support or a registry operator confirms that the transaction was not accepted. If the version becomes visible instead, re-run step 6 and follow the branch it reports.
 
-  Leave the release worktree in place while an escalation is open; step 9 removes it when the release closes, either way.
+  Leave the release worktree in place while an escalation is open; step 8 removes it when the release closes, either way.
+
+### Registry-load validation
+
+This validation is mandatory after the integrity result is `verified`. It proves
+that pi loads the published package, not merely that npm serves the expected
+bytes. Each block creates its own trusted project, agent directory and settings
+file. The settings file names only `npm:$PACKAGE@$VERSION`. Each block also
+installs that package explicitly before asking `pi list` for its installed path.
+
+The first block asserts explicit project trust, one loaded `/slate` path inside
+the installed package, and registration of `thread`, `threads` and `episode`. It
+also rejects both stderr failure markers and every RPC `extension_error` event.
+The last check is load-bearing: pi can exit zero after a lifecycle hook throws.
+The canary is the checked-in observer used by the load-check harness; it does not
+ship in the package.
+
+The complete validation was rehearsed against `ytdb-slate@0.10.0` with pi
+0.84.2. Both blocks passed from fresh probe directories. A second headless run
+injected a throwing `session_start` hook into the installed copy; the
+`extension_error` gate rejected it. Both rehearsals removed their probe roots.
+
+```bash
+set -euo pipefail
+: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
+RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
+STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION WORKTREE REGISTRY_VERIFIED_AT)
+eval "$STATE"
+
+unset PROBE_BASE PROBE_ROOT
+PROBE_BASE=""
+PROBE_ROOT=""
+cleanup_alert() {
+  printf '\n%s\n%s\n' '!!! PROBE CLEANUP INCOMPLETE !!!' "$1" >&2
+}
+cleanup_probe() {
+  local base=${PROBE_BASE:-} target=${PROBE_ROOT:-} cleanup_failed=0 leftovers=0
+  if [[ -z "$base" || -z "$target" ]]; then
+    cleanup_alert 'Probe cleanup has an unset path. Inspect the release scratch area and remove leftovers by hand.'
+    return 1
+  fi
+  case "$base:$target" in /*:/*) ;; *)
+    cleanup_alert "Probe paths are not absolute: $base : $target. Remove any leftovers by hand."
+    return 1
+  esac
+  case "$target" in "$base"/*) ;; *)
+    cleanup_alert "Probe root is outside its block-created base: $target. Remove it by hand."
+    return 1
+  esac
+  if [[ -d "$target" ]]; then
+    if ! rm -rf -- "$target"; then
+      cleanup_alert "Automatic removal failed. REMOVE THIS PATH BY HAND: $target"
+      cleanup_failed=1
+    fi
+  else
+    cleanup_alert "Expected probe root is not a directory: $target. Inspect the paths below and remove leftovers by hand."
+    cleanup_failed=1
+  fi
+  if [[ -e "$target" || -L "$target" ]]; then
+    cleanup_alert "REMOVE THIS PATH BY HAND: $target"
+    cleanup_failed=1
+  fi
+  if [[ -d "$base" ]]; then
+    while IFS= read -r -d '' leftover; do
+      cleanup_alert "REMOVE THIS PATH BY HAND: $leftover"
+      leftovers=$((leftovers + 1))
+      cleanup_failed=1
+    done < <(find "$base" -mindepth 1 -maxdepth 1 -print0)
+    if (( leftovers == 0 )) && ! rmdir "$base"; then
+      cleanup_alert "Automatic removal failed. REMOVE THIS PATH BY HAND: $base"
+      cleanup_failed=1
+    fi
+  elif [[ -e "$base" || -L "$base" ]]; then
+    cleanup_alert "Probe base is not a directory. REMOVE THIS PATH BY HAND: $base"
+    cleanup_failed=1
+  fi
+  return "$cleanup_failed"
+}
+trap cleanup_probe EXIT
+trap 'exit 130' INT TERM
+mkdir -p "$RELEASE_DIR/evidence"
+PROBE_BASE=$(mktemp -d "$RELEASE_DIR/registry-load-headless.XXXXXX")
+PROBE_ROOT=$(mktemp -d "$PROBE_BASE/probe.XXXXXX")
+PROBE_PROJECT="$PROBE_ROOT/project"
+PROBE_AGENT="$PROBE_ROOT/agent"
+mkdir -p "$PROBE_PROJECT/.pi" "$PROBE_AGENT"
+printf '{}\n' >"$PROBE_AGENT/settings.json"
+node - "$PROBE_PROJECT/.pi/settings.json" "$PACKAGE" "$VERSION" <<'NODE'
+const fs = require("node:fs");
+const [settingsPath, packageName, version] = process.argv.slice(2);
+fs.writeFileSync(settingsPath, `${JSON.stringify({ packages: [`npm:${packageName}@${version}`] }, null, 2)}\n`);
+NODE
+
+INSTALL_OUT="$RELEASE_DIR/evidence/registry-load-install.out"
+INSTALL_ERR="$RELEASE_DIR/evidence/registry-load-install.err"
+if ! (cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" \
+  pi install -l --approve "npm:$PACKAGE@$VERSION") >"$INSTALL_OUT" 2>"$INSTALL_ERR"; then
+  cat "$INSTALL_ERR" >&2
+  cat "$INSTALL_OUT" >&2
+  exit 1
+fi
+cat "$INSTALL_OUT"
+cat "$INSTALL_ERR" >&2
+
+PACKAGE_LIST="$RELEASE_DIR/evidence/registry-load-package-list.txt"
+(cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" NO_COLOR=1 pi list -a) >"$PACKAGE_LIST"
+INSTALLED_DIR=$(awk -v spec="  npm:$PACKAGE@$VERSION" '
+  $0 == "Project packages:" { project = 1; next }
+  project && $0 == spec { getline; sub(/^[[:space:]]+/, ""); print; exit }
+' "$PACKAGE_LIST")
+if [[ -z "$INSTALLED_DIR" || ! -f "$INSTALLED_DIR/package.json" ]]; then
+  printf 'Cannot locate the installed package after explicit installation. pi list output:\n' >&2
+  cat "$PACKAGE_LIST" >&2
+  exit 1
+fi
+
+RPC_IN="$RELEASE_DIR/evidence/registry-load.in"
+RPC_OUT="$RELEASE_DIR/evidence/registry-load.out"
+RPC_ERR="$RELEASE_DIR/evidence/registry-load.err"
+printf '%s\n' '{"id":"1","type":"get_commands"}' >"$RPC_IN"
+RPC_STATUS=0
+(cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" pi \
+  -e "$WORKTREE/verification/ci-canary.ts" --mode rpc -a <"$RPC_IN") \
+  >"$RPC_OUT" 2>"$RPC_ERR" || RPC_STATUS=$?
+if (( RPC_STATUS != 0 )); then
+  printf 'Registry-load RPC exited %s.\n' "$RPC_STATUS" >&2
+  cat "$RPC_ERR" >&2
+  cat "$RPC_OUT" >&2
+  exit 1
+fi
+if grep -Fq -e 'Failed to load extension' -e 'Extension error (' "$RPC_ERR"; then
+  printf 'Registry-load stderr contains an extension failure marker.\n' >&2
+  cat "$RPC_ERR" >&2
+  exit 1
+fi
+
+node - "$RPC_OUT" "$RPC_ERR" "$INSTALLED_DIR" "$PROBE_PROJECT" "$PACKAGE" "$VERSION" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const [stdoutPath, stderrPath, installedDir, projectDir, packageName, version] = process.argv.slice(2);
+const manifest = JSON.parse(fs.readFileSync(path.join(installedDir, "package.json"), "utf8"));
+if (manifest.name !== packageName || manifest.version !== version) {
+  throw new Error(`installed package is ${manifest.name}@${manifest.version}`);
+}
+const canaryLines = fs.readFileSync(stderrPath, "utf8").split("\n")
+  .map(line => line.trim()).filter(line => line.startsWith("CI-CANARY "));
+if (canaryLines.length !== 1) throw new Error(`expected one canary line, found ${canaryLines.length}`);
+const canary = JSON.parse(canaryLines[0].slice("CI-CANARY ".length));
+if (canary.trusted !== true) throw new Error(`probe project is not trusted: ${JSON.stringify(canary)}`);
+if (fs.realpathSync(canary.cwd) !== fs.realpathSync(projectDir)) throw new Error(`canary ran in ${canary.cwd}`);
+for (const tool of ["thread", "threads", "episode"]) {
+  if (!Array.isArray(canary.tools) || !canary.tools.includes(tool)) throw new Error(`missing registered tool ${tool}`);
+}
+const objects = [];
+for (const [index, line] of fs.readFileSync(stdoutPath, "utf8").split("\n").entries()) {
+  if (!line.trim()) continue;
+  try { objects.push(JSON.parse(line)); }
+  catch (error) { throw new Error(`RPC stdout line ${index + 1} is not JSON: ${error.message}`); }
+}
+const extensionErrors = objects.filter(value => value?.type === "extension_error");
+if (extensionErrors.length !== 0) throw new Error(`extension_error event(s): ${JSON.stringify(extensionErrors)}`);
+const response = objects.find(value => value?.type === "response" && value?.command === "get_commands");
+const slate = response?.data?.commands?.filter(value => value?.name === "slate") ?? [];
+if (slate.length !== 1) throw new Error(`expected one /slate command, found ${slate.length}`);
+const loadedPath = slate[0]?.sourceInfo?.path;
+if (typeof loadedPath !== "string") throw new Error("/slate has no loaded source path");
+const installedReal = fs.realpathSync(installedDir);
+const loadedReal = fs.realpathSync(loadedPath);
+if (!loadedReal.startsWith(installedReal + path.sep)) {
+  throw new Error(`slate loaded from ${loadedReal}, outside installed package ${installedReal}`);
+}
+const entries = manifest.pi?.extensions;
+if (!Array.isArray(entries) || !entries.some(entry =>
+  typeof entry === "string" && fs.realpathSync(path.resolve(installedReal, entry)) === loadedReal)) {
+  throw new Error(`loaded path ${loadedReal} is not a declared extension entry`);
+}
+process.stdout.write(`trusted registry package loaded from ${loadedReal}; thread, threads and episode are registered; no extension failure was reported\n`);
+NODE
+```
+
+The second block starts a real TUI session through a pseudo-terminal. It uses an
+offline fake provider loaded beside the published package. The provider receives
+the final system prompt after every `before_agent_start` handler, so it can check
+the doctrine without trusting a model recitation. The check requires the Slate
+heading and the four unconditional documentation paths exactly once. A headless
+run never builds the doctrine, so the TUI phase is mandatory.
+
+```bash
+set -euo pipefail
+: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
+RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
+STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION REGISTRY_VERIFIED_AT)
+eval "$STATE"
+
+unset PROBE_BASE PROBE_ROOT
+PROBE_BASE=""
+PROBE_ROOT=""
+cleanup_alert() {
+  printf '\n%s\n%s\n' '!!! PROBE CLEANUP INCOMPLETE !!!' "$1" >&2
+}
+cleanup_probe() {
+  local base=${PROBE_BASE:-} target=${PROBE_ROOT:-} cleanup_failed=0 leftovers=0
+  if [[ -z "$base" || -z "$target" ]]; then
+    cleanup_alert 'Probe cleanup has an unset path. Inspect the release scratch area and remove leftovers by hand.'
+    return 1
+  fi
+  case "$base:$target" in /*:/*) ;; *)
+    cleanup_alert "Probe paths are not absolute: $base : $target. Remove any leftovers by hand."
+    return 1
+  esac
+  case "$target" in "$base"/*) ;; *)
+    cleanup_alert "Probe root is outside its block-created base: $target. Remove it by hand."
+    return 1
+  esac
+  if [[ -d "$target" ]]; then
+    if ! rm -rf -- "$target"; then
+      cleanup_alert "Automatic removal failed. REMOVE THIS PATH BY HAND: $target"
+      cleanup_failed=1
+    fi
+  else
+    cleanup_alert "Expected probe root is not a directory: $target. Inspect the paths below and remove leftovers by hand."
+    cleanup_failed=1
+  fi
+  if [[ -e "$target" || -L "$target" ]]; then
+    cleanup_alert "REMOVE THIS PATH BY HAND: $target"
+    cleanup_failed=1
+  fi
+  if [[ -d "$base" ]]; then
+    while IFS= read -r -d '' leftover; do
+      cleanup_alert "REMOVE THIS PATH BY HAND: $leftover"
+      leftovers=$((leftovers + 1))
+      cleanup_failed=1
+    done < <(find "$base" -mindepth 1 -maxdepth 1 -print0)
+    if (( leftovers == 0 )) && ! rmdir "$base"; then
+      cleanup_alert "Automatic removal failed. REMOVE THIS PATH BY HAND: $base"
+      cleanup_failed=1
+    fi
+  elif [[ -e "$base" || -L "$base" ]]; then
+    cleanup_alert "Probe base is not a directory. REMOVE THIS PATH BY HAND: $base"
+    cleanup_failed=1
+  fi
+  return "$cleanup_failed"
+}
+trap cleanup_probe EXIT
+trap 'exit 130' INT TERM
+mkdir -p "$RELEASE_DIR/evidence"
+PROBE_BASE=$(mktemp -d "$RELEASE_DIR/registry-load-doctrine.XXXXXX")
+PROBE_ROOT=$(mktemp -d "$PROBE_BASE/probe.XXXXXX")
+PROBE_PROJECT="$PROBE_ROOT/project"
+PROBE_AGENT="$PROBE_ROOT/agent"
+PROBE_HOME="$PROBE_ROOT/home"
+PROBE_TMP="$PROBE_ROOT/tmp"
+mkdir -p "$PROBE_PROJECT/.pi" "$PROBE_AGENT" "$PROBE_HOME" "$PROBE_TMP"
+printf '{}\n' >"$PROBE_AGENT/settings.json"
+node - "$PROBE_PROJECT/.pi/settings.json" "$PACKAGE" "$VERSION" <<'NODE'
+const fs = require("node:fs");
+const [settingsPath, packageName, version] = process.argv.slice(2);
+fs.writeFileSync(settingsPath, `${JSON.stringify({ packages: [`npm:${packageName}@${version}`] }, null, 2)}\n`);
+NODE
+
+INSTALL_OUT="$RELEASE_DIR/evidence/registry-doctrine-install.out"
+INSTALL_ERR="$RELEASE_DIR/evidence/registry-doctrine-install.err"
+if ! (cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" \
+  pi install -l --approve "npm:$PACKAGE@$VERSION") >"$INSTALL_OUT" 2>"$INSTALL_ERR"; then
+  cat "$INSTALL_ERR" >&2
+  cat "$INSTALL_OUT" >&2
+  exit 1
+fi
+cat "$INSTALL_OUT"
+cat "$INSTALL_ERR" >&2
+
+PACKAGE_LIST="$RELEASE_DIR/evidence/registry-doctrine-package-list.txt"
+(cd "$PROBE_PROJECT" && PI_CODING_AGENT_DIR="$PROBE_AGENT" NO_COLOR=1 pi list -a) >"$PACKAGE_LIST"
+INSTALLED_DIR=$(awk -v spec="  npm:$PACKAGE@$VERSION" '
+  $0 == "Project packages:" { project = 1; next }
+  project && $0 == spec { getline; sub(/^[[:space:]]+/, ""); print; exit }
+' "$PACKAGE_LIST")
+if [[ -z "$INSTALLED_DIR" || ! -f "$INSTALLED_DIR/package.json" ]]; then
+  printf 'Cannot locate the installed package after explicit installation. pi list output:\n' >&2
+  cat "$PACKAGE_LIST" >&2
+  exit 1
+fi
+
+DOCTRINE_EVIDENCE="$RELEASE_DIR/evidence/registry-doctrine.json"
+DOCTRINE_TRANSCRIPT="$RELEASE_DIR/evidence/registry-doctrine-tui.raw"
+DOCTRINE_CANARY="$PROBE_ROOT/doctrine-canary.mjs"
+cat >"$DOCTRINE_CANARY" <<'MJS'
+import { writeFileSync } from "node:fs";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+
+const evidencePath = process.env.SLATE_DOCTRINE_EVIDENCE;
+const packageRoot = process.env.SLATE_DOCTRINE_PACKAGE_ROOT;
+let trusted = false;
+
+function message(model, text) {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text }],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  };
+}
+
+function completedStream(output) {
+  const stream = createAssistantMessageEventStream();
+  queueMicrotask(() => {
+    stream.push({ type: "start", partial: { ...output, stopReason: "pending" } });
+    stream.push({ type: "done", reason: "stop", message: output });
+    stream.end();
+  });
+  return stream;
+}
+
+export default function doctrineCanary(pi) {
+  pi.on("session_start", (_event, ctx) => { trusted = ctx.isProjectTrusted(); });
+  pi.registerProvider("slate-doctrine-fake", {
+    name: "Slate doctrine offline canary",
+    baseUrl: "http://127.0.0.1:9/v1",
+    apiKey: "offline-canary-key",
+    api: "openai-completions",
+    models: [{
+      id: "doctrine-model",
+      name: "Doctrine model",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1_000_000,
+      maxTokens: 1_024,
+    }],
+    streamSimple(model, context) {
+      const systemPrompt = context.systemPrompt ?? "";
+      const required = [
+        "# Slate orchestrator mode",
+        `${packageRoot}/docs/track-workflow.md`,
+        `${packageRoot}/docs/review-rules.md`,
+        `${packageRoot}/docs/design-principles.md`,
+      ];
+      const counts = Object.fromEntries(required.map(value =>
+        [value, systemPrompt.split(value).length - 1]));
+      const result = {
+        trusted,
+        required,
+        counts,
+        exact: trusted && required.every(value => counts[value] === 1),
+      };
+      writeFileSync(evidencePath, `${JSON.stringify(result, null, 2)}\n`);
+      const text = result.exact ? "SLATE_DOCTRINE_CANARY_COMPLETE" : "SLATE_DOCTRINE_CANARY_FAILED";
+      return completedStream(message(model, text));
+    },
+  });
+}
+MJS
+
+PTY_RUNNER="$PROBE_ROOT/run-tui.py"
+cat >"$PTY_RUNNER" <<'PY'
+import os
+import pty
+import select
+import signal
+import sys
+import time
+
+pi_bin, project, agent, home, tmp, canary, evidence, package_root, transcript = sys.argv[1:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.chdir(project)
+    env = {
+        "HOME": home,
+        "PATH": os.environ["PATH"],
+        "PI_CODING_AGENT_DIR": agent,
+        "SLATE_DOCTRINE_EVIDENCE": evidence,
+        "SLATE_DOCTRINE_PACKAGE_ROOT": package_root,
+        "TERM": "xterm-256color",
+        "TMPDIR": tmp,
+    }
+    os.execvpe(pi_bin, [pi_bin, "-e", canary, "-a", "--provider",
+        "slate-doctrine-fake", "--model", "doctrine-model"], env)
+
+start = time.monotonic()
+deadline = start + 120
+sent_mode = False
+sent_prompt = False
+requested_exit = False
+saw_provider_result = False
+output = bytearray()
+status = None
+with open(transcript, "wb") as transcript_file:
+    while time.monotonic() < deadline:
+        done, child_status = os.waitpid(pid, os.WNOHANG)
+        if done:
+            status = child_status
+            break
+        readable, _, _ = select.select([fd], [], [], 0.2)
+        if readable:
+            try:
+                data = os.read(fd, 65536)
+            except OSError:
+                data = b""
+            if data:
+                output.extend(data)
+                transcript_file.write(data)
+                transcript_file.flush()
+        elapsed = time.monotonic() - start
+        if not sent_mode and elapsed >= 2:
+            os.write(fd, b"/slate on\r")
+            sent_mode = True
+        if sent_mode and not sent_prompt and elapsed >= 4:
+            os.write(fd, b"Run the doctrine validation.\r")
+            sent_prompt = True
+        if sent_prompt and os.path.exists(evidence):
+            saw_provider_result = (b"SLATE_DOCTRINE_CANARY_COMPLETE" in output or
+                b"SLATE_DOCTRINE_CANARY_FAILED" in output)
+        if saw_provider_result and not requested_exit:
+            os.write(fd, b"\x04")
+            requested_exit = True
+        if requested_exit and elapsed >= 15:
+            break
+
+if status is None:
+    os.kill(pid, signal.SIGTERM)
+    _, status = os.waitpid(pid, 0)
+    print("TUI did not exit cleanly after the doctrine result", file=sys.stderr)
+    sys.exit(1)
+exit_code = os.waitstatus_to_exitcode(status)
+print(f"TUI exit={exit_code}; doctrine provider reached={saw_provider_result}")
+if exit_code != 0 or not saw_provider_result:
+    sys.exit(1)
+PY
+
+PI_BIN=$(command -v pi)
+python3 "$PTY_RUNNER" "$PI_BIN" "$PROBE_PROJECT" "$PROBE_AGENT" "$PROBE_HOME" \
+  "$PROBE_TMP" "$DOCTRINE_CANARY" "$DOCTRINE_EVIDENCE" "$INSTALLED_DIR" \
+  "$DOCTRINE_TRANSCRIPT"
+if grep -aFq -e 'Failed to load extension' -e 'Extension error (' "$DOCTRINE_TRANSCRIPT"; then
+  printf 'Interactive doctrine transcript contains an extension failure marker.\n' >&2
+  exit 1
+fi
+node - "$DOCTRINE_EVIDENCE" <<'NODE'
+const fs = require("node:fs");
+const evidence = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (evidence.trusted !== true) throw new Error("interactive project was not trusted");
+if (evidence.exact !== true) throw new Error(`doctrine markers were not exact: ${JSON.stringify(evidence)}`);
+if (!Array.isArray(evidence.required) || evidence.required.length !== 5) {
+  throw new Error(`unexpected doctrine marker roster: ${JSON.stringify(evidence.required)}`);
+}
+process.stdout.write(`interactive doctrine check passed: ${evidence.required.join(" | ")}\n`);
+NODE
+```
+
+Both blocks remove their project and agent directory on success, failure, or
+interruption. Each block ignores inherited probe variables and removes only the
+root it created under its own temporary base. The evidence remains under
+`$RELEASE_DIR/evidence/`.
+
+The probe runs the package being released. In-probe subversion of cleanup is out
+of scope. Any leftover directory under the release scratch area is reported with
+its exact path for manual removal rather than treated as a security boundary.
+Continue to step 7 only after both blocks pass.
 
 ## Step 7 — the agent tags and creates the release
 
@@ -790,193 +1240,11 @@ node "$RELEASE_DIR/state.cjs" save "$RELEASE_DIR/release.json" --expect "$SLATE_
 
 `--target "$SQUASH_SHA"` is not decoration. Without it the release records the default branch head, which is why the last release's `targetCommitish` did not match the commit the runbook's own final check demanded. When the tag already exists the target is cosmetic — GitHub takes the commit from the tag — but the check compares it, so it must be set.
 
-The normal restart states are: nothing exists (create, push, release); only the correct local tag exists (skip creation, then push and release); the correct remote tag exists with no release (ensure the local tag, skip the push, create the release); or the correct remote tag and release both exist (ensure the local tag, skip both remote actions). If any existing tag or release target is wrong, stop, inspect who created it and why, and resolve it manually under repository policy. This runbook never moves or deletes a conflicting tag. The tag must point at the umbrella squash SHA, not at the later pin-only commit.
+The normal restart states are: nothing exists (create, push, release); only the correct local tag exists (skip creation, then push and release); the correct remote tag exists with no release (ensure the local tag, skip the push, create the release); or the correct remote tag and release both exist (ensure the local tag, skip both remote actions). If any existing tag or release target is wrong, stop, inspect who created it and why, and resolve it manually under repository policy. This runbook never moves or deletes a conflicting tag. The tag must point at the umbrella squash SHA.
 
-## Step 8 — the agent opens the dogfooding pin as a pull request
+## Step 8 — the agent tears down the release worktree
 
-Last, and only after npm serves the verified artifact and step 7 passes.
-
-The pin bump is an ordinary pull request: a branch, one commit, the repository's review, a merge by the user. Earlier drafts pushed it straight to the default branch, which took a second worktree, a detached checkout, a completion probe and a chain of guards — and review still found two ways that push could carry content nobody had checked. All of it is gone. A pull request removes those failures by construction instead of by another guard, and no ruleset has to be worked around.
-
-One block does the whole preparation, from the gates to the pull request. It is deliberately not resumable in the middle: every seam between a check and an action was a place where the action ran on a stale check. If it stops partway, the way back is the reset below — a return to a clean start, not a resume. The branch is made in the release worktree, which step 9 removes; a new branch is checked out nowhere else, so it cannot collide.
-
-**Untested.** This whole step — the branch, the validation, the pull request, the reset, and the checks after the merge — replaced the earlier direct push to the default branch and has never run as a release path.
-
-```bash
-set -euo pipefail
-: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
-RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION PRIOR_VERSION TAG REPO REPO_DIR SQUASH_SHA WORKTREE TARBALL_INTEGRITY)
-eval "$STATE"
-
-# Re-derive the gates: npm serves the inspected bytes, and the tag and the release sit at the squash commit.
-LIVE_JSON=$(npm view "$PACKAGE@$VERSION" version dist.integrity --json)
-[[ "$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x.version ?? ""))' "$LIVE_JSON")" == "$VERSION" ]]
-[[ "$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x["dist.integrity"] ?? x.dist?.integrity ?? ""))' "$LIVE_JSON")" == "$TARBALL_INTEGRITY" ]]
-git -C "$REPO_DIR" fetch origin main --tags
-[[ "$(git -C "$REPO_DIR" ls-remote --refs origin "refs/tags/$TAG" | awk '{print $1}')" == "$SQUASH_SHA" ]]
-[[ "$(gh release view "$TAG" --repo "$REPO" --json targetCommitish --jq '.targetCommitish')" == "$SQUASH_SHA" ]]
-
-# Branch from the default branch just fetched above, in the disposable release worktree.
-PIN_BRANCH="dogfood-$VERSION"
-git -C "$WORKTREE" switch -c "$PIN_BRANCH" origin/main
-[[ -z "$(git -C "$WORKTREE" status --porcelain)" ]]
-git -C "$WORKTREE" merge-base --is-ancestor "$SQUASH_SHA" HEAD
-
-node - "$WORKTREE/.pi/settings.json" "$VERSION" "$PRIOR_VERSION" <<'NODE'
-const fs = require("node:fs");
-const [path, version, priorVersion] = process.argv.slice(2);
-const before = fs.readFileSync(path, "utf8");
-const prior = `"npm:ytdb-slate@${priorVersion}"`;
-const next = `"npm:ytdb-slate@${version}"`;
-const occurrences = before.split(prior).length - 1;
-if (occurrences !== 1) throw new Error(`expected exactly one ${prior} in ${path}, found ${occurrences}`);
-if (before.includes(`"npm:ytdb-slate@${version}"`)) throw new Error("the new pin is already present");
-const after = before.replace(prior, next);
-if (after === before) throw new Error("pin replacement changed nothing");
-if (after.length !== before.length - prior.length + next.length) throw new Error("pin replacement changed more than the pin");
-JSON.parse(after);
-fs.writeFileSync(path, after);
-NODE
-
-node - "$WORKTREE/.pi/settings.json" "$VERSION" <<'NODE'
-const fs = require("node:fs");
-const [path, version] = process.argv.slice(2);
-const settings = JSON.parse(fs.readFileSync(path, "utf8"));
-const sources = (settings.packages ?? []).map(value => typeof value === "string" ? value : value.source);
-const slate = sources.filter(value => typeof value === "string" && value.startsWith("npm:ytdb-slate@"));
-const expected = `npm:ytdb-slate@${version}`;
-if (slate.length !== 1 || slate[0] !== expected) throw new Error(`new dogfood pin is ${JSON.stringify(slate)}`);
-NODE
-
-git -C "$WORKTREE" diff -- .pi/settings.json
-[[ "$(git -C "$WORKTREE" diff --numstat -- .pi/settings.json)" == $'1\t1\t.pi/settings.json' ]]
-
-# Validate what pi resolves and loads with the new pin, in this worktree.
-LOAD_STDOUT="$RELEASE_DIR/evidence/pin-load.out"
-LOAD_STDERR="$RELEASE_DIR/evidence/pin-load.err"
-if ! (cd "$WORKTREE" && pi -a -p "exit") >"$LOAD_STDOUT" 2>"$LOAD_STDERR"; then
-  cat "$LOAD_STDERR" >&2
-  false
-fi
-if grep -Eq 'Failed to load extension|Cannot find module|SyntaxError' "$LOAD_STDERR"; then
-  cat "$LOAD_STDERR" >&2
-  false
-fi
-PACKAGE_LIST="$RELEASE_DIR/evidence/pin-package-list.txt"
-(cd "$WORKTREE" && NO_COLOR=1 pi list -a) >"$PACKAGE_LIST"
-INSTALLED_DIR=$(awk -v spec="  npm:$PACKAGE@$VERSION" '
-  $0 == "Project packages:" { project = 1; next }
-  project && $0 == spec { getline; sub(/^[[:space:]]+/, ""); print; exit }
-' "$PACKAGE_LIST")
-[[ -n "$INSTALLED_DIR" && -f "$INSTALLED_DIR/package.json" ]]
-node - "$INSTALLED_DIR/package.json" "$VERSION" <<'NODE'
-const fs = require("node:fs");
-const [path, version] = process.argv.slice(2);
-const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
-if (manifest.name !== "ytdb-slate" || manifest.version !== version) throw new Error(`installed package is ${manifest.name}@${manifest.version}`);
-if (!Array.isArray(manifest.pi?.extensions) || !manifest.pi.extensions.includes("./extension/index.ts")) throw new Error("installed package has no Slate extension entry");
-NODE
-
-# Commit, check the commit itself, then propose it.
-git -C "$WORKTREE" add .pi/settings.json
-git -C "$WORKTREE" commit -m "Dogfood $VERSION"
-[[ "$(git -C "$WORKTREE" show --numstat --format= HEAD)" == $'1\t1\t.pi/settings.json' ]]
-git -C "$WORKTREE" push -u origin "$PIN_BRANCH"
-gh pr create --repo "$REPO" --base main --head "$PIN_BRANCH" --title "Dogfood $VERSION" \
-  --body "Bumps the dogfooding pin to $VERSION, published in this release. One line changes in .pi/settings.json. Before this branch was pushed, pi resolved and loaded npm:$PACKAGE@$VERSION from the registry in a clean checkout."
-gh pr view "$PIN_BRANCH" --repo "$REPO" --json url --jq '.url'
-```
-
-The commit is checked after it exists, not before: `git show --numstat --format= HEAD` reads the commit object that will be pushed, so no extra file and no larger edit reaches the branch unseen. It proves a one-line-for-one-line delta and not the exact bytes — a `pre-commit` or `commit-msg` hook, or a clean filter, can substitute one line for another and still pass it — which stays low severity only because the destination is a review-gated pull request branch and never `main`: read the diff on the pull request.
-
-**If it stopped partway.** The block is one shot, so find the state first and do only what that state says. A new session holds nothing but `SLATE_RELEASE`, and the failed block's variables are gone with it, so run this probe first: it loads the release state, derives the branch name, and prints the three facts the cases turn on. It stops if the state is missing or belongs to another release, rather than probing the wrong repository.
-
-```bash
-set -euo pipefail
-: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
-RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION REPO REPO_DIR SQUASH_SHA WORKTREE)
-eval "$STATE"
-PIN_BRANCH="dogfood-$VERSION"
-
-printf -- '--- pull requests for %s (empty list means none)\n' "$PIN_BRANCH"
-gh pr list --repo "$REPO" --head "$PIN_BRANCH" --state all --json number,state,url
-printf -- '--- remote branch (no line means it was never pushed)\n'
-git -C "$REPO_DIR" ls-remote --refs origin "refs/heads/$PIN_BRANCH"
-printf -- '--- release worktree %s\n' "$WORKTREE"
-git -C "$WORKTREE" status --short --branch
-```
-
-Take the first case that matches what it printed.
-
-1. **A pull request already exists.** The `gh pr list` output names one. The block has nothing left to do; go to the merge below. `gh pr create` reports the same thing and prints the existing pull request.
-2. **The branch is on the remote and there is no pull request.** The `ls-remote` line shows `refs/heads/$PIN_BRANCH` and the pull request list is empty. The push runs only after the validation and the commit check passed, so that branch is the checked commit: open the pull request by hand with the `gh pr create` and `gh pr view` commands above, in a shell where the probe has loaded the state. Do not run the block again.
-3. **Anything else.** Nothing was pushed, whatever the worktree and the local branch look like — including the common case where pi validation failed and left the new pin in the working file. Reset, then run the whole step 8 block again from the top:
-
-```bash
-set -euo pipefail
-: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
-RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" VERSION SQUASH_SHA WORKTREE)
-eval "$STATE"
-PIN_BRANCH="dogfood-$VERSION"
-
-# Drop the pin edit wherever it got to: working file, index, or a local commit.
-git -C "$WORKTREE" restore --source=HEAD --staged --worktree -- .pi/settings.json
-git -C "$WORKTREE" switch --detach "$SQUASH_SHA"
-if git -C "$WORKTREE" show-ref --verify --quiet "refs/heads/$PIN_BRANCH"; then
-  git -C "$WORKTREE" branch -D "$PIN_BRANCH"
-fi
-
-# Step 8 starts from a clean worktree at the squash commit. Prove it is one.
-[[ "$(git -C "$WORKTREE" rev-parse HEAD)" == "$SQUASH_SHA" ]]
-if [[ -n "$(git -C "$WORKTREE" status --porcelain)" ]]; then
-  printf 'Worktree %s is still not clean; inspect these paths before running step 8 again.\n' "$WORKTREE" >&2
-  git -C "$WORKTREE" status --porcelain >&2
-  exit 1
-fi
-printf 'Clean at %s. Run the step 8 block again from the top.\n' "$SQUASH_SHA"
-```
-
-The restore comes first on purpose. `git switch --detach` carries an uncommitted edit across, or refuses to move at all, so deleting the branch without it leaves the new pin in the working file and the rerun stops on its own cleanliness check — which is what the earlier reset did.
-
-**The user merges the pin pull request.** The agent must not merge it, exactly as in step 2. The pin PR is a normal one-line change and needs no release ceremony.
-
-After the merge, recheck every published target and the default-branch pin:
-
-```bash
-set -euo pipefail
-: "${SLATE_RELEASE:?Declare the release first: export SLATE_RELEASE=<version>}"
-RELEASE_DIR=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current")
-STATE=$(node "$RELEASE_DIR/state.cjs" load "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PACKAGE VERSION TAG REPO REPO_DIR SQUASH_SHA TARBALL_INTEGRITY)
-eval "$STATE"
-git -C "$REPO_DIR" fetch origin main --tags
-[[ "$(git -C "$REPO_DIR" rev-parse "$TAG^{commit}")" == "$SQUASH_SHA" ]]
-[[ "$(git -C "$REPO_DIR" ls-remote --refs origin "refs/tags/$TAG" | awk '{print $1}')" == "$SQUASH_SHA" ]]
-[[ "$(gh release view "$TAG" --repo "$REPO" --json targetCommitish --jq '.targetCommitish')" == "$SQUASH_SHA" ]]
-LIVE_JSON=$(npm view "$PACKAGE@$VERSION" version dist.integrity --json)
-[[ "$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x.version ?? ""))' "$LIVE_JSON")" == "$VERSION" ]]
-[[ "$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x["dist.integrity"] ?? x.dist?.integrity ?? ""))' "$LIVE_JSON")" == "$TARBALL_INTEGRITY" ]]
-FINAL_SETTINGS="$RELEASE_DIR/evidence/final-settings.json"
-git -C "$REPO_DIR" show origin/main:.pi/settings.json >"$FINAL_SETTINGS"
-node - "$FINAL_SETTINGS" "$VERSION" <<'NODE'
-const fs = require("node:fs");
-const [path, version] = process.argv.slice(2);
-const settings = JSON.parse(fs.readFileSync(path, "utf8"));
-const sources = (settings.packages ?? []).map(value => typeof value === "string" ? value : value.source);
-const slate = sources.filter(value => typeof value === "string" && value.startsWith("npm:ytdb-slate@"));
-const expected = `npm:ytdb-slate@${version}`;
-if (slate.length !== 1 || slate[0] !== expected) throw new Error(`default-branch dogfood pin is ${JSON.stringify(slate)}`);
-NODE
-if ! grep -q '"PINNED_AT"' "$RELEASE_DIR/release.json"; then
-  node "$RELEASE_DIR/state.cjs" save "$RELEASE_DIR/release.json" --expect "$SLATE_RELEASE" PINNED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-fi
-```
-
-## Step 9 — the agent tears down the release worktree
-
-The first release left a worktree detached at the squash commit, carrying a stale pin, because no step removed it. This step is not optional, and it runs whether the release succeeded or was abandoned. **The failure path is untested**; the success path is the same commands.
+The first release left a worktree detached at the squash commit because no step removed it. This step is not optional, and it runs whether the release succeeded or was abandoned. **The failure path is untested**; the success path is the same commands.
 
 ```bash
 set -euo pipefail
@@ -1001,7 +1269,7 @@ rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/ytdb-slate/release/current"
 printf 'Release directory kept for the record: %s\n' "$RELEASE_DIR"
 ```
 
-Read the final `git worktree list`: no path under the release directory may remain, and no worktree may be left detached by this release. Removing the worktree leaves step 8's local branch behind; once `gh pr list --repo <repo> --head dogfood-<version> --state all` shows its pull request merged, delete it with `git -C <repository> branch -D dogfood-<version>`. Use `-D`, because a squash merge leaves the branch tip outside the history of `main` and `-d` then refuses; the pull request state is the check that the work is in, not the ancestry. Keep `$RELEASE_DIR` — the tarball, the hashes and the evidence are the record of what was published. Delete it by hand when it is no longer wanted.
+Read the final `git worktree list`: no path under the release directory may remain, and no worktree may be left detached by this release. Keep `$RELEASE_DIR` — the tarball, the hashes and the evidence are the record of what was published. Delete it by hand when it is no longer wanted.
 
 If an escalation is open, skip this step until the escalation closes, then run it.
 

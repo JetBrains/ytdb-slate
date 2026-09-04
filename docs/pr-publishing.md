@@ -3,9 +3,9 @@
 Umbrella draft PR mechanics for the track-based workflow (see
 track-workflow.md in this directory). This document applies ONLY when
 `workflow.draftPRs` is enabled in the project's `slate.json` (default:
-false). When it is disabled, the workflow creates no PR; the
-research-log lifecycle in that mode is owned by track-workflow.md
-§ Session handoff and the research log.
+false). When it is disabled, the workflow creates no PR. The working log
+lifecycle in that mode is owned by track-workflow.md § Session handoff and the
+research log.
 
 ## Creation
 
@@ -26,7 +26,7 @@ implementation:
   branch.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation for every change with a high-level design, the research log's
+- At creation for every change with a high-level design, the working log's
   Planned changes content folds into the PR description. This includes a SMALL
   change whose focus set required design. Create the pull request only after
   final design approval, as stated above.
@@ -38,12 +38,10 @@ implementation:
   design verdict lines alone.
 - For a SMALL change without a high-level design, the initial request supplies
   Motivation. The confirmed grade, focus proposal, and intended fix supply
-  Planned changes. If
-  a log exists, its relevant decisions and Open Questions also fold
-  into the description.
-- The research log is retained until delivery, and its Decision Log
-  keeps appending during implementation. track-workflow.md § Session handoff
-  and the research log owns the full lifecycle.
+  Planned changes. If a working log exists, its relevant decisions and Open
+  Questions also fold into the description.
+- The working log is never deleted during the change. Its Decision Log keeps
+  appending during implementation.
 
 ## Description rules
 
@@ -140,6 +138,8 @@ executed in order:
 - All commits landed since the last user-approved gate are presented
   to the user. For a SMALL change without a design gate, present the description
   here because no design approval presented it before implementation.
+- Update the pull request description to describe the reviewed product content.
+  Obtain final change acceptance for that content.
 - Every remaining suggestion is reported to the user, and the
   Suggestions index is present in the description.
 - Strip the whole Tracks section from the description, whatever its
@@ -168,23 +168,24 @@ executed in order:
 
 ## After the flip
 
-The user may wait for CI green and/or peer-review completion and ask
-the agent to fix test failures or review observations. The agent lands
-fixes as normal commits, keeps the description in sync, and presents
-agent-landed commits to the user as they land. After every post-flip
-description change, and again at the final handoff for merge, repeat
-the byte measurement and any over-target size exception required by §
-Description rules. Commits pushed directly by reviewers are visible in
-the PR UI; the agent reconciles the description with them on its next
-task. The user's merge act is the final approval, including acceptance
-of any recorded size exception.
+The user may wait for green continuous integration or peer-review completion.
+The user may ask the agent to fix test failures or review observations. A product
+change returns the pull request to an editable draft state. Repeat review, final
+change acceptance, and the ready flip in that order.
+
+The agent lands fixes as normal commits and keeps the description in sync. The
+agent presents each landed commit to the user. Repeat the byte measurement after
+every post-flip description change. Repeat it again at the final handoff for
+merge. Apply any over-target size exception required by § Description rules.
+
+Commits pushed directly by reviewers are visible in the pull request interface.
+The agent reconciles the description with them on its next task. The user's merge
+act is final publication approval. It includes acceptance of any recorded size
+exception.
 
 ## After the merge
 
-Complete the research-log delivery cleanup defined by track-workflow.md
-§ Session handoff and the research log.
-
-Any cleanup a layered peer-review process requires (closing its review
-PRs, deleting its pinned branches) is an agent duty, executed when the
-user reports the merge or a later session detects it, per that
-process's own rules.
+Perform cleanup only. This includes worktree cleanup and any cleanup a layered
+peer-review process requires. Examples include closing its review pull requests
+and deleting its pinned branches. Perform that work when the user reports the
+merge or a later session detects it. Follow that process's own rules.

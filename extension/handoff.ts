@@ -13,28 +13,24 @@
  * legacy percent behavior (compaction untouched) when set WITHOUT
  * contextBudget.
  *
- * /slate handoff [focus] → startHandoff(): captures the orchestrator's last
- * assistant message as the brief, writes <config dir>/slate/pending-handoff.json
- * (state snapshot + brief + parent session + live model/thinking level), and
- * opens a fresh session.
+ * /slate handoff [focus] → startHandoff(): saves the records, captures the
+ * orchestrator's last assistant message as the brief, and atomically writes the
+ * author-addressed corpus handoff record. Adoption is explicit. Session startup
+ * never reads, claims, consumes, or adopts a handoff record.
  *
- * Adoption: session replacement tears down this extension instance, so
- * in-memory state cannot cross over; and the fresh session's own file has no
- * slate-state entries for restore() to find (they live in the parent's file).
- * The pending file bridges the gap: the NEW instance's session_start handler
- * adopts the snapshot when the fresh session's parentSession header matches
- * (trusted projects only; stale files are reaped regardless of trust), and
- * then restores the captured model/thinking level — the fresh session does
- * not inherit them: startup CLI flags (-m/--thinking) are re-applied to the
- * replacement runtime, enabledModels scoping picks its first entry, and a
- * parent resumed with a non-default session-file model falls back to the
- * settings default. A model restore that SUCCEEDS also re-seeds slate's
- * base-model tracker (base-model.ts): a handoff adoption is a deliberate move of
- * the orchestrator's base model, unlike a failover fallback.
+ * /slate adopt <name> → adoptHandoff(): the receiving Pi session CONTINUES the
+ * same Slate session. The handoff record names the external namespace, and the
+ * records come from the receiving session's own validating read of that
+ * namespace. No record set travels with the record, and adoption creates no
+ * second copy. A finished adoption leaves exactly one locator note in the
+ * receiving conversation, and the receiving store saves into the adopted
+ * namespace from then on. Adoption grants no exclusive access: the storage layer
+ * performs no ownership check, so a later save from the sending Pi session
+ * remains possible and Slate reports no conflict.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import {
 	CONFIG_DIR_NAME,
 	getAgentDir,
@@ -44,16 +40,24 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { currentModelSpec, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
+import { currentBranchLabel } from "./corpus.ts";
+import {
+	listCorpusHandoffCandidates,
+	readCorpusHandoffRecord,
+	writeCorpusHandoffRecord,
+	type CorpusHandoffRecord,
+} from "./handoff-record.ts";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
 	orchestratorCostUsd,
 	type ContextBudgetObject,
 	type ContextBudgetOverride,
+	type RuntimeAuthorityBinding,
 	type SlateConfig,
-	type SlateSnapshot,
 	type SlateStore,
 } from "./state.ts";
+import { DURABLE_SESSION_POLICY } from "./session-record.ts";
 
 /** Legacy percent mode only (DEPRECATED pauseThresholdPercent without contextBudget). */
 const DEFAULT_PAUSE_THRESHOLD_PERCENT = 40;
@@ -71,32 +75,13 @@ const ANTHROPIC_MODEL_RE = /^anthropic\/.*/;
 const BRIEF_HEADROOM_TOKENS = 32_768;
 /** Used when the merged settings cannot be read (mirrors pi's own default). */
 const FALLBACK_RESERVE_TOKENS = 16_384;
-/** A pending-handoff file older than this cannot belong to an in-flight handoff. */
-const PENDING_MAX_AGE_MS = 15 * 60 * 1000;
 const BRIEF_MAX_CHARS = 6000;
-
-// pi-coding-agent does not re-export ThinkingLevel (it lives in the transitive
-// pi-agent-core package, which is not one of our peer deps) — derive it.
-type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
-
-interface PendingHandoff {
-	parentSession: string | undefined; // undefined = in-memory session; adoption then never matches
-	createdAt: number;
-	brief: string;
-	// Live model + thinking level at handoff time. Absent in old pending files
-	// and when the parent session had no model.
-	model?: { provider: string; id: string };
-	thinkingLevel?: ThinkingLevel;
-	snapshot: SlateSnapshot;
-}
+const CANDIDATE_OUTPUT_MAX_CHARS = 16_384;
 
 export interface SlateHandoffHooks {
 	startHandoff(ctx: ExtensionCommandContext, focus?: string): Promise<void>;
+	adoptHandoff(ctx: ExtensionCommandContext, name: string | undefined, enterOrchestratorMode: () => () => void): Promise<boolean>;
 	effectiveContextBudget(contextWindow: number, ctx: ExtensionContext): number | undefined;
-}
-
-function pendingFile(cwd: string): string {
-	return join(cwd, CONFIG_DIR_NAME, "slate", "pending-handoff.json");
 }
 
 // Console-first reporting for the model-adoption block below, and for FAILURES
@@ -107,7 +92,12 @@ function pendingFile(cwd: string): string {
 // gate, since an unconditional stderr write scribbles pi-tui's differentially
 // rendered frame. ctx.hasUI is a getter that THROWS on a stale context, so it
 // is guarded: an unguarded check would be a crash, not a test.
-function reportFailure(ctx: ExtensionContext, message: string): void {
+/** One save refusal, as a sentence for a user-facing report. */
+function saveRefusalDetail(error: unknown): string {
+	return sanitizeForNotify(error instanceof Error ? error.message : String(error), 240);
+}
+
+export function reportFailure(ctx: ExtensionContext, message: string): void {
 	console.warn(message);
 	try {
 		if (ctx.hasUI) ctx.ui.notify(message, "warning");
@@ -268,38 +258,27 @@ function lastAssistantText(ctx: ExtensionCommandContext): string {
 	return text.length > BRIEF_MAX_CHARS ? `${text.slice(0, BRIEF_MAX_CHARS)}\n[... brief truncated]` : text;
 }
 
-// Trust gate: the project-supplied kickoff template is a project-derived
-// read injected into the fresh session's first prompt, so it is honored
-// only for trusted projects; untrusted → built-in kickoff text.
-function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: string): string {
+// The project kickoff template is project-derived prompt content. The caller
+// supplies the trust result, and explicit adoption never calls this while untrusted.
+export function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: string): string {
 	const template = join(cwd, CONFIG_DIR_NAME, "slate-handoff.md");
 	let base: string | undefined;
 	if (trusted) {
 		// existsSync alone is not enough: the path may be a directory or
-		// unreadable, and a throw escaping here would strand the pending-handoff
-		// file startHandoff just wrote — fall back to the default kickoff text.
+		// unreadable, and a throw escaping here would leave the adopted record
+		// without kickoff text — fall back to the default kickoff text.
 		try {
 			if (existsSync(template)) base = readFileSync(template, "utf8").trim();
 		} catch {
 			/* unreadable template → default kickoff */
 		}
 	}
-	// The "already restored" claim is only valid when the successor session
-	// will actually adopt the pending state — adoption is trust-gated, and the
-	// successor (same process, same cwd) shares this session's trust state, so
-	// `trusted` decides which default text is honest here.
 	if (!base) {
-		base = trusted
-			? [
-					"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
-					"Orchestrator mode and all worker threads/episodes from the previous session are already restored:",
-					"use `threads` to list them and `episode` to fetch details. Continue the work.",
-				].join("\n")
-			: [
-					"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
-					"NOTE: this project is untrusted, so slate did NOT auto-restore the previous session's threads/episodes.",
-					`Run /slate on if needed, then reconstruct context from the episode files under ${CONFIG_DIR_NAME}/slate/episodes/ and continue the work.`,
-				].join("\n");
+		base = [
+			"Slate orchestrator handoff completed after explicit adoption.",
+			"Orchestrator mode and the predecessor's worker threads and episodes are restored.",
+			"Use `threads` to list them and `episode` to fetch details. Continue the work.",
+		].join("\n");
 	}
 	const parts = [base];
 	if (brief) parts.push("", "## Handoff brief from the previous orchestrator", "", brief);
@@ -311,7 +290,7 @@ export function registerSlateHandoff(
 	pi: ExtensionAPI,
 	store: SlateStore,
 	getConfig: () => SlateConfig,
-	getBaseModel: () => BaseModelTracker,
+	_getBaseModel: () => BaseModelTracker,
 ): SlateHandoffHooks {
 	// pi's compaction reserve — read ONCE, lazily, then cached: it feeds a
 	// per-turn check and SettingsManager.create is a lock-protected disk read.
@@ -351,8 +330,9 @@ export function registerSlateHandoff(
 			headline,
 			"Finish nothing new. Reply to the user with:",
 			"(1) a concise HANDOFF BRIEF — overall goal, per-thread state with episode ids, immediate next actions;",
-			"(2) instructions: run /slate handoff [optional focus] to continue in a fresh session where all threads and episodes are restored automatically;",
-			`alternatively, start a new pi session manually, run /slate on, and have the new orchestrator read the episode files under ${CONFIG_DIR_NAME}/slate/episodes/.`,
+			"(2) instructions: run /slate handoff [optional focus] to write a handoff record, then run /slate adopt <name> in the successor session to restore the threads and episodes;",
+
+			"Alternatively, run /slate sessions to list the Slate sessions of this project. That listing can omit entries when it reaches a scan or output limit. Read the episode files under the exact session directory on the labelled line for this Slate session.",
 		].join("\n");
 
 	const checkBudget = (ctx: ExtensionContext) => {
@@ -372,7 +352,7 @@ export function registerSlateHandoff(
 					: DEFAULT_PAUSE_THRESHOLD_PERCENT;
 			if (percent < threshold) return;
 			const pct = Math.round(percent);
-			notifyText = `slate: context at ${pct}% (budget ${threshold}%) — paused. Run /slate handoff [focus] to continue in a fresh session.`;
+			notifyText = `slate: context at ${pct}% (budget ${threshold}%) — paused. Run /slate handoff [focus], then run /slate adopt <name> in the successor session.`;
 			headline = `[slate] Context is at ${pct}% — over the ${threshold}% budget. Slate auto-paused: the thread tool now REJECTS new dispatches.`;
 		} else {
 			// BUDGET mode: absolute token budget resolved against the LIVE model.
@@ -405,12 +385,22 @@ export function registerSlateHandoff(
 				effective < configured
 					? ` (configured ${configured.toLocaleString("en-US")}, clamped for this model's context window)`
 					: "";
-			notifyText = `slate: context at ${used} tokens (budget ${cap}${clampNote}) — paused. Run /slate handoff [focus] to continue in a fresh session.`;
+			notifyText = `slate: context at ${used} tokens (budget ${cap}${clampNote}) — paused. Run /slate handoff [focus], then run /slate adopt <name> in the successor session.`;
 			headline = `[slate] Context is at ${used} tokens — over the ${cap}-token budget${clampNote}. Slate auto-paused: the thread tool now REJECTS new dispatches.`;
 		}
 
 		store.paused = true;
-		store.save();
+		// The pause holds in memory whatever storage answers, and the steer below must
+		// still reach the orchestrator. A refused save is therefore reported, not
+		// swallowed and not allowed to cancel the pause (Track 14 goal 5).
+		try {
+			store.commit();
+		} catch (error) {
+			reportFailure(
+				ctx,
+				`slate: the automatic pause was not saved: ${saveRefusalDetail(error)}. The pause applies to this Pi session only.`,
+			);
+		}
 		if (ctx.hasUI) ctx.ui.notify(notifyText, "warning");
 		pi.sendMessage(
 			{ customType: "slate-pause", content: pauseInstructions(headline), display: true },
@@ -435,10 +425,17 @@ export function registerSlateHandoff(
 		if (!budgetModeActive(getConfig())) return;
 		if (event.reason !== "threshold") return;
 		store.paused = true;
-		store.save();
+		try {
+			store.commit();
+		} catch (error) {
+			reportFailure(
+				ctx,
+				`slate: the intercepted compaction pause was not saved: ${saveRefusalDetail(error)}. The pause applies to this Pi session only.`,
+			);
+		}
 		if (ctx.hasUI) {
 			ctx.ui.notify(
-				"slate: auto-compaction intercepted — paused instead. Run /slate handoff [focus] to continue in a fresh session.",
+				"slate: auto-compaction intercepted — paused instead. Run /slate handoff [focus], then run /slate adopt <name> in the successor session.",
 				"warning",
 			);
 		}
@@ -470,250 +467,321 @@ export function registerSlateHandoff(
 		return { cancel: true };
 	});
 
-	// Adopt a pending handoff into a fresh session. Registered AFTER index.ts's
-	// restore handler (so a branch that already carries slate state wins) and
-	// BEFORE mode.ts's (so its tool restriction sees the adopted mode).
-	pi.on("session_start", async (_event, ctx) => {
-		if (store.threads.size > 0 || store.orchestratorMode) return; // state already restored on this branch
-		const file = pendingFile(ctx.cwd);
-		try {
-			if (!existsSync(file)) return;
-			const pending = JSON.parse(readFileSync(file, "utf8")) as PendingHandoff;
-			const age = Date.now() - (pending.createdAt ?? 0);
-			// STALE reap runs regardless of trust: it deletes an abandoned runtime
-			// file without injecting any content into prompts or state, and keeps
-			// the file from lingering forever in a never-trusted project.
-			// Out-of-range timestamps are stale too: a future createdAt (negative
-			// age) or a non-numeric one (NaN age) would otherwise dodge the reap
-			// forever — a real in-flight handoff is at most minutes old.
-			if (!(age >= 0 && age < PENDING_MAX_AGE_MS)) {
-				rmSync(file, { force: true });
-				return;
-			}
-			// Trust gate (ADOPTION only): the pending file is project-local state a
-			// cloned repo could ship pre-seeded. Never adopt its content in an
-			// untrusted project — but leave a FRESH file untouched: the user may
-			// grant trust shortly after, within the handoff window.
-			if (!ctx.isProjectTrusted()) return;
-			// Never adopt into an unrelated session.
-			const matches = !!pending.parentSession && pending.parentSession === ctx.sessionManager.getHeader()?.parentSession;
-			if (!matches) return;
-			store.adoptSnapshot(pending.snapshot, ctx);
-			store.writingReminder.forceNext = true;
-			store.writingReminder.adoptedThisSessionStart = true;
-			store.paused = false;
-			store.save();
-			rmSync(file, { force: true });
-			if (ctx.hasUI) {
-				const t = store.threads.size;
-				const e = store.episodes.size;
-				ctx.ui.notify(
-					`slate: handoff state restored (${t} thread${t === 1 ? "" : "s"}, ${e} episode${e === 1 ? "" : "s"}).`,
-					"info",
-				);
-			}
-			// Restore the parent's live model + thinking level. The fresh session
-			// does not inherit them: startup CLI flags (-m/--thinking) are
-			// re-applied to the replacement runtime, enabledModels scoping picks
-			// its first entry, and a parent resumed with a non-default
-			// session-file model falls back to the settings default. This sits
-			// AFTER the adoption commit above, in its own try/catch, because
-			// pi.setModel can THROW on a failed live auth check despite its
-			// Promise<boolean> contract — a restore failure must never unwind a
-			// committed adoption.
-			// The pending file is disk JSON: honor the captured model only as an
-			// object with non-empty string provider/id — a malformed {"model":{}}
-			// must not count as "already live" via undefined === undefined.
-			const spec = pending.model;
-			if (
-				typeof spec === "object" &&
-				spec !== null &&
-				typeof spec.provider === "string" &&
-				spec.provider !== "" &&
-				typeof spec.id === "string" &&
-				spec.id !== ""
-			) {
-				const { provider, id } = spec;
-				const label = sanitizeForNotify(`${provider}/${id}`);
-				// The WHOLE adoption block runs inside the shared restore wrapper, not
-				// just the setModel call: both setters persist into the user's GLOBAL
-				// settings, and this path can persist the thinking-level key ALONE when
-				// the equality guard below short-circuits the model setter — so the
-				// wrapper's yield and post-switch read must follow the LAST write here
-				// (model-default.ts).
-				await withGlobalModelDefaultRestored(
-					pi,
-					ctx,
-					getConfig(),
-					{ provider, id },
-					async () => {
-						// True once a pi setter has actually been CALLED — only then can pi
-						// have persisted anything, and only then does the wrapper need to do
-						// its post-switch work.
-						let calledSetter = false;
-						try {
-							// Equality guard: setModel persists the model as the user's GLOBAL
-							// default as a side effect, so only call it when the fresh session
-							// actually resolved to something else.
-							let restored = ctx.model?.provider === provider && ctx.model?.id === id;
-							if (!restored) {
-								const model = ctx.modelRegistry.find(provider, id);
-								if (model) {
-									calledSetter = true;
-									// Run the switch THROUGH the tracker: ownSwitch declares the (from, to)
-									// pair immediately before the setter and retires the declaration when
-									// the setter SETTLES, so the model_select event pi emits from inside it
-									// is recognised as slate's own for exactly the switch's own duration and
-									// no longer (base-model.ts). It returns the setter's value and re-throws
-									// its error unchanged. The deliberate move of the base is the adopt()
-									// below, which happens only once the restore is confirmed.
-									restored = await getBaseModel().ownSwitch(currentModelSpec(ctx), `${provider}/${id}`, () =>
-										pi.setModel(model),
-									);
-								}
-							}
-							if (restored) {
-								// CONFIRMED success only (the model is live in this session, either
-								// because the setter returned true or because it already was): a handoff
-								// adoption deliberately re-seeds the orchestrator's base model. Recorded
-								// BEFORE the thinking-level setter (BG12): that setter can throw — it
-								// emits events and appends to the session file — and a throw there must
-								// not lose an adoption that already succeeded. A failed or abandoned
-								// model restore never reaches this line, so the base then keeps the seed
-								// taken from this session's own model.
-								getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
-								// Thinking level rides only on a matching/restored model, and only
-								// AFTER setModel (which re-derives thinking internally). Like
-								// setModel, setThinkingLevel persists to the user's ONE GLOBAL
-								// default thinking level (not a per-model value), so clamping the
-								// old level against an unrelated fallback model would persist
-								// garbage there. Non-strings are never passed on; pi clamps
-								// unknown string levels itself.
-								if (typeof pending.thinkingLevel === "string") {
-									calledSetter = true;
-									// Its OWN try/catch (BG12): the outer one reports "could not restore
-									// model … keeping the session default", which would be a false claim
-									// once the model IS restored. This failure is the thinking level's
-									// alone, and it is reported as such.
-									try {
-										pi.setThinkingLevel(pending.thinkingLevel);
-										// Re-record the base with the level pi actually clamped to, now that
-										// it is applied. adopt() is idempotent for the model; this only
-										// refreshes the observed effort.
-										getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
-									} catch (error) {
-										reportFailure(
-											ctx,
-											`slate: restored model ${label}, but could not apply the handoff's thinking level ` +
-												`"${sanitizeForNotify(pending.thinkingLevel, 20)}" — ${sanitizeForNotify(
-													error instanceof Error ? error.message : String(error),
-												)}. Keeping the session's own thinking level.`,
-										);
-									}
-								}
-							} else {
-								reportFailure(
-									ctx,
-									`slate: could not restore model ${label} (unknown or no auth) — keeping the session default.`,
-								);
-							}
-						} catch (error) {
-							// A throw can land AFTER a completed write (pi persists the pair
-							// before the cascade that can throw), so this counts as "a setter
-							// ran" — the safe direction.
+
+	const restoreAdoptedModel = async (ctx: ExtensionCommandContext, record: CorpusHandoffRecord): Promise<void> => {
+		const spec = record.model;
+		if (spec === undefined) return;
+		const { provider, id } = spec;
+		const label = sanitizeForNotify(`${provider}/${id}`);
+		await withGlobalModelDefaultRestored(
+			pi,
+			ctx,
+			getConfig(),
+			spec,
+			async () => {
+				let calledSetter = false;
+				try {
+					let restored = ctx.model?.provider === provider && ctx.model?.id === id;
+					if (!restored) {
+						const model = ctx.modelRegistry.find(provider, id);
+						if (model !== undefined) {
 							calledSetter = true;
+							restored = await _getBaseModel().ownSwitch(currentModelSpec(ctx), `${provider}/${id}`, () => pi.setModel(model));
+						}
+					}
+					if (!restored) {
+						reportFailure(ctx, `slate: could not restore handoff model ${label}. The session keeps its current model.`);
+						return calledSetter;
+					}
+					_getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
+					if (typeof record.thinkingLevel === "string") {
+						calledSetter = true;
+						try {
+							pi.setThinkingLevel(record.thinkingLevel);
+							_getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
+						} catch (error) {
 							reportFailure(
 								ctx,
-								`slate: could not restore model ${label} — ${sanitizeForNotify(
-									error instanceof Error ? error.message : String(error),
-								)}. Keeping the session default.`,
+								`slate: restored model ${label}, but could not restore thinking level ${sanitizeForNotify(record.thinkingLevel, 20)}: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`,
 							);
 						}
-						return calledSetter;
-					},
-					// No setter was called ⇒ pi cannot have written anything ⇒ skip the
-					// wrapper's post-switch reads, retries and reporting entirely.
-					(calledSetter) => calledSetter,
-				);
-			}
-		} catch {
-			/* a broken pending file must never break session start */
+					}
+				} catch (error) {
+					calledSetter = true;
+					reportFailure(ctx, `slate: could not restore handoff model ${label}: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`);
+				}
+				return calledSetter;
+			},
+			(calledSetter) => calledSetter,
+		);
+	};
+
+	const describeCandidates = (ctx: ExtensionCommandContext): string[] => {
+		const listed = listCorpusHandoffCandidates({ cwd: ctx.cwd, isTrusted: () => ctx.isProjectTrusted() });
+		if (!listed.ok) return [sanitizeForNotify(listed.reason, 360)];
+		if (listed.candidates.length === 0) return ["slate: no handoff records are available. Run /slate handoff in the source session first."];
+		const lines = listed.candidates.map(({ name, result }) => {
+			if (!result.ok) return `- ${name}: unavailable — ${sanitizeForNotify(result.reason, 240)}`;
+			const record = result.record;
+			const created = new Date(record.createdAt);
+			const createdLabel = Number.isNaN(created.getTime()) ? "invalid time" : created.toISOString();
+			return `- ${name}: branch ${sanitizeForNotify(record.branchLabel || "(detached)", 80)}, worktree ${sanitizeForNotify(record.worktreePath, 160)}, created ${createdLabel}`;
+		});
+		return [
+			listed.candidates.length === 1
+				? "slate: one handoff record is available. Nothing was adopted without its explicit name:"
+				: "slate: several handoff records are available. Nothing was adopted because a name is required:",
+			...lines,
+			"Run /slate adopt <name> to select one record.",
+		];
+	};
+
+	/**
+	 * COMPLETE one partial adoption of the namespace this Pi session already
+	 * continues (BG1502/CN1506).
+	 *
+	 * The records are durable and validated already, and the receiving conversation
+	 * has no locator note. One save therefore revalidates the namespace and writes
+	 * the missing note. It changes no record, sends no second kickoff and restores no
+	 * model, because the note was the only missing part.
+	 */
+	const completeAdoption = (ctx: ExtensionCommandContext, name: string): boolean => {
+		let result: ReturnType<SlateStore["commit"]>;
+		try {
+			result = store.commit();
+		} catch (error) {
+			reportFailure(
+				ctx,
+				`slate: adoption could not complete the locator note of ${sanitizeForNotify(name)}: ${saveRefusalDetail(error)}. `
+					+ `Every Slate record remains in namespace ${sanitizeForNotify(name)}.`,
+			);
+			return false;
 		}
-	});
+		if (result?.kind === "partial" || result?.kind === "uncertain") {
+			reportFailure(
+				ctx,
+				`slate: adoption of ${sanitizeForNotify(name)} is still incomplete: ${sanitizeForNotify(result.message, 240)}. `
+					+ `Every Slate record remains in namespace ${sanitizeForNotify(name)}.`,
+			);
+			return false;
+		}
+		const message = `slate: handoff ${sanitizeForNotify(name)} was already adopted in this Pi session, and slate completed its locator note.`;
+		console.warn(message);
+		if (ctx.hasUI) ctx.ui.notify(message, "info");
+		return true;
+	};
+
+	const adoptHandoff = async (
+		ctx: ExtensionCommandContext,
+		name: string | undefined,
+		enterOrchestratorMode: () => () => void,
+	): Promise<boolean> => {
+		// D104: this gate precedes candidate parsing and named-record parsing.
+		if (!ctx.isProjectTrusted()) {
+			reportFailure(ctx, "slate: handoff adoption requires a trusted project. Trust this project, then run /slate adopt <name> again.");
+			return false;
+		}
+		if (name === undefined) {
+			const rendered = describeCandidates(ctx).join("\n");
+			const message = rendered.length > CANDIDATE_OUTPUT_MAX_CHARS
+				? `${rendered.slice(0, CANDIDATE_OUTPUT_MAX_CHARS - 24)}\n[listing truncated]`
+				: rendered;
+			console.warn(message);
+			if (ctx.hasUI) ctx.ui.notify(message, "info");
+			return false;
+		}
+		// ADOPTION CONTINUES ONE SLATE SESSION IN THIS PI SESSION, so this session must
+		// have selected no storage of its own yet. A refusing session reports its own
+		// refusal, and a session that already names ANOTHER external namespace keeps it:
+		// abandoning that namespace here would leave its records unreachable.
+		//
+		// A session that already continues the namespace of THIS handoff is the one
+		// exception, and the design requires it: a partial adoption keeps every record
+		// and leaves the locator note missing, and the repeated command completes that
+		// note. Refusing it made the advertised recovery impossible (BG1502/CN1506). The
+		// comparison happens below, where the named record supplies the namespace.
+		const authority = store.authorityState();
+		if (authority.kind === "unavailable") {
+			reportFailure(
+				ctx,
+				`slate: adoption refused because this session selected no storage — ${sanitizeForNotify(authority.message, 240)}`,
+			);
+			return false;
+		}
+		const continuing = authority.kind === "durable" ? authority.binding : undefined;
+		if (continuing === undefined && (store.threads.size > 0 || store.episodes.size > 0)) {
+			reportFailure(ctx, "slate: adoption refused because this session already has threads or episodes. Start a fresh session and run the command again.");
+			return false;
+		}
+		const read = readCorpusHandoffRecord({ cwd: ctx.cwd, name, isTrusted: () => ctx.isProjectTrusted() });
+		if (!read.ok) {
+			reportFailure(ctx, `${sanitizeForNotify(read.reason, 360)}. Run /slate adopt without a name to list candidates.`);
+			return false;
+		}
+		let liveWorktree: string;
+		let liveBranch: string;
+		try {
+			liveWorktree = realpathSync(ctx.cwd);
+			liveBranch = currentBranchLabel(ctx.cwd);
+		} catch (error) {
+			reportFailure(ctx, `slate: adoption could not verify the current worktree and branch: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`);
+			return false;
+		}
+		if (read.record.worktreePath !== liveWorktree) {
+			reportFailure(
+				ctx,
+				`slate: adoption refused because the handoff belongs to worktree ${sanitizeForNotify(read.record.worktreePath, 160)}, not ${sanitizeForNotify(liveWorktree, 160)}.`,
+			);
+			return false;
+		}
+		if (read.record.branchLabel !== liveBranch) {
+			reportFailure(
+				ctx,
+				`slate: adoption refused because the handoff belongs to branch ${sanitizeForNotify(read.record.branchLabel || "(detached)", 80)}, not ${sanitizeForNotify(liveBranch || "(detached)", 80)}.`,
+			);
+			return false;
+		}
+		const now = Date.now();
+		if (read.record.createdAt > now) {
+			reportFailure(ctx, `slate: adoption refused because ${sanitizeForNotify(name)} has a future creation time. Correct the clock or record, then retry.`);
+			return false;
+		}
+		const advisoryAgeMs = 15 * 60 * 1000;
+		if (now - read.record.createdAt >= advisoryAgeMs) {
+			const warning = `slate: handoff ${sanitizeForNotify(name)} is older than 15 minutes. Age is advisory, so adoption continues.`;
+			console.warn(warning);
+			if (ctx.hasUI) ctx.ui.notify(warning, "warning");
+		}
+		const priorReminder = {
+			...store.writingReminder,
+			...(store.writingReminder.pending === undefined ? {} : { pending: { ...store.writingReminder.pending } }),
+		};
+		// THE RECORD SET COMES FROM THE VALIDATING READ OF THE NAMED NAMESPACE, and from
+		// nothing else. The handoff record supplies the namespace name, the brief, the
+		// focus and the model, so no record copy travels with it and adoption cannot
+		// replace durable records with a caller-supplied set (Track 14 goals 10 to 12).
+		const binding: RuntimeAuthorityBinding = {
+			policy: DURABLE_SESSION_POLICY,
+			identity: read.record.author.identity,
+			name: read.record.author.name,
+		};
+		if (continuing !== undefined) {
+			if (continuing.identity !== binding.identity || continuing.name !== binding.name) {
+				reportFailure(
+					ctx,
+					`slate: adoption refused because this Pi session already continues Slate session ${sanitizeForNotify(continuing.name, 80)}. `
+						+ `Start a fresh Pi session, then run /slate adopt ${sanitizeForNotify(name)} there.`,
+				);
+				return false;
+			}
+			return completeAdoption(ctx, name);
+		}
+		try {
+			store.adoptExternalAuthority(binding);
+		} catch (error) {
+			reportFailure(
+				ctx,
+				`slate: adoption refused the external namespace ${sanitizeForNotify(name)}: ${saveRefusalDetail(error)}. `
+					+ "No Slate record changed, so you can correct the cause and run the command again.",
+			);
+			return false;
+		}
+		const adoptedThreads = store.threads.size;
+		const adoptedEpisodes = store.episodes.size;
+		let undoMode = () => {};
+		let partial: string | undefined;
+		try {
+			store.paused = false;
+			// The sending session banked its own orchestrator spend in the handoff record.
+			// It is one carried number and never a record set, and it never decreases.
+			store.carriedCostUsd = Math.max(store.carriedCostUsd, read.record.carriedCostUsd);
+			undoMode = enterOrchestratorMode();
+			store.writingReminder.forceNext = true;
+			const result = store.commit();
+			if (result?.kind === "partial" || result?.kind === "uncertain") partial = sanitizeForNotify(result.message, 240);
+		} catch (error) {
+			delete store.writingReminder.pending;
+			Object.assign(store.writingReminder, priorReminder);
+			let rollbackFailure: string | undefined;
+			try { undoMode(); }
+			catch (rollbackError) { rollbackFailure = saveRefusalDetail(rollbackError); }
+			const rollbackClause = rollbackFailure === undefined ? "" : ` Restoring the previous tool set also reported: ${rollbackFailure}.`;
+			reportFailure(
+				ctx,
+				`slate: adoption could not save the receiving session state: ${saveRefusalDetail(error)}. `
+					+ `Every Slate record remains in namespace ${sanitizeForNotify(name)}. No kickoff was sent.${rollbackClause}`,
+			);
+			return false;
+		}
+		if (partial !== undefined) {
+			reportFailure(
+				ctx,
+				`slate: adoption saved every Slate record, but ${partial}. Run /slate adopt ${sanitizeForNotify(name)} again to complete it.`,
+			);
+		}
+		await restoreAdoptedModel(ctx, read.record);
+		const kickoff = buildKickoff(ctx.cwd, true, read.record.brief, read.record.focus);
+		pi.sendMessage({ customType: "slate-kickoff", content: kickoff, display: true }, { deliverAs: "steer", triggerTurn: true });
+		const success = `slate: handoff ${sanitizeForNotify(name)} adopted successfully with `
+			+ `${adoptedThreads} thread${adoptedThreads === 1 ? "" : "s"} and ${adoptedEpisodes} episode${adoptedEpisodes === 1 ? "" : "s"}.`;
+		console.warn(success);
+		if (ctx.hasUI) ctx.ui.notify(success, "info");
+		return true;
+	};
 
 	const startHandoff = async (ctx: ExtensionCommandContext, focus?: string): Promise<void> => {
 		await ctx.waitForIdle();
 
-		const brief = lastAssistantText(ctx);
-		const parentSession = ctx.sessionManager.getSessionFile();
-		// ctx.model can be undefined (no-model session): capture neither field
-		// then — a thinking level is meaningless without a model to clamp it
-		// against, and adoption skips the whole restore when model is absent.
-		const model = ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined;
-		const pending: PendingHandoff = {
-			parentSession,
-			createdAt: Date.now(),
-			brief,
-			model,
-			thinkingLevel: model ? pi.getThinkingLevel() : undefined,
-			// The successor starts unpaused and in orchestrator mode regardless of
-			// the current (paused) state.
-			snapshot: {
-				...store.snapshot(),
-				paused: false,
-				orchestratorMode: true,
-				// The successor's own branch sum starts at zero, so bank the parent's
-				// billed orchestrator spend (plus anything already carried) — the
-				// displayed total must survive repeated handoffs.
-				carriedCostUsd: store.carriedCostUsd + orchestratorCostUsd(ctx),
-			},
-		};
-		const file = pendingFile(ctx.cwd);
-		mkdirSync(dirname(file), { recursive: true });
-		writeFileSync(file, `${JSON.stringify(pending, null, 2)}\n`, "utf8");
-
-		const kickoff = buildKickoff(ctx.cwd, ctx.isProjectTrusted(), brief, focus);
-		// catch, NOT finally: on success the NEW session's adoption handler has
-		// already consumed and deleted the pending file (session_start fires
-		// inside newSession) — cleaning up there would be wrong.
+		// SAVE THE RECORDS FIRST. The receiving session reads them from the external
+		// namespace, so a handoff record written over unsaved records would name a
+		// namespace that is behind this session. A refused save stops the handoff.
 		try {
-			const { cancelled } = await ctx.newSession({
-				parentSession,
-				withSession: async (fresh) => {
-					await fresh.sendUserMessage(kickoff);
-				},
-			});
-			if (cancelled) {
-				// Left behind, the pending file could be adopted by an unintended fork
-				// or session sharing this parent within the 15-min window.
-				rmSync(file, { force: true });
-				store.paused = false;
-				store.save();
-				if (ctx.hasUI) ctx.ui.notify("slate: handoff cancelled — pause cleared, pending state removed.", "warning");
-			}
+			store.commit();
 		} catch (error) {
-			try {
-				rmSync(file, { force: true });
-			} catch {
-				/* ignore */
-			}
-			// Best-effort: if the replacement partially happened, the old pi/ctx
-			// are stale and these calls themselves throw.
-			try {
-				store.paused = false;
-				store.save();
-				if (ctx.hasUI) {
-					ctx.ui.notify(
-						`slate: handoff failed — ${error instanceof Error ? error.message : String(error)}. Pause cleared; pending state removed.`,
-						"error",
-					);
-				}
-			} catch {
-				/* stale pi/ctx after partial replacement */
-			}
-			throw error;
+			reportFailure(
+				ctx,
+				`slate: handoff stopped because slate could not save its records: ${saveRefusalDetail(error)}. No handoff record was written.`,
+			);
+			return;
 		}
+
+		const brief = lastAssistantText(ctx);
+		const identity = store.slateSessionId;
+		const name = store.slateSessionName;
+		const project = store.corpusProject;
+		if (identity === undefined || name === undefined || project === undefined) {
+			reportFailure(ctx, "slate: handoff record was not written because this session has no persisted corpus identity.");
+			return;
+		}
+		// ctx.model can be undefined. A thinking level has no meaning without its model.
+		const model = ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined;
+		const record: CorpusHandoffRecord = {
+			version: 1,
+			author: { identity, name },
+			authorSessionDirectory: join(project.directory, name),
+			createdAt: Date.now(),
+			worktreePath: realpathSync(ctx.cwd),
+			branchLabel: currentBranchLabel(ctx.cwd),
+			parentChain: store.slateSessionParentChain.map((parent) => ({ ...parent })),
+			brief,
+			...(focus === undefined ? {} : { focus }),
+			...(model === undefined ? {} : { model, thinkingLevel: pi.getThinkingLevel() }),
+			carriedCostUsd: store.carriedCostUsd + orchestratorCostUsd(ctx),
+		};
+		try {
+			writeCorpusHandoffRecord(project, record);
+		} catch (error) {
+			reportFailure(
+				ctx,
+				`slate: handoff record was not written: ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 240)}`,
+			);
+			return;
+		}
+		const command = `/slate adopt ${name}`;
+		const message = `slate: handoff record written for ${name}. Start a fresh session and run ${command}.`;
+		console.warn(message);
+		if (ctx.hasUI) ctx.ui.notify(message, "info");
 	};
 
-	return { startHandoff, effectiveContextBudget };
+	return { startHandoff, adoptHandoff, effectiveContextBudget };
 }

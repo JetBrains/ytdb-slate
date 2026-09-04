@@ -112,6 +112,12 @@ function makeHarness(router: unknown, options: HarnessOptions = {}): SlateHarnes
         getEntries() {
           return [];
         },
+        getSessionId() {
+          return "router-warning-test-session";
+        },
+        getSessionFile() {
+          return join(cwd, "router-warning-test-session.jsonl");
+        },
       },
       model: undefined,
     };

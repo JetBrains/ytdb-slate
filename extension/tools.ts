@@ -2,14 +2,13 @@
  * Slate orchestrator tools (ExecPlan D3): thread / threads / episode.
  */
 
-import { readFileSync } from "node:fs";
+import { readContainedFile } from "./corpus.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { renderThreadCall, renderThreadResult } from "./render.ts";
 import {
 	displayThreadType,
 	parseThreadType,
-	resolveEpisodeFile,
 	renderThreadId,
 	threadTypeMarker,
 	THREAD_TYPE_GLOSSES,
@@ -265,10 +264,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const known = [...store.episodes.keys()].join(", ") || "none";
 				throw new Error(`Unknown episode "${params.id}". Known episodes: ${known}`);
 			}
-			const file = resolveEpisodeFile(ctx.cwd, episode.file);
-			if (file === undefined) throw new Error(`Episode "${params.id}" is no longer a safe readable slate episode file.`);
+			const content = readContainedFile(ctx.cwd, episode.file, store.corpusProject?.directory);
+			if (content === undefined) throw new Error(`Episode "${params.id}" is no longer a safe readable slate episode file.`);
 			return {
-				content: [{ type: "text", text: readFileSync(file, "utf8") }],
+				content: [{ type: "text", text: content.toString("utf8") }],
 				details: { id: episode.id, threadId: episode.threadId, status: episode.status },
 			};
 		},

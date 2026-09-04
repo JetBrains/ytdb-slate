@@ -11,14 +11,15 @@
  *     interactive sessions are seeded with the mode ON (unsaved until the
  *     first real state mutation).
  *
- * `/slate handoff [focus]` / `/slate resume` interact with the auto-pause
- * machinery in handoff.ts (context budget → paused → fresh-session handoff).
+ * `/slate handoff [focus]` writes a handoff record. A successor then runs
+ * `/slate adopt <name>` to restore it. `/slate resume` exits the paused state.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
+import { capCorpusSessionOutput, listCorpusSessions } from "./corpus-list.ts";
 import { PROFILES_AS_OF } from "./model-profiles.ts";
 import { checkEffort, ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "./model-router.ts";
 import {
@@ -31,6 +32,10 @@ import {
 	WRITING_GUIDANCE_DOC,
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import { renderResearchLogDoctrine, type ResearchLogDoctrineState } from "./research-log.ts";
+import { SLATE_BINDING_CUSTOM_TYPE } from "./runtime-authority.ts";
+import { sanitizeForNotify } from "./notify.ts";
+import { isSlateSessionName } from "./session-names.ts";
 import { THINKING_LEVELS } from "./route.ts";
 import {
 	displayThreadType,
@@ -124,6 +129,17 @@ const FIXED_DOCTRINE_RULES = 10;
 const WRITING_TURN_MAX_BYTES = 16 * 1024;
 
 type WritingStatus = "fresh" | "ready" | "skipped" | "unavailable";
+
+type SessionDiscoveryCommandResult =
+	| { ok: true; lines: string[] }
+	| { ok: false; reason: string };
+
+interface SessionDiscoveryModule {
+	discoverCorpusSession(options: {
+		query: string;
+		isTrusted: () => boolean;
+	}): SessionDiscoveryCommandResult;
+}
 
 function assistantTextBytes(message: unknown): number | undefined {
 	if (!message || typeof message !== "object") return undefined;
@@ -449,6 +465,9 @@ function buildDoctrine(
 	trusted: boolean,
 	extensions: WorkerExtensionSet,
 	router: ModelRouterResolution,
+	// Track 15 goal 3. The doctrine states the research log path of THIS Slate
+	// session. An absent path is the pending case, which is the default.
+	researchLog: ResearchLogDoctrineState = {},
 ): string {
 	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
 	// one of the gates; otherwise durable records live in the research log.
@@ -456,8 +475,8 @@ function buildDoctrine(
 		config.workflow?.draftPRs === true
 			? `An umbrella draft PR is part of the pre-implementation gates; PR
    publishing mechanics are in ${PR_PUBLISHING_DOC}.`
-			: `Durable workflow records anchor in the retained repo-root research
-   log per the workflow doc.`;
+			: `Durable workflow records anchor in the retained research log per the
+   workflow doc.`;
 	const followUpTail = trusted && config.workflow?.followUpIssues === true
 		? "\n   After review, ask the user which review suggestions become tracker issues."
 		: "";
@@ -494,6 +513,7 @@ threads execute. Rules:
    areas separately. The orchestrator owns the track split. For repository changes,
    read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).
    MEDIUM and LARGE always keep a research log; SMALL opens one on a listed trigger.
+${renderResearchLogDoctrine(researchLog)}
    Track packets are non-blocking, but final change acceptance is blocking. Before
    the first file-modifying dispatch, confirm the user confirmed the predicted grade
    and focus set, and every required pre-implementation gate ran. Validate each
@@ -554,8 +574,9 @@ const PAUSED_ADDENDUM = `
 
 Slate is paused for handoff: thread dispatches are REJECTED. Do not start new
 work. Reply with a concise handoff brief (overall goal, per-thread state with
-episode ids, immediate next actions) and direct the user to run
-/slate handoff [optional focus].`;
+episode ids, immediate next actions). Direct the user to run
+/slate handoff [optional focus], then run /slate adopt <name> in the successor
+session.`;
 
 export function renderThreadWidgetLine(thread: ThreadRecord): string {
 	const marker = threadTypeMarker(displayThreadType(thread.type));
@@ -578,21 +599,23 @@ export function registerSlateMode(
 	// Injected only by the pure harness so it can exercise both dynamic-import
 	// failure and checker failure through the real turn hook.
 	loadWritingChecker: () => Promise<WritingChecker> = () => import(WRITING_CHECKER_URL),
+	// A dynamic import keeps project-independent discovery outside normal startup.
+	loadSessionDiscovery: () => Promise<SessionDiscoveryModule> = () => import("./session-discovery.ts"),
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
 	const writingCounters: WritingCounters = { measuredTurns: 0, findingTurns: 0 };
 	let writingStatus: WritingStatus = "fresh";
 	let writingCheckerPromise: Promise<WritingChecker> | undefined;
-
 	const writingIsVisible = (ctx: ExtensionContext): boolean =>
 		ctx.hasUI && store.orchestratorMode && ctx.isProjectTrusted();
 
 	const updateWidget = () => {
 		if (!uiCtx?.hasUI) return;
+		const sessionLabel = !isSlateSessionName(store.slateSessionName) ? "" : `slate ${sanitizeForNotify(store.slateSessionName, 48)} ⋅ `;
 		if (!store.orchestratorMode) {
 			uiCtx.ui.setWidget("slate", undefined);
-			uiCtx.ui.setStatus("slate", undefined);
+			uiCtx.ui.setStatus("slate", sessionLabel === "" ? undefined : sessionLabel.slice(0, -3));
 			return;
 		}
 		// Orchestrator's own spend: summed over ALL entries (billed reality —
@@ -611,7 +634,7 @@ export function registerSlateMode(
 						? " ⋅ writing unavailable"
 						: " ⋅ writing 0/0"
 			: "";
-		uiCtx.ui.setStatus("slate", `slate: orchestrator ⋅ ${costLine}${writingLine}`);
+		uiCtx.ui.setStatus("slate", `${sessionLabel}orchestrator ⋅ ${costLine}${writingLine}`);
 		const threads = [...store.threads.values()];
 		const lines = [
 			`slate ⋅ orchestrator mode ⋅ ${threads.length} thread${threads.length === 1 ? "" : "s"}`,
@@ -622,9 +645,9 @@ export function registerSlateMode(
 		uiCtx.ui.setWidget("slate", lines);
 	};
 
-	const setMode = (on: boolean, persist: boolean) => {
-		if (on && !store.orchestratorMode) {
-			savedTools = pi.getActiveTools();
+	const setMode = (on: boolean, persist: boolean, forceEntry = false) => {
+		if (on && (!store.orchestratorMode || forceEntry)) {
+			savedTools ??= pi.getActiveTools();
 			pi.setActiveTools(ORCHESTRATOR_TOOLS);
 		} else if (!on && store.orchestratorMode) {
 			pi.setActiveTools(savedTools ?? [...pi.getAllTools().map((t) => t.name)]);
@@ -632,20 +655,77 @@ export function registerSlateMode(
 		}
 		if (!on) store.paused = false; // a pause is meaningless outside orchestrator mode
 		store.orchestratorMode = on;
-		if (persist) store.save();
+		// A refused save throws here, so no caller can present an unsaved mode change
+		// as a saved one (Track 14 goal 5).
+		if (persist) store.commit();
 		updateWidget();
+	};
+
+	/** Report one refused or failed save through both channels. */
+	const reportSaveRefusal = (ctx: ExtensionContext, action: string, error: unknown): void => {
+		const detail = sanitizeForNotify(error instanceof Error ? error.message : String(error), 240);
+		const message = `slate: ${action} was not saved: ${detail}`;
+		console.warn(message);
+		try {
+			if (ctx.hasUI) ctx.ui.notify(message, "warning");
+		} catch {
+			/* stale context — the console line above stands */
+		}
+	};
+
+	const enterAdoptionMode = (): (() => void) => {
+		const activeBefore = [...pi.getActiveTools()];
+		const savedBefore = savedTools === undefined ? undefined : [...savedTools];
+		try {
+			setMode(true, false, true);
+		} catch (error) {
+			savedTools = savedBefore;
+			pi.setActiveTools(activeBefore);
+			throw error;
+		}
+		return () => {
+			savedTools = savedBefore;
+			pi.setActiveTools(activeBefore);
+			updateWidget();
+		};
 	};
 
 	// Widget refresh whenever slate state changes (dispatch start/end, new threads).
 	store.onDidChange = updateWidget;
 
 	pi.registerCommand("slate", {
-		description: "Slate orchestrator mode: on | off | handoff [focus] | resume (no arg toggles)",
+		description: "Slate orchestrator mode: on | off | sessions [name|identifier] | handoff [focus] | adopt <name> | resume (no arg toggles)",
 		handler: async (args, ctx) => {
 			uiCtx = ctx;
 			const trimmed = args?.trim() ?? "";
 			const [verb, ...rest] = trimmed.split(/\s+/);
 			const arg = verb?.toLowerCase();
+			if (arg === "sessions") {
+				let listed: SessionDiscoveryCommandResult;
+				if (rest.length === 0) {
+					listed = listCorpusSessions({
+						cwd: ctx.cwd,
+						isTrusted: () => ctx.isProjectTrusted(),
+						project: store.corpusProject,
+					});
+				} else if (!ctx.isProjectTrusted()) {
+					listed = { ok: false, reason: "slate: project-independent session lookup requires a trusted project" };
+				} else {
+					try {
+						const discovery = await loadSessionDiscovery();
+						listed = discovery.discoverCorpusSession({
+							query: rest.join(" "),
+							isTrusted: () => ctx.isProjectTrusted(),
+						});
+					} catch {
+						listed = { ok: false, reason: "slate: project-independent session lookup could not be loaded" };
+					}
+				}
+				const message = listed.ok ? capCorpusSessionOutput(listed.lines.join("\n")) : listed.reason;
+				console.warn(message);
+				if (ctx.hasUI) ctx.ui.notify(message, listed.ok ? "info" : "warning");
+				return;
+			}
 			if (arg === "handoff") {
 				if (!store.orchestratorMode) {
 					if (ctx.hasUI) ctx.ui.notify("slate: orchestrator mode is not active — nothing to hand off.", "warning");
@@ -654,14 +734,41 @@ export function registerSlateMode(
 				await hooks.startHandoff(ctx, rest.join(" ") || undefined);
 				return;
 			}
+			if (arg === "adopt") {
+				if (rest.length > 1) {
+					const message = "slate: adoption takes exactly one session name. Run /slate adopt without a name to list candidates.";
+					console.warn(message);
+					if (ctx.hasUI) ctx.ui.notify(message, "warning");
+					return;
+				}
+				await hooks.adoptHandoff(ctx, rest[0], enterAdoptionMode);
+				return;
+			}
 			if (arg === "resume") {
+				const pausedBefore = store.paused;
 				store.paused = false;
-				store.save();
+				try {
+					store.commit();
+				} catch (error) {
+					store.paused = pausedBefore;
+					updateWidget();
+					reportSaveRefusal(ctx, "the resume", error);
+					return;
+				}
 				if (ctx.hasUI) ctx.ui.notify("slate: pause cleared — dispatches allowed again.", "info");
 				return;
 			}
 			const target = arg === "on" ? true : arg === "off" ? false : !store.orchestratorMode;
-			setMode(target, true);
+			const modeBefore = store.orchestratorMode;
+			try {
+				setMode(target, true);
+			} catch (error) {
+				// The mode is runtime state, so an unsaved change is reverted rather than
+				// left showing a mode this session could not record.
+				try { setMode(modeBefore, false); } catch { /* the report below stands */ }
+				reportSaveRefusal(ctx, "the mode change", error);
+				return;
+			}
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					target
@@ -688,8 +795,13 @@ export function registerSlateMode(
 		// Blocks carry no separators — prefix each here. When paused, the
 		// addendum goes LAST so the pause directive is the final word in the
 		// prompt, undiluted by the role guidelines.
+		// The research log facts come from the store, so the doctrine states the
+		// pending rule before the session directory exists and the exact path after.
+		const researchLogPath = store.researchLogPath();
+		const researchLog: ResearchLogDoctrineState =
+			researchLogPath === undefined ? {} : { path: researchLogPath };
 		const parts = [
-			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRouter()),
+			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRouter(), researchLog),
 			...loadDoctrineExtra(ctx.cwd, config, trusted).map((d) => `\n\n${d}`),
 			...docs.map((d) => `\n\n${d}`),
 		];
@@ -803,15 +915,13 @@ export function registerSlateMode(
 		writingCheckerPromise = undefined;
 		writingStatus = "fresh";
 		Object.assign(store.writingReminder, resetWritingReminderSession(store.writingReminder));
-		// Preserve force only when the earlier handoff handler marked this cycle.
-		// The reset consumes that marker, so a later generic session_start clears
-		// stale force. Registration order remains index restore, handoff, then mode.
-		// Re-apply the persisted mode to the fresh runtime.
+		// The reset consumes any force marker from an explicit adoption cycle, so a
+		// later generic session_start clears stale force. Re-apply the persisted mode
+		// to the fresh runtime.
 		//
 		// Config-driven default: seed orchestrator mode ON for a genuinely FRESH
-		// interactive session. Running AFTER restore and handoff adoption means
-		// the seed can neither clobber persisted state nor trip the adoption
-		// guard. "Fresh" = no message entries and no recorded slate state on the
+		// interactive session. The seed can neither clobber persisted state nor trip
+		// the adoption guard. "Fresh" = no message entries and no recorded slate state on the
 		// branch: metadata-only entries (e.g., session naming) don't suppress the
 		// seed, while resumed/forked real sessions and explicit /slate off
 		// decisions stay untouched. Deliberately NOT saved — persisting would
@@ -820,11 +930,22 @@ export function registerSlateMode(
 		// gate limits the seed to interactive terminal sessions — hasUI would not
 		// do: it is also true in RPC mode, and scripted/automated runs
 		// (print/JSON/RPC) must not silently lose tactical tools.
-		if (!store.orchestratorMode && ctx.mode === "tui" && getConfig().orchestratorModeDefault === true) {
+		//
+		// FRESHNESS IS A LOCATOR NOTE QUESTION (Track 14): a branch that names an
+		// external namespace continues a Slate session and keeps its stored mode, and a
+		// branch that names none is new. Slate no longer looks for a full record copy
+		// in the conversation, so a branch holding only such copies reads as new.
+		//
+		// The storage report has priority over this seed: a refusing session must not
+		// present an active orchestrator mode it cannot record.
+		if (
+			!store.orchestratorMode && ctx.mode === "tui" && getConfig().orchestratorModeDefault === true
+			&& store.authorityState().kind !== "unavailable"
+		) {
 			const fresh = !ctx.sessionManager.getBranch().some((entry) => {
-				// Loose cast like state.ts restore(): tolerate malformed/legacy entries.
+				// Loose cast: tolerate malformed entries.
 				const e = entry as { type: string; customType?: string };
-				return e.type === "message" || (e.type === "custom" && e.customType === "slate-state");
+				return e.type === "message" || (e.type === "custom" && e.customType === SLATE_BINDING_CUSTOM_TYPE);
 			});
 			if (fresh) store.orchestratorMode = true;
 		}

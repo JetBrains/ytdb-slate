@@ -232,8 +232,15 @@ interface ManagerAccess {
   createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord;
 }
 
+/**
+ * A store whose save is a stub. These tests are about shard arithmetic only, so
+ * they store nothing and prove nothing about persistence. The real save path is
+ * covered by test/dispatch-persistence.test.ts (TQ1601).
+ */
 function store(): SlateStore {
-  return new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  const value = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  value.commit = () => ({ kind: "committed", binding: { policy: "durable-session-v1", identity: "20260820T010203Z-0123456789abcdef", name: "calm-otter-7f3a" } });
+  return value;
 }
 
 function access(manager: ThreadManager): ManagerAccess {

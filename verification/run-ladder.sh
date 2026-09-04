@@ -13,6 +13,7 @@
 #   bash verification/run-ladder.sh --repo . --lab /tmp/mylab
 #   bash verification/run-ladder.sh --repo . --strict         # CI: NOT RUN is fatal
 #   bash verification/run-ladder.sh --repo . --setup-only     # guards + fixtures, no rungs
+#   bash verification/run-ladder.sh --repo . --self-test      # hermetic launcher regression tests
 #   bash verification/run-ladder.sh --list-rungs
 #
 #   --repo <dir>        slate checkout under test (required; use "." from the root)
@@ -21,13 +22,14 @@
 #   --old-module <file> pre-fix model-default.ts for the P5a/P5b teeth proof
 #                       (default: derived from the current module at run time)
 #   --setup-only        run every guard and build every fixture, then stop
+#   --self-test         run deterministic hermetic-launcher regression tests
 #   --strict            treat any NOT RUN as fatal (use this in automation)
 #   --list-rungs        print the rung ids and exit
 #
-# Exit status: 0 all good · 1 a rung failed, no rung ran, the real settings file
-# changed, or --strict was given and a rung reported NOT RUN · 2 refused to start
-# (a safety guard or a usage error) · 3 the scratch directory disappeared
-# mid-run, so the results are void.
+# Exit status: 0 all good · 1 a rung failed, no rung ran, sandbox or repository
+# safety evidence failed, or --strict was given and a check reported NOT RUN ·
+# 2 refused to start (a safety guard or usage error) · 3 the scratch
+# directory disappeared mid-run, so the results are void.
 #
 # Requirements (all checked up front): pi, node, python3, and GNU coreutils
 # (sha256sum, stat -c, timeout, cmp, mkfifo, awk, sed, grep). strace is optional
@@ -40,7 +42,7 @@
 # =============================================================================
 set -uo pipefail
 
-REPO=""; LAB=""; ONLY=""; OLDMOD_ARG=""; SETUP_ONLY=0; STRICT=0
+REPO=""; LAB=""; ONLY=""; OLDMOD_ARG=""; SETUP_ONLY=0; SELF_TEST=0; STRICT=0
 ORIG_ARGS="$*"
 
 # fd 8 is a duplicate of the ORIGINAL stderr, taken before any rung redirects
@@ -63,6 +65,7 @@ while [ $# -gt 0 ]; do
 		--only)       need_val $# "$1"; ONLY="$2"; shift 2 ;;
 		--old-module) need_val $# "$1"; OLDMOD_ARG="$2"; shift 2 ;;
 		--setup-only) SETUP_ONLY=1; shift ;;
+		--self-test)  SELF_TEST=1; shift ;;
 		--strict)     STRICT=1; shift ;;
 		--list-rungs) printf '%s\n' $ALL_RUNGS; exit 0 ;;
 		-h|--help)    sed -n '2,40p' "$0"; exit 0 ;;
@@ -96,7 +99,8 @@ fi
 
 # Guard 0a: refuse root. Every failure injection in this ladder is a chmod, and
 # root ignores those, so rungs would report on behaviour that never happened.
-[ "$(id -u)" = 0 ] && die "refusing to run as root: the failure injections are permission-based
+CALLER_UID=$(id -u)
+[ "$CALLER_UID" = 0 ] && die "refusing to run as root: the failure injections are permission-based
        (chmod 444 on the settings file) and root writes straight through them, so
        R7, G2, P6 and P11 would measure nothing. Re-run as a normal user."
 
@@ -105,12 +109,26 @@ fi
 # missing GNU flag halfway through a run is just a confusing failure.
 MISSING=""
 for t in pi node python3 sha256sum stat timeout cmp mkfifo awk sed grep chmod \
-         cat cp cut date dirname head ls rm sort tail wc mktemp; do
+         bash cat cp cut date dirname find head ls rm rmdir sort tail wc mktemp readlink xargs; do
 	command -v "$t" >/dev/null 2>&1 || MISSING="$MISSING $t"
 done
 [ -n "$MISSING" ] && die "missing required tool(s):$MISSING"
 sha256sum --version >/dev/null 2>&1 || die "sha256sum is not the GNU one; the real-settings fingerprint (guard 4) could not run"
 stat -c '%s' "$0" >/dev/null 2>&1 || die "stat does not support -c (GNU coreutils required); the real-settings fingerprint (guard 4) could not run"
+rm --help 2>/dev/null | grep -q -- '--one-file-system' || die "rm does not support --one-file-system; safe scratch-state clearing is unavailable"
+tool_abs() { local p; p=$(command -v "$1") || die "cannot resolve tool '$1'"; p=$(readlink -f "$p") || die "cannot canonicalise tool '$1'"; [ -x "$p" ] || die "resolved tool '$1' is not executable: $p"; printf '%s' "$p"; }
+PI_BIN=$(tool_abs pi); NODE_BIN=$(tool_abs node); TIMEOUT_BIN=$(tool_abs timeout)
+PI_COMMAND=$(command -v pi); case "$PI_COMMAND" in /*) ;; *) die "pi command path is not absolute: $PI_COMMAND" ;; esac
+PI_COMMAND_DIR=${PI_COMMAND%/*}; [ -d "$PI_COMMAND_DIR" ] && [ ! -L "$PI_COMMAND_DIR" ] || die "pi command directory is not a real directory: $PI_COMMAND_DIR"
+# The real pi command directory is deliberately absent. Children resolve `pi`
+# only through the guarded shim created inside the validated lab.
+CONTROLLED_PATH=""
+for t in node python3 sha256sum stat timeout cmp mkfifo awk sed grep chmod bash cat cp cut date dirname find head ls rm rmdir sort tail wc mktemp readlink xargs env; do
+	p=$(tool_abs "$t"); d=${p%/*}
+	[ "$d" = "$PI_COMMAND_DIR" ] && continue
+	case ":$CONTROLLED_PATH:" in *":$d:"*) ;; *) CONTROLLED_PATH="${CONTROLLED_PATH:+$CONTROLLED_PATH:}$d" ;; esac
+done
+[ -n "$CONTROLLED_PATH" ] || die "controlled child PATH is empty"
 
 # Guard 1: refuse an inherited PI_CODING_AGENT_DIR. The whole harness rests on
 # that variable pointing at a directory THIS script created; silently inheriting
@@ -168,6 +186,7 @@ else
 	REAL_AGENT_DIR="$PI_HOME_DIR/agent"
 fi
 REAL_SETTINGS="$REAL_AGENT_DIR/settings.json"
+REAL_CORPUS="$REAL_AGENT_DIR/ytdb-slate/projects"
 PI_HOME_CANON=$(resolve "$PI_HOME_DIR")
 REAL_AGENT_CANON=$(resolve "$REAL_AGENT_DIR")
 [ -n "$PI_HOME_CANON" ] || die "could not resolve the pi home directory"
@@ -176,6 +195,16 @@ REAL_AGENT_CANON=$(resolve "$REAL_AGENT_DIR")
 under() { # $1 child, $2 parent — true when child == parent or is inside it
 	[ -n "$2" ] || return 1
 	case "$1" in "$2") return 0 ;; "$2"/*) return 0 ;; *) return 1 ;; esac
+}
+assert_private_owned_dir() { # $1 path, $2 label
+	local path="$1" label="$2" owner mode permissions
+	[ ! -L "$path" ] || die "refusing to use $label '$path': it is a symlink. Replace it with a private directory."
+	[ -d "$path" ] || die "refusing to use $label '$path': it is not a directory. Create a private directory there."
+	owner=$(stat -c '%u' "$path") || die "cannot read the owner of $label '$path'"
+	[ "$owner" = "$CALLER_UID" ] || die "refusing to use $label '$path': uid $owner owns it, not caller uid $CALLER_UID. Choose a caller-owned path."
+	mode=$(stat -c '%a' "$path") || die "cannot read the mode of $label '$path'"
+	permissions=$((8#$mode))
+	[ $((permissions & 0022)) -eq 0 ] || die "refusing to use $label '$path': mode $mode permits group or other writes. Run chmod go-w '$path' and retry."
 }
 check_free_of_real_state() { # $1 path, $2 label
 	[ -n "$1" ] || die "refusing to run: $2 resolved to an empty path"
@@ -205,6 +234,39 @@ else
 	check_free_of_real_state "$LAB" "scratch dir"
 fi
 LAB_CANON="$LAB"
+assert_private_owned_dir "$LAB" "the scratch root"
+
+# One atomic lab lock spans setup, every rung, and final safety reporting. A
+# crash may leave it behind deliberately: the next run refuses rather than
+# guessing whether another process still owns this lab.
+LAB_LOCK="$LAB/.slate-ladder.lock"
+LAB_LOCK_HELD=0
+LAB_LOCK_RELEASE_REPORTED=0
+release_lab_lock() {
+	[ "$LAB_LOCK_HELD" = 1 ] || return 0
+	if rmdir "$LAB_LOCK" 2>/dev/null; then
+		LAB_LOCK_HELD=0
+		return 0
+	fi
+	if [ "$LAB_LOCK_RELEASE_REPORTED" = 0 ]; then
+		LAB_LOCK_RELEASE_REPORTED=1
+		echo "verification: could not release lab lock '$LAB_LOCK'. The lock still exists. Remove its contents, then remove the lock after confirming no ladder uses this lab." >&8
+	fi
+	return 1
+}
+early_finish() {
+	local status="$1"
+	trap - EXIT
+	if ! release_lab_lock; then [ "$status" -ne 0 ] || status=1; fi
+	exit "$status"
+}
+early_signal() { trap - EXIT; release_lab_lock || true; exit 130; }
+trap 'early_finish $?' EXIT
+trap early_signal INT TERM
+if ! mkdir "$LAB_LOCK" 2>/dev/null; then
+	die "refusing to use lab '$LAB': lock '$LAB_LOCK' already exists. Confirm no ladder uses this lab, then remove the stale lock and retry."
+fi
+LAB_LOCK_HELD=1
 
 # WH1 + WH2: every directory the harness writes to is created with a CHECKED
 # mkdir, canonicalised, required to be non-empty and absolute, required to sit
@@ -229,34 +291,105 @@ labdir() { # $1 relative name, $2 label -> sets LD_OUT
 	LD_OUT="$got"
 }
 labdir agent "the throwaway agent dir";     AGENT="$LD_OUT"
+labdir home "the throwaway home dir";        CHILD_HOME="$LD_OUT"
+labdir tmp "the throwaway temporary dir";    CHILD_TMP="$LD_OUT"
 labdir work "the project work dir";         WORK="$LD_OUT"
 labdir out "the artifact dir";              OUT="$LD_OUT"
 labdir weak "the generated-module dir";     WEAK="$LD_OUT"
 labdir "work/.pi" "the project pi-config dir"
-for v in AGENT WORK OUT WEAK; do
+for v in AGENT CHILD_HOME CHILD_TMP WORK OUT WEAK; do
 	eval "val=\${$v}"
 	[ -n "$val" ] || die "internal: $v is empty after validation — refusing to continue"
 done
 SETTINGS="$AGENT/settings.json"
+PI_LEDGER="$OUT/pi-agent-ledger"
+PI_VIOLATION="$OUT/pi-launch-violation"
+PI_SHIM_DIR="$LAB/pi-shim"
+mkdir -p "$PI_SHIM_DIR" || die "cannot create guarded pi shim directory"
+PI_SHIM_DIR=$(canon "$PI_SHIM_DIR") || die "cannot resolve guarded pi shim directory"
+under "$PI_SHIM_DIR" "$LAB_CANON" || die "guarded pi shim escaped the lab"
+PI_LAUNCH_TOKEN=$(printf '%s:%s:%s' "$LAB" "$$" "$(date +%s%N)" | sha256sum | cut -d' ' -f1)
+[ -n "$PI_LAUNCH_TOKEN" ] || die "cannot derive guarded pi launch token"
+cat > "$PI_SHIM_DIR/pi" <<EOF || die "cannot write guarded pi shim"
+#!/usr/bin/env bash
+set -u
+violate() {
+	( set -C; : > "$PI_VIOLATION" ) 2>/dev/null || [ -f "$PI_VIOLATION" ] || exit 96
+	echo "verification: guarded pi shim refused an unlaunched invocation: \$1" >&2
+	exit 96
+}
+[ "\${SLATE_PI_LAUNCH_TOKEN:-}" = "$PI_LAUNCH_TOKEN" ] || violate "invalid launch token"
+[ "\${SLATE_PI_LEDGER:-}" = "$PI_LEDGER" ] || violate "invalid ledger"
+printf '%s\n' "\${PI_CODING_AGENT_DIR:-}" >> "$PI_LEDGER" || exit 96
+exec "$PI_BIN" "\$@"
+EOF
+chmod 700 "$PI_SHIM_DIR/pi" || die "cannot make guarded pi shim executable"
+# The generated shim now owns the only runtime copy needed by normal code.
+unset PI_BIN
+CONTROLLED_PATH="$PI_SHIM_DIR${CONTROLLED_PATH:+:$CONTROLLED_PATH}"
+# Parent commands also resolve the refusing shim. All required parent tools were
+# resolved before this rewrite, and the directory that exposed real pi is gone.
+PARENT_PATH=""
+IFS=: read -r -a parent_path_parts <<< "$PATH"
+for d in "${parent_path_parts[@]}"; do
+	[ "$d" = "$PI_COMMAND_DIR" ] && continue
+	case ":$PARENT_PATH:" in *":$d:"*) ;; *) PARENT_PATH="${PARENT_PATH:+$PARENT_PATH:}$d" ;; esac
+done
+PATH="$PI_SHIM_DIR${PARENT_PATH:+:$PARENT_PATH}"
+export PATH
+[ "$(command -v pi)" = "$PI_SHIM_DIR/pi" ] || die "guarded pi shim is not first on the parent PATH"
+rm -f "$PI_LEDGER" "$PI_VIOLATION" || die "cannot clear guarded pi runtime evidence"
 
 # Guard 3: belt and braces on the redirect target itself.
 [ "$AGENT" = "$REAL_AGENT_CANON" ] && \
 	die "refusing to run: the throwaway agent dir resolves to the REAL agent dir '$AGENT'"
+assert_private_owned_dir "$AGENT" "the throwaway agent directory"
 
-# Guard 4: fingerprint the real settings file now, re-check it at the end. The
-# tools it needs were required up front (guard 0b), and a fingerprint that
-# cannot be taken aborts rather than degrading to a vacuous pass (WH3).
-real_fingerprint() {
-	if [ -e "$REAL_SETTINGS" ]; then
-		local h z
-		h=$(sha256sum "$REAL_SETTINGS" | cut -d' ' -f1) || die "cannot fingerprint $REAL_SETTINGS (sha256sum failed) — refusing to run a harness whose safety check is blind"
-		z=$(stat -c '%s:%Y' "$REAL_SETTINGS") || die "cannot fingerprint $REAL_SETTINGS (stat failed) — refusing to run a harness whose safety check is blind"
-		[ -n "$h" ] || die "cannot fingerprint $REAL_SETTINGS (empty digest)"
-		printf '%s %s' "$h" "$z"
+# D217-D219: the real settings content hash is diagnostic only. Isolation verdicts
+# come from hermetic child environments, throwaway HOME fallback evidence, selected-
+# agent evidence, and a fatal repository fingerprint.
+real_content_hash() {
+	if [ -f "$REAL_SETTINGS" ]; then sha256sum "$REAL_SETTINGS" | cut -d' ' -f1
+	elif [ -e "$REAL_SETTINGS" ]; then printf 'non-regular'
 	else printf 'absent'; fi
 }
-REAL_BEFORE=$(real_fingerprint)
-[ -n "$REAL_BEFORE" ] || die "the real-settings fingerprint came back empty — refusing to run"
+tree_fingerprint() { # $1 root
+	local root="$1"
+	(
+		if [ ! -e "$root" ]; then printf 'tree:absent:%s\n' "$root"; exit 0; fi
+		while IFS= read -r -d '' path; do
+			stat -c '%n:%F:%a:%u:%g:%s:%y' "$path" || exit 1
+			if [ -f "$path" ]; then sha256sum "$path" || exit 1; fi
+		done < <(find "$root" -xdev -print0 | sort -z)
+	) | sha256sum | cut -d' ' -f1
+}
+repo_fingerprint() {
+	python3 - "$REPO" <<'PY'
+import hashlib, os, stat, subprocess, sys
+repo=os.path.realpath(sys.argv[1]); h=hashlib.sha256()
+def add(x): h.update(x if isinstance(x,bytes) else x.encode()); h.update(b"\0")
+add(subprocess.check_output(["git","-C",repo,"rev-parse","HEAD"]))
+# Read index entries directly. `git write-tree` is forbidden here because it can
+# rewrite the index and create loose objects while taking the "before" digest.
+add(subprocess.check_output(["git","-C",repo,"ls-files","--stage","-z"]))
+paths=subprocess.check_output(["git","-C",repo,"ls-files","-co","--exclude-standard","-z"]).split(b"\0")
+for raw in sorted(p for p in paths if p):
+    rel=os.fsdecode(raw); path=os.path.join(repo,rel); add(raw)
+    try: s=os.lstat(path)
+    except FileNotFoundError: add(b"missing"); continue
+    add(f"{stat.S_IFMT(s.st_mode)}:{stat.S_IMODE(s.st_mode)}:{s.st_size}:{s.st_mtime_ns}")
+    if stat.S_ISLNK(s.st_mode): add(os.readlink(path))
+    elif stat.S_ISREG(s.st_mode):
+        with open(path,"rb") as f:
+            for chunk in iter(lambda:f.read(1024*1024),b""): h.update(chunk)
+print(h.hexdigest())
+PY
+}
+FALLBACK_AGENT="$CHILD_HOME/.pi/agent"
+REAL_BEFORE=$(real_content_hash)
+FALLBACK_BEFORE=$(tree_fingerprint "$FALLBACK_AGENT") || die "cannot fingerprint throwaway HOME fallback agent"
+REPO_BEFORE=$(repo_fingerprint) || die "cannot fingerprint repository before the run"
+[ -n "$REPO_BEFORE" ] || die "repository fingerprint came back empty"
 
 # Cleanup on interrupt as well as on exit: leave the artifacts (they are the
 # evidence) but never leave a settings file read-only, a lock directory held, or
@@ -278,9 +411,22 @@ cleanup() {
 		rm -rf "$d/settings.json.lock" 2>/dev/null
 	done
 	jobs -p 2>/dev/null | while read -r j; do kill "$j" 2>/dev/null; done
+	release_lab_lock
 }
-on_signal() { cleanup; echo >&8; echo "verification: interrupted — artifacts kept in $OUT" >&8; exit 130; }
-trap cleanup EXIT
+finish_cleanup() {
+	local status="$1"
+	trap - EXIT
+	if ! cleanup; then [ "$status" -ne 0 ] || status=1; fi
+	exit "$status"
+}
+on_signal() {
+	trap - EXIT
+	cleanup || true
+	echo >&8
+	echo "verification: interrupted — artifacts kept in $OUT" >&8
+	exit 130
+}
+trap 'finish_cleanup $?' EXIT
 trap on_signal INT TERM
 
 # ---------------------------------------------------------------- bookkeeping
@@ -344,9 +490,437 @@ assert_agent_dir() { # $1 dir, $2 what we were about to do
 	return 0
 }
 assert_redirect_safe() { assert_agent_dir "${1:-}" "launch pi"; }
-piexec() { assert_redirect_safe "$AGENT"
-	env -u PI_CODING_AGENT -u PI_SESSION_FILE -u PI_SESSION_ID -u PI_PROVIDER \
-		-u PI_MODEL -u PI_REASONING_LEVEL PI_CODING_AGENT_DIR="$AGENT" "$@"; }
+assert_launch_dir() { # $1 path, $2 label
+	local path="${1:-}" label="$2" got
+	[ -n "$path" ] || die "internal: refusing child launch — $label is absent or empty"
+	case "$path" in /*) ;; *) die "internal: refusing child launch — $label is relative ('$path')" ;; esac
+	[ ! -L "$path" ] || die "internal: refusing child launch — $label is a symlink ('$path')"
+	[ -d "$path" ] || die "internal: refusing child launch — $label is not a real directory ('$path')"
+	got=$(canon "$path") || die "internal: refusing child launch — cannot resolve $label '$path'"
+	under "$got" "$LAB_CANON" || die "internal: refusing child launch — $label '$got' is outside lab '$LAB_CANON'"
+}
+# Reused --lab directories retain work/, out/ and weak/. Corpus evidence, pi
+# session transcripts and the slate-child marker must belong to this run.
+# CLEAR_TARGET is assigned in the current shell so a die cannot be hidden by a
+# command-substitution subshell.
+CLEAR_TARGET=""
+validate_clear_target() { # $1 target, $2 label, $3 optional fixed ancestor
+	local target="$1" label="$2" ancestor="${3:-}" resolved agent_device target_device
+	CLEAR_TARGET=""
+	assert_private_owned_dir "$LAB" "the scratch root"
+	assert_agent_dir "$AGENT" "validate scratch state before clearing"
+	assert_private_owned_dir "$AGENT" "the throwaway agent directory"
+	if [ -n "$ancestor" ] && { [ -e "$ancestor" ] || [ -L "$ancestor" ]; }; then
+		assert_agent_dir "$ancestor" "validate the $label parent before clearing"
+		assert_private_owned_dir "$ancestor" "the $label parent"
+	fi
+	[ ! -L "$target" ] || die "refusing to clear $label '$target': it is a symlink. Replace it with a private directory."
+	[ -e "$target" ] || return 0
+	assert_agent_dir "$target" "clear $label"
+	assert_private_owned_dir "$target" "$label"
+	resolved=$(canon "$target") || die "cannot resolve $label '$target'"
+	under "$resolved" "$AGENT" || die "refusing to clear $label '$resolved': it is outside the validated agent directory '$AGENT'."
+	agent_device=$(stat -c '%d' "$AGENT") || die "cannot read the device of the validated agent directory '$AGENT'"
+	target_device=$(stat -c '%d' "$resolved") || die "cannot read the device of $label '$resolved'"
+	[ "$target_device" = "$agent_device" ] || die "refusing to clear $label '$resolved': device $target_device differs from agent device $agent_device. Remove the mount and retry."
+	CLEAR_TARGET="$resolved"
+}
+clear_scratch_tree() { # $1 target, $2 label, $3 optional fixed ancestor, $4 note tag
+	local target="$1" label="$2" ancestor="${3:-}" tag="$4" first
+	validate_clear_target "$target" "$label" "$ancestor"
+	first="$CLEAR_TARGET"
+	[ -n "$first" ] || return 0
+	# Repeat every ownership, mode, containment and device check immediately before
+	# removal. The resolved path avoids re-walking the caller-facing path string.
+	validate_clear_target "$target" "$label" "$ancestor"
+	[ "$CLEAR_TARGET" = "$first" ] || die "refusing to clear $label '$target': its resolved path changed during validation. Retry in a private lab."
+	rm -rf --one-file-system -- "$CLEAR_TARGET" || die "could not clear $label '$CLEAR_TARGET'"
+	echo "NOTE   $tag         — cleared $label before this run: $CLEAR_TARGET"
+}
+reset_scratch_state() {
+	local slate_root="$AGENT/ytdb-slate"
+	clear_scratch_tree "$slate_root/projects" "the prior scratch corpus" "$slate_root" "CORPUS"
+	clear_scratch_tree "$AGENT/sessions" "prior pi session transcripts" "" "SESSIONS"
+	assert_private_owned_dir "$OUT" "the artifact directory"
+	[ ! -d "$OUT/slate-child-ran" ] || die "refusing a scratch artifact marker that is a directory: $OUT/slate-child-ran"
+	rm -f "$OUT/slate-child-ran" || die "cannot clear the prior-run slate child marker"
+}
+reset_scratch_state
+CHILD_GUARD="$LAB/child-env-guard.mjs"
+cat > "$CHILD_GUARD" <<'NODE' || die "cannot write child environment guard"
+import { writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+const expected=(process.env.SLATE_CHILD_EXPECTED_KEYS??"").split(",").filter(Boolean).sort();
+const actual=Object.keys(process.env).sort();
+if (JSON.stringify(actual)!==JSON.stringify(expected)) {
+  console.error(`ladder child environment mismatch: expected=${expected.join("|")} actual=${actual.join("|")}`);
+  process.exit(97);
+}
+const [command,...args]=process.argv.slice(2);
+if (!command) process.exit(98);
+const child=spawn(command,args,{stdio:"inherit",env:process.env});
+child.once("spawn",()=>writeFileSync(process.env.SLATE_CHILD_MARKER,"started\n"));
+child.once("error",(error)=>{ console.error(`ladder child failed to start: ${error.message}`); process.exit(99); });
+child.once("exit",(code,signal)=>process.exit(code??(signal?128:1)));
+NODE
+reset_pi_violation() {
+	[ ! -d "$PI_VIOLATION" ] || die "pi violation sentinel is unexpectedly a directory"
+	rm -f "$PI_VIOLATION" || die "cannot reset pi violation sentinel"
+}
+assert_no_pi_violation() { # $1 context
+	[ ! -e "$PI_VIOLATION" ] || die "guarded pi shim recorded an unauthorized PATH-based invocation during $1"
+}
+wait_for_pi_violation() {
+	local attempt
+	for attempt in {1..100}; do [ -f "$PI_VIOLATION" ] && return 0; sleep 0.01; done
+	return 1
+}
+hermetic_exec() { # $1 selected agent, then NAME=VALUE canaries, then command
+	local ag="$1" marker pair name expected rc; shift
+	assert_no_pi_violation "the preceding self-test or rung path"
+	local -a extra=() command=()
+	assert_agent_dir "$ag" "launch a hermetic child"
+	assert_launch_dir "$CHILD_HOME" HOME
+	assert_launch_dir "$CHILD_TMP" TMPDIR
+	while [ $# -gt 0 ] && [[ "$1" == *=* ]]; do
+		pair="$1"; name=${pair%%=*}
+		[[ "$name" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "invalid child canary name '$name'"
+		case "$name" in HOME|TMPDIR|PATH|PI_CODING_AGENT_DIR|PI_OFFLINE|SLATE_CHILD_EXPECTED_KEYS|SLATE_CHILD_MARKER|SLATE_PI_LAUNCH_TOKEN|SLATE_PI_LEDGER) die "child canary attempts to replace reserved key $name" ;; esac
+		extra+=("$pair"); shift
+	done
+	[ $# -gt 0 ] || die "hermetic launcher received no command"
+	command=("$@")
+	marker=$(mktemp "$OUT/child-start.XXXXXX") || die "cannot allocate child-start marker"
+	rm -f "$marker" || die "cannot prepare child-start marker"
+	expected="HOME,TMPDIR,PATH,PI_CODING_AGENT_DIR,PI_OFFLINE,SLATE_CHILD_EXPECTED_KEYS,SLATE_CHILD_MARKER,SLATE_PI_LAUNCH_TOKEN,SLATE_PI_LEDGER"
+	for pair in "${extra[@]}"; do expected="$expected,${pair%%=*}"; done
+	env -i HOME="$CHILD_HOME" TMPDIR="$CHILD_TMP" PATH="$CONTROLLED_PATH" \
+		PI_CODING_AGENT_DIR="$ag" PI_OFFLINE=1 SLATE_CHILD_EXPECTED_KEYS="$expected" SLATE_CHILD_MARKER="$marker" \
+		SLATE_PI_LAUNCH_TOKEN="$PI_LAUNCH_TOKEN" SLATE_PI_LEDGER="$PI_LEDGER" \
+		"${extra[@]}" "$NODE_BIN" "$CHILD_GUARD" "${command[@]}"
+	rc=$?
+	[ -f "$marker" ] || die "hermetic child produced no positive start marker for '${command[0]}'"
+	rm -f "$marker"
+	assert_no_pi_violation "hermetic child '${command[0]}'"
+	return "$rc"
+}
+piexec() { hermetic_exec "$AGENT" "$@"; }
+piexec_at() { local ag="$1"; shift; hermetic_exec "$ag" "$@"; }
+audit_launcher_source() { # $1 shell source; defense in depth for exposed real-path references
+	python3 - "$1" <<'PY'
+import re,shlex,sys
+source=sys.argv[1]
+raw=open(source).read().splitlines(); lines=[]; heredoc=None
+for number,line in enumerate(raw,1):
+    if heredoc is not None:
+        lines.append((number,""))
+        if line.strip()==heredoc: heredoc=None
+        continue
+    stripped=line.lstrip()
+    lines.append((number,"" if not stripped or stripped.startswith("#") else line))
+    match=re.search(r"<<-?['\"]?([A-Za-z0-9_]+)['\"]?",line)
+    if match: heredoc=match.group(1)
+logical=[]; pending=""; start=0
+for number,line in lines:
+    if not pending and not line: continue
+    if not pending: start=number
+    pending += line.rstrip()[:-1] + " " if line.rstrip().endswith("\\") else line
+    if line.rstrip().endswith("\\"): continue
+    logical.append((start,pending)); pending=""
+if pending: logical.append((start,pending))
+tainted={"PI_BIN"}
+def variable(token):
+    match=re.fullmatch(r"\$([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}",token)
+    return (match.group(1) or match.group(2)) if match else None
+def is_exposed_pi(token):
+    plain=token.strip('"\'')
+    name=variable(plain)
+    return plain in {"$PI_BIN","${PI_BIN}"} or plain.endswith("/pi") or name in tainted
+def value_is_tainted(value):
+    if is_exposed_pi(value): return True
+    return any(name in tainted for name in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?",value))
+def audit(command,number,pi_like=False):
+    try:
+        lexer=shlex.shlex(command,posix=True,punctuation_chars=";&|()")
+        lexer.whitespace_split=True
+        tokens=list(lexer)
+    except ValueError:
+        return
+    segment=[]
+    for token in tokens+[";"]:
+        if token and all(ch in ";&|()" for ch in token):
+            command_index=None
+            for index,item in enumerate(segment):
+                assignment=re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)",item,re.S)
+                if assignment:
+                    name,value=assignment.groups()
+                    if value_is_tainted(value): tainted.add(name)
+                    else: tainted.discard(name)
+                    continue
+                if command_index is None and item not in {"if","then","elif","else","do","while","until","!","time"}:
+                    command_index=index
+            if command_index is not None:
+                command_token=segment[command_index]
+                direct_pi=is_exposed_pi(command_token) or (pi_like and command_token=="pi")
+                command_pi=(pi_like and command_token=="command" and
+                            command_index+1<len(segment) and segment[command_index+1]=="pi")
+                if direct_pi or command_pi:
+                    raise SystemExit(f"pi launcher reference at logical command starting line {number}: {command.strip()}")
+            segment=[]
+        else: segment.append(token)
+def substitution_end(text,start):
+    i=start+2; depth=0; quote=None
+    while i<len(text):
+        char=text[i]
+        if quote=="single":
+            if char=="'": quote=None
+            i+=1; continue
+        if char=="double":
+            if char=="\\": i+=2; continue
+            if char=='"': quote=None; i+=1; continue
+            if text.startswith("$(",i):
+                end=substitution_end(text,i)
+                if end is None: return None
+                i=end+1; continue
+            i+=1; continue
+        if char=="\\": i+=2; continue
+        if char=="'": quote="single"; i+=1; continue
+        if char=='"': quote="double"; i+=1; continue
+        if char=="#" and (i==0 or text[i-1].isspace()):
+            newline=text.find("\n",i)
+            i=len(text) if newline<0 else newline+1
+            continue
+        if text.startswith(("$(","<(",">("),i):
+            end=substitution_end(text,i)
+            if end is None: return None
+            i=end+1; continue
+        if char=="(": depth+=1
+        elif char==")":
+            if depth==0: return i
+            depth-=1
+        i+=1
+    return None
+def audit_substitutions(text,base_line=1,pi_context=False):
+    i=0; quote=None
+    while i<len(text):
+        char=text[i]
+        if quote=="single":
+            if char=="'": quote=None
+            i+=1; continue
+        if quote=="double":
+            if char=="\\": i+=2; continue
+            if char=='"': quote=None; i+=1; continue
+            opener="$(" if text.startswith("$(",i) else None
+        else:
+            if char=="\\": i+=2; continue
+            if char=="'": quote="single"; i+=1; continue
+            if char=='"': quote="double"; i+=1; continue
+            if char=="#" and (i==0 or text[i-1].isspace()):
+                newline=text.find("\n",i)
+                i=len(text) if newline<0 else newline+1
+                continue
+            opener=next((item for item in ("$(","<(",">(") if text.startswith(item,i)),None)
+        if opener:
+            end=substitution_end(text,i)
+            if end is None: i+=2; continue
+            body=text[i+2:end]; number=base_line+text.count("\n",0,i)
+            nested_pi_context=pi_context or opener in {"<(",">("}
+            audit(body,number,pi_like=nested_pi_context)
+            audit_substitutions(body,number,nested_pi_context)
+            i=end+1; continue
+        i+=1
+for number,command in logical: audit(command,number,pi_like=True)
+audit_substitutions("\n".join(line for _,line in lines),pi_context=True)
+PY
+}
+drain_background_jobs() { # $1 optional poll count; $2 optional interval; $3 report flag
+	local polls="${1:-100}" interval="${2:-0.05}" report="${3:-1}" count
+	local -a running=()
+	for ((count=0; count<polls; count++)); do
+		mapfile -t running < <(jobs -pr)
+		if [ "${#running[@]}" -eq 0 ]; then
+			# Reap completed jobs too. No running job remains, so this cannot block.
+			wait 2>/dev/null || true
+			return 0
+		fi
+		sleep "$interval"
+	done
+	mapfile -t running < <(jobs -pr)
+	[ "${#running[@]}" -eq 0 ] && { wait 2>/dev/null || true; return 0; }
+	if [ "$report" -eq 1 ]; then
+		printf 'verification: background-job drain timed out with %s live job(s): %s\n' \
+			"${#running[@]}" "${running[*]}" >&8
+	fi
+	return 1
+}
+
+# Audit the complete checked-in source before any rung can start. The runtime
+# sentinel remains a second control for launcher forms that execute through PATH.
+audit_launcher_source "$0" || die "launcher source audit rejected a pi invocation"
+run_launcher_self_tests() {
+	local passed=0 alt="$LAB/selftest-alt-agent" fabricated="$LAB/fabricated-settings.json" outer="$LAB/outer-guard.err"
+	local mutant="$LAB/launcher-mutant.sh" gitdir index before_index after_index before_objects after_objects before_repo after_repo shim_probe parent_err
+	NODE_OPTIONS='--require=/definitely/poisoned' AWS_ACCESS_KEY_ID=poison HTTP_PROXY=http://poison \
+		piexec node -e 'for(const k of ["NODE_OPTIONS","AWS_ACCESS_KEY_ID","HTTP_PROXY","PI_SESSION_ID","PI_CODING_AGENT_SESSION_DIR"])if(k in process.env)process.exit(1)' \
+		|| die "SELFTEST poisoned parent variables crossed the hermetic launcher"; passed=$((passed+1))
+	unset SLATE_SELFTEST_ABSENT
+	( assert_launch_dir "${SLATE_SELFTEST_ABSENT-}" HOME ) >/dev/null 2>&1 && die "SELFTEST absent HOME was accepted"; passed=$((passed+1))
+	( assert_launch_dir "" HOME ) >/dev/null 2>&1 && die "SELFTEST empty HOME was accepted"; passed=$((passed+1))
+	( assert_launch_dir "${SLATE_SELFTEST_ABSENT-}" TMPDIR ) >/dev/null 2>&1 && die "SELFTEST absent TMPDIR was accepted"; passed=$((passed+1))
+	( assert_launch_dir "" TMPDIR ) >/dev/null 2>&1 && die "SELFTEST empty TMPDIR was accepted"; passed=$((passed+1))
+	( assert_agent_dir "${SLATE_SELFTEST_ABSENT-}" "self-test absent redirect" ) >/dev/null 2>&1 && die "SELFTEST absent agent redirect was accepted"; passed=$((passed+1))
+	( assert_agent_dir "" "self-test empty redirect" ) >/dev/null 2>&1 && die "SELFTEST empty agent redirect was accepted"; passed=$((passed+1))
+	if env -i HOME="$CHILD_HOME" TMPDIR="$CHILD_TMP" PATH="$CONTROLLED_PATH" PI_OFFLINE=1 \
+		SLATE_CHILD_EXPECTED_KEYS='HOME,TMPDIR,PATH,PI_CODING_AGENT_DIR,PI_OFFLINE,SLATE_CHILD_EXPECTED_KEYS,SLATE_CHILD_MARKER,SLATE_PI_LAUNCH_TOKEN,SLATE_PI_LEDGER' \
+		SLATE_CHILD_MARKER="$LAB/lost-marker" SLATE_PI_LAUNCH_TOKEN="$PI_LAUNCH_TOKEN" SLATE_PI_LEDGER="$PI_LEDGER" \
+		"$NODE_BIN" "$CHILD_GUARD" true >/dev/null 2>&1; then
+		die "SELFTEST redirect-loss teeth did not reject a missing PI_CODING_AGENT_DIR"
+	fi
+	passed=$((passed+1))
+	piexec node -e 'const{spawnSync}=require("child_process");const r=spawnSync(process.execPath,["-e","process.stdout.write(Object.keys(process.env).sort().join(\",\"))"],{env:process.env,encoding:"utf8"});if(r.status||r.stdout!==Object.keys(process.env).sort().join(","))process.exit(1)' \
+		|| die "SELFTEST nested child did not inherit the exact closed environment"; passed=$((passed+1))
+	mkdir -p "$alt" || die "SELFTEST cannot create alternate agent"
+	piexec_at "$alt" node -e 'if(process.env.PI_CODING_AGENT_DIR!==process.argv[1])process.exit(1)' "$alt" \
+		|| die "SELFTEST P11 alternate-agent route bypassed the common launcher"; passed=$((passed+1))
+	shim_probe="$PI_SHIM_DIR/$(printf 'p%s' i)"
+	reset_pi_violation
+	if "$shim_probe" --version >/dev/null 2>&1; then die "SELFTEST guarded pi shim accepted a parent-shell invocation"; fi
+	wait_for_pi_violation || die "SELFTEST guarded pi shim refusal did not record the violation sentinel"
+	passed=$((passed+1)); reset_pi_violation
+	parent_err="$LAB/parent-pi.err"
+	[ "$(command -v pi)" = "$shim_probe" ] || die "SELFTEST literal parent pi does not resolve to the guarded shim"
+	if SLATE_PI_LAUNCH_TOKEN="$PI_LAUNCH_TOKEN" SLATE_PI_LEDGER="$LAB/wrong-ledger" bash -c 'pi --version' >/dev/null 2>"$parent_err"; then
+		die "SELFTEST guarded pi shim accepted an invalid ledger"
+	fi
+	grep -q 'guarded pi shim refused an unlaunched invocation' "$parent_err" || die "SELFTEST literal parent pi failed for the wrong reason"
+	wait_for_pi_violation || die "SELFTEST invalid-ledger refusal did not record the violation sentinel"
+	passed=$((passed+1)); reset_pi_violation
+	rm -f "$PI_LEDGER"
+	piexec_at "$alt" pi --version >/dev/null || die "SELFTEST guarded alternate-agent pi launch failed"
+	grep -Fxq "$alt" "$PI_LEDGER" || die "SELFTEST actual guarded pi launch did not register alternate-agent evidence"
+	passed=$((passed+1))
+	if PI_CODING_AGENT_DIR="$LAB/poison-agent" bash "$0" --repo "$REPO" --setup-only > /dev/null 2> "$outer"; then
+		die "SELFTEST outer inherited-agent guard accepted PI_CODING_AGENT_DIR"
+	fi
+	grep -q 'PI_CODING_AGENT_DIR is already set' "$outer" || die "SELFTEST outer inherited-agent guard failed for the wrong reason"; passed=$((passed+1))
+	if ! audit_launcher_source "$0"; then
+		die "SELFTEST exposed-real-path source audit rejected the real script"
+	fi
+	passed=$((passed+1))
+	for form in variable resolved absolute-multiline alias alias-chain background-pi subshell-background-pi command-background-pi background-command-substitution process-input process-output process-input-nested process-output-nested process-input-multiline process-output-multiline; do
+		cp "$0" "$mutant" || die "SELFTEST cannot create source-audit mutation"
+		case "$form" in
+			variable) printf '\n"$PI_BIN" -p x\n' >> "$mutant" ;;
+			resolved) printf '\n/opt/fake/pi -p x\n' >> "$mutant" ;;
+			absolute-multiline) printf '\n/opt/fake/pi \\\n  -p x\n' >> "$mutant" ;;
+			alias) printf '\nP="$PI_BIN"; "$P" -p x\n' >> "$mutant" ;;
+			alias-chain) printf '\nP="$PI_BIN"; Q="$P"; "$Q" -p x\n' >> "$mutant" ;;
+			background-pi) printf '\npi --version >/dev/null 2>&1 &\n' >> "$mutant" ;;
+			subshell-background-pi) printf '\n( pi --version >/dev/null 2>&1 & )\n' >> "$mutant" ;;
+			command-background-pi) printf '\ncommand pi --version >/dev/null 2>&1 &\n' >> "$mutant" ;;
+			background-command-substitution) printf '\necho "$(pi --version)" >/dev/null &\n' >> "$mutant" ;;
+			process-input) printf '\ncat <(pi --version) >/dev/null\n' >> "$mutant" ;;
+			process-output) printf '\n: > >(pi --version)\n' >> "$mutant" ;;
+			process-input-nested) printf '\ncat <(cat <(pi --version)) >/dev/null\n' >> "$mutant" ;;
+			process-output-nested) printf '\n: > >(printf x > >(pi --version))\n' >> "$mutant" ;;
+			process-input-multiline) printf '\ncat <(\n  pi --version\n) >/dev/null\n' >> "$mutant" ;;
+			process-output-multiline) printf '\n: > >(\n  pi --version\n)\n' >> "$mutant" ;;
+		esac
+		if audit_launcher_source "$mutant" >/dev/null 2>&1; then die "SELFTEST source audit missed $form launcher reference"; fi
+		passed=$((passed+1))
+	done
+	for harmless in 'echo pi >/dev/null' 'printf safe >/dev/null &' '( printf safe >/dev/null & )' 'cat <(printf safe) >/dev/null' ': > >(cat >/dev/null)'; do
+		cp "$0" "$mutant" || die "SELFTEST cannot create harmless source-audit mutation"
+		printf '\n%s\n' "$harmless" >> "$mutant"
+		audit_launcher_source "$mutant" >/dev/null 2>&1 || die "SELFTEST source audit rejected harmless syntax: $harmless"
+		passed=$((passed+1))
+	done
+	for form in command-pi process-input process-output backtick dollar-substitution bare-pi xargs shell-wrapper; do
+		reset_pi_violation
+		case "$form" in
+			command-pi) printf '%s\n' 'command pi --version || true' > "$mutant" ;;
+			process-input) printf '%s\n' 'cat <(pi --version) >/dev/null || true' > "$mutant" ;;
+			process-output) printf '%s\n' ': > >(pi --version)' > "$mutant" ;;
+			backtick) printf '%s\n' 'echo `pi --version` >/dev/null' > "$mutant" ;;
+			dollar-substitution) printf '%s\n' 'echo "$(pi --version)" >/dev/null' > "$mutant" ;;
+			bare-pi) printf '%s\n' 'pi </dev/null || true' > "$mutant" ;;
+			xargs) printf '%s\n' 'printf "%s\\n" --version | xargs pi >/dev/null 2>&1 || true' > "$mutant" ;;
+			shell-wrapper) printf '%s\n' "bash -c 'pi --version' >/dev/null 2>&1 || true" > "$mutant" ;;
+		esac
+		bash "$mutant" >/dev/null 2>&1 || true
+		wait_for_pi_violation || die "SELFTEST runtime sentinel missed reachable $form invocation"
+		passed=$((passed+1)); reset_pi_violation
+	done
+	printf '%s\n' 'echo pi >/dev/null' > "$mutant"
+	bash "$mutant" || die "SELFTEST harmless echo pi failed"
+	assert_no_pi_violation "harmless echo pi self-test"
+	passed=$((passed+1))
+	true &
+	drain_background_jobs 10 0.01 || die "SELFTEST background drain failed to reap an exiting job"
+	passed=$((passed+1))
+	sleep 2 & shim_probe=$!
+	if drain_background_jobs 1 0.01 0; then
+		die "SELFTEST bounded background drain accepted a live job"
+	fi
+	kill "$shim_probe" 2>/dev/null || true; wait "$shim_probe" 2>/dev/null || true
+	passed=$((passed+1))
+	gitdir=$(git -C "$REPO" rev-parse --absolute-git-dir) || die "SELFTEST cannot resolve git directory"
+	index="$gitdir/index"
+	before_index=$(if [ -f "$index" ]; then sha256sum "$index"; stat -c '%s:%y:%a' "$index"; else echo absent; fi)
+	before_objects=$(tree_fingerprint "$gitdir/objects") || die "SELFTEST cannot fingerprint git objects"
+	before_repo=$(repo_fingerprint) || die "SELFTEST cannot fingerprint repository"
+	after_repo=$(repo_fingerprint) || die "SELFTEST cannot repeat repository fingerprint"
+	after_index=$(if [ -f "$index" ]; then sha256sum "$index"; stat -c '%s:%y:%a' "$index"; else echo absent; fi)
+	after_objects=$(tree_fingerprint "$gitdir/objects") || die "SELFTEST cannot repeat git-object fingerprint"
+	[ "$before_repo" = "$after_repo" ] && [ "$before_index" = "$after_index" ] && [ "$before_objects" = "$after_objects" ] \
+		|| die "SELFTEST repository fingerprint mutated worktree, index, or git objects"
+	passed=$((passed+1))
+	printf 'start\n' > "$fabricated"
+	( for i in 1 2 3 4 5; do printf 'concurrent-%s\n' "$i" > "$fabricated"; sleep 0.02; done ) & local writer=$!
+	piexec node -e 'setTimeout(()=>process.exit(0),80)' || die "SELFTEST hermetic child failed during fabricated concurrent writes"
+	wait "$writer" || die "SELFTEST fabricated concurrent writer failed"
+	grep -q '^concurrent-' "$fabricated" || die "SELFTEST fabricated concurrent settings write did not occur"; passed=$((passed+1))
+	assert_no_pi_violation "launcher self-test completion"
+	printf 'SELFTEST PASS — %s deterministic launcher checks passed\n' "$passed"
+}
+mark_slate_child_ran() { : > "$OUT/slate-child-ran"; }
+if [ "$SELF_TEST" = 1 ]; then
+	run_launcher_self_tests
+	exit 0
+fi
+scratch_corpus_has_session() {
+	local ag="${1:-$AGENT}" corpus
+	assert_agent_dir "$ag" "inspect scratch corpus evidence"
+	corpus="$ag/ytdb-slate/projects"
+	[ -d "$corpus" ] || return 1
+	find "$corpus" -mindepth 3 -maxdepth 3 -type f -name session.json -print -quit | grep -q .
+}
+# Across several marked children, this proves at least one current-run child
+# published a scratch corpus session. It does not prove that every child did.
+PRED_TEETH_AGENT="$LAB/corpus-predicate-teeth-agent"
+PRED_TEETH_CORPUS="$PRED_TEETH_AGENT/ytdb-slate/projects"
+PRED_TEETH_SESSION="$PRED_TEETH_CORPUS/project/session"
+rm -rf "$PRED_TEETH_AGENT"
+mkdir -p "$PRED_TEETH_SESSION" || die "cannot create corpus predicate teeth fixture"
+printf 'wrong name\n' > "$PRED_TEETH_SESSION/not-session.json"
+if scratch_corpus_has_session "$PRED_TEETH_AGENT"; then
+	die "corpus predicate teeth accepted a depth-three file not named session.json"
+fi
+rm -f "$PRED_TEETH_SESSION/not-session.json"
+printf '{}\n' > "$PRED_TEETH_CORPUS/project/session.json"
+if scratch_corpus_has_session "$PRED_TEETH_AGENT"; then
+	die "corpus predicate teeth accepted a too-shallow session.json"
+fi
+rm -f "$PRED_TEETH_CORPUS/project/session.json"
+mkdir -p "$PRED_TEETH_SESSION/extra" || die "cannot create the deep corpus predicate teeth fixture"
+printf '{}\n' > "$PRED_TEETH_SESSION/extra/session.json"
+if scratch_corpus_has_session "$PRED_TEETH_AGENT"; then
+	die "corpus predicate teeth accepted a too-deep session.json"
+fi
+rm -rf "$PRED_TEETH_SESSION/extra"
+printf '{}\n' > "$PRED_TEETH_SESSION/session.json"
+scratch_corpus_has_session "$PRED_TEETH_AGENT" || die "corpus predicate teeth rejected a depth-three session.json"
+rm -rf "$PRED_TEETH_AGENT"
 
 seed() { assert_agent_dir "$AGENT" "write the settings fixture"; printf '%s' "$1" > "$SETTINGS"; }
 # WH8: on failure the sentinel must be UNIQUE, or two failed reads compare equal
@@ -765,10 +1339,7 @@ runprobe() {
 # $1 agent dir, $2 label, $3 module, $4 inject, rest = extra pi args
 runprobe_at() {
 	local ag="$1" label="$2" module="$3" inject="$4"; shift 4
-	assert_redirect_safe "$ag"
-	env -u PI_CODING_AGENT -u PI_SESSION_FILE -u PI_SESSION_ID -u PI_PROVIDER -u PI_MODEL \
-		-u PI_REASONING_LEVEL PI_CODING_AGENT_DIR="$ag" \
-		PROBE_MODULE="$module" PROBE_TARGET=probe-c/gamma-1 PROBE_QUEUE=0 PROBE_INJECT="$inject" \
+	piexec_at "$ag" PROBE_MODULE="$module" PROBE_TARGET=probe-c/gamma-1 PROBE_QUEUE=0 PROBE_INJECT="$inject" \
 		PROBE_RESULT="$OUT/$label.json" timeout 180 pi --no-extensions -e "$PROBE" "$@" -p "x" \
 		> "$OUT/$label.out" 2> "$OUT/$label.err"
 	assert_agent_dir "$ag" "reset the settings fixture after a probe run"
@@ -780,34 +1351,77 @@ runfailover() {
 	local label="$1"; shift
 	snapshot "$label-before.json"
 	piexec timeout 180 pi --no-extensions -e "$REPO" "$@" -p "say ok" > "$OUT/$label.out" 2> "$OUT/$label.err"
+	mark_slate_child_ran
 	snapshot "$label-after.json"
 }
 
 # ------------------------------------------------------- handoff-adoption prep
-PARENT=""
-prep_parent() {
-	[ -n "$PARENT" ] && return 0
-	seed "$CANON"
-	piexec timeout 120 pi --no-extensions -p "parent" >/dev/null 2>&1
-	PARENT=$(newest_session)
-}
-seed_pending() { # $1 provider, $2 id, $3 thinkingLevel or "-"
-	mkdir -p "$WORK/.pi/slate" || die "cannot create the pending-handoff dir"
-	python3 - "$PARENT" "$WORK/.pi/slate/pending-handoff.json" "$1" "$2" "$3" <<'PY'
-import json,sys,time
-parent,out,prov,mid,think = sys.argv[1:6]
-p={"parentSession":parent,"createdAt":int(time.time()*1000),"brief":"ladder",
-   "model":{"provider":prov,"id":mid},
-   "snapshot":{"threads":[],"episodes":[],"orchestratorMode":True,"paused":False,"workerCostUsd":0,"carriedCostUsd":0}}
-if think != "-": p["thinkingLevel"]=think
-open(out,"w").write(json.dumps(p,indent=2)+"\n")
-PY
+HANDOFF_NAME=""; HANDOFF_FILE=""
+seed_handoff() { # $1 provider, $2 id, $3 thinkingLevel or "-"
+	local result
+	result=$(piexec node --input-type=module - "$REPO" "$WORK" "$1" "$2" "$3" <<'NODE'
+import { randomBytes } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const [repo, cwd, provider, id, thinking] = process.argv.slice(2);
+const corpus = await import(pathToFileURL(`${repo}/extension/corpus.ts`).href);
+const handoff = await import(pathToFileURL(`${repo}/extension/handoff-record.ts`).href);
+const sessions = await import(pathToFileURL(`${repo}/extension/session-record.ts`).href);
+const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+const identity = `${stamp}-${randomBytes(8).toString("hex")}`;
+const name = `calm-otter-${randomBytes(2).toString("hex")}`;
+const project = corpus.resolveCorpusProject(cwd);
+const source = sessions.createDurableSession({
+  cwd,
+  project,
+  identity,
+  name,
+  creatorSessionDigest: "a".repeat(64),
+  runtime: {
+    threads: [], episodes: [], threadSeq: 0, slateSessionParentChain: [],
+    orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0,
+  },
+});
+const record = {
+  version: 1,
+  author: { identity, name },
+  authorSessionDirectory: source.directory,
+  createdAt: Date.now(),
+  worktreePath: realpathSync(cwd),
+  branchLabel: corpus.currentBranchLabel(cwd),
+  parentChain: [],
+  brief: "ladder",
+  model: { provider, id },
+  ...(thinking === "-" ? {} : { thinkingLevel: thinking }),
+  carriedCostUsd: 0,
+};
+const file = handoff.writeCorpusHandoffRecord(project, record);
+process.stdout.write(`${name}\t${file}`);
+NODE
+	) || die "could not seed a corpus handoff record"
+	HANDOFF_NAME=${result%%$'\t'*}
+	HANDOFF_FILE=${result#*$'\t'}
+	[ -n "$HANDOFF_NAME" ] && [ -f "$HANDOFF_FILE" ] || die "corpus handoff seeder returned no usable record"
 }
 runadopt() { # $1 label, rest = extra pi args
-	local label="$1"; shift
+	local label="$1" input="$LAB/$1-adopt.in" rc sid; shift
+	sid=$(python3 -c 'import uuid;print(uuid.uuid4())') || die "cannot mint the adoption session id"
+	[ -n "$HANDOFF_NAME" ] && [ -f "$HANDOFF_FILE" ] || die "runadopt has no seeded corpus handoff record"
+	rm -f "$input"; mkfifo "$input" || die "cannot create the explicit-adoption rpc fifo"
 	snapshot "$label-before.json"
-	piexec timeout 180 pi --no-extensions -e "$REPO" -a --fork "$PARENT" "$@" -p "adopt" \
-		> "$OUT/$label.out" 2> "$OUT/$label.err"
+	piexec timeout 180 pi --no-extensions -e "$REPO" --mode rpc --session-id "$sid" -a "$@" < "$input" \
+		> "$OUT/$label.out" 2> "$OUT/$label.err" &
+	local child=$!; exec 9>"$input"
+	printf '{"id":"adopt","type":"prompt","message":"/slate adopt %s"}\n' "$HANDOFF_NAME" >&9
+	for _ in $(seq 1 600); do grep -q '"id":"adopt".*"success":true' "$OUT/$label.out" 2>/dev/null && break; sleep 0.1; done
+	# A slash command alone stays in pi's in-memory RPC session. Queue one ordinary
+	# prompt so SessionManager flushes the model/thinking entries used as evidence.
+	printf '{"id":"evidence","type":"prompt","message":"persist ladder session evidence"}\n' >&9
+	for _ in $(seq 1 600); do grep -q '"id":"evidence"' "$OUT/$label.out" 2>/dev/null && break; sleep 0.1; done
+	exec 9>&-; wait "$child"; rc=$?
+	rm -f "$input"
+	[ "$rc" -eq 0 ] || printf 'runadopt child exit=%s\n' "$rc" >> "$OUT/$label.err"
+	mark_slate_child_ran
 	snapshot "$label-after.json"
 }
 
@@ -823,6 +1437,7 @@ echo
 # without launching pi at all — previously people used an unknown --only id for
 # that, which is now (correctly) a hard error.
 if [ "$SETUP_ONLY" = 1 ]; then
+	release_lab_lock || exit 1
 	echo "SETUP OK — guards passed, fixtures and generated copies built; no rungs run by request (--setup-only)."
 	echo "artifacts: $OUT"
 	exit 0
@@ -884,32 +1499,34 @@ if want R3b; then
 	else fail R3b "not restored: $(triple)"; fi
 fi
 
-# R4a handoff adoption, thinking-level key written ALONE (equality guard skips setModel)
+# R4a explicit handoff adoption, thinking-level key written ALONE (equality guard skips setModel)
 if want R4a; then
-	prep_parent
 	slatecfg '{ "modelFailover": {}, "preserveGlobalModelDefault": false }'
-	seed "$CANON"; seed_pending probe-a alpha-1 low; runadopt R4a-off
+	seed "$CANON"; seed_handoff probe-a alpha-1 low; R4A_OFF_RECORD="$HANDOFF_FILE"; runadopt R4a-off
 	OFF=$(triple)
 	slatecfg '{ "modelFailover": {} }'
-	seed "$CANON"; seed_pending probe-a alpha-1 low; runadopt R4a
-	if ! thinking_change_seen low; then fail R4a "no thinking_level_change to low in the session record — adoption never set the level, so the rung is vacuous"
+	seed "$CANON"; seed_handoff probe-a alpha-1 low; R4A_RECORD="$HANDOFF_FILE"; runadopt R4a
+	if ! said "$OUT/R4a-off.err" 'adopted successfully' || ! said "$OUT/R4a.err" 'adopted successfully'; then fail R4a "explicit /slate adopt emitted no positive success marker — silence cannot prove adoption"
+	elif ! thinking_change_seen low; then fail R4a "no thinking_level_change to low in the session record — adoption never set the level, so the rung is vacuous"
 	elif [ "$OFF" != "probe-a/alpha-1:low" ]; then fail R4a "control did not leak the thinking key alone (got $OFF)"
-	elif [ -f "$WORK/.pi/slate/pending-handoff.json" ]; then fail R4a "pending file not consumed — adoption never ran"
-	elif cmp -s "$OUT/R4a-before.json" "$OUT/R4a-after.json"; then pass R4a "adoption thinking-only leak $OFF restored, byte-identical"
+	elif [ ! -f "$R4A_OFF_RECORD" ] || [ ! -f "$R4A_RECORD" ]; then fail R4a "explicit adoption consumed a corpus handoff record"
+	elif cmp -s "$OUT/R4a-before.json" "$OUT/R4a-after.json"; then pass R4a "named adoption succeeded without consuming its record; thinking-only leak $OFF restored byte-identically"
 	else fail R4a "not restored: $(triple)"; fi
 fi
 
-# R4b handoff adoption, model + thinking
+# R4b explicit handoff adoption, model + thinking
 if want R4b; then
-	prep_parent
 	slatecfg '{ "modelFailover": {}, "preserveGlobalModelDefault": false }'
-	seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 xhigh; runadopt R4b-off
+	seed "$CANON_XHIGH"; seed_handoff probe-c gamma-1 xhigh; R4B_OFF_RECORD="$HANDOFF_FILE"; runadopt R4b-off
 	OFF=$(triple)
 	slatecfg '{ "modelFailover": {} }'
-	seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 xhigh; runadopt R4b
-	if ! switch_seen probe-c gamma-1; then fail R4b "no model_change to probe-c/gamma-1 in the session record — adoption never switched, so the rung is vacuous"
+	seed "$CANON_XHIGH"; seed_handoff probe-c gamma-1 xhigh; R4B_RECORD="$HANDOFF_FILE"; runadopt R4b
+	if ! said "$OUT/R4b-off.err" 'adopted successfully' || ! said "$OUT/R4b.err" 'adopted successfully'; then fail R4b "explicit /slate adopt emitted no positive success marker — silence cannot prove adoption"
+	elif ! switch_seen probe-c gamma-1; then fail R4b "no model_change to probe-c/gamma-1 in the session record — adoption never switched, so the rung is vacuous"
+	elif ! thinking_change_seen high; then fail R4b "no thinking_level_change to high in the session record — adoption never set the level, so the rung is vacuous"
 	elif [ "$OFF" != "probe-c/gamma-1:high" ]; then fail R4b "control did not leak (got $OFF)"
-	elif cmp -s "$OUT/R4b-before.json" "$OUT/R4b-after.json"; then pass R4b "adoption model+thinking leak $OFF restored, byte-identical"
+	elif [ ! -f "$R4B_OFF_RECORD" ] || [ ! -f "$R4B_RECORD" ]; then fail R4b "explicit adoption consumed a corpus handoff record"
+	elif cmp -s "$OUT/R4b-before.json" "$OUT/R4b-after.json"; then pass R4b "named adoption succeeded without consuming its record; model+thinking leak $OFF restored byte-identically"
 	else fail R4b "not restored: $(triple)"; fi
 fi
 
@@ -918,14 +1535,13 @@ seed_empty()   { assert_agent_dir "$AGENT" "truncate the settings fixture"; : > 
 seed_corrupt() { assert_agent_dir "$AGENT" "write the corrupt settings fixture"
 	printf '%s' '{ "defaultProvider": "probe-a", "defaultModel": ' > "$SETTINGS"; }
 untrustworthy() { # $1 id, $2 seeder-fn, $3 cause-class regex (synonyms, not prose)
-	prep_parent
 	local id="$1" seeder="$2" frag="$3"
 	slatecfg '{ "modelFailover": {} }'
-	$seeder; seed_pending probe-c gamma-1 high; runadopt "$id" --provider probe-a --model alpha-1
+	$seeder; seed_handoff probe-c gamma-1 high; runadopt "$id" --provider probe-a --model alpha-1
 	local on_after; on_after=$(sha "$SETTINGS")
 	cp -f "$SETTINGS" "$OUT/$id-on-after.json"
 	slatecfg '{ "modelFailover": {}, "preserveGlobalModelDefault": false }'
-	$seeder; seed_pending probe-c gamma-1 high; runadopt "$id-off" --provider probe-a --model alpha-1
+	$seeder; seed_handoff probe-c gamma-1 high; runadopt "$id-off" --provider probe-a --model alpha-1
 	local off_after; off_after=$(sha "$SETTINGS")
 	if [ ! -f "$SETTINGS" ]; then fail "$id" "BLOCKER: settings file deleted"
 	elif ! said_something "$OUT/$id.err"; then fail "$id" "slate emitted no report at all"
@@ -940,7 +1556,6 @@ untrustworthy() { # $1 id, $2 seeder-fn, $3 cause-class regex (synonyms, not pro
 want R5a && untrustworthy R5a 'seed_empty' 'empty|zero.?byte|0 bytes'
 want R5b && untrustworthy R5b 'seed_corrupt' 'cannot read|unreadable|not valid JSON|JSON|pars'
 if want R5c; then
-	prep_parent
 	cat > "$LAB/holdlock.mjs" <<'EOF' || die "cannot write the lock-holder helper"
 import { mkdirSync, utimesSync, rmSync } from "node:fs";
 const t = process.argv[2] + ".lock"; const hold = Number(process.argv[3] ?? 30000);
@@ -949,7 +1564,7 @@ const iv = setInterval(() => { const n = new Date(); try { utimesSync(t, n, n); 
   if (Date.now() - t0 > hold) { clearInterval(iv); try { rmSync(t, { recursive: true, force: true }); } catch {} process.exit(0); } }, 500);
 EOF
 	runlocked() { # $1 label, $2 knobcfg
-		slatecfg "$2"; seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 high
+		slatecfg "$2"; seed "$CANON_XHIGH"; seed_handoff probe-c gamma-1 high
 		assert_agent_dir "$AGENT" "hold the settings lock"
 		rm -rf "$SETTINGS.lock"; node "$LAB/holdlock.mjs" "$SETTINGS" 40000 2>/dev/null & local lp=$!
 		sleep 0.4; runadopt "$1" --provider probe-a --model alpha-1; kill $lp 2>/dev/null; wait $lp 2>/dev/null; rm -rf "$SETTINGS.lock"
@@ -988,6 +1603,7 @@ if want R6; then
 }' > "$SETTINGS"
 	cp -f "$SETTINGS" "$OUT/R6-thirdparty.json"; sleep 1
 	exec 9>&-; wait $R6PID; R6EXIT=$?
+	mark_slate_child_ran
 	snapshot "R6-after.json"
 	# Assert the switch from the SESSION RECORD (same structural check as R1), not
 	# from the RPC event stream — the stdout scan above is only a poll heuristic.
@@ -1082,7 +1698,6 @@ fi
 
 # G4b thinking-level key ABSENT beforehand while the pair is present
 if want G4b; then
-	prep_parent
 	NOTHINK='{
   "defaultProvider": "probe-a",
   "defaultModel": "alpha-1",
@@ -1091,10 +1706,10 @@ if want G4b; then
   }
 }'
 	slatecfg '{ "modelFailover": {}, "preserveGlobalModelDefault": false }'
-	seed "$NOTHINK"; seed_pending probe-a alpha-1 high; runadopt G4b-off
+	seed "$NOTHINK"; seed_handoff probe-a alpha-1 high; runadopt G4b-off
 	OFF=$(triple)
 	slatecfg '{ "modelFailover": {} }'
-	seed "$NOTHINK"; seed_pending probe-a alpha-1 high; runadopt G4b
+	seed "$NOTHINK"; seed_handoff probe-a alpha-1 high; runadopt G4b
 	HASKEY=$(python3 -c 'import json,sys;print("yes" if "defaultThinkingLevel" in json.load(open(sys.argv[1])) else "no")' "$SETTINGS" 2>/dev/null)
 	if ! thinking_change_seen high; then fail G4b "no thinking_level_change to high in the session record — adoption never set the level, so the rung is vacuous"
 	elif [ "$OFF" != "probe-a/alpha-1:high" ]; then fail G4b "control did not write the absent thinking key (got $OFF)"
@@ -1208,7 +1823,6 @@ fi
 
 # P8 sanitised reporting: raw escape bytes next to a syntax error
 if want P8; then
-	prep_parent
 	# Fixture: raw ESC/BEL bytes as a BARE token (outside any string literal), which
 	# is what makes V8 embed a raw snippet of the file in its parse error. Path via
 	# argv, never interpolated into the program text.
@@ -1222,7 +1836,7 @@ const {readFileSync}=require("fs");
 try{JSON.parse(readFileSync(process.argv[1],"utf8"));console.log("no-parse-error")}
 catch(e){console.log(e.message.includes("\u001b")||e.message.includes("\u0007")?"raw-escapes-in-parse-error":"no-escapes-in-parse-error")}' "$SETTINGS")
 	slatecfg '{ "modelFailover": {} }'
-	seed_pending probe-c gamma-1 high; runadopt P8 --provider probe-a --model alpha-1
+	seed_handoff probe-c gamma-1 high; runadopt P8 --provider probe-a --model alpha-1
 	ESC=$(python3 -c 'import sys
 lines = open(sys.argv[1], "rb").read().split(b"\n")
 mine = [l for l in lines if l.startswith(b"slate:")]
@@ -1242,16 +1856,18 @@ fi
 
 # P9 no false claims when nothing was switched / when divergence is unknown
 if want P9a; then
-	prep_parent
 	slatecfg '{ "modelFailover": {} }'
-	seed "$CANON_XHIGH"; seed_pending probe-a alpha-1 -     # model already live, no thinking level => no setter call
+	seed "$CANON_XHIGH"; seed_handoff probe-a alpha-1 -     # model already live, no thinking level => no setter call
 	assert_agent_dir "$AGENT" "hold the settings lock"
 	rm -rf "$SETTINGS.lock"; node "$LAB/holdlock.mjs" "$SETTINGS" 40000 2>/dev/null & LP=$!
 	sleep 0.4; runadopt P9a --provider probe-a --model alpha-1; kill $LP 2>/dev/null; wait $LP 2>/dev/null; rm -rf "$SETTINGS.lock"
-	# Structural and wording-proof: the assertion is that slate said NOTHING at all.
-	if said_something "$OUT/P9a.err"; then fail P9a "wrapper spoke even though no pi setter ran: $(slate_lines "$OUT/P9a.err" | head -1)"
+	# The command must announce success, while the model-default wrapper itself stays silent.
+	P9A_OTHER=$(slate_lines "$OUT/P9a.err" | grep -v 'adopted successfully' | wc -l | tr -d '[:space:]')
+	if ! said "$OUT/P9a.err" 'adopted successfully'; then fail P9a "explicit /slate adopt emitted no positive success marker"
+	elif [ "$P9A_OTHER" != 0 ]; then fail P9a "wrapper spoke even though no pi setter ran: $(slate_lines "$OUT/P9a.err" | grep -v 'adopted successfully' | head -1)"
+	elif [ ! -f "$HANDOFF_FILE" ]; then fail P9a "explicit adoption consumed its corpus handoff record"
 	elif ! cmp -s "$OUT/P9a-before.json" "$OUT/P9a-after.json"; then fail P9a "settings changed"
-	else pass P9a "no setter called ⇒ no post-switch phase, no warning, settings untouched — even with the settings lock held (contrast: R5c, same lock, a real setter, does warn)"; fi
+	else pass P9a "named adoption succeeded and retained its record; no setter called ⇒ no post-switch warning and settings stayed untouched under lock"; fi
 fi
 if want P9b; then
 	# Mutual exclusion of the two report verbs is the assertion; the surrounding
@@ -1353,7 +1969,7 @@ if want WK1; then
 		local label="$1" module="$2" phase="$3"; shift 3
 		# PI_OFFLINE: createAgentSession may run a create-time catalogue refresh, and
 		# this harness has no network at all. (piexec re-verifies the redirect target.)
-		piexec WORKER_MODULE="$module" WORKER_PHASE="$phase" WORKER_RESULT="$OUT/$label.json" PI_OFFLINE=1 \
+		piexec WORKER_MODULE="$module" WORKER_PHASE="$phase" WORKER_RESULT="$OUT/$label.json" \
 			timeout 180 pi --no-extensions -e "$LAB/worker-probe.ts" "$@" -p "x" \
 			> "$OUT/$label.out" 2> "$OUT/$label.err"
 	}
@@ -1410,6 +2026,7 @@ if want LAT; then
 		slatecfg "{ \"modelFailover\": { \"probe-a/alpha-1\": \"probe-c/gamma-1\" }$knob }"
 		for i in 1 2 3 4 5 6 7; do seed "$CANON_XHIGH"; s=$(date +%s%N)
 			piexec timeout 120 pi --no-extensions -e "$REPO" -p "say ok" >/dev/null 2>/dev/null
+			mark_slate_child_ran
 			e=$(date +%s%N); T+=( $(( (e-s)/1000000 )) ); done
 		printf '%s\n' "${T[@]}" | sort -n | awk '{a[NR]=$1} END{printf "%s", a[int((NR+1)/2)]}'; }
 	MON=$(lat ''); MOFF=$(lat ', "preserveGlobalModelDefault": false')
@@ -1417,20 +2034,44 @@ if want LAT; then
 	LINES+=("LATENCY median on=${MON}ms off=${MOFF}ms delta=$((MON-MOFF))ms")
 fi
 
-# Guard 4, second half: the real settings file must be bit-for-bit what it was.
-REAL_AFTER=$(real_fingerprint)
+# A final asynchronous child must settle before any safety evidence is sampled.
+# The sentinel check below therefore cannot race a checked-in background job.
+BACKGROUND_DRAIN_OK=1
+drain_background_jobs || BACKGROUND_DRAIN_OK=0
+
+# D217-D219 final evidence: sandbox fallback and repository are fatal. The real
+# settings content hash is a nonfatal concurrency note.
+REAL_AFTER=$(real_content_hash)
+FALLBACK_AFTER=$(tree_fingerprint "$FALLBACK_AGENT")
+REPO_AFTER=$(repo_fingerprint)
 echo
 if scratch_gone; then
 	echo "verification: the scratch directory disappeared mid-run ($LAB) - the results above are VOID." >&2
 	FAIL=$((FAIL+1))
 fi
+# The aggregate corpus assertion is load-bearing only after a full-slate child
+# completed. A subset with no such child reports NOT RUN instead of disappearing.
+if [ -f "$OUT/slate-child-ran" ]; then
+	if scratch_corpus_has_session; then
+		printf 'SAFE   %-6s PASS    — %s\n' "CORPUS" "at least one current-run slate child published a scratch corpus session"
+		LINES+=("SAFE CORPUS PASS — at least one current-run slate child published a scratch corpus session")
+	else
+		FAIL=$((FAIL+1))
+		printf 'SAFE   %-6s FAIL    — %s\n' "CORPUS" "SCRATCH CORPUS HAS NO SESSION DIRECTORY AFTER A SLATE CHILD RAN"
+		LINES+=("SAFE CORPUS FAIL — scratch corpus has no session directory after a slate child ran")
+		echo "verification: the PI_CODING_AGENT_DIR redirect has no positive scratch-corpus evidence. Investigate before trusting any rung above." >&2
+	fi
+else
+	printf 'SAFE   %-6s PASS    — %s\n' "CORPUS" "not applicable: selected rung launches no full-slate child"
+	LINES+=("SAFE CORPUS PASS — not applicable: no full-slate child selected")
+fi
 # WH7, second half: a run that executed no rung at all must never look like
 # success. Reaching here with RAN=0 means --only selected nothing runnable.
-# --strict: a NOT RUN is a rung that could not be made meaningful. A human
+# --strict: a NOT RUN is a check that could not be made meaningful. A human
 # without strace should not be blocked by that; an automated runner must be, or
 # a ladder that quietly skipped half its teeth reads as success.
 if [ "$STRICT" = 1 ] && [ "$SKIP" -gt 0 ]; then
-	echo "verification: --strict: $SKIP rung(s) reported NOT RUN, which is fatal in strict mode." >&8
+	echo "verification: --strict: $SKIP check(s) reported NOT RUN, which is fatal in strict mode." >&8
 	printf '%s\n' "${LINES[@]}" | grep 'NOT RUN' | sed 's/^/       /' >&8
 	FAIL=$((FAIL+1))
 fi
@@ -1439,14 +2080,57 @@ if [ "$RAN" -eq 0 ]; then
 	echo "       Use --list-rungs to see the ids, or --setup-only to exercise the guards alone." >&2
 	FAIL=$((FAIL+1))
 fi
-if [ "$REAL_BEFORE" = "$REAL_AFTER" ]; then
-	printf 'SAFE   %-6s PASS    — %s\n' "" "real $REAL_SETTINGS unchanged ($REAL_BEFORE)"
-	LINES+=("SAFE PASS — real settings unchanged: $REAL_BEFORE")
-else
+if [ -e "$PI_VIOLATION" ]; then
 	FAIL=$((FAIL+1))
-	printf 'SAFE   %-6s FAIL    — %s\n' "" "REAL SETTINGS FILE CHANGED — before: $REAL_BEFORE  after: $REAL_AFTER"
-	LINES+=("SAFE FAIL — real settings CHANGED: before $REAL_BEFORE after $REAL_AFTER")
-	echo "verification: a pi invocation escaped the PI_CODING_AGENT_DIR redirect. Investigate before trusting any rung above." >&2
+	printf 'SAFE   %-6s FAIL    — %s\n' "PI" "guarded shim recorded an unauthorized PATH-based pi invocation after background-job drain"
+	LINES+=("SAFE PI FAIL — guarded shim recorded an unauthorized PATH-based invocation after background-job drain")
+elif [ "$BACKGROUND_DRAIN_OK" -ne 1 ]; then
+	FAIL=$((FAIL+1))
+	printf 'SAFE   %-6s FAIL    — %s\n' "PI" "live background jobs prevented an authoritative violation-sentinel check"
+	LINES+=("SAFE PI FAIL — live background jobs prevented an authoritative violation-sentinel check")
+else
+	printf 'SAFE   %-6s PASS    — %s\n' "PI" "guarded shim recorded no unauthorized PATH-based pi invocation after background-job drain"
+	LINES+=("SAFE PI PASS — no unauthorized PATH-based pi invocation after background-job drain")
+fi
+if [ "$FALLBACK_BEFORE" != "$FALLBACK_AFTER" ]; then
+	FAIL=$((FAIL+1))
+	printf 'SAFE   %-6s FAIL    — %s\n' "HOME" "throwaway HOME fallback agent changed — redirect loss is possible"
+	LINES+=("SAFE HOME FAIL — fallback agent changed: before $FALLBACK_BEFORE after $FALLBACK_AFTER")
+else
+	printf 'SAFE   %-6s PASS    — %s\n' "HOME" "throwaway HOME fallback agent remained untouched"
+	LINES+=("SAFE HOME PASS — throwaway HOME fallback agent untouched")
+fi
+declare -a SESSION_EVIDENCE_AGENTS=()
+if [ -f "$PI_LEDGER" ]; then mapfile -t SESSION_EVIDENCE_AGENTS < <(sort -u "$PI_LEDGER"); fi
+if [ "${#SESSION_EVIDENCE_AGENTS[@]}" -eq 0 ]; then
+	printf 'SAFE   %-6s PASS    — %s\n' "SESSION" "not applicable: guarded launcher started no pi child"
+	LINES+=("SAFE SESSION PASS — not applicable: guarded launcher started no pi child")
+else
+	for session_agent in "${SESSION_EVIDENCE_AGENTS[@]}"; do
+		assert_agent_dir "$session_agent" "validate runtime-recorded session evidence"
+		if [ -d "$session_agent/sessions" ] && find "$session_agent/sessions" -type f -name '*.jsonl' -print -quit | grep -q .; then
+			printf 'SAFE   %-6s PASS    — %s\n' "SESSION" "current-run session evidence exists under $session_agent"
+			LINES+=("SAFE SESSION PASS — evidence under $session_agent")
+		else
+			FAIL=$((FAIL+1)); printf 'SAFE   %-6s FAIL    — %s\n' "SESSION" "runtime-recorded agent has no session evidence: $session_agent"
+			LINES+=("SAFE SESSION FAIL — no evidence under $session_agent")
+		fi
+	done
+fi
+if [ "$REPO_BEFORE" != "$REPO_AFTER" ]; then
+	FAIL=$((FAIL+1))
+	printf 'SAFE   %-6s FAIL    — %s\n' "REPO" "repository fingerprint changed — before $REPO_BEFORE after $REPO_AFTER"
+	LINES+=("SAFE REPO FAIL — before $REPO_BEFORE after $REPO_AFTER")
+else
+	printf 'SAFE   %-6s PASS    — %s\n' "REPO" "repository fingerprint unchanged $REPO_AFTER"
+	LINES+=("SAFE REPO PASS — repository fingerprint unchanged $REPO_AFTER")
+fi
+if [ "$REAL_BEFORE" != "$REAL_AFTER" ]; then
+	printf 'NOTE   %-6s         — %s\n' "REAL" "real settings content changed concurrently — before $REAL_BEFORE after $REAL_AFTER; verdict unchanged"
+	LINES+=("NOTE REAL — settings content changed concurrently; verdict unchanged")
+else
+	printf 'NOTE   %-6s         — %s\n' "REAL" "real settings content hash unchanged $REAL_AFTER; diagnostic only"
+	LINES+=("NOTE REAL — settings content hash unchanged; diagnostic only")
 fi
 
 echo "== summary: $PASS pass, $FAIL fail, $SKIP not run =="

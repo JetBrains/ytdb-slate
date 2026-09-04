@@ -121,7 +121,13 @@ function boundedObservation(text: string): { content: Buffer; truncated: boolean
  * sanitizer, the episode header and the reader rule to say nothing an operator
  * can act on differently.
  */
-export function captureObservation(cwd: string, episodeId: string, text: string | undefined): ObservationCapture {
+export function captureObservation(cwd: string, episodeId: string, text: string | undefined): ObservationCapture;
+export function captureObservation(cwd: string, sessionName: string, episodeId: string, text: string | undefined, projectDirectory?: string): ObservationCapture;
+export function captureObservation(cwd: string, first: string, second: string | undefined, third?: string, projectDirectory?: string): ObservationCapture {
+	const legacy = arguments.length === 3;
+	const sessionName = legacy ? undefined : first;
+	const episodeId = legacy ? first : (second as string);
+	const text = legacy ? second : third;
 	if (text === undefined) return { stored: false, reason: "no-final-message", grammar: "absent" };
 	if (text.length === 0) return { stored: false, reason: "no-final-text", grammar: "absent" };
 
@@ -132,7 +138,7 @@ export function captureObservation(cwd: string, episodeId: string, text: string 
 	const grammar = findingsGrammar(boundedText);
 	const zeroFindings = hasZeroFindings(boundedText);
 	try {
-		const written = writeSlateArtifact({ cwd, kind: "observations", id: episodeId, content: bounded.content });
+		const written = writeSlateArtifact({ cwd, sessionName, projectDirectory, kind: "observations", id: episodeId, content: bounded.content });
 		return {
 			stored: true,
 			path: written.reference,

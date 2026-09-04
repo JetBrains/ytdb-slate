@@ -1,5 +1,26 @@
 # Verification ladder — global model-default restore
 
+## Corpus session listing
+
+`test/corpus-list.test.ts` covers `extension/corpus-list.ts` and the `/slate sessions`
+command. It checks trust gating, bounded reads, metadata validation, display
+sanitization, pending and foreign-worktree markers, defect rows, duplicate
+identities, truncation, refusal paths, and the read-only guarantee.
+
+Run the focused tests with:
+
+```sh
+node --test test/corpus-list.test.ts
+```
+
+The test creates temporary corpus data. It does not modify the repository or
+user state. The listing command writes nothing and removes nothing.
+
+Open an interactive session against a real corpus copy after command or
+registration changes. Run `/slate sessions` from the project root and from a
+subdirectory. Confirm that the output lists sessions, marks foreign worktrees,
+and reports pending state without changing the corpus copy.
+
 ## Size-grade regression suite
 
 `node verification/size-grade-tests.mjs` checks the shipped `extension/size-grade.mjs` command. The suite covers grade boundaries, all declared source extensions, binary numstat zero-line handling, configuration safety, Git failures, and output formats. It runs first through `verification/run-tests.sh`, so `npm test` and `npm run test:coverage` include it before the TypeScript tests and coverage gate. Use `npm run test:size-grade` for the focused package script. `run-tests.sh` refuses to start with exit 2 when the suite file is absent, so CI cannot silently skip this net.
@@ -65,13 +86,17 @@ from a complete run on a machine with `strace`:
 ```
 RUNG R1     PASS    — failover probe-a/alpha-1⇒probe-b/beta-1 fired (model_change in session), settings byte-identical …
 RUNG P6     NOT RUN — strace not available
-SAFE          PASS    — real /home/you/.pi/agent/settings.json unchanged (57b3e320… 289:1785133943)
+SAFE   CORPUS PASS    — at least one current-run slate child published a scratch corpus session
+SAFE   HOME   PASS    — throwaway HOME fallback agent remained untouched
+SAFE   SESSION PASS   — selected throwaway agent contains current-run session evidence
+SAFE   REPO   PASS    — repository fingerprint unchanged …
+NOTE   REAL           — real settings content hash unchanged …; diagnostic only
 == summary: 26 pass, 0 fail, 0 not run ==
 ```
 
-Exit status: **0** all good; **1** a rung failed, **no rung ran**, the real
-settings file changed, or `--strict` was given and a rung reported NOT RUN;
-**2** refused to start — a safety guard or a usage error;
+Exit status: **0** all good; **1** a rung failed, **no rung ran**, a sandbox
+safety check failed, the repository fingerprint changed, or `--strict` was given
+and a check reported NOT RUN; **2** refused to start — a safety guard or usage error;
 **3** the scratch directory disappeared mid-run, so every result printed is void
 — re-run with an explicit `--lab` under a path nothing else touches. (That last
 one is real: a neighbouring job doing `rm -rf /tmp/<prefix>*` will eat the
@@ -86,11 +111,12 @@ Options:
 | option | meaning |
 | --- | --- |
 | `--repo <dir>` | checkout under test; `--repo .` from the repository root |
-| `--lab <dir>` | scratch dir for `agent/`, `work/`, `out/`, `weak/` (default: fresh `mktemp`, kept) |
+| `--lab <dir>` | scratch dir for `agent/`, `work/`, `out/`, `weak/` (default: fresh `mktemp`, kept). The caller must own it, group and other users must not have write access, and one run holds its atomic `.slate-ladder.lock` |
 | `--only <ids>` | comma-separated rung ids, e.g. `--only R5a,R5b,R5c`. An **unknown id is a hard error** (exit 2), and a run that ends up executing no rung at all exits **1** — a mistyped id must never look like success |
 | `--old-module <file>` | supply the pre-fix `model-default.ts` for the P5a/P5b teeth proof yourself; by default it is derived from the current module at run time |
 | `--strict` | any NOT RUN becomes a failure (exit 1). **Automation should always pass this** — otherwise a ladder that skipped rungs, because `strace` was missing or a teeth derivation broke, reads as a clean pass. Off by default so a human without the optional tracing tool is not blocked |
-| `--setup-only` | run every guard and build every fixture and generated copy, then stop without launching pi. The supported way to exercise the safety machinery |
+| `--setup-only` | run every guard and build every fixture and generated copy, then stop without launching pi. The supported way to exercise setup safety |
+| `--self-test` | run deterministic hermetic-launcher tests for environment closure, invalid roots, redirect loss, nested children, alternate agents, the runtime violation sentinel, outer guard, source audit and concurrent fabricated writes |
 | `--list-rungs` | print the rung ids and exit |
 
 ### Rung selection semantics and interdependencies
@@ -104,7 +130,7 @@ prerequisite makes them report NOT RUN rather than guess:
 | --- | --- |
 | `P9b` | `R7` **and** `R8` in the same run (it compares their two report verbs) |
 | `P10` | `R5a` in the same run (to confirm failure reports still reach stderr) |
-| `R4a`,`R4b`,`R5a`,`R5b`,`R5c`,`G4b`,`P8`,`P9a` | a parent session, which they create on demand — no cross-rung dependency |
+| `R4a`,`R4b`,`R5a`,`R5b`,`R5c`,`G4b`,`P8`,`P9a` | a valid named corpus handoff record and source-session metadata, which they create on demand — no cross-rung dependency |
 | `WK1` | nothing: it launches its own two pi processes and opens its own worker sessions — no cross-rung dependency |
 
 `LAT` is informational: it prints a median wall-clock comparison and never
@@ -114,10 +140,11 @@ contributes to pass/fail.
 
 * `pi`, `node`, `python3`, and **GNU** coreutils — `sha256sum`, `stat -c`,
   `timeout`, `cmp`, `mkfifo`, `awk`, `sed`, `grep`, `cat`, `cp`, `cut`, `date`,
-  `dirname`, `head`, `ls`, `rm`, `sort`, `tail`, `wc`, `mktemp`. All are checked
-  up front and a missing one aborts — a half-run ladder proves nothing. BSD/macOS
-  `stat` and `shasum` are **not** supported: the script aborts rather than
-  silently skipping the safety fingerprint.
+  `dirname`, `head`, `ls`, `rm`, `rmdir`, `sort`, `tail`, `wc`, `mktemp`. All are
+  checked up front and a missing one aborts — a half-run ladder proves nothing.
+  GNU `rm --one-file-system` is also required for scratch-state clearing.
+  BSD/macOS `stat` and `shasum` are **not** supported: the script aborts rather
+  than silently skipping the safety fingerprint.
 * **`strace` is optional**; `P6` reports NOT RUN without it. It also needs
   permission to trace — in a container, `--cap-add=SYS_PTRACE` or an unrestricted
   `/proc/sys/kernel/yama/ptrace_scope`; without that `P6` reports NOT RUN too.
@@ -182,9 +209,10 @@ Four drive modes, chosen per rung:
    plus `pi -e <repo> -p "say ok"`. The switch is proven from the session record
    (`model_change` entry), never from a log line — the success notice is
    deliberately UI-only.
-2. **End-to-end handoff adoption** — a seeded
-   `<lab>/work/.pi/slate/pending-handoff.json` whose `parentSession` matches the
-   header `--fork` writes, plus `-a` for project trust.
+2. **End-to-end handoff adoption** — a valid named record under the throwaway
+   corpus, backed by source-session metadata, plus a real RPC request for
+   `/slate adopt <name>` in a fresh trusted session. The record must remain after
+   adoption, and stderr must carry the explicit positive success marker.
 3. **`probe.ts`** — imports the module under test by absolute path and calls the
    real `withGlobalModelDefaultRestored` with the real `pi` and `ctx` around a
    real `pi.setModel`. Only the *caller* differs from the two shipped switch
@@ -207,8 +235,8 @@ Four drive modes, chosen per rung:
 | `R2` | knob off ⇒ the leak reappears — the negative control that makes R1 non-vacuous |
 | `R3a` | a clamped thinking level (`xhigh`→`high`) is restored to the user's preference, not the clamp |
 | `R3b` | a thinking-level-**only** divergence through the failover site (pair already at the target) |
-| `R4a` | handoff adoption writing the thinking key **alone**, when its equality guard skips `setModel` |
-| `R4b` | handoff adoption writing model *and* thinking level |
+| `R4a` | explicit named handoff adoption writes the thinking key **alone**, skips `setModel`, emits a positive success marker, and retains its corpus record |
+| `R4b` | explicit named handoff adoption writes model *and* thinking level, emits a positive success marker, and retains its corpus record |
 | `R5a` | zero-byte settings file ⇒ warn, write nothing, never delete |
 | `R5b` | corrupt settings file ⇒ warn, write nothing, never delete |
 | `R5c` | settings lock held ⇒ warn, write nothing, never delete |
@@ -230,7 +258,7 @@ Four drive modes, chosen per rung:
 | `P11` | a report that hits the length cap is cut **on a word boundary**, carries an explicit truncation marker, and keeps the headline, affected keys, settings path and cause while losing only the advisory tail |
 | `WK1` | a **worker-side per-dispatch** model *and* effort switch (a) writes **zero bytes** to the global settings file and (b) does not survive into a reopened session as a sticky default |
 | `LAT` | median wall clock, knob on vs off, n=7 each — informational, never a pass/fail |
-| `SAFE` | the real settings file is bit-for-bit unchanged across the whole run |
+| `SAFE` | the runtime pi shim recorded no unauthorized PATH-based invocation, corpus evidence exists, every recorded agent root is validated, the throwaway-HOME fallback stayed untouched, and the read-only repository fingerprint is unchanged. A focused rung whose guarded launcher starts no pi child reports a positive not-applicable PASS |
 
 Every rung that drives a switch also asserts **positive evidence that the switch
 actually fired**, from the session record (`model_change`, or
@@ -421,7 +449,15 @@ redirected into an artifact file) is still visible.
 2. **No scratch directory over real state.** `--lab` *and* the default location
    (which follows `TMPDIR`) are resolved through symlinks **before anything is
    created**, and rejected if they land inside the pi home tree, the real agent
-   directory, or the repository working tree.
+   directory, or the repository working tree. The caller must own the resolved
+   lab and agent directories, and neither may permit group or other writes.
+   Existing removal-path directories receive the same ownership and mode check.
+
+   One atomic `mkdir` acquires `<lab>/.slate-ladder.lock` before setup. The lock
+   remains through final safety reporting. Cleanup releases it, or prints the
+   lock path and manual remedy when release fails. A failed release changes an
+   otherwise successful exit to non-zero. An existing lock refuses the run
+   immediately; the harness never waits or guesses whether another run is alive.
 3. **Every directory the harness writes to is validated, not just one.**
    `agent/`, `work/`, `out/` and `weak/` are each created with a *checked*
    `mkdir`, canonicalised, required to be non-empty, absolute, an actual
@@ -438,65 +474,136 @@ redirected into an artifact file) is still visible.
    blocker upstream of it — and applied at *writes*, not only launches, because a
    launch-time-only check is not enough: a same-user racer replacing
    `<lab>/agent` with a symlink mid-run once let harness fixture data land in the
-   symlink's target while only the launch was refused.
-5. **The real settings file is fingerprinted.** sha256, size and mtime are
-   recorded before the run and re-checked after. A change is a failed run
-   (`SAFE FAIL`, non-zero exit) saying a pi invocation escaped the redirect.
-   Because mtime is part of the fingerprint, any pi process that writes the same
-   real `settings.json` trips it, regardless of its project or working tree. A
-   process with `PI_CODING_AGENT_DIR` set to another directory cannot trip this
-   fingerprint.
+   symlink's target while only the launch was refused. The recursive corpus and
+   session reset inherits this same residual race. It validates ownership, mode,
+   containment and device twice, removes the resolved path with
+   `--one-file-system`, and performs the second check immediately before removal.
+   A same-user swap after that final check remains outside the guarantee.
+5. **Every child uses one hermetic launcher.** `env -i` supplies validated
+   throwaway `HOME`, `TMPDIR` and the selected `PI_CODING_AGENT_DIR`, `PI_OFFLINE`,
+   a PATH assembled from guarded absolute tool resolutions, and only explicit
+   rung canaries. The real pi directory is absent from that PATH. After parent
+   tools resolve, the parent PATH also removes that directory and puts the
+   refusing shim first. A generated token-guarded `pi` shim is therefore the
+   only PATH-visible pi command. It records the selected agent root in a durable
+   ledger on every actual pi start. The script unsets its real pi path variable
+   after generating the shim. The generated guard requires exact environment-key
+   equality before it starts the requested command. `NODE_OPTIONS`, credentials, proxies,
+   stale pi variables and `PI_CODING_AGENT_SESSION_DIR` are absent. A marker
+   written from the child process `spawn` event makes every launch positive.
+   P11 and alternate-agent launches use this same path.
 
-   A pi process can write settings for many reasons. Model changes and effective
-   thinking-level changes are common examples, not an exhaustive list. The
-   harness cannot prove that an apparently idle session will remain read-only.
-   Treat every pi process sharing the real agent directory as a possible
-   concurrent writer.
+   `HOME`, `TMPDIR` and each selected agent root are checked before every launch.
+   Each must be non-empty, absolute, a real non-symlink directory and inside the
+   lab. The inherited `PI_CODING_AGENT_DIR` refusal remains an outer fatal guard.
+   A refused invocation with an invalid token or ledger atomically creates a
+   per-run violation sentinel. Every hermetic launch fails when the sentinel
+   exists. Before the final `SAFE PI` report, a bounded poll enumerates shell
+   jobs and reaps jobs that are already exiting. A live job after the bound
+   makes the report fail. The report checks the sentinel only after that drain.
 
-   An isolated-load smoke test, an interactive session or a dogfooding session
-   can rewrite the file concurrently. The resulting `SAFE FAIL` has an IDENTICAL
-   recorded hash and size, with only the mtime moved. That shape means a concurrent
-   writer rather than an escaped invocation. The run still fails because the
-   sentinel can no longer speak for the rungs above it. Stop the other pi processes
-   that share the real agent directory, then rerun the ladder alone.
+   The runtime control catches PATH-based forms when command substitution or
+   missing `set -e` hides the shim status. The sentinel resets only at controlled
+   self-test boundaries.
 
-   The real agent directory is located **the way pi locates it** — via
-   `node os.homedir()`, which still works when `HOME` is unset — or from
-   `SLATE_LADDER_REAL_AGENT_DIR`. If neither can be determined, the script aborts
-   rather than watch nothing.
+   Before any rung starts, the source audit checks the complete ladder script.
+   It rejects a literal or tainted pi-like command in foreground, background,
+   or subshell command position. `echo pi` remains harmless. The audit also
+   recursively parses command, input and output process substitutions. Its
+   parser balances parentheses across nesting and lines while honoring shell
+   quotes and escapes. A pi launcher command inside any parsed form is fatal.
 
-On top of that, every pi invocation goes through one helper that sets
-`PI_CODING_AGENT_DIR=<lab>/agent` and unsets the inherited `PI_CODING_AGENT`,
-`PI_SESSION_FILE`, `PI_SESSION_ID`, `PI_PROVIDER`, `PI_MODEL` and
-`PI_REASONING_LEVEL`, so a run launched from inside a pi session cannot pick up
-the caller's session or model. `getAgentDir()` in pi honours that variable for
-settings, auth, model catalogue and sessions alike — confirm the redirect took
-effect by checking that `<lab>/agent/sessions/` filled up.
+   These controls prevent asynchronous checked-in syntax from racing the final
+   sentinel check. The audit also checks direct real-path and exposed alias
+   references. It does not claim to parse all shell grammar or inspect
+   deliberately generated shell code.
+
+   `--self-test` exercises poisoned parents, absent and empty roots, redirect-loss
+   teeth, nested inheritance, runtime alternate-agent ledger registration and
+   shim refusal outside the launcher. Source mutations cover background commands,
+   subshells, command substitutions and input and output process substitutions.
+   Process-substitution cases include nested and multiline forms. Harmless
+   background jobs, process redirections and `echo pi` remain accepted. Drain
+   tests cover an exiting job and bounded refusal of a live job. Runtime mutations
+   cover `command pi`, both process substitutions, backticks, `$()`, bare `pi`,
+   `xargs` and a shell wrapper. The remaining tests cover the outer guard and
+   concurrent fabricated settings writes.
+
+   The real settings content hash is now a NOTE only. A concurrent real session
+   may change it without changing the verdict. Redirect evidence instead comes
+   from the selected agent's session and corpus, plus an untouched fallback agent
+   under the throwaway HOME.
+6. **Slate child runs must populate the scratch corpus.** A marker is written
+   only after a child that loads the full slate extension completes. Before any
+   child runs, the harness validates the scratch agent directory and every
+   existing removal-path directory. It clears `agent/ytdb-slate/projects`,
+   `agent/sessions`, and the prior-run marker. Each recursive removal uses a
+   resolved contained path, requires the agent device, and stays on one
+   filesystem. A reused `--lab` therefore retains `work/`, `out/`, and `weak/`,
+   while only current-run corpus and session records can satisfy assertions. The
+   reset prints a NOTE for each prior state tree it removes.
+
+   After the rungs finish, the harness requires a depth-three `session.json`
+   under `<lab>/agent/ytdb-slate/projects`. The predicate re-validates the agent
+   directory before reading it. Absence after a marked full-slate child is
+   `SAFE CORPUS FAIL` and a non-zero exit. A focused rung with no full-slate
+   child reports a positive not-applicable PASS.
+
+   Across several marked children, the aggregate assertion proves that at least
+   one current-run child published a scratch corpus session. It does not prove
+   that every marked child did. A no-pi teeth fixture rejects a wrong filename,
+   a too-shallow `session.json`, and a too-deep `session.json`. It then accepts an
+   exact depth-three `session.json`. An always-success predicate, removal of the
+   filename constraint, and removal or weakening of the depth constraint are
+   therefore fatal during setup.
+
+7. **The checkout is fingerprinted before and after.** The fatal read-only digest
+   covers HEAD, index entries from `git ls-files --stage`, tracked files, relevant
+   untracked files, content and metadata. It never calls `git write-tree`.
+   Self-tests prove the digest changes no index bytes or metadata, loose objects,
+   or worktree fingerprint. Concurrent pi sessions are permitted only when they cannot write
+   this checkout. A same-checkout writer is prohibited. Same-user edit-and-restore
+   remains the stated residual because a final userspace digest cannot observe it.
+
+The reset removes prior selected-agent sessions and corpus state before children
+start. Session JSONL and depth-three corpus metadata therefore belong to this
+run. The fallback `$HOME/.pi/agent` fingerprint catches loss of the explicit
+agent redirect.
 
 An `EXIT`/`INT`/`TERM` trap restores permissions on any settings file the rungs
-made read-only, removes any lock directory left held, and kills background
-helpers — for lab paths containing spaces too, and skipping anything that is no
-longer a real directory inside the lab. Artifacts are deliberately **not**
-removed — they are the evidence.
+made read-only, releases its lab lock, and kills background helpers — for lab
+paths containing spaces too, and skipping anything that is no longer a real
+directory inside the lab. A failed lock release is reported and forces a
+non-zero exit. Artifacts are deliberately **not** removed — they are the
+evidence.
 
 ### What the guards do NOT cover
 
-* They protect the **pi home tree, the real agent directory and the repository**.
-  A `--lab` elsewhere is accepted, so pointing it at another directory you care
-  about will let the harness write there.
-* The fingerprint watches **one file** — the real `settings.json`. Escapes that
-  touched only, say, the real session directory would not be caught by it.
+* The hermetic environment is not an operating-system filesystem sandbox. A
+  dependency using a hardcoded absolute real-home path remains outside the
+  portable guarantee. The launcher blocks accidental and ordinary PATH-based
+  bypasses. It does not defend against a deliberately malicious same-user child.
+  Such a child can read the shim or its token and forge writable evidence. It
+  can also reconstruct and invoke an absolute binary. Those attacks require
+  operating-system isolation.
+* The real settings hash is diagnostic and nonfatal. Selected-agent, fallback-
+  agent, session, corpus and repository evidence determine the safety verdict.
 * Guard 2/3 canonicalise **at startup**. The *agent* directory is re-checked
   before every launch and every write (guard 4), but the other lab directories —
   `out/`, `weak/`, `work/` — are not: a symlink swapped underneath one of those
-  mid-run would redirect artifact or fixture writes. They hold no user state, and
-  the attack needs same-user access to a `0700` scratch directory.
-* Nothing here defends against a `pi` binary that ignores
-  `PI_CODING_AGENT_DIR`; the fingerprint is what would notice after the fact.
+  mid-run would redirect artifact or fixture writes. They hold no user state.
+  Lab ownership and mode checks exclude another local user from the intended
+  threat model. A same-user swap remains possible, including in the narrow
+  interval between the reset's final validation and recursive removal.
+* A marked slate child whose `pi` binary ignores `PI_CODING_AGENT_DIR` leaves no
+  current-run scratch corpus and triggers `SAFE CORPUS FAIL`. A focused run with
+  no full-slate child reports a positive not-applicable PASS.
+* Same-user repository edit-and-restore can evade the final fingerprint. A
+  concurrent process capable of writing this checkout remains prohibited.
 
-Nothing the harness writes lands inside the repository: the repo is only read —
-the module under test and `probe.ts` are read, and every weakened copy is
-generated into `<lab>/weak/`.
+Nothing the harness intentionally writes lands inside the repository. The final
+fingerprint makes an accidental or concurrent change fatal. Generated copies and
+all launcher artifacts remain under the lab.
 
 ## Environmental noise — not failures
 
@@ -523,7 +630,9 @@ Also expected, and not a harness problem:
 - `mkdir: cannot create directory …: File exists` immediately before a
   `verification: cannot create …` abort — that is a guard doing its job.
 - The default scratch directory is **kept**, not cleaned up, and so is a reused
-  `--lab`. Old `out/` artifacts survive; see § Requirements and hard constraints.
+  `--lab`. Old `work/`, `out/`, and `weak/` artifacts survive. The scratch corpus,
+  pi session transcripts, and child marker are reset at the next run so they
+  cannot become prior-run evidence; see § Requirements and hard constraints.
 
 # Pure-resolver checks — `run-resolver-checks.sh`
 
@@ -549,10 +658,9 @@ A net much smaller than the ladder, for these subjects:
   predicate, splitter, defect reasons and confusable annotation that the router
   shares with `failover.ts`, `episodes.ts` and `worker.ts`, plus the
   single-spec config-key sanitizer (`episodeModel`);
-- the **snapshot record sanitizers** in `extension/state.ts` (`state-*`) — BG26:
-  `sanitizeThreadRecord` / `sanitizeEpisodeRecord`, re-run over the user's whole
-  thread and episode history at every session restore, plus the CQ22 adoption
-  checklist they are audited against;
+- the **stored-record sanitizers** in `extension/state.ts` (`state-*`) — BG26:
+  `sanitizeThreadRecord` / `sanitizeEpisodeRecord`, applied to records read from
+  the external namespace, plus the CQ22 adoption checklist they are audited against;
 - the **orchestrator base-model tracker** in `extension/base-model.ts` (`base-*`)
   — the reducer that decides which model switches move the base model new worker
   threads inherit;
@@ -566,6 +674,15 @@ A net much smaller than the ladder, for these subjects:
   The `writing-reminder-*` family covers the reminder policy module, requirement
   roster, cadence, gates, real mode handlers, runtime-only state, and handoff
   ordering. The checker module has two nets of its own. See § The writing checker.
+- the **recursive lexical storage scans** for Track 14 goals 6, 7 and 8
+  (`source-goal6`, `source-goal7`, `source-goal8`) — source scans over every
+  `.ts` and `.mjs` module under `extension/`, including nested modules, with
+  comments removed. They pin the direct save APIs and low-level durable writer
+  sites, the lexical `appendEntry` inventory and canonical locator call, and the
+  exact direct `getEntries()` and `getBranch()` sites with their reviewed uses.
+  They also reject the removed symbols and old-entry tokens. These source-text
+  checks do not resolve arbitrary computed properties or runtime aliases that
+  avoid the inspected API identifiers (TQ1506);
 - the **worker preamble and reviewer charter** across `extension/worker.ts`,
   `extension/threads.ts` and the marked block in `docs/review-rules.md`
   (`worker-preamble`, `reviewer-charter-sync`). The checks cover historical
@@ -721,8 +838,10 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-numbering` | tail rules are numbered by **position**, not identity. Trusted design is always last. Writing is rule 11 alone, rule 12 after extensions or routing, and rule 13 when both precede it. Every combination stays contiguous, and the routing body remains identical when its number moves |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,584 portable characters, 43 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **8,002 of 8,500** portable characters. The draft-disabled pin is **7,983**. Writing plus routing is **6,636 of 7,000**. All tails are **6,891 of 7,300**. The capped worker rule is **1,347 of 1,600**. A **9,318-character** positive control exceeds the maximal bound by 818. These are verification budgets, not runtime limits. |
-| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,080 of 8,500** portable characters and 102 lines and keeps 420 characters of reserve. |
+| `session-name-vocabulary` | both ordered 32-word rosters and all 1,024 minted adjective-noun pairs remain frozen and valid |
+| `doctrine-research-log` | the research log rule of Track 15 renders exactly ONE case. Two cases exist: no session directory yet, and one exact path. There is no stored location choice. The check drives the real `before_agent_start` handler with a fabricated `researchLogPath()`. It pins the pending text, fallback prohibition, exact marked path, injection defences, 4,096-unit Slate sanity guard, and accurate agent-directory restart guidance. A withheld path prints no fragment or ellipsis. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence. It removes the variable research-log session-directory prefix only inside the marked path. It keeps every literal filename, including `research-log.md`. One long prefix and a different non-basic Unicode prefix must normalize to identical text and counts. A mutation control keeps a matching prefix in authored wording outside the marked path. Other controls catch missing or extra normalization, a duplicated path, and a missing filename. Production fixtures still carry the full path. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,732 portable characters, 46 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **8,160 of 8,700** portable characters. The draft-disabled pin is **8,131**. Writing plus routing is **6,784 of 7,200**. All tails are **7,039 of 7,400**. The capped worker rule is **1,347 of 1,600**. A **9,476-character** positive control exceeds the maximal bound by 776. These are verification budgets, not runtime limits. |
+| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,238 of 8,700** portable characters and 105 lines. It keeps 462 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
@@ -734,7 +853,9 @@ The doctrine contract checks read the shipped workflow documents directly:
 | `contract-fast-path-artifact` | the ten-item SMALL checklist, omitted gates, retained sequence, and fallback to ordinary SMALL remain present |
 | `contract-test-composite` | the composite charter requires both behavioral effectiveness and structure and isolation sections |
 | `contract-no-test-structure` | the retired standalone test-structure role does not return or merge into another reviewer |
-| `contract-section-targets` | every named level-two target across the five workflow documents occurs exactly once. Regex metacharacters are escaped, and a duplicated Fast path counterfactual fails uniqueness |
+| `contract-section-targets` | every named level-two target across the five workflow documents occurs exactly once. In user notes, a line that holds exactly three backtick characters and nothing else toggles fence exclusion. Outside that exclusion, the check rejects unexpected lines that start with `## `. Regex metacharacters are escaped, and a duplicated Fast path counterfactual fails uniqueness |
+| `contract-archive-retirement` | old archive symbols and the removed document stay absent. Retired corpus state changes neither doctrine nor warnings. A mandatory copy, hash, verification, waiver, or corpus rule fails, including a renamed counterfactual |
+| `contract-retained-safety` | the handoff summary, working-log retention, five direct doctrine documents, and publishing acceptance sequence remain present. Each assertion defeats its own deletion mutation |
 
 The **writing checker command** (`extension/writing-check.mjs`) is covered both by
 direct import and by spawned command tests. This is the checker's smallest net:
@@ -760,7 +881,7 @@ The **human-only writing status line** is covered through `registerSlateMode` wi
 | `writing-status-cap-skip` | the **checker's own** 1 MiB input cap (`MAX_INPUT_BYTES`) fails open: an oversized message is skipped rather than counted or thrown. It calls `measureWritingTurn` directly with `MAX_INPUT_BYTES + 1` bytes, so it says nothing about the 16 KiB turn bound — that is the row below |
 | `writing-status-cap-visible` | the **turn** bound (`WRITING_TURN_MAX_BYTES`, 16 KiB in `mode.ts`): a larger assistant message goes through the real `turn_end` hook, is never handed to the checker, and the status line says `writing skipped (message too large)` |
 | `writing-status-counting` | only fail findings count; warnings, house-style findings and advisories do not |
-| `writing-status-no-store-write` | counter updates do not call `SlateStore.save()` or persist the orchestrator-mode seed |
+| `writing-status-no-store-write` | counter updates do not call `SlateStore.commit()` or persist the orchestrator-mode seed |
 
 `measureWritingTurn` lives in `extension/writing.ts`, beside the writing config
 boundary. This keeps the pi-shaped message handling typechecked while the standalone
@@ -793,7 +914,7 @@ The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`
 | `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, pause state and the one-send round slot close independently; false ignored writing keys cannot close delivery; force does not bypass surviving policy gates; no UI gate exists |
 | `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-rearm` / `writing-reminder-mode-force` | claim queues a pending mark without consuming force; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; only assistant `message_end` re-arms the next round |
 | `writing-reminder-send-retry` / `writing-reminder-cleared-retry` | a synchronous `sendMessage` throw releases the claim for retry; an assistant response that arrives before delivery also clears the pending claim without consuming cadence or force |
-| `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters snapshots; the real handoff adoption handler sets force before mode reset; reset preserves that force while clearing mark, round and pending state |
+| `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters canonical runtime storage; the explicit `/slate adopt <name>` command adopts one external namespace, sets force after the adopting read RETURNS (the event is recorded at completion, so a force write during the read fails the order claim) and before mode reset, and writes exactly one locator note; reset preserves that force while clearing mark, round and pending state |
 
 The family uses the real `registerSlateMode` handlers with fabricated contexts.
 It remains a pure harness with no pi session. The live hook and persistence path
@@ -898,14 +1019,15 @@ real session rather than against a fixture, and it agrees with these checks.
 > batch. The model-visible price-divergence warning is not deduplicated. Its exact-rate
 > `model-data-note` companion uses condition-key deduplication and the same display gate.
 
-**Recorded sizes use one portable basis.** The doctrine embeds ABSOLUTE doc
-paths. Raw size therefore changes with the install directory. `portable` removes
-each occurrence of the docs directory and keeps the filename. This is the figure
-that `doctrine-budget` enforces. To recover a raw count, add `paths × docs directory
-length`.
+**Recorded sizes use one portable basis.** Raw size changes with documentation
+locations and the research log session directory. `portable` removes each docs
+directory. It removes the variable research-log session-directory prefix only
+inside the marked research log path. It keeps every literal filename. The raw
+prompt still carries every complete path. To recover a raw count, add each
+removed prefix length.
 
 The full multi-basis table lives in `docs/context-budget.md`. The resolver check
-owns these stable verification fixtures:
+owns these stable verification fixtures.
 
 | fixture | paths | portable | lines | bound |
 | --- | ---: | ---: | ---: | ---: |
@@ -913,17 +1035,17 @@ owns these stable verification fixtures:
 | writing rule | 1 | **1,103** | 20 | 1,200 |
 | design rule | 0 | **364** | 6 | 450 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| trusted router-off doctrine | 4 | **4,051** | 67 | — |
-| trusted router-on doctrine | 5 | **6,636** | 91 | 7,000 |
-| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **6,858** | 97 | — |
-| writing and design doctrine | 4 | **4,051** | 67 | 5,600 |
-| writing plus router | 5 | **6,636** | 91 | 7,000 |
-| writing plus extensions | 4 | **4,306** | 73 | 6,000 |
-| writing plus router and extensions | 5 | **6,891** | 97 | 7,300 |
-| maximal doctrine with draft PRs enabled | 6 | **8,002** | 101 | 8,500 |
-| maximal doctrine with draft PRs disabled | 5 | **7,983** | 101 | 8,500 |
-| maximal doctrine with follow-up issues enabled | 6 | **8,080** | 102 | 8,500 |
-| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,318** | 108 | must exceed 8,500 |
+| trusted router-off doctrine | 4 | **4,199** | 70 | — |
+| trusted router-on doctrine | 5 | **6,784** | 94 | 7,200 |
+| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **7,016** | 100 | — |
+| writing and design doctrine | 4 | **4,199** | 70 | 5,600 |
+| writing plus router | 5 | **6,784** | 94 | 7,200 |
+| writing plus extensions | 4 | **4,454** | 76 | 6,000 |
+| writing plus router and extensions | 5 | **7,039** | 100 | 7,400 |
+| maximal doctrine with draft PRs enabled | 6 | **8,160** | 104 | 8,700 |
+| maximal doctrine with draft PRs disabled | 5 | **8,131** | 104 | 8,700 |
+| maximal doctrine with follow-up issues enabled | 6 | **8,238** | 105 | 8,700 |
+| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,476** | 111 | must exceed 8,700 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
 fabricated dogfood fixture mirrors the five configured models and resolves them
@@ -936,25 +1058,32 @@ upper bound must exceed the current measurement by at least five percent.
 Required character raises round up to the next hundred, while line bounds use
 the next whole line.
 
+Every raw doctrine row above includes one complete research log path. Portable
+measurement excludes its variable session-directory prefix only inside that
+marked path. It retains `research-log.md`. Authored occurrences of the same
+prefix outside the marked path remain counted. The authored-wording budget does
+not limit mandatory environment data. Production rendering performs no such
+normalization.
+
 A doctrine change updates its exact literal. A bound changes only when this
 reserve policy requires it. Writing plus routing uses
-`6,636 × 1.05 = 6,967.8`. Ceiling gives 6,968. The 7,000 bound remains larger.
+`6,784 × 1.05 = 7,123.2`. Ceiling gives 7,124. The 7,200 bound remains larger.
 
-All tails use `6,891 × 1.05 = 7,235.55`. Ceiling gives 7,236. The 7,300 bound
+All tails use `7,039 × 1.05 = 7,390.95`. Ceiling gives 7,391. The 7,400 bound
 remains larger.
 
-The largest maximal fixture uses `8,080 × 1.05 = 8,484`.
-The 8,500 bound remains larger. The enabled, disabled, and follow-up maximal
-reserves are 498, 517, and 420.
+The largest maximal fixture uses `8,238 × 1.05 = 8,649.9`. Ceiling gives 8,650.
+The 8,700 bound remains larger. The enabled, disabled, and follow-up maximal
+reserves are 540, 569, and 462.
 
 The largest model-row growth is 184 characters. The capped tool-line growth is
-212 characters. The positive control exceeds the maximal bound by 818.
+212 characters. The positive control exceeds the maximal bound by 776.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
 prose. The bounds are not runtime limits. A larger extension roster can exceed
 every representative figure. `docs/context-budget.md` records the same stable fixture and a distinct
-real dogfood basis. Matching fixture rows must agree exactly, while different
+real project basis. Matching fixture rows must agree exactly, while different
 bases must be named.
 
 The exact equalities are maintenance tripwires. A deliberate wording,
@@ -1186,15 +1315,15 @@ Config-sanitizer wiring (`extension/index.ts`) — a **text** check:
 | --- | --- |
 | `wiring` | every config sanitizer is imported by `index.ts` and called at `session_start` with its own key and a live diagnostic sink. The router receives the class-aware `routerWarn` wrapper. Every other sanitizer receives the shared `warn` sink. A missing call or throwaway sink is precisely the silent failure RG20 was. `index.ts` cannot be loaded here, so this check asserts against source text. It proves wiring, not wrapper behavior |
 
-Model-spec vocabulary and snapshot sanitizers (`extension/state.ts`):
+Model-spec vocabulary and stored-record sanitizers (`extension/state.ts`):
 
 | id | what it proves |
 | --- | --- |
 | `state-load` | the module loads; a failure converts the `spec-*` **and `state-*`** checks into explicit NOT RUN lines (both prefixes are paired with `STATE_IDS` in `VOIDABLE` — with only `spec-` there the roster's coverage audit walked past the two sanitizer checks entirely, since it filters `EXPECTED` by prefix and never notices a list member that matches none) |
 | `spec-invisible` | every zero-width or direction-changing character is **rejected** by the shared predicate — controls, bidi, soft hyphen, BOM, **variation selectors** (BMP *and* astral), **tag characters** and **Hangul fillers**, the three classes the first BG2 fix missed — each named by code point in the reason; a non-breaking space reports as whitespace; a *visible* non-ASCII spec (homoglyph, emoji) is accepted and merely annotated; a valid spec still splits on the first slash |
 | `spec-config-key` | an unusable `episodeModel` is dropped **with** a warning naming the key, the reason and the fallback (RG20), while absent and valid values stay silent and the returned value is unchanged from the old silent behaviour; an unstringifiable value warns instead of throwing |
-| `state-thread-record` | **BG26** — `sanitizeThreadRecord` re-validates the whole restored thread record. A well-formed record round-trips byte-identically; absent fields receive documented defaults silently; wrong types are refused by name and type; unsafe ids are dropped; live status normalizes to idle; counters and mixed episode-id arrays are repaired; thread type is preserved only as a string for later legacy resolution; model, pin and effort strings remain byte-identical for their owning validators; and the CQ22 adoption checklist proves every owned field returns without reporting a deliberate refusal twice |
-| `state-episode-record` | the episode half of BG26, same restore path and same obligations. A well-formed record round-trips byte-identically, and so does an **all-fields** one (`wellFormed` omits the optional unmeasured marker, so the checklist walk needs its own fixture); a record with no id, no thread or no file is dropped, silently. `failed` is the only value that survives as a failure — `"FAILED"` reads as `ok` and is noted. The unmeasured marker needs the boolean: a truthy string is refused, and so is `false`, which is not a legal value of a `true`-only field. Model and effort are type-checked only, exactly as above. Since CQ22 this sanitizer has the thread sanitizer's **refuse-by-name** discipline — it used to take a repairs sink and never write to it, so an episode's dropped fields vanished while a thread's were reported — and every refusable axis is checked, while an accepted value, a bare record and a well-formed one report nothing at all |
+| `state-thread-record` | **BG26** — `sanitizeThreadRecord` re-validates a stored thread record. A well-formed record round-trips byte-identically; absent fields receive documented defaults silently; wrong types are refused by name and type; unsafe ids are dropped; unfinished status normalizes to failed at adoption; counters and mixed episode-id arrays are repaired; model, pin and effort strings remain byte-identical for their owning validators; and the CQ22 adoption checklist proves every owned field returns without reporting a deliberate refusal twice |
+| `state-episode-record` | the episode half of BG26, with the same external-read path and obligations. A well-formed record round-trips byte-identically, and so does an **all-fields** one (`wellFormed` omits the optional unmeasured marker, so the checklist walk needs its own fixture); a record with no id, no thread or no file is dropped, silently. `failed` is the only value that survives as a failure — `"FAILED"` reads as `ok` and is noted. The unmeasured marker needs the boolean: a truthy string is refused, and so is `false`, which is not a legal value of a `true`-only field. Model and effort are type-checked only, exactly as above. Since CQ22 this sanitizer has the thread sanitizer's **refuse-by-name** discipline — it used to take a repairs sink and never write to it, so an episode's dropped fields vanished while a thread's were reported — and every refusable axis is checked, while an accepted value, a bare record and a well-formed one report nothing at all |
 
 Orchestrator base-model tracker (`extension/base-model.ts`) — driven with
 fabricated `model_select` events and fabricated declarations. There is **no clock
@@ -1949,6 +2078,72 @@ wiring, doctrine rendering, or handoff ordering contract.
 | `run-writing-reminder-check.sh` | driver, environment isolation, real pi session, evidence parser, assertions, roster, and artifact policy |
 | `writing-reminder-canary.mjs` | real canary tool, offline provider, pre-normalization hook observation, and provider evidence |
 
+# Research log integration check — `run-research-log-check.sh`
+
+This harness is the integrated net of Track 15. It starts TWO real pi sessions
+against a deterministic in-process fake provider. Run it from the repository
+root:
+
+```sh
+bash verification/run-research-log-check.sh --repo .
+```
+
+The first session turns orchestrator mode on, which is its first accepted record
+change, so slate mints its session directory and creates one empty research log.
+The same session dispatches ONE real worker action. That worker writes a unique
+marker through the exact prompt path. The second session continues the same pi
+conversation with `--continue`, so it restores the same Slate session.
+
+The checks cover clean pi exits, parsed evidence, checkout identity, trust, hook
+errors, one session directory, research-log creation, the exact worker marker,
+the completion signal, stored-state shape, prompt paths, worker and parent tool
+results, one completed episode, public guidance, restore, exact labelled session
+list paths, record placement, and a roster audit.
+
+Three of those checks answer review findings:
+
+- `worker-exact-path` reads the system prompt of the REAL worker session. The
+  scratch project therefore sets `workerExtensions` so the worker loads the
+  canary, because slate takes worker-extension candidates from registered TOOLS
+  and a worker session resolves its provider key from the agent configuration.
+  The scratch agent directory holds a matching fake catalogue for that key.
+- `guidance-shipped` parses only the intended README section. It requires eleven
+  non-empty numbered situations in order and decisive facts for every situation.
+- `no-stored-location` requires that `state.json` records no research log
+  location key, which is the removed field of the approved simplification.
+
+Pi's rpc mode exits at stdin EOF without waiting for a running tool. A Node
+producer keeps standard input open until the parent provider observes the thread
+tool result. The canary then writes an exclusive completion file. The producer
+has a 45-second signal deadline. GNU `timeout` sends TERM after 60 seconds and
+KILL five seconds later.
+
+Exit status: **0** every check passed · **1** a check failed · **2** the harness
+refused to start. Every refusal starts with `verification: refused to start — `.
+Pi resolution, the version pin, the scratch isolation rules and the artifact
+policy match the writing-reminder harness above. A failed run keeps its scratch
+directory and inlines both pi streams.
+
+`PI_OFFLINE=1` keeps pi startup offline, and the fake provider performs no
+network operation. This is not a network sandbox, because reviewed extension
+code can still open raw sockets.
+
+One case stays out of reach. A real session cannot show the PENDING instruction
+text, because `/slate on` is itself the first accepted record change that mints
+the session directory. The `doctrine-research-log` resolver check and the unit
+tests cover that case.
+
+Re-run the harness after changes to `extension/research-log.ts`, to research log
+creation in `extension/session-record.ts`, to the doctrine wiring in
+`extension/mode.ts`, to the worker path wiring in `extension/worker.ts` and
+`extension/threads.ts`, to the session list renderers, or to the shipped storage
+guidance in `README.md`.
+
+| file | role |
+| --- | --- |
+| `run-research-log-check.sh` | driver, environment isolation, two real pi sessions, evidence parser, assertions, roster, and artifact policy |
+| `research-log-canary.mjs` | offline provider, worker write call, parent completion signal, prompt evidence, and one selectable canary tool |
+
 # Packaging guards — `run-packaging-checks.sh`
 
 This harness guards what the package ships, and it is the only harness in this
@@ -1999,20 +2194,24 @@ bash verification/run-packaging-checks.sh --help
 The harness prints one line for each check, then a summary:
 
 ```
+CHECK guard-roster                     PASS — independent expected guard ids match executable guards
+CHECK mutation-roster                  PASS — independent expected guard ids match mutation cases
 CHECK files-exact                      PASS — files is exactly ["extension","docs","README.md","LICENSE"] (order included), got ["extension","docs","README.md","LICENSE"]
-CHECK pack-doctrine-docs               PASS — every doctrine doc derived from extension/*.ts via DOCS_DIR ships: design-principles.md, model-routing.md, pr-publishing.md, review-rules.md, track-workflow.md, writing-guidance.md — missing: none
-== summary: 16 pass, 0 fail ==
+CHECK pack-doctrine-docs               PASS — every derived doctrine document ships
+== summary: 18 pass, 0 fail ==
 ```
 
-`--self-test` prints the same 16 ids with the prefix `self-`. The verdict column
-holds the meaning: PASS says that the guard rejected its mutated input, which is
-the required result.
+The roster checks compare independent expected identities with executable
+guards and mutation cases. Deleting a guard and its mutation fails both runs.
+
+`--self-test` prefixes the 16 guard ids with `self-`. The roster checks keep
+their normal names. PASS means each guard rejected its mutated input.
 
 ```
 == self-test: each guard must reject a real input carrying one violating mutation ==
 CHECK self-files-exact                 PASS — mutated the real manifest: pushed "verification" onto files → the guard rejected it, as required
 CHECK self-pack-doctrine-docs          PASS — not manifest-shaped, so mutated the REAL pack list: dropped docs/design-principles.md from the shipped paths → the guard rejected it, as required
-== summary: 16 pass, 0 fail ==
+== summary: 18 pass, 0 fail ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed · **2** the harness
@@ -2100,16 +2299,25 @@ the extension in the checkout under test, its `session_start` hook runs, and pi
 registers the dispatch tools and the `/slate` command. It proves this for THIS
 checkout, and not for an installed copy.
 
-The harness is cheap. It starts two pi processes, each for about one second, and
-both of them run offline and without a credential. One further check starts no pi
-at all (`T4`, below). Each pi process gets a fresh and **empty**
+The harness is cheap. It starts three pi processes, each for about one second,
+and all run offline without a credential. Two further checks start no pi at all
+(`T4` and `T5`, below). Each pi process gets a fresh and **empty**
 `PI_CODING_AGENT_DIR` from `mktemp`, with no `models.json` and no `auth.json`, so
-no provider exists for a call. Each process also gets `PI_OFFLINE=1`,
-`--no-extensions`, and non-model rpc requests from a file, so stdin reaches EOF
-at once. The harness removes every inherited credential and every pi session
-variable from the environment of the child process.
+no provider exists for a call. Each process also gets `PI_OFFLINE=1` and
+non-model rpc requests from a file, so stdin reaches EOF at once. The first two
+runs use `--no-extensions` and load the checkout explicitly. The third run keeps
+project packages enabled and loads slate only through a local package entry. The
+harness removes every inherited credential and every pi session variable from
+the environment of the child process.
 
-`PI_OFFLINE=1` is mandatory for both runs, and the trusted run needs it most:
+The third run builds a reduced scratch project containing `package.json`,
+`extension/`, `docs/`, and `.pi/settings.json`. The settings file contains only
+`{"packages":["../"]}`. The copy contains no `node_modules`; pi must resolve the
+relative path from `.pi` and use its bundled peer packages. The run is trusted
+with `-a`, loads the canary by absolute path, and never passes slate through
+`-e`.
+
+`PI_OFFLINE=1` is mandatory for all three runs, and the trusted runs need it most:
 `-a` makes pi read `.pi/settings.json`, and pi then npm-installs every package in
 that file. One such run hung for 60 seconds and wrote a `.pi/npm` directory
 **into the checkout under test**. `L8` and `T3` therefore assert that the
@@ -2147,7 +2355,7 @@ because a person who sets it can also edit the script.
 ## Running it
 
 ```sh
-bash verification/run-load-check.sh --repo .              # ~2 s; --repo defaults to "."
+bash verification/run-load-check.sh --repo .              # ~4 s; --repo defaults to "."
 bash verification/run-load-check.sh --repo . --only L4,L6
 bash verification/run-load-check.sh --list-checks
 bash verification/run-load-check.sh --help
@@ -2160,13 +2368,17 @@ summary:
 repo  = /home/you/src/ytdb-slate (7d4c479)
 pi    = /home/you/src/ytdb-slate/node_modules/.bin/pi (0.83.0, pinned 0.83.0)
 lab   = /tmp/slate-loadcheck.Qw69p0
+NOTE   USER-SCOPE SLATE IDENTITY DIFFERS — historical pre-migration example: user /home/you/.pi/agent/settings.json: npm:ytdb-slate@0.10.0 => npm:ytdb-slate. Project /home/you/src/ytdb-slate/.pi/settings.json: ../ => local:/home/you/src/ytdb-slate. A real session loads two copies and exits 1 with a tool conflict.
 
 CHECK L4                               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
 CHECK L6                               PASS — /slate is registered and attributed to /home/you/src/ytdb-slate/extension/index.ts — inside the checkout under test, so this run exercised the working tree and not an installed release
 CHECK T2                               PASS — slate's config sanitizers emitted no warning for the checkout's own .pi/slate.json (they cover the shape of modelFailover, contextBudget and workerExtensions only — not the file's syntax, which is T4, nor any other key)
 CHECK T4                               PASS — /home/you/src/ytdb-slate/.pi/slate.json parses as a JSON object, 5 top-level key(s): orchestratorModeDefault, workflow, modelFailover, router, workerExtensions
+CHECK T5                               PASS — project settings contain one local ytdb-slate entry: ../ resolves from /home/you/src/ytdb-slate/.pi to this repository, with 1 existing pi extension entry file(s)
+CHECK T6                               PASS — trusted scratch project loaded slate through "../" from /tmp/slate-loadcheck.Qw69p0/local-package/extension/index.ts, registered thread, threads and episode, and exited without a duplicate-load conflict
+CHECK roster                           PASS — missing=none duplicated=none unexpected=none
 
-== summary: 12 pass, 0 fail ==
+== summary: 15 pass, 0 fail ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed, or `--only` matched
@@ -2175,7 +2387,8 @@ harness refused to start.
 
 One exit-2 case reports a **real defect through another mechanism**. A deleted
 `extension/index.ts`, or a deleted `verification/ci-canary.ts`, makes the sentinel
-`die` in the driver refuse the run instead of a FAIL report. pi drops the
+`die` in the driver refuse the run instead of a FAIL report. A missing `docs/`
+instead makes `T6` fail, so an earlier verdict and the summary remain visible. pi drops the
 nonexistent entry from `pi.extensions` in silence and starts normally. Every
 check would otherwise pass on an empty session, and no failure report could
 appear. The other exit-2 cases come from the environment: a missing tool, a bad
@@ -2194,18 +2407,19 @@ meaning of an exit code of 2.
 The artifacts are the raw rpc stdout and stderr streams of the pi runs. They live
 under the scratch directory, which the header names `lab`. The harness removes
 that directory after a clean run. It **keeps** the directory, and prints the
-path, when a check failed **and** a pi run happened. A failure of `T4` alone
-keeps nothing, because the directory holds nothing; a run whose pi wrote nothing
-still keeps the directory, because the gate is the pi run and not its output. The
-scratch directory must sit outside the checkout: when `TMPDIR` points into the
-checkout, the harness refuses the run, because pi must write nothing there.
+path, when a check failed **and** a pi run happened. A static-only failure of
+`T4` or `T5` keeps nothing, because the directory holds no relevant stream. A
+run whose pi wrote nothing still keeps the directory, because the gate is the pi
+run and not its output. The scratch directory must sit outside the checkout:
+when `TMPDIR` points into the checkout, the harness refuses the run, because pi
+must write nothing there.
 
 A failing run also **prints those streams to its own stdout**, because a CI job
 deletes its scratch directory and the path then names a directory that nobody can
 open. The same two conditions gate the output: a check failed, and a pi run
-happened. A clean run therefore prints nothing extra, and a failure of `T4` alone
-prints no empty section. The harness prints one delimited section for each
-stream of each run that started. It prints stderr before stdout, because pi's
+happened. A clean run therefore prints nothing extra, and a static-only failure prints no
+empty section. The harness prints one delimited section for each stream of each
+run that started. It prints stderr before stdout, because pi's
 diagnostics and the canary line go to stderr. Each section names its
 run, and the `artifacts:` pointer still follows for a local run:
 
@@ -2218,6 +2432,9 @@ CI-CANARY {"tools":[…],"cwd":"…","trusted":true}
 ---- run2 (the trusted config run, -a) stdout — 982 bytes ----
 {"type":"extension_ui_request",…,"method":"notify","message":"slate: ignoring …"}
 ---- end run2 (the trusted config run, -a) stdout ----
+---- run3 (the trusted local-package run, -a) stderr — 136 bytes ----
+CI-CANARY {"tools":[…],"cwd":"…","trusted":true}
+---- end run3 (the trusted local-package run, -a) stderr ----
 artifacts: /tmp/slate-loadcheck.5eHaps (raw rpc streams, kept because a check failed)
 ```
 
@@ -2225,8 +2442,10 @@ The output has a bound, so a pathological run cannot flood the log. The harness
 cuts each stream at **20000 bytes** (`STREAM_CAP`). It cuts at the last line
 boundary when that boundary lies past half of the cap. The header of a section
 that lost bytes states the real size, the size after the cut, and the cap, so
-nobody reads a cut stream as a whole one. Four sections therefore cost about
-80 KB at most.
+nobody reads a cut stream as a whole one. Each stream body contributes at most 20,000 bytes. Each fixed section header,
+truncation note, and footer fits within 512 bytes. Six retained sections therefore
+contribute at most `6 × (20,000 + 512) = 123,072` bytes. The introductory lines
+and final artifact path sit outside that stream-section bound.
 
 A stream of 0 bytes gives one header with `— 0 bytes (empty)` and no body, and a
 stream that the harness cannot read gives `unavailable` with the reason. The
@@ -2247,13 +2466,14 @@ no extension does the same. The harness removes the lock at the end of a run onl
 when the lock was absent at the start, because a lock from the start belongs to
 another live session, and a removal would corrupt the write of that session.
 `.gitignore` covers `.pi/*.lock` for the case where a signal kills the harness, or
-a dogfooding session, before any cleanup runs.
+the live main-worktree session, before any cleanup runs.
 
 ## What it covers
 
-The harness runs 12 checks. `L1`–`L8` cover the untrusted load path, `T1`–`T3`
-cover the trusted path (`-a`), and `T4` needs no pi at all: `--only T4` starts no
-session, and it runs the version probe that resolves the CLI only.
+The harness declares 14 checks. `L1`–`L8` cover the untrusted load path.
+`T1`–`T3` cover the trusted config path. `T6` covers the trusted package path.
+`T4` and `T5` need no pi process. A separate roster verdict reconciles every
+selected declared identity with every reported identity.
 
 | id | what it proves |
 | --- | --- |
@@ -2263,12 +2483,14 @@ session, and it runs the version probe that resolves the CLI only.
 | `L4` | the canary saw all three dispatch tools: `thread`, `threads` and `episode`. Nothing else detects their removal |
 | `L5` | the canary reported a **non-empty** tool list, and it named the place. This check stops `L4` from a pass when the canary never loaded, or when `session_start` runs before the registration |
 | `L6` | pi registered the `/slate` command **and attributed it to a path inside the checkout under test**, which proves that the run used the working tree and not an installed release |
-| `L7` | `/slate on` completes through the command handler offline: the prompt response succeeded, the handler appended a `slate-state` entry, and the widget holds lines |
+| `L7` | `/slate on` completes through the command handler offline: the prompt response succeeded, the handler appended **exactly one** `slate-binding` locator note, appended **no** `slate-state` full record copy, and the widget holds lines. The two entry counts are the storage rule of Track 14 read from a real session: the records live in one external namespace, and the Pi conversation holds only the note that names it |
 | `L8` | the run left `.pi/npm` in the checkout unchanged, so the run stayed offline and npm-installed nothing into the working tree |
 | `T1` | pi exited 0 on the trusted (`-a`) run, **and** the `trusted` field of the canary reads `true` (the `canary-trusted` query of the driver). This check protects `T2`: without trust slate reads no `.pi/slate.json`, and a clean `T2` then means nothing |
 | `T2` | slate's config sanitizers emitted **no warning** for the tracked `.pi/slate.json` of this checkout. That result is the whole claim: sanitizers warn for three keys only (`modelFailover`, `contextBudget` and `workerExtensions`), so a clean `T2` excludes a warning and nothing else |
 | `T3` | the trusted run also left `.pi/npm` unchanged, so `PI_OFFLINE` held where `-a` would otherwise install |
 | `T4` | the project config file **parses as JSON and holds a plain object at the top level**. node reads the file directly from disk. The check PASSES when the file is absent, because a project config is optional for a consumer |
+| `T5` | the tracked `.pi/settings.json` contains exactly one package entry that resolves to this repository and identifies its `ytdb-slate` manifest. String and object forms are accepted. Unrelated packages are ignored. Every literal `pi.extensions` entry exists |
+| `T6` | a trusted scratch project loads a reduced slate package through an entry spelled `"../"`, registers all three slate tools, exposes one `/slate` command from that package, and exits without a duplicate-load conflict |
 
 `T4` exists because `T2` cannot cover the syntax of the file. slate's
 `loadConfig()` wraps the read and the `JSON.parse` in a `try`/`catch`, and it
@@ -2279,6 +2501,49 @@ looks healthy to every check that reads pi's output, while slate drops every
 setting in the file, `workflow.draftPRs` included. A direct read of the file is
 the only way to see that state, and it needs no pi, no session and no trust.
 
+`T5` applies the same direct-read rule to `.pi/settings.json`. A missing or
+unparseable file is a FAIL, because this checkout requires its tracked local
+package entry. `T5` accepts a string source or an object with a string `source` field.
+It resolves local entries and identifies slate by repository location or manifest
+name. An unrelated local package does not become a slate candidate. The selected
+target must have the same real path as the repository under test. `T5` also
+rejects a registry slate entry and a missing literal extension entry. `T6` then
+proves the literal `"../"` spelling through pi itself. Both checks report FAIL
+rather than NOT RUN for a defect.
+
+When the user-scope settings file may name this package, the harness prints one
+fixed `NOTE` after the context block. It reads at most the first 1 MiB as raw text
+and performs a case-insensitive package-name substring test. A raw read covers
+string entries, object entries, bare names, file URLs and Git URLs without
+parsing their shapes. Missing, unreadable, invalid, directory-shaped, binary and
+enormous files remain fail-soft. The note never changes the verdict.
+
+The note contains zero variable content. It prints no settings path, package
+name, source text, identity, count, query, fragment, credential or object field.
+Fixed wording tells the reader to inspect the settings file inside the agent
+directory currently in effect. The substring test can fire when pi would dedupe
+the entries or when no real conflict exists. This false positive is deliberate.
+Three attempts to mirror pi package identity rules diverged from pi in both
+directions. The harness therefore reports a possibility instead of making a
+second identity verdict.
+
+The canary tool list comes from pi's name-keyed tool map. That map cannot expose
+a duplicate registration count. `T6` therefore uses the tool list only to prove
+that all three names exist. Pi rejects a duplicate slate load with a tool conflict
+and exits 1. The exit-code and conflict assertions cover that failure.
+
+`T5` cannot prove that pi loads or registers the package. `T6` cannot validate
+other package entries in the tracked settings file, because its scratch settings
+contain only slate. Neither check executes a dispatch tool or validates TUI
+presentation.
+
+Re-run the load check after a change to `.pi/settings.json`, `.pi/slate.json`,
+`package.json`, `verification/ci-canary.ts`, or any file under `extension/` or
+`docs/`. These are the tracked inputs that the load-check rungs read, validate,
+load, or copy. Re-run it
+after a change to T5, T6, the help block, or their fixture and identity-note
+helpers in `run-load-check.sh`.
+
 One gap remains, and this document states it plainly. `T2` and `T4` together
 cover the syntax of the file, its top-level shape, and the *shapes* of three
 keys. **An unknown key, and a wrong-typed value under a key without a sanitizer,
@@ -2287,11 +2552,11 @@ gives a pass for `T4` and a pass for `T2`. No check in CI validates the
 content of the config, and the reader of `README.md` § Configuration still
 carries that duty.
 
-The harness proves no behaviour. No check here executes a tool, starts a worker
-session, or exercises failover or handoff: the harness performs a load, a
-registration check, one command round trip and one file read. It is also no
+The harness proves no dispatch behaviour. No check here executes a tool, starts
+a worker session, or exercises failover or handoff. The harness performs loads,
+registration checks, one command round trip, and two direct file reads. It is also no
 typecheck; `npm run typecheck` is that check, because jiti transpiles each module
-and erases the types, so a type error loads correctly. Both pi runs use rpc mode,
+and erases the types, so a type error loads correctly. All three pi runs use rpc mode,
 so no result here describes the TUI. Those subjects need the ladder, the resolver
 checks, or the manual isolated-load smoke test (`pi --no-extensions -e .`, see
 `AGENTS.md`).
@@ -2300,7 +2565,7 @@ checks, or the manual isolated-load smoke test (`pi --no-extensions -e .`, see
 
 | file | role |
 | --- | --- |
-| `run-load-check.sh` | the driver: it resolves the pi CLI, matches the pin, runs the scrubbed offline rpc runs, parses the rpc streams, reads the config file, and holds every assertion |
+| `run-load-check.sh` | the driver: it resolves the pi CLI, matches the pin, runs the scrubbed offline rpc runs, parses the streams, reads both tracked settings files, observes user-scope identity conflicts, builds the reduced package copy, and holds every assertion |
 | `ci-canary.ts` | the positive control: a `session_start` hook that prints the registered tool set, the cwd and the trust state to stderr, and asserts nothing |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
@@ -2332,9 +2597,8 @@ validates its named path imports.
 The self-test uses temporary fixtures outside the checkout. It proves recursive
 discovery of a nested shebang command and exclusion of a non-command helper. It
 also proves missing command export, missing document export, and missing packed
-runtime file findings. Two isolated subprocesses prove that `--help` works
-without TypeScript and real analysis refuses a missing TypeScript dependency
-with exit 2.
+runtime file findings. Two isolated subprocesses cover optional analyzer
+loading. An independent expected roster catches a deleted mutation case.
 
 Exit 0 means all checks passed. Exit 1 means a roster mismatch, a missing packed
 file, or an escaped self-test mutation. Exit 2 means a bad invocation, missing

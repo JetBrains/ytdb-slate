@@ -129,10 +129,11 @@ commits the cadence mark only when pi starts delivery of the custom message.
 
 The current hidden message is 920 ASCII characters, including its `[slate]`
 header, nine writing requirements, six design requirements, separators, and
-scope exclusion. That is about 230 tokens at four characters per token. This
-count is for the exact rendered production string, without JSONL framing or
-provider-role overhead. The message enters conversation context only when a
-reminder fires. Later requests resend it with the rest of the conversation.
+scope exclusion. That is about 230 tokens at four characters per token. The
+character count is derived from the exact rendered string pinned by the reminder
+checks. Both figures exclude JSONL framing and provider-role overhead. The
+message enters conversation context only when a reminder fires. Later requests
+resend it with the rest of the conversation.
 
 ## What always-loaded tool definitions cost the budget
 
@@ -184,14 +185,14 @@ rule renders, plus the always-present trusted `writing-guidance.md` citation.
 Every additional character in the installed `docs/` directory therefore
 costs 4–6 characters of trusted doctrine.
 
-The figures below are **portable characters**, defined exactly as
-Slate's own automated `doctrine-budget` check defines them: the
-block with each occurrence of the installed `docs/` DIRECTORY
-removed, keeping the filename. That makes them install-invariant by
-construction and makes the arithmetic one multiplication:
+The figures below are **portable characters**, defined exactly as Slate's
+automated `doctrine-budget` check defines them. The check removes each installed
+`docs/` directory and keeps its filename. It removes the variable session
+directory prefix only inside the marked research log path. It keeps
+`research-log.md`.
 
-> rendered characters = portable + (embedded paths × length of your
-> installed `docs/` directory)
+> rendered characters = portable + (documentation paths × installed `docs/`
+> directory length) + research log session-directory prefix length
 
 `doctrine-budget` in `verification/resolver-checks.mjs` is the
 definition of record for this convention and its enforced bounds.
@@ -206,23 +207,31 @@ must agree with `verification/README.md`:
 
 | router | models | `draftPRs` | writing keys | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | absent | 4 | 4,051 | 67 |
-| off | — | off | set | 4 | 4,051 | 67 |
-| off | — | on | absent | 5 | 4,070 | 67 |
-| off | — | on | set | 5 | 4,070 | 67 |
-| on | fixed six-model fixture | off | absent | 5 | 6,081 | 88 |
-| on | fixed six-model fixture | off | set | 5 | 6,081 | 88 |
-| on | fixed six-model fixture | on | absent | 6 | 6,100 | 88 |
-| on | fixed six-model fixture | on | set | 6 | 6,100 | 88 |
-| on | all 9 shipped | off | absent | 5 | 6,636 | 91 |
-| on | all 9 shipped | off | set | 5 | 6,636 | 91 |
-| on | all 9 shipped | on | absent | 6 | 6,655 | 91 |
-| on | all 9 shipped | on | set | 6 | 6,655 | 91 |
+| off | — | off | absent | 4 | 4,199 | 70 |
+| off | — | off | set | 4 | 4,199 | 70 |
+| off | — | on | absent | 5 | 4,228 | 70 |
+| off | — | on | set | 5 | 4,228 | 70 |
+| on | fixed six-model fixture | off | absent | 5 | 6,229 | 91 |
+| on | fixed six-model fixture | off | set | 5 | 6,229 | 91 |
+| on | fixed six-model fixture | on | absent | 6 | 6,258 | 91 |
+| on | fixed six-model fixture | on | set | 6 | 6,258 | 91 |
+| on | all 9 shipped | off | absent | 5 | 6,784 | 94 |
+| on | all 9 shipped | off | set | 5 | 6,784 | 94 |
+| on | all 9 shipped | on | absent | 6 | 6,813 | 94 |
+| on | all 9 shipped | on | set | 6 | 6,813 | 94 |
+
+Every row above carries one complete research log path in the raw prompt. The
+portable count removes its variable session-directory prefix only from that
+marked path. It retains `research-log.md`. The prefix is mandatory environment
+data, not authored wording. The resolver check renders one long prefix and a
+different prefix with non-basic Unicode. Both must produce identical normalized
+text and counts. A mutation control places the same prefix in authored wording
+outside the marked path. Every character of that authored occurrence must count.
 
 An untrusted project receives no writing or routing tail whatever its
-`slate.json` says. Its fixed doctrine remains 2,584 portable characters, 43
+`slate.json` says. Its fixed doctrine remains 2,732 portable characters, 46
 lines, and three embedded paths. Line counts do not vary with the install path.
-Enabling `draftPRs` costs 19 portable characters plus one embedded path. Setting
+Enabling `draftPRs` costs 29 portable characters plus one embedded path. Setting
 either ignored writing key costs nothing. The writing rule is 1,103 portable
 characters and 20 lines. Its leading newline becomes the separator when
 appended.
@@ -232,42 +241,49 @@ path:
 
 - The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
   so what renders is the models you CONFIGURE — not the nine Slate
-  ships profiles for. In this snapshot it is 2,030 portable
-  characters and adds 21 doctrine lines for six configured models;
-  for all nine it is 2,585 characters and adds 24 lines. The six
-  model rows are 146–181 characters; all nine are 146–183. The
-  legend adds a one-off clause per marker it has to explain, so
+  ships profiles for. The six-model figure is derived from exact
+  doctrine pins. It is 2,030 portable characters and adds 21 doctrine
+  lines. The all-nine figure uses the same basis. It is 2,585
+  characters and adds 24 lines.
+  The row ranges are unpinned renderer measurements from those profile
+  rosters. The six rows are 146–181 characters. All nine are 146–183.
+  The ranges depend on current profile text and candidate ordering.
+  The legend adds a one-off clause per marker it has to explain, so
   growth is not only the sum of new rows.
 - The worker-extension rule grows per whitelisted extension and per
   tool that extension contributes, so it has no fixed size. One
   extension contributing two tools measured 373 portable characters
-  / 7 lines.
+  / 7 lines. This measurement is unpinned. It depends
+  on that extension's rendered label, tool names, and descriptions.
 
 The table above isolates the shipped rules. Two representative bases include
 worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| fixture mirroring current `.pi/slate.json`: draft PRs + writing, pi-registry windows | 5 resolved | pinned-package 2 units / 4 tools | 6 | 6,858 | 97 | ≈1,715 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,002 | 101 | ≈2,001 |
-| follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,080 | 102 | ≈2,020 |
+| fixture mirroring current `.pi/slate.json`: draft PRs + writing, pi-registry windows | 5 resolved | pinned-package 2 units / 4 tools | 6 | 7,016 | 100 | ≈1,754 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,160 | 104 | ≈2,040 |
+| follow-up-issues maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,238 | 105 | ≈2,060 |
 
 The dogfood fixture mirrors `workflow.draftPRs: true`, both ignored writing keys,
 and the five models in this repository's `.pi/slate.json`. A change to that
 configuration requires re-measuring this row. The fabricated context-window
 cells mirror pi's model registry, which is the routing authority: 272,000 for
-the three OpenAI models and 1,000,000 for the two Anthropic models. Its
-extension basis is
+the three OpenAI models and 1,000,000 for the two Anthropic models. The research
+log rule adds 148 portable characters and three lines to the router-off doctrine
+after its variable session-directory prefix is excluded. The raw prompt still
+adds that full prefix. Its extension basis is
 `pi-smart-fetch@0.3.12` plus `pi-web-search@1.3.1`. Those packages resolve to two
 units and four tools. Their worker-extension rule is 916 portable characters /
 11 lines. Raw size remains symbolic: `portable + 6 × length(installed docs
-directory)`. No maintainer checkout path belongs in this shipped document.
+directory) + length(session directory prefix)`. The research path prefix includes
+the separator before `research-log.md`. No maintainer path belongs here.
 
-The stable maximal row uses all nine shipped profiles, draft PRs, and writing.
-The follow-up-issues row uses the same basis with `workflow.followUpIssues: true`.
-Its direct post-resolution worker fixture has two units and four tools. Unit
-labels are 128 characters. Tool names are 64 characters. Descriptions are 140
-characters.
+The stable maximal row uses all nine shipped profiles, draft pull requests,
+and writing. The follow-up-issues row uses the same basis with
+`workflow.followUpIssues: true`. Their direct
+post-resolution worker fixture has two units and four tools. Unit labels are 128
+characters. Tool names are 64 characters. Descriptions are 140 characters.
 
 Those are the renderer caps. The fixture uses safe ASCII letters. It is
 independent of installed extension labels, descriptions, versions and other
@@ -298,14 +314,14 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | routing rule lines | 25 | 34 | 9 |
 | routing fixed prose | 1,110 | 1,500 | 390 |
 | largest model row | 183 | 300 | 117 |
-| trusted router-on doctrine | 6,636 | 7,000 | 364 |
-| writing and design doctrine | 4,051 | 5,600 | 1,549 |
-| writing plus router | 6,636 | 7,000 | 364 |
-| writing plus extensions | 4,306 | 6,000 | 1,694 |
-| writing plus router and extensions | 6,891 | 7,300 | 409 |
-| maximal doctrine, draft PRs enabled | 8,002 | 8,500 | 498 |
-| maximal doctrine, draft PRs disabled | 7,983 | 8,500 | 517 |
-| maximal doctrine, follow-up issues enabled | 8,080 | 8,500 | 420 |
+| trusted router-on doctrine | 6,784 | 7,200 | 416 |
+| writing and design doctrine | 4,199 | 5,600 | 1,401 |
+| writing plus router | 6,784 | 7,200 | 416 |
+| writing plus extensions | 4,454 | 6,000 | 1,546 |
+| writing plus router and extensions | 7,039 | 7,400 | 361 |
+| maximal doctrine, draft PRs enabled | 8,160 | 8,700 | 540 |
+| maximal doctrine, draft PRs disabled | 8,131 | 8,700 | 569 |
+| maximal doctrine, follow-up issues enabled | 8,238 | 8,700 | 462 |
 | capped worker rule | 1,347 | 1,600 | 253 |
 | writing rule characters | 1,103 | 1,200 | 97 |
 | writing rule lines | 20 | 25 | 5 |
@@ -313,16 +329,20 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 
 The design rule and nine-entry writing roster contribute 539 portable characters
 and eight lines to each trusted fixture. The trusted router-on fixture requires
-`6,636 × 1.05 = 6,967.8`. Ceiling gives 6,968. The 7,000 bound remains larger.
-The all-tail fixture requires `6,891 × 1.05 = 7,235.55`. Ceiling gives 7,236.
-The 7,300 bound remains larger.
+`6,784 × 1.05 = 7,123.2`. Ceiling gives 7,124. The 7,200 bound remains larger.
+The all-tail fixture requires `7,039 × 1.05 = 7,390.95`. Ceiling gives 7,391.
+The 7,400 bound remains larger.
 
-The follow-up fixture requires `8,080 × 1.05 = 8,484`. The shared 8,500 bound
-keeps the required reserve for every maximal fixture.
+The follow-up fixture requires `8,238 × 1.05 = 8,649.9`. Ceiling gives 8,650.
+The shared 8,700 bound keeps the required reserve for every maximal fixture.
+The authored-doctrine
+budget does not limit the mandatory research log path.
+`extension/research-log.ts` instead applies a 4,096-JavaScript-unit Slate sanity
+guard, which is not a universal operating-system path limit.
 
 The positive control adds one capped tool and six copies of the largest
-measured model row. It measures 9,318 portable characters. It exceeds the
-8,500-character maximal bound by 818. That margin remains larger than the
+measured model row. It measures 9,476 portable characters. It exceeds the
+8,700-character maximal bound by 776. That margin remains larger than the
 184-character maximum model-row growth and the 212-character capped tool growth.
 The raised bound does not blunt the positive control.
 
@@ -332,10 +352,10 @@ unless the fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. The rough
 estimate divides each measured portable-character render by four and rounds to
-the nearest whole token. The shipped-rule table ranges from about 1,013 tokens
-to about 1,664 tokens. The current dogfood basis is about 1,715 tokens. The
-stable representative maximum is about 2,001 tokens. The follow-up-issues
-maximum is about 2,020 tokens, or 0.79 percent of the default budget.
+the nearest whole token. The shipped-rule table ranges from about 1,050 tokens
+to about 1,703 tokens. The current dogfood basis is about 1,754 tokens. The
+stable representative maximum is about 2,040 tokens. The follow-up-issues
+maximum is about 2,060 tokens, or 0.80 percent of the default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
 much headroom Slate consumes before conversation content.
@@ -346,17 +366,19 @@ The doctrine table does not include the worker preamble. It belongs
 to each worker session's system prompt, not to the orchestrator's
 per-turn doctrine.
 
-| Worker preamble form | UTF-8 bytes | Increase from base |
-| --- | ---: | ---: |
-| Base | 365 | — |
-| Base + writing guidance | 617 | 252 |
-| Base + reviewer charter | 2,520 | 2,155 |
-| Base + writing guidance + reviewer charter | 2,772 | 2,407 |
+| Worker preamble form | UTF-8 bytes | Increase from base | figure source |
+| --- | ---: | ---: | --- |
+| Base | 365 | — | exact resolver pin |
+| Base + writing guidance | 617 | 252 | exact resolver pin, with derived increase |
+| Base + reviewer charter | 2,520 | 2,155 | live renderer measurement, unpinned |
+| Base + writing guidance + reviewer charter | 2,772 | 2,407 | live renderer measurement, unpinned |
 
-The writing guidance is 251 bytes. The reviewer charter constant is
-2,154 bytes. The writing addendum needs one separating space. The reviewer
-charter addendum needs one separating newline. The current text uses UTF-8
-punctuation, so byte and character counts can differ.
+The unpinned rows depend on the current reviewer charter and separator. The
+251-byte writing guidance is derived from the two pinned preamble forms. The
+2,154-byte reviewer charter is derived from the unpinned base-plus-charter row.
+The writing addendum needs one separating space. The reviewer charter addendum
+needs one separating newline. The current text uses UTF-8 punctuation, so byte
+and character counts can differ.
 This separate figure states the worker-session cost without presenting
 it as orchestrator doctrine.
 

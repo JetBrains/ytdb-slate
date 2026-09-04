@@ -218,6 +218,8 @@ async function dispatchOnce(opts: {
 }): Promise<DispatchOutcome> {
   const pi = { appendEntry() {} } as unknown as ExtensionAPI;
   const store = new SlateStore(pi);
+  store.artifactSessionName = () => undefined;
+  store.commit = () => ({ kind: "committed", binding: { policy: "durable-session-v1", identity: "20260820T010203Z-0123456789abcdef", name: "calm-otter-7f3a" } });
   opts.onStore?.(store);
   const manager = new ThreadManager(store, {});
   const messages: unknown[] = [];

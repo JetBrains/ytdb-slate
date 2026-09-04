@@ -9,18 +9,31 @@ The shipped doctrine uses SMALL, MEDIUM and LARGE size grades. Ten focus areas s
 Dispatch also carries **action-level model routing**: `router.models` in the project's `slate.json` names a CLOSED candidate list, resolved once per session, from which each action's model and effort are chosen and guarded. It is off by default: an empty list adds no candidate-routing policy, base seed, context-window substitution, billing notice, or routing doctrine rule. Per-action arguments and pre-existing live failover holds remain active. Reference: `docs/model-routing.md`, which the doctrine cites at runtime alongside the workflow/review/design docs.
 
 - Extension entry point: `extension/index.ts`
-- Shipped doctrine docs: `docs/` — `track-workflow.md`, `review-rules.md`, `design-principles.md`, `pr-publishing.md` and (since routing shipped) `model-routing.md` are cited by ABSOLUTE path resolved inside the installed package (`extension/paths.ts`)
+- Direct doctrine docs: `docs/track-workflow.md`, `docs/review-rules.md`, `docs/design-principles.md`, `docs/pr-publishing.md` and `docs/model-routing.md` are cited by ABSOLUTE package-resolved paths (`extension/paths.ts`).
 - Default branch: `main`
 - Finding tags come from slate's own adversarial reviews. This file uses `AD6`, and code comments use `AD41`, `RG2` and other tags. Each review round numbers its findings from 1, so one tag can name two different findings. The `AD6` in § Packaging rules is not the `AD6` of the tier-1 CI review. Only the pull request or the track discussion that raised a finding explains the tag. Every citation in this file therefore states the finding in words, and the tag gives the origin only.
 
 ## Dogfooding
 
-This repo runs slate on itself:
+This repo runs slate on itself from the main worktree's sources:
 
-- `.pi/settings.json` pins the published package (`npm:ytdb-slate@<version>`). A session in this repo runs the released extension — the same thing consumers run. Bump the pin as part of each release (see § Release & versioning).
-- Local edits to `extension/` are NOT live in a dogfooding session. Smoke-test them in isolation with `pi --no-extensions -e .` from the repo root — without `--no-extensions`, the pinned npm copy loads alongside your edits and can mask failures. Do not add a local-path package entry to `.pi/settings.json` next to the npm pin: loading the same package from two settings sources has broken pi startup with a file conflict in practice.
+- `.pi/settings.json` carries the local package entry `"../"`. Project-settings paths resolve relative to `.pi`, so the entry resolves to the worktree root. A session in the main worktree therefore runs that checkout's sources without a release.
+- Keep exactly one effective slate package identity. The user-scope entry is the absolute path to the main worktree, and pi deduplicates it with the project entry there. Do not add an npm slate entry or another local copy at either scope. Two distinct identities load twice and stop startup with exit 1: `Failed to load extension "<path>": Tool "thread" conflicts with <path>`.
+- Migrate a machine in this exact order: first remove the slate entry from the user-scope settings file, then merge the project change to `"../"`, then add the absolute path to the main worktree back at user scope. Between removal and merge, each trusted worktree root still loads its project entry; an untrusted worktree or a session below its root has no slate extension. Between merge and user-scope re-addition, main loads its sources and a trusted change worktree loads its own project copy; an untrusted worktree or a session below its root still has no slate extension. After re-addition, a trusted change-worktree-root session stops loudly with a tool conflict; an untrusted change worktree or a session below its root silently loads main's copy instead. This ordering is the only safe one of the six possible orders.
+- The isolated smoke test remains `pi --no-extensions -e .` from the checkout root. `--no-extensions` prevents project-scope and user-scope packages from loading beside the explicit checkout. The command is still needed when testing edits outside the live main-worktree sources.
 - Development follows the package's own `docs/track-workflow.md`, with `workflow.draftPRs` enabled in `.pi/slate.json`.
 - pi creates a `.pi/settings.json.lock` directory in the checkout while it reads the project settings, and then deletes it. A session or a verification run that stops abruptly can leave one lock behind. `.gitignore` therefore covers `.pi/*.lock`. You can delete an old lock safely when no session runs. When a session runs, the lock belongs to that session.
+
+## Worktree workflow
+
+- Run the slate orchestrator session in the main worktree. Give each change a branch named `<branch>` and a sibling worktree at `../<branch>`; do not develop in main. From a clean, current main worktree, create both with `git worktree add -b <branch> ../<branch> main`.
+- Dispatch every action with absolute paths into its change worktree. A relative path can resolve against main and edit the live sources.
+- Run `npm ci --ignore-scripts` in every new worktree before verification or an isolated smoke test.
+- **Every Slate session directory holds one working log** (Track 15). Slate creates `research-log.md` inside the session directory in the same accepted record change that creates that directory. THERE IS NO STORED LOCATION CHOICE: the session directory feature and this rule ship in one release, so no session directory without a working log can exist. Slate manages no working log outside a session directory, so THE PRESENT CHANGE'S OWN LOG stays where it is at the worktree root and no Slate code touches it (`extension/research-log.ts`, `extension/session-record.ts`).
+- Take the exact path from Slate. The orchestrator doctrine and the worker preamble both carry it once the session directory exists, delimited by `<<` and `>>` and named as a path rather than an instruction. Never derive it from the current project directory. Slate withholds a path it cannot present exactly, and it says so.
+- Never delete the working log during a change. Worktree removal disposes of a working log kept at a worktree root.
+- Keep the main worktree clean. Verify that it is clean before every user review.
+- After a change merges, run `git fetch origin` in the clean main worktree, then `git merge --ff-only origin/main`. If the fast-forward fails, stop and reconcile the divergence without a merge commit before restarting the orchestrator. The restarted session then loads the merged sources.
 
 ## Build & verification
 
@@ -33,7 +46,7 @@ This repo runs slate on itself:
   A passing `npm run typecheck` does NOT make the TypeScript brands (`SessionBaseline`, `OpenModel` in `extension/route.ts`) tamper-proof: TypeScript permits an assertion to a branded subtype, so `someString as OpenModel` — the exact shape that reintroduced a shipped defect while the full suite stayed green — still typechecks cleanly. The resolver checks' source-scan gates for cast shapes are therefore still load-bearing and must not be removed on the grounds that the repo has a typecheck; the two nets cover different failures, and only the source scan covers this one.
 - **Automated verification exists.** CI runs five checks on every pull request, on every merge-queue candidate and on a push to `main`. A manual dispatch runs the same five. It skips patch coverage loudly because that event carries no change boundary. Each check is the same command that you run locally (§ CI). The fifth check is `npm test`. It runs the `node:test` suite under `test/` and then the patch-coverage gate. That suite unit-tests the modules the tests import (§ Unit tests and the coverage gate). It is also the one check that no longer takes about a second. It dominates CI's wall clock. Additional nets run by hand and are named below. Writing also has a focused correctness suite. `verification/writing-check-tests.mjs` tests the shipped, dependency-free JavaScript checker in `extension/writing-check.mjs`. It also tests the turn-outcome helper `measureWritingTurn` in `extension/writing.ts`. It does not unit-test the modules that `test/` leaves alone. Four tasks stay manual:
   1. **Read the full diff before you commit.** No tool does this for you.
-  2. **Run the isolated-load smoke test when you must use an edit that you just made.** The command is `pi --no-extensions -e .` from the repo root, because an installed session runs the pinned published package and not your working tree. The load check proves that the extension loads and registers its tools, but it does not prove that the tools work. Exercise tool execution, worker sessions, failover and handoff by hand here. **Never run it while the ladder runs** — § Verification ladder states what that costs.
+  2. **Run the isolated-load smoke test when you must use an edit that you just made.** The command is `pi --no-extensions -e .` from the edited worktree root. The live orchestrator session runs main's checkout sources, not a sibling change worktree, and `--no-extensions` prevents another configured slate copy from loading beside the explicit path. The load check proves that the extension loads and registers its tools, but it does not prove that the tools work. Exercise tool execution, worker sessions, failover and handoff by hand here. **Never run it while the ladder runs** — § Verification ladder states what that costs.
   3. **Open an INTERACTIVE session to reach the doctrine and the router.** A headless `pi --no-extensions -e . -p "exit"` run exercises extension registration and `session_start` only, and it never builds the doctrine. slate seeds orchestrator mode only when `ctx.mode === "tui"` (`extension/mode.ts`), and `before_agent_start` returns at once while the mode is off. A headless run therefore reaches neither `buildDoctrine` nor the `getRouter()` consultation inside it, and that consultation is the only one in the doctrine. Every smoke test during the work on the routing feature missed both. A release-time accident exposed this gap.
 
      An automatic interactive session needs a pty. This machine has no `script(1)`, and a small Python `pty.fork` harness works instead. Use **`\r`** as the submit key, and not `\n`.
@@ -45,6 +58,7 @@ This repo runs slate on itself:
      - the writing checker's correctness suite.
      - the writing checker's scaling gate (§ Writing-checker nets).
      - the writing-reminder integration check (§ Writing-reminder integration check).
+     - the research-log integration check (§ Research-log integration check).
 
      Each section states its own re-run trigger. CI excludes the ladder on purpose. The other hand-run nets are not wired into the workflow. The unit tests and the patch-coverage gate are NOT in this set any more: CI runs them (§ Unit tests and the coverage gate).
 
@@ -103,7 +117,7 @@ An exit code of 1 reports a real finding. The `CHECK … FAIL — <detail>` line
 
 - **typecheck** — `tsc` prints `file(line,col): error TS…`. Correct the source. A new run costs about 2 seconds.
 - **packaging guards** — the detail names the manifest field or the shipped path that broke a rule. A failure under `--self-test` means the opposite: a guard no longer detects its own violating mutation. Correct the guard, and keep the manifest.
-- **load check** — a failing run that started pi prints the raw rpc streams in its own output. It prints one section for each stream, stderr before stdout, and it cuts each stream at a limit. It also keeps the streams in the scratch directory (`artifacts: …`), so the evidence survives a CI job that deletes that directory. The detail line summarises those streams, so read the streams first. A pi run must happen before the streams appear, and the identity of the failed check does not matter. A full run that fails the config-syntax check still prints the streams of the earlier pi runs, and only a run with `--only T4` prints none.
+- **load check** — a failing run that started pi prints the raw rpc streams in its own output. It prints one section for each stream, stderr before stdout, and it cuts each stream at a limit. It also keeps the streams in the scratch directory (`artifacts: …`), so the evidence survives a CI job that deletes that directory. The detail line summarises those streams, so read the streams first. A pi run must happen before the streams appear, and the identity of the failed check does not matter. A full run that fails either disk-only settings check still prints the streams of the earlier pi runs. A run limited to `T4`, `T5` or both prints none.
 - **resolver checks** — the detail line repeats the expectation that broke, and the harness prints the same sentence for a pass, for example `CHECK memoization FAIL — createWorkerExtensionResolver walks the registry exactly once across repeated calls`. An `observed:` line under it gives the value that the check saw, for example `observed: {"walked":3}`. The harness removes its fixtures on exit, but the pipeline is pure and deterministic. Read the body of that check in `verification/resolver-checks.mjs`, then run the harness again.
 
 A NOT RUN from the ladder is neither a pass nor a fail. `verification/README.md` holds the table of the action for each one.
@@ -114,7 +128,7 @@ The original four checks take about **five seconds** on a warm machine. The unit
 | --- | --- |
 | typecheck | 2.2 s |
 | packaging guards, each pass | 0.3 s |
-| extension load check | 2.3 s (it starts two real pi processes) |
+| extension load check | not remeasured (it starts three real pi processes) |
 | pure-resolver checks | 0.2 s |
 | unit tests + patch coverage | ~35 s on Node 22.23.1; ~19 s on Node 24.18.0 |
 
@@ -123,7 +137,7 @@ Run all five checks before you commit.
 **Re-run obligations.** The two sections below use the same form:
 
 - **Run the packaging guards again after a change to a packaging-relevant manifest field.** Those fields are the `files` whitelist, `peerDependencies`, `dependencies`, `keywords` and `scripts`. Run them again also after you add, move or delete a file under `extension/` or `docs/`. The pack layer asserts the *real* file list from `npm pack`, and not the manifest. The guard asserts the `files` whitelist by **exact equality**, so a deliberate change to the whitelist must update `FILES_EXACT` in `verification/packaging-checks.mjs` **in the same commit**. Run `--self-test` too: it runs every guard against the real input with one violating mutation, and it requires a failure.
-- **Run the load check again after a change to extension loading, to tool or command registration, or to `session_start`.** Run it again also after a change to the `.pi/slate.json` of this checkout. Those failure modes have no other signal (see § How extension-load failures surface). A check of its own reads the config file directly from disk, because slate drops an unparseable file in silence. The load check answers two conditions with exit 2 instead of a FAIL report:
+- **Run the load check again after a change to extension loading, to tool or command registration, or to `session_start`.** Run it again also after a change to this checkout's `.pi/slate.json` or `.pi/settings.json`. Those failure modes have no other signal (see § How extension-load failures surface). Two checks read the config and package settings directly from disk, because pi and slate can drop invalid input in silence. The load check answers two conditions with exit 2 instead of a FAIL report:
   - **A checkout without `extension/index.ts`** stops the run. pi drops a nonexistent entry from `pi.extensions` in silence, and every check then passes on an empty session. A checkout without `verification/ci-canary.ts` stops the run for the same reason.
   - **A mismatch between the pin and the installed pi** stops the run. The message carries the remedy `run 'npm ci --ignore-scripts'`, which is the install that CI runs. The rpc output shapes hold for one pi version only.
 - **The verification ladder stays outside CI on purpose** (issue #24). It takes about 3 minutes, and most of that time is wall-clock wait in timing-sensitive rungs. It needs GNU coreutils, and it refuses to run as root. On a slow machine, or on a machine without the optional tools, it reports NOT RUN instead of PASS. A required check with that behaviour gives unreliable results, so the ladder stays a check for a person to read. Run it as § Verification ladder describes.
@@ -149,13 +163,13 @@ pi **stays silent** for each failure below: it exits 0, and it prints neither ma
 - A hook for `session_start` **throws**. In rpc mode pi reports an `extension_error` event on **stdout**. In text mode pi prints `Extension error (<path>): <msg>` on **stderr**. Neither string matches `Failed to load extension`, and the throw leaves the exit code at 0 in rpc mode.
 - A **tool registration disappears**. pi prints no diagnostic at all: it exits 0, its stderr holds 0 bytes, and the `/slate` command still works.
 
-`verification/run-load-check.sh` holds all of this knowledge, so you do not have to remember it. `L1` reads the exit code. `L2` reads both stderr markers. `L3` reads the `extension_error` channel on stdout. `L4` and `L5` read the registered tool set through the positive control in `verification/ci-canary.ts`. `L6` reads which copy of slate pi loaded.
+`verification/run-load-check.sh` has 14 checks with roster `L1 L2 L3 L4 L5 L6 L7 L8 T1 T2 T3 T4 T5 T6`. `L1` reads the exit code. `L2` reads both stderr markers. `L3` reads the `extension_error` channel on stdout. `L4` and `L5` read the registered tool set through the positive control in `verification/ci-canary.ts`. `L6` reads which copy of slate pi loaded. `L7` exercises the `/slate on` command round-trip, and `L8` proves that the run did not change `.pi/npm`. `T1` proves the trusted run started with trust, `T2` reads sanitizer warnings, and `T3` proves that trusted run did not change `.pi/npm`. `T4` reads `.pi/slate.json` from disk and checks its JSON shape. `T5` reads project settings from disk and asserts that the slate entry is a local path resolving to this package with every declared extension entry file present. `T6` starts a real trusted session against a scratch package copy and asserts one slate load, the three dispatch tools and no duplicate-load conflict.
 
 **A pipeline hides the exit code of a process, and that trap probably produced the wrong claim.** `$?` after a pipeline gives the status of the **last** command, and not the status of the piped process. A broken extension shows the difference. A direct run of pi exits `1`. The same run as `pi … 2>&1 | head -1` gives a `$?` of `0`, while `${PIPESTATUS[0]}` for that pipeline is still `1`, and `set -o pipefail` makes the pipeline exit `1`. Read a real exit code in one of three ways: use no pipe, read `${PIPESTATUS[0]}`, or run `set -o pipefail` first. Every script in `verification/` runs `set -o pipefail`.
 
   **Run the typecheck after ANY TypeScript change.** That trigger is wide on purpose, and the deep nets below use a narrow trigger instead. The run takes about 2 seconds, and it checks every file that it covers in one pass. Spend no time on a decision about the type relevance of your edit.
 
-  The silent-failure nets are the ladder, pure-resolver checks, packaging guards, extension-load check, unit tests with the patch-coverage gate, and package-content check. They also include both writing-checker nets and the writing-reminder integration check. The sections below define their scope.
+  The silent-failure nets are the ladder, pure-resolver checks, packaging guards, extension-load check, unit tests with the patch-coverage gate, and package-content check. They also include both writing-checker nets, the writing-reminder integration check and the research-log integration check. The sections below define their scope.
 
   This inventory intentionally has no total. Earlier totals went stale twice. Add each new net to this inventory when you add it.
 
@@ -170,33 +184,17 @@ pi **stays silent** for each failure below: it exits 0, and it prints neither ma
 - `extension/model-default.ts` and both switch sites (`extension/failover.ts` failover, `extension/handoff.ts` handoff adoption): the per-key restore rule, the untrustworthy-read stand-downs, the retry budget and the reporting channels;
 - `extension/worker.ts`'s worker-session settings isolation, in rung `WK1`: a **worker-side per-dispatch model AND effort switch** — what every routed action performs — writes zero bytes to the global settings file and does not survive into a reopened session as a sticky default. It is the only automated net for that guarantee, and the only rung that opens a worker session at all.
 
-Everything runs against fake offline providers in a throwaway agent directory, so real pi settings are never touched (the run fails if the real file changes).
+Every child starts through one `env -i` launcher. The launcher validates throwaway `HOME`, `TMPDIR` and `PI_CODING_AGENT_DIR`. It uses a guarded tool path, enables offline mode and enforces an exact environment allowlist. The launcher requires a positive start marker. Corpus evidence and shim-recorded agent roots prove the redirect. An untouched throwaway-HOME fallback agent provides separate evidence.
 
-**RUN THE LADDER ALONE. Any other pi process that shares the real agent directory can make its `SAFE` check lie.** A process redirected to another directory through `PI_CODING_AGENT_DIR` cannot touch the watched file, but the harness refuses an inherited value because it must own that redirect. The final `SAFE` check compares the REAL `~/.pi/agent/settings.json` before and after the run, and it compares size and mtime as well as the hash. It therefore reports `SAFE FAIL — REAL SETTINGS FILE CHANGED` when a pi you started yourself — the isolated-load smoke test of manual task 2, an interactive session, or a dogfooding session in another terminal — rewrites that file mid-run. Measured shape of the false alarm: an identical hash and size with only the mtime moved, under a summary that reads `26 pass, 1 fail`. Read the hash first. Equal hashes mean a concurrent writer, not a leak, and the fix is to stop every other pi that shares the real agent directory and rerun the ladder, because a `SAFE FAIL` voids every rung above it and cannot be dispositioned by argument. Sequence the two nets; never overlap them.
+The shim records roots from actual pi starts, independently of rung call sites. The parent and child paths expose only that shim as `pi`. A refused PATH-based invocation atomically creates a per-run violation sentinel. The sentinel is the authoritative runtime control, even when shell syntax swallows the shim exit status. Every launcher path and the final safety report reject the sentinel.
 
-#### Running the ladder beside an active pi session
+Source auditing remains defense in depth for exposed real-path variables and aliases. It does not parse all shell grammar. A focused rung with no pi child records a positive not-applicable session PASS. The real settings content hash is a nonfatal concurrency note, not a verdict.
 
-The harness computes the watched settings file from `node os.homedir()` as `<home>/.pi/agent/settings.json`, unless `SLATE_LADDER_REAL_AGENT_DIR` names another agent directory (`verification/run-ladder.sh:151-170`). It refuses to start when `PI_CODING_AGENT_DIR` exists in the environment, including an empty value, because the harness must own that variable (`verification/run-ladder.sh:115-131`).
+This environment-isolation harness is not an operating-system sandbox. A deliberately malicious same-user child remains outside the guarantee. Such a child can read process data, discover an absolute binary, read the generated shim, or forge writable evidence.
 
-The harness creates a throwaway `<lab>/agent` directory and assigns it to `AGENT` (`verification/run-ladder.sh:220-240`). Every child pi launch sets `PI_CODING_AGENT_DIR="$AGENT"` (`verification/run-ladder.sh:315-349`). A child that ignores that redirect writes under the run process home directory when pi resolves its agent path through `os.homedir()`. An isolated home therefore keeps escape detection intact (`verification/run-ladder.sh:152-168, 246-258, 347-351`).
+Concurrent pi sessions are permitted only when they cannot write this checkout. A fatal read-only before-and-after repository fingerprint covers HEAD, index entries, tracked files, relevant untracked files and their metadata. It does not call `git write-tree` or create objects. A same-checkout writer remains prohibited. Same-user edit-and-restore is the documented residual boundary because no portable userspace fingerprint can observe it after the fact. The inherited `PI_CODING_AGENT_DIR` guard remains fatal because the ladder must choose every child redirect itself.
 
-A run can therefore overlap another pi session using the real home directory when the run uses an isolated home. That session cannot change the watched file in the isolated home. The isolation is not an operating system sandbox. A process using a hard-coded path instead of the home directory could still escape detection (`verification/run-ladder.sh:1420-1450`).
-
-Use a temporary home outside the repository. Create its agent directory and a settings file before the run. Keep `PI_CODING_AGENT_DIR` removed, and preserve a `PATH` containing every required tool. Prepend the repository's `node_modules/.bin` directory so the pinned pi resolves first:
-
-```sh
-tmp_home=$(mktemp -d /tmp/slate-ladder-home.XXXXXX)
-mkdir -p "$tmp_home/.pi/agent"
-printf '{}' > "$tmp_home/.pi/agent/settings.json"
-env -u PI_CODING_AGENT_DIR -u SLATE_LADDER_REAL_AGENT_DIR HOME="$tmp_home" \
-  PATH="$PWD/node_modules/.bin:$PATH" bash verification/run-ladder.sh --repo . --strict
-```
-
-The harness takes `pi` from the search path. The search path can provide a different version than the version pinned in `package.json`. A wrong version can produce many rung failures that look like code regressions. On 2026-08-31, pi 0.84.4 from the search path made branch `main` report 10 pass, 15 fail and 2 not run. The pinned pi 0.83.0 from `node_modules/.bin` made the same branch report 26 pass, 0 fail and 0 not run. The same failing set appeared on a feature branch and produced a false regression report.
-
-Record `pi --version` with the run. The ladder accepts pi from `PATH` as a last choice and has no version-drift guard (`verification/README.md:675-684`). Compare that version with the exact `@earendil-works/pi-coding-agent` devDependency pin (`package.json:39-43`). If the isolated run fails, run the same ladder on branch `main` with the same isolated-home setup, command shape and pi version. Treat a failure as a current-branch regression only after that comparison. The final safety verdict is based on the before-and-after watched-file fingerprint (`verification/run-ladder.sh:1420-1450`).
-
-- Run it with `bash verification/run-ladder.sh --repo .` (~3 min; `--only <ids>` for a subset). Not as root, and needs GNU coreutils. Exit 0 means nothing failed and the real settings file is unchanged — rungs can still report NOT RUN, so read the lines; automation should pass `--strict`, which makes any NOT RUN fatal.
+- Run it with `bash verification/run-ladder.sh --repo .` (~3 min; `--only <ids>` for a subset). Not as root, and needs GNU coreutils. Exit 0 means nothing failed — rungs can still report NOT RUN, so read every rung and safety line; automation should pass `--strict`, which makes any NOT RUN fatal. Run `--self-test` after launcher changes.
 - **Re-run it after any change to `extension/model-default.ts` or to either switch site**, and **after any change to how a worker session is opened or switched** — `extension/worker.ts`'s settings manager, the model/`thinkingLevel` options it passes to `createAgentSession`, or the per-dispatch switch in `threads.ts`'s `applyRoute` (`WK1`). Both mechanisms fail silently when they regress — the switch still works, and the damage lands in the user's own pi configuration — so a passing smoke test proves nothing about either. Details, rung table and the timing-sensitive rungs: `verification/README.md`.
 
 ### Pure-resolver checks (worker extensions + doctrine rules + model router + dispatch guards + state sanitizers + profile table + writing wiring)
@@ -205,10 +203,10 @@ Record `pi --version` with the run. The ladder accepts pi from `PATH` as a last 
 
 - `extension/worker-extensions.ts` — the worker-extension resolver (candidate filtering, load-unit selection, barriers, matching, memoization) and the doctrine rule it feeds in `extension/mode.ts`;
 - `extension/mode.ts`'s **action-routing doctrine rule** (`doctrine-*`, driven through `registerSlateMode`'s `before_agent_start` handler with a fabricated resolution): that a router-OFF session gets byte-identically nothing, that an UNTRUSTED project gets no routing rule even with `router.models` fully configured (SE3's trust re-gate — defence in depth, so its removal has no visible symptom), that the conditional tail rules are numbered by position, its **injection safety** — the rule deliberately bypasses `sanitizeForDoctrine` (that sanitizer strips `|`, which would destroy the table), so the narrow `cell()` is the entire defence and the checks attack it structurally — that no research trace tag or `nonPreferred` reason leaks into the prompt, and a **size budget**, because this text is injected into every session's system prompt and paid for on every turn. The group is voided by `profiles-load`: one of its checks renders the real shipped table;
-- the shipped workflow contracts. These pin complete safety-floor and focus-table content, plus a unique canonical project-test-artifact definition. They also cover SMALL fast-path grants and exclusions, both composite-review sections, retired-role absence, and unique named headings across all five workflow documents.
+- the shipped workflow contracts. These pin complete safety-floor and focus-table content, plus a unique canonical project-test-artifact definition. They cover SMALL fast-path grants and exclusions. They also cover both composite-review sections, retired-role absence, and unique headings across the workflow documents.
 - `extension/model-router.ts` — the model router: the `router` config sanitizer, candidate resolution (drops, ordering by preference/tier-sourcing/tier/price, the `nonPreferred`-aware base-model pick, the W1/W3/failover-coverage warnings, dedup, memoization) and the dispatch-side effort predicate;
 - `extension/route.ts` — the route planner (`route-*`): the SAFETY CORE of action-level routing, i.e. the argument check the code numbers guard 0 (effort vocabulary) and the seven dispatch guards 1–7 (list membership on both router states, per-model ladder validity, evidence gap, API-rejected level, the never-blocking context-window substitution, long-context billing, and the failover carve-out) plus the base-effort seed. It was extracted from `threads.ts` into a pure module for exactly this harness, because a guard that silently stops guarding still "works": the dispatch runs and an episode is written;
-- `extension/state.ts` — the canonical model-spec vocabulary (`spec-*`: `isModelSpec` / `splitModelSpec` / `describeSpecDefect` / `describeConfusables`), which `failover.ts`, `episodes.ts`, `worker.ts` and the router all share, plus the single-spec config-key sanitizer (`sanitizeEpisodeModel`) — AND the **snapshot record sanitizers** (`state-*`: `sanitizeThreadRecord` / `sanitizeEpisodeRecord`, BG26), which are re-run over the user's whole thread and episode history at every session restore and are now pinned: a MISSED repair throws out of the `thread` tool, a FALSE one silently destroys a thread the user still needs;
+- `extension/state.ts` — the canonical model-spec vocabulary (`spec-*`: `isModelSpec` / `splitModelSpec` / `describeSpecDefect` / `describeConfusables`), which `failover.ts`, `episodes.ts`, `worker.ts` and the router all share, plus the single-spec config-key sanitizer (`sanitizeEpisodeModel`) — AND the **stored-record sanitizers** (`state-*`: `sanitizeThreadRecord` / `sanitizeEpisodeRecord`, BG26), which validate records read from the external namespace and are now pinned: a MISSED repair throws out of the `thread` tool, while a FALSE one silently destroys a thread the user still needs;
 - `extension/base-model.ts` — the orchestrator base-model tracker (`base-*`): the pure reducer deciding which model switches move the base model new worker threads inherit (seeding, slate's own declared switches, user/cycle/restore sources, handoff adoption, stale declarations and their one-event grace, switches in flight, and a setter that throws). Driven with fabricated `model_select` events through the declare/observe/settle protocol — the module has no clock, so nothing sleeps and no timer can fire after teardown;
 - `extension/episodes.ts` (`episode-*`) — episode compression, loaded through a SECOND loader instance with the pi packages aliased to local stubs, since it imports `@earendil-works/pi-ai` (a peer dependency this repo does not install). The module and everything it imports from this repo are real; only the SDK boundary is faked;
 - `extension/model-profiles.ts` — STRUCTURAL invariants of the shipped table only (id/alias resolvability, ladder vs measured/gap coverage, price-schedule shape, tier range, freezing). Never a research number: those are a review concern, and a refresh must not have to touch this suite;
@@ -221,8 +219,9 @@ Record `pi --version` with the run. The ladder accepts pi from `PATH` as a last 
 - **Re-run it after any change to a covered module or source path.** Covered production modules are:
   - `extension/worker-extensions.ts`, `model-router.ts`, `route.ts`, `model-profiles.ts`, `base-model.ts` and `episodes.ts`.
   - `extension/writing.ts`, `writing-reminder.ts` and `writing-check.mjs`.
+  - `extension/research-log.ts` and the research log lines of rule 8 in `extension/mode.ts` (`doctrine-research-log`). Doctrine budgets exclude the variable session-directory prefix and retain `research-log.md`; production prompts keep the full path.
   - The worker preamble or config plumbing in `extension/worker.ts` and `extension/threads.ts`.
-  - `extension/state.ts` spec helpers or snapshot sanitizers.
+  - `extension/state.ts` spec helpers or stored-record sanitizers.
   - `extension/handoff.ts` reminder force ordering.
   - `extension/mode.ts` doctrine rendering, writing status or reminder wiring.
 
@@ -285,6 +284,70 @@ A change to `extension/handoff.ts` still requires the full ladder. Run the
 pure-resolver checks for reminder policy, config, mode, doctrine or ordering
 changes.
 
+### Research-log integration check (Track 15 connected paths)
+
+`bash verification/run-research-log-check.sh --repo .` starts **two** real pi
+sessions against a deterministic in-process fake provider. The first session
+accepts one record change through `/slate on`, which is the transition that mints
+the session directory. The second session runs `pi --continue` on the same
+conversation, so it restores the same Slate session through the real locator
+note. No other harness in this repo continues a pi conversation across processes,
+and that second process is the only automated proof that a restored session
+resolves the same research log path.
+
+It is the only net that covers these connected paths at once:
+
+- slate creates exactly one session directory and one `research-log.md`, then a
+  real worker writes one unique marker through the exact prompt path;
+- `state.json` records NO research log location key, which is the removed field;
+- every orchestrator system prompt of the run carries the EXACT research log
+  path, and no system prompt blends two cases (the doctrine renders through the
+  real `before_agent_start` hook, so this is the wiring the resolver checks
+  cannot reach);
+- the system prompt of one REAL dispatched worker carries the same exact path.
+  The scratch project sets `workerExtensions` so the worker loads the canary,
+  because slate takes worker-extension candidates from registered TOOLS and a
+  worker session resolves its provider key from the agent configuration;
+- the shipped `README.md` carries eleven non-empty numbered storage situations
+  in order, with the decisive facts of every situation;
+- the continued session reports the SAME path;
+- `/slate sessions` prints the exact session and project paths on separate
+  labelled lines, prints no `worktree` label, and the reported session directory
+  holds `episodes`, `observations` and `threads`.
+
+Structure follows `verification/run-writing-reminder-check.sh`: `PI_BIN` then
+`node_modules/.bin/pi` with an exact version pin, an isolated `mktemp` scratch
+root resolved physically and refused inside the checkout, `env -i` with only
+throwaway values, `PI_OFFLINE=1`, GNU `timeout --kill-after`, one
+`CHECK <id> <PASS|FAIL> — <detail>` line per check, a roster audit and a summary.
+Exit 0 means every check passed. Exit 1 means a check failed. Exit 2 means the
+harness refused to start with `verification: refused to start — <reason>`. A
+failed run keeps its scratch directory and inlines both pi stderr and stdout
+streams. A Node producer keeps stdin open until the parent receives the completed
+thread result. The producer stops after 45 seconds. GNU `timeout` sends TERM at
+60 seconds and KILL five seconds later.
+
+`PI_OFFLINE=1` keeps pi startup offline, and the fake provider performs no
+network operation. This is not a network sandbox, because reviewed extension code
+can still open raw sockets.
+
+It does NOT cover the pending-instruction case. A real rpc session reaches
+orchestrator mode only through `/slate on`, and that command is itself the first
+accepted record change, so no reachable rpc state has orchestrator mode on with
+no session directory. The pending case is covered by `doctrine-research-log` in
+the pure-resolver checks and by `test/research-log.test.ts`.
+
+Re-run it after these changes:
+
+- `extension/research-log.ts`, or `researchLogPath()` in `extension/state.ts`.
+- Research log creation or its staged validation in `extension/session-record.ts`.
+- The research log lines of rule 8 in `extension/mode.ts`.
+- The worker path wiring in `extension/worker.ts` or `extension/threads.ts`.
+- The row shape of `extension/corpus-list.ts` or `extension/session-discovery.ts`.
+- The pause-instruction sentence in `extension/handoff.ts`.
+- The shipped storage guidance section of `README.md`.
+- The canary, the harness, the pi pin or the rpc shape.
+
 ### Package-content check (package-resolved runtime files)
 
 Run both package-content commands:
@@ -300,7 +363,7 @@ The self-test uses temporary fixtures outside the checkout. It proves recursive 
 
 - **Re-run both commands after adding, moving or deleting a Markdown file under `docs/`.** Run both after adding, moving or deleting a shebang-bearing `.mjs` command anywhere under `extension/`. The same rule covers runtime path exports. Run both after a `package.json` `files`-whitelist change. Run both after a path import change in `extension/mode.ts`, and before release.
 - The check covers package presence and roster completeness only. The resolver suite still covers doctrine content and rendering.
-- **It overlaps the CI packaging guards.** The overlap is not yet consolidated. Both read the file list from `npm pack --dry-run`. Both require doctrine documents to ship. The package-content check derives the complete Markdown roster and recursive shebang-command roster independently, then requires matching exports. `pack-doctrine-docs` scans `extension/*.ts` for document joins instead. The package-content check is also the only net that requires each shipped runtime command by roster. Merging the nets is reasonable future work. Until then, run both and both self-tests.
+- **It overlaps the CI packaging guards.** The overlap is not yet consolidated. Both read the file list from `npm pack --dry-run`. Both require package-resolved documents to ship. The package-content check derives the complete Markdown roster and recursive shebang-command roster independently, then requires matching exports. `pack-doctrine-docs` scans `extension/*.ts` for document joins instead. The package-content check is also the only net that requires each shipped runtime command by roster. Merging the nets is reasonable future work. Until then, run both and both self-tests.
 
 ### Writing-checker nets (correctness suite + scaling gate)
 
@@ -339,6 +402,7 @@ A missing, all-zero, absent or HEAD-equal base exits 2. `workflow_dispatch` has 
 - **The gate has its own regression net.** `test/coverage-gate.test.ts` exercises diff grammar, malformed and foreign LCOV, source classification, threshold boundaries, fail-closed behaviour, directive reasons and WARN propagation through the wrapper. Run `npm test` after ANY change to `verification/coverage-gate.mjs` or `verification/run-tests.sh`. This is load-bearing quality control for every other test: manual review found false-PASS defects in the gate that no other check would have caught, so a gate change without its fixture family can invalidate all downstream coverage claims while still printing success.
 - **Waiter tests require an explicit timeout.** `node:test` has no default timeout. Every test that awaits an operation which might never resolve must carry one, following the timeout option on the waiter test in `test/thread-manager.test.ts`; read that test for the maintained value instead of copying it here. Deadlocks and missed wakeups are exactly the defects that concurrency work targets; without the timeout they HANG the suite instead of failing it.
 - **Run `npm test` after ANY change under `extension/` or `test/`.** Do not transcribe suite size or cost here: `run-tests.sh` prints the discovered test-file count, and Node's summary prints the current test count and duration on every run.
+- `extension/corpus-list.ts` and `test/corpus-list.test.ts` cover the read-only `/slate sessions` command, bounded corpus reads, metadata validation, display sanitization, markers, defect rows, and truncation. Run `node --test test/corpus-list.test.ts` after changes to either file. Run `npm test -- --base <ref>` after changes to either file. Run `bash verification/run-load-check.sh --repo .` after changing its registration in `extension/mode.ts`. Run both package-content checks after changing a shipped runtime path or Markdown file.
 
 ## Writing convention
 
@@ -366,23 +430,21 @@ The writing checker is diagnostic everywhere and authoritative nowhere. A match 
 - **The devDependency carve-out.** `devDependencies` also pins the same four packages to exact versions, so the typecheck, the load check and the unit tests use one known SDK. That practice is correct, and a bundle is a different matter: npm installs `devDependencies` for no consumer, and it installs `dependencies` only. `devDependencies` pins the tooling in the same place and for the same reason: `@types/node` serves the typecheck, and `typescript` serves both the typecheck and the coverage gate's executable-line classifier. `tsconfig.json`, `test/` and `verification/` all sit outside the `files` whitelist, so no part of the checks or the tests reaches a consumer install. Re-check that boundary with `npm pack --dry-run --json` after a packaging change.
 - **Commit `package-lock.json`.** This repo ignored the file while the four SDK packages existed as `"*"` peers only, because a lockfile then pinned an arbitrary resolution from npm. The exact pins in `devDependencies` removed that reason, and the lockfile now records the versions that this repo chose. `npm ci --ignore-scripts`, the install that CI runs, also needs the file.
 - **Never add an install-time lifecycle script.** npm runs `prepare`, `postinstall`, `install` and `preinstall` on **every consumer install**. Add none of them to `scripts`.
-- The `files` whitelist in `package.json` **must include `docs/`**. The doctrine points at those files at package-resolved paths at run time. A publish without them ships a doctrine with a dangling citation in every rule, and an orchestrator that reads the workflow rules finds nothing. This is a rule and not a note, because adversarial review raised it as a finding (`AD6` in that round). Action-level routing needed no packaging change, because `docs/` ships as a whole and covered `docs/model-routing.md` on its first day. That fact makes the rule MORE important: one more doc now resolves at a package-resolved path at run time.
+- The `files` whitelist in `package.json` **must include `docs/`**. The doctrine uses package-resolved paths at run time. A publish without them ships dangling citations, and an orchestrator that reads the workflow rules finds nothing. This is a rule and not a note, because adversarial review raised it as a finding (`AD6` in that round). Action-level routing needed no whitelist change because `docs/` ships recursively.
 - The guard asserts the `files` whitelist by **exact equality**. A deliberate change to the whitelist must update the guard in the same commit (see § CI).
 - Keep `"keywords": ["pi-package"]` — it is what lists the package in the pi.dev gallery.
 
 `verification/run-packaging-checks.sh` enforces every rule above. It asserts the manifest, and it also asserts the *real* file list from `npm pack --dry-run`, because the manifest alone proves too little. npm expands a whitelisted directory **recursively**, and a `files` whitelist makes `.npmignore` and `.gitignore` inert. A stray file under `extension/` or `docs/` therefore ships behind a correct manifest.
 
-The pack policy answers that risk. It permits a small set of file kinds, and it rejects junk and secrets. It also requires every doctrine doc that the extension references. `verification/README.md` gives the details.
+The pack policy answers that risk. It permits a small set of file kinds, and it rejects junk and secrets. It requires every package-resolved document. `verification/README.md` gives the details.
 
 **The permitted kinds include `extension/**/*.mjs`, and that is deliberate.** The shipped writing checker is dependency-free plain JavaScript. It runs as a command and inside a hot turn hook without a transpiler. The size-grade command is also plain JavaScript. The pack policy must permit both runtime commands. `verification/package-content-check.mjs` enumerates them independently. It proves that each has one exported path and packed file.
 
 ## Release & versioning
 
 Before any release, read and follow `RELEASING.md` in full. The runbook
-keeps the release pin, the package version, the exact merge, the package
-contents and the registry artifact in agreement. This repository dogfoods
-the exact package version that it publishes, because `.pi/settings.json`
-pins `npm:ytdb-slate@<version>`. Bump the four SDK devDependency pins with
-any targeted pi release and refresh `package-lock.json`. Run all five CI
-checks and both package-content commands before publication. Update the dogfood pin only after the package is
-available.
+keeps the package version, the exact merge, the package contents and the
+registry artifact in agreement. This repository dogfoods the main worktree's
+sources independently of publication. Bump the four SDK devDependency pins
+with any targeted pi release and refresh `package-lock.json`. Run all five CI
+checks and both package-content commands before publication.

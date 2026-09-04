@@ -133,7 +133,7 @@ test("mode refresh publishes all stored thread widget lines", async () => {
   registerSlateMode(
     pi,
     store,
-    { startHandoff: async () => {}, effectiveContextBudget: (window: number) => window },
+    { startHandoff: async () => {}, adoptHandoff: async () => false, effectiveContextBudget: (window: number) => window },
     () => ({}),
     () => EMPTY_WORKER_EXTENSION_SET,
   );

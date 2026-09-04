@@ -177,9 +177,10 @@ After a reminder, Slate marks the current context usage. Another
 reminder needs one full interval of growth. When context usage shrinks,
 Slate lowers the mark to the new usage before measuring growth again.
 
-A trusted handoff reloads the doctrine in the fresh session. It also
-forces a reminder after the first eligible tool result. This forced
-reminder does not need context usage or a reached threshold.
+After explicit adoption with `/slate adopt <name>`, a trusted handoff reloads
+the doctrine in the successor session. Adoption also forces a reminder after
+the first eligible tool result. This forced reminder does not need context
+usage or a reached threshold.
 
 A representative 256,000-token budget gives a 12,800-token default
 interval. This example only illustrates cadence. Slate has no

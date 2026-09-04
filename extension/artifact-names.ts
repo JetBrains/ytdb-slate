@@ -1,6 +1,7 @@
 /** Pure names and references for Slate episode and observation artifacts. */
 
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { isSlateSessionName } from "./session-names.ts";
 
 /** Project-local artifact directories under <config dir>/slate/. */
 export type SlateArtifactKind = "episodes" | "observations";
@@ -14,8 +15,16 @@ function utf8Length(value: string): number {
 	return Buffer.byteLength(value, "utf8");
 }
 
-export function slateArtifactReference(kind: SlateArtifactKind, id: string): string {
-	return `${CONFIG_DIR_NAME}/slate/${kind}/${id}.md`;
+export function slateArtifactReference(kind: SlateArtifactKind, id: string): string;
+export function slateArtifactReference(sessionName: string, kind: SlateArtifactKind, id: string): string;
+export function slateArtifactReference(first: string, second: string, third?: string): string {
+	return third === undefined
+		? `${CONFIG_DIR_NAME}/slate/${first}/${second}.md`
+		: `${CONFIG_DIR_NAME}/slate/sessions/${first}/${second}/${third}.md`;
+}
+
+function legacySlateArtifactReference(kind: SlateArtifactKind, id: string): string {
+	return slateArtifactReference(kind, id);
 }
 
 /**
@@ -54,9 +63,21 @@ export function isSlateArtifactReference(
 	if (typeof value !== "string" || utf8Length(value) > SLATE_ARTIFACT_REFERENCE_MAX_BYTES) return false;
 	const kinds: readonly SlateArtifactKind[] = kind ? [kind] : ["episodes", "observations"];
 	return kinds.some((candidate) => {
-		const prefix = `${CONFIG_DIR_NAME}/slate/${candidate}/`;
-		if (!value.startsWith(prefix) || !value.endsWith(".md")) return false;
-		const foundId = value.slice(prefix.length, -3);
-		return isSlateArtifactId(foundId) && (id === undefined || foundId === id) && value === slateArtifactReference(candidate, foundId);
+		const legacyPrefix = `${CONFIG_DIR_NAME}/slate/${candidate}/`;
+		if (value.startsWith(legacyPrefix) && value.endsWith(".md")) {
+			const foundId = value.slice(legacyPrefix.length, -3);
+			return isSlateArtifactId(foundId) && (id === undefined || foundId === id) && value === legacySlateArtifactReference(candidate, foundId);
+		}
+		const sessionPrefix = `${CONFIG_DIR_NAME}/slate/sessions/`;
+		if (!value.startsWith(sessionPrefix) || !value.endsWith(".md")) return false;
+		const rest = value.slice(sessionPrefix.length);
+		const slash = rest.indexOf("/");
+		if (slash < 0) return false;
+		const sessionName = rest.slice(0, slash);
+		const artifactPrefix = `${candidate}/`;
+		const tail = rest.slice(slash + 1);
+		if (!isSlateSessionName(sessionName) || !tail.startsWith(artifactPrefix)) return false;
+		const foundId = tail.slice(artifactPrefix.length, -3);
+		return isSlateArtifactId(foundId) && (id === undefined || foundId === id) && value === slateArtifactReference(sessionName, candidate, foundId);
 	});
 }

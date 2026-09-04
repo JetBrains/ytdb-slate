@@ -82,8 +82,10 @@ final design approval after adversarial review and triage. When no adversarial
 review is required, validation and final approval form one gate.
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
-[pr-publishing.md](pr-publishing.md). When disabled, the retained research log
-is the durable workflow record.
+[pr-publishing.md](pr-publishing.md). When disabled, the working log is the
+durable workflow record while its location remains available. Removing a
+worktree destroys a project-directory working log. A session-directory working
+log survives worktree removal.
 
 ## Size script and focus prediction
 
@@ -108,7 +110,7 @@ never falls after implementation starts.
 | pre-implementation | validation before adversarial review | when a design adversary is required | required | required |
 | pre-implementation | adversarial design review | when design uncertainty engages, or an existing consumer-reachable rule changes | when the same focus condition engages | when the same focus condition engages |
 | pre-implementation | final design approval | after required design work | required after validation and any adversarial review | required after validation and any adversarial review |
-| lifecycle | research log | when any trigger fires | always | always |
+| lifecycle | working log | when any trigger fires | always | always |
 | per-track | implementer report | optional | required | required |
 | per-track | Reviewer I | no by grade, except carved-out verification work | every track | every track |
 | per-track | engaged-area reviewers | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track |
@@ -307,20 +309,47 @@ A later track builds on the accepted boundary before it.
 
 ## Session handoff and the research log
 
-MEDIUM and LARGE changes always use `research-log.md` at the repository root.
-A SMALL change opens it when any retained trigger fires. Each MEDIUM or LARGE
-track creates its implementer report at track start, beside the research log.
+MEDIUM and LARGE changes always use `research-log.md`, called the working log. A
+SMALL change opens the working log when any retained trigger fires.
+
+Every Slate session directory holds one working log. A session directory is the
+directory outside the project that holds the records of one Slate session. Slate
+creates the empty working log in the same accepted record change that creates
+the session directory. Slate then supplies the exact path in the orchestrator
+instructions and in every worker that receives a working-log action.
+
+Before that first accepted record change, no session directory exists and no
+exact path exists. The orchestrator instructions state the pending rule and
+supply no path. Do not create `research-log.md` in the project directory as a
+fallback. Keep early decisions in the conversation, and record them in the first
+working-log update.
+
+Slate moves, copies, renames and deletes no working log that already exists
+elsewhere. A working log that a change created at a project directory path stays
+at that path, and no Slate code manages that file.
+
+A worker that updates the working log takes the path from Slate. A worker never
+derives the path from the current project directory. Slate withholds a path that
+it cannot present exactly, and it says so in that case. Ask the user to restart
+Pi with an agent directory whose path is nonblank and contains no control,
+format, line-separator, paragraph-separator, or lone-surrogate characters. The
+path must avoid `<<` and `>>`. The resulting research log path must stay within
+Slate's 4,096-JavaScript-unit sanity guard.
+
+Each MEDIUM or LARGE track creates its implementer report at track start. The
+report stays at the repository root, because repository status must show it.
+The report is not a working log, so Slate does not move it.
 
 | trigger | SMALL | MEDIUM and LARGE |
 | --- | --- | --- |
-| second non-obvious decision | opens the log | already open |
-| surprise about repository behaviour | opens the log | already open |
-| any focus area engages | opens the log | already open |
-| session boundary | opens the log | already open |
-| multiple tracks | opens the log | already open |
-| plan-changing ruling | opens the log | already open |
-| user request | opens the log | already open |
-| unresolved question needed later | opens the log | already open |
+| second non-obvious decision | opens the working log | already open |
+| surprise about repository behaviour | opens the working log | already open |
+| any focus area engages | opens the working log | already open |
+| session boundary | opens the working log | already open |
+| multiple tracks | opens the working log | already open |
+| plan-changing ruling | opens the working log | already open |
+| user request | opens the working log | already open |
+| unresolved question needed later | opens the working log | already open |
 
 Open these sections: Initial request, Decision Log, Surprises and Discoveries,
 and Open Questions. Add Planned changes, Track table, coverage register,
@@ -333,14 +362,17 @@ At MEDIUM and LARGE, every retained entry is typed as `decision`, `evidence`,
 entry immediately after its event. Keep each entry self-contained.
 
 Do not copy secrets, credentials, private user data, or unnecessary personal
-data into the log. Record a privacy exception as a typed ruling. State what was
-omitted and why.
+data into the working log. Record a privacy exception as a typed ruling. State
+what was omitted and why.
 
 Use a safe write method. Create the file without following a symlink. Append
 through a temporary file and atomic rename when replacement is needed. Keep the
-log and every implementer report untracked and visible in repository status.
-Do not add either name to an ignore file. Never overwrite either from a stale
-in-memory copy. An implementer report never enters a pull request.
+working log and every implementer report untracked. Keep every implementer
+report visible in repository status. Do not add an implementer report name to an
+ignore file. Never overwrite either file from a stale in-memory copy. An
+implementer report never enters a pull request.
+
+### The handoff summary
 
 Before a session handoff, append a state summary. It names the confirmed grade,
 focus sets, current track, current implementer report location, last boundary
@@ -363,7 +395,7 @@ Resume in this fixed order:
 6. Continue only after answering: **What changed since the last state summary,
    and does it change grade, focus, scope, or required gates?**
 
-A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
+A mismatch pauses work. Reconcile it in the working log. Use marker commits and Git
 history as boundary authority. The track table is display-only.
 
 ## Closing review
@@ -493,12 +525,20 @@ The track table lists names, one-line scopes, and status. It contains no commit
 identifier. Track numbers are append-only. Abandoned tracks are struck through.
 Numbers are never reused.
 
-Delivery is the final squashed commit on the default development branch, or an
-explicit abandonment. Resolve or hand every open question to the user. Follow
-[user-notes.md](user-notes.md) for final accounting. Delete the retained local
-log and every implementer report only at delivery. The untracked-retention
-rule in § Session handoff and the research log keeps them out of the pull
-request. On abandonment, offer their content for archival first.
+Delivery is the final squashed commit on the default development branch.
+Abandonment is not delivery. Resolve or hand every open question to the user.
+Follow [user-notes.md](user-notes.md) for final accounting. Never delete the
+working log during a change. Delete every implementer report only at delivery.
+The untracked-retention rule in § Session handoff and the research log keeps the
+working log and every implementer report out of the pull request. On
+abandonment, offer the content of every implementer report for archival first.
+
+Before removing an abandoned worktree, explain that removal destroys a
+project-directory working log. A session-directory working log survives that
+removal. Obtain the user's informed confirmation. The user may
+retain the worktree. The user may instead arrange a manual copy through project
+guidance. Slate does not create, verify, or require that copy. The copy is not a
+delivery gate or a condition for abandonment.
 
 Aim for a delivery body at or below 16,384 UTF-8 bytes. Measure exact bytes from
 the commit object. If larger, remove repetition first. Then record a measured

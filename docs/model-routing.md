@@ -326,16 +326,15 @@ overflow behavior. Slate also does not emit a prompt-size billing notice.
   21 added doctrine lines for six configured models, 2,585 / 24 for
   all nine. In the current snapshot a model row costs 146–183
   characters, plus a one-off legend clause for each marker it
-  introduces. The router grows Slate's always-loaded block from 2,908
-  portable characters and 48 lines to 4,938 portable characters and 69 lines
-  for the fixed fabricated six-model fixture. That roster currently matches this
-  repository's list but does not read project config. Those are PORTABLE characters — the
-  doctrine with each occurrence of the installed `docs/` directory
-  removed, filenames kept — because the doctrine embeds absolute doc
-  paths and its raw size therefore depends on where the package is
-  installed. `context-budget.md` states that convention, tabulates
-  every configuration with its full basis, and gives the arithmetic
-  for your own install.
+  introduces. The router grows Slate's always-loaded block from 2,912 portable
+  characters and 48 lines to 4,942 portable characters and 69 lines for the
+  fixed fabricated six-model fixture. That roster currently matches this
+  repository's list but does not read project config. Those are PORTABLE
+  characters — the doctrine with each occurrence of the installed `docs/`
+  directory removed, filenames kept — because the doctrine embeds absolute doc
+  paths and its raw size therefore depends on where the package is installed.
+  `context-budget.md` states that convention, tabulates every configuration
+  with its full basis, and gives the arithmetic for your own install.
 
 ## Expected first-session warnings
 

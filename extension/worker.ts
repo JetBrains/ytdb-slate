@@ -24,9 +24,8 @@
  * root, which would not reuse the host's installed copy and would attempt a
  * network install.
  *
- * Worker conversations persist under
- * <config dir>/slate/threads/*.jsonl (CONFIG_DIR_NAME, ".pi" by default)
- * and are reopened via SessionManager.open.
+ * Worker conversations persist under the current corpus session's threads
+ * directory. Every action creates one fresh worker session.
  */
 
 import { mkdirSync } from "node:fs";
@@ -41,7 +40,9 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
+import { isSlateSessionName } from "./session-names.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import { renderResearchLogWorkerGuidance } from "./research-log.ts";
 import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
@@ -114,13 +115,26 @@ export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code a
   project's checks.
 `;
 
-export function workerPreamble(trusted: boolean, reviewerCharter: boolean): string {
-	const prose = trusted ? `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}` : WORKER_PREAMBLE;
+export function workerPreamble(
+	// Writing guidance is always active for a trusted project. Only trust keys it.
+	trusted: boolean,
+	reviewerCharter: boolean,
+	// Track 15 goal 3. The exact research log path of this Slate session, or
+	// undefined when Slate owns no such path. A worker never derives the path.
+	researchLogPath?: string,
+): string {
+	const additions: string[] = [];
+	if (trusted === true) additions.push(WORKER_WRITING_GUIDANCE);
+	if (typeof researchLogPath === "string") additions.push(renderResearchLogWorkerGuidance(researchLogPath));
+	const prose = [WORKER_PREAMBLE, ...additions].join(" ");
 	return reviewerCharter === true ? `${prose}\n${REVIEWER_CHARTER}` : prose;
 }
 
-export function threadsDir(cwd: string): string {
-	return resolve(cwd, CONFIG_DIR_NAME, "slate", "threads");
+export function threadsDir(cwd: string, sessionName?: string, projectDirectory?: string): string {
+	if (sessionName === undefined) return resolve(cwd, CONFIG_DIR_NAME, "slate", "threads");
+	if (!isSlateSessionName(sessionName)) throw new Error("slate refused an invalid session name");
+	if (projectDirectory === undefined) throw new Error("slate corpus project is unavailable");
+	return resolve(projectDirectory, sessionName, "threads");
 }
 
 function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string): void {
@@ -184,18 +198,20 @@ export function resolveModel(ctx: ExtensionContext, spec: string) {
 
 export async function openWorkerSession(opts: {
 	ctx: ExtensionContext;
-	sessionFile?: string; // resume when provided, else create new under <config dir>/slate/threads/
+	sessionName?: string;
+	projectDirectory?: string;
 	// Episode and observation paths do not belong here. Their shared artifact writer owns persistence.
 	model?: string; // "provider/id"
 	tools?: string[];
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
 	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
+	researchLogPath?: string; // Track 15: the exact research log path Slate owns for this session
 	promptCacheKey?: string; // optional OpenAI Responses cache-routing key
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
-	const dir = threadsDir(ctx.cwd);
-	mkdirSync(dir, { recursive: true });
+	const dir = threadsDir(ctx.cwd, opts.sessionName, opts.projectDirectory);
+	if (opts.sessionName === undefined) mkdirSync(dir, { recursive: true });
 
 	const agentDir = getAgentDir();
 
@@ -266,8 +282,9 @@ export async function openWorkerSession(opts: {
 		noPromptTemplates: true,
 		noThemes: true,
 		// Writing guidance is always active for trusted projects. The reviewer
-		// charter is not trust-gated because it is slate's own constant.
-		appendSystemPrompt: [workerPreamble(trusted, opts.reviewerCharter === true), ...promptDocs],
+		// charter is not trust-gated because it is slate's own constant. The
+		// research log path is slate's own value and carries no project input.
+		appendSystemPrompt: [workerPreamble(trusted, opts.reviewerCharter === true, opts.researchLogPath), ...promptDocs],
 	});
 	await loader.reload();
 
@@ -323,9 +340,7 @@ export async function openWorkerSession(opts: {
 
 	const model = opts.model ? resolveModel(ctx, opts.model) : ctx.model;
 
-	const sessionManager = opts.sessionFile
-		? SessionManager.open(opts.sessionFile)
-		: SessionManager.create(ctx.cwd, dir);
+	const sessionManager = SessionManager.create(ctx.cwd, dir);
 
 	// No modelRuntime passed: createAgentSession (pi >= 0.80.8) defaults to a
 	// ModelRuntime replacing the AuthStorage + ModelRegistry setup this code

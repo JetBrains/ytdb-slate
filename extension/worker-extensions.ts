@@ -30,10 +30,13 @@
  *
  *  - BARRIERS drop whole units before any pattern is consulted, so a broad
  *    pattern can never punch through them:
- *      · Self-exclusion (AD24): slate's own package root is computed ONCE from
- *        THIS module's own location, never by asking who registered the
- *        `thread` tool — registration is first-wins, so with two slate copies
- *        loaded that lookup can resolve to a copy other than the one running.
+ *      · Self-exclusion (AD24): slate's package root and source directory are
+ *        computed ONCE from THIS module's own location. A unit is withheld when
+ *        its path or an entry identifies this copy. A readable matching package
+ *        name also identifies any slate copy. Direct local-file package sources
+ *        expose no package-root manifest. The collision barrier still withholds
+ *        those copies through slate's reserved tool names. The former subtree rule
+ *        was wrong because checkout-local packages also lie below the package root.
  *      · Name collision (AD44/RG2): a unit that registers a tool named like a
  *        slate tool or a pi built-in is withheld — pi's final tool registry
  *        lets an extension-registered tool OVERWRITE a same-named built-in, so
@@ -55,8 +58,8 @@
  * never console.log — the same reporting discipline as failover.ts.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
@@ -101,23 +104,63 @@ export const PI_BUILTIN_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "
 /** Union of the two lists above, as a set, for the collision barrier. */
 const COLLISION_NAMES = new Set([...SLATE_TOOL_NAMES, ...PI_BUILTIN_TOOL_NAMES]);
 
-/**
- * Slate's own package root, computed ONCE from this module's location (AD24):
- * fileURLToPath(import.meta.url) → .../extension/worker-extensions.ts, its
- * directory → .../extension, its parent → the package root. Never derived by
- * looking up who registered the `thread` tool (first-wins registration can
- * resolve to a different slate copy than the one executing).
- */
-const SLATE_PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+/** Slate's package identity. A unit test pins this constant to package.json. */
+export const SLATE_PACKAGE_NAME = "ytdb-slate";
 
 /**
- * Separator-aware containment: true iff `child` is `parent` or lies under it.
- * The trailing separator is what keeps "/a/bc" from counting as inside "/a/b".
+ * Slate's own source directory and package root, computed ONCE from this module's
+ * location (AD24). Never derive either boundary from the registered `thread`
+ * tool. First-wins registration can identify another loaded slate copy.
+ */
+export const SLATE_SOURCE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
+export const SLATE_PACKAGE_ROOT = dirname(SLATE_SOURCE_DIRECTORY);
+
+/** Remove trailing separators without turning a filesystem root into an empty path. */
+function stripTrailingSeparators(path: string): string {
+	const root = parse(path).root;
+	while (path.length > root.length && path.endsWith(sep)) path = path.slice(0, -sep.length);
+	return path;
+}
+
+/** Resolve symlinks when possible. Missing or fabricated paths retain plain resolution. */
+function comparisonPath(path: string): string {
+	const resolved = resolve(stripTrailingSeparators(path));
+	try {
+		return stripTrailingSeparators(realpathSync(resolved));
+	} catch {
+		return stripTrailingSeparators(resolved);
+	}
+}
+
+/**
+ * Separator-aware, case-sensitive containment. This matches pi's containment
+ * semantics and keeps "/a/bc" from counting as inside "/a/b".
  */
 function pathContains(parent: string, child: string): boolean {
 	if (parent === child) return true;
 	const prefix = parent.endsWith(sep) ? parent : parent + sep;
 	return child.startsWith(prefix);
+}
+
+/**
+ * AD24 self-load barrier. The old package-root subtree rule also rejected
+ * checkout-local packages under .pi/npm/node_modules. The precise rule rejects
+ * this package root and entries in this source directory. It also rejects
+ * ancestors that could load slate and packages carrying slate's name.
+ */
+export function isSlateSelfPath(candidate: string, packageRoot: string, sourceDirectory: string): boolean {
+	return candidate === packageRoot || pathContains(sourceDirectory, candidate) || pathContains(candidate, packageRoot);
+}
+
+export function isSlateSelfLoad(
+	unitPath: string,
+	toolPaths: readonly string[],
+	packageNames: readonly string[] = [],
+): boolean {
+	if (packageNames.includes(SLATE_PACKAGE_NAME)) return true;
+	const packageRoot = comparisonPath(SLATE_PACKAGE_ROOT);
+	const sourceDirectory = comparisonPath(SLATE_SOURCE_DIRECTORY);
+	return [unitPath, ...toolPaths].some((path) => isSlateSelfPath(comparisonPath(path), packageRoot, sourceDirectory));
 }
 
 /** Loose views of the getAllTools() shape — tolerated defensively (state.ts pattern). */
@@ -140,41 +183,60 @@ interface Candidate {
 	source: string;
 	path: string; // the tool's own sourceInfo.path (absolute, exists on disk)
 	baseDir?: string; // package directory when this tool qualifies for a directory unit (RG1)
+	packageName?: string; // package.json name read from the candidate's package root
 }
 
-/** Working unit accumulated during grouping; toolPaths is kept for matching only. */
+/** Working unit accumulated during grouping. Tool paths also feed the self-load barrier. */
 interface WorkingUnit {
 	path: string;
 	source: string;
 	isDirectory: boolean;
 	tools: WorkerExtensionTool[];
 	toolPaths: string[];
+	packageNames: string[];
 }
 
-/** The `pi.extensions` array from a package.json, or undefined when absent/invalid/not a manifest. */
+/** The relevant fields from a package.json, or undefined when unreadable or invalid. */
+interface PackageManifest {
+	name?: unknown;
+	pi?: { extensions?: unknown };
+}
+type ManifestValue = PackageManifest | undefined;
 type ManifestEntries = string[] | undefined;
 
 /**
- * Read and parse <baseDir>/package.json, returning its `pi.extensions` array.
- * CACHED per directory for the whole resolution (CQ21 — the manifest was
- * previously re-read and re-parsed once per candidate tool). undefined when the
- * file is missing, unreadable, invalid JSON, or lacks a `pi.extensions` array.
+ * Read and parse <baseDir>/package.json, returning the whole manifest object.
+ * Cache each directory for the whole resolution (CQ21). Earlier code read and
+ * parsed the same manifest once per candidate tool. Return undefined when the
+ * file is missing, unreadable, invalid JSON, or not an object.
  */
-function readPackageExtensions(baseDir: string, cache: Map<string, ManifestEntries>): ManifestEntries {
+function readPackageManifest(baseDir: string, cache: Map<string, ManifestValue>): ManifestValue {
 	if (cache.has(baseDir)) return cache.get(baseDir);
-	let entries: ManifestEntries;
+	let parsed: ManifestValue;
 	const manifest = join(baseDir, "package.json");
 	if (existsSync(manifest)) {
 		try {
-			const parsed = JSON.parse(readFileSync(manifest, "utf8")) as { pi?: { extensions?: unknown } } | null;
-			const ext = parsed?.pi?.extensions;
-			if (Array.isArray(ext)) entries = ext as string[];
+			const value = JSON.parse(readFileSync(manifest, "utf8")) as PackageManifest | null;
+			if (value && typeof value === "object") parsed = value;
 		} catch {
-			/* unreadable/invalid manifest → undefined (fall back to file units) */
+			/* unreadable/invalid manifest → undefined */
 		}
 	}
-	cache.set(baseDir, entries);
-	return entries;
+	cache.set(baseDir, parsed);
+	return parsed;
+}
+
+/** Return the manifest's `pi.extensions` array when it has that exact shape. */
+function readPackageExtensions(baseDir: string, cache: Map<string, ManifestValue>): ManifestEntries {
+	const ext = readPackageManifest(baseDir, cache)?.pi?.extensions;
+	return Array.isArray(ext) ? ext as string[] : undefined;
+}
+
+/** Return the package-root manifest name when pi supplies a readable package root. */
+function readPackageName(info: LooseSourceInfo, cache: Map<string, ManifestValue>): string | undefined {
+	if (info.origin !== "package" || typeof info.baseDir !== "string" || info.baseDir === "") return undefined;
+	const name = readPackageManifest(info.baseDir, cache)?.name;
+	return typeof name === "string" ? name : undefined;
 }
 
 /**
@@ -186,7 +248,7 @@ function readPackageExtensions(baseDir: string, cache: Map<string, ManifestEntri
  * missing/unreadable/invalid manifest — is a file unit. Parents are never
  * consulted.
  */
-function packageBaseDir(info: LooseSourceInfo, cache: Map<string, ManifestEntries>): string | undefined {
+function packageBaseDir(info: LooseSourceInfo, cache: Map<string, ManifestValue>): string | undefined {
 	if (info.origin !== "package") return undefined;
 	const baseDir = info.baseDir;
 	if (typeof baseDir !== "string" || baseDir === "") return undefined;
@@ -252,7 +314,7 @@ export function resolveWorkerExtensions(
 	if (patterns.length === 0) return EMPTY_WORKER_EXTENSION_SET;
 
 	// One manifest read per package directory for this whole resolution (CQ21).
-	const manifestCache = new Map<string, ManifestEntries>();
+	const manifestCache = new Map<string, ManifestValue>();
 
 	// 1. CANDIDATES (AD25): extension-owned tools with a real on-disk entry path.
 	const candidates: Candidate[] = [];
@@ -267,7 +329,14 @@ export function resolveWorkerExtensions(
 		const name = typeof tool.name === "string" ? tool.name : "";
 		if (name === "") continue;
 		const description = typeof tool.description === "string" ? tool.description : "";
-		candidates.push({ name, description, source, path, baseDir: packageBaseDir(info, manifestCache) });
+		candidates.push({
+			name,
+			description,
+			source,
+			path,
+			baseDir: packageBaseDir(info, manifestCache),
+			packageName: readPackageName(info, manifestCache),
+		});
 	}
 	if (candidates.length === 0) return EMPTY_WORKER_EXTENSION_SET;
 
@@ -311,11 +380,12 @@ export function resolveWorkerExtensions(
 		let unit = working.get(key);
 		if (!unit) {
 			// unit.source is the source spec of the unit's FIRST tool.
-			unit = { path: key, source: c.source, isDirectory, tools: [], toolPaths: [] };
+			unit = { path: key, source: c.source, isDirectory, tools: [], toolPaths: [], packageNames: [] };
 			working.set(key, unit);
 		}
 		unit.tools.push({ name: c.name, description: c.description });
 		unit.toolPaths.push(c.path);
+		if (c.packageName !== undefined && !unit.packageNames.includes(c.packageName)) unit.packageNames.push(c.packageName);
 	}
 
 	// Deterministic order (needed for stable doctrine/allowlist output).
@@ -324,9 +394,9 @@ export function resolveWorkerExtensions(
 	// 4. BARRIERS — applied to EVERY unit before matching, regardless of patterns.
 	const surviving: WorkingUnit[] = [];
 	for (const unit of units) {
-		// (a) Self-exclusion (AD24): drop when the unit equals slate's root, sits
-		// inside it, or contains it.
-		if (pathContains(SLATE_PACKAGE_ROOT, unit.path) || pathContains(unit.path, SLATE_PACKAGE_ROOT)) continue;
+		// (a) Self-exclusion (AD24) uses precise path and package-identity rules.
+		// A subtree rule is invalid when slate itself loads from a checkout.
+		if (isSlateSelfLoad(unit.path, unit.toolPaths, unit.packageNames)) continue;
 		// (b) Name collision (AD44/RG2): checked across the WHOLE unit, not just a
 		// matched tool — any collision withholds the unit and warns.
 		const collisions = unit.tools.map((t) => t.name).filter((n) => COLLISION_NAMES.has(n));

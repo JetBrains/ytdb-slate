@@ -7,16 +7,14 @@
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import {
-	type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 // TYPE-ONLY, and deliberately so: the orchestrator's base-model tracker is
 // created and wired in by index.ts; this module only reads it through the
 // injected instance (and never calls expectOwnSwitch — a WORKER session's model
 // switch is not an orchestrator switch, so it must not be announced as one).
 import type { BaseModelTracker } from "./base-model.ts";
 import { compressEpisode, EpisodePersistenceError, writeFailedEpisode } from "./episodes.ts";
+import { readContainedFile } from "./corpus.ts";
 import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
 import type { ThinkingLevel } from "./model-profiles.ts";
 import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture, type ObservationRecord } from "./observations.ts";
@@ -42,7 +40,6 @@ import {
 	effectiveThreadType,
 	isModelSpec,
 	parseThreadType,
-	resolveEpisodeFile,
 	splitModelSpec,
 	type EpisodeRecord,
 	type EpisodeUsage,
@@ -292,7 +289,10 @@ export class ThreadManager {
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
 		if (this.store.paused) {
-			throw new Error("Slate is paused for handoff. New actions are rejected until handoff completes.");
+			throw new Error(
+				"Slate is paused for handoff. New actions are rejected until handoff completes. " +
+					"Reply with a concise handoff brief. Direct the user to run /slate handoff [focus], then /slate adopt <name> in the successor session.",
+			);
 		}
 		if (opts.threadId !== undefined) {
 			throw new Error('The "thread" field was removed. Create a new thread and pass earlier episode ids through "context".');
@@ -364,12 +364,33 @@ export class ThreadManager {
 		};
 		this.store.threads.set(id, record);
 		try {
-			this.store.save();
+			this.store.commit();
 		} catch (error) {
 			this.store.threads.delete(id);
 			throw error;
 		}
-		return record;
+		// THE STORED RECORD, never the local one. The store keeps the identity of a
+		// record it already holds, and this second line answers the case it cannot: a
+		// store that hands back another object still gets every later change of this
+		// dispatch (BG1501/CN1501).
+		return this.store.threads.get(id) ?? record;
+	}
+
+	/**
+	 * Save through the guarded contract and DESCRIBE a refusal instead of throwing.
+	 *
+	 * Every call site below already reports a terminal outcome through a thrown tool
+	 * error, and a save refusal used to vanish into an empty catch there. The clause
+	 * this returns joins that error message, so no refused save stays silent (Track
+	 * 14 goal 5).
+	 */
+	private saveRefusal(): string | undefined {
+		try {
+			this.store.commit();
+			return undefined;
+		} catch (error) {
+			return sanitizeForNotify(error instanceof Error ? error.message : String(error), 200);
+		}
 	}
 
 	private buildPrompt(opts: DispatchOptions, cwd: string): string {
@@ -379,9 +400,9 @@ export class ThreadManager {
 		for (const id of contextIds) {
 			const episode = this.store.episodes.get(id);
 			if (!episode) throw new Error(`Unknown context episode "${sanitizeForNotify(id, 80)}". Known episodes: ${[...this.store.episodes.keys()].join(", ") || "none"}.`);
-			const file = resolveEpisodeFile(cwd, episode.file);
-			if (file === undefined) throw new Error(`Episode "${sanitizeForNotify(id, 80)}" is not a safe readable Slate episode file.`);
-			parts.push(readFileSync(file, "utf8").trim(), "");
+			const content = readContainedFile(cwd, episode.file, this.store.corpusProject?.directory);
+			if (content === undefined) throw new Error(`Episode "${sanitizeForNotify(id, 80)}" is not a safe readable Slate episode file.`);
+			parts.push(content.toString("utf8").trim(), "");
 		}
 		parts.push("## Action", "", opts.task);
 		return parts.join("\n");
@@ -506,7 +527,7 @@ export class ThreadManager {
 		// record of what the thread was created with, and `baseModel` — which is what
 		// route.ts reads first — now supersedes it, so it can no longer strand anything.
 		thread.updatedAt = Date.now();
-		this.store.save();
+		this.store.commit();
 	}
 
 	/**
@@ -656,6 +677,25 @@ export class ThreadManager {
 		}
 	}
 
+	private artifactSessionName(): string | undefined {
+		const store = this.store as SlateStore & { artifactSessionName?: () => string | undefined };
+		return typeof store.artifactSessionName === "function" ? store.artifactSessionName() : store.slateSessionName;
+	}
+
+	/**
+	 * The external namespace every episode FILE lands in (CN1502).
+	 *
+	 * Both episode writers — compression and the fixed failure episode — take these
+	 * two values, and the fixed failure writer used to take neither. It therefore
+	 * wrote into the project directory, where the canonical decoder refuses the
+	 * reference and the failed action becomes unsavable. A production store answers
+	 * the namespace name or throws, so no production episode file leaves the
+	 * namespace.
+	 */
+	private artifactLocation(): { sessionName: string | undefined; projectDirectory: string | undefined } {
+		return { sessionName: this.artifactSessionName(), projectDirectory: this.store.corpusProject?.directory };
+	}
+
 	/**
 	 * OPEN a worker session for a thread and capture what it opened on.
 	 *
@@ -678,14 +718,19 @@ export class ThreadManager {
 		report: (message: string) => void;
 	}): Promise<{ session: WorkerSession; baseline: SessionBaseline }> {
 		const type = effectiveThreadType(args.thread, args.report);
+		// Track 15 goal 3: the worker receives the exact path from Slate. The store
+		// answers undefined for a session whose research log is not Slate owned.
+		const researchLogPath = this.store.researchLogPath();
 		const session = await openWorkerSession({
 			ctx: args.ctx,
-			sessionFile: undefined,
+			sessionName: this.artifactSessionName(),
+			projectDirectory: this.store.corpusProject?.directory,
 			model: args.open.model,
 			tools: args.tools,
 			promptDocs: this.config.workerPromptDocs,
 			extensionPaths: this.resolveExtensions().paths,
 			reviewerCharter: isJudgementThreadType(type),
+			...(researchLogPath === undefined ? {} : { researchLogPath }),
 			promptCacheKey:
 				this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
 					? undefined
@@ -715,12 +760,11 @@ export class ThreadManager {
 
 	private cancelBeforeStart(thread: ThreadRecord): never {
 		this.store.threads.delete(thread.id);
-		try {
-			this.store.save();
-		} catch {
-			/* the in-memory removal remains authoritative */
-		}
-		throw new Error(`Thread ${thread.id} was cancelled before the action started. No thread or episode was recorded.`);
+		const refusal = this.saveRefusal();
+		throw new Error(
+			`Thread ${thread.id} was cancelled before the action started. No thread or episode was recorded.`
+				+ (refusal === undefined ? "" : ` Slate could not save that removal: ${refusal}.`),
+		);
 	}
 
 	private async runDispatch(
@@ -827,13 +871,14 @@ export class ThreadManager {
 		thread.status = "running";
 		thread.updatedAt = Date.now();
 		try {
-			this.store.save();
+			this.store.commit();
 		} catch (error) {
 			this.store.threads.delete(thread.id);
-			try { this.store.save(); } catch { /* the in-memory rollback remains authoritative */ }
+			const rollbackRefusal = this.saveRefusal();
 			throw new Error(
 				`Slate could not start thread ${thread.id}: ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 200)}. ` +
-					"Nothing ran and no episode was recorded.",
+					"Nothing ran and no episode was recorded." +
+					(rollbackRefusal === undefined ? "" : ` Slate could not save that removal either: ${rollbackRefusal}.`),
 			);
 		}
 
@@ -1045,17 +1090,18 @@ export class ThreadManager {
 			// Apply-time rejection occurs before the worker call. Remove the accepted
 			// placeholder so an unbilled abort leaves neither a thread nor an episode.
 			this.store.threads.delete(thread.id);
+			let abortRefusal: string | undefined;
 			try {
-				this.store.save();
-			} catch {
-				/* the in-memory removal remains authoritative */
+				abortRefusal = this.saveRefusal();
 			} finally {
 				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
 				this.live.delete(thread.id);
 				this.liveBaselines.delete(thread.id);
 				this.failoverLive.delete(thread.id);
 			}
-			throw new Error(aborted.message);
+			throw new Error(
+				aborted.message + (abortRefusal === undefined ? "" : ` Slate could not save that removal: ${abortRefusal}.`),
+			);
 		}
 
 		const cancelledAfterStart = workerCallStarted &&
@@ -1065,17 +1111,19 @@ export class ThreadManager {
 			thread.status = "cancelled";
 			thread.outcomeReason = reason;
 			thread.updatedAt = Date.now();
+			let cancelRefusal: string | undefined;
 			try {
-				this.store.save();
-			} catch {
-				/* retain the terminal cancellation in memory */
+				cancelRefusal = this.saveRefusal();
 			} finally {
 				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
 				this.live.delete(thread.id);
 				this.liveBaselines.delete(thread.id);
 				this.failoverLive.delete(thread.id);
 			}
-			throw new Error(`Thread ${thread.id} was ${reason}. No episode was recorded.`);
+			throw new Error(
+				`Thread ${thread.id} was ${reason}. No episode was recorded.`
+					+ (cancelRefusal === undefined ? "" : ` Slate could not save that outcome: ${cancelRefusal}.`),
+			);
 		}
 
 		const actionMessages = session ? session.messages.slice(messagesBefore) : [];
@@ -1104,8 +1152,10 @@ export class ThreadManager {
 			const totalActionCost = usage.cost + (compactionCostUsd ?? 0);
 			let failed: ReturnType<typeof writeFailedEpisode>;
 			try {
+				const location = this.artifactLocation();
 				failed = writeFailedEpisode({
-					ctx, episodeId, threadId: thread.id, threadName: thread.name, task: opts.task,
+					ctx, sessionName: location.sessionName, projectDirectory: location.projectDirectory,
+					episodeId, threadId: thread.id, threadName: thread.name, task: opts.task,
 					diagnostics: reason, workerModel: ranModel, workerCostUsd: totalActionCost,
 				});
 			} catch (error) {
@@ -1116,13 +1166,16 @@ export class ThreadManager {
 				thread.outcomeReason = `${reason}; ${storageReason}`;
 				thread.updatedAt = Date.now();
 				this.store.workerCostUsd += totalActionCost;
-				try { this.store.save(); } catch { /* retain the terminal outcome in memory */ }
+				const recordRefusal = this.saveRefusal();
 				try { emit(true, "failed"); } catch { /* preserve the persistence failure */ }
 				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
 				this.live.delete(thread.id);
 				this.liveBaselines.delete(thread.id);
 				this.failoverLive.delete(thread.id);
-				throw new Error(`Thread ${thread.id} failed: ${sanitizeForNotify(reason, 200)}. Slate could not store episode ${episodeId}: ${storageDetail}.`);
+				throw new Error(
+					`Thread ${thread.id} failed: ${sanitizeForNotify(reason, 200)}. Slate could not store episode ${episodeId}: ${storageDetail}.`
+						+ (recordRefusal === undefined ? "" : ` Slate could not save its thread record either: ${recordRefusal}.`),
+				);
 			}
 			const episode: EpisodeRecord = {
 				id: episodeId, threadId: thread.id, task: opts.task, status: "failed", file: failed.file,
@@ -1139,7 +1192,7 @@ export class ThreadManager {
 			thread.updatedAt = Date.now();
 			this.store.workerCostUsd += totalActionCost;
 			let saveError: unknown;
-			try { this.store.save(); } catch (error) { saveError = error; }
+			try { this.store.commit(); } catch (error) { saveError = error; }
 			try { session?.dispose(); } catch { /* terminal cleanup continues */ }
 			this.live.delete(thread.id);
 			this.liveBaselines.delete(thread.id);
@@ -1191,11 +1244,14 @@ export class ThreadManager {
 		};
 		try {
 			const finalMessage = lastAssistantMessage(actionMessages);
-			observation = captureObservation(ctx.cwd, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined);
+			const sessionName = this.artifactSessionName();
+			observation = sessionName === undefined
+				? captureObservation(ctx.cwd, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined)
+				: captureObservation(ctx.cwd, sessionName, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined, this.store.corpusProject?.directory);
 			const warningsBeforeObservation = warnings.length;
 			if (!observation.stored && observation.reason === "write-failed" && "warning" in observation) routeWarn(observation.warning);
 			const judgementType = isJudgementThreadType(thread.type);
-			// SE1: the id can come from a restored snapshot, so every observation
+			// SE1: the id can come from restored external storage, so every observation
 			// warning uses the shared notification sanitizer.
 			const safeEpisodeId = sanitizeForNotify(episodeId, 80);
 			if (judgementType && !observation.stored && observation.reason === "no-final-message") {
@@ -1244,6 +1300,8 @@ export class ThreadManager {
 		try {
 			compressed = await compressEpisode({
 				ctx,
+				sessionName: this.artifactSessionName(),
+				projectDirectory: this.store.corpusProject?.directory,
 				episodeId,
 				threadId: thread.id,
 				threadName: thread.name,
@@ -1277,8 +1335,8 @@ export class ThreadManager {
 			// earlier observation normally becomes an unreferenced orphan. It remains
 			// until the user removes it. Persist every cost and recoverable session fact.
 			//
-			// A later session can reuse the id after snapshot repair drops a thread,
-			// snapshot repair rebuilds a stale episode counter, or the process exits
+			// A later session can reuse the id after stored-record repair drops a thread,
+			// stored-record repair rebuilds a stale episode counter, or the process exits
 			// before this increment is saved. A storing dispatch at that id overwrites
 			// the orphan through writeFreshFile's unlink-and-recreate path. Known accepted
 			// limitation: a non-storing dispatch (no-final-message, no-final-text or
@@ -1303,16 +1361,18 @@ export class ThreadManager {
 				? `${actionFailure}; failure episode persistence failed: ${storageDetail}`
 				: error instanceof Error ? error.message : String(error);
 			thread.updatedAt = Date.now();
+			let outcomeRefusal: string | undefined;
 			try {
-				this.store.save();
-			} catch {
-				/* report the original terminal failure through the stable tool boundary */
+				outcomeRefusal = this.saveRefusal();
 			} finally {
 				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
 				this.live.delete(thread.id);
 				this.liveBaselines.delete(thread.id);
 				this.failoverLive.delete(thread.id);
 			}
+			const recordClause = outcomeRefusal === undefined
+				? ""
+				: ` Slate could not save its thread record either: ${outcomeRefusal}.`;
 			const safeEpisodeId = sanitizeForNotify(episodeId, 80);
 			lines.push(`✗ slate could not store episode ${safeEpisodeId}.`);
 			try {
@@ -1321,9 +1381,9 @@ export class ThreadManager {
 				/* a broken progress channel must not replace the tool error */
 			}
 			if (status === "failed" && storageDetail !== undefined) {
-				throw new Error(`Thread ${thread.id} failed: ${sanitizeForNotify(actionFailure, 200)}. Slate could not store episode ${safeEpisodeId}: ${storageDetail}.`);
+				throw new Error(`Thread ${thread.id} failed: ${sanitizeForNotify(actionFailure, 200)}. Slate could not store episode ${safeEpisodeId}: ${storageDetail}.${recordClause}`);
 			}
-			throw new Error(`slate could not store episode ${safeEpisodeId}.`);
+			throw new Error(`slate could not store episode ${safeEpisodeId}.${recordClause}`);
 		}
 
 		const episode: EpisodeRecord = {
@@ -1351,11 +1411,11 @@ export class ThreadManager {
 		if (status === "failed") thread.outcomeReason = diagnostics ?? "the worker action failed";
 		thread.updatedAt = Date.now();
 		// Accumulate session-wide worker spend, including compression and compaction,
-		// BEFORE save so it persists with the snapshot.
+		// BEFORE save so it persists with the canonical runtime.
 		this.store.workerCostUsd += usage.cost + (compressed.costUsd ?? 0) + (compactionCostUsd ?? 0);
 		let saveError: unknown;
 		try {
-			this.store.save();
+			this.store.commit();
 		} catch (error) {
 			saveError = error;
 		} finally {

@@ -212,6 +212,16 @@ function realInputs() {
 	return { pathsSource, modeSource, docsFiles, commandFiles, packedFiles: new Set(manifest.files.map((entry) => entry.path)) };
 }
 
+const EXPECTED_SELF_TEST_CASES = [
+	"baseline",
+	"nested-command-helper",
+	"missing-nested-command-export",
+	"missing-document-export",
+	"missing-packed-runtime",
+	"help-without-typescript",
+	"missing-typescript",
+];
+
 function runSelfTest() {
 	const fixtureRoot = mkdtempSync(join(tmpdir(), "slate-package-content-self-"));
 	try {
@@ -235,19 +245,20 @@ function runSelfTest() {
 			["missing-packed-runtime", { ...base, packedFiles: new Set(["docs/a.md"]) }, /missing packed runtime file/],
 		];
 		let failed = false;
+		const reported = [];
+		const report = (name, ok, detail) => {
+			reported.push(name);
+			console.log(`SELF ${name} ${ok ? "PASS" : "FAIL"} — ${detail}`);
+			if (!ok) failed = true;
+		};
 		const clean = inspectRoster(base);
-		if (clean.findings.length !== 0) {
-			console.log(`SELF baseline FAIL — ${clean.findings.join(" | ")}`);
-			failed = true;
-		} else console.log("SELF baseline PASS — fabricated complete roster passes");
+		report("baseline", clean.findings.length === 0, clean.findings.length === 0 ? "fabricated complete roster passes" : clean.findings.join(" | "));
 		const recursionOk = commandFiles.join() === "commands/command.mjs";
-		console.log(`SELF nested-command-helper ${recursionOk ? "PASS" : "FAIL"} — recursive shebang command included, helper without shebang excluded`);
-		if (!recursionOk) failed = true;
+		report("nested-command-helper", recursionOk, "recursive shebang command included, helper without shebang excluded");
 		for (const [name, fixture, expected] of mutations) {
 			const result = inspectRoster(fixture);
 			const caught = result.findings.some((finding) => expected.test(finding));
-			console.log(`SELF ${name} ${caught ? "PASS" : "FAIL"} — ${caught ? result.findings.find((finding) => expected.test(finding)) : "mutation escaped detection"}`);
-			if (!caught) failed = true;
+			report(name, caught, caught ? result.findings.find((finding) => expected.test(finding)) : "mutation escaped detection");
 		}
 
 		const isolatedScript = join(fixtureRoot, "package-content-check.mjs");
@@ -256,9 +267,14 @@ function runSelfTest() {
 		const missingDependency = spawnSync(process.execPath, [isolatedScript, "--repo", fixtureRoot], { encoding: "utf8" });
 		const helpOk = help.status === 0 && /Usage:/.test(help.stdout);
 		const dependencyOk = missingDependency.status === 2 && /refused to start — TypeScript dependency unavailable/.test(missingDependency.stderr);
-		console.log(`SELF help-without-typescript ${helpOk ? "PASS" : "FAIL"} — help is parsed before optional analyzer loading`);
-		console.log(`SELF missing-typescript ${dependencyOk ? "PASS" : "FAIL"} — real analysis refuses with exit 2 and a bounded diagnostic`);
-		if (!helpOk || !dependencyOk) failed = true;
+		report("help-without-typescript", helpOk, "help is parsed before optional analyzer loading");
+		report("missing-typescript", dependencyOk, "real analysis refuses with exit 2 and a bounded diagnostic");
+		const missing = EXPECTED_SELF_TEST_CASES.filter((name) => !reported.includes(name));
+		const duplicated = reported.filter((name, index) => reported.indexOf(name) !== index);
+		const unexpected = reported.filter((name) => !EXPECTED_SELF_TEST_CASES.includes(name));
+		const rosterOk = missing.length === 0 && duplicated.length === 0 && unexpected.length === 0;
+		console.log(`SELF roster ${rosterOk ? "PASS" : "FAIL"} — independent expected cases reconcile; missing: ${missing.join(", ") || "none"}; duplicated: ${duplicated.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"}`);
+		if (!rosterOk) failed = true;
 		return failed ? 1 : 0;
 	} finally {
 		rmSync(fixtureRoot, { recursive: true, force: true });

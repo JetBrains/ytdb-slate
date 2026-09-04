@@ -37,6 +37,7 @@ fi
 
 bash "$repo/verification/link-peers.sh"
 work="$(mktemp -d "${TMPDIR:-/tmp}/slate-node-test.XXXXXX")" || fail "cannot create temporary directory"
+work="$(cd "$work" && pwd -P)" || fail "cannot resolve temporary directory"
 cleanup() {
   status=$?
   if [ "$status" -eq 0 ]; then
@@ -48,6 +49,9 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+mkdir -p "$work/home" "$work/agent" || fail "cannot create temporary home and agent directories"
+export HOME="$work/home"
+export PI_CODING_AGENT_DIR="$work/agent"
 lcov="$work/lcov.info"
 
 shopt -s globstar nullglob

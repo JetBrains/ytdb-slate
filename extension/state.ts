@@ -1,15 +1,25 @@
 /**
  * Slate state: thread/episode records, session-scoped persistence.
  *
- * Persistence model (ExecPlan D9): every mutation appends a full snapshot as a
- * custom session entry ("slate-state") via pi.appendEntry. On session_start the
- * store rebuilds from the last current-format entry on the current branch.
- * State follows pi's session tree across restart, resume, and fork.
+ * PERSISTENCE MODEL (Track 14). The records live in ONE external namespace, a
+ * directory outside the project directory. Startup asks the runtime authority
+ * check for a storage report (runtime-authority.ts) and the store follows it: a
+ * valid locator note on the active Pi branch restores every record from the
+ * namespace it names, no locator note prepares a namespace without creating a
+ * directory, and unsafe evidence leaves the store REFUSING every save. The Pi
+ * conversation holds the locator note and no record copy.
+ *
+ * `commit()` is the one production save. It uses the three-step contract:
+ * revalidate the selected namespace, fill the private draft of one mutation
+ * permit, then save that permit. The first accepted change creates the namespace
+ * and then writes one locator note.
+ *
  */
 
-import { realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, sep } from "node:path";
-import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
+import { basename, isAbsolute, join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // TYPE-ONLY: the effort vocabulary is defined once, in the profile table
 // (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
 // union. The import is erased at load time. State restoration therefore keeps
@@ -17,13 +27,29 @@ import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@eare
 import type { ThinkingLevel } from "./model-profiles.ts";
 import type { ObservationRecord } from "./observations.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./artifact-names.ts";
+import {
+	isSafeThreadId,
+	isSlateArtifactReference,
+	slateArtifactReference,
+	slateEpisodeId,
+} from "./artifact-names.ts";
+import { resolveResearchLogPath } from "./research-log.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
+import {
+	resolveContainedFile,
+	type CorpusProject,
+} from "./corpus.ts";
+import { drawSlateMint, isSlateSessionName } from "./session-names.ts";
+import {
+	isOwnerSessionDigest,
+	isSlateSessionId,
+} from "./session-identity.ts";
+export { OWNER_SESSION_DIGEST_PATTERN, SLATE_SESSION_ID_PATTERN } from "./session-identity.ts";
 
 /**
- * ADDITIVE TOLERANCE (the persistence model has no migration hook): the
- * snapshot below is UNVERSIONED, so a record restored from an older session
- * file simply lacks whatever fields were added since. Every field added to
+ * ADDITIVE TOLERANCE (the persistence model has no migration hook): stored
+ * records are unversioned, so a record read from an older external namespace
+ * simply lacks whatever fields were added since. Every field added to
  * ThreadRecord/EpisodeRecord is therefore OPTIONAL and its ABSENCE must read as
  * "unknown" — never as a default value that would be wrong. The routing fields
  * are the current example: an absent `baseModel` means "this thread predates
@@ -137,7 +163,7 @@ export interface ThreadRecord {
 	 * routes to. Absent = unknown ⇒ the worker session's own opening level.
 	 *
 	 * The type is a claim about what slate WROTE, not a guarantee about what it reads
-	 * back: this record is restored from an unversioned, hand-editable snapshot, so the
+	 * back: this record is read from unversioned, hand-editable storage, so the
 	 * reader (route.ts) re-validates the value against pi's vocabulary and treats
 	 * anything else as absent — the same discipline the model fields get from the
 	 * spec helpers below (BG21).
@@ -153,6 +179,24 @@ export interface ThreadRecord {
 	outcomeReason?: string;
 	createdAt: number;
 	updatedAt: number;
+}
+
+function copyThreadRecord(record: ThreadRecord): ThreadRecord {
+	return {
+		id: record.id,
+		name: record.name,
+		status: record.status,
+		type: record.type,
+		...(record.model !== undefined ? { model: record.model } : {}),
+		...(record.baseModel !== undefined ? { baseModel: record.baseModel } : {}),
+		...(record.baseEffort !== undefined ? { baseEffort: record.baseEffort } : {}),
+		...(record.cacheKeyShard !== undefined ? { cacheKeyShard: record.cacheKeyShard } : {}),
+		...(record.tools !== undefined ? { tools: record.tools } : {}),
+		...(record.episodeId !== undefined ? { episodeId: record.episodeId } : {}),
+		...(record.outcomeReason !== undefined ? { outcomeReason: record.outcomeReason } : {}),
+		createdAt: record.createdAt,
+		updatedAt: record.updatedAt,
+	};
 }
 
 export interface EpisodeUsage {
@@ -199,18 +243,36 @@ export interface EpisodeRecord {
 	createdAt: number;
 }
 
-export const SLATE_STATE_FORMAT = "single-action-v1";
+export interface SlateSessionParent {
+	identity: string;
+	name: string;
+}
 
-export interface SlateSnapshot {
-	format: typeof SLATE_STATE_FORMAT;
-	threads: ThreadRecord[];
-	episodes: EpisodeRecord[];
-	/** Highest allocated generated thread ordinal. Absent snapshots derive it from records. */
-	threadSeq?: number;
-	orchestratorMode: boolean;
-	paused: boolean;
-	workerCostUsd: number;
-	carriedCostUsd: number; // orchestrator spend banked from ancestor sessions at handoff
+function identityFromBytes(now: Date, bytes: Uint8Array): string {
+	const timestamp = `${now.toISOString().slice(0, 19).replace(/[-:]/g, "")}Z`;
+	return `${timestamp}-${Buffer.from(bytes).toString("hex")}`;
+}
+
+/** Mint a sortable identity and first name candidate from one twelve-byte draw. */
+export function mintSlateSession(now = new Date()): { identity: string; nameBytes: Buffer } {
+	const drawn = drawSlateMint(12);
+	return { identity: identityFromBytes(now, drawn.identityBytes), nameBytes: drawn.nameBytes };
+}
+
+export function mintSlateSessionId(now = new Date()): string {
+	return mintSlateSession(now).identity;
+}
+
+/**
+ * Bind ownership to both pi's identifier and its resolved session-file path.
+ * The identifier is hashed first, so NUL cannot occur in either joined value.
+ * Moving a session file changes this digest and mints a fresh identity on resume.
+ * That loss of continuity is fail-safe because ownership can no longer be proved.
+ */
+export function createOwnerSessionDigest(piSessionId: string, sessionFile: string | undefined): string {
+	const idDigest = createHash("sha256").update(piSessionId).digest("hex");
+	const resolvedSessionFile = sessionFile === undefined ? "" : resolve(sessionFile);
+	return createHash("sha256").update(idDigest).update("\0").update(resolvedSessionFile).digest("hex");
 }
 
 /**
@@ -407,7 +469,7 @@ export function sanitizeCacheKeyShards(raw: unknown, warn: (msg: string) => void
 }
 
 /**
- * ADOPTION-BOUNDARY VALIDATION (BG26). A snapshot is JSON on disk: unversioned,
+ * ADOPTION-BOUNDARY VALIDATION (BG26). External records are JSON on disk: unversioned,
  * hand-editable, and written by whatever slate version wrote it. The record types
  * above describe what slate WRITES; they guarantee nothing about what it reads back,
  * and until this existed a single wrong-typed field crashed a dispatch rather than
@@ -432,9 +494,6 @@ function stringList(value: unknown): string[] | undefined {
 function num(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
-function counter(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
-}
 function tokenQuantity(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
@@ -442,23 +501,9 @@ function moneyAmount(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
-/** Resolve a regular episode file only when its real path stays inside slate's episode directory. */
-export function resolveEpisodeFile(cwd: string, value: unknown): string | undefined {
-	if (typeof value !== "string" || value === "") return undefined;
-	try {
-		const expectedRoot = join(realpathSync(cwd), CONFIG_DIR_NAME, "slate", "episodes");
-		const root = realpathSync(expectedRoot);
-		if (root !== expectedRoot || !statSync(root).isDirectory()) return undefined;
-		const file = realpathSync(value);
-		if (!statSync(file).isFile()) return undefined;
-		const inside = relative(root, file);
-		if (inside === "" || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
-			return undefined;
-		}
-		return file;
-	} catch {
-		return undefined;
-	}
+/** Resolve a regular followed file within the corpus project or legacy flat layout. */
+export function resolveEpisodeFile(cwd: string, value: unknown, projectDirectory?: string): string | undefined {
+	return resolveContainedFile(cwd, value, projectDirectory);
 }
 
 /** Validate the complete observation record, including its exact canonical reference. */
@@ -555,7 +600,7 @@ export const ADOPTED_EPISODE_FIELDS = {
  * as silently as before.
  *
  * So the checklist is also enforced against what the sanitizer actually BUILT: a field
- * the snapshot carries, that adoption claims to know, that the built record lacks, and
+ * the stored record carries, that adoption claims to know, that the built record lacks, and
  * that was not deliberately refused (those are already reported by name) is a slate bug,
  * and it says so. Cheap — one pass over ten keys per record — and it fires on the first
  * restore after the omission rather than whenever the missing data is next needed.
@@ -576,19 +621,37 @@ export function noteUnadoptedFields(
 	const adopted = new Set(Object.keys(built));
 	for (const field of known) {
 		if (raw[field] === undefined || adopted.has(field) || refused.has(field)) continue;
-		repairs.push(`${kind} ${id}: field ${field} is in the snapshot but adoption does not handle it (slate bug) — its value is lost`);
+		repairs.push(`${kind} ${id}: field ${field} is in storage but adoption does not handle it (slate bug) — its value is lost`);
 	}
 	// Deliberately NOT reported: a key this version knows nothing about. That is a
-	// snapshot from a different slate version, nothing of this version's is at risk, and
+	// record from a different Slate version, nothing of this version's is at risk, and
 	// on a downgrade the notice would fire for every field of every record.
 }
 
 /**
  * One adopted thread record, or undefined when it cannot be addressed at all (no id).
- * `repairs` collects a human-readable note per dropped field so a corrupted snapshot is
+ * `repairs` collects a human-readable note per dropped field so a corrupted stored record is
  * VISIBLE rather than silently reshaped.
  */
-export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRecord | undefined {
+export interface ThreadRecordSanitizeOptions {
+	/**
+	 * Keep a `queued` or `running` status instead of normalizing it to `failed`.
+	 *
+	 * A LIVE action is legitimately queued or running, and external storage must be
+	 * able to hold it: Slate saves a worker thread BEFORE it starts the worker
+	 * session, so the strict external decoder (decodeCanonicalRuntime) would
+	 * otherwise refuse every dispatch. "Unfinished means failed" is a RESTORE rule
+	 * and not a storage rule, so the state store applies it when it adopts a
+	 * namespace at startup and not here.
+	 */
+	readonly preserveUnfinished?: boolean;
+}
+
+export function sanitizeThreadRecord(
+	raw: unknown,
+	repairs: string[],
+	options: ThreadRecordSanitizeOptions = {},
+): ThreadRecord | undefined {
 	if (typeof raw !== "object" || raw === null) return undefined;
 	const t = raw as Record<string, unknown>;
 	const id = str(t.id);
@@ -623,7 +686,7 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	}
 	let outcomeReason = keep("outcomeReason", t.outcomeReason, str(t.outcomeReason));
 	let adoptedStatus = status;
-	if (status === "running" || status === "queued") {
+	if ((status === "running" || status === "queued") && options.preserveUnfinished !== true) {
 		adoptedStatus = "failed";
 		outcomeReason = "the session ended before the action finished";
 		repairs.push(`thread ${id}: normalized unfinished ${status} action to failed`);
@@ -633,22 +696,26 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		repairs.push(`thread ${id}: normalized successful action without a valid episode id to failed`);
 	}
 	const now = Date.now();
-	const built: ThreadRecord = {
+	const model = keep("model", t.model, str(t.model));
+	const baseModel = keep("baseModel", t.baseModel, str(t.baseModel));
+	const baseEffort = keep("baseEffort", t.baseEffort, str(t.baseEffort)) as ThinkingLevel | undefined;
+	const cacheKeyShard = keep("cacheKeyShard", t.cacheKeyShard, typeof t.cacheKeyShard === "number" && Number.isInteger(t.cacheKeyShard) && t.cacheKeyShard >= 0 && t.cacheKeyShard < MAX_CACHE_KEY_SHARDS
+		? t.cacheKeyShard : undefined);
+	const built = copyThreadRecord({
 		id,
 		name,
 		status: adoptedStatus,
 		type,
-		model: keep("model", t.model, str(t.model)),
-		baseModel: keep("baseModel", t.baseModel, str(t.baseModel)),
-		baseEffort: keep("baseEffort", t.baseEffort, str(t.baseEffort)) as ThinkingLevel | undefined,
-		cacheKeyShard: keep("cacheKeyShard", t.cacheKeyShard, typeof t.cacheKeyShard === "number" && Number.isInteger(t.cacheKeyShard) && t.cacheKeyShard >= 0 && t.cacheKeyShard < MAX_CACHE_KEY_SHARDS
-			? t.cacheKeyShard : undefined),
+		model,
+		baseModel,
+		baseEffort,
+		cacheKeyShard,
 		tools,
 		episodeId,
 		outcomeReason,
 		createdAt: keep("createdAt", t.createdAt, num(t.createdAt)) ?? now,
 		updatedAt: keep("updatedAt", t.updatedAt, num(t.updatedAt)) ?? now,
-	};
+	});
 	noteUnadoptedFields("thread", id, t, built, refused, repairs);
 	return built;
 }
@@ -731,6 +798,230 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 	};
 	noteUnadoptedFields("episode", id, e, built, refused, repairs); // CQ22
 	return built;
+}
+
+/** Complete new-policy runtime state after strict external decoding. */
+export interface CanonicalRuntimeState {
+	threads: ThreadRecord[];
+	episodes: EpisodeRecord[];
+	threadSeq: number;
+	slateSessionParentChain: SlateSessionParent[];
+	orchestratorMode: boolean;
+	paused: boolean;
+	workerCostUsd: number;
+	carriedCostUsd: number;
+}
+
+/** External facts and binding expectations needed to decode one runtime payload. */
+export type CanonicalRuntimeArtifactKind = "episode" | "observation";
+
+export interface CanonicalRuntimeDecodeOptions {
+	runtime: unknown;
+	externalIdentity: unknown;
+	expectedIdentity: string;
+	namespaceName: string;
+	namespaceDirectory: string;
+	/** Caller-supplied existence, containment, regular-file, and link check. */
+	artifactPathAllowed: (kind: CanonicalRuntimeArtifactKind, absolutePath: string) => boolean;
+}
+
+export class CanonicalRuntimeDecodeError extends Error {
+	constructor(message: string) {
+		super(`slate refused canonical runtime state: ${message}`);
+		this.name = "CanonicalRuntimeDecodeError";
+	}
+}
+
+const CANONICAL_RUNTIME_KEYS = [
+	"threads",
+	"episodes",
+	"threadSeq",
+	"slateSessionParentChain",
+	"orchestratorMode",
+	"paused",
+	"workerCostUsd",
+	"carriedCostUsd",
+] as const;
+const CANONICAL_THREAD_REQUIRED = ["id", "name", "status", "type", "createdAt", "updatedAt"] as const;
+const CANONICAL_EPISODE_REQUIRED = ["id", "threadId", "task", "status", "file", "createdAt"] as const;
+
+function canonicalRuntimeRefuse(message: string): never {
+	throw new CanonicalRuntimeDecodeError(message);
+}
+
+function exactCanonicalKeys(
+	value: Record<string, unknown>,
+	allowed: readonly string[],
+	required: readonly string[] = allowed,
+): boolean {
+	const keys = Object.keys(value);
+	return keys.every((key) => allowed.includes(key)) && required.every((key) => keys.includes(key));
+}
+
+function canonicalObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const INVALID_CANONICAL_DATA = Symbol("invalid-canonical-data");
+
+/** Detach persisted plain data before strict schema validation. */
+function copyCanonicalData(value: unknown): unknown | typeof INVALID_CANONICAL_DATA {
+	try {
+		const text = JSON.stringify(value);
+		return text === undefined ? INVALID_CANONICAL_DATA : JSON.parse(text);
+	} catch {
+		return INVALID_CANONICAL_DATA;
+	}
+}
+
+function canonicalArtifactAllowed(
+	options: CanonicalRuntimeDecodeOptions,
+	kind: CanonicalRuntimeArtifactKind,
+	absolutePath: string,
+): boolean {
+	try {
+		return options.artifactPathAllowed(kind, absolutePath) === true;
+	} catch {
+		return false;
+	}
+}
+
+function decodeCanonicalThread(raw: unknown, index: number): ThreadRecord {
+	if (!canonicalObject(raw)) canonicalRuntimeRefuse(`thread ${index} is not an object`);
+	if (!exactCanonicalKeys(raw, Object.keys(ADOPTED_THREAD_FIELDS), CANONICAL_THREAD_REQUIRED)) {
+		canonicalRuntimeRefuse(`thread ${index} has missing or unknown fields`);
+	}
+	const repairs: string[] = [];
+	// A queued or running action is legitimate external state (see
+	// ThreadRecordSanitizeOptions), so this decode keeps it and the state store
+	// normalizes it when it adopts the namespace.
+	const decoded = sanitizeThreadRecord(raw, repairs, { preserveUnfinished: true });
+	const normalized = decoded === undefined ? INVALID_CANONICAL_DATA : copyCanonicalData(decoded);
+	if (decoded === undefined || repairs.length > 0 || !isDeepStrictEqual(normalized, raw)) {
+		canonicalRuntimeRefuse(`thread ${String(raw.id ?? index)} requires sanitizer repair${repairs.length > 0 ? `: ${repairs.join("; ")}` : ""}`);
+	}
+	return decoded;
+}
+
+function decodeCanonicalEpisode(raw: unknown, index: number): EpisodeRecord {
+	if (!canonicalObject(raw)) canonicalRuntimeRefuse(`episode ${index} is not an object`);
+	if (!exactCanonicalKeys(raw, Object.keys(ADOPTED_EPISODE_FIELDS), CANONICAL_EPISODE_REQUIRED)) {
+		canonicalRuntimeRefuse(`episode ${index} has missing or unknown fields`);
+	}
+	const repairs: string[] = [];
+	const decoded = sanitizeEpisodeRecord(raw, repairs);
+	const normalized = decoded === undefined ? INVALID_CANONICAL_DATA : copyCanonicalData(decoded);
+	if (decoded === undefined || repairs.length > 0 || !isDeepStrictEqual(normalized, raw)) {
+		canonicalRuntimeRefuse(`episode ${String(raw.id ?? index)} requires sanitizer repair${repairs.length > 0 ? `: ${repairs.join("; ")}` : ""}`);
+	}
+	return raw as unknown as EpisodeRecord;
+}
+
+/**
+ * Strictly decode new-policy external state without repairing it or consulting Pi.
+ *
+ * Lexical checks bind each artifact to this namespace. The injected physical check
+ * requires every declared artifact to exist as an accepted, unlinked regular file.
+ */
+export function decodeCanonicalRuntime(options: CanonicalRuntimeDecodeOptions): CanonicalRuntimeState {
+	if (!isSlateSessionId(options.expectedIdentity) || options.externalIdentity !== options.expectedIdentity) {
+		canonicalRuntimeRefuse("external identity does not match the selected binding");
+	}
+	const namespaceDirectory = options.namespaceDirectory;
+	if (!isSlateSessionName(options.namespaceName) || !isAbsolute(namespaceDirectory)
+		|| resolve(namespaceDirectory) !== namespaceDirectory || basename(namespaceDirectory) !== options.namespaceName) {
+		canonicalRuntimeRefuse("namespace location is invalid");
+	}
+	const snapshot = copyCanonicalData(options.runtime);
+	if (snapshot === INVALID_CANONICAL_DATA) canonicalRuntimeRefuse("runtime is not plain JSON data");
+	if (!canonicalObject(snapshot)) canonicalRuntimeRefuse("runtime root is not an object");
+	const raw = snapshot;
+	if (!exactCanonicalKeys(raw, CANONICAL_RUNTIME_KEYS)) {
+		canonicalRuntimeRefuse("runtime root has missing or unknown fields");
+	}
+	if (!Array.isArray(raw.threads) || !Array.isArray(raw.episodes)) {
+		canonicalRuntimeRefuse("thread and episode collections must be arrays");
+	}
+	if (!Number.isSafeInteger(raw.threadSeq) || (raw.threadSeq as number) < 0) {
+		canonicalRuntimeRefuse("threadSeq is not a non-negative safe integer");
+	}
+	if (typeof raw.orchestratorMode !== "boolean" || typeof raw.paused !== "boolean") {
+		canonicalRuntimeRefuse("mode fields are not booleans");
+	}
+	if (moneyAmount(raw.workerCostUsd) === undefined || moneyAmount(raw.carriedCostUsd) === undefined) {
+		canonicalRuntimeRefuse("cost fields are not non-negative finite numbers");
+	}
+	if (!Array.isArray(raw.slateSessionParentChain)) canonicalRuntimeRefuse("parent chain is not an array");
+	const parents: SlateSessionParent[] = [];
+	const parentIdentities = new Set<string>();
+	for (const [index, parent] of raw.slateSessionParentChain.entries()) {
+		if (!canonicalObject(parent) || !exactCanonicalKeys(parent, ["identity", "name"])
+			|| !isSlateSessionId(parent.identity) || !isSlateSessionName(parent.name)) {
+			canonicalRuntimeRefuse(`parent ${index} is malformed`);
+		}
+		if (parent.identity === options.expectedIdentity || parentIdentities.has(parent.identity)) {
+			canonicalRuntimeRefuse("parent chain repeats the current or an earlier identity");
+		}
+		parentIdentities.add(parent.identity);
+		parents.push({ identity: parent.identity, name: parent.name });
+	}
+
+	const threads = raw.threads.map(decodeCanonicalThread);
+	const episodes = raw.episodes.map(decodeCanonicalEpisode);
+	const threadById = new Map<string, ThreadRecord>();
+	for (const thread of threads) {
+		if (threadById.has(thread.id)) canonicalRuntimeRefuse(`duplicate thread identifier ${thread.id}`);
+		threadById.set(thread.id, thread);
+	}
+	const episodeById = new Map<string, EpisodeRecord>();
+	for (const episode of episodes) {
+		if (episodeById.has(episode.id)) canonicalRuntimeRefuse(`duplicate episode identifier ${episode.id}`);
+		episodeById.set(episode.id, episode);
+	}
+
+	let maxThreadOrdinal = 0;
+	for (const thread of threads) {
+		const ordinal = canonicalThreadOrdinal(thread.id);
+		if (ordinal !== undefined) maxThreadOrdinal = Math.max(maxThreadOrdinal, ordinal);
+		if (thread.episodeId !== undefined) {
+			const episode = episodeById.get(thread.episodeId);
+			if (episode === undefined || episode.threadId !== thread.id) {
+				canonicalRuntimeRefuse(`thread ${thread.id} has a broken episode reference ${thread.episodeId}`);
+			}
+		}
+	}
+	if ((raw.threadSeq as number) < maxThreadOrdinal) canonicalRuntimeRefuse("threadSeq is stale");
+
+	for (const episode of episodes) {
+		const thread = threadById.get(episode.threadId);
+		if (thread?.episodeId !== episode.id) {
+			canonicalRuntimeRefuse(`episode ${episode.id} is not listed by its thread`);
+		}
+		const expectedFile = join(namespaceDirectory, "episodes", `${episode.id}.md`);
+		if (episode.file !== expectedFile || !canonicalArtifactAllowed(options, "episode", episode.file)) {
+			canonicalRuntimeRefuse(`episode ${episode.id} has an unsafe file reference`);
+		}
+		if (episode.observations?.stored === true) {
+			const expectedReference = slateArtifactReference(options.namespaceName, "observations", episode.id);
+			const observationFile = join(namespaceDirectory, "observations", `${episode.id}.md`);
+			if (episode.observations.path !== expectedReference
+				|| !isSlateArtifactReference(episode.observations.path, "observations", episode.id)
+				|| !canonicalArtifactAllowed(options, "observation", observationFile)) {
+				canonicalRuntimeRefuse(`episode ${episode.id} has an unsafe observation reference`);
+			}
+		}
+	}
+
+	return {
+		threads,
+		episodes,
+		threadSeq: raw.threadSeq as number,
+		slateSessionParentChain: parents,
+		orchestratorMode: raw.orchestratorMode as boolean,
+		paused: raw.paused as boolean,
+		workerCostUsd: raw.workerCostUsd as number,
+		carriedCostUsd: raw.carriedCostUsd as number,
+	};
 }
 
 /** One contextBudget override. `match` is a regex tested ANCHORED (^(?:match)$) against "provider/id". */
@@ -817,6 +1108,296 @@ export interface WritingConfig {
 	remindPercent?: number;
 }
 
+export interface RuntimeAuthorityBinding {
+	readonly policy: "durable-session-v1";
+	readonly identity: string;
+	readonly name: string;
+}
+
+export type RuntimeAuthoritySelection =
+	| { readonly kind: "fresh" }
+	| { readonly kind: "durable"; readonly binding: RuntimeAuthorityBinding }
+	| { readonly kind: "refused"; readonly reason: string; readonly message: string };
+
+export interface RuntimeAuthorityContext {
+	/** Stable identity of the selected Pi session and transcript branch. */
+	readonly key: string;
+	readonly cwd: string;
+	readonly sessionDigest: string;
+	readonly project: CorpusProject;
+	readonly report?: (message: string) => void;
+}
+
+export interface RuntimeAuthorityExternalRecord {
+	readonly directory: string;
+	readonly metadata: {
+		readonly policy: "durable-session-v1";
+		readonly identity: string;
+		readonly name: string;
+		readonly currentDirectory: string;
+		readonly projectKey: string;
+		readonly projectDigest: string;
+	};
+	readonly state: {
+		/** Informational write sequence only. */
+		readonly generation: number;
+		readonly status: "active" | "delivered" | "abandoned";
+		readonly terminalAt?: string;
+		/** Provenance only. This digest grants no write access. */
+		readonly lastWriterSessionDigest: string;
+		readonly runtime: CanonicalRuntimeState;
+	};
+}
+
+export interface RuntimeAuthorityBackend {
+	mint(): { identity: string; name: string };
+	create(options: {
+		context: RuntimeAuthorityContext;
+		identity: string;
+		name: string;
+		runtime: CanonicalRuntimeState;
+	}): RuntimeAuthorityExternalRecord;
+	read(options: {
+		context: RuntimeAuthorityContext;
+		binding: RuntimeAuthorityBinding;
+	}): RuntimeAuthorityExternalRecord;
+	update(options: {
+		context: RuntimeAuthorityContext;
+		binding: RuntimeAuthorityBinding;
+		runtime: CanonicalRuntimeState;
+	}): RuntimeAuthorityExternalRecord;
+	writeBinding(binding: RuntimeAuthorityBinding): void;
+	isCommitUncertain(error: unknown): boolean;
+}
+
+export type RuntimeAuthorityState =
+	| { readonly kind: "fresh"; readonly contextKey: string }
+	| { readonly kind: "durable"; readonly contextKey: string; readonly binding: RuntimeAuthorityBinding; readonly generation: number }
+	| { readonly kind: "unavailable"; readonly contextKey?: string; readonly message: string };
+
+export interface RuntimeMutationPermit {
+	/** Isolated candidate state. It is not visible until save accepts this exact permit. */
+	readonly runtime: CanonicalRuntimeState;
+}
+
+export type RuntimeSaveResult =
+	| { readonly kind: "committed"; readonly binding: RuntimeAuthorityBinding }
+	| { readonly kind: "partial"; readonly binding: RuntimeAuthorityBinding; readonly message: string }
+	/**
+	 * THE SAVE MAY OR MAY NOT BE DURABLE. A failure after publication — a directory
+	 * synchronization that failed after the rename — leaves the visible file correct
+	 * and its durability unproven, so a reread of that file proves nothing about the
+	 * next power loss. Accepted risk 9 of the Track 14 design requires this outcome
+	 * to stay visible, so it never collapses into an ordinary success (CN1503).
+	 */
+	| { readonly kind: "uncertain"; readonly binding: RuntimeAuthorityBinding; readonly message: string };
+
+interface RuntimeMutationPermitState {
+	readonly epoch: number;
+	readonly revision: number;
+	readonly contextKey: string;
+	readonly baseline: CanonicalRuntimeState;
+	readonly authorityKind: "fresh" | "durable";
+}
+
+function cloneCanonicalRuntime(runtime: CanonicalRuntimeState): CanonicalRuntimeState {
+	return structuredClone(runtime);
+}
+
+/**
+ * Overwrite one record IN PLACE, so its object identity survives a save.
+ *
+ * A caller holds a thread record across the whole dispatch and mutates it as the
+ * action progresses. An accepted save reinstalls the stored records, and a
+ * replacement object would detach that live reference: every later change would
+ * then land outside the store, the thread would stay queued, and its episode
+ * reference would fail validation (BG1501/CN1501). This keeps the object and
+ * replaces its content instead, so no caller needs a rule about holding a record
+ * (design non-goal 17).
+ */
+function adoptRecordInPlace<T extends object>(existing: T, next: T): T {
+	const target = existing as Record<string, unknown>;
+	const source = next as Record<string, unknown>;
+	for (const key of Object.keys(target)) {
+		if (!Object.hasOwn(source, key)) delete target[key];
+	}
+	Object.assign(target, source);
+	return existing;
+}
+
+/**
+ * Copy one runtime state into an existing draft object, field by field.
+ *
+ * The draft a mutation permit carries is the only value save() reads, and the
+ * permit is opaque to its holder. commit() therefore fills the draft the store
+ * already handed out instead of replacing it: a replacement object would not be
+ * the permit's own draft, and the permit lookup would refuse it.
+ */
+function assignCanonicalRuntime(target: CanonicalRuntimeState, source: CanonicalRuntimeState): void {
+	target.threads = source.threads;
+	target.episodes = source.episodes;
+	target.threadSeq = source.threadSeq;
+	target.slateSessionParentChain = source.slateSessionParentChain;
+	target.orchestratorMode = source.orchestratorMode;
+	target.paused = source.paused;
+	target.workerCostUsd = source.workerCostUsd;
+	target.carriedCostUsd = source.carriedCostUsd;
+}
+
+function malformedAuthority(message: string): never {
+	throw new Error(`slate refused malformed runtime authority ${message}`);
+}
+
+function copyRuntimeAuthorityBinding(value: unknown): RuntimeAuthorityBinding {
+	const copy = copyCanonicalData(value);
+	if (copy === INVALID_CANONICAL_DATA || !canonicalObject(copy)
+		|| !exactCanonicalKeys(copy, ["policy", "identity", "name"])) {
+		malformedAuthority("binding");
+	}
+	if (copy.policy !== "durable-session-v1" || !isSlateSessionId(copy.identity)
+		|| !isSlateSessionName(copy.name)) {
+		malformedAuthority("binding");
+	}
+	return { policy: "durable-session-v1", identity: copy.identity, name: copy.name };
+}
+
+function copyRuntimeAuthoritySelection(value: unknown): RuntimeAuthoritySelection {
+	const copy = copyCanonicalData(value);
+	if (copy === INVALID_CANONICAL_DATA || !canonicalObject(copy) || typeof copy.kind !== "string") {
+		malformedAuthority("selection");
+	}
+	if (copy.kind === "fresh" && exactCanonicalKeys(copy, ["kind"])) return { kind: "fresh" };
+	if (copy.kind === "durable" && exactCanonicalKeys(copy, ["kind", "binding"])) {
+		return { kind: "durable", binding: copyRuntimeAuthorityBinding(copy.binding) };
+	}
+	if (copy.kind === "refused" && exactCanonicalKeys(copy, ["kind", "reason", "message"])
+		&& typeof copy.reason === "string" && typeof copy.message === "string") {
+		return { kind: "refused", reason: copy.reason, message: copy.message };
+	}
+	return malformedAuthority("selection");
+}
+
+function copyRuntimeAuthorityContext(value: unknown): RuntimeAuthorityContext {
+	if (!canonicalObject(value)
+		|| !exactCanonicalKeys(value, ["key", "cwd", "sessionDigest", "project", "report"], ["key", "cwd", "sessionDigest", "project"])
+		|| typeof value.key !== "string" || value.key === ""
+		|| typeof value.cwd !== "string" || value.cwd === ""
+		|| !isOwnerSessionDigest(value.sessionDigest)
+		|| !canonicalObject(value.project)
+		|| (value.report !== undefined && typeof value.report !== "function")) {
+		malformedAuthority("context");
+	}
+	const rawProject = value.project;
+	if (!exactCanonicalKeys(rawProject, ["root", "key", "label", "digest", "directory", "matchingDirectories"])
+		|| typeof rawProject.root !== "string" || typeof rawProject.key !== "string"
+		|| typeof rawProject.label !== "string" || typeof rawProject.digest !== "string"
+		|| typeof rawProject.directory !== "string" || !Array.isArray(rawProject.matchingDirectories)
+		|| rawProject.matchingDirectories.some((item) => typeof item !== "string")) {
+		malformedAuthority("context project");
+	}
+	return {
+		key: value.key,
+		cwd: value.cwd,
+		sessionDigest: value.sessionDigest,
+		project: {
+			root: rawProject.root,
+			key: rawProject.key,
+			label: rawProject.label,
+			digest: rawProject.digest,
+			directory: rawProject.directory,
+			matchingDirectories: [...rawProject.matchingDirectories] as string[],
+		},
+		...(value.report !== undefined ? { report: value.report as (message: string) => void } : {}),
+	};
+}
+
+function sameRuntimeAuthorityContext(left: RuntimeAuthorityContext, right: RuntimeAuthorityContext): boolean {
+	return left.key === right.key && left.cwd === right.cwd
+		&& left.sessionDigest === right.sessionDigest
+		&& left.report === right.report
+		&& left.project.root === right.project.root
+		&& left.project.key === right.project.key
+		&& left.project.label === right.project.label
+		&& left.project.digest === right.project.digest
+		&& left.project.directory === right.project.directory
+		&& isDeepStrictEqual(left.project.matchingDirectories, right.project.matchingDirectories);
+}
+
+function copyMintedAuthority(value: unknown): { identity: string; name: string } {
+	const copy = copyCanonicalData(value);
+	if (copy === INVALID_CANONICAL_DATA || !canonicalObject(copy)
+		|| !exactCanonicalKeys(copy, ["identity", "name"])
+		|| !isSlateSessionId(copy.identity) || !isSlateSessionName(copy.name)) {
+		malformedAuthority("mint result");
+	}
+	return { identity: copy.identity, name: copy.name };
+}
+
+function copyRuntimeAuthorityExternalRecord(value: unknown): RuntimeAuthorityExternalRecord {
+	const copy = copyCanonicalData(value);
+	if (copy === INVALID_CANONICAL_DATA || !canonicalObject(copy)
+		|| !exactCanonicalKeys(copy, ["directory", "metadata", "state"])
+		|| typeof copy.directory !== "string" || !canonicalObject(copy.metadata) || !canonicalObject(copy.state)) {
+		malformedAuthority("external record");
+	}
+	const metadataAllowed = [
+		"policy", "identity", "name", "createdAt", "currentDirectory", "projectKey", "projectDigest", "creatorSessionDigest",
+	];
+	const metadataRequired = ["policy", "identity", "name", "currentDirectory", "projectKey", "projectDigest"];
+	if (!exactCanonicalKeys(copy.metadata, metadataAllowed, metadataRequired)
+		|| copy.metadata.policy !== "durable-session-v1"
+		|| typeof copy.metadata.identity !== "string" || typeof copy.metadata.name !== "string"
+		|| typeof copy.metadata.currentDirectory !== "string" || typeof copy.metadata.projectKey !== "string"
+		|| typeof copy.metadata.projectDigest !== "string"
+		|| (copy.metadata.createdAt !== undefined && typeof copy.metadata.createdAt !== "string")
+		|| (copy.metadata.creatorSessionDigest !== undefined && !isOwnerSessionDigest(copy.metadata.creatorSessionDigest))) {
+		malformedAuthority("external record metadata");
+	}
+	const stateAllowed = ["generation", "status", "terminalAt", "lastWriterSessionDigest", "runtime"];
+	const stateRequired = ["generation", "status", "lastWriterSessionDigest", "runtime"];
+	if (!exactCanonicalKeys(copy.state, stateAllowed, stateRequired)
+		|| !Number.isSafeInteger(copy.state.generation) || (copy.state.generation as number) < 0
+		|| (copy.state.status !== "active" && copy.state.status !== "delivered" && copy.state.status !== "abandoned")
+		|| !isOwnerSessionDigest(copy.state.lastWriterSessionDigest)
+		|| (copy.state.status === "active" && copy.state.terminalAt !== undefined)
+		|| (copy.state.status !== "active" && typeof copy.state.terminalAt !== "string")) {
+		malformedAuthority("external record state");
+	}
+	return {
+		directory: copy.directory,
+		metadata: {
+			policy: "durable-session-v1",
+			identity: copy.metadata.identity,
+			name: copy.metadata.name,
+			currentDirectory: copy.metadata.currentDirectory,
+			projectKey: copy.metadata.projectKey,
+			projectDigest: copy.metadata.projectDigest,
+		},
+		state: {
+			generation: copy.state.generation as number,
+			status: copy.state.status,
+			...(copy.state.terminalAt !== undefined ? { terminalAt: copy.state.terminalAt as string } : {}),
+			lastWriterSessionDigest: copy.state.lastWriterSessionDigest,
+			runtime: copy.state.runtime as CanonicalRuntimeState,
+		},
+	};
+}
+
+function copyMutationCandidate(
+	permit: RuntimeMutationPermit,
+	binding: RuntimeAuthorityBinding,
+	context: RuntimeAuthorityContext,
+): CanonicalRuntimeState {
+	return decodeCanonicalRuntime({
+		runtime: permit.runtime,
+		externalIdentity: binding.identity,
+		expectedIdentity: binding.identity,
+		namespaceName: binding.name,
+		namespaceDirectory: join(context.project.directory, binding.name),
+		artifactPathAllowed: () => true,
+	});
+}
+
 export interface SlateConfig {
 	episodeModel?: string; // "provider/id" for the episode compressor (D5)
 	workerTools?: string[];
@@ -835,6 +1416,7 @@ export interface SlateConfig {
 	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
 	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
 	router?: RouterConfig; // action-level model router: the closed model list + the evidence-gap policy (default: off) — see model-router.ts
+	corpusName?: string; // optional readable corpus-project label; the digest remains authoritative
 	writing?: WritingConfig; // always-active writing guidance and configurable reminder cadence — see writing.ts
 }
 
@@ -842,6 +1424,29 @@ export class SlateStore {
 	threads = new Map<string, ThreadRecord>();
 	episodes = new Map<string, EpisodeRecord>();
 	private threadSeq = 0;
+	slateSessionId: string | undefined;
+	slateSessionName: string | undefined;
+	ownerSessionDigest: string | undefined;
+	slateSessionParentChain: SlateSessionParent[] = [];
+	corpusProject: CorpusProject | undefined;
+	private runtimeAuthority: RuntimeAuthorityState = {
+		kind: "unavailable",
+		message: "slate storage has not been selected for this Pi session",
+	};
+	private runtimeAuthorityContext: RuntimeAuthorityContext | undefined;
+	private runtimeAuthoritySourceContext: RuntimeAuthorityContext | undefined;
+	private runtimeAuthorityBackend: RuntimeAuthorityBackend | undefined;
+	private runtimeAuthorityEpoch = 0;
+	private runtimeAuthorityRevision = 0;
+	private runtimeTransactionActive = false;
+	private readonly runtimeMutationPermits = new WeakMap<RuntimeMutationPermit, RuntimeMutationPermitState>();
+	/**
+	 * The record objects of the CURRENT selection, by id. They keep the identity of a
+	 * record that a caller holds across a save (see adoptRecordInPlace). A new
+	 * selection forgets them, so no record object crosses two selected namespaces.
+	 */
+	private readonly threadIdentities = new Map<string, ThreadRecord>();
+	private readonly episodeIdentities = new Map<string, EpisodeRecord>();
 	orchestratorMode = false;
 	/** When true (context budget exceeded) ThreadManager rejects NEW dispatches. */
 	paused = false;
@@ -853,16 +1458,12 @@ export class SlateStore {
 	workerCostUsd = 0;
 	/** Orchestrator spend inherited from ancestor sessions across handoffs. */
 	carriedCostUsd = 0;
-	/** Session-instance reminder state. It is never part of a snapshot. */
+	/** Session-instance reminder state. It is never part of canonical storage. */
 	readonly writingReminder: WritingReminderRuntime = createWritingReminderRuntime();
-	/** Invoked after every save/restore; used by mode.ts to refresh the widget. */
+	/** Invoked after every accepted save or adopted read; mode.ts refreshes the widget. */
 	onDidChange?: () => void;
 
-	private pi: ExtensionAPI;
-
-	constructor(pi: ExtensionAPI) {
-		this.pi = pi;
-	}
+	constructor(_pi: ExtensionAPI) {}
 
 	nextThreadId(): string {
 		let max = this.threadSeq;
@@ -874,129 +1475,742 @@ export class SlateStore {
 	}
 
 	claimNextThreadId(): string {
+		if (this.runtimeTransactionActive) throw new Error("slate refused a nested runtime transaction");
 		const id = this.nextThreadId();
 		this.threadSeq = Number(id.slice(1));
 		return id;
 	}
 
-	snapshot(): SlateSnapshot {
-		return {
-			format: SLATE_STATE_FORMAT,
-			threads: [...this.threads.values()],
+	artifactSessionName(): string | undefined {
+		if (this.slateSessionName === undefined) throw new Error("slate session namespace is unavailable");
+		return this.slateSessionName;
+	}
+
+	/**
+	 * The exact research log path, or undefined while no session directory exists.
+	 *
+	 * Every session directory holds one research log, so the answer is the exact
+	 * path whenever this Slate session owns a session directory (Track 15 goal 1).
+	 */
+	researchLogPath(): string | undefined {
+		const name = this.slateSessionName;
+		const directory = this.corpusProject?.directory;
+		if (name === undefined || directory === undefined) return undefined;
+		return resolveResearchLogPath(directory, name);
+	}
+
+	private runtimeMemorySnapshot(): CanonicalRuntimeState {
+		return cloneCanonicalRuntime({
+			threads: [...this.threads.values()].map(copyThreadRecord),
 			episodes: [...this.episodes.values()],
 			threadSeq: this.threadSeq,
+			slateSessionParentChain: this.slateSessionParentChain,
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
 			workerCostUsd: this.workerCostUsd,
 			carriedCostUsd: this.carriedCostUsd,
+		});
+	}
+
+	private canonicalRuntimeSnapshot(): CanonicalRuntimeState {
+		return this.runtimeMemorySnapshot();
+	}
+
+	/** Remember every visible record object before the view is replaced. */
+	private rememberRecordIdentities(): void {
+		for (const [id, thread] of this.threads) this.threadIdentities.set(id, thread);
+		for (const [id, episode] of this.episodes) this.episodeIdentities.set(id, episode);
+	}
+
+	/** Drop every remembered record object. One selection owns its own records only. */
+	private forgetRecordIdentities(): void {
+		this.threadIdentities.clear();
+		this.episodeIdentities.clear();
+	}
+
+	/** Keep identity only for records that the installed runtime still contains. */
+	private pruneRecordIdentities(): void {
+		for (const id of this.threadIdentities.keys()) {
+			if (!this.threads.has(id)) this.threadIdentities.delete(id);
+		}
+		for (const id of this.episodeIdentities.keys()) {
+			if (!this.episodes.has(id)) this.episodeIdentities.delete(id);
+		}
+	}
+
+	private keepThreadIdentity(next: ThreadRecord): ThreadRecord {
+		const existing = this.threadIdentities.get(next.id);
+		const kept = existing === undefined ? next : adoptRecordInPlace(existing, next);
+		this.threadIdentities.set(next.id, kept);
+		return kept;
+	}
+
+	private keepEpisodeIdentity(next: EpisodeRecord): EpisodeRecord {
+		const existing = this.episodeIdentities.get(next.id);
+		const kept = existing === undefined ? next : adoptRecordInPlace(existing, next);
+		this.episodeIdentities.set(next.id, kept);
+		return kept;
+	}
+
+	private installCanonicalRuntime(
+		runtime: CanonicalRuntimeState,
+		options: { retainAbsentIdentities?: boolean } = {},
+	): void {
+		const isolated = cloneCanonicalRuntime(runtime);
+		// The clone is this store's own data. Reusing the record objects the view already
+		// holds therefore keeps the isolation and the caller's reference at once.
+		this.rememberRecordIdentities();
+		this.threads = new Map(isolated.threads.map((thread) => [thread.id, this.keepThreadIdentity(thread)]));
+		this.episodes = new Map(isolated.episodes.map((episode) => [episode.id, this.keepEpisodeIdentity(episode)]));
+		if (options.retainAbsentIdentities !== true) this.pruneRecordIdentities();
+		this.threadSeq = isolated.threadSeq;
+		this.slateSessionParentChain = isolated.slateSessionParentChain;
+		this.orchestratorMode = isolated.orchestratorMode;
+		this.paused = isolated.paused;
+		this.workerCostUsd = isolated.workerCostUsd;
+		this.carriedCostUsd = isolated.carriedCostUsd;
+	}
+
+	private clearCanonicalRuntime(retainRecordIdentities = false): void {
+		this.installCanonicalRuntime({
+			threads: [],
+			episodes: [],
+			threadSeq: 0,
+			slateSessionParentChain: [],
+			orchestratorMode: false,
+			paused: false,
+			workerCostUsd: 0,
+			carriedCostUsd: 0,
+		}, { retainAbsentIdentities: retainRecordIdentities });
+		this.slateSessionId = undefined;
+		this.slateSessionName = undefined;
+		this.ownerSessionDigest = undefined;
+	}
+
+	private authorityContextMatches(context: RuntimeAuthorityContext): boolean {
+		const active = this.runtimeAuthorityContext;
+		if (context !== this.runtimeAuthoritySourceContext || active === undefined) return false;
+		const copied = copyRuntimeAuthorityContext(context);
+		return sameRuntimeAuthorityContext(active, copied);
+	}
+
+	private validateAuthorityRecord(
+		record: RuntimeAuthorityExternalRecord,
+		binding: RuntimeAuthorityBinding,
+		context: RuntimeAuthorityContext,
+	): RuntimeAuthorityExternalRecord {
+		if (record.metadata.identity !== binding.identity || record.metadata.name !== binding.name) {
+			throw new Error("slate refused external state with a mismatched durable-session identity");
+		}
+		if (record.metadata.projectKey !== context.project.key
+			|| record.metadata.projectDigest !== context.project.digest
+			|| record.metadata.currentDirectory !== context.cwd
+			|| record.directory !== join(context.project.directory, binding.name)) {
+			throw new Error("slate refused external authority for a different project or current directory");
+		}
+		const runtime = decodeCanonicalRuntime({
+			runtime: record.state.runtime,
+			externalIdentity: record.metadata.identity,
+			expectedIdentity: binding.identity,
+			namespaceName: binding.name,
+			namespaceDirectory: record.directory,
+			artifactPathAllowed: () => true,
+		});
+		return {
+			...record,
+			metadata: { ...record.metadata },
+			state: { ...record.state, runtime },
 		};
 	}
 
-	save(): void {
-		this.pi.appendEntry("slate-state", this.snapshot() as unknown as Record<string, unknown>);
-		this.onDidChange?.();
+	private bindingFor(record: RuntimeAuthorityExternalRecord): RuntimeAuthorityBinding {
+		return {
+			policy: "durable-session-v1",
+			identity: record.metadata.identity,
+			name: record.metadata.name,
+		};
 	}
 
-	/** Rebuild from the last slate-state entry on the current branch. */
-	restore(ctx: ExtensionContext): void {
-		let latest: SlateSnapshot | undefined;
-		for (const entry of ctx.sessionManager.getBranch()) {
-			const e = entry as { type: string; customType?: string; data?: unknown };
-			if (e.type === "custom" && e.customType === "slate-state" && e.data) {
-				latest = e.data as SlateSnapshot;
-			}
+	private installAuthorityRecord(
+		record: RuntimeAuthorityExternalRecord,
+		binding: RuntimeAuthorityBinding,
+		context: RuntimeAuthorityContext,
+	): RuntimeAuthorityBinding {
+		const validated = this.validateAuthorityRecord(record, binding, context);
+		this.installCanonicalRuntime(validated.state.runtime);
+		this.slateSessionId = binding.identity;
+		this.slateSessionName = binding.name;
+		this.ownerSessionDigest = context.sessionDigest;
+		const currentBinding = this.bindingFor(validated);
+		this.runtimeAuthority = {
+			kind: "durable",
+			contextKey: context.key,
+			binding: currentBinding,
+			generation: validated.state.generation,
+		};
+		this.runtimeAuthorityRevision += 1;
+		return currentBinding;
+	}
+
+	/**
+	 * Apply the RESTORE rule to records this session has just adopted: an action
+	 * that was still queued or running when its Pi session ended cannot be resumed,
+	 * so it reads as failed.
+	 *
+	 * It runs at the two adoption moments only — the startup restore and the handoff
+	 * adoption — and never after a save. A live dispatch legitimately holds a queued
+	 * or running action, and normalizing after its own save would mark the running
+	 * action of this very session as failed. The change is in memory: the next
+	 * accepted save stores it.
+	 */
+	private normalizeAdoptedRuntime(context: RuntimeAuthorityContext): void {
+		const normalized: string[] = [];
+		for (const thread of this.threads.values()) {
+			if (thread.status !== "queued" && thread.status !== "running") continue;
+			thread.status = "failed";
+			thread.outcomeReason = "the session ended before the action finished";
+			normalized.push(thread.id);
 		}
-		this.adoptSnapshot(latest, ctx);
-		// Cost counters are NOT branch-scoped like the records above: money never
-		// un-spends, and dispatches on now-abandoned branches were still billed.
-		// Take the MAX over ALL slate-state entries (both counters are monotonic
-		// within a session file) so a branch switch cannot roll them back.
-		for (const entry of ctx.sessionManager.getEntries()) {
-			const e = entry as {
-				type: string;
-				customType?: string;
-				data?: { format?: unknown; workerCostUsd?: number; carriedCostUsd?: number };
+		if (normalized.length === 0) return;
+		this.reportSafely(
+			context,
+			`slate: ${normalized.join(", ")} did not finish before its previous Pi session ended. Slate reads ${normalized.length === 1 ? "it" : "them"} as failed.`,
+		);
+	}
+
+	private reportSafely(context: RuntimeAuthorityContext | undefined, message: string): void {
+		try {
+			context?.report?.(message);
+		} catch {
+			/* Reporting is advisory and cannot change an authority outcome. */
+		}
+	}
+
+	private notifyDidChange(context = this.runtimeAuthorityContext): void {
+		try {
+			this.onDidChange?.();
+		} catch (error) {
+			this.reportSafely(context, `slate changed authoritative state, but its local display refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	private selectionIsActive(
+		epoch: number,
+		context: RuntimeAuthorityContext,
+		backend: RuntimeAuthorityBackend,
+	): boolean {
+		return epoch === this.runtimeAuthorityEpoch && context === this.runtimeAuthorityContext
+			&& backend === this.runtimeAuthorityBackend;
+	}
+
+	private mutationIsActive(
+		state: RuntimeMutationPermitState,
+		context: RuntimeAuthorityContext,
+		backend: RuntimeAuthorityBackend,
+	): boolean {
+		return this.selectionIsActive(state.epoch, context, backend)
+			&& state.revision === this.runtimeAuthorityRevision
+			&& state.authorityKind === this.runtimeAuthority.kind;
+	}
+
+	private requireActiveMutation(
+		state: RuntimeMutationPermitState,
+		context: RuntimeAuthorityContext,
+		backend: RuntimeAuthorityBackend,
+	): void {
+		if (!this.mutationIsActive(state, context, backend)) {
+			throw new Error("slate refused a mutation completed for an old Pi context");
+		}
+	}
+
+	private makeUnavailable(message: string): void {
+		const contextKey = this.runtimeAuthorityContext?.key;
+		this.clearCanonicalRuntime();
+		this.runtimeAuthority = { kind: "unavailable", ...(contextKey !== undefined ? { contextKey } : {}), message };
+		this.runtimeAuthorityRevision += 1;
+		this.reportSafely(this.runtimeAuthorityContext, message);
+		this.notifyDidChange();
+	}
+
+	private selectRuntimeAuthority(
+		selection: RuntimeAuthoritySelection,
+		sourceContext: RuntimeAuthorityContext,
+		selectedContext: RuntimeAuthorityContext,
+		backend: RuntimeAuthorityBackend,
+	): void {
+		this.runtimeAuthorityEpoch += 1;
+		this.runtimeAuthorityRevision += 1;
+		this.runtimeAuthoritySourceContext = sourceContext;
+		this.runtimeAuthorityContext = selectedContext;
+		this.runtimeAuthorityBackend = backend;
+		this.corpusProject = selectedContext.project;
+		// External storage is the only artifact location under a selected authority.
+		// artifactSessionName() refuses while the namespace name is unavailable.
+		this.clearCanonicalRuntime();
+		// A new selection keeps NO record object of the previous one, so a stale holder
+		// cannot reach the records of the namespace this session selects now.
+		this.forgetRecordIdentities();
+		if (selection.kind === "refused") {
+			this.makeUnavailable(selection.message);
+			return;
+		}
+		if (selection.kind === "fresh") {
+			// PREPARATION ONLY. The identity and the namespace directory are minted by
+			// the first accepted mutation, so a start that changes nothing creates no
+			// directory (Track 14 goal 2). It therefore owns no research log path yet
+			// either, because Slate creates that file with the session directory.
+			this.runtimeAuthority = { kind: "fresh", contextKey: selectedContext.key };
+			this.notifyDidChange(selectedContext);
+			return;
+		}
+		const selectedEpoch = this.runtimeAuthorityEpoch;
+		const selectedRevision = this.runtimeAuthorityRevision;
+		try {
+			const record = copyRuntimeAuthorityExternalRecord(
+				backend.read({ context: selectedContext, binding: selection.binding }),
+			);
+			if (!this.selectionIsActive(selectedEpoch, selectedContext, backend)
+				|| selectedRevision !== this.runtimeAuthorityRevision) {
+				throw new Error("slate refused external authority loaded for an old Pi context");
+			}
+			this.installAuthorityRecord(record, selection.binding, selectedContext);
+			this.normalizeAdoptedRuntime(selectedContext);
+			this.notifyDidChange(selectedContext);
+		} catch (error) {
+			if (!this.selectionIsActive(selectedEpoch, selectedContext, backend)) throw error;
+			this.makeUnavailable(`slate could not establish current external authority: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	/** Select one authority policy. Production lifecycle wiring remains deferred. */
+	configureRuntimeAuthority(
+		selection: RuntimeAuthoritySelection,
+		context: RuntimeAuthorityContext,
+		backend: RuntimeAuthorityBackend,
+	): void {
+		if (this.runtimeTransactionActive) throw new Error("slate refused a nested runtime transaction");
+		this.runtimeTransactionActive = true;
+		try {
+			const copied = {
+				selection: copyRuntimeAuthoritySelection(selection),
+				context: copyRuntimeAuthorityContext(context),
 			};
-			if (e.type !== "custom" || e.customType !== "slate-state" || e.data?.format !== SLATE_STATE_FORMAT) continue;
-			this.workerCostUsd = Math.max(this.workerCostUsd, e.data?.workerCostUsd ?? 0);
-			this.carriedCostUsd = Math.max(this.carriedCostUsd, e.data?.carriedCostUsd ?? 0);
+			this.selectRuntimeAuthority(copied.selection, context, copied.context, backend);
+		} finally {
+			this.runtimeTransactionActive = false;
 		}
 	}
 
 	/**
-	 * Replace all state with a snapshot (undefined clears), dropping records
-	 * whose files vanished. Shared by restore() and the cross-session handoff
-	 * adoption in handoff.ts.
+	 * Enter the refusing state, with no selected storage and no records.
+	 *
+	 * Startup calls this BEFORE it reads any evidence, so a Pi session that cannot
+	 * finish its storage report — a missing corpus project, a throw inside the
+	 * report — refuses every later save instead of falling back to another storage
+	 * path (Track 14 goals 1 and 5). It keeps no context and no backend, so a
+	 * later mutation attempt reports this message and nothing else.
 	 */
-	adoptSnapshot(latest: SlateSnapshot | undefined, ctx: ExtensionContext): void {
-		this.threads.clear();
-		this.episodes.clear();
-		this.threadSeq = 0;
-		this.orchestratorMode = false;
-		this.paused = false;
-		this.workerCostUsd = 0;
-		this.carriedCostUsd = 0;
-		if (!latest || latest.format !== SLATE_STATE_FORMAT) return;
-
-		this.orchestratorMode = latest.orchestratorMode ?? false;
-		this.paused = latest.paused ?? false;
-		// ?? 0: old snapshots lack the cost fields.
-		this.workerCostUsd = latest.workerCostUsd ?? 0;
-		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
-		this.threadSeq = counter(latest.threadSeq) ?? 0;
-		const dropped: string[] = [];
-		// EVERY record is validated field by field on the way in (BG26) — see
-		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
-		// that has been hand-edited, truncated or written by another version must be made
-		// safe HERE; the alternative was an exception thrown out of the `thread` tool from
-		// inside a warning message.
-		const threadList = Array.isArray(latest.threads) ? latest.threads : [];
-		for (const raw of threadList) {
-			const repairsBefore = dropped.length;
-			const t = sanitizeThreadRecord(raw, dropped);
-			if (t === undefined) {
-				if (dropped.length === repairsBefore) {
-					dropped.push(`thread record without a usable id: ${typeof raw === "object" ? "ignored" : typeof raw}`);
-				}
-				continue;
-			}
-			this.threads.set(t.id, t);
-			// Old snapshots have no persisted counter. Derive its floor from every
-			// surviving generated id before any new thread can claim an ordinal.
-			const ordinal = canonicalThreadOrdinal(t.id);
-			if (ordinal !== undefined) this.threadSeq = Math.max(this.threadSeq, ordinal);
+	refuseRuntimeAuthority(message: string): void {
+		if (this.runtimeTransactionActive) throw new Error("slate refused a nested runtime transaction");
+		this.runtimeTransactionActive = true;
+		try {
+			this.runtimeAuthorityEpoch += 1;
+			this.runtimeAuthoritySourceContext = undefined;
+			this.runtimeAuthorityContext = undefined;
+			this.runtimeAuthorityBackend = undefined;
+			this.clearCanonicalRuntime();
+			this.forgetRecordIdentities();
+			this.runtimeAuthority = { kind: "unavailable", message };
+			this.runtimeAuthorityRevision += 1;
+			this.notifyDidChange(undefined);
+		} finally {
+			this.runtimeTransactionActive = false;
 		}
-		const episodeList = Array.isArray(latest.episodes) ? latest.episodes : [];
-		for (const raw of episodeList) {
-			const e = sanitizeEpisodeRecord(raw, dropped);
-			if (e === undefined) {
-				dropped.push(`episode record without a usable id, thread id or file: ${typeof raw === "object" ? "ignored" : typeof raw}`);
-				continue;
-			}
-			const safeFile = resolveEpisodeFile(ctx.cwd, e.file);
-			if (safeFile === undefined) {
-				dropped.push(`episode ${e.id}: file is missing, non-regular, or outside slate's episode directory`);
-				continue;
-			}
-			const owner = this.threads.get(e.threadId);
-			if (owner?.episodeId !== e.id) {
-				dropped.push(`episode ${e.id}: owning thread does not reference this episode`);
-				continue;
-			}
-			e.file = safeFile;
-			this.episodes.set(e.id, e);
-		}
-		for (const thread of this.threads.values()) {
-			if (thread.episodeId !== undefined && !this.episodes.has(thread.episodeId)) {
-				this.threads.delete(thread.id);
-				dropped.push(`thread ${thread.id}: its episode did not survive restoration`);
-			}
-		}
-		if (dropped.length > 0 && ctx.hasUI) {
-			ctx.ui.notify(`slate: dropped or repaired stale records:\n${dropped.join("\n")}`, "warning");
-		}
-		this.onDidChange?.();
 	}
+
+	/**
+	 * Adopt one already existing external namespace as this session's authority.
+	 *
+	 * The validating read happens FIRST and its result is the record set this
+	 * session keeps: a caller supplies no records at all (Track 14 goals 10 and
+	 * 12). A refused read therefore changes no durable record and leaves the
+	 * prepared fresh selection in place, so the user can correct the name and run
+	 * the command again. Only a session that has selected no storage of its own
+	 * may adopt. A session that already saved records into one namespace would
+	 * abandon those records by adopting another, and this rule claims no exclusive
+	 * access to either namespace: the storage layer performs no ownership check.
+	 */
+	adoptExternalAuthority(binding: RuntimeAuthorityBinding): RuntimeAuthorityBinding {
+		if (this.runtimeTransactionActive) throw new Error("slate refused a nested runtime transaction");
+		this.runtimeTransactionActive = true;
+		try {
+			const context = this.runtimeAuthorityContext;
+			const backend = this.runtimeAuthorityBackend;
+			if (this.runtimeAuthority.kind === "unavailable") throw new Error(this.runtimeAuthority.message);
+			if (context === undefined || backend === undefined) throw new Error("slate runtime authority is not configured");
+			if (this.runtimeAuthority.kind !== "fresh") {
+				throw new Error("slate refused an external adoption for a session that already selected durable storage");
+			}
+			const selected = copyRuntimeAuthorityBinding(binding);
+			const epoch = this.runtimeAuthorityEpoch;
+			const revision = this.runtimeAuthorityRevision;
+			const record = copyRuntimeAuthorityExternalRecord(backend.read({ context, binding: selected }));
+			if (!this.selectionIsActive(epoch, context, backend) || revision !== this.runtimeAuthorityRevision) {
+				throw new Error("slate refused external authority loaded for an old Pi context");
+			}
+			// Validation precedes every state change, so a refusal leaves this session
+			// exactly as it was.
+			const validated = this.validateAuthorityRecord(record, selected, context);
+			// The adopted namespace is a different one, so its records are new objects.
+			this.forgetRecordIdentities();
+			const current = this.installAuthorityRecord(validated, selected, context);
+			this.normalizeAdoptedRuntime(context);
+			this.notifyDidChange(context);
+			return current;
+		} finally {
+			this.runtimeTransactionActive = false;
+		}
+	}
+
+	authorityState(): RuntimeAuthorityState {
+		return structuredClone(this.runtimeAuthority);
+	}
+
+	private prepareRuntimeMutation(sourceContext: RuntimeAuthorityContext): RuntimeMutationPermit {
+		if (!this.authorityContextMatches(sourceContext)) throw new Error("slate refused a mutation from a stale or foreign Pi context");
+		const backend = this.runtimeAuthorityBackend;
+		const context = this.runtimeAuthorityContext;
+		if (backend === undefined || context === undefined) throw new Error("slate runtime authority is not configured");
+		let baseline: CanonicalRuntimeState;
+		let authorityKind: "fresh" | "durable";
+		if (this.runtimeAuthority.kind === "fresh") {
+			baseline = this.canonicalRuntimeSnapshot();
+			authorityKind = "fresh";
+		} else if (this.runtimeAuthority.kind === "durable") {
+			let record: RuntimeAuthorityExternalRecord;
+			let binding: RuntimeAuthorityBinding;
+			const selectedEpoch = this.runtimeAuthorityEpoch;
+			const selectedRevision = this.runtimeAuthorityRevision;
+			const selectedBinding = this.runtimeAuthority.binding;
+			try {
+				record = copyRuntimeAuthorityExternalRecord(backend.read({ context, binding: selectedBinding }));
+				if (!this.selectionIsActive(selectedEpoch, context, backend)
+					|| selectedRevision !== this.runtimeAuthorityRevision || this.runtimeAuthority.kind !== "durable") {
+					throw new Error("slate refused external authority loaded for an old Pi context");
+				}
+				binding = this.installAuthorityRecord(record, selectedBinding, context);
+			} catch (error) {
+				if (!this.selectionIsActive(selectedEpoch, context, backend)) throw error;
+				this.makeUnavailable(`slate could not revalidate current external authority: ${error instanceof Error ? error.message : String(error)}`);
+				throw error;
+			}
+			const installedRevision = this.runtimeAuthorityRevision;
+			this.notifyDidChange(context);
+			if (!this.selectionIsActive(selectedEpoch, context, backend)
+				|| this.runtimeAuthorityRevision !== installedRevision
+				|| this.runtimeAuthority.kind !== "durable" || this.runtimeAuthority.binding !== binding) {
+				throw new Error("slate refused mutation preparation completed for an old Pi context");
+			}
+			baseline = cloneCanonicalRuntime(record.state.runtime);
+			authorityKind = "durable";
+		} else {
+			throw new Error(this.runtimeAuthority.message);
+		}
+		const permit: RuntimeMutationPermit = { runtime: cloneCanonicalRuntime(baseline) };
+		this.runtimeMutationPermits.set(permit, {
+			epoch: this.runtimeAuthorityEpoch,
+			revision: this.runtimeAuthorityRevision,
+			contextKey: context.key,
+			baseline,
+			authorityKind,
+		});
+		return permit;
+	}
+
+	/** Revalidate authority and return one context-bound, isolated mutation draft. */
+	prepareMutation(context: RuntimeAuthorityContext): RuntimeMutationPermit {
+		if (this.runtimeTransactionActive) throw new Error("slate refused a nested runtime transaction");
+		this.runtimeTransactionActive = true;
+		try {
+			return this.prepareRuntimeMutation(context);
+		} finally {
+			this.runtimeTransactionActive = false;
+		}
+	}
+
+	private authorizePermit(permit: RuntimeMutationPermit): RuntimeMutationPermitState {
+		const state = this.runtimeMutationPermits.get(permit);
+		if (state === undefined) throw new Error("slate refused a foreign mutation permit");
+		this.runtimeMutationPermits.delete(permit);
+		if (state.epoch !== this.runtimeAuthorityEpoch || state.revision !== this.runtimeAuthorityRevision
+			|| state.contextKey !== this.runtimeAuthorityContext?.key
+			|| state.authorityKind !== this.runtimeAuthority.kind) {
+			throw new Error("slate refused a stale mutation permit");
+		}
+		return state;
+	}
+
+	private reconcilePossibleExternalCommit(
+		relationship: RuntimeAuthorityBinding,
+		context: RuntimeAuthorityContext,
+		backend: RuntimeAuthorityBackend,
+		epoch: number,
+		operation: "creation" | "update",
+	): void {
+		if (!this.selectionIsActive(epoch, context, backend)) return;
+		this.clearCanonicalRuntime(true);
+		try {
+			const current = copyRuntimeAuthorityExternalRecord(backend.read({ context, binding: relationship }));
+			if (!this.selectionIsActive(epoch, context, backend)) return;
+			this.installAuthorityRecord(current, relationship, context);
+			this.notifyDidChange(context);
+		} catch (error) {
+			if (!this.selectionIsActive(epoch, context, backend)) return;
+			this.makeUnavailable(`slate could not reconcile external authority after ${operation}: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	private finishExternalCommit(
+		record: RuntimeAuthorityExternalRecord,
+		relationship: RuntimeAuthorityBinding,
+		context: RuntimeAuthorityContext,
+		backend: RuntimeAuthorityBackend,
+		epoch: number,
+		operation: "creation" | "update",
+	): RuntimeSaveResult {
+		let binding: RuntimeAuthorityBinding;
+		try {
+			binding = this.installAuthorityRecord(record, relationship, context);
+		} catch (error) {
+			this.reconcilePossibleExternalCommit(relationship, context, backend, epoch, operation);
+			throw error;
+		}
+		const installedRevision = this.runtimeAuthorityRevision;
+		const requireInstalledAuthority = (): void => {
+			if (!this.selectionIsActive(epoch, context, backend)
+				|| this.runtimeAuthorityRevision !== installedRevision
+				|| this.runtimeAuthority.kind !== "durable" || this.runtimeAuthority.binding !== binding) {
+				throw new Error("slate refused advisory binding work completed for an old Pi context");
+			}
+		};
+		try {
+			backend.writeBinding(binding);
+			requireInstalledAuthority();
+		} catch (error) {
+			try {
+				requireInstalledAuthority();
+			} catch (integrityError) {
+				this.reconcilePossibleExternalCommit(relationship, context, backend, epoch, operation);
+				throw integrityError;
+			}
+			const message = `slate committed external state, but could not persist its advisory Pi binding: ${error instanceof Error ? error.message : String(error)}`;
+			this.reportSafely(context, message);
+			this.notifyDidChange(context);
+			return { kind: "partial", binding, message };
+		}
+		this.notifyDidChange(context);
+		return { kind: "committed", binding };
+	}
+
+	/**
+	 * Report one reconciled but UNPROVEN save as uncertain (CN1503).
+	 *
+	 * The reread above proves what the visible file holds NOW. It cannot prove that
+	 * the directory entry survives a power loss, which is exactly what the failure
+	 * after publication left unproven. The design requires the uncertainty to reach
+	 * the user (accepted risk 9), so this never returns an ordinary success.
+	 */
+	private reportUncertainCommit(
+		settled: RuntimeSaveResult,
+		context: RuntimeAuthorityContext,
+		operation: "creation" | "update",
+		error: unknown,
+	): RuntimeSaveResult {
+		const detail = error instanceof Error ? error.message : String(error);
+		const message = `slate could not confirm that its external ${operation} is durable: ${detail}. `
+			+ "The records are visible now, and a later failure of this computer can still lose them."
+			+ (settled.kind === "partial" ? ` Slate also reported: ${settled.message}` : "");
+		this.reportSafely(context, message);
+		return { kind: "uncertain", binding: settled.binding, message };
+	}
+
+	private saveRuntimeMutation(permit: RuntimeMutationPermit): RuntimeSaveResult {
+		const permitState = this.authorizePermit(permit);
+		const backend = this.runtimeAuthorityBackend;
+		const context = this.runtimeAuthorityContext;
+		if (backend === undefined || context === undefined) throw new Error("slate runtime authority is not configured");
+		let pendingRecovery: { relationship: RuntimeAuthorityBinding; operation: "creation" | "update" } | undefined;
+		try {
+			if (permitState.authorityKind === "fresh") {
+				const minted = copyMintedAuthority(backend.mint());
+				this.requireActiveMutation(permitState, context, backend);
+				const relationship: RuntimeAuthorityBinding = {
+					policy: "durable-session-v1",
+					identity: minted.identity,
+					name: minted.name,
+				};
+				const candidate = copyMutationCandidate(permit, relationship, context);
+				this.requireActiveMutation(permitState, context, backend);
+				let creationReturned = false;
+				try {
+					this.clearCanonicalRuntime(true);
+					pendingRecovery = { relationship, operation: "creation" };
+					const returned = backend.create({ context, identity: minted.identity, name: minted.name, runtime: candidate });
+					creationReturned = true;
+					const record = copyRuntimeAuthorityExternalRecord(returned);
+					this.requireActiveMutation(permitState, context, backend);
+					pendingRecovery = undefined;
+					return this.finishExternalCommit(record, relationship, context, backend, permitState.epoch, "creation");
+				} catch (error) {
+					if (!this.mutationIsActive(permitState, context, backend)) throw error;
+					const uncertain = backend.isCommitUncertain(error);
+					this.requireActiveMutation(permitState, context, backend);
+					if (uncertain) {
+						try {
+							const reconciled = copyRuntimeAuthorityExternalRecord(
+								backend.read({ context, binding: relationship }),
+							);
+							this.requireActiveMutation(permitState, context, backend);
+							pendingRecovery = undefined;
+							return this.reportUncertainCommit(
+								this.finishExternalCommit(reconciled, relationship, context, backend, permitState.epoch, "creation"),
+								context,
+								"creation",
+								error,
+							);
+						} catch (reconcileError) {
+							if (!this.mutationIsActive(permitState, context, backend)) throw error;
+							this.makeUnavailable(`slate could not validate an uncertain external creation: ${reconcileError instanceof Error ? reconcileError.message : String(reconcileError)}`);
+							pendingRecovery = undefined;
+							throw error;
+						}
+					} else if (creationReturned) {
+						this.makeUnavailable("slate could not validate the externally created authority");
+					} else {
+						this.installCanonicalRuntime(permitState.baseline);
+					}
+					pendingRecovery = undefined;
+					throw error;
+				}
+			}
+			if (this.runtimeAuthority.kind !== "durable") {
+				this.installCanonicalRuntime(permitState.baseline);
+				throw new Error("slate refused a mutation whose durable session changed");
+			}
+			const relationship = this.runtimeAuthority.binding;
+			const candidate = copyMutationCandidate(permit, relationship, context);
+			this.requireActiveMutation(permitState, context, backend);
+			try {
+				this.clearCanonicalRuntime(true);
+				pendingRecovery = { relationship, operation: "update" };
+				const record = copyRuntimeAuthorityExternalRecord(backend.update({
+					context,
+					binding: relationship,
+					runtime: candidate,
+				}));
+				this.requireActiveMutation(permitState, context, backend);
+				pendingRecovery = undefined;
+				return this.finishExternalCommit(record, relationship, context, backend, permitState.epoch, "update");
+			} catch (error) {
+				if (!this.mutationIsActive(permitState, context, backend)) throw error;
+				const uncertain = backend.isCommitUncertain(error);
+				this.requireActiveMutation(permitState, context, backend);
+				if (uncertain) {
+					try {
+						const reconciled = copyRuntimeAuthorityExternalRecord(
+							backend.read({ context, binding: relationship }),
+						);
+						this.requireActiveMutation(permitState, context, backend);
+						pendingRecovery = undefined;
+						return this.reportUncertainCommit(
+							this.finishExternalCommit(reconciled, relationship, context, backend, permitState.epoch, "update"),
+							context,
+							"update",
+							error,
+						);
+					} catch (reconcileError) {
+						if (!this.mutationIsActive(permitState, context, backend)) throw error;
+						this.makeUnavailable(`slate could not validate an uncertain external update: ${reconcileError instanceof Error ? reconcileError.message : String(reconcileError)}`);
+						pendingRecovery = undefined;
+						throw error;
+					}
+				} else {
+					this.requireActiveMutation(permitState, context, backend);
+					try {
+						const current = copyRuntimeAuthorityExternalRecord(
+							backend.read({ context, binding: relationship }),
+						);
+						this.requireActiveMutation(permitState, context, backend);
+						this.installAuthorityRecord(current, relationship, context);
+						this.notifyDidChange(context);
+						pendingRecovery = undefined;
+					} catch (restoreError) {
+						if (!this.mutationIsActive(permitState, context, backend)) throw error;
+						this.makeUnavailable(`slate could not restore state after an external mutation failure: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`);
+						pendingRecovery = undefined;
+					}
+				}
+				throw error;
+			}
+		} catch (error) {
+			if (pendingRecovery !== undefined) {
+				this.reconcilePossibleExternalCommit(
+					pendingRecovery.relationship,
+					context,
+					backend,
+					permitState.epoch,
+					pendingRecovery.operation,
+				);
+			}
+			throw error;
+		}
+	}
+
+	save(permit?: RuntimeMutationPermit): RuntimeSaveResult {
+		if (this.runtimeTransactionActive) throw new Error("slate refused a nested runtime transaction");
+		if (permit === undefined) {
+			if (this.runtimeAuthority.kind === "unavailable") throw new Error(this.runtimeAuthority.message);
+			throw new Error("slate requires an authorized mutation permit");
+		}
+		this.runtimeTransactionActive = true;
+		try {
+			return this.saveRuntimeMutation(permit);
+		} finally {
+			this.runtimeTransactionActive = false;
+		}
+	}
+
+	/**
+	 * THE ONE PRODUCTION SAVE. It saves the current in-memory records through the
+	 * three-step contract: revalidate the selected storage, fill the private draft
+	 * of one mutation permit, then save that permit.
+	 *
+	 * WHY THE STORE HOLDS THE PERMIT and no caller ever sees it: a dispatch, a mode
+	 * change and an automatic pause each mutate the records in memory and then ask
+	 * for a save, so the proposed change IS the in-memory state. The candidate is
+	 * therefore copied BEFORE the revalidating read, because that read
+	 * reinstalls the durable records and would otherwise discard the caller's
+	 * change. A rejected save leaves the durable records untouched and the in-memory
+	 * records equal to them again, and it THROWS so its caller reports the refusal.
+	 *
+	 * A refusing session throws the refusal message itself (Track 14 goal 5).
+	 */
+	commit(): RuntimeSaveResult {
+		if (this.runtimeTransactionActive) throw new Error("slate refused a nested runtime transaction");
+		if (this.runtimeAuthority.kind === "unavailable") throw new Error(this.runtimeAuthority.message);
+		const sourceContext = this.runtimeAuthoritySourceContext;
+		if (sourceContext === undefined) throw new Error("slate runtime authority is not configured");
+		this.runtimeTransactionActive = true;
+		try {
+			const candidate = this.runtimeMemorySnapshot();
+			const permit = this.prepareRuntimeMutation(sourceContext);
+			assignCanonicalRuntime(permit.runtime, candidate);
+			return this.saveRuntimeMutation(permit);
+		} finally {
+			this.runtimeTransactionActive = false;
+		}
+	}
+
 }
 
 /**

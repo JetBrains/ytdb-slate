@@ -59,7 +59,7 @@ The workflow follows these steps:
 2. **Design** — MEDIUM and LARGE need a high-level design. Design uncertainty adds adversarial review. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
 3. **Implement tracks** — each track declares its files and focus areas. Track reviews are non-blocking. Final change acceptance remains blocking.
 4. **Measure** — the size command shipped with Slate checks the committed range at the first track boundary.
-5. **Review and deliver** — grade and focus select fresh machine reviewers. The user gives final acceptance and performs any squash merge.
+5. **Review and deliver** — grade and focus select fresh machine reviewers. Final change acceptance precedes final publication approval and any squash merge.
 
 SMALL has a mechanical fast path. Any focus area, project test artifact, or
 verification machinery voids it. Umbrella draft-PR publishing activates only
@@ -106,6 +106,70 @@ pi install -l npm:ytdb-slate@<version>
 ```
 
 > **Note on pinning:** pinned specs (`@<version>`) are deliberately skipped by `pi update --extensions` / `pi update --all`. Bumping the pin is a conscious project change — review Slate's shipped workflow docs for changes when you do.
+
+## Commands
+
+Use `/slate sessions` to list the persisted corpus sessions for the current project. The command is read-only. The command writes nothing and removes nothing.
+
+Without a search value, each entry starts with the session name. The same line then prints `identity`, `branch`, `created`, `pending`, `marker`, and `defect` in that order. The `branch` field does not yet carry a value. The `branch` field always prints `(unknown)`.
+
+The `marker` field is a location check. The `marker` field reports when the recorded project directory lies outside the current working tree. The reported value is `session started outside this working tree`. The `marker` field prints `none` otherwise.
+
+The `defect` field reports problems that Slate found while reading the stored record. Examples include unreadable records, invalid metadata, and duplicate session identities. The `defect` field prints `none` when Slate found no problem. The command reports these problems but repairs nothing.
+
+Two labelled lines then report the exact **session directory** and **project directory**. The session directory holds the records. The project directory is where the session started.
+
+The search form prints a smaller field set. Each entry starts with the session name, followed by `identity`, `project`, and `created`. The `session directory:` and `project directory:` lines follow. The search form omits `branch`, `pending`, `marker`, and `defect`.
+
+Both forms read with scan limits and cap their output. A very large corpus can therefore produce a listing that omits entries. The listing states when entries were omitted.
+
+Use `/slate on`, `/slate off`, `/slate handoff [focus]`, `/slate adopt <name>`, and `/slate resume` for orchestrator mode and handoff operations.
+
+## Where Slate keeps its records
+
+Slate keeps its worker threads, episodes, cost figures, and operating state in one **external namespace**. An external namespace is a directory outside your project directory. Each Slate session uses one such namespace.
+
+A start of pi asks for a storage report. A small **locator note** in the pi conversation names the external namespace of that conversation. A start with a valid locator note restores every record from the named namespace. A start with no locator note prepares a new namespace. The first change of the records creates the directory.
+
+A start that cannot select storage safely leaves Slate refusing every save. Every later save then reports that refusal. Start another pi session after you correct the cause.
+
+**Breaking change.** Earlier versions of Slate kept a full copy of the records inside the pi conversation. This version reads no such copy. A resumed conversation from an earlier version therefore holds no locator note. Slate starts a new Slate session in it, with an empty namespace. The old copies stay in the conversation file as unused data, and Slate reports no special message about them. The records of such a conversation are no longer reachable.
+
+A pi conversation holds the locator note and no copy of the records. `/slate handoff [focus]` saves the records and writes a handoff record that names the namespace. `/slate adopt <name>` in the receiving session reads that namespace. The receiving session keeps the records the read returned. It saves into the same namespace from then on.
+
+The handoff copies no record and creates no second namespace. Adoption grants no exclusive access, so stop working in the sending session after a handoff.
+
+Command output calls that external namespace the **session directory**. The command also prints the **project directory**. The project directory is the directory that the Slate session was started in. Only the session directory holds Slate records.
+
+Slate also keeps a **research log** for each Slate session. A research log is the file where the orchestrator records the decisions of one change. Every session directory holds one research log, and Slate creates that file together with the session directory. Slate moves no research log that already exists elsewhere in your project.
+
+## Storage situations you need to know
+
+Slate stores its records outside your project. Eleven situations follow from that choice. Read them before you rely on Slate records.
+
+**1. One pi process for one Slate session.** Slate takes no lock across processes. A later save replaces an earlier save without a report. Work on one Slate session in one pi process at a time.
+
+**2. One project writer.** Two Slate sessions can share one project directory. Each session gets its own session directory and its own records. Both sessions still change the same project files. Slate neither assigns nor enforces a single writer. Decide which Slate session changes project files. Keep every other Slate session read-only for that project.
+
+**3. Protect machine records.** Do not edit or delete `session.json`, `state.json`, episode files, observation files, or worker conversation files. Slate reads those files as one record set. One missing required machine record can make that Slate session unreadable. You may read `research-log.md`. Slate directs a worker to update that research log. Delete a whole session directory when you no longer want its records.
+
+**4. A project copy is not a session copy.** Slate selects storage from the project location. An ordinary copy of a project directory therefore gets a new and empty storage area.
+
+**5. A linked Git worktree starts a new session.** A linked Git worktree is another working directory of one Git repository. A linked Git worktree can share the storage area of the main working directory. Sharing that area still starts a new Slate session in the new working directory.
+
+**6. Back up both places.** The records live under the pi agent directory. The pi agent directory is the directory where pi stores its settings and its conversations. A backup of the project alone omits every Slate record. Back up the pi agent directory together with the project directory.
+
+**7. A move or a rename can stop continuation.** The project location is part of how Slate selects storage. Slate does not relocate a stored Slate session after a move or a rename. The records remain. The moved project may no longer reach them.
+
+**8. Deleting a project keeps its records.** The session directory stays under the pi agent directory. Continuation from a new checkout still needs the expected project location. Delete a session directory yourself when you want those records gone.
+
+**9. Visibility follows the agent directory and the user.** A different pi agent directory shows different records. A different operating system user shows different records. Your model provider account changes nothing here.
+
+**10. The access boundary depends on the operating system.** On a Portable Operating System Interface (POSIX) system, Slate requests mode 0700 for each session directory. Slate also requests mode 0600 for session record files and the research log. It requests mode 0666 for episode files and observation files. The process mask and system policy can narrow those requests. Windows permission behaviour differs, so these modes are not a cross-platform access promise. Apply the access controls that your operating system provides.
+
+**11. Move an older session directory first.** An earlier version of Slate wrote session metadata in an older shape. Session metadata is the small record that names one Slate session. This version refuses metadata that does not match its current shape. One older directory beside a new one blocks the creation of the new session directory. The first record change of a fresh Slate session then fails with a message about refused metadata.
+
+Move every older session directory out of its project storage area before the first use of this version. The move keeps the old files, and Slate cannot read them again.
 
 ## Configuration
 
@@ -183,7 +247,11 @@ Slate reads project configuration (`.pi/slate.json`) and injects project files (
 
 ## Shipped docs
 
-In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths make the block's character count depend on your install location. [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
+A **doctrine** is a block of numbered rules. In orchestrator mode, Slate appends a short doctrine to the system prompt each turn. The doctrine does not embed the workflow docs.
+
+It cites direct doctrine documents by **absolute path** inside the installed package. The orchestrator reads them on demand. Those embedded paths make the block's character count depend on your install location. [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your installation.
+
+Package-content verification requires one exported path and one packed copy for every shipped Markdown document. Packaging guards separately require every referenced document in the packed file set.
 
 - `docs/track-workflow.md` — the size-grade and focus-area lifecycle for research, design, implementation, review, and delivery
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)

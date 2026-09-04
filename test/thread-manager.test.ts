@@ -58,7 +58,7 @@ test("ThreadManager preserves explicit constructor arguments and resolver defaul
       {} as ExtensionContext,
       undefined,
     ),
-    /Slate is paused for handoff/,
+    /Slate is paused for handoff[\s\S]*\/slate handoff \[focus\][\s\S]*\/slate adopt <name>/,
   );
   assert.strictEqual(fields.resolveExtensions(), extensions);
   assert.strictEqual(fields.resolveRouter(), router);
@@ -132,6 +132,8 @@ test("public dispatch enforces maxConcurrent across different threads", { timeou
   const root = mkdtempSync(join(tmpdir(), "slate-semaphore-dispatch-test."));
   try {
     const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    store.artifactSessionName = () => undefined;
+    store.commit = () => ({ kind: "committed", binding: { policy: "durable-session-v1", identity: "20260820T010203Z-0123456789abcdef", name: "calm-otter-7f3a" } });
     const manager = new ThreadManager(store, { maxConcurrent: 1 });
     const live = (manager as unknown as { live: Map<string, unknown> }).live;
     let opens = 0;
@@ -207,34 +209,4 @@ test("public dispatch enforces maxConcurrent across different threads", { timeou
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-});
-
-test("SlateStore saves through the ExtensionAPI supplied to its constructor", () => {
-  const appended: Array<{ customType: string; data: Record<string, unknown> }> = [];
-  const pi = {
-    appendEntry(customType: string, data: Record<string, unknown>) {
-      appended.push({ customType, data });
-    },
-  } as unknown as ExtensionAPI;
-  const store = new SlateStore(pi);
-
-  store.paused = true;
-  store.workerCostUsd = 1.25;
-  store.save();
-
-  assert.deepEqual(appended, [
-    {
-      customType: "slate-state",
-      data: {
-        format: "single-action-v1",
-        threads: [],
-        episodes: [],
-        threadSeq: 0,
-        orchestratorMode: false,
-        paused: true,
-        workerCostUsd: 1.25,
-        carriedCostUsd: 0,
-      },
-    },
-  ]);
 });
