@@ -1035,14 +1035,18 @@ function modeWorktreeTarget(pi, args) {
 // the mirror stops guessing and owns the whole directory skeleton instead.
 //
 // WHAT THAT GUARANTEES, AND WHAT IT DOES NOT. The mirror owns every directory,
-// so nothing pi CREATES under the mirror can land inside the real agent
-// directory: a new file or a new directory lands in the mirror. It does not
-// block every write into the real agent directory. A non-directory child stays
-// one symbolic link, so a write THROUGH such a link reaches the real file it
-// points at, and the fingerprint below watches settings.json alone (G3-1). Two
-// other nets carry that case: PI_OFFLINE=1 forbids every install, which is what
-// keeps pi away from those links, and a full run left the real agent directory
-// byte-identical. The gap stays recorded as a risk and is not closed here.
+// so a path the mirror CREATED as a directory keeps every write and every new
+// child inside the mirror. That is the whole guarantee, and it is NOT the
+// absolute claim that nothing pi does can land inside the real agent directory.
+// A non-directory child stays one symbolic link, so a write THROUGH such a link
+// reaches the real file it points at, and a CREATE at the name of a dangling
+// link reaches the real path that link names. The fingerprint below watches
+// settings.json alone (G3-1), so it is the only one of those cases this harness
+// sees. Two other nets carry the rest: PI_OFFLINE=1 forbids every install, which
+// is what keeps pi away from those links, and a full run left the real agent
+// directory byte-identical. The gap stays recorded as a risk and is not closed
+// here. A changed fingerprint hash likewise does not prove an escape on its own,
+// because a concurrent pi session can rewrite the same real file (see AD9).
 //
 // THE DECISION RESOLVES A LINK FIRST. lstat reports a link to a directory as a
 // link, and linking it again would recreate exactly the hole above, so a link
@@ -1321,7 +1325,7 @@ function modeFingerprint(pi, args) {
   if (!before || typeof before !== "object") bad("the fingerprint taken before the observation could not be read back from " + clean(fingerprintFile) + ", so this run cannot show that it left the real user settings file alone");
   const after = fingerprintOf(userFile);
   if (before.present !== after.present) bad("the real user settings file " + clean(userFile) + " was " + (before.present ? "present before the observation and is gone now" : "absent before the observation and exists now") + " — this harness must only read it");
-  if (before.present && (before.hash !== after.hash || before.size !== after.size)) bad("the real user settings file " + clean(userFile) + " changed while the observation ran: " + before.size + " bytes before and " + after.size + " after. Read the hashes first, because an equal hash under a moved time means another pi session wrote it; a different hash means this harness escaped its mirror");
+  if (before.present && (before.hash !== after.hash || before.size !== after.size)) bad("the real user settings file " + clean(userFile) + " changed while the observation ran: " + before.size + " bytes before and " + after.size + " after. A changed hash does not prove on its own that this harness escaped its mirror, because a concurrent pi session can rewrite the same file while the observation runs. Stop every other pi that shares the real agent directory, then run the harness again before reading the failure as an escape");
   if (before.present && before.mtimeMs !== after.mtimeMs) note("the modification time of " + clean(userFile) + " moved while its bytes stayed identical, so another pi session touched it. This run wrote nothing there");
   ok(before.present ? "the real user settings file is byte-identical after the observation" : "there is no real user settings file, and none was created");
 }

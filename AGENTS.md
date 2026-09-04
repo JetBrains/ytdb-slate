@@ -17,8 +17,10 @@ Dispatch also carries **action-level model routing**: `router.models` in the pro
 
 This repo runs slate on itself:
 
-- `.pi/settings.json` pins the published package (`npm:ytdb-slate@<version>`). A session in this repo runs the released extension — the same thing consumers run. Bump the pin as part of each release (see § Release & versioning).
-- Local edits to `extension/` are NOT live in a dogfooding session. Smoke-test them in isolation with `pi --no-extensions -e .` from the repo root — without `--no-extensions`, the pinned npm copy loads alongside your edits and can mask failures. Do not add a local-path package entry to `.pi/settings.json` next to the npm pin: loading the same package from two settings sources has broken pi startup with a file conflict in practice.
+- `.pi/settings.json` carries exactly ONE slate package entry, and that entry is the literal relative path `../../main`. pi resolves a project-scope local path against the `.pi` directory, so the entry names the sibling `main` worktree of this repository, and a session in this checkout loads the extension source of that worktree. The file holds no `npm:ytdb-slate@<version>` entry any more, so a session here does NOT run the published release, and there is no dogfood pin to bump at release time. The measured file also lists `npm:pi-smart-fetch` and `npm:pi-web-search`, which are unrelated packages. `T5`, `T6` and `T7` of the load check assert that exact shape.
+- The loaded source therefore depends on TWO worktrees. This checkout supplies `.pi/`, and the sibling `main` worktree supplies the extension. A plain clone, and a CI checkout, has no such sibling. `T6` then takes its plain-clone branch and reports that no target is required, so the sibling-worktree checks give no evidence there. Read a sibling-worktree result only in a layout that actually has the sibling.
+- An edit under `main/extension/` IS live in the next session of this checkout, because that directory is what the package entry resolves to. An edit under `extension/` of THIS checkout is NOT live, because nothing loads this directory. Put the edit in the sibling worktree and start a new session, or run `pi --no-extensions -e .` from the root of the worktree that holds the edit.
+- Two older instructions no longer apply. The first said to smoke-test with `pi --no-extensions -e .` because a pinned npm copy would otherwise load beside your edit and mask a failure. No published copy loads here, so nothing masks it, and the flag now only keeps the session away from your other project packages. The second forbade a local path entry beside the npm pin. That prohibition is inverted now: the local entry is the only slate entry, and a registry entry for slate beside it would create exactly the duplicate load that broke pi startup before. `T5` fails on such an entry, and `T8` fails when more than one copy loads.
 - Development follows the package's own `docs/track-workflow.md`, with `workflow.draftPRs` enabled in `.pi/slate.json`.
 - pi creates a `.pi/settings.json.lock` directory in the checkout while it reads the project settings, and then deletes it. A session or a verification run that stops abruptly can leave one lock behind. `.gitignore` therefore covers `.pi/*.lock`. You can delete an old lock safely when no session runs. When a session runs, the lock belongs to that session.
 
@@ -33,7 +35,7 @@ This repo runs slate on itself:
   A passing `npm run typecheck` does NOT make the TypeScript brands (`SessionBaseline`, `OpenModel` in `extension/route.ts`) tamper-proof: TypeScript permits an assertion to a branded subtype, so `someString as OpenModel` — the exact shape that reintroduced a shipped defect while the full suite stayed green — still typechecks cleanly. The resolver checks' source-scan gates for cast shapes are therefore still load-bearing and must not be removed on the grounds that the repo has a typecheck; the two nets cover different failures, and only the source scan covers this one.
 - **Automated verification exists.** CI runs five checks on every pull request, on every merge-queue candidate and on a push to `main`. A manual dispatch runs the same five. It skips patch coverage loudly because that event carries no change boundary. Each check is the same command that you run locally (§ CI). The fifth check is `npm test`. It runs the `node:test` suite under `test/` and then the patch-coverage gate. That suite unit-tests the modules the tests import (§ Unit tests and the coverage gate). It is also the one check that no longer takes about a second. It dominates CI's wall clock. Additional nets run by hand and are named below. Writing also has a focused correctness suite. `verification/writing-check-tests.mjs` tests the shipped, dependency-free JavaScript checker in `extension/writing-check.mjs`. It also tests the turn-outcome helper `measureWritingTurn` in `extension/writing.ts`. It does not unit-test the modules that `test/` leaves alone. Four tasks stay manual:
   1. **Read the full diff before you commit.** No tool does this for you.
-  2. **Run the isolated-load smoke test when you must use an edit that you just made.** The command is `pi --no-extensions -e .` from the repo root, because an installed session runs the pinned published package and not your working tree. The load check proves that the extension loads and registers its tools, but it does not prove that the tools work. Exercise tool execution, worker sessions, failover and handoff by hand here. **Never run it while the ladder runs** — § Verification ladder states what that costs.
+  2. **Run the isolated-load smoke test when you must use an edit that you just made.** The command is `pi --no-extensions -e .` from the root of the worktree that holds the edit, because an ordinary session in this checkout loads the sibling `main` worktree named by `.pi/settings.json` and not the directory you are standing in. The load check proves that the extension loads and registers its tools, but it does not prove that the tools work. Exercise tool execution, worker sessions, failover and handoff by hand here. **Never run it while the ladder runs** — § Verification ladder states what that costs.
   3. **Open an INTERACTIVE session to reach the doctrine and the router.** A headless `pi --no-extensions -e . -p "exit"` run exercises extension registration and `session_start` only, and it never builds the doctrine. slate seeds orchestrator mode only when `ctx.mode === "tui"` (`extension/mode.ts`), and `before_agent_start` returns at once while the mode is off. A headless run therefore reaches neither `buildDoctrine` nor the `getRouter()` consultation inside it, and that consultation is the only one in the doctrine. Every smoke test during the work on the routing feature missed both. A release-time accident exposed this gap.
 
      An automatic interactive session needs a pty. This machine has no `script(1)`, and a small Python `pty.fork` harness works instead. Use **`\r`** as the submit key, and not `\n`.
@@ -50,13 +52,18 @@ This repo runs slate on itself:
 
 ### CI (`.github/workflows/ci.yml`)
 
-CI is fast, and it needs no secret. Every check uses fabricated inputs and a plain checkout. The checks reach the network for the dependency install only, and they use no credential. They also touch no real pi state: the only harness that starts a pi session points `PI_CODING_AGENT_DIR` at an empty throwaway directory. The packaging guards reach no registry, and they pass when npm runs offline.
+CI is fast, and it references no secret. Every check uses fabricated inputs and a plain checkout. The checks reach the network for the dependency install only. The packaging guards reach no registry, and they pass when npm runs offline.
 
-The checks write in three places only:
+**The checks do NOT prove that no credential reaches a child process.** The load check scrubs the child environment by variable-name pattern, and not by a list of permitted variables, so a credential under a name the pattern list does not cover reaches the child. A gate measured `AWS_ACCESS_KEY_ID` doing exactly that. What holds instead is that a session has nothing to spend a credential on: every session runs with `PI_OFFLINE=1`, without `models.json` and without `auth.json`, and it contacts no provider. The permitted-variable list is the stronger design, and it is deferred.
+
+**The checks also touch real pi state, in two read paths.** The load check runs one `pi --version` probe with the ordinary environment, and pi creates and removes a `settings.json.lock` directory beside the REAL user settings file during that probe. The load check's fourth session then runs against a throwaway MIRROR of the real user agent directory, so it reads the real user `settings.json` and the real managed install trees. Only the load check starts a pi session in CI, and its other three sessions point `PI_CODING_AGENT_DIR` at a throwaway directory: two of those are empty, and one holds a trust record only. `T8` fingerprints the real user settings file before and after its session and fails when the content changes.
+
+The checks write in these places only:
 
 - The load check, the resolver checks and the unit-test wrapper each make a scratch directory under `TMPDIR`, outside the checkout. Each harness removes its own directory after a clean run. The load check and unit-test wrapper keep their directories when a check fails, and each prints the path.
 - The packaging guards write nothing.
 - pi creates a `.pi/settings.json.lock` directory inside the checkout, and deletes it again, around each read of the project settings.
+- pi creates and removes a `settings.json.lock` directory beside the real user settings file during the load check's `pi --version` probe. That directory is pi's own behaviour and not the harness's, and it moves the modification time of the real agent directory while every entry inside stays byte-identical.
 
 CI is not hermetic beyond that, and it makes no such claim: the install fills the npm cache under `HOME`, like every other install.
 
@@ -108,14 +115,14 @@ An exit code of 1 reports a real finding. The `CHECK … FAIL — <detail>` line
 
 A NOT RUN from the ladder is neither a pass nor a fail. `verification/README.md` holds the table of the action for each one.
 
-The original four checks take about **five seconds** on a warm machine. The unit tests dominate the enlarged CI set. One machine gave these times:
+The unit tests dominate the enlarged CI set, and the load check is the slowest of the rest. One machine gave these times on 2026-09-04, and each one is a single measurement and not a speed promise:
 
 | check | time |
 | --- | --- |
-| typecheck | 2.2 s |
-| packaging guards, each pass | 0.3 s |
-| extension load check | 2.3 s (it starts two real pi processes) |
-| pure-resolver checks | 0.2 s |
+| typecheck | 2.5 s |
+| packaging guards, each pass | 0.4 s |
+| extension load check | 5.4 s (it starts five real pi processes: four rpc sessions and one `pi --version` pin probe) |
+| pure-resolver checks | 1.1 s |
 | unit tests + patch coverage | ~35 s on Node 22.23.1; ~19 s on Node 24.18.0 |
 
 Run all five checks before you commit.
@@ -149,7 +156,7 @@ pi **stays silent** for each failure below: it exits 0, and it prints neither ma
 - A hook for `session_start` **throws**. In rpc mode pi reports an `extension_error` event on **stdout**. In text mode pi prints `Extension error (<path>): <msg>` on **stderr**. Neither string matches `Failed to load extension`, and the throw leaves the exit code at 0 in rpc mode.
 - A **tool registration disappears**. pi prints no diagnostic at all: it exits 0, its stderr holds 0 bytes, and the `/slate` command still works.
 
-`verification/run-load-check.sh` holds all of this knowledge, so you do not have to remember it. `L1` reads the exit code. `L2` reads both stderr markers. `L3` reads the `extension_error` channel on stdout. `L4` and `L5` read the registered tool set through the positive control in `verification/ci-canary.ts`. `L6` reads which copy of slate pi loaded.
+`verification/run-load-check.sh` holds all of this knowledge, so you do not have to remember it. `L1` reads the exit code. `L2` reads both stderr markers. `L3` reads the `extension_error` channel on stdout. `L4` and `L5` read the registered tool set through the positive control in `verification/ci-canary.ts`. `L6` reads which copy of slate pi loaded. `T1` through `T8` add the trusted path, the tracked package entry, the sibling worktree and the duplicate-copy observation. Take the current identifier set from `bash verification/run-load-check.sh --repo . --list-checks` and not from this file. A measured run of that command printed 16 identifiers, and a measured clean full run printed 17 result lines, because the roster audit reports one line of its own and is not selectable.
 
 **A pipeline hides the exit code of a process, and that trap probably produced the wrong claim.** `$?` after a pipeline gives the status of the **last** command, and not the status of the piped process. A broken extension shows the difference. A direct run of pi exits `1`. The same run as `pi … 2>&1 | head -1` gives a `$?` of `0`, while `${PIPESTATUS[0]}` for that pipeline is still `1`, and `set -o pipefail` makes the pipeline exit `1`. Read a real exit code in one of three ways: use no pipe, read `${PIPESTATUS[0]}`, or run `set -o pipefail` first. Every script in `verification/` runs `set -o pipefail`.
 
@@ -380,9 +387,12 @@ The pack policy answers that risk. It permits a small set of file kinds, and it 
 
 Before any release, read and follow `RELEASING.md` in full. The runbook
 keeps the release pin, the package version, the exact merge, the package
-contents and the registry artifact in agreement. This repository dogfoods
-the exact package version that it publishes, because `.pi/settings.json`
-pins `npm:ytdb-slate@<version>`. Bump the four SDK devDependency pins with
-any targeted pi release and refresh `package-lock.json`. Run all five CI
-checks and both package-content commands before publication. Update the dogfood pin only after the package is
-available.
+contents and the registry artifact in agreement. This repository no longer
+dogfoods the published version: `.pi/settings.json` carries the local
+`../../main` entry and no registry entry for slate, so a session here loads
+the sibling worktree and never the release. That is an accepted loss of
+coverage, and the manual release proof in `RELEASING.md` is the only
+continuing evidence that a published consumer install works. Bump the four
+SDK devDependency pins with any targeted pi release and refresh
+`package-lock.json`. Run all five CI checks and both package-content
+commands before publication.

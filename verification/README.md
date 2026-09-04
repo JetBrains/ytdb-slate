@@ -455,9 +455,12 @@ redirected into an artifact file) is still visible.
 
    An isolated-load smoke test, an interactive session or a dogfooding session
    can rewrite the file concurrently. The resulting `SAFE FAIL` has an IDENTICAL
-   recorded hash and size, with only the mtime moved. That shape means a concurrent
-   writer rather than an escaped invocation. The run still fails because the
-   sentinel can no longer speak for the rungs above it. Stop the other pi processes
+   recorded hash and size, with only the mtime moved. That shape says only that
+   the bytes did not change. It does not name the writer: a child that ignored
+   the redirect and wrote the same bytes back produces the same shape as a
+   concurrent writer. Treat it as the likely concurrent-writer case, and confirm
+   it by rerunning alone rather than by reading the shape as proof. The run
+   still fails because the sentinel can no longer speak for the rungs above it. Stop the other pi processes
    that share the real agent directory, then rerun the ladder alone.
 
    The real agent directory is located **the way pi locates it** — via
@@ -2246,6 +2249,18 @@ The harness prints `PI_BIN` loudly in its output. `PI_BIN` is an override for an
 expert user, and it is **no security boundary**. The harness treats it as none,
 because a person who sets it can also edit the script.
 
+The override does not switch off any precondition, and it has one exit code.
+The three `NOTE` lines print first, and then the ordinary checks run against the
+named CLI. A `PI_BIN` path that is not executable is an exit-2 refusal. A
+`PI_BIN` CLI whose `--version` output does not equal the
+`@earendil-works/pi-coding-agent` pin is an exit-2 refusal too, and the message
+is the same version-mismatch text that a checkout-local CLI gets. Measured on
+2026-09-04: `PI_BIN=/nonexistent/pi` refused with exit 2 and the not-executable
+message, `PI_BIN=/usr/bin/true` refused with exit 2 and the version-mismatch
+message, and `PI_BIN` set to the checkout's own `node_modules/.bin/pi` printed
+the three notes and then exited 0 on `--only T4`. There is no exit code that
+belongs to the override alone.
+
 ## Running it
 
 ```sh
@@ -2429,13 +2444,47 @@ mirror and observed session do not write to the real agent directory.
 
 The fingerprint covers the user `settings.json` file alone, and the mirror
 guarantee has a stated bound. The mirror owns every directory at every depth, so
-nothing pi creates under the mirror can land inside the real agent directory. The
-mirror does not block every write into that directory. A non-directory child
-stays one symbolic link, so a write through such a link reaches the real file it
-points at, and no check in this harness would see that write. `PI_OFFLINE=1`
-forbids every install, which is what keeps pi away from those links, and a full
-run left the real agent directory byte-identical. The gap is a recorded risk, and
-this harness does not close it.
+a path that the mirror created as a directory keeps every write and every new
+child inside the mirror. That is the whole of the guarantee, and it is not the
+absolute claim that nothing pi does can reach the real agent directory. A
+non-directory child stays one symbolic link, so a write through such a link
+reaches the real file it points at, and a create at the name of a dangling link
+reaches the real path that the link names. `T8` sees such a write only when it
+lands in the user `settings.json` file, because that one file is what the
+fingerprint covers. A write to any other real file has no check in this harness.
+`PI_OFFLINE=1` forbids every install, which is what keeps pi away from those
+links, and a full run left the real agent directory byte-identical. The gap is a
+recorded risk, and this harness does not close it.
+
+The fingerprint has a third result besides pass and fail, and the run prints it
+as a `NOTE`. It fires when the user `settings.json` keeps its content, its size
+and its hash while only its modification time moves. `T8` passes in that case.
+
+Read that note as one fact and no more: the bytes of that file did not change.
+The note cannot name the writer, and neither can this document. A write of
+identical bytes moves the modification time and leaves the hash equal, so at
+least three sources produce the same signal, and the signal cannot tell them
+apart:
+
+- another pi session that shares the real agent directory;
+- this run's own mandatory `pi --version` pin probe, which runs against the real
+  agent directory and takes pi's lock beside that very file;
+- the observed session itself, if it reaches the real file and writes the same
+  bytes back.
+
+The harness output for this note still reads as an attribution: it says that
+another pi session touched the file and that this run wrote nothing there.
+That string overclaims for the reason above. It is a known discrepancy between
+this document and the harness, it awaits a decision by the user of this
+repository, and this document is the correct reading of the two.
+
+A changed hash is the failing case, and the harness message now says the same
+thing in the same words: a changed hash does not prove on its own that this
+harness escaped its mirror, because a concurrent pi session can rewrite the same
+file while the observation runs. Stop every other pi that shares the real agent
+directory, then run the harness again before reading the failure as an escape.
+The earlier message claimed that a different hash means the harness escaped its
+mirror, and that claim was false.
 
 ## What it covers
 
@@ -2467,7 +2516,7 @@ processes: 1 version-pin probe plus 4 rpc sessions.
 | `T5` | without starting a pi session, the tracked `.pi/settings.json` is readable JSON with a `packages` array, contains exactly one local package entry spelled `../../main`, and contains no npm entry named `ytdb-slate`. The local entry must be a bare string or an object whose only key is `source`. It FAILS on a missing or malformed file, an invalid package-entry shape, another local entry, another spelling, a registry slate entry, `autoload: false`, or any package filter key |
 | `T6` | without starting a pi session, the local entry read from `.pi/settings.json` resolves from the project `.pi` directory. The checkout's own `.git` entry decides whether the sibling target is required, with git as a fallback only when no conclusive `.git` entry exists. A linked worktree requires an existing target. A plain clone may omit it. An existing target must have a parseable manifest named `ytdb-slate`, every extension entry point named by `pi.extensions` must exist on disk, and git must positively report the same common directory for the target and the checkout. A missing required target, wrong manifest, missing entry point, git silence, or different repository FAILS. An unexpected target branch produces a NOTE. The check starts no pi session |
 | `T7` | one real trusted pi session loads the copied slate package only through a scratch project package entry whose spelling was read from `.pi/settings.json`. The fixture builder FAILS unless that spelling resolves to a sibling package directory inside the scratch layout. The run requires exit 0, no load marker, no rpc parse error, no `extension_error`, one trusted canary, all three dispatch tools, and exactly one `/slate` command attributed inside the scratch package. A fixture-build defect or any failed assertion is a check FAIL with harness exit 1, not an exit-2 refusal |
-| `T8` | one real trusted pi session decides how many slate copies loaded. Extensions remain enabled. The working directory is the checkout, so project settings and `<cwd>/.pi/extensions` are in play. A throwaway mirror supplies user settings, `<agent dir>/extensions`, managed npm installs and managed git clones. Local user `packages` entries are rewritten to the absolute path that pi resolves from the real user scope, and every non-pattern user `extensions` entry is rewritten the same way, whatever its text looks like. The mirror owns **every** directory at every depth and links only a non-directory child, and it resolves a symbolic link before that decision. Nothing pi creates under the mirror can therefore land inside the real agent directory, and a write through a mirrored non-directory link still reaches the real file. The verdict reads pi's slate tool-conflict diagnostic and command listing. A static scan only names candidate entries and never decides the verdict. Zero or one loaded copy PASSES. More than one FAILS. A **filter pattern in the user-scope `extensions` list** FAILS as a state this check cannot judge, and the message names the entry. An absent command listing, malformed rpc output, failed positive control, untrusted project, changed real user settings file, unreadable mirror child, unresolvable link, mirror depth bound, unresolvable offline `packages` entry, or failed mirror build FAILS with a stated reason. A failed build is a finding with exit 1, not a refusal. The observation covers both settings lists in both scopes and both automatically discovered extension directories. The emitted CHECK and NOTE values use specifier-aware npm redaction plus the generic URL and userinfo passes. The raw streams remain unredacted. The check starts the fourth session unless mirror construction fails |
+| `T8` | one real trusted pi session decides how many slate copies loaded. Extensions remain enabled. The working directory is the checkout, so project settings and `<cwd>/.pi/extensions` are in play. A throwaway mirror supplies user settings, `<agent dir>/extensions`, managed npm installs and managed git clones. Local user `packages` entries are rewritten to the absolute path that pi resolves from the real user scope, and every non-pattern user `extensions` entry is rewritten the same way, whatever its text looks like. The mirror owns **every** directory at every depth and links only a non-directory child, and it resolves a symbolic link before that decision. Every write and every new child under a mirror-owned directory therefore stays in the mirror, which is the whole of the guarantee and not an absolute one: a write through a mirrored non-directory link still reaches the real file, and a create at the name of a dangling link still reaches the real path it names. The verdict reads pi's slate tool-conflict diagnostic and command listing. A static scan only names candidate entries and never decides the verdict. Zero or one loaded copy PASSES. More than one FAILS. A **filter pattern in the user-scope `extensions` list** FAILS as a state this check cannot judge, and the message names the entry. An absent command listing, malformed rpc output, failed positive control, untrusted project, changed real user settings file, unreadable mirror child, unresolvable link, mirror depth bound, unresolvable offline `packages` entry, or failed mirror build FAILS with a stated reason. A failed build is a finding with exit 1, not a refusal. The observation covers both settings lists in both scopes and both automatically discovered extension directories. The emitted CHECK and NOTE values use specifier-aware npm redaction plus the generic URL and userinfo passes. The raw streams remain unredacted. The check starts the fourth session unless mirror construction fails |
 
 `T4` exists because `T2` cannot cover the syntax of the file. slate's
 `loadConfig()` wraps the read and the `JSON.parse` in a `try`/`catch`, and it
