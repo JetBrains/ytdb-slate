@@ -388,7 +388,10 @@ started.
 ## Review coverage and the coverage register
 
 Every part of the combined diff must reach the review set required by the
-whole change. A track whose review set is below the change-level set
+whole change, except for a user-review fix range. That range does not enter the
+change-level review set, and its dedicated gate thread satisfies the coverage
+invariant for that range.
+A track whose review set is below the change-level set
 contributes its whole commit range to the closing review. User review does not
 satisfy this machine-review floor.
 
@@ -399,14 +402,17 @@ more than one track receives one when the tracks share a file or interface.
 [track-workflow.md](track-workflow.md) defines the closing-review combinations,
 reviewers and fix budget.
 
-Create a coverage register when either condition first holds:
+Create a coverage register when any condition first holds:
 
 1. the change has more than one track.
 2. any track's review set is below the change-level set.
+3. a user-review fix commit exists.
 
 For every track, record its track number, review set and review commit range.
-When a halt changes coverage, create or update the register and add every
-newly contributed range. The register remains the review-accounting authority.
+Record each contiguous user-review fix range and its gate verdict. Update the
+register when a halt changes coverage. Add each required track range and
+user-review fix range.
+The register remains the review-accounting authority.
 The track table remains a display-only split index and carries no commit
 identifier.
 
@@ -418,11 +424,20 @@ research log.
 
 ## Commit discipline for drift and boundaries
 
-[track-workflow.md](track-workflow.md) owns marker commits, track-title prefixes
-and the source of truth for track boundaries. This section owns the remaining
-commit discipline.
+[track-workflow.md](track-workflow.md) owns marker commits, track-title
+prefixes and the source of truth for track boundaries. This section owns the
+remaining commit discipline.
 
-Every implementation commit body has exactly two parts:
+The cumulative implementation commit is defined in
+[track-workflow.md](track-workflow.md) § Lifecycle and phases. When the track
+has a high-level design, the cumulative implementation commit body carries the
+track high-level design followed by the track low-level design. When the track
+has no high-level design, the ordinary two-part Intent and Deviation-delta shape
+applies. This conditional body rule is also stated in
+[track-workflow.md](track-workflow.md) § Delivery and termination.
+
+The original implementation commit, each agentic-review fix commit, and each
+user-review fix commit body has exactly two parts:
 
 1. **Intent:** what the commit accomplishes, not how it accomplishes it.
 2. **Deviation delta:** only what differs from the original track task. Leave
@@ -433,10 +448,10 @@ and re-confirmation, a design-delta approval, or an immaterial design change.
 A material deviation discovered at commit time fires a halt. The commit body
 must never become a side channel for unapproved drift.
 
-Do not put implementation rationale, self-assessment or verification claims in
-the body. Examples of forbidden claims include `tested`, `verified
-thread-safe` and `reviewed edge cases`. Fresh reviewers receive repository
-state and declared intent, not implementer confidence.
+In those two-part bodies, do not put implementation rationale, self-assessment
+or verification claims. Examples of forbidden claims include
+`tested`, `verified thread-safe` and `reviewed edge cases`. Fresh reviewers
+receive repository state and declared intent, not implementer confidence.
 
 For a multi-track change, every commit in a track's review range must belong to
 that track. A reviewer checks the range against the track brief, its boundary

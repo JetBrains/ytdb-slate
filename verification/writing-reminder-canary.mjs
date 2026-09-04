@@ -6,12 +6,27 @@ const EVIDENCE = process.env.SLATE_REMINDER_EVIDENCE;
 const TOOL_MARKER = process.env.SLATE_REMINDER_TOOL_MARKER;
 const TOOL_NAME = "writing_reminder_canary";
 const CUSTOM_TYPE = "slate-writing-reminder";
-const REMINDER = `[slate] Writing reminder:
+// This independent copy makes the integration check detect any shipped-renderer drift.
+const REMINDER = `[slate] Reminder:
+
+Writing requirements:
 - Avoid idioms.
 - Replace bare-reference openers with the subject they reference.
 - Explain each project-specific term at first use.
 - Define each abbreviation at first use.
+- Express one idea in each sentence.
 - Use one term for each concept.
+- Do not explain an idea with a metaphor.
+- Do not invent a term when the project already has one.
+- Use plain words that appear in standard libraries and textbooks.
+
+Design requirements:
+- Keep a design statement only if a different reasonable implementation keeps it true.
+- Present to the user any item the approved goals do not list.
+- Never add or remove an approved goal yourself.
+- Propose a repeated regression as a non-goal candidate.
+- Present what changed when you update a design.
+- Assume the user knows software but not this project.
 
 Exclude research logs, worker task text, and the project's own agent instruction file.`;
 const SUCCESS = "SLATE_REMINDER_REACHED_NEXT_MODEL_CALL_7f31c2";

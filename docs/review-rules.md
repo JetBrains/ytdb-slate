@@ -22,9 +22,9 @@ it from this document's absolute installed path. Write the unified review diff
 to a regular temporary file outside the checkout. See
 [writing-guidance.md](writing-guidance.md) for checker scope and limits.
 
-The checker is diagnostic. In governed prose, a `fail` is normally major. A
-`warning` is at most minor without independent evidence. A `house-style` match
-is at most a nit when the convention applies.
+The checker is diagnostic. In governed prose, a `fail` is normally major. No
+current rule emits a `warning`. A `warning` is at most minor without independent
+evidence. A `house-style` match is at most a nit when the convention applies.
 
 An `advisory` is never a finding by itself. Independent evidence may justify
 another severity. Reviewer judgment remains authoritative.
@@ -148,11 +148,16 @@ clean result cannot establish accuracy, completeness, or conformance.
 
 ## Findings and output
 
-Every finding records these dimensions:
+Every finding records the generally applicable dimensions below. A finding
+raised during a design-stage review also records `level` as `design` or
+`implementation`. The design-stage reviewer assigns that value with the
+abstraction test in [track-workflow.md](track-workflow.md) § Lifecycle and
+phases. An implementation-stage review does not record `level`.
 
 | dimension | required value |
 | --- | --- |
 | type | defect, evidence gap, regression, or improvement |
+| level, for design-stage findings only | design or implementation |
 | origin | reviewer perspective and stable finding identifier |
 | severity | blocker, major, minor, or nit |
 | exposure | in-target, safety-floor, pre-existing, or outside-target |
@@ -200,7 +205,12 @@ and merge reason.
 | minor | follow-up ledger unless it is moot or outside the target |
 | nit | optional follow-up ledger entry |
 | protected pre-existing defect | immediate user escalation for fix, waive, or ledger |
-| design-stage finding | strengthen, reverse, or accept as a recorded risk |
+| design-stage finding | strengthen the rationale, reverse the decision, accept a recorded risk, or route it to the implementer report |
+
+A code citation may supply evidence for a design-stage finding. The citation is
+never the finding itself. A design-stage reviewer whose finding fails the
+abstraction test records its level as `implementation` and routes it to the
+implementer report instead of the design discussion.
 
 A follow-up entry is self-contained. It states what, where, why, and what a fix
 needs. [user-notes.md](user-notes.md) owns register shape and final accounting.
@@ -253,9 +263,13 @@ obligations and does not implement the paper's method.
   project's checks.
 <!-- reviewer-charter:end -->
 
-Every finding ends in one compact row:
+Every finding ends in one compact row with exactly five fields:
 
 `ID | severity | location | one-line summary | counterexample gist`
+
+The compact row never includes `level`, type, exposure, owner triage, or
+disposition. Those recorded dimensions belong in the review evidence and
+orchestrator records. No reviewer emits a sixth compact-row field.
 
 A review with no findings ends with the exact standalone line `No findings.`.
 The role-specific test sections appear before that line.
@@ -345,8 +359,10 @@ is VERIFIED or MOOT. Every major is fixed or explicitly waived. Every minor and
 nit has a recorded disposition. Every regression is triaged. Every required
 review section is complete.
 
-A non-blocking track packet can follow machine-review termination. Final change
-acceptance remains blocking. Protected defects, exhausted budgets, disputed
+A track packet can follow machine-review termination. At MEDIUM and LARGE,
+user review of each track is blocking. At SMALL, a multi-track packet adds no
+blocking acceptance gate. In a single-track change, the track review is the
+blocking final acceptance event. Protected defects, exhausted budgets, disputed
 stuck-fix results, blocker lowering, and regressions route through
 [user-notes.md](user-notes.md) § Mandatory escalation set. Suggestions and
 deferred work use the single follow-up ledger. They never disappear because

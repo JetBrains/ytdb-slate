@@ -63,8 +63,8 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 // import that deep subpath. The node test pins this copy to pi-ai's declaration.
 export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH = 64;
 
-// Common guidance reaches every worker configuration. Optional guidance is
-// added by workerPreamble only when its corresponding switch is on.
+// Common writing guidance reaches every trusted worker configuration.
+// Reviewer guidance is added only for judgement thread types.
 export const WORKER_PREAMBLE = [
 	"You are a worker thread executing ONE bounded action for an orchestrator.",
 	"Do the action fully, then stop.",
@@ -75,7 +75,7 @@ export const WORKER_PREAMBLE = [
 ].join(" ");
 
 export const WORKER_WRITING_GUIDANCE =
-	"Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply these rules to all your prose.";
+	"Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file.";
 
 export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code actually read (file:line
   or diff hunk) for every claim about behavior. Read third-party /
@@ -116,14 +116,15 @@ export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code a
 `;
 
 export function workerPreamble(
-	writingCheck: boolean,
+	// Writing guidance is always active for a trusted project. Only trust keys it.
+	trusted: boolean,
 	reviewerCharter: boolean,
 	// Track 15 goal 3. The exact research log path of this Slate session, or
 	// undefined when Slate owns no such path. A worker never derives the path.
 	researchLogPath?: string,
 ): string {
 	const additions: string[] = [];
-	if (writingCheck === true) additions.push(WORKER_WRITING_GUIDANCE);
+	if (trusted === true) additions.push(WORKER_WRITING_GUIDANCE);
 	if (typeof researchLogPath === "string") additions.push(renderResearchLogWorkerGuidance(researchLogPath));
 	const prose = [WORKER_PREAMBLE, ...additions].join(" ");
 	return reviewerCharter === true ? `${prose}\n${REVIEWER_CHARTER}` : prose;
@@ -204,7 +205,6 @@ export async function openWorkerSession(opts: {
 	tools?: string[];
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
 	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
-	writingCheck?: boolean; // sanitized writing.check; only literal true enables worker guidance
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
 	researchLogPath?: string; // Track 15: the exact research log path Slate owns for this session
 	promptCacheKey?: string; // optional OpenAI Responses cache-routing key
@@ -281,12 +281,10 @@ export async function openWorkerSession(opts: {
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
-		// Defense in depth: config is loaded only for a trusted project (index.ts),
-		// but a future direct caller must not inject writing guidance from an
-		// untrusted project's switch. The reviewer charter is not trust-gated:
-		// writing guidance points at a project-configured checker, while the charter
-		// is slate's own constant and contains no project input.
-		appendSystemPrompt: [workerPreamble(trusted && opts.writingCheck === true, opts.reviewerCharter === true, opts.researchLogPath), ...promptDocs],
+		// Writing guidance is always active for trusted projects. The reviewer
+		// charter is not trust-gated because it is slate's own constant. The
+		// research log path is slate's own value and carries no project input.
+		appendSystemPrompt: [workerPreamble(trusted, opts.reviewerCharter === true, opts.researchLogPath), ...promptDocs],
 	});
 	await loader.reload();
 

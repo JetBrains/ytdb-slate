@@ -686,7 +686,7 @@ A net much smaller than the ladder, for these subjects:
 - the **worker preamble and reviewer charter** across `extension/worker.ts`,
   `extension/threads.ts` and the marked block in `docs/review-rules.md`
   (`worker-preamble`, `reviewer-charter-sync`). The checks cover historical
-  feature-off bytes, writing and charter gates, and worker prompt plumbing. They
+  untrusted bytes, the trust and charter gates, and worker prompt plumbing. They
   also cover normalized byte identity between the shipped charter and its source
   block. Nothing else in these modules is in scope here (see the load-path note
   below).
@@ -833,15 +833,15 @@ rather than tidy. The group is voided by `profiles-load`, because
 
 | id | what it proves |
 | --- | --- |
-| `doctrine-router-off` | **I2** — with the router off the rule contributes NOTHING. Every off-shaped resolution a session can hand the doctrine renders **byte-identically** to the default 5-argument call: explicitly off, off *while carrying candidates* (the shape that isolates the `on` flag — without it a guard weakened to `on === undefined` survives, because the empty-list guard catches it two lines later), on-with-no-candidates, on-with-only-unusable-candidates, a non-array candidate list, and no resolution at all. Asserted with and without the worker-extension rule beside it, plus a non-vacuity term proving the same helper *does* render the rule when the router is on. Note that `off-doctrine` above reaches this path only by OMISSION — it calls the helper with five arguments, so `getRouter` takes its default |
-| `doctrine-untrusted` | **SE3** — an UNTRUSTED project gets **no routing rule even with `router.models` fully configured**, and its doctrine is byte-identical to the untrusted router-off one. `74a728c` re-gated the rule on `trusted` at the injection point, mirroring rule 9's tail: defence in depth (index.ts reads project config for trusted projects only) and therefore exactly the kind of guard that can be removed with no visible symptom. Its **own** check, not a term in `doctrine-router-off`, because untrusted-with-config and trusted-with-router-off render the same text by different mechanisms — folded together they are indistinguishable, and a baseline that is itself untrusted would keep comparing equal while one path broke. Here the baseline is the untrusted one and the discriminator is explicit: the SAME resolution, trusted, must render the rule. Two further terms separate "routing is gated" from "untrusted gets no tail rules at all": the worker-extension rule, which is NOT trust-gated, still renders for an untrusted project and keeps slot 11, with no gap where the suppressed rule would have been |
-| `doctrine-numbering` | the conditional tail rules are numbered by **position**, not identity, in all four combinations. With neither rendering there is no rule 11; with extensions only it is 11; **with routing only it is also 11** — the case a hardcoded `12.` gets wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. Contiguity is derived rather than spelled (the rendered numbers must run 11, 12, … with no gap and no repeat), the routing rule's number is asserted to MOVE between combinations, and its body is asserted identical whichever slot it takes, so no number is baked into the text |
+| `doctrine-router-off` | **I2** — with the router off the routing rule contributes NOTHING. Every off-shaped resolution renders byte-identically to the default call. The trusted baseline still contains writing in slot 11 and design in slot 12. The same helper must render routing before both when the router is on |
+| `doctrine-untrusted` | **SE3** — an untrusted project gets no routing, writing, or design rule even with full configuration. The same resolution under trust renders all three. The worker-extension rule remains independently visible to untrusted projects and keeps slot 11 |
+| `doctrine-numbering` | tail rules are numbered by **position**, not identity. Trusted design is always last. Writing is rule 11 alone, rule 12 after extensions or routing, and rule 13 when both precede it. Every combination stays contiguous, and the routing body remains identical when its number moves |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
 | `session-name-vocabulary` | both ordered 32-word rosters and all 1,024 minted adjective-noun pairs remain frozen and valid |
 | `doctrine-research-log` | the research log rule of Track 15 renders exactly ONE case. Two cases exist: no session directory yet, and one exact path. There is no stored location choice. The check drives the real `before_agent_start` handler with a fabricated `researchLogPath()`. It pins the pending text, fallback prohibition, exact marked path, injection defences, 4,096-unit Slate sanity guard, and accurate agent-directory restart guidance. A withheld path prints no fragment or ellipsis. |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence. It removes the variable research-log session-directory prefix only inside the marked path. It keeps every literal filename, including `research-log.md`. One long prefix and a different non-basic Unicode prefix must normalize to identical text and counts. A mutation control keeps a matching prefix in authored wording outside the marked path. Other controls catch missing or extra normalization, a duplicated path, and a missing filename. Production fixtures still carry the full path. The draft-enabled maximum is **7,763 of 8,500** portable characters. The draft-disabled pin is **7,734**. Writing plus routing is **6,387 of 6,900**. All tails are **6,642 of 7,200**. The capped worker rule is **1,347 of 1,600**. A **9,079-character** positive control exceeds the maximal bound by 579. |
-| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **7,841 of 8,500** portable characters and 103 lines. It keeps 659 characters of reserve. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence. It removes the variable research-log session-directory prefix only inside the marked path. It keeps every literal filename, including `research-log.md`. One long prefix and a different non-basic Unicode prefix must normalize to identical text and counts. A mutation control keeps a matching prefix in authored wording outside the marked path. Other controls catch missing or extra normalization, a duplicated path, and a missing filename. Production fixtures still carry the full path. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,732 portable characters, 46 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **8,160 of 8,700** portable characters. The draft-disabled pin is **8,131**. Writing plus routing is **6,784 of 7,200**. All tails are **7,039 of 7,400**. The capped worker rule is **1,347 of 1,600**. A **9,476-character** positive control exceeds the maximal bound by 776. These are verification budgets, not runtime limits. |
+| `doctrine-budget-follow-up` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,238 of 8,700** portable characters and 105 lines. It keeps 462 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
@@ -864,7 +864,7 @@ own — see § The writing checker:
 
 | id | what it proves |
 | --- | --- |
-| `writing-checker-length` / `writing-checker-para` / `writing-checker-semicolon` / `writing-checker-contraction` | each fail rule has positive and negative cases; 21–25 words produce one warning, more than 25 words produce one fail, and no sentence produces both length levels |
+| `writing-checker-length` / `writing-checker-para` / `writing-checker-semicolon` / `writing-checker-contraction` | sentence length stays telemetry-only and emits no finding; the warning class stays empty; each surviving rule has positive and negative cases; `PARA6` stays house-style |
 | `writing-checker-class` / `writing-checker-not-checked` | house-style findings stay out of fail counts; the fixed not-checked list is non-empty and every item has a reason |
 | `writing-checker-caps` | spawned command input caps reject an oversized regular file and a symlink to a special file with non-zero, explanatory errors |
 | `writing-checker-modes` / `writing-checker-determinism` | JSONL, direct-file and unified-diff modes work; diff mode checks added lines in prose files; repeated input produces byte-identical output |
@@ -875,7 +875,9 @@ The **human-only writing status line** is covered through `registerSlateMode` wi
 | --- | --- |
 | `writing-status-fresh` / `writing-status-clean` / `writing-status-positive` | real hook cycles distinguish no completed turns (`0/0`), one clean turn (`0/1`), and one failing turn (`1/1`) |
 | `writing-status-import-fail` / `writing-status-fail-open` | a rejected checker import and a checker throw both fail open through `turn_end` and render `writing unavailable` |
-| `writing-status-gate-switch` / `writing-status-gate-trust` / `writing-status-gate-mode` / `writing-status-gate-ui` | each visibility condition independently suppresses the rate: switch off, untrusted project, orchestrator mode off and no UI |
+| `writing-status-ignored-keys` | `writing.check: false` leaves the checker and status active |
+| `writing-status-gate-trust` / `writing-status-gate-mode` / `writing-status-gate-ui` | each surviving gate keeps the checker inactive. The checks observe checker loading and calls, not only status output |
+| `writing-status-non-gate-pause` | a paused trusted orchestrator session with a UI still loads and runs the checker. Reminder pause gating remains separate |
 | `writing-status-cap-skip` | the **checker's own** 1 MiB input cap (`MAX_INPUT_BYTES`) fails open: an oversized message is skipped rather than counted or thrown. It calls `measureWritingTurn` directly with `MAX_INPUT_BYTES + 1` bytes, so it says nothing about the 16 KiB turn bound — that is the row below |
 | `writing-status-cap-visible` | the **turn** bound (`WRITING_TURN_MAX_BYTES`, 16 KiB in `mode.ts`): a larger assistant message goes through the real `turn_end` hook, is never handed to the checker, and the status line says `writing skipped (message too large)` |
 | `writing-status-counting` | only fail findings count; warnings, house-style findings and advisories do not |
@@ -891,22 +893,25 @@ doctrine rule** (`extension/mode.ts`), rendered through the same
 
 | id | what it proves |
 | --- | --- |
-| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ check: false, remind: false, remindPercent: 10 }`; old check-only configs keep their behavior; malformed shapes warn and default; an unknown key warns and is not rebuilt; a non-boolean `check` warns and defaults; explicit `false` stays silent |
-| `writing-config-reminder-valid` / `writing-config-reminder-inert` / `writing-config-reminder-percent` | reminder fields accept booleans and a finite percentage in `(0, 100]`; `check: false` makes reminders inert without changing a valid percentage; bad percentages warn once and fall back to 10 |
-| `writing-config-hostile` | a prototype-polluting object, a throwing getter, an inherited `check` and a 30,000-deep value neither crash nor pollute: every result is a fresh object that defaults to off, and only the malformed shapes warn |
-| `writing-doctrine-off` / `writing-doctrine-untrusted` | `writing.check: false` renders the doctrine byte-identically to an absent writing config, and an untrusted project renders byte-identically to `false` even with the rule configured. Both carry the discriminator: the same config, on and trusted, must render the rule |
-| `writing-doctrine-numbering` | the writing rule is numbered by tail **position** over all combinations of the three conditional tail rules, and adding it renumbers nothing before it: alone it is 11, behind the routing rule or the worker-extension rule it is 12, and with all three it is 13 while those two keep their own numbers |
-| `writing-doctrine-inject` | the rule is **static**: three configs carrying extra and nested keys beside the boolean render byte-identically to the plain on-rendering, so no config-derived text reaches the prompt |
-| `writing-doctrine-cite` | the rule's **doc citation** (`docs/writing-guidance.md`, absolute and package-resolved like rules 8–10) renders **exactly once**, **only** while the rule renders — feature-off, absent-config, untrusted, router-on-writing-off and extensions-on-writing-off carry no occurrence of it — and inside the rule rather than anywhere else in the block. The path is read from `paths.ts`, never re-derived from the rendered text, so a rename that leaves the doctrine citing a document the package no longer ships fails here; the named file must also exist on disk, which is the half `package-content-check.mjs` cannot see (it checks the publish set, not the rendering). Two terms guard the shape: the rule still carries exactly **one** numbered line, so a citation line cannot become a forged tail rule, and `off + rule` is byte-identically `on`. Its per-turn **cost** is bounded by `doctrine-budget`, which since the citation landed also bounds the writing rule's own portable size, its line count and its **one** embedded path |
+| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ remindPercent: 5 }`; malformed shapes warn and default; unknown keys warn and disappear; any own `check` or `remind` key produces one exact notice, including `false` and both keys together |
+| `writing-config-reminder-valid` / `writing-config-reminder-ignored` / `writing-config-reminder-percent` | a finite percentage in `(0, 100]` survives; both ignored writing keys produce one notice without changing it; bad percentages warn once and fall back to 5 |
+| `writing-config-hostile` | a prototype-polluting object, a getter on an ignored writing key, a throwing percentage getter, an inherited `check` and a 30,000-deep value neither crash nor pollute. Ignored writing key values are never read, every result is fresh, and inherited keys stay absent |
+| `writing-doctrine-off` / `writing-doctrine-untrusted` | trusted doctrine renders the writing rule byte-identically for `writing.check` false, true, or absent; untrusted doctrine renders no writing rule. The same configured input under both trust states makes the trust gate observable |
+| `writing-doctrine-numbering` | the writing rule keeps its tail **position** over every routing and worker-extension combination. The trust-gated design rule follows it without changing the numbers of preceding rules |
+| `design-doctrine-size` | the two-digit design rule is exactly 364 characters and six lines; its 450-character bound retains at least five percent reserve |
+| `writing-prompt-check` | the design rule keeps exactly six sentences with spaces after terminators, and the shipped checker reports no finding above advisory for either prompt; positive controls require a seventh sentence to trigger `PARA6` and a byte-neutral glued boundary to fail spacing |
+| `writing-doctrine-inject` | the rule is **static**: configs carrying extra and nested keys render byte-identically to the plain trusted rendering, so no config-derived text reaches the prompt |
+| `writing-doctrine-cite` | the rule's **doc citation** (`docs/writing-guidance.md`, absolute and package-resolved like rules 8–10) renders **exactly once** in every trusted doctrine and never in untrusted doctrine. It remains inside the rule rather than elsewhere in the block. The path is read from `paths.ts`, never re-derived from the rendered text, so a rename that leaves the doctrine citing a document the package no longer ships fails here; the named file must also exist on disk, which is the half `package-content-check.mjs` cannot see (it checks the publish set, not the rendering). Two terms guard the shape: the rule still carries exactly **one** numbered line, so a citation line cannot become a forged tail rule, and ignored writing keys add no bytes. Its per-turn **cost** is bounded by `doctrine-budget`, which since the citation landed also bounds the writing rule's own portable size, its line count and its **one** embedded path |
 
 The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`,
 `extension/mode.ts`, and the handoff ordering contract):
 
 | id | what it proves |
 | --- | --- |
-| `writing-reminder-load` / `writing-reminder-roster` / `writing-reminder-render` | the pure module loads; the frozen six-line requirement roster keeps exact order and markers; doctrine renders all six bulleted lines while reminders render the exact five eligible lines |
+| `writing-reminder-load` / `writing-reminder-roster` / `writing-reminder-render` | the pure module loads; the frozen nine-line writing roster and six-line design roster keep exact order; doctrine renders every writing line; the reminder renders every entry from both rosters and the shared exclusion |
+| `writing-reminder-size` | the 920-byte, 22-line message stays pure ASCII and within 1,280 bytes with five percent reserve; two renders match; no absolute-path shape appears; five adversarial path forms must match the detector; the header, labels, and exclusion each appear once. To prove the check fires, omit one roster entry from the module-load render or append one ASCII character to the message |
 | `writing-reminder-interval` / `writing-reminder-cadence` / `writing-reminder-budget` | the percentage derives cadence from the effective clamped budget with an 8,192-token floor; equality sends; lower usage repairs a stale mark; unusable usage does not send; force works without usage; override, scalar, Anthropic default, global default and clamp branches reach the real hook |
-| `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, writing check, reminder switch, pause state and the one-send round slot close independently; force does not bypass policy gates; no UI gate exists |
+| `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, pause state and the one-send round slot close independently; false ignored writing keys cannot close delivery; force does not bypass surviving policy gates; no UI gate exists |
 | `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-rearm` / `writing-reminder-mode-force` | claim queues a pending mark without consuming force; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; only assistant `message_end` re-arms the next round |
 | `writing-reminder-send-retry` / `writing-reminder-cleared-retry` | a synchronous `sendMessage` throw releases the claim for retry; an assistant response that arrives before delivery also clears the pending claim without consuming cadence or force |
 | `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters canonical runtime storage; the explicit `/slate adopt <name>` command adopts one external namespace, sets force after the adopting read RETURNS (the event is recorded at completion, so a force write during the read fails the order claim) and before mode reset, and writes exactly one locator note; reset preserves that force while clearing mark, round and pending state |
@@ -919,12 +924,16 @@ The **worker preamble** (`extension/worker.ts`):
 
 | id | what it proves |
 | --- | --- |
-| `worker-load` / `worker-preamble` | the module loads; feature-off keeps the exact historical bounded-action preamble; writing and reviewer guidance compose independently; only their explicit gates add them; and `ThreadManager` passes the sanitized writing switch and review-thread decision into the worker system prompt |
+| `worker-load` / `worker-preamble` | the module loads; untrusted workers keep the exact historical bounded-action preamble; trust adds writing guidance; the review-thread decision independently adds the charter; and no writing configuration parameter remains |
 | `reviewer-charter-sync` | the non-empty marked generic charter block in `docs/review-rules.md` matches the shipped `REVIEWER_CHARTER` after whitespace normalization. The role-specific composite test charter remains in the document and is not injected into every review worker |
 
-The worker check was mutation-verified three ways: weaken the literal-true gate to a
-truthiness gate, replace `ThreadManager`'s config value with `false`, and change one
-word of the guidance. Each mutation makes `worker-preamble` fail.
+The current measured preamble forms are 365 bytes for base, 617 with writing,
+2,520 with the reviewer charter, and 2,772 with both additions. The worker check
+pins the first two exact boundaries. `docs/context-budget.md` records all four.
+
+The worker check was mutation-verified against the trust gate, the removed
+configuration parameter, and the exact guidance. Each mutation makes
+`worker-preamble` fail.
 
 The mutations that give all of these checks teeth are recorded with the module
 they defend, in § The writing checker.
@@ -1023,22 +1032,27 @@ owns these stable verification fixtures.
 | fixture | paths | portable | lines | bound |
 | --- | ---: | ---: | ---: | ---: |
 | routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
-| writing rule | 1 | **1,070** | 23 | 1,150 |
+| writing rule | 1 | **1,103** | 20 | 1,200 |
+| design rule | 0 | **364** | 6 | 450 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| router-off doctrine | 3 | **2,732** | 46 | — |
-| router-on doctrine | 4 | **5,317** | 70 | 6,500 |
-| writing-only doctrine | 4 | **3,802** | 68 | 5,600 |
-| writing plus router | 5 | **6,387** | 92 | 6,900 |
-| writing plus extensions | 4 | **4,057** | 74 | 6,000 |
-| writing plus router and extensions | 5 | **6,642** | 98 | 7,200 |
-| maximal doctrine with draft PRs enabled | 6 | **7,763** | 102 | 8,500 |
-| maximal doctrine with draft PRs disabled | 5 | **7,734** | 102 | 8,500 |
-| maximal doctrine with follow-up issues enabled | 6 | **7,841** | 103 | 8,500 |
-| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,079** | 109 | must exceed 8,500 |
+| trusted router-off doctrine | 4 | **4,199** | 70 | — |
+| trusted router-on doctrine | 5 | **6,784** | 94 | 7,200 |
+| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **7,016** | 100 | — |
+| writing and design doctrine | 4 | **4,199** | 70 | 5,600 |
+| writing plus router | 5 | **6,784** | 94 | 7,200 |
+| writing plus extensions | 4 | **4,454** | 76 | 6,000 |
+| writing plus router and extensions | 5 | **7,039** | 100 | 7,400 |
+| maximal doctrine with draft PRs enabled | 6 | **8,160** | 104 | 8,700 |
+| maximal doctrine with draft PRs disabled | 5 | **8,131** | 104 | 8,700 |
+| maximal doctrine with follow-up issues enabled | 6 | **8,238** | 105 | 8,700 |
+| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,476** | 111 | must exceed 8,700 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
-maximal pins cover draft pull requests enabled, draft pull requests disabled,
-and follow-up issues enabled.
+fabricated dogfood fixture mirrors the five configured models and resolves them
+through the real router. It uses pi-registry windows of 272,000 for OpenAI and
+1,000,000 for Anthropic. It pins the two configured extension versions and
+their four tool descriptions. The maximal pins cover draft pull requests
+enabled, draft pull requests disabled, and follow-up issues enabled.
 The upper bounds are coarse growth ceilings, not single-edit detectors. Every
 upper bound must exceed the current measurement by at least five percent.
 Required character raises round up to the next hundred, while line bounds use
@@ -1053,17 +1067,17 @@ normalization.
 
 A doctrine change updates its exact literal. A bound changes only when this
 reserve policy requires it. Writing plus routing uses
-`6,387 × 1.05 = 6,706.35`. Ceiling gives 6,707. The existing 6,900 bound remains larger.
+`6,784 × 1.05 = 7,123.2`. Ceiling gives 7,124. The 7,200 bound remains larger.
 
-All tails use `6,642 × 1.05 = 6,974.1`. Ceiling gives 6,975. The existing
-7,200 bound remains larger.
+All tails use `7,039 × 1.05 = 7,390.95`. Ceiling gives 7,391. The 7,400 bound
+remains larger.
 
-The largest maximal fixture uses `7,841 × 1.05 = 8,233.05`. Ceiling gives 8,234.
-The existing 8,500 bound remains larger. The enabled, disabled, and follow-up
-maximal reserves are 737, 766, and 659.
+The largest maximal fixture uses `8,238 × 1.05 = 8,649.9`. Ceiling gives 8,650.
+The 8,700 bound remains larger. The enabled, disabled, and follow-up maximal
+reserves are 540, 569, and 462.
 
 The largest model-row growth is 184 characters. The capped tool-line growth is
-212 characters. The positive control exceeds the maximal bound by 579.
+212 characters. The positive control exceeds the maximal bound by 776.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
@@ -1983,12 +1997,13 @@ proxy variables and the canary evidence paths. `PI_OFFLINE=1` keeps pi startup
 offline. The fake provider performs no network operation. This is **not** a
 network sandbox because reviewed extension code can still open raw sockets.
 
-The project config enables orchestrator mode, writing checks and reminders. It
-sets `contextBudget: 200000` and `remindPercent: 10`. The fake model advertises a
-1,000,000-token window and the first response reports 25,000 input tokens. The
-correct effective interval is 20,000 and fires. A broken path using the model
-window would derive 100,000 and stay silent. This makes budget selection and the
-clamp load-bearing.
+The project config enables orchestrator mode and sets both ignored writing keys
+to false. It sets `contextBudget: 200000` and `remindPercent: 12.5`. Delivery
+proves that the ignored writing keys cannot disable reminders. The fake model
+advertises a 1,000,000-token window. The first response reports 25,000 input
+tokens. The correct effective interval is 25,000 and fires. A broken path using
+the model window would derive 125,000 and stay silent. This makes budget
+selection and the clamp load-bearing.
 
 The canary registers an in-process fake provider and one real tool. The first
 provider response emits two parallel calls to that tool. Both executions append a
@@ -1996,8 +2011,8 @@ marker. Each persisted tool result must contain exactly one text block, no extra
 block or key, and the text `CANARY_TOOL_RESULT_ONLY`. Slate's real `tool_result`
 hook sends one hidden custom steer despite the parallel results.
 
-The second provider call must receive the exact five requirements and shared
-scope exclusion once. It writes a unique success response only after observing
+The second provider call must receive the exact nine writing requirements,
+six design requirements, and shared scope exclusion once. It writes a unique success response only after observing
 the exact text and pre-normalized custom metadata.
 
 Pi normalizes custom messages into user messages before the provider call. The
@@ -2681,11 +2696,11 @@ transcribed here before and both went stale.
 
 ### What it covers
 
-- **Every rule, positively and negatively.** `SENT20`, `SENT25`, `PARA6`,
-  `SEMICOLON`, `CONTRACTION`, `PARENTHETICAL_PAREN`, `PARENTHETICAL_DASH`,
-  `SLASHED`, `PASSIVE`, `INGFORM`, `NOUNCLUSTER` and `MULTICMD` each have a case
-  that fires and a case that must stay silent, and no sentence produces both
-  length levels.
+- **Every rule, positively and negatively.** `PARA6`, `SEMICOLON`,
+  `CONTRACTION`, `PARENTHETICAL_PAREN`, `PARENTHETICAL_DASH`, `SLASHED`,
+  `PASSIVE`, `INGFORM`, `NOUNCLUSTER` and `MULTICMD` each have a case that fires
+  and a case that must stay silent. Separate cases prove sentence length remains
+  telemetry-only and the warning class remains empty.
 - **The class boundary.** House-style and advisory findings never enter the
   fail count, and the fixed `NOT CHECKED` list is non-empty with a reason per
   item.
@@ -2939,7 +2954,7 @@ same in intent.
 Each excerpt is at most **2000 characters, including its two framing
 characters**. Longer excerpts keep equal-sized head and tail sections with a
 `[middle elided]` marker, which keeps the opening and the conclusion of
-whole-unit SENT20, SENT25 and PARA6 findings. The limit was set above the longest
+whole-unit findings, including `PARA6`. The limit was set above the longest
 excerpt in the measured repository and assistant-message corpora (1640
 characters). The number of findings is bounded separately — see § The run budget.
 
@@ -3071,15 +3086,14 @@ as before.
 | `example.test.` | leave the scheme-less domain as prose; keep its period as the sentence terminator |
 | `https://example.test/path?a=1;b=two` | keep the internal semicolon because URL data follows it |
 
-The length-rule fixture has 21 words, a sentence-final URL and a five-word
-second sentence. Before BG5, URL stripping swallowed the first period and made
-one 26-word sentence: one `SENT25`, no `SENT20`. After BG5, segmentation returns
-two sentences: one `SENT20`, no `SENT25`.
-
-Two direct checks cover the boundary table and the length-rule effect. Restoring
-the greedy `[^\s<>()]+` tail in a throwaway copy fails `BG5 URL boundaries keep
-sentence punctuation and strip URL data`. The scaling roster names the revised
-pattern and adds a punctuation-heavy hostile generator.
+The `BG5 URL boundaries keep sentence punctuation and strip URL data` check
+covers the first six boundary-table rows and asserts each resulting sentence
+count. The `URL query remains stripped` check covers the final semicolon-query
+row. The separate `200-word prose sentence keeps telemetry and surviving
+findings` check proves sentence-length telemetry remains available. Restoring
+the greedy `[^\s<>()]+` tail in a throwaway copy fails the BG5 check. The
+scaling roster names the revised pattern and adds a punctuation-heavy hostile
+generator.
 
 ### The run budget (BG6/FX3)
 
@@ -3232,7 +3246,7 @@ The status-line and wiring mutations run against the **resolver** suite:
 | count house-style findings as fail-level | `writing-status-counting` |
 | remove the trust gate | `writing-status-gate-trust` |
 | rethrow checker errors | `writing-status-crash` (the fail-open section cannot complete) |
-| emit a fail with the 21–25-word warning | `writing-checker-length` |
+| emit a sentence-length finding or populate the warning class | `writing-checker-length` |
 | blank the rendered writing status line | `writing-status-positive` |
 | remove the `measureWritingTurn` call | `writing-status-positive` |
 | break the checker import path | `writing-status-positive` |

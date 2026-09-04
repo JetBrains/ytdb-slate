@@ -426,7 +426,7 @@ const DOCTRINE_IDS = [
 	"session-name-vocabulary",
 	"doctrine-budget", "doctrine-budget-follow-up",
 	"doctrine-research-log",
-	"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite",
+	"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite",
 ];
 const WORKER_IDS = ["worker-preamble", "reviewer-charter-sync"];
 const DOCTRINE_CONTRACT_IDS = [
@@ -740,27 +740,55 @@ try {
 	await section("writing-reminder", async () => {
 		check("writing-reminder-load", reminder !== undefined, "extension/writing-reminder.ts loads for pure policy verification", reminderLoad.error?.stack ?? reminderLoad.error);
 		if (!reminder) return;
-		const six = [
+		const writingLines = [
 			"Avoid idioms.",
 			"Replace bare-reference openers with the subject they reference.",
 			"Explain each project-specific term at first use.",
 			"Define each abbreviation at first use.",
 			"Express one idea in each sentence.",
 			"Use one term for each concept.",
+			"Do not explain an idea with a metaphor.",
+			"Do not invent a term when the project already has one.",
+			"Use plain words that appear in standard libraries and textbooks.",
 		];
-		const five = six.filter((_, i) => i !== 4);
-		checkAll("writing-reminder-roster", "the frozen requirement roster has the exact six ordered lines and only the sentence-idea rule is doctrine-only", [
-			["exact text and order", reminder.WRITING_REQUIREMENTS.map((r) => r.text).join("\n") === six.join("\n"), reminder.WRITING_REQUIREMENTS],
-			["exact reminder markers", reminder.WRITING_REQUIREMENTS.map((r) => r.reminder).join() === "true,true,true,true,false,true", reminder.WRITING_REQUIREMENTS],
-			["roster is frozen", Object.isFrozen(reminder.WRITING_REQUIREMENTS), Object.isFrozen(reminder.WRITING_REQUIREMENTS)],
+		const designLines = [
+			"Keep a design statement only if a different reasonable implementation keeps it true.",
+			"Present to the user any item the approved goals do not list.",
+			"Never add or remove an approved goal yourself.",
+			"Propose a repeated regression as a non-goal candidate.",
+			"Present what changed when you update a design.",
+			"Assume the user knows software but not this project.",
+		];
+		checkAll("writing-reminder-roster", "the frozen writing and design requirement rosters have their exact ordered lines", [
+			["writing text and order", reminder.WRITING_REQUIREMENTS.map((r) => r.text).join("\n") === writingLines.join("\n"), reminder.WRITING_REQUIREMENTS],
+			["design text and order", reminder.DESIGN_REQUIREMENTS.map((r) => r.text).join("\n") === designLines.join("\n"), reminder.DESIGN_REQUIREMENTS],
+			["rosters and entries are frozen", [reminder.WRITING_REQUIREMENTS, reminder.DESIGN_REQUIREMENTS].every((roster) => Object.isFrozen(roster) && roster.every(Object.isFrozen)), [Object.isFrozen(reminder.WRITING_REQUIREMENTS), Object.isFrozen(reminder.DESIGN_REQUIREMENTS)]],
 		]);
 		const exactScope = "Exclude research logs, worker task text, and the project's own agent instruction file.";
-		checkAll("writing-reminder-render", "doctrine renders six indented bullets, while the reminder renders five verbatim bullets plus the same exact exclusion guard", [
-			["doctrine exact and indented", reminder.renderWritingDoctrineRequirements("   ") === six.map((line) => `   - ${line}`).join("\n"), reminder.renderWritingDoctrineRequirements("   ")],
+		const exactReminder = [
+			"Writing requirements:",
+			...writingLines.map((line) => `- ${line}`),
+			"",
+			"Design requirements:",
+			...designLines.map((line) => `- ${line}`),
+			"",
+			exactScope,
+		].join("\n");
+		const parseReminderRosters = (content) => {
+			const lines = content.split("\n");
+			const designAt = lines.indexOf("Design requirements:");
+			const scopeAt = lines.indexOf(exactScope);
+			const writing = lines.slice(1, designAt - 1);
+			const design = lines.slice(designAt + 1, scopeAt - 1);
+			const shape = lines[0] === "Writing requirements:" && designAt > 1 && scopeAt === lines.length - 1 && lines[designAt - 1] === "" && lines[scopeAt - 1] === "" && [...writing, ...design].every((line) => /^- .+$/.test(line));
+			return { shape, writing: writing.map((line) => line.slice(2)), design: design.map((line) => line.slice(2)) };
+		};
+		checkAll("writing-reminder-render", "doctrine renders every writing requirement, while parsed reminder blocks exactly match both ordered rosters and the shared exclusion guard", [
+			["doctrine exact and indented", reminder.renderWritingDoctrineRequirements("   ") === writingLines.map((line) => `   - ${line}`).join("\n"), reminder.renderWritingDoctrineRequirements("   ")],
 			["scope source exact", reminder.WRITING_SCOPE_EXCLUSION === exactScope, reminder.WRITING_SCOPE_EXCLUSION],
 			["doctrine scope exact and indented", reminder.renderWritingScopeExclusion("   ") === `   ${exactScope}`, reminder.renderWritingScopeExclusion("   ")],
-			["reminder exact", reminder.renderWritingReminder() === `${five.map((line) => `- ${line}`).join("\n")}\n\n${exactScope}`, reminder.renderWritingReminder()],
-			["doctrine-only line excluded", !reminder.renderWritingReminder().includes(six[4]), reminder.renderWritingReminder()],
+			["reminder exact", reminder.renderWritingReminder() === exactReminder, reminder.renderWritingReminder()],
+			["parsed reminder rosters exactly match code order and text", (() => { const parsed = parseReminderRosters(reminder.renderWritingReminder()); return parsed.shape && JSON.stringify(parsed.writing) === JSON.stringify(writingLines) && JSON.stringify(parsed.design) === JSON.stringify(designLines); })(), parseReminderRosters(reminder.renderWritingReminder())],
 		]);
 
 		const intervals = [
@@ -792,15 +820,14 @@ try {
 			["force sends with null and preserves mark", cadence.forced.send === true && cadence.forced.nextMarkTokens === 5_000, cadence.forced],
 		]);
 
-		const open = { orchestratorMode: true, trusted: true, check: true, remind: true, paused: false };
+		const open = { orchestratorMode: true, trusted: true, paused: false };
 		const branches = [
-			["orchestratorMode", { ...open, orchestratorMode: false }, false],
-			["trusted", { ...open, trusted: false }, false],
-			["check", { ...open, check: false }, false],
-			["remind", { ...open, remind: false }, false],
-			["paused", { ...open, paused: true }, false],
+			["orchestratorMode", { ...open, orchestratorMode: false }],
+			["trusted", { ...open, trusted: false }],
+			["paused", { ...open, paused: true }],
 		];
-		check("writing-reminder-gates", reminder.writingReminderGateOpen(open, false) && !reminder.writingReminderGateOpen(open, true) && branches.every(([, gate]) => !reminder.writingReminderGateOpen(gate, false)), "every policy gate closes independently, sent-this-round closes the slot, and no UI gate exists", branches);
+		const ignoredKeysAbsent = !Object.prototype.hasOwnProperty.call(open, "check") && !Object.prototype.hasOwnProperty.call(open, "remind");
+		check("writing-reminder-gates", ignoredKeysAbsent && reminder.writingReminderGateOpen(open, false) && !reminder.writingReminderGateOpen(open, true) && branches.every(([, gate]) => !reminder.writingReminderGateOpen(gate, false)), "orchestrator mode, trust, pause, and sent-this-round close independently; ignored writing keys and a UI gate are absent", { branches, open });
 
 		const reminderContent = reminder.renderWritingReminderMessage();
 		const claimBase = { ...reminder.createWritingReminderRuntime(), markTokens: 5_000, forceNext: true };
@@ -824,9 +851,29 @@ try {
 		]);
 
 		const scope = reminder.WRITING_SCOPE_EXCLUSION;
-		const exactContent = `[slate] Writing reminder:\n${five.map((line) => `- ${line}`).join("\n")}\n\n${scope}`;
+		const exactContent = `[slate] Reminder:\n\n${exactReminder}`;
 		check("writing-reminder-full-render", reminderContent === exactContent, "one pure renderer owns the exact full hidden message", reminderContent);
-		const eligible = writingStatusFixture({ writingConfig: { check: true, remind: true, remindPercent: 10 }, usageTokens: 10_000 });
+		const hasReminderReserve = (measured, bound) => bound >= Math.ceil(measured * 1.05);
+		const reminderBytes = Buffer.byteLength(reminderContent, "utf8");
+		const reminderLines = reminderContent.split("\n").length;
+		const absolutePathShape = /(?:[\\/]{2}[^\s\\/]+[\\/][^\s\\/]+|\/[^\s/]+\/[^\s/]+|[A-Za-z]:[\\/][^\s\\/]+(?:[\\/][^\s\\/]+)*)/;
+		const pathShapeAttacks = [
+			"[/home/user/docs/x.md]",
+			",/home/user/docs/x.md",
+			"—/home/user/docs/x.md",
+			"token/home/user/docs/x.md",
+			"\\\\server\\share\\x.md",
+		];
+		const occurrences = (text, fragment) => text.split(fragment).length - 1;
+		checkAll("writing-reminder-size", "the stable install-independent reminder has exact measurements, reserve, ASCII content, and one copy of each structural label", [
+			["exact byte and line measurements", reminderBytes === 920 && reminderLines === 22, { bytes: reminderBytes, lines: reminderLines }],
+			["the 1280-byte bound keeps five percent reserve", reminderBytes <= 1280 && hasReminderReserve(reminderBytes, 1280), { bytes: reminderBytes, bound: 1280, reserveRequired: Math.ceil(reminderBytes * 1.05) }],
+			["pure ASCII makes byte and character counts equal", /^[\x00-\x7f]*$/.test(reminderContent) && reminderBytes === reminderContent.length, { bytes: reminderBytes, chars: reminderContent.length }],
+			["no absolute-path-shaped substring makes size install-independent", !absolutePathShape.test(reminderContent) && pathShapeAttacks.every((attack) => absolutePathShape.test(attack)), { messageMatch: absolutePathShape.exec(reminderContent)?.[0] ?? "none", missedAttacks: pathShapeAttacks.filter((attack) => !absolutePathShape.test(attack)) }],
+			["two renders return an identical string", reminder.renderWritingReminderMessage() === reminder.renderWritingReminderMessage(), [reminder.renderWritingReminderMessage().length, reminder.renderWritingReminderMessage().length]],
+			["header, block labels, and exclusion each render exactly once", occurrences(reminderContent, "[slate] Reminder:") === 1 && occurrences(reminderContent, "Writing requirements:") === 1 && occurrences(reminderContent, "Design requirements:") === 1 && occurrences(reminderContent, exactScope) === 1, { header: occurrences(reminderContent, "[slate] Reminder:"), writing: occurrences(reminderContent, "Writing requirements:"), design: occurrences(reminderContent, "Design requirements:"), exclusion: occurrences(reminderContent, exactScope) }],
+		]);
+		const eligible = writingStatusFixture({ writingConfig: { check: true, remind: true, remindPercent: 7 }, usageTokens: 10_000 });
 		await writingSession(eligible);
 		const firstResult = await eligible.emit("tool_result", { toolName: "read" });
 		await eligible.emit("tool_result", { toolName: "grep" });
@@ -859,18 +906,20 @@ try {
 		check("writing-reminder-rearm", afterUser === 1 && eligible.sent.length === 2 && forcedValidQueued.forceNext && forcedValidQueued.markTokens === 10_000 && forcedValidQueued.pending?.nextMarkTokens === 10_000 && !eligible.store.writingReminder.forceNext && eligible.store.writingReminder.markTokens === 10_000, "only assistant message_end re-arms, and forced valid usage commits its expected mark only at delivery", { afterUser, sends: eligible.sent.length, queued: forcedValidQueued, committed: eligible.store.writingReminder });
 
 		const closedFixtures = [
-			writingStatusFixture({ orchestrator: false, writingConfig: { check: true, remind: true } }),
-			writingStatusFixture({ trusted: false, writingConfig: { check: true, remind: true } }),
-			writingStatusFixture({ writingConfig: { check: false, remind: true } }),
-			writingStatusFixture({ writingConfig: { check: true, remind: false } }),
-			writingStatusFixture({ paused: true, writingConfig: { check: true, remind: true } }),
+			writingStatusFixture({ orchestrator: false, writingConfig: { check: false, remind: false } }),
+			writingStatusFixture({ trusted: false, writingConfig: { check: false, remind: false } }),
+			writingStatusFixture({ paused: true, writingConfig: { check: false, remind: false } }),
 		];
 		for (const fixture of closedFixtures) {
 			await writingSession(fixture);
 			fixture.store.writingReminder.forceNext = true;
 			await fixture.emit("tool_result");
 		}
-		check("writing-reminder-mode-gates", closedFixtures.every((fixture) => fixture.sent.length === 0 && fixture.store.writingReminder.forceNext), "the real handler sends nothing through every closed policy gate, even when forceNext is set", closedFixtures.map((fixture) => [fixture.sent.length, fixture.store.writingReminder]));
+		const ignoredKeys = writingStatusFixture({ writingConfig: { check: false, remind: false } });
+		await writingSession(ignoredKeys);
+		ignoredKeys.store.writingReminder.forceNext = true;
+		await ignoredKeys.emit("tool_result");
+		check("writing-reminder-mode-gates", closedFixtures.every((fixture) => fixture.sent.length === 0 && fixture.store.writingReminder.forceNext) && ignoredKeys.sent.length === 1, "the real handler retains orchestrator, trust, and pause gates while false ignored writing keys cannot close it", { closed: closedFixtures.map((fixture) => [fixture.sent.length, fixture.store.writingReminder]), ignoredKeys: ignoredKeys.sent.length });
 
 		const forced = writingStatusFixture({ writingConfig: { check: true, remind: true }, usageTokens: null, effectiveBudget: undefined });
 		await writingSession(forced);
@@ -1197,20 +1246,26 @@ try {
 			}),
 		);
 		const onReal = onWith(realCandidates);
-		/** The rule's own text: from its number line to the end of the numbered block. */
+		/** The routing rule's own text, ending before the always-present writing tail. */
 		const ruleOf = (d) => {
 			const at = d.search(/\n\d+\. Pick the first candidate/);
-			return at < 0 ? "" : d.slice(at);
+			if (at < 0) return "";
+			const after = d.slice(at + 1).search(/\n\d+\. Check user-facing prose/);
+			return after < 0 ? d.slice(at) : d.slice(at, at + 1 + after);
 		};
-		/**
-		 * The WRITING rule's own text, by the same rule as ruleOf: from its number line to
-		 * the end of the numbered block. It is the LAST tail builder at buildDoctrine's call
-		 * site, so slicing to the end is the whole rule for the fixtures here (which supply
-		 * no doctrine extra and no prompt docs).
-		 */
+		/** The WRITING rule's own text, ending before the next numbered tail rule. */
 		const ruleOfWriting = (d) => {
-			const at = d.search(/\n\d+\. Check all user-facing prose/);
-			return at < 0 ? "" : d.slice(at);
+			const at = d.search(/\n\d+\. Check user-facing prose/);
+			if (at < 0) return "";
+			const after = d.slice(at + 1).search(/\n\d+\. /);
+			return after < 0 ? d.slice(at) : d.slice(at, at + 1 + after);
+		};
+		/** The DESIGN rule's own text, ending before any later numbered tail rule. */
+		const ruleOfDesign = (d) => {
+			const at = d.search(/\n\d+\. Keep a design statement only if/);
+			if (at < 0) return "";
+			const after = d.slice(at + 1).search(/\n\d+\. /);
+			return after < 0 ? d.slice(at) : d.slice(at, at + 1 + after);
 		};
 		const tailNumbers = (d) => [...d.matchAll(/\n(\d+)\. /g)].map((m) => Number(m[1])).filter((n) => n > 10);
 		const numberOf = (d, re) => {
@@ -1265,22 +1320,16 @@ try {
 			const on = await asTrusted(EMPTY_EXT, onReal);
 			checkAll(
 				"doctrine-router-off",
-				"I2 — with the router off the routing rule contributes NOTHING: every off-shaped resolution a session can hand the doctrine (off, on-with-no-candidates, on-with-only-unusable-candidates, a non-array candidate list, and no resolution at all) renders BYTE-IDENTICALLY to the default 5-argument call, with and without the worker-extension rule beside it, and no fragment of the rule appears. Driven through the 6th parameter explicitly, because `off-doctrine` reaches this path only by omission",
+				"I2 — with the router off the routing rule contributes nothing across every off-shaped resolution; trusted doctrine still carries its writing and design tails",
 				[
 					["every router-off shape is byte-identical to the default call", differs.length === 0, { differs, len: byDefault.length }],
-					["...and identical again with the worker-extension rule present", extOff === extDefault && extDefault.startsWith(byDefault), [extOff === extDefault, extDefault.length]],
+					["...and identical again with the worker-extension rule present", extOff === extDefault && tailNumbers(extDefault).join() === "11,12,13", [extOff === extDefault, extDefault.length, tailNumbers(extDefault)]],
 					["no fragment of the routing rule renders", !/Pick the first candidate|route for\|avoid|per Mtok/.test(byDefault), byDefault.slice(-160)],
-					["...and no tail rule is numbered at all", tailNumbers(byDefault).length === 0, tailNumbers(byDefault)],
-					["the fixture is not vacuous: the SAME helper does render the rule when the router is on", ruleOf(on) !== "" && on.length > byDefault.length, [ruleOf(on).length, on.length - byDefault.length]],
-					// THE FIXTURE FLIP ITSELF, pinned rather than assumed. Every doctrine-* check
-					// renders as TRUSTED since 74a728c gated the rule on it; that is only a safe
-					// substitution while trust changes nothing else about these configurations. It
-					// does not hold in general — `reviewPerspectivesPath` is a trusted-only rule-9
-					// tail, and prompt docs and the doctrine extra are trusted-only too — so the
-					// claim is scoped to the shapes used here and asserted, not stated.
+					["the always-active writing and design tails occupy slots 11 and 12", tailNumbers(byDefault).join() === "11,12" && numberOf(byDefault, "Check user-facing prose") === 11 && numberOf(byDefault, "Keep a design statement only if") === 12, tailNumbers(byDefault)],
+					["the fixture is not vacuous: the SAME helper renders routing before writing and design when the router is on", ruleOf(on) !== "" && tailNumbers(on).join() === "11,12,13" && numberOf(on, "Pick the first candidate") === 11 && numberOf(on, "Check user-facing prose") === 12 && numberOf(on, "Keep a design statement only if") === 13, tailNumbers(on)],
 					[
-						"the trusted/untrusted fixture flip is INERT for these configurations — asserted, because it is a substitution the whole group rests on",
-						(await doctrine(EMPTY_EXT)) === byDefault && (await doctrine(WITH_EXT)) === extDefault,
+						"trust is deliberately not byte-inert: it controls the writing tail independently of router state",
+						(await doctrine(EMPTY_EXT)) !== byDefault && !/Check user-facing prose/.test(await doctrine(EMPTY_EXT)),
 						{ untrustedEmpty: (await doctrine(EMPTY_EXT)).length, trustedEmpty: byDefault.length },
 					],
 				],
@@ -1312,7 +1361,7 @@ try {
 			const untrustedExtOff = await doctrine(WITH_EXT, () => ({ on: false, candidates: [] }), false);
 			checkAll(
 				"doctrine-untrusted",
-				"SE3 — an UNTRUSTED project gets no routing rule even with `router.models` fully configured, and its doctrine is BYTE-IDENTICAL to the untrusted router-off one. Its own check rather than a term in `doctrine-router-off`, because untrusted-with-config and trusted-with-router-off render the same text by different mechanisms and a single check could not tell them apart: the baseline here is the untrusted one and the discriminator is explicit — the SAME resolution, trusted, must render the rule. The gate is also shown to be specific to routing rather than a blanket suppression: the worker-extension rule, which is not trust-gated, still renders for an untrusted project, and it keeps slot 11 with no gap where the suppressed rule would have been",
+				"SE3 — an untrusted project gets no routing, writing, or design rule; trust renders all three, while the worker-extension tail remains independently visible",
 				[
 					["untrusted + a fully configured router renders NO routing rule", ruleOf(untrustedOn) === "", ruleOf(untrustedOn).slice(0, 120)],
 					["...byte-identical to the untrusted router-off doctrine", untrustedOn === untrustedOff, { on: untrustedOn.length, off: untrustedOff.length }],
@@ -1328,8 +1377,8 @@ try {
 						{ both: untrustedBoth.length, extOff: untrustedExtOff.length },
 					],
 					[
-						"...and the suppressed rule consumes NO number, so nothing is renumbered and no slot is left empty",
-						tailNumbers(untrustedBoth).join() === "11" && tailNumbers(untrustedOn).length === 0 && tailNumbers(trustedOn).join() === "11",
+						"suppressed routing consumes no number; trusted writing and design follow routing while untrusted extensions keep slot 11",
+						tailNumbers(untrustedBoth).join() === "11" && tailNumbers(untrustedOn).length === 0 && tailNumbers(trustedOn).join() === "11,12,13",
 						{ untrustedBoth: tailNumbers(untrustedBoth), untrustedOn: tailNumbers(untrustedOn), trustedOn: tailNumbers(trustedOn) },
 					],
 				],
@@ -1354,10 +1403,10 @@ try {
 			// is 11 in the common configuration and 12 only when both render.
 			const off = () => ({ on: false, candidates: [] });
 			const combos = {
-				neither: await asTrusted(EMPTY_EXT, off),
-				"extensions only": await asTrusted(WITH_EXT, off),
-				"routing only": await asTrusted(EMPTY_EXT, onReal),
-				both: await asTrusted(WITH_EXT, onReal),
+				writing: await asTrusted(EMPTY_EXT, off),
+				"extensions and writing": await asTrusted(WITH_EXT, off),
+				"routing and writing": await asTrusted(EMPTY_EXT, onReal),
+				"all tails": await asTrusted(WITH_EXT, onReal),
 			};
 			const nums = Object.fromEntries(Object.entries(combos).map(([k, d]) => [k, tailNumbers(d)]));
 			const routing = Object.fromEntries(Object.entries(combos).map(([k, d]) => [k, numberOf(d, "Pick the first candidate")]));
@@ -1367,15 +1416,15 @@ try {
 			const gaps = Object.entries(nums).filter(([, list]) => list.some((n, i) => n !== 11 + i)).map(([k]) => k);
 			checkAll(
 				"doctrine-numbering",
-				"the conditional tail rules are numbered by POSITION, not by identity: with neither rendering there is no rule 11 at all; with only worker extensions it is 11; with only routing it is ALSO 11 — the case a hardcoded `12.` would get wrong, and the common one, since worker extensions are off by default; with both, extensions keep 11 and routing takes 12. In every combination the rendered numbers run 11, 12, … with no gap and no repeat",
+				"tail rules are numbered by position while the trusted design rule always renders last",
 				[
-					["neither rule renders ⇒ no tail number", nums.neither.length === 0, nums.neither],
-					["extensions only ⇒ 11, and no routing rule", nums["extensions only"].join() === "11" && ext["extensions only"] === 11 && routing["extensions only"] === undefined, nums["extensions only"]],
-					["ROUTING ONLY ⇒ 11, not 12 (no gap where the absent rule would have been)", nums["routing only"].join() === "11" && routing["routing only"] === 11 && ext["routing only"] === undefined, [nums["routing only"], routing["routing only"]]],
-					["both ⇒ extensions 11, routing 12", nums.both.join() === "11,12" && ext.both === 11 && routing.both === 12, [nums.both, ext.both, routing.both]],
-					["...so the routing rule's number is not fixed — it MOVES with what renders above it", routing["routing only"] !== routing.both, [routing["routing only"], routing.both]],
+					["writing and design occupy slots 11 and 12", nums.writing.join() === "11,12" && numberOf(combos.writing, "Check user-facing prose") === 11 && numberOf(combos.writing, "Keep a design statement only if") === 12, nums.writing],
+					["extensions precede writing and design", nums["extensions and writing"].join() === "11,12,13" && ext["extensions and writing"] === 11 && numberOf(combos["extensions and writing"], "Check user-facing prose") === 12 && numberOf(combos["extensions and writing"], "Keep a design statement only if") === 13, nums["extensions and writing"]],
+					["routing precedes writing and design", nums["routing and writing"].join() === "11,12,13" && routing["routing and writing"] === 11 && numberOf(combos["routing and writing"], "Check user-facing prose") === 12 && numberOf(combos["routing and writing"], "Keep a design statement only if") === 13, nums["routing and writing"]],
+					["all tails remain contiguous", nums["all tails"].join() === "11,12,13,14" && ext["all tails"] === 11 && routing["all tails"] === 12 && numberOf(combos["all tails"], "Check user-facing prose") === 13 && numberOf(combos["all tails"], "Keep a design statement only if") === 14, nums["all tails"]],
+					["the routing rule number moves with the extension tail", routing["routing and writing"] !== routing["all tails"], [routing["routing and writing"], routing["all tails"]]],
 					["the rendered tail numbers are contiguous from 11 in every combination", gaps.length === 0, { gaps, nums }],
-					["the rule text itself hardcodes no number: the body is identical whichever slot it takes", ruleOf(combos["routing only"]).replace(/^\n11\./, "") === ruleOf(combos.both).replace(/^\n12\./, ""), [ruleOf(combos["routing only"]).slice(0, 40), ruleOf(combos.both).slice(0, 40)]],
+					["the routing body is identical whichever slot it takes", ruleOf(combos["routing and writing"]).replace(/^\n11\./, "") === ruleOf(combos["all tails"]).replace(/^\n12\./, ""), [ruleOf(combos["routing and writing"]).slice(0, 40), ruleOf(combos["all tails"]).slice(0, 40)]],
 				],
 			);
 		});
@@ -1409,6 +1458,7 @@ try {
 				// after it is what an attack could have forged.
 				const lines = rule.split("\n").slice(1);
 				results[label] = {
+					writingTail: ruleOfWriting(d) !== "",
 					rows: rowsOf(rule).length,
 					// EVERY line of the rule must carry either 0 pipes (prose) or exactly 6 (a row).
 					badPipes: lines.map((l) => (l.match(/\|/g) ?? []).length).filter((n) => n !== 0 && n !== 6).length,
@@ -1532,6 +1582,7 @@ try {
 				"doctrine-inject",
 				"no value interpolated into the routing rule can forge structure, and that matters more here than anywhere else in the doctrine: the rule deliberately BYPASSES sanitizeForDoctrine (which strips `|` and would destroy the table), so the narrow `cell()` is the entire defence, and this text is injected into every session's system prompt. Eight attacks on the DATA cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 and C1 controls, a spec-shaped value, markdown, a 5000-character field and a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and leave no numbered directive behind. What `cell()` does and does not reach is pinned alongside: since 74a728c it is CATEGORY-based, so every format, separator and surrogate character is stripped — bidi, zero-width and U+2028 included, the last of which the old codepoint range missed — while legitimate text (NBSP, emoji, ≥) is carried verbatim, and cell length remains unbounded. The two values e52023d added to the sanitized set are covered explicitly: the SPEC (the gap this check found, now closed — inverted here, and asserted alongside the fact that `isModelSpec` still accepts a piped spec, which is what makes the sanitizer load-bearing) and the PROSE thread-default, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column. The rule's closing doc-pointer line is pinned present-once and second-from-last under every attack",
 				[
+					["every attack keeps the always-active writing tail after the routing rule", bad((r) => !r.writingTail).length === 0, bad((r) => !r.writingTail)],
 					["every attack renders exactly ONE row", bad((r) => r.rows !== 1).length === 0, bad((r) => r.rows !== 1)],
 					["...of exactly seven cells — no line carries a pipe count other than 0 or 6", bad((r) => r.badPipes > 0).length === 0, bad((r) => r.badPipes > 0)],
 					["...forging no numbered directive", bad((r) => r.forged.length > 0).length === 0, Object.entries(results).flatMap(([k, r]) => r.forged.map((f) => `${k}: ${f}`))],
@@ -1622,19 +1673,17 @@ try {
 
 		await section("writing-checker", async () => {
 			const w = (count) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
-			const lengthWarning = checker.checkText(`${w(21)}.`);
-			const lengthFail = checker.checkText(`${w(26)}.`);
-			const lengthNegative = checker.checkText(`${w(20)}.`);
-			checkAll("writing-checker-length", "21–25 words warn, more than 25 words fail, shorter sentences stay silent, and one sentence never emits both levels", [
-				["21 words warns", lengthWarning.findings.some((f) => f.id === "SENT20" && f.class === "warning"), lengthWarning.findings],
-				["26 words fails", lengthFail.findings.some((f) => f.id === "SENT25" && f.class === "fail"), lengthFail.findings],
-				["20 words is silent", !lengthNegative.findings.some((f) => f.id === "SENT20" || f.id === "SENT25"), lengthNegative.findings],
-				["warning and fail are mutually exclusive", !lengthWarning.findings.some((f) => f.id === "SENT25") && !lengthFail.findings.some((f) => f.id === "SENT20"), [lengthWarning.findings, lengthFail.findings]],
+			const lengthCases = [1, 20, 21, 25, 26, 50, 200].map((length) => [length, checker.checkText(`${w(length)}.`)]);
+			const lengthAggregate = checker.run([{ text: `${w(200)}.` }]).aggregate;
+			checkAll("writing-checker-length", "sentence length remains telemetry only across short and long prose, and the warning class is empty", [
+				["no tested sentence length emits a fail or warning finding", lengthCases.every(([, result]) => !result.findings.some((f) => f.class === "fail" || f.class === "warning")), lengthCases.map(([length, result]) => [length, result.findings])],
+				["sentence length remains telemetry", lengthAggregate.sentenceLength.max === 200, lengthAggregate.sentenceLength],
+				["no rule has warning severity", !checker.RULES.some(([, cls]) => cls === "warning"), checker.RULES],
 			]);
 			const paraPositive = checker.checkText("One. Two. Three. Four. Five. Six. Seven.");
 			const paraNegative = checker.checkText("One. Two. Three. Four. Five. Six.");
-			checkAll("writing-checker-para", "PARA6 fires above six paragraph sentences and stays silent at six", [
-				["seven fires", paraPositive.findings.some((f) => f.id === "PARA6" && f.class === "fail"), paraPositive.findings],
+			checkAll("writing-checker-para", "PARA6 emits a house-style finding above six paragraph sentences and stays silent at six", [
+				["seven emits house-style", paraPositive.findings.some((f) => f.id === "PARA6" && f.class === "house-style"), paraPositive.findings],
 				["six stays silent", !paraNegative.findings.some((f) => f.id === "PARA6"), paraNegative.findings],
 			]);
 			const semicolonPositive = checker.checkText("Open the panel; stop.");
@@ -1690,10 +1739,29 @@ try {
 			const on = await writingTurn(writingStatusFixture());
 			check("writing-status-positive", /writing 1\/1/.test(on.getStatus() ?? ""), "a completed assistant turn produces the live writing status with one measured turn and one failing turn", on.getStatus());
 			check("writing-status-import-url", typeof paths.WRITING_CHECKER_URL === "string" && paths.WRITING_CHECKER_URL.startsWith("file:") && paths.WRITING_CHECKER_URL.endsWith("writing-check.mjs"), "the optional checker import uses a file URL", paths.WRITING_CHECKER_URL);
-			check("writing-status-gate-switch", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ writing: false }))).getStatus() ?? ""), "writing.check off suppresses the status rate", on.getStatus());
-			check("writing-status-gate-trust", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ trusted: false }))).getStatus() ?? ""), "an untrusted project suppresses the status rate", on.getStatus());
-			check("writing-status-gate-mode", !/writing \d+\/\d+/.test((await writingTurn(writingStatusFixture({ orchestrator: false }))).getStatus() ?? ""), "orchestrator mode off suppresses the status rate", on.getStatus());
-			check("writing-status-gate-ui", (await writingTurn(writingStatusFixture({ hasUI: false }))).getStatus() === undefined, "a session without UI suppresses the status rate", on.getStatus());
+			const ignoredKeyStatus = await writingTurn(writingStatusFixture({ writing: false }));
+			check("writing-status-ignored-keys", /writing 1\/1/.test(ignoredKeyStatus.getStatus() ?? ""), "writing status remains active when writing.check is false", ignoredKeyStatus.getStatus());
+			const gatedTurn = async (options) => {
+				let loads = 0;
+				let checks = 0;
+				const fixture = writingStatusFixture({
+					...options,
+					loadWritingChecker: async () => {
+						loads++;
+						return { checkText: () => { checks++; return { findings: [] }; } };
+					},
+				});
+				await writingTurn(fixture);
+				return { fixture, loads, checks };
+			};
+			const untrusted = await gatedTurn({ trusted: false });
+			check("writing-status-gate-trust", untrusted.loads === 0 && untrusted.checks === 0 && !/writing \d+\/\d+/.test(untrusted.fixture.getStatus() ?? ""), "an untrusted project keeps the checker inactive and suppresses the status rate", untrusted);
+			const modeOff = await gatedTurn({ orchestrator: false });
+			check("writing-status-gate-mode", modeOff.loads === 0 && modeOff.checks === 0 && !/writing \d+\/\d+/.test(modeOff.fixture.getStatus() ?? ""), "orchestrator mode off keeps the checker inactive and suppresses the status rate", modeOff);
+			const noUi = await gatedTurn({ hasUI: false });
+			check("writing-status-gate-ui", noUi.loads === 0 && noUi.checks === 0 && noUi.fixture.getStatus() === undefined, "a session without UI keeps the checker inactive and emits no status", noUi);
+			const paused = await gatedTurn({ paused: true });
+			check("writing-status-non-gate-pause", paused.loads === 1 && paused.checks === 1 && /writing 0\/1/.test(paused.fixture.getStatus() ?? ""), "pause is not a writing status or checker gate; the reminder pause gate is separate", paused);
 
 			const importFailed = await writingTurn(writingStatusFixture({
 				loadWritingChecker: async () => { throw new Error("synthetic import failure"); },
@@ -1713,10 +1781,9 @@ try {
 
 			const counters = { measuredTurns: 0, findingTurns: 0 };
 			writing.measureWritingTurn({ role: "assistant", content: "Open the panel; stop." }, checker, counters);
-			writing.measureWritingTurn({ role: "assistant", content: `${w(21)}.` }, checker, counters);
-			writing.measureWritingTurn({ role: "assistant", content: "Select and/or replace it." }, checker, counters);
+			writing.measureWritingTurn({ role: "assistant", content: "One. Two. Three. Four. Five. Six. Seven." }, checker, counters);
 			writing.measureWritingTurn({ role: "assistant", content: "The report was written." }, checker, counters);
-			check("writing-status-counting", counters.measuredTurns === 4 && counters.findingTurns === 1, "only a fail-level finding counts; warnings, house-style, and advisories do not", counters);
+			check("writing-status-counting", counters.measuredTurns === 3 && counters.findingTurns === 1, "only a fail-level finding counts; house-style and advisory findings do not", counters);
 
 			const noWrite = writingStatusFixture();
 			await writingTurn(noWrite);
@@ -1730,17 +1797,17 @@ try {
 			const off = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), offConfig);
 			const absent = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), noConfig);
 			const on = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), onConfig);
-			checkAll("writing-doctrine-off", "writing.check false renders doctrine byte-identically to an absent writing config", [
-				["off equals absent", off === absent, { off: off.length, absent: absent.length }],
-				["on renders the writing rule", /Check all user-facing prose before delivery/.test(on), on.slice(-700)],
+			checkAll("writing-doctrine-off", "trusted writing doctrine is active and byte-identical for false, true, and absent writing.check", [
+				["false equals absent and true", off === absent && absent === on, { off: off.length, absent: absent.length, on: on.length }],
+				["every trusted form renders the writing rule", [off, absent, on].every((text) => /Check user-facing prose before delivery/.test(text)), on.slice(-700)],
 			]);
 
 			const untrustedOn = await doctrine(EMPTY_EXT, () => ({ on: false, candidates: [] }), false, onConfig);
 			const untrustedOff = await doctrine(EMPTY_EXT, () => ({ on: false, candidates: [] }), false, offConfig);
 			const trustedOn = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), onConfig);
-			checkAll("writing-doctrine-untrusted", "an untrusted project gets no writing rule and remains byte-identical to writing.check false", [
-				["untrusted on equals off", untrustedOn === untrustedOff, { on: untrustedOn.length, off: untrustedOff.length }],
-				["trusted on renders the rule", /Check all user-facing prose before delivery/.test(trustedOn), trustedOn.slice(-700)],
+			checkAll("writing-doctrine-untrusted", "trust is the writing-doctrine gate regardless of either ignored writing key", [
+				["untrusted true equals false and renders no rule", untrustedOn === untrustedOff && !/Check user-facing prose/.test(untrustedOn), { on: untrustedOn.length, off: untrustedOff.length }],
+				["the same trusted config renders the rule", /Check user-facing prose before delivery/.test(trustedOn), trustedOn.slice(-700)],
 			]);
 
 			const routing = onReal;
@@ -1750,43 +1817,68 @@ try {
 				"writing + router": await asTrusted(EMPTY_EXT, routing, onConfig),
 				"writing + extensions": await asTrusted(WITH_EXT, offRouter, onConfig),
 				"all three": await asTrusted(WITH_EXT, routing, onConfig),
-				"router without writing": await asTrusted(EMPTY_EXT, routing, offConfig),
-				"extensions without writing": await asTrusted(WITH_EXT, offRouter, offConfig),
-				"all without writing": await asTrusted(WITH_EXT, routing, offConfig),
 			};
 			const numbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, tailNumbers(text)]));
-			const writingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Check all user-facing prose")]));
+			const writingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Check user-facing prose")]));
+			const designNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Keep a design statement only if")]));
 			const structuredWritingRule = ruleOfWriting(combos.writing);
 			const doctrineRequirements = reminder.WRITING_REQUIREMENTS.map((entry) => entry.text);
 			const requirementBlock = doctrineRequirements.map((line) => `   - ${line}`).join("\n");
 			const exactWritingStructure = [
-				"   does not test vocabulary. Follow these writing requirements:",
-				"",
+				"   test vocabulary. Follow these requirements:",
 				requirementBlock,
 				"",
-				"   Apply these requirements to README text, documentation, code comments, and",
-				"   pull request text. Apply them to commit bodies, issues, review comments,",
-				"   release notes, and messages to the user.",
+				"   Apply them to README and documentation text, code comments, pull request text,",
+				"   commit bodies, issues, review comments, release notes, and user messages.",
 				`   ${reminder.WRITING_SCOPE_EXCLUSION}`,
 			].join("\n");
 			const routingNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Pick the first candidate")]));
 			const extensionNumbers = Object.fromEntries(Object.entries(combos).map(([name, text]) => [name, numberOf(text, "Delegate any action that needs")]));
-			checkAll("writing-doctrine-numbering", "the writing rule is appended and numbered by tail position, without renumbering any rule before it", [
-				["writing alone is 11", writingNumbers.writing === 11 && numbers.writing.join() === "11", numbers],
-				["writing follows router", writingNumbers["writing + router"] === 12 && routingNumbers["writing + router"] === 11, [writingNumbers, routingNumbers]],
-				["writing follows extensions", writingNumbers["writing + extensions"] === 12 && extensionNumbers["writing + extensions"] === 11, [writingNumbers, extensionNumbers]],
-				["writing is last with all three", writingNumbers["all three"] === 13 && routingNumbers["all three"] === 12 && extensionNumbers["all three"] === 11, [writingNumbers, routingNumbers, extensionNumbers]],
-				["router number stays unchanged when writing is added", routingNumbers["writing + router"] === numberOf(combos["router without writing"], "Pick the first candidate"), [routingNumbers, numberOf(combos["router without writing"], "Pick the first candidate")]],
-				["extension number stays unchanged when writing is added", extensionNumbers["writing + extensions"] === numberOf(combos["extensions without writing"], "Delegate any action that needs"), [extensionNumbers, numberOf(combos["extensions without writing"], "Delegate any action that needs")]],
-				["both preceding numbers stay unchanged when writing is added", routingNumbers["all three"] === numberOf(combos["all without writing"], "Pick the first candidate") && extensionNumbers["all three"] === numberOf(combos["all without writing"], "Delegate any action that needs"), [routingNumbers, extensionNumbers]],
-				["requirements stay indented under a clear lead-in and explicit scope", structuredWritingRule.includes(exactWritingStructure), structuredWritingRule],
+			checkAll("writing-doctrine-numbering", "the writing rule keeps its positional number and the design rule follows it without renumbering earlier tails", [
+				["writing alone is 11 and design is 12", writingNumbers.writing === 11 && designNumbers.writing === 12 && numbers.writing.join() === "11,12", numbers],
+				["writing follows router and precedes design", writingNumbers["writing + router"] === 12 && designNumbers["writing + router"] === 13 && routingNumbers["writing + router"] === 11, [writingNumbers, designNumbers, routingNumbers]],
+				["writing follows extensions and precedes design", writingNumbers["writing + extensions"] === 12 && designNumbers["writing + extensions"] === 13 && extensionNumbers["writing + extensions"] === 11, [writingNumbers, designNumbers, extensionNumbers]],
+				["writing precedes design with all tails", writingNumbers["all three"] === 13 && designNumbers["all three"] === 14 && routingNumbers["all three"] === 12 && extensionNumbers["all three"] === 11, [writingNumbers, designNumbers, routingNumbers, extensionNumbers]],
+				// There is no trusted "without writing" rendering now. The removed comparisons
+				// used byte-identical fixtures and had no subject. The four absolute slot checks
+				// above pin every preceding number plus the writing and design rule positions.
+				["requirements stay indented under a clear lead-in, a blank-line boundary, and explicit scope", structuredWritingRule.includes(exactWritingStructure), structuredWritingRule],
 				["no roster bullet escapes to column zero", !doctrineRequirements.some((line) => structuredWritingRule.includes(`\n- ${line}`)), structuredWritingRule],
 			]);
 
+			const designRule = ruleOfDesign(combos.writing);
+			const DESIGN_RULE_BOUND = 450;
+			checkAll("design-doctrine-size", "the design doctrine rule keeps its exact measured size and five percent reserve", [
+				["the two-digit design rule is exactly 364 characters and 6 split lines", designRule.length === 364 && designRule.split("\n").length === 6, { chars: designRule.length, lines: designRule.split("\n").length }],
+				[`the design rule stays within ${DESIGN_RULE_BOUND} characters with five percent reserve`, designRule.length <= DESIGN_RULE_BOUND && DESIGN_RULE_BOUND >= Math.ceil(designRule.length * 1.05), { chars: designRule.length, bound: DESIGN_RULE_BOUND, reserveRequired: Math.ceil(designRule.length * 1.05) }],
+			]);
+			const sentenceShape = (rule) => {
+				const prose = rule.replace(/^\n\d+\.\s*/, "").replace(/\n\s+/g, " ");
+				return {
+					prose,
+					count: [...prose.matchAll(/[.!?](?=\s|$)/g)].length,
+					spaced: !/[.!?](?=\S)/.test(prose),
+				};
+			};
+			const designShape = sentenceShape(designRule);
+			const designPromptCheck = checker.checkText(designRule);
+			const reminderPromptCheck = checker.checkText(reminder.renderWritingReminderMessage());
+			const aboveAdvisory = (result) => result.findings.filter((finding) => finding.class !== "advisory");
+			const seventhSentenceControl = `${designRule} Stay concise.`;
+			const seventhSentenceCheck = checker.checkText(seventhSentenceControl);
+			const gluedBoundaryControl = designRule.replace("candidate. Present", "candidate.Present ");
+			checkAll("writing-prompt-check", "the shipped prompts pass, while seventh-sentence and glued-boundary controls fail the policy", [
+				["the design rule has exactly six sentences with spaced terminators", designShape.count === 6 && designShape.spaced, designShape],
+				["the shipped design rule has no finding above advisory", aboveAdvisory(designPromptCheck).length === 0, aboveAdvisory(designPromptCheck)],
+				["the shipped reminder has no finding above advisory", aboveAdvisory(reminderPromptCheck).length === 0, aboveAdvisory(reminderPromptCheck)],
+				["a seventh sentence is a positive control that triggers PARA6", sentenceShape(seventhSentenceControl).count === 7 && aboveAdvisory(seventhSentenceCheck).some((finding) => finding.id === "PARA6" && finding.class === "house-style"), { shape: sentenceShape(seventhSentenceControl), findings: aboveAdvisory(seventhSentenceCheck) }],
+				["a byte-neutral glued sentence boundary is rejected", gluedBoundaryControl.length === designRule.length && !sentenceShape(gluedBoundaryControl).spaced, { original: designShape, glued: sentenceShape(gluedBoundaryControl) }],
+			]);
+
 			const hostileConfigs = [
-				{ writing: { check: true, extra: "ignored" } },
-				{ writing: { check: true, checkAgain: "ignored" } },
-				{ writing: { check: true, nested: { text: "ignored" } } },
+				{ writing: { check: true, extra: "hostile" } },
+				{ writing: { check: true, checkAgain: "hostile" } },
+				{ writing: { check: true, nested: { text: "hostile" } } },
 			];
 			const renderedHostile = await Promise.all(hostileConfigs.map((config) => asTrusted(EMPTY_EXT, offRouter, config)));
 			check("writing-doctrine-inject", renderedHostile.every((text) => text === on), "the writing doctrine is static: config-derived text beyond the boolean check never reaches the rendered rule", renderedHostile.map((text) => text.length));
@@ -1794,7 +1886,7 @@ try {
 			// THE DOC CITATION. The writing rule cites docs/writing-guidance.md by the same
 			// mechanism rules 8-10 and the routing rule use: an ABSOLUTE path resolved inside
 			// the installed package. That path is prompt text paid for on EVERY turn of every
-			// session with the feature on, and every character of the installed docs directory
+			// trusted orchestrator session, and every character of the installed docs directory
 			// costs one more character of it — so three properties matter and none of them is
 			// visible from a smoke test, because a citation that renders in the wrong state,
 			// twice, or at a missing file all still "work".
@@ -1807,24 +1899,20 @@ try {
 			const cited = paths.WRITING_GUIDANCE_DOC;
 			const citations = (text) => text.split(cited).length - 1;
 			const writingRule = ruleOfWriting(on);
-			const citeFree = [
-				["writing.check false", off],
-				["an absent writing config", absent],
-				["an untrusted project with writing.check true", untrustedOn],
-				["a router-on session with writing off", combos["router without writing"]],
-				["an extensions-on session with writing off", combos["extensions without writing"]],
-			].filter(([, text]) => citations(text) !== 0).map(([label]) => label);
+			const trustedForms = [off, absent, on, combos["writing + router"], combos["writing + extensions"]];
+			const citeFree = [["an untrusted project with writing.check true", untrustedOn]]
+				.filter(([, text]) => citations(text) !== 0).map(([label]) => label);
 			checkAll(
 				"writing-doctrine-cite",
-				"the writing rule cites docs/writing-guidance.md by the ABSOLUTE package-resolved path paths.ts exports, ONCE, and only while the rule renders: every feature-off and untrusted rendering carries no occurrence of it, so the per-turn cost of the citation is paid exactly by the sessions that asked for the feature. The path is read from paths.ts, never re-derived from the rendered text, so a rename that leaves the doctrine citing a document the package no longer ships fails here; the file it names must also exist. The citation must not disturb the tail numbering either — it adds prose and a path, so the rule still carries exactly ONE numbered line and the rule remains the ONLY thing the switch adds to the doctrine",
+				"the package-resolved writing citation renders once in every trusted doctrine and never in untrusted doctrine",
 				[
-					["the citation renders exactly once when the rule is on", citations(on) === 1, { citations: citations(on), cited }],
-					["...and in no rendering where the rule does not appear", citeFree.length === 0, citeFree],
+					["the citation renders exactly once in every trusted configuration form", trustedForms.every((text) => citations(text) === 1), trustedForms.map(citations)],
+					["the citation is absent where trust suppresses the rule", citeFree.length === 0, citeFree],
 					["the citation sits INSIDE the writing rule, not elsewhere in the doctrine", writingRule !== "" && citations(writingRule) === 1, { rule: writingRule.length, inRule: citations(writingRule) }],
 					["the cited path is absolute and resolves inside the package docs directory", cited === join(REPO, "docs", "writing-guidance.md"), cited],
 					["...and names a file that exists, so the doctrine cannot cite a missing doc", existsSync(cited), cited],
 					["the rule still carries exactly ONE numbered line, so the tail numbering is untouched", [...writingRule.matchAll(/\n(\d+)\. /g)].length === 1, [...writingRule.matchAll(/\n(\d+)\. /g)].map((m) => m[1])],
-					["the rule is the ONLY thing the switch adds: off + rule is byte-identically on", off + writingRule === on, { off: off.length, rule: writingRule.length, on: on.length }],
+					["ignored writing key values add no bytes", off === on && absent === on, { off: off.length, absent: absent.length, on: on.length }],
 				],
 			);
 		});
@@ -1912,6 +2000,66 @@ try {
 			const configuredOffDraftWriting = await asTrusted(EMPTY_EXT, onConfigured, { writing: { check: true } });
 			const configuredDraft = await asTrusted(EMPTY_EXT, onConfigured, { workflow: { draftPRs: true } });
 			const configuredDraftWriting = await asTrusted(EMPTY_EXT, onConfigured, { workflow: { draftPRs: true }, writing: { check: true } });
+			const dogfoodConfig = {
+				workflow: { draftPRs: true },
+				writing: { check: true },
+				router: {
+					models: [
+						"openai/gpt-5.6-luna",
+						"openai/gpt-5.6-terra",
+						"openai/gpt-5.6-sol",
+						"anthropic/claude-sonnet-5",
+						"anthropic/claude-opus-5",
+					],
+				},
+				workerExtensions: ["pi-smart-fetch", "pi-web-search"],
+				modelFailover: {
+					"openai/gpt-5.6-luna": "anthropic/claude-sonnet-5",
+					"openai/gpt-5.6-terra": "anthropic/claude-opus-5",
+					"openai/gpt-5.6-sol": "anthropic/claude-opus-5",
+					"anthropic/claude-sonnet-5": "openai/gpt-5.6-luna",
+					"anthropic/claude-opus-5": "openai/gpt-5.6-sol",
+				},
+			};
+			const dogfoodSpecs = dogfoodConfig.router.models;
+			const dogfoodResolution = router.resolveModelRouter({
+				models: dogfoodSpecs,
+				failover: dogfoodConfig.modelFailover ?? {},
+				registry: {
+					find: (provider) => ({
+						contextWindow: provider === "anthropic" ? 1_000_000 : 272_000,
+						cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 },
+					}),
+					hasConfiguredAuth: () => true,
+				},
+			});
+			const dogfoodCandidates = dogfoodResolution.candidates;
+			const DOGFOOD_EXT = {
+				units: [
+					{
+						path: "/installed/pi-smart-fetch",
+						source: "npm:pi-smart-fetch@0.3.12",
+						isDirectory: true,
+						tools: [
+							{ name: "web_fetch", description: "Fetch a URL with browser-grade TLS fingerprinting and extract clean, readable content. Uses wreq-js for browser-like TLS/HTTP2 impersonation and Defuddle for article extraction. Returns full metadata plus the extracted document to the agent while keeping the pi history preview brief. Does NOT execute JavaScript — use a browser automation tool for JS-heavy pages." },
+							{ name: "batch_web_fetch", description: "Fetch multiple URLs with browser-grade TLS fingerprinting and readable extraction. Each request accepts the same parameters as web_fetch and fans out with bounded concurrency. Returns full per-item metadata to the agent and streams compact per-item progress in the pi TUI. Does NOT execute JavaScript — use a browser automation tool for JS-heavy pages." },
+						],
+					},
+					{
+						path: "/installed/pi-web-search",
+						source: "npm:pi-web-search@1.3.1",
+						isDirectory: true,
+						tools: [
+							{ name: "web_search", description: "Search the web using the current supported provider (Google Gemini, OpenAI, or Anthropic). Optionally include URLs to analyze alongside search results." },
+							{ name: "url_context", description: "Analyze the content of up to 20 public URLs using Gemini URL Context. Supports web pages, documents, images, and YouTube videos." },
+						],
+					},
+				],
+				paths: [],
+				toolNames: ["web_fetch", "batch_web_fetch", "web_search", "url_context"],
+			};
+			const dogfood = await asTrusted(DOGFOOD_EXT, () => dogfoodResolution, dogfoodConfig);
+			const untrusted = await doctrine(EMPTY_EXT, () => ({ on: false, candidates: [] }), false, { writing: { check: true, remind: true } });
 			const offDraft = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { workflow: { draftPRs: true } });
 			const offDraftWriting = await asTrusted(EMPTY_EXT, () => ({ on: false, candidates: [] }), { workflow: { draftPRs: true }, writing: { check: true } });
 			const allDraft = await asTrusted(EMPTY_EXT, onReal, { workflow: { draftPRs: true } });
@@ -1966,7 +2114,7 @@ try {
 			const maximalPortable = portable(maximal).length;
 			const maximalFollowUpPortable = portable(maximalFollowUp).length;
 			const maximalNoDraftPortable = portable(maximalNoDraft).length;
-			const measureDoctrine = (text, corpusState) => ({ portable: portable(text).length, lines: text.split("\n").length, basis: corpusState });
+			const dogfoodPortable = portable(dogfood).length;
 			const writingPortable = portable(ruleOfWriting(writingOn)).length;
 			const modelIncrements = [];
 			for (const candidate of realCandidates) {
@@ -2000,42 +2148,22 @@ try {
 			const authoredPrefixFixture = `${off}${authoredPrefixWording}`;
 			const globalPrefixMutation = (text) =>
 				text.split(DOCS_DIR).join("").split(RESEARCH_LOG_PREFIX).join("");
-			// Exact pins below were transcribed from this check's observed objects.
-			const shippedRuleFixtures = [
-				{ name: "router off, writing off, draft off, standard", text: off, basis: "standard", expectedPortable: 2916, expectedLines: 48 },
-				{ name: "router off, writing on, draft off, standard", text: writingOn, basis: "standard", expectedPortable: 3986, expectedLines: 70 },
-				{ name: "router off, writing off, draft on, standard", text: offDraft, basis: "standard", expectedPortable: 2927, expectedLines: 48 },
-				{ name: "router off, writing on, draft on, standard", text: offDraftWriting, basis: "standard", expectedPortable: 3997, expectedLines: 70 },
-				{ name: "six models, writing off, draft off, standard", text: configuredOffDraft, basis: "standard", expectedPortable: 4946, expectedLines: 69 },
-				{ name: "six models, writing on, draft off, standard", text: configuredOffDraftWriting, basis: "standard", expectedPortable: 6016, expectedLines: 91 },
-				{ name: "six models, writing off, draft on, standard", text: configuredDraft, basis: "standard", expectedPortable: 4957, expectedLines: 69 },
-				{ name: "six models, writing on, draft on, standard", text: configuredDraftWriting, basis: "standard", expectedPortable: 6027, expectedLines: 91 },
-				{ name: "all nine, writing off, draft off, standard", text: on, basis: "standard", expectedPortable: 5501, expectedLines: 72 },
-				{ name: "all nine, writing on, draft off, standard", text: writingRouterOn, basis: "standard", expectedPortable: 6571, expectedLines: 94 },
-				{ name: "all nine, writing off, draft on, standard", text: allDraft, basis: "standard", expectedPortable: 5512, expectedLines: 72 },
-				{ name: "all nine, writing on, draft on, standard", text: allDraftWriting, basis: "standard", expectedPortable: 6582, expectedLines: 94 },
-
-			];
-			const maximalFixtures = [
-				{ name: "maximal, draft enabled, standard", text: maximal, basis: "standard", expectedPortable: 7929, expectedLines: 104 },
-				{ name: "maximal, draft disabled, standard", text: maximalNoDraft, basis: "standard", expectedPortable: 7918, expectedLines: 104 },
-			];
-			// 2026-08-21: 6,567 × 1.05 = 6,895.35; ceil 6,896, then round the bound up to 6,900.
-			const WRITING_ROUTER_BOUND = 6900;
-			// 2026-08-21: 6,822 × 1.05 = 7,163.1; ceil 7,164, then round the bound up to 7,200.
-			const ALL_TAILS_BOUND = 7200;
-			// 2026-08-26: maximal follow-up is largest at 8,007. Its five-percent ceiling is 8,408, rounded to 8,500.
-			const MAXIMAL_BOUND = 8500;
+			// 2026-09-04: 6,784 × 1.05 = 7,123.2; ceil 7,124, then round the bound up to 7,200.
+			const WRITING_ROUTER_BOUND = 7200;
+			// 2026-09-04: 7,039 × 1.05 = 7,390.95; ceil 7,391, then round the bound up to 7,400.
+			const ALL_TAILS_BOUND = 7400;
+			// 2026-09-04: the 8,238 follow-up maximum is largest. 8,238 × 1.05 = 8,649.9; ceil 8,650, then round the bound up to 8,700.
+			const MAXIMAL_BOUND = 8700;
 			checkAll(
 				"doctrine-budget",
 				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The measurement excludes the variable research log session-directory prefix while retaining research-log.md. Production fixtures still render the complete path. A measured positive control adds one capped tool and six copies of the largest model row, so budget growth cannot pass vacuously",
 				[
-					["production fixtures render the complete mandatory research log path exactly once", [off, on, writingOn, maximal, maximalFollowUp, overBudget].every((text) => researchPathOccurrences(text) === 1), Object.fromEntries([off, on, writingOn, maximal, maximalFollowUp, overBudget].map((text, index) => [index, researchPathOccurrences(text)]))],
-					["portable measurement keeps research-log.md exactly once after removing only its variable directory prefix", [off, on, writingOn, maximal, maximalFollowUp, overBudget].every((text) => filenameOccurrences(portable(text)) === 1 && !portable(text).includes(RESEARCH_LOG_PREFIX)), { filename: researchLog.RESEARCH_LOG_FILENAME, prefix: RESEARCH_LOG_PREFIX }],
+					["production fixtures render the complete mandatory research log path exactly once", [off, on, writingOn, maximal, maximalFollowUp, dogfood, overBudget].every((text) => researchPathOccurrences(text) === 1), Object.fromEntries([off, on, writingOn, maximal, maximalFollowUp, dogfood, overBudget].map((text, index) => [index, researchPathOccurrences(text)]))],
+					["portable measurement keeps research-log.md exactly once after removing only its variable directory prefix", [off, on, writingOn, maximal, maximalFollowUp, dogfood, overBudget].every((text) => filenameOccurrences(portable(text)) === 1 && !portable(text).includes(RESEARCH_LOG_PREFIX)), { filename: researchLog.RESEARCH_LOG_FILENAME, prefix: RESEARCH_LOG_PREFIX }],
 					["a long prefix and a different non-basic Unicode prefix produce the same portable count and text", off !== alternateOff && portable(off) === alternatePortable && RESEARCH_LOG_PREFIX.length > 200 && /[^\x00-\x7f]/u.test(ALTERNATE_RESEARCH_LOG_PREFIX), { primaryRaw: off.length, alternateRaw: alternateOff.length, primaryPortable: portable(off).length, alternatePortable: alternatePortable.length }],
 					["normalization mutation controls detect a missing prefix removal, extra filename removal, a duplicated path, and a missing filename", docsOnly(off).length !== docsOnly(alternateOff).length && extraNormalized.length !== portable(off).length && filenameOccurrences(extraNormalized) === 0 && researchPathOccurrences(duplicatedResearchPath) === 2 && filenameOccurrences(missingFilename) === 0, { missingPrefix: [docsOnly(off).length, docsOnly(alternateOff).length], extraFilename: filenameOccurrences(extraNormalized), duplicatedPath: researchPathOccurrences(duplicatedResearchPath), missingFilename: filenameOccurrences(missingFilename) }],
 					["authored wording outside the marked path keeps every prefix character and detects global replacement", portable(authoredPrefixFixture).length - portable(off).length === authoredPrefixWording.length && globalPrefixMutation(authoredPrefixFixture).length - globalPrefixMutation(off).length < authoredPrefixWording.length, { scopedGrowth: portable(authoredPrefixFixture).length - portable(off).length, authoredGrowth: authoredPrefixWording.length, globalMutationGrowth: globalPrefixMutation(authoredPrefixFixture).length - globalPrefixMutation(off).length }],
-					["the docs normalisation bites and every fixture has its exact docs-path occurrence count", docPaths === 4 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC) && docPathOccurrences(off) === 3 && docPathOccurrences(on) === 4 && docPathOccurrences(writingOn) === 4 && docPathOccurrences(writingRouterOn) === 5 && docPathOccurrences(writingExtensionsOn) === 4 && docPathOccurrences(writingAllOn) === 5 && docPathOccurrences(maximal) === 6 && docPathOccurrences(maximalNoDraft) === 5 && docPathOccurrences(maximalFollowUp) === 6 && docPathOccurrences(overBudget) === 6, { off: docPathOccurrences(off), on: docPathOccurrences(on), writing: docPathOccurrences(writingOn), writingRouter: docPathOccurrences(writingRouterOn), writingExtensions: docPathOccurrences(writingExtensionsOn), all: docPathOccurrences(writingAllOn), maximal: docPathOccurrences(maximal), maximalNoDraft: docPathOccurrences(maximalNoDraft), followUp: docPathOccurrences(maximalFollowUp), positive: docPathOccurrences(overBudget) }],
+					["the docs normalisation bites and every fixture has its exact docs-path occurrence count", docPaths === 5 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC) && docPathOccurrences(untrusted) === 3 && docPathOccurrences(off) === 4 && docPathOccurrences(on) === 5 && docPathOccurrences(writingOn) === 4 && docPathOccurrences(writingRouterOn) === 5 && docPathOccurrences(writingExtensionsOn) === 4 && docPathOccurrences(writingAllOn) === 5 && docPathOccurrences(maximal) === 6 && docPathOccurrences(maximalNoDraft) === 5 && docPathOccurrences(maximalFollowUp) === 6 && docPathOccurrences(dogfood) === 6 && docPathOccurrences(overBudget) === 6, { untrusted: docPathOccurrences(untrusted), off: docPathOccurrences(off), on: docPathOccurrences(on), writing: docPathOccurrences(writingOn), writingRouter: docPathOccurrences(writingRouterOn), writingExtensions: docPathOccurrences(writingExtensionsOn), all: docPathOccurrences(writingAllOn), maximal: docPathOccurrences(maximal), maximalNoDraft: docPathOccurrences(maximalNoDraft), followUp: docPathOccurrences(maximalFollowUp), dogfood: docPathOccurrences(dogfood), positive: docPathOccurrences(overBudget) }],
 					["removing environment prefixes changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
 					["space-bearing directories normalize only inside the marked research log path", spacedPortable === `read /track-workflow.md and ${markedPath(researchLog.RESEARCH_LOG_FILENAME)}`, spacedPortable],
 					["the whole rule stays under 4000 portable chars with five percent reserve", ruleChars <= 4000 && hasDoctrineReserve(ruleChars, 4000), { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
@@ -2043,36 +2171,39 @@ try {
 					["its FIXED prose — the part that does not scale with the table — stays under 1500 portable chars with five percent reserve", prose <= 1500 && hasDoctrineReserve(prose, 1500), prose],
 					["no single model row exceeds 300 chars or consumes its five percent reserve", longest <= 300 && hasDoctrineReserve(longest, 300), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
-					["the configured-model fixture is the exact six-model project list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
+					["the configured-model fixture is the exact fixed six-model list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
+					["the fabricated dogfood fixture resolves its exact five-model list through the real router and uses pi registry context windows", dogfoodCandidates.length === dogfoodSpecs.length && dogfoodCandidates.every((candidate) => dogfoodSpecs.includes(candidate.spec)) && dogfoodCandidates.every((candidate) => candidate.contextWindow === (candidate.provider === "anthropic" ? 1_000_000 : 272_000)), { configured: dogfoodSpecs, candidates: dogfoodCandidates.map((candidate) => [candidate.spec, candidate.contextWindow]) }],
+					["the dogfood fixture is the measured 7016 portable chars and 100 lines", dogfoodPortable === 7016 && dogfood.split("\n").length === 100, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
-					["the router-off doctrine is the measured 2732 portable chars and 46 lines", portable(off).length === 2732 && off.split("\n").length === 46, { portable: portable(off).length, lines: off.split("\n").length }],
-					["...and the whole router-on doctrine is the measured 5317 portable chars and 70 lines, and stays under 6500 with five percent reserve", portable(on).length === 5317 && on.split("\n").length === 70 && portable(on).length <= 6500 && hasDoctrineReserve(portable(on).length, 6500), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
-					["writing-only doctrine is the measured 3802 portable chars and 68 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 3802 && writingOn.split("\n").length === 68 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
-					["draft-enabled router-off doctrine is 2761 portable chars and 46 lines", portable(offDraft).length === 2761 && offDraft.split("\n").length === 46, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
-					["draft-enabled router-off writing doctrine is 3831 portable chars and 68 lines", portable(offDraftWriting).length === 3831 && offDraftWriting.split("\n").length === 68, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
-					["the six-model fixture is 4762 portable chars and 67 lines without draft publishing or writing", portable(configuredOffDraft).length === 4762 && configuredOffDraft.split("\n").length === 67, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
-					["the six-model fixture is 5832 portable chars and 89 lines with writing", portable(configuredOffDraftWriting).length === 5832 && configuredOffDraftWriting.split("\n").length === 89, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
-					["the six-model draft fixture is 4791 portable chars and 67 lines", portable(configuredDraft).length === 4791 && configuredDraft.split("\n").length === 67, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
-					["the six-model draft and writing fixture is 5861 portable chars and 89 lines", portable(configuredDraftWriting).length === 5861 && configuredDraftWriting.split("\n").length === 89, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
-					[`writing plus router is the measured 6387 portable chars and 92 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 6387 && writingRouterOn.split("\n").length === 92 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
-					["writing plus extensions is the measured 4057 portable chars and 74 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 4057 && writingExtensionsOn.split("\n").length === 74 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
-					[`all three tail features are the measured 6642 portable chars and 98 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 6642 && writingAllOn.split("\n").length === 98 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
-					["the all-nine draft fixture is 5346 portable chars and 70 lines", portable(allDraft).length === 5346 && allDraft.split("\n").length === 70, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
-					["the all-nine draft and writing fixture is 6416 portable chars and 92 lines", portable(allDraftWriting).length === 6416 && allDraftWriting.split("\n").length === 92, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
+					["the untrusted doctrine is the measured 2732 portable chars, 46 lines, and three embedded paths", portable(untrusted).length === 2732 && untrusted.split("\n").length === 46 && docPathOccurrences(untrusted) === 3, { portable: portable(untrusted).length, lines: untrusted.split("\n").length, paths: docPathOccurrences(untrusted) }],
+					["the router-off trusted doctrine is the measured 4199 portable chars and 70 lines", portable(off).length === 4199 && off.split("\n").length === 70, { portable: portable(off).length, lines: off.split("\n").length }],
+					["...and the whole router-on doctrine is the measured 6784 portable chars and 94 lines, and stays under 7200 with five percent reserve", portable(on).length === 6784 && on.split("\n").length === 94 && portable(on).length <= 7200 && hasDoctrineReserve(portable(on).length, 7200), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
+					["writing and design doctrine is the measured 4199 portable chars and 70 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 4199 && writingOn.split("\n").length === 70 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
+					["draft-enabled router-off doctrine is 4228 portable chars and 70 lines", portable(offDraft).length === 4228 && offDraft.split("\n").length === 70, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
+					["draft-enabled router-off writing doctrine is 4228 portable chars and 70 lines", portable(offDraftWriting).length === 4228 && offDraftWriting.split("\n").length === 70, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
+					["the six-model fixture is 6229 portable chars and 91 lines without draft publishing", portable(configuredOffDraft).length === 6229 && configuredOffDraft.split("\n").length === 91, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
+					["the six-model fixture is 6229 portable chars and 91 lines with writing", portable(configuredOffDraftWriting).length === 6229 && configuredOffDraftWriting.split("\n").length === 91, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
+					["the six-model draft fixture is 6258 portable chars and 91 lines", portable(configuredDraft).length === 6258 && configuredDraft.split("\n").length === 91, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
+					["the six-model draft and writing fixture is 6258 portable chars and 91 lines", portable(configuredDraftWriting).length === 6258 && configuredDraftWriting.split("\n").length === 91, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
+					[`writing plus router is the measured 6784 portable chars and 94 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 6784 && writingRouterOn.split("\n").length === 94 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
+					["writing plus extensions is the measured 4454 portable chars and 76 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 4454 && writingExtensionsOn.split("\n").length === 76 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
+					[`all three tail features are the measured 7039 portable chars and 100 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 7039 && writingAllOn.split("\n").length === 100 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
+					["the all-nine draft fixture is 6813 portable chars and 94 lines", portable(allDraft).length === 6813 && allDraft.split("\n").length === 94, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
+					["the all-nine draft and writing fixture is 6813 portable chars and 94 lines", portable(allDraftWriting).length === 6813 && allDraftWriting.split("\n").length === 94, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
 					// Update exact measurements with production wording in the same commit.
-					[`the maximum all-feature fixture is the measured 7763 portable chars and 102 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 7763 && maximal.split("\n").length === 102 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					[`the draft-PR-disabled maximum fixture is pinned independently at 7734 portable chars and 102 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 7734 && maximalNoDraft.split("\n").length === 102 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the maximum all-feature fixture is the measured 8160 portable chars and 104 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 8160 && maximal.split("\n").length === 104 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the draft-PR-disabled maximum fixture is pinned independently at 8131 portable chars and 104 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 8131 && maximalNoDraft.split("\n").length === 104 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and 11 split lines, and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					[`the positive control is the measured 9079 portable chars and 109 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9079 && overBudget.split("\n").length === 109 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
+					[`the positive control is the measured 9476 portable chars and 111 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9476 && overBudget.split("\n").length === 111 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
 					// The writing rule has its own bound because its absolute citation changes raw size.
-					["the standard writing rule is the measured 1070 portable chars and stays under 1150 with five percent reserve", writingPortable === 1070 && writingPortable <= 1150 && hasDoctrineReserve(writingPortable, 1150), { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length, basis: "standard" }],
-					["...and is 23 split lines, adding 22 whole-doctrine lines, under the 25-line bound with five percent reserve", ruleOfWriting(writingOn).split("\n").length === 23 && writingOn.split("\n").length - off.split("\n").length === 22 && hasDoctrineReserve(ruleOfWriting(writingOn).split("\n").length, 25), ruleOfWriting(writingOn).split("\n").length],
+					["the writing rule is the measured 1103 portable chars and stays under 1200 with five percent reserve", writingPortable === 1103 && writingPortable <= 1200 && hasDoctrineReserve(writingPortable, 1200), { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length }],
+					["...and is 20 split lines while ignored writing keys add no lines, under the 25-line bound with five percent reserve", ruleOfWriting(writingOn).split("\n").length === 20 && writingOn.split("\n").length - off.split("\n").length === 0 && hasDoctrineReserve(ruleOfWriting(writingOn).split("\n").length, 25), ruleOfWriting(writingOn).split("\n").length],
 					["...and embeds exactly ONE doc path, so the citation is charged once per turn, not once per mention", DOCS_DIR !== "" && ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 === 1, { paths: DOCS_DIR === "" ? "no docs dir found" : ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 }],
-					["writing-on text is actually larger than writing-off text", writingOn.length > off.length, { off: off.length, writing: writingOn.length }],
+					["ignored writing keys produce byte-identical trusted doctrine", writingOn === off, { off: off.length, writing: writingOn.length }],
 					["writing-on with extensions is larger than writing-on without them", writingAllOn.length > writingRouterOn.length, { router: writingRouterOn.length, all: writingAllOn.length }],
 				],
 			);
@@ -2080,7 +2211,7 @@ try {
 				"doctrine-budget-follow-up",
 				"the trusted follow-up-issues configuration stays under the maximal bound",
 				[
-					[`the maximal follow-up fixture is the measured 7841 portable chars and 103 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 7841 && maximalFollowUp.split("\n").length === 103 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
+					[`the maximal follow-up fixture is the measured 8238 portable chars and 105 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8238 && maximalFollowUp.split("\n").length === 105 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
 				],
 			);
 		});
@@ -3329,49 +3460,41 @@ try {
 		});
 
 		await section("writing-config", async () => {
-			const warnedA = [];
-			const dflt = writing.sanitizeWritingConfig(undefined, (m) => warnedA.push(m));
-			const oldOn = writing.sanitizeWritingConfig({ check: true }, () => {});
-			checkAll("writing-config-default", "old check-only configs keep their behavior while reminder fields default off and 10 percent", [
-				["absent exact defaults", JSON.stringify(dflt) === JSON.stringify({ check: false, remind: false, remindPercent: 10 }), dflt],
-				["old enabled shape preserved", JSON.stringify(oldOn) === JSON.stringify({ check: true, remind: false, remindPercent: 10 }), oldOn],
-				["no warning", warnedA.length === 0, warnedA],
+			const notice = "slate: writing.check and writing.remind are ignored writing keys. Remove them from slate.json. Slate controls writing checks and reminders automatically for trusted projects in orchestrator mode.";
+			const sanitize = (raw) => {
+				const warned = [];
+				const result = writing.sanitizeWritingConfig(raw, (message) => warned.push(message));
+				return { result, warned };
+			};
+			const absentConfig = sanitize(undefined);
+			const absentKeys = sanitize({ remindPercent: 10 });
+			checkAll("writing-config-default", "absent ignored writing keys are silent and the sanitizer returns only the configurable percentage", [
+				["absent config has the exact percentage-only default", JSON.stringify(absentConfig.result) === JSON.stringify({ remindPercent: 5 }), absentConfig],
+				["an object with both keys absent is silent", JSON.stringify(absentKeys.result) === JSON.stringify({ remindPercent: 10 }) && absentKeys.warned.length === 0, absentKeys],
+				["undefined config is silent", absentConfig.warned.length === 0, absentConfig.warned],
 			]);
 
-			const validWarn = [];
-			const valid = writing.sanitizeWritingConfig({ check: true, remind: true, remindPercent: 0.1 }, (m) => validWarn.push(m));
-			check("writing-config-reminder-valid", valid.check && valid.remind && valid.remindPercent === 0.1 && validWarn.length === 0, "valid reminder and finite boundary percentage values survive unchanged", [valid, validWarn]);
-			const inert = writing.sanitizeWritingConfig({ check: false, remind: true, remindPercent: 100 }, () => {});
-			check("writing-config-reminder-inert", !inert.check && !inert.remind && inert.remindPercent === 100, "remind true becomes deterministically inert when check is false without rewriting a valid percentage", inert);
+			const valid = sanitize({ remindPercent: 0.1 });
+			check("writing-config-reminder-valid", JSON.stringify(valid.result) === JSON.stringify({ remindPercent: 0.1 }) && valid.warned.length === 0, "a finite boundary percentage survives unchanged without ignored writing keys", valid);
+			const both = sanitize({ check: false, remind: true, remindPercent: 100 });
+			check("writing-config-reminder-ignored", JSON.stringify(both.result) === JSON.stringify({ remindPercent: 100 }) && JSON.stringify(both.warned) === JSON.stringify([notice]), "both ignored writing keys produce one notice without rewriting a valid percentage", both);
 
 			const invalidPercentValues = ["10", Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, -0.1, 100.1];
-			const invalidPercents = invalidPercentValues.map((raw) => {
-				const warned = [];
-				const result = writing.sanitizeWritingConfig({ check: true, remind: true, remindPercent: raw }, (m) => warned.push(m));
-				return { raw: String(raw), result, warned };
-			});
-			check("writing-config-reminder-percent", invalidPercents.every(({ result, warned }) => result.remind && result.remindPercent === 10 && warned.length === 1 && /finite number in \(0, 100\]/.test(warned[0])), "non-number, non-finite, non-positive, and over-100 percentages warn and fall back to 10", invalidPercents);
+			const invalidPercents = invalidPercentValues.map((raw) => ({ raw: String(raw), ...sanitize({ remindPercent: raw }) }));
+			check("writing-config-reminder-percent", invalidPercents.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify({ remindPercent: 5 }) && warned.length === 1 && /finite number in \(0, 100\]/.test(warned[0])), "invalid percentages warn once and fall back to the percentage-only default", invalidPercents);
 
-			const invalid = [null, [], "yes", 7].map((raw) => {
-				const warned = [];
-				const result = writing.sanitizeWritingConfig(raw, (m) => warned.push(m));
-				return { result, warned };
-			});
-			const unknownWarn = [];
-			const unknown = writing.sanitizeWritingConfig({ check: true, typo: true }, (m) => unknownWarn.push(m));
-			const typeWarn = [];
-			const wrongType = writing.sanitizeWritingConfig({ check: "yes" }, (m) => typeWarn.push(m));
-			const remindTypeWarn = [];
-			const wrongRemindType = writing.sanitizeWritingConfig({ check: true, remind: "yes" }, (m) => remindTypeWarn.push(m));
-			const falseWarn = [];
-			const explicitFalse = writing.sanitizeWritingConfig({ check: false }, (m) => falseWarn.push(m));
-			checkAll("writing-config-invalid", "invalid writing shapes warn once and default, unknown keys still warn and disappear, and boolean check values preserve their explicit setting", [
-				["every invalid shape warns once and returns exact defaults", invalid.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify({ check: false, remind: false, remindPercent: 10 }) && warned.length === 1), invalid],
-				["unknown key warns", unknown.check === true && unknownWarn.length === 1 && /unknown writing key/.test(unknownWarn[0]), [unknown, unknownWarn]],
-				["unknown key is not rebuilt", !Object.prototype.hasOwnProperty.call(unknown, "typo"), unknown],
-				["wrong check type warns and defaults", wrongType.check === false && typeWarn.length === 1, [wrongType, typeWarn]],
-				["wrong remind type warns and defaults", wrongRemindType.check === true && wrongRemindType.remind === false && remindTypeWarn.length === 1 && /writing\.remind/.test(remindTypeWarn[0]), [wrongRemindType, remindTypeWarn]],
-				["explicit false stays false and silent", explicitFalse.check === false && falseWarn.length === 0, [explicitFalse, falseWarn]],
+			const invalid = [null, [], "yes", 7].map((raw) => sanitize(raw));
+			const unknown = sanitize({ typo: true });
+			const trueKey = sanitize({ check: true });
+			const falseKey = sanitize({ remind: false });
+			const bothFalse = sanitize({ check: false, remind: false });
+			checkAll("writing-config-invalid", "malformed shapes and unknown keys still warn while any ignored writing key produces one exact notice", [
+				["every invalid shape warns once and returns exact defaults", invalid.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify({ remindPercent: 5 }) && warned.length === 1), invalid],
+				["unknown key warns and is not rebuilt", JSON.stringify(unknown.result) === JSON.stringify({ remindPercent: 5 }) && unknown.warned.length === 1 && /unknown writing key/.test(unknown.warned[0]), unknown],
+				["check true produces the notice", JSON.stringify(trueKey.warned) === JSON.stringify([notice]), trueKey],
+				["remind false still produces the notice", JSON.stringify(falseKey.warned) === JSON.stringify([notice]), falseKey],
+				["both false produce one notice", JSON.stringify(bothFalse.warned) === JSON.stringify([notice]), bothFalse],
+				["ignored writing keys never survive in the sanitized shape", [trueKey, falseKey, bothFalse].every(({ result }) => !Object.prototype.hasOwnProperty.call(result, "check") && !Object.prototype.hasOwnProperty.call(result, "remind")), [trueKey, falseKey, bothFalse]],
 			]);
 
 			const proto = Object.create(null);
@@ -3381,21 +3504,16 @@ try {
 			let deep = { nested: null };
 			let cursor = deep;
 			for (let i = 0; i < 30000; i++) { cursor.nested = { nested: null }; cursor = cursor.nested; }
+			const percentGetter = {};
+			Object.defineProperty(percentGetter, "remindPercent", { enumerable: true, get() { throw new Error("percentage getter exploded"); } });
 			const inherited = Object.create({ check: true });
-			const hostile = [proto, getter, inherited, { check: deep }];
+			const hostile = [proto, getter, percentGetter, inherited, { check: deep }];
 			const hostileResults = hostile.map((raw) => {
-				const warned = [];
-				let result;
-				try { result = writing.sanitizeWritingConfig(raw, (m) => warned.push(m)); } catch { result = null; }
-				return { raw, result, warned };
+				try { return { raw, ...sanitize(raw) }; } catch { return { raw, result: null, warned: [] }; }
 			});
-			const safeCheck = (result) => {
-				try { return result?.check === false; } catch { return false; }
-			};
-			checkAll("writing-config-hostile", "hostile prototype, inherited check, getter, and deeply nested values do not crash or pollute the sanitizer, and sanitization returns a fresh object", [
-				["all hostile inputs survive", hostileResults.every(({ result }) => result !== null), hostileResults.map(({ result }) => result === null)],
-				["all hostile inputs default", hostileResults.every(({ result }) => safeCheck(result)), hostileResults.map(({ result }) => safeCheck(result))],
-				["malformed hostile inputs warn while inherited input stays silent", hostileResults[0].warned.length >= 1 && hostileResults[1].warned.length >= 1 && hostileResults[2].warned.length === 0 && hostileResults[3].warned.length >= 1, hostileResults.map(({ warned }) => warned.length)],
+			checkAll("writing-config-hostile", "hostile ignored writing key values are never read, an unreadable percentage defaults, inherited keys remain absent, and every result is fresh and safe", [
+				["all hostile inputs survive with exact percentage defaults", hostileResults.every(({ result }) => JSON.stringify(result) === JSON.stringify({ remindPercent: 5 })), hostileResults.map(({ result }) => result)],
+				["own hostile keys warn, the unreadable percentage warns, and inherited input stays silent", hostileResults[0].warned.length === 1 && /unknown writing key/.test(hostileResults[0].warned[0]) && hostileResults[1].warned[0] === notice && hostileResults[2].warned.length === 1 && /could not read the value/.test(hostileResults[2].warned[0]) && hostileResults[3].warned.length === 0 && hostileResults[4].warned[0] === notice, hostileResults.map(({ warned }) => warned)],
 				["result is fresh", hostileResults.every(({ raw, result }) => result !== raw), hostileResults.map(({ raw, result }) => raw === result)],
 				["no prototype pollution", ({}).polluted === undefined && ({}).typo === undefined, Object.prototype],
 			]);
@@ -3487,7 +3605,7 @@ evidence.`);
 				["negated counterfactual fails exact comparison", negatedArea9 !== expectedArea9Definition, negatedArea9],
 			]);
 
-			const fastPath = workflow.match(/^## Fast path\n([\s\S]*?)(?=^## Short packet shape)/m)?.[1] ?? "";
+			const fastPath = workflow.match(/^## Fast path\n([\s\S]*?)(?=^## Track packet shape)/m)?.[1] ?? "";
 			const checklist = [...fastPath.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
 			const expectedFastPath = normalizeText(`A SMALL single-track change may use the fast path only when every item passes.
 
@@ -3503,12 +3621,13 @@ evidence.`);
 10. One mechanical validation can establish the result.
 
 When all ten conditions pass, the fast path omits the high-level design,
-adversarial design review, machine reviewer, research log, and closing review.
-Another rule can still require any omitted gate or artifact.
+adversarial design review, machine reviewer, research log, implementer report,
+and closing review. Another rule can still require any omitted gate or
+artifact.
 
 The fast-path sequence is prediction → confirmation → implementation →
 mechanical validation → focus declaration → committed-boundary size measurement
-→ mechanical checklist → short packet → blocking final acceptance → delivery.
+→ mechanical checklist → track packet → blocking final acceptance → delivery.
 After boundary measurement, run all ten checklist items against the committed
 range and actual declarations.
 If any item fails, return to the ordinary SMALL workflow before packet delivery.
@@ -3516,7 +3635,7 @@ If any item fails, return to the ordinary SMALL workflow before packet delivery.
 Any project test artifact voids the fast path. Any verification or gate
 machinery also voids it. Carved-out SMALL verification work receives Reviewer I.
 Other SMALL work receives every reviewer whose canonical focus-area gate runs per track.`);
-			const widenedFastGrant = fastPath.replace("Another rule can still require any omitted gate or artifact.", "Another rule can still require any omitted gate or artifact. A widened fast path may also omit the track reviewer.");
+			const widenedFastGrant = fastPath.replace("artifact.\n\nThe fast-path sequence", "artifact. A widened fast path may also omit the track reviewer.\n\nThe fast-path sequence");
 			const widenedFastSequence = fastPath.replace("→ delivery.", "→ delivery → undocumented shortcut.");
 			const grantMutationApplied = widenedFastGrant !== fastPath;
 			const sequenceMutationApplied = widenedFastSequence !== fastPath;
@@ -3584,7 +3703,7 @@ production behaviour.`);
 			const levelTwoHeadingCount = (source) => levelTwoHeadings(source).length;
 			const userNoteHeadings = ["Track packets", "Receiving and routing a user note", "Note queue and drain", "Follow-up ledger", "Override log", "Register entry shape", "Mandatory escalation set", "User note accounting", "Final report"];
 			const targetDocs = [
-				["track-workflow.md", workflow, ["Lifecycle and phases", "Size script and focus prediction", "Confirmation gate", "Focus touchpoints", "Fast path", "Short packet shape", "Track intention block and focus declaration", "Session handoff and the research log", "Resume order and reconciliation", "Closing review", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
+				["track-workflow.md", workflow, ["Lifecycle and phases", "Size script and focus prediction", "Confirmation gate", "Focus touchpoints", "Fast path", "Track packet shape", "Track intention block and focus declaration", "Session handoff and the research log", "Resume order and reconciliation", "Closing review", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
 				["review-rules.md", reviews, ["Reviewer sets, merge rule and charters", "Findings and output", "Reviewer evidence standards", "Observation files and evidence recovery", "Fix loop and gate verdicts", "Stuck-fix consultation", "Termination and follow-up routing"]],
 				["blast-radius.md", blast, ["Two independent axes", "Size measurement and the exclusion list", "Track function and track constraints", "Focus areas and their gates", "Optional path declarations", "Lifecycle rules owned by the spine", "Halt, re-derivation and grade correction", "Review coverage and the coverage register", "Commit discipline for drift and boundaries"]],
 				["user-notes.md", userNotes, userNoteHeadings],
@@ -3767,20 +3886,21 @@ production behaviour.`);
 				"and anything the orchestrator must know.",
 			].join(" ");
 			const parallelToolRule = "Issue all independent tool calls simultaneously in one worker turn. Use separate turns only when results depend on each other or conflict.";
-			const currentGuidance = "Use short, active sentences. A sentence over 25 words fails. Over 20 words warns. Do not use semicolons or contractions. Apply these rules to all your prose.";
+			const currentGuidance = "Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file.";
 			const workerSource = readFileSync(join(REPO, "extension", "worker.ts"), "utf8")
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
 			const threadsSource = readFileSync(join(REPO, "extension", "threads.ts"), "utf8")
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
-			checkAll("worker-preamble", "common worker guidance requires parallel independent tool calls while optional guidance stays gated at the pinned prompt boundary", [
-				["feature-off preamble is the 365-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 365, worker.workerPreamble(false, false)],
+			checkAll("worker-preamble", "common worker guidance keeps its exact text, writing guidance is keyed only by trust, and the removed configuration parameter is absent", [
+				["untrusted preamble is the 365-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 365, worker.workerPreamble(false, false)],
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
 				["absent and false optional switches are byte-identical", worker.workerPreamble(undefined, undefined) === commonPreamble && worker.workerPreamble(false, false) === commonPreamble, { absent: worker.workerPreamble(undefined, undefined), false: worker.workerPreamble(false, false) }],
-				["only literal true enables the current 523-byte writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 523 && worker.workerPreamble("true", false) === commonPreamble, { on: worker.workerPreamble(true, false), malformed: worker.workerPreamble("true", false) }],
-				["worker prompt re-checks writing trust, passes the charter second, and passes the Slate-owned research log path third", /appendSystemPrompt\s*:\s*\[\s*workerPreamble\(trusted\s*&&\s*opts\.writingCheck\s*===\s*true\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.researchLogPath\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,220}/)?.[0] ?? "not found"],
-				["ThreadManager passes its sanitized writing switch", /writingCheck\s*:\s*this\.config\.writing\?\.check\s*===\s*true/.test(threadsSource), threadsSource.match(/writingCheck\s*:[^,\n]*/)?.[0] ?? "not found"],
+				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(currentGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
+				["only literal true trust enables the current 617-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 617 && worker.workerPreamble("true", false) === commonPreamble, { on: worker.workerPreamble(true, false), malformed: worker.workerPreamble("true", false) }],
+				["worker prompt passes trust directly, keeps the charter second, and passes the Slate-owned research log path third", /appendSystemPrompt\s*:\s*\[\s*workerPreamble\(trusted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.researchLogPath\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,220}/)?.[0] ?? "not found"],
+				["the removed writingCheck parameter and dispatch field are absent", !/writingCheck/.test(workerSource) && !/writingCheck/.test(threadsSource), { worker: workerSource.match(/writingCheck/)?.[0] ?? "absent", threads: threadsSource.match(/writingCheck/)?.[0] ?? "absent" }],
 				["ThreadManager derives the charter switch from effective thread type through the shared judgement-type predicate", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*isJudgementThreadType\(type\)/.test(threadsSource) && worker.JUDGEMENT_THREAD_TYPES?.join(",") === "reviewer,adversarial", { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found", judgementTypes: worker.JUDGEMENT_THREAD_TYPES }],
 				["the dispatch routes an unrecognised-type report through its user-visible warning channel", /report\s*:\s*routeWarn/.test(threadsSource), threadsSource.match(/report\s*:[^,\n]*/)?.[0] ?? "not found"],
 			]);
@@ -7152,14 +7272,14 @@ production behaviour.`);
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace",
 		"session-name-vocabulary", "doctrine-budget", "doctrine-budget-follow-up",
 		"doctrine-research-log",
-		"writing-config-default", "writing-config-reminder-valid", "writing-config-reminder-inert", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
-		"writing-reminder-load", "writing-reminder-roster", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-interval", "writing-reminder-cadence", "writing-reminder-gates", "writing-reminder-state-machine",
+		"writing-config-default", "writing-config-reminder-valid", "writing-config-reminder-ignored", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
+		"writing-reminder-load", "writing-reminder-roster", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-size", "writing-reminder-interval", "writing-reminder-cadence", "writing-reminder-gates", "writing-reminder-state-machine",
 		"writing-reminder-mode-send", "writing-reminder-rearm", "writing-reminder-mode-gates", "writing-reminder-mode-force", "writing-reminder-send-retry", "writing-reminder-cleared-retry", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",
-		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "writing-doctrine-inject", "writing-doctrine-cite",
+		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite",
 		"writing-checker-length", "writing-checker-para", "writing-checker-semicolon", "writing-checker-contraction",
 		"writing-checker-class", "writing-checker-not-checked", "writing-checker-caps", "writing-checker-modes", "writing-checker-determinism",
 		"writing-status-fresh", "writing-status-clean", "writing-status-positive", "writing-status-import-url", "writing-status-import-fail",
-		"writing-status-gate-switch", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui",
+		"writing-status-ignored-keys", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui", "writing-status-non-gate-pause",
 		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-cap-visible", "writing-status-counting", "writing-status-no-store-write",
 		"worker-load", "worker-preamble", "reviewer-charter-sync",
 		...DOCTRINE_CONTRACT_IDS,

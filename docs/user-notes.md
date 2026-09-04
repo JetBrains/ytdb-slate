@@ -10,50 +10,62 @@ non-empty note queue, and at the first owner triage.
 
 ## Track packets
 
-Every completed track reaches the user in a track packet. The packet contains
-the track diff. When the diff is large, the packet may contain a diffstat beside
-the commit range instead. The full diff remains available on request.
+Every completed track reaches the user in a track packet. Every grade shares
+these six fields:
 
-A per-track review is non-blocking. Delivery of a packet does not require the
-user to approve that track before the next track starts. A marker commit
-certifies a machine-reviewed track and a delivered packet. It never certifies
-user approval.
+1. the track intent.
+2. a file table with added and removed line counts for each changed file.
+3. when an approved high-level design exists, its differences since the last
+   presentation or a statement that no difference exists. When no approved
+   high-level design exists, state that this field does not apply.
+4. the verification results: the mechanical checklist outcome when the fast
+   path applies, and evidence from the required tests and checks.
+5. the cumulative implementation commit reference, as defined in
+   [track-workflow.md](track-workflow.md) § Lifecycle and phases, with the
+   pull-request link when draft-pull-request publishing is enabled. Otherwise,
+   it states that no pull request exists.
+6. the places where the user's judgment matters. For each requested decision,
+   state every option and its consequence. State that no decision is requested
+   when none exists.
 
-Final change-level acceptance is blocking at every size grade. The change does
-not terminate until the user accepts it under the delivery rules in
-[track-workflow.md](track-workflow.md).
+The track packet references the diff and never inlines it. It states where to
+find the diff. The user may ask for any part of it.
 
-The five-field SMALL packet belongs to [track-workflow.md](track-workflow.md)
-§ Short packet shape. This document does not duplicate that shape.
+At MEDIUM and LARGE, the user must accept each track and every requested fix
+before the marker lands or the next track starts. The marker certifies that
+machine review and required user review completed. At SMALL, a multi-track
+packet reports progress without adding a blocking acceptance gate. In a
+single-track change, the track review and final change acceptance are one
+event. Final change acceptance is blocking at every size grade.
+
+The SMALL grade-specific fields belong to
+[track-workflow.md](track-workflow.md) § Track packet shape. This document does
+not duplicate that shape.
 
 ### MEDIUM and LARGE packet
 
-A MEDIUM or LARGE packet has these ten fields.
+A MEDIUM or LARGE track packet adds these eight grade-specific fields to the
+six common fields above:
 
-1. **Aim, grade and rationale.** The intended result, the confirmed size grade,
-   and the reason for that grade.
+1. **Grade and rationale.** The confirmed size grade and the reason for it.
 2. **Commit range.** The range that contains the track.
-3. **Track diff.** The diff, or a diffstat beside the commit range when the diff
-   is large.
-4. **Checklist and test evidence.** The checklist result and the evidence from
-   the required tests and checks.
-5. **Machine review outcome.** Finding counts by type, severity and
+3. **Machine review outcome.** Finding counts by type, severity and
    disposition.
-6. **Override log delta.** Override log entries created for this track.
-7. **Follow-up ledger delta.** New follow-up ledger entries and the running
-   ledger count. The packet never repeats the accumulated ledger.
-8. **Live register sizes.** The current size of every live register except the
+4. **Override log delta.** Override log entries created for this track.
+5. **Follow-up ledger delta.** New follow-up ledger entries and the running
+   ledger count. The track packet never repeats the accumulated ledger.
+6. **Live register sizes.** The current size of every live register except the
    coverage register. A register that does not exist is omitted.
-9. **Focus set changes.** Every focus area added after the implementer's
+7. **Focus set changes.** Every focus area added after the implementer's
    declaration, the halt outcome, and the gates re-run because of the change.
-10. **Escalations.** Every escalation raised for the track and its recorded
-    disposition.
+8. **Escalations.** Every escalation raised for the track and its recorded
+   disposition.
 
-Every MEDIUM or LARGE packet reports the current size of each live register
-subject to field eight. A SMALL packet adds no register-size field. Register
-growth has no numeric escalation threshold. The orchestrator escalates when
-growth widens the gate set for the change or a remaining track, or when the
-user asks.
+Every MEDIUM or LARGE track packet reports the current size of each live
+register subject to field six. A SMALL track packet adds no register-size
+field. Register growth has no numeric escalation threshold. The orchestrator
+escalates when growth widens the gate set for the change or a remaining track,
+or when the user asks.
 
 ## Receiving and routing a user note
 
@@ -127,7 +139,9 @@ of these options:
 
 The follow-up ledger is the single register for suggestions and deferred work.
 It replaces any separate Suggestions section in the research log. The ledger is
-created when the first finding or user note is ledgered.
+created when the first finding, user note, or scope exception is ledgered.
+[track-workflow.md](track-workflow.md) § Confirmation gate defines a scope
+exception.
 
 Every ledger entry uses the register shape in § Register entry shape. Its
 statement is self-contained. It states what the finding or deferred work is,

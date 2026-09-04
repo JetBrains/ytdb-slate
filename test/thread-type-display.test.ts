@@ -142,6 +142,7 @@ test("mode refresh publishes all stored thread widget lines", async () => {
   await sessionStart({}, {
     hasUI: true,
     mode: "rpc",
+    isProjectTrusted: () => true,
     ui: {
       setWidget: (_id: string, lines: string[] | undefined) => { if (lines) widgets.push(lines); },
       setStatus() {},

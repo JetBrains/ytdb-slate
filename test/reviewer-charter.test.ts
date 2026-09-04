@@ -55,25 +55,25 @@ const EXPECTED_CHARTER_BY_THREAD_TYPE = {
 const PARALLEL_TOOL_RULE =
   "Issue all independent tool calls simultaneously in one worker turn. Use separate turns only when results depend on each other or conflict.";
 
-test("workerPreamble composes common, writing, and reviewer guidance independently", () => {
-  const base = workerPreamble(false, false);
-  const writing = workerPreamble(true, false);
-  const charter = workerPreamble(false, true);
-  const both = workerPreamble(true, true);
+test("workerPreamble gates writing guidance on trust and composes reviewer guidance independently", () => {
+  const untrusted = workerPreamble(false, false);
+  const trusted = workerPreamble(true, false);
+  const untrustedReviewer = workerPreamble(false, true);
+  const trustedReviewer = workerPreamble(true, true);
 
-  assert.equal(base, WORKER_PREAMBLE);
-  assert.equal(writing, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}`);
-  assert.equal(charter, `${WORKER_PREAMBLE}\n${REVIEWER_CHARTER}`);
-  assert.equal(both, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}\n${REVIEWER_CHARTER}`);
-  for (const preamble of [base, writing, charter, both]) {
+  assert.equal(untrusted, WORKER_PREAMBLE);
+  assert.equal(trusted, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}`);
+  assert.equal(untrustedReviewer, `${WORKER_PREAMBLE}\n${REVIEWER_CHARTER}`);
+  assert.equal(trustedReviewer, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}\n${REVIEWER_CHARTER}`);
+  for (const preamble of [untrusted, trusted, untrustedReviewer, trustedReviewer]) {
     assert.equal(preamble.split(PARALLEL_TOOL_RULE).length - 1, 1);
   }
-  assert.equal(charter.match(/^- /gm)?.length, 10);
-  assert.equal(both.match(/^- /gm)?.length, 10);
-  assert.doesNotMatch(base, /Trace, don't guess/);
-  assert.doesNotMatch(writing, /Trace, don't guess/);
-  assert.match(charter, /Trace, don't guess/);
-  assert.match(both, /Trace, don't guess/);
+  assert.equal(untrustedReviewer.match(/^- /gm)?.length, 10);
+  assert.equal(trustedReviewer.match(/^- /gm)?.length, 10);
+  assert.doesNotMatch(untrusted, /Trace, don't guess/);
+  assert.doesNotMatch(trusted, /Trace, don't guess/);
+  assert.match(untrustedReviewer, /Trace, don't guess/);
+  assert.match(trustedReviewer, /Trace, don't guess/);
 });
 
 test("real worker assembly delivers the charter only to review thread types", async () => {
@@ -92,7 +92,7 @@ test("real worker assembly delivers the charter only to review thread types", as
   } as unknown as ExtensionContext;
   // Track 15: worker assembly asks the store for the Slate-owned research log
   // path. This session owns none, so the stub answers undefined.
-  const manager = new ThreadManager({ researchLogPath: () => undefined } as never, { writing: { check: true } });
+  const manager = new ThreadManager({ researchLogPath: () => undefined } as never, { writing: { check: false, remind: false } });
   const view = manager as unknown as ManagerInternals;
   const cases: Array<[ThreadType | undefined, boolean]> = [
     ...THREAD_TYPES.map((type): [ThreadType, boolean] => [type, EXPECTED_CHARTER_BY_THREAD_TYPE[type]]),

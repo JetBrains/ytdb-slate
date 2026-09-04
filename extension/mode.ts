@@ -416,48 +416,47 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
 
 /**
  * The writing rule — the THIRD tail rule, so 13 when the worker-extension and
- * routing rules both render above it. Appended ONLY when `writing.check` is true
- * AND the project is trusted (the gate lives at the call site in buildDoctrine).
- * With the feature off it is never called, so the doctrine is byte-identical to
- * the pre-feature output — the same feature-off guarantee the two rules above it
- * make.
+ * routing rules both render above it. Appended only for trusted projects.
  *
  * WHOLLY STATIC except for `n` and the package-resolved doc path. Nothing derived
  * from project config, project files, the model registry or any extension reaches
- * this text: the only thing config decides is WHETHER the rule renders. That is
- * why the rule needs no sanitizer of its own, and why it must stay that way — the
- * moment a value from outside this module is interpolated here, this becomes an
- * injection surface and needs the treatment rule 11 gives its fields (see
- * sanitizeForDoctrine) or the routing rule gives its cells (see `cell()`).
+ * this text. The rule therefore needs no sanitizer of its own. The moment a value
+ * from outside this module is interpolated here, this becomes an injection surface
+ * and needs the treatment rule 11 gives its fields (see sanitizeForDoctrine) or
+ * the routing rule gives its cells (see `cell()`).
  *
  * The doc citation is an ABSOLUTE path resolved inside the installed package
  * (paths.ts), like rules 8-10 and the routing rule. It is therefore paid for at
  * the length of the reader's own install directory: every character of the
  * installed docs directory costs one more character here, on every turn of every
- * session that has the feature on. That is the whole reason the citation is one
+ * trusted orchestrator session. That is the whole reason the citation is one
  * line of prose plus one path rather than a summary of the document —
  * writing-guidance.md carries the rules, the caps and the command line, and the
  * rule tells the orchestrator when reading it is worth the tokens.
  */
 function buildWritingRule(n: number): string {
 	return `
-${n}. Check all user-facing prose before delivery. Use short, active sentences and
-   plain language. A sentence over 25 words fails the check. Rewrite it.
-   A sentence over 20 words warns. Shorten it when meaning stays clear.
-
-   Do not use semicolons or contractions. Keep exact technical terms. The check
-   does not test vocabulary. Follow these writing requirements:
-
+${n}. Check user-facing prose before delivery. Write sentences a non-native reader
+   understands on one reading. Use short, active, plain language. Keep exact
+   technical terms. Do not use semicolons or contractions. The checker does not
+   test vocabulary. Follow these requirements:
 ${renderWritingDoctrineRequirements("   ")}
 
-   Apply these requirements to README text, documentation, code comments, and
-   pull request text. Apply them to commit bodies, issues, review comments,
-   release notes, and messages to the user.
+   Apply them to README and documentation text, code comments, pull request text,
+   commit bodies, issues, review comments, release notes, and user messages.
 ${renderWritingScopeExclusion("   ")}
+   Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}. Read it only for an unusual
+   prose decision. Skip it if already in context.`;
+}
 
-   Rules, limits and the checker command:
-   ${WRITING_GUIDANCE_DOC}
-   — read it only for an unusual prose decision. Skip it if already in context.`;
+/** Render the final trusted doctrine rule for design discipline. */
+function buildDesignRule(n: number): string {
+	return `
+${n}. Keep a design statement only if a different reasonable implementation keeps
+   it true. Present to the user any item the approved goals do not list. Never
+   add or remove an approved goal yourself. Propose a repeated regression as a
+   non-goal candidate. Present what changed when you update a design. Assume
+   the user knows software but not this project.`;
 }
 
 function buildDoctrine(
@@ -541,9 +540,10 @@ ${renderResearchLogDoctrine(researchLog)}
 		// become the orchestrator's instructions, and because a future caller of
 		// buildDoctrine must not be able to lose that property by accident.
 		(n) => (trusted ? buildRoutingRule(router, config.router?.allowUnmeasuredEffort !== false, n) : ""),
-		// Append-only conditional tail. Re-check trust where project config becomes
-		// prompt text, even though index.ts loads that config only when trusted.
-		(n) => (trusted && config.writing?.check === true ? buildWritingRule(n) : ""),
+		// Append-only conditional tail. Writing guidance is active for every trusted
+		// project in orchestrator mode, independent of the ignored writing keys.
+		(n) => (trusted ? buildWritingRule(n) : ""),
+		(n) => (trusted ? buildDesignRule(n) : ""),
 	])}`;
 }
 
@@ -608,8 +608,7 @@ export function registerSlateMode(
 	let writingStatus: WritingStatus = "fresh";
 	let writingCheckerPromise: Promise<WritingChecker> | undefined;
 	const writingIsVisible = (ctx: ExtensionContext): boolean =>
-		ctx.hasUI && store.orchestratorMode && getConfig().writing?.check === true && ctx.isProjectTrusted();
-
+		ctx.hasUI && store.orchestratorMode && ctx.isProjectTrusted();
 
 	const updateWidget = () => {
 		if (!uiCtx?.hasUI) return;
@@ -837,8 +836,6 @@ export function registerSlateMode(
 				{
 					orchestratorMode: store.orchestratorMode,
 					trusted: ctx.isProjectTrusted(),
-					check: config?.check === true,
-					remind: config?.remind === true,
 					paused: store.paused,
 				},
 				runtime.sentThisRound,
@@ -849,7 +846,7 @@ export function registerSlateMode(
 		const usage = ctx.getContextUsage();
 		const effectiveBudget = usage ? hooks.effectiveContextBudget(usage.contextWindow, ctx) : undefined;
 		const interval =
-			effectiveBudget === undefined ? undefined : writingReminderInterval(effectiveBudget, config?.remindPercent ?? 10);
+			effectiveBudget === undefined ? undefined : writingReminderInterval(effectiveBudget, config?.remindPercent ?? 5);
 		const decision = decideWritingReminder(runtime.markTokens, usage?.tokens, interval, runtime.forceNext);
 		const reminderContent = renderWritingReminderMessage();
 		Object.assign(runtime, claimWritingReminder(runtime, decision, reminderContent));
