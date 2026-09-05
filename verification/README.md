@@ -455,9 +455,12 @@ redirected into an artifact file) is still visible.
 
    An isolated-load smoke test, an interactive session or a dogfooding session
    can rewrite the file concurrently. The resulting `SAFE FAIL` has an IDENTICAL
-   recorded hash and size, with only the mtime moved. That shape means a concurrent
-   writer rather than an escaped invocation. The run still fails because the
-   sentinel can no longer speak for the rungs above it. Stop the other pi processes
+   recorded hash and size, with only the mtime moved. That shape says only that
+   the bytes did not change. It does not name the writer: a child that ignored
+   the redirect and wrote the same bytes back produces the same shape as a
+   concurrent writer. Treat it as the likely concurrent-writer case, and confirm
+   it by rerunning alone rather than by reading the shape as proof. The run
+   still fails because the sentinel can no longer speak for the rungs above it. Stop the other pi processes
    that share the real agent directory, then rerun the ladder alone.
 
    The real agent directory is located **the way pi locates it** — via
@@ -701,10 +704,66 @@ Worker-extension resolver:
 | `off-inert` / `off-doctrine` | an empty pattern list resolves to the shared empty set without walking the registry, and the doctrine is byte-identical to the feature-off baseline |
 | `cand-builtin-sdk` / `cand-missing-path` | builtin- and sdk-sourced tools, and a tool whose entry path is absent, are never candidates |
 | `unit-directory` / `unit-glob-fallback` / `unit-unrun-fallback` | a single literal manifest entry the host runs yields the package directory; a glob, or a declared entry the host is not running, fall back to entry-file paths |
-| `bar-self-exclude` / `bar-collision` | a unit under slate's own root is dropped even under `.*`; a unit registering a slate dispatch name or a pi built-in is dropped whole and warned, survivors intact |
+| `bar-self-exclude` / `bar-self-nested` / `bar-self-split-layout` / `bar-self-second-entry` / `bar-self-symlink` / `bar-self-escape` / `bar-self-trailing` / `bar-self-fallback` / `bar-self-case` / `bar-self-name` / `bar-self-name-origins` / `bar-self-name-unitpath` / `bar-self-checkout-root` / `bar-collision` | the self-load barrier uses real source paths and the `ytdb-slate` package name; the name is read only at a directory unit path; pi's reported base directory is never a separate read location, but a promoted directory unit path can equal it; the split layout accepts a project extension while refusing slate by source path and package name; collision units are dropped whole and warned |
 | `match-*` | patterns test unanchored against source spec, unit path and each tool entry path; a non-match yields nothing; an invalid regex is dropped with a warning while its valid siblings apply |
 | `inject-safety` | a newline-bearing tool name, a 2000-char label and a backtick/markdown description all render into the doctrine without breaking its structure or exceeding the caps |
 | `memoization` | the memoizing resolver walks the registry exactly once across repeated calls |
+
+**The single package-name read location.**
+
+The resolver reads a manifest `name` at exactly ONE location: **the unit path**.
+The read occurs only when that path is a directory. A file unit path yields
+nothing. The resolver never walks upward. It does not consult pi's reported base
+directory (`sourceInfo.baseDir`) as an independent name-read location.
+
+A directory unit promotes the reported base directory to the unit path. Both
+paths can therefore be equal. The resolver then reads that directory's manifest
+through the unit path.
+
+Three resolver checks cover the read: `bar-self-name`, `bar-self-name-origins`
+and `bar-self-name-unitpath`. Two unit tests also cover it. They are `the
+candidate-path name read refuses every directory-owned slate shape` and `the
+resolver reads a candidate package name from its own package root`. Deleting the
+read fails those three resolver checks plus `bar-self-split-layout`. It also
+fails three unit tests.
+
+**Locations outside the package-name read.**
+
+The resolver does not consult the directory that CONTAINS an entry file. It also
+does not consult pi's reported base directory as an additional package-name
+location. pi computes `baseDir` for the candidate. For a single-file source, pi
+reports the CONTAINING directory. `package-manager.js:1050` covers the local-file
+package route. `resource-loader.js:635`, `:640` and `:648` also report a
+directory above the entry file. For an entry file in a checkout root, that
+directory identifies the checkout rather than the candidate. This project's
+checkout manifest is named `ytdb-slate`, but it must not withhold a legitimate
+extension beneath it. `bar-self-name-unitpath` pins the single read location
+directly. The SAME manifest refuses a directory unit at its unit path. It does
+not refuse a file unit from one level above its path. A promoted directory unit
+can have a unit path equal to pi's reported base directory. In that case, the
+resolver reads the manifest through the unit path.
+
+`bar-self-checkout-root` pins ten accepted shapes inside a fake
+checkout whose root manifest is named `ytdb-slate` — a manifest-less store
+candidate, an unrelated store manifest, a checkout-root entry file with no
+reported base directory, the same file with the checkout root as its base
+directory, the same file through pi's local-file package route, a directory entry
+with an unrelated manifest, a candidate two levels below the checkout root, a
+symbolically linked candidate, an unreadable manifest and a malformed manifest.
+
+**Residual gap.** The name rule refuses a slate copy only when the candidate's
+own path is a directory carrying slate's manifest — that is, a package source
+whose manifest declares the entries the host loaded (a directory unit), or a
+candidate whose entry path IS a directory. Every other reported shape is missed
+by name, and the gap is **wider** than "a file entry with no reported base
+directory": a file entry that DOES report a base directory is missed too. That
+covers pi's `top-level` sources, its local-file package route, a package manifest
+whose entries are globbed, and slate's own published `extension/index.ts`
+layout. The **name-collision barrier** covers every missed shape: any real slate
+copy registers `thread`, `threads` and `episode`. `bar-self-name-origins`,
+`bar-self-name-unitpath` and the unit test `the collision barrier covers every
+shape the candidate-path name read misses` pin both halves — the miss, and its
+cover at zero units and exactly one warning.
 
 The **action-routing doctrine rule** (`extension/mode.ts`, `b092f92`) — driven
 through `registerSlateMode`'s `before_agent_start` handler with a fabricated
@@ -1237,9 +1296,40 @@ concern, not something a structural check can own.
 
 These checks were validated by **mutation testing**: copy the repo to a scratch
 directory outside it, apply one textual change to `extension/model-router.ts`,
-`extension/route.ts`, `extension/state.ts`, `extension/base-model.ts` or
-`extension/model-profiles.ts`, and re-run the suite against the copy
-(`--repo <copy>`). Each behaviour listed
+`extension/route.ts`, `extension/state.ts`, `extension/base-model.ts`,
+`extension/model-profiles.ts` or `extension/worker-extensions.ts`, and re-run the
+suite against the copy (`--repo <copy>`).
+
+For the worker-extension resolver the recipe is exact, because an approximate
+one produced a list nobody could reproduce. In the copy's
+`extension/worker-extensions.ts`, delete the candidate-path name read and the
+`isSlateSelfLoad` call in barrier (a) and put the former single-line
+subtree-containment rule in their place:
+
+```ts
+if (pathContains(SLATE_PACKAGE_ROOT, unit.path) || pathContains(unit.path, SLATE_PACKAGE_ROOT)) continue;
+```
+
+Real-path resolution does **not** survive that reversion, and that detail decides
+the list. The former rule compared plain module-derived strings, so it consulted
+neither `realpathSync` nor `comparisonPath`; it also read `unit.path` only, never
+the tool entry paths, and it had no package-name rule at all. Change nothing
+else: leave `comparisonPath`, `isSlateSelfPath` and `readPackageNameAt` in the
+file, unused.
+
+That mutation fails exactly seven checks: `bar-self-nested`,
+`bar-self-split-layout`, `bar-self-second-entry`, `bar-self-symlink`,
+`bar-self-name`, `bar-self-name-origins` and `bar-self-name-unitpath`. The
+summary reads `7 fail, 0 not run`, and no other check changes. The pass total is
+deliberately not recorded here. It moves whenever any check is added anywhere in
+this suite, and a recorded total went stale once already: the earlier text said
+`200 pass` while a verbatim run of this recipe reported `204 pass`. The seven
+names above are the durable evidence, because they follow from the mutation and
+not from the size of the suite. `bar-self-symlink` is in the list
+because real-path resolution disappears with the rule.
+`bar-self-checkout-root` is NOT in the list: the subtree rule is anchored at the
+copy's own root, so it never reaches the fake checkout that check builds. Each
+behaviour listed
 above has at least one mutation that it catches — including the two that used to
 pass vacuously (the
 dedup mechanism and the shipped-table default), the ordering tie-breaks, the
@@ -2100,20 +2190,52 @@ the extension in the checkout under test, its `session_start` hook runs, and pi
 registers the dispatch tools and the `/slate` command. It proves this for THIS
 checkout, and not for an installed copy.
 
-The harness is cheap. It starts two pi processes, each for about one second, and
-both of them run offline and without a credential. One further check starts no pi
-at all (`T4`, below). Each pi process gets a fresh and **empty**
-`PI_CODING_AGENT_DIR` from `mktemp`, with no `models.json` and no `auth.json`, so
-no provider exists for a call. Each process also gets `PI_OFFLINE=1`,
-`--no-extensions`, and non-model rpc requests from a file, so stdin reaches EOF
-at once. The harness removes every inherited credential and every pi session
-variable from the environment of the child process.
+The harness starts two pi session processes. Both load the checkout explicitly
+through `-e`. A full invocation also starts one separate `pi --version` process
+to enforce the declared pin. `T4`, `T5` and the non-selectable roster audit start
+no session.
 
-`PI_OFFLINE=1` is mandatory for both runs, and the trusted run needs it most:
-`-a` makes pi read `.pi/settings.json`, and pi then npm-installs every package in
-that file. One such run hung for 60 seconds and wrote a `.pi/npm` directory
-**into the checkout under test**. `L8` and `T3` therefore assert that the
-directory did not change.
+Three checks were deleted from this harness, and it no longer proves the sibling
+worktree arrangement. `T6` classified the layout of the checkout. `T7` built a
+scratch sibling package layout and loaded slate through the tracked spelling
+alone. `T8` counted the copies of slate that an ordinary session loaded. Each of
+the three needed the sibling worktree of this repository to be present. A plain
+clone has no sibling, and a continuous-integration checkout has no sibling, so
+the three checks established nothing there. On a developer machine every pi
+session in this checkout already proves the same property by running, because a
+session with no slate extension has no `/slate` command and no dispatch tool. The
+user applied one test. A check earns its place only if it can fail somewhere the
+property is not already proven by use. `T6`, `T7` and `T8` failed that test. The
+user approved removing the goal that the arrangement is proven automatically.
+`T5` passes the test, because `T5` reads a tracked file, so `T5` runs in
+continuous integration and in a plain clone.
+
+Two things establish the arrangement now. Every session in this checkout proves
+it by running. The manual isolated-load smoke test, `pi --no-extensions -e .`,
+proves it on demand. `T5` protects the tracked settings entry itself in
+continuous integration. Nothing automatic proves the sibling arrangement.
+
+Both sessions run offline. Each receives an empty throwaway
+`PI_CODING_AGENT_DIR` under the `mktemp` scratch directory. No session receives
+`models.json` or `auth.json`. Both sessions receive `PI_OFFLINE=1` and non-model
+rpc requests from a file, so stdin reaches EOF at once. Both also receive
+`--no-extensions`.
+
+The environment scrub is a variable-name pattern, not a complete credential
+inventory. It removes names containing `API_KEY`, names ending in `_TOKEN`,
+names containing `TOKEN_`, names ending in `_SECRET`, names containing
+`_SECRET_`, and names containing `CREDENTIALS`. It also removes
+`PI_CODING_AGENT`, `PI_CODING_AGENT_DIR`, `PI_SESSION_FILE`, `PI_SESSION_ID`,
+`PI_PROVIDER`, `PI_MODEL`, `PI_REASONING_LEVEL`, `PI_KEY` and `PI_HOST`. A
+credential under another name remains. For
+example, the gate proved that `AWS_ACCESS_KEY_ID` reaches a real pi child. The
+stronger permitted-variable-list design is deferred.
+
+`PI_OFFLINE=1` is mandatory for both runs, and the trusted run needs it
+most: `-a` makes pi read `.pi/settings.json`, and pi then npm-installs every
+package in that file. One such run hung for 60 seconds and wrote a `.pi/npm`
+directory **into the checkout under test**. `L8` and `T3` therefore assert that
+the directory did not change.
 
 The harness is valid because the failure modes that it covers have no other
 signal (`AGENTS.md` § How extension-load failures surface). pi drops an entry in
@@ -2144,29 +2266,51 @@ The harness prints `PI_BIN` loudly in its output. `PI_BIN` is an override for an
 expert user, and it is **no security boundary**. The harness treats it as none,
 because a person who sets it can also edit the script.
 
+The override does not switch off any precondition, and it has one exit code.
+The three `NOTE` lines print first, and then the ordinary checks run against the
+named CLI. A `PI_BIN` path that is not executable is an exit-2 refusal. A
+`PI_BIN` CLI whose `--version` output does not equal the
+`@earendil-works/pi-coding-agent` pin is an exit-2 refusal too, and the message
+is the same version-mismatch text that a checkout-local CLI gets. Measured on
+2026-09-04: `PI_BIN=/nonexistent/pi` refused with exit 2 and the not-executable
+message, `PI_BIN=/usr/bin/true` refused with exit 2 and the version-mismatch
+message, and `PI_BIN` set to the checkout's own `node_modules/.bin/pi` printed
+the three notes and then exited 0 on `--only T4`. There is no exit code that
+belongs to the override alone.
+
 ## Running it
 
 ```sh
-bash verification/run-load-check.sh --repo .              # ~2 s; --repo defaults to "."
+bash verification/run-load-check.sh --repo .              # --repo defaults to "."
 bash verification/run-load-check.sh --repo . --only L4,L6
 bash verification/run-load-check.sh --list-checks
 bash verification/run-load-check.sh --help
 ```
 
-The harness prints a header with the run context, one line for each check, and a
-summary:
+Measurements on 2026-09-04 used an x86-64 desktop in the AMD Ryzen 9 7950X3D
+class with 62 GiB of memory. Three clean full runs after the deletion of `T6`,
+`T7` and `T8` took **2.48 s**, **2.61 s** and **2.63 s**. `--list-checks` and
+`--help` each measured below 0.01 s. These wall-clock values are measurements on
+that machine, not speed promises. Every invocation that creates the scratch
+directory also runs one short node program for the scratch-directory guard below.
+
+The harness prints a header with the run context, one line for each check, any
+`NOTE` lines that qualify a verdict, and a summary. This abbreviated sample uses
+values from that measured full run:
 
 ```
-repo  = /home/you/src/ytdb-slate (7d4c479)
-pi    = /home/you/src/ytdb-slate/node_modules/.bin/pi (0.83.0, pinned 0.83.0)
-lab   = /tmp/slate-loadcheck.Qw69p0
+repo  = /home/you/src/main-as-source (d30d029)
+pi    = /home/you/src/main-as-source/node_modules/.bin/pi (0.83.0, pinned 0.83.0)
+lab   = /tmp/slate-loadcheck.1znV6R
 
 CHECK L4                               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
-CHECK L6                               PASS — /slate is registered and attributed to /home/you/src/ytdb-slate/extension/index.ts — inside the checkout under test, so this run exercised the working tree and not an installed release
-CHECK T2                               PASS — slate's config sanitizers emitted no warning for the checkout's own .pi/slate.json (they cover the shape of modelFailover, contextBudget and workerExtensions only — not the file's syntax, which is T4, nor any other key)
-CHECK T4                               PASS — /home/you/src/ytdb-slate/.pi/slate.json parses as a JSON object, 5 top-level key(s): orchestratorModeDefault, workflow, modelFailover, router, workerExtensions
+CHECK L6                               PASS — /slate is registered and attributed to /home/you/src/main-as-source/extension/index.ts — inside the checkout under test, so this run exercised the working tree and not an installed release
+CHECK T2                               PASS — the trusted config emitted exactly the expected ignored writing keys notice and no sanitizer fault
+CHECK T4                               PASS — /home/you/src/main-as-source/.pi/slate.json parses as a JSON object, 6 top-level key(s): orchestratorModeDefault, workflow, writing, modelFailover, router, workerExtensions
+CHECK T5                               PASS — /home/you/src/main-as-source/.pi/settings.json carries exactly one local package entry, spelled "../../main", and no registry entry for ytdb-slate (3 package entry/entries in total)
 
-== summary: 12 pass, 0 fail ==
+CHECK roster                           PASS — all 13 selected check(s) reported exactly once (13 result line(s) before this audit)
+== summary: 14 pass, 0 fail (14 result lines = 13 selected checks + this roster audit) ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed, or `--only` matched
@@ -2182,10 +2326,14 @@ appear. The other exit-2 cases come from the environment: a missing tool, a bad
 `--repo`, no pi CLI, or a mismatch between the CLI and the pin. The harness
 prints the remedy with the message (`run 'npm ci --ignore-scripts'`, which is the
 install that CI runs; after a deliberate change of the pin, that install is
-enough).
+enough). A scratch directory inside the checkout under test, or inside the real
+agent directory, is an exit-2 refusal as well.
 
-Requirements: `node` and `mktemp`. The harness uses `timeout` when it is present,
-and it does not require it, so a hung pi cannot hang CI. An unknown id in
+Requirements: `node` and `mktemp`. Missing any required tool is an exit-2
+refusal. `git` was required while `T6` existed, and no surviving check reads git
+evidence. The context header still asks git for the short commit of the checkout,
+and it prints `not a git checkout` when git cannot answer. The harness uses `timeout` when it is present, and it does not require
+it. An unknown id in
 `--only` is a hard error (exit 2). Every refusal starts with
 `verification: refused to start — `, which is the vocabulary of all three CI
 wrappers and not a local convention. `AGENTS.md` § CI also states the
@@ -2194,28 +2342,56 @@ meaning of an exit code of 2.
 The artifacts are the raw rpc stdout and stderr streams of the pi runs. They live
 under the scratch directory, which the header names `lab`. The harness removes
 that directory after a clean run. It **keeps** the directory, and prints the
-path, when a check failed **and** a pi run happened. A failure of `T4` alone
-keeps nothing, because the directory holds nothing; a run whose pi wrote nothing
-still keeps the directory, because the gate is the pi run and not its output. The
+path, when a check failed **and** a pi run happened. A static-only failure of
+`T4` or `T5` keeps nothing, because the directory holds no pi streams. A run whose pi wrote
+nothing still keeps the directory, because the gate is the pi run and not its
+output. The
 scratch directory must sit outside the checkout: when `TMPDIR` points into the
 checkout, the harness refuses the run, because pi must write nothing there.
+The real agent directory carries the same rule. When `TMPDIR` points inside the
+real agent directory, the harness refuses the run with exit 2, because that
+directory is one the harness may only read. The refusal is deliberate, and a
+silent relocation is deliberately not offered: `TMPDIR` comes from the caller, so
+the state is a bad invocation and not a defect in the checkout, and a silent move
+would hide the misconfiguration. The guard applies the agent-directory rules of
+the shared program, and it compares the real paths as well as the spellings.
+Measured before the guard existed: `TMPDIR=<agent dir>/scratch` with `--only L1`
+left 26 entries inside the real agent directory and reported a pass. The same
+invocation now refuses and leaves nothing.
 
 A failing run also **prints those streams to its own stdout**, because a CI job
 deletes its scratch directory and the path then names a directory that nobody can
 open. The same two conditions gate the output: a check failed, and a pi run
-happened. A clean run therefore prints nothing extra, and a failure of `T4` alone
+happened. A clean run therefore prints nothing extra, and a static-only failure
 prints no empty section. The harness prints one delimited section for each
-stream of each run that started. It prints stderr before stdout, because pi's
-diagnostics and the canary line go to stderr. Each section names its
-run, and the `artifacts:` pointer still follows for a local run:
+stream of each run that started. A failing full run can therefore print four
+sections: stderr and stdout for each of `run1` and `run2`. It
+prints stderr before stdout, because pi's diagnostics and the canary line go to
+stderr. The size of a section is not a fixed figure of this harness. All four
+sections carry the absolute path of the checkout once, so each of them grows with
+the length of that path. Every section also follows pi's own diagnostic text and
+the configuration of the checkout. This
+document therefore states a bound and one example measurement, and it states no
+figure that a reader is expected to match exactly. The bound is the cap
+arithmetic below. The example is ONE RUN on 2026-09-04, on the x86-64 desktop
+named above, in this dogfooding checkout at a path of 55 characters, with the
+committed `.pi/settings.json` and `.pi/slate.json`. A copy of the harness with
+the `L1` assertion inverted made an otherwise
+clean run fail, and that run printed 4 sections of 179, 2237, 178 and 1124 bytes,
+which sum to 3718 bytes. The same four values are the first four values of the
+eight that the earlier four-session harness printed. Another checkout path or
+another project configuration gives other values. Each section names its run, and
+the `artifacts:` pointer still follows for a local run. The sample below abbreviates
+every body, so each stated size is the size of the real stream and not of the
+line shown:
 
 ```
 rpc streams below, inlined because a CI scratch directory does not outlive the
 job — the artifacts path at the end is only reachable on the machine that ran.
----- run2 (the trusted config run, -a) stderr — 136 bytes ----
+---- run2 (the trusted config run, -a) stderr — 178 bytes ----
 CI-CANARY {"tools":[…],"cwd":"…","trusted":true}
 ---- end run2 (the trusted config run, -a) stderr ----
----- run2 (the trusted config run, -a) stdout — 982 bytes ----
+---- run2 (the trusted config run, -a) stdout — 1124 bytes ----
 {"type":"extension_ui_request",…,"method":"notify","message":"slate: ignoring …"}
 ---- end run2 (the trusted config run, -a) stdout ----
 artifacts: /tmp/slate-loadcheck.5eHaps (raw rpc streams, kept because a check failed)
@@ -2225,14 +2401,32 @@ The output has a bound, so a pathological run cannot flood the log. The harness
 cuts each stream at **20000 bytes** (`STREAM_CAP`). It cuts at the last line
 boundary when that boundary lies past half of the cap. The header of a section
 that lost bytes states the real size, the size after the cut, and the cap, so
-nobody reads a cut stream as a whole one. Four sections therefore cost about
-80 KB at most.
+nobody reads a cut stream as a whole one. Four sections therefore carry at most
+**80000 bytes** of stream bodies after a full two-session run: 4 streams ×
+20000 bytes per stream.
 
-A stream of 0 bytes gives one header with `— 0 bytes (empty)` and no body, and a
-stream that the harness cannot read gives `unavailable` with the reason. The
-harness replaces each C0 control character other than tab and newline with `?`,
-because the output goes into a log, and the harness promises no ANSI anywhere.
-The copy in the artifacts directory keeps the original bytes. A real
+The inlined raw stream dumps are byte-faithful before the documented C0
+neutralization, and they are **NOT credential-redacted**. A credential in pi's
+own output can therefore appear in a failing log. A stream of 0 bytes gives one
+header with `— 0 bytes (empty)` and no body, and a stream that the harness cannot
+read gives `unavailable` with the reason.
+
+The `CHECK` and `NOTE` lines redact every value that came out of a settings file,
+a manifest, a specifier or one of pi's own diagnostics. They do **not** redact
+everything, and this document states the two exceptions plainly. `T4` prints the
+top-level key names of `.pi/slate.json` as they stand. The paths the harness was
+given or created are printed as they stand too: the `--repo` path, the scratch
+path and the working directory that the canary
+reports. The npm-specifier pass keeps a package name whose shape is a legal npm
+name, and it keeps a range that looks like a version range. A dot-free range is
+kept only up to 5 characters, because every dot-free range that npm accepts is a
+short bare major, while a hexadecimal or UUID-shaped token is long. A name that
+is a bare scope with no `/name` is redacted, because npm has no such specifier.
+
+The harness replaces each C0 control
+character other than tab and newline with `?`, because the output goes into a
+log, and the harness promises no ANSI anywhere. The copy in the artifacts
+directory keeps the original bytes. A real
 cut, from a run whose pi wrote 39900 bytes to stderr, looks like this:
 
 ```
@@ -2249,15 +2443,37 @@ another live session, and a removal would corrupt the write of that session.
 `.gitignore` covers `.pi/*.lock` for the case where a signal kills the harness, or
 a dogfooding session, before any cleanup runs.
 
+The separate version-pin probe reads the real user agent directory before the
+throwaway session directories exist. It creates and removes `settings.json.lock`
+beside the real user settings file. That operation moves the real agent
+directory's modification time. The scratch guard also resolves the real path of
+the real agent directory on every invocation that reaches check selection. The
+scratch guard reads directory metadata only. It never reads the user
+`settings.json` content. The measured user `settings.json` content, size and
+modification time stayed unchanged.
+
+The mirror of the real agent directory, and the fingerprint that watched the
+user `settings.json` file, belonged to `T8`. Both were deleted with `T8`. No
+session of this harness reads the real user settings file now, and no session
+resolves a package or an extension out of the real agent directory. The recorded
+risk that a mirrored symbolic link gave pi a write path into that directory is
+gone with the mirror that created it.
+
 ## What it covers
 
-The harness runs 12 checks. `L1`–`L8` cover the untrusted load path, `T1`–`T3`
-cover the trusted path (`-a`), and `T4` needs no pi at all: `--only T4` starts no
-session, and it runs the version probe that resolves the CLI only.
+`--list-checks` prints 13 selectable identifiers. `L1`–`L8` cover the
+untrusted explicit load path, and `T1`–`T3` cover the trusted explicit path
+(`-a`). `T4`, `T5` and the
+roster audit start no session. The non-selectable `roster` audit compares the
+selected identifiers with the identifiers that reported and emits its own result
+line. A clean full run therefore prints 14 result lines: 13 selected checks plus
+the roster audit. Every invocation that reaches check selection also runs the
+separate pi version-pin probe. The measured full invocation had 3 real pi
+processes: 1 version-pin probe plus 2 rpc sessions.
 
 | id | what it proves |
 | --- | --- |
-| `L1` | pi **exited 0** and loaded the checkout (rpc, offline, empty agent dir, no credentials). This is a real signal on pi 0.83.0, where most load failures exit 1 |
+| `L1` | pi **exited 0** and loaded the checkout (rpc, offline, empty agent dir, no `models.json` and no `auth.json`, environment scrubbed by name pattern). The verdict names the pattern scrub, and it claims no more than that. The run does **not** deliver an environment with no credentials of any kind: the scrub is a variable-name pattern list, and a credential under an unmatched name reaches the child, as the measured `AWS_ACCESS_KEY_ID` case above shows. What holds is that the run has nothing to spend a credential on. This check is a real signal on pi 0.83.0, where most load failures exit 1 |
 | `L2` | stderr holds **neither** `Failed to load extension` **nor** `Extension error (`. The check reads both markers, because the first is the channel for a reported load failure and the second is the channel for a hook, which the first misses. Its own verdict line names the two markers and reproduces neither, so a grep of a CI log for either literal finds no line from a run that passed |
 | `L3` | **stdout** holds no `extension_error` event, which is the only signal from a hook that throws in rpc mode |
 | `L4` | the canary saw all three dispatch tools: `thread`, `threads` and `episode`. Nothing else detects their removal |
@@ -2266,9 +2482,10 @@ session, and it runs the version probe that resolves the CLI only.
 | `L7` | `/slate on` completes through the command handler offline: the prompt response succeeded, the handler appended a `slate-state` entry, and the widget holds lines |
 | `L8` | the run left `.pi/npm` in the checkout unchanged, so the run stayed offline and npm-installed nothing into the working tree |
 | `T1` | pi exited 0 on the trusted (`-a`) run, **and** the `trusted` field of the canary reads `true` (the `canary-trusted` query of the driver). This check protects `T2`: without trust slate reads no `.pi/slate.json`, and a clean `T2` then means nothing |
-| `T2` | slate's config sanitizers emitted **no warning** for the tracked `.pi/slate.json` of this checkout. That result is the whole claim: sanitizers warn for three keys only (`modelFailover`, `contextBudget` and `workerExtensions`), so a clean `T2` excludes a warning and nothing else |
+| `T2` | the trusted config emitted exactly the one expected notice for the retained ignored keys `writing.check` and `writing.remind`, and no other warning. A missing or changed notice, an additional sanitizer warning, malformed rpc output, or an untrusted positive control FAILS. The covered sanitizer groups are `modelFailover`, `contextBudget`, `workerExtensions` and `writing` |
 | `T3` | the trusted run also left `.pi/npm` unchanged, so `PI_OFFLINE` held where `-a` would otherwise install |
 | `T4` | the project config file **parses as JSON and holds a plain object at the top level**. node reads the file directly from disk. The check PASSES when the file is absent, because a project config is optional for a consumer |
+| `T5` | without starting a pi session, the tracked `.pi/settings.json` is readable JSON with a `packages` array, contains exactly one local package entry spelled `../../main`, and contains no npm entry named `ytdb-slate`. The local entry must be a bare string or an object whose only key is `source`. It FAILS on a missing or malformed file, an invalid package-entry shape, another local entry, another spelling, a registry slate entry, `autoload: false`, or any package filter key |
 
 `T4` exists because `T2` cannot cover the syntax of the file. slate's
 `loadConfig()` wraps the read and the `JSON.parse` in a `try`/`catch`, and it
@@ -2279,34 +2496,49 @@ looks healthy to every check that reads pi's output, while slate drops every
 setting in the file, `workflow.draftPRs` included. A direct read of the file is
 the only way to see that state, and it needs no pi, no session and no trust.
 
+Re-run the full harness after a change to extension loading, tool or command
+registration, `session_start`, `.pi/slate.json`, `.pi/settings.json`, the shared
+package-resolution helpers, the `T5` assertion, or the redaction paths. The
+sibling-worktree triggers went with `T6`, `T7` and `T8`. A change to the sibling
+target, to its manifest, to a declared extension entry point, to the worktree
+layout, to a user-scope settings entry, or to either automatically discovered
+extensions directory moves no result in this harness now.
+
+Detection of a second loadable copy of slate is no longer a goal of this harness.
+`T8` carried that goal. A duplicate load surfaces in use instead: pi reports a
+tool conflict for every dispatch tool and exits 1 before the first prompt, so the
+session is dead. `T5` still fails on a registry entry for `ytdb-slate` beside the
+tracked local entry, which is the one duplicate this repository created in the
+past.
+
 One gap remains, and this document states it plainly. `T2` and `T4` together
-cover the syntax of the file, its top-level shape, and the *shapes* of three
-keys. **An unknown key, and a wrong-typed value under a key without a sanitizer,
-pass both checks in silence**. `{"totallyUnknownKey": 5, "maxConcurrent": "lots"}`
+cover the syntax of the file, its top-level shape, and the sanitizer-covered
+config groups. **An unknown key, and a wrong-typed value under a key without a
+sanitizer, pass both checks in silence**. `{"totallyUnknownKey": 5, "maxConcurrent": "lots"}`
 gives a pass for `T4` and a pass for `T2`. No check in CI validates the
 content of the config, and the reader of `README.md` § Configuration still
 carries that duty.
 
-The harness proves no behaviour. No check here executes a tool, starts a worker
-session, or exercises failover or handoff: the harness performs a load, a
-registration check, one command round trip and one file read. It is also no
-typecheck; `npm run typecheck` is that check, because jiti transpiles each module
-and erases the types, so a type error loads correctly. Both pi runs use rpc mode,
-so no result here describes the TUI. Those subjects need the ladder, the resolver
-checks, or the manual isolated-load smoke test (`pi --no-extensions -e .`, see
+The harness proves no tool behaviour. No check here executes a tool, starts a
+worker session, or exercises failover or handoff: the harness performs loads,
+registration checks, one command round trip, and direct config and package
+reads. It is also no typecheck; `npm run typecheck` is that check, because jiti
+transpiles each module and erases the types, so a type error loads correctly.
+Both pi sessions use rpc mode, so no result here describes the TUI. Those subjects
+need the ladder, the resolver checks, or the manual isolated-load smoke test (`pi --no-extensions -e .`, see
 `AGENTS.md`).
 
 ## Files
 
 | file | role |
 | --- | --- |
-| `run-load-check.sh` | the driver: it resolves the pi CLI, matches the pin, runs the scrubbed offline rpc runs, parses the rpc streams, reads the config file, and holds every assertion |
+| `run-load-check.sh` | the driver: it resolves the pi CLI, matches the pin, runs two pattern-scrubbed offline rpc sessions, parses their streams, reads the project config file and the tracked package settings, and holds every assertion |
 | `ci-canary.ts` | the positive control: a `session_start` hook that prints the registered tool set, the cwd and the trust state to stderr, and asserts nothing |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
 whitelist is `extension`, `docs`, `README.md`, `LICENSE`). No module in
 `extension/` imports the canary, and the canary reaches a session only because
-this harness passes it to pi with a second `-e`.
+this harness passes it to pi with `-e`.
 
 # Package-content check — `package-content-check.mjs`
 

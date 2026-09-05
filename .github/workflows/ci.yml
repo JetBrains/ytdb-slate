@@ -4,19 +4,29 @@
 # one minute of work plus the dependency install. What CI does NOT need is what
 # makes it safe to run on every pull request:
 #
-#   * No credentials, of any kind. No secrets are referenced and none are
-#     needed; the load check's two pi runs use an empty throwaway agent
-#     directory with PI_OFFLINE=1, so no provider is ever contacted.
+#   * No secret is referenced, and none is needed. The load check starts two
+#     pi sessions, and both of them run with PI_OFFLINE=1, without
+#     models.json and without auth.json, so no provider is ever contacted. Each
+#     session gets an empty throwaway agent directory.
+#     This is NOT a claim that no credential reaches a child: the
+#     load check scrubs the child environment by variable-name pattern, not by a
+#     list of permitted variables, and a measured AWS_ACCESS_KEY_ID reached a
+#     real pi child. The offline session simply has nothing to spend it on.
 #   * No network in the checks themselves. Only the checkout, the Node download
 #     and `npm ci` reach out, and those registry reads are unauthenticated.
 #   * No lasting change to the checkout. `npm ci` fills the gitignored
 #     node_modules and nothing else moves — `git status` is clean after a full
-#     local run — and the two harnesses that need scratch space mktemp it under
+#     local run — and the three harnesses that need scratch space (the load
+#     check, the resolver checks and the unit-test wrapper) mktemp it under
 #     TMPDIR and remove it again.
 #
 # It is not hermetic with respect to the rest of the filesystem, and does not
 # claim to be: `npm ci` populates the npm cache under HOME like any install, and
-# the scratch directories above live under TMPDIR, not in the workspace.
+# the scratch directories above live under TMPDIR, not in the workspace. The
+# load check also touches real pi state on one read path. It runs one
+# `pi --version` pin probe with the ordinary environment, and pi creates and
+# removes a settings.json.lock directory beside the real user settings file
+# during it. No load-check session reads the real user agent directory.
 #
 # That is why the token is read-only (see `permissions` below) and why the
 # trigger is the ordinary `pull_request`, never `pull_request_target`.
