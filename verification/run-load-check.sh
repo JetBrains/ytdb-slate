@@ -688,7 +688,7 @@ async function loadPi(piBin) {
 // path, and changes nothing else.
 //
 // THE RULE IS REPRODUCED HERE AND NOT BORROWED FROM THE PACKAGE. The
-// scratch-directory guard below asks this question on EVERY invocation, and it
+// scratch-directory guard below asks this question on every invocation that reaches check selection, and it
 // runs before the classification helpers are loaded. Reading the rule out of
 // the package made a PI_BIN that names a plain pi binary, with no resolvable
 // @earendil-works/pi-coding-agent package around it, refuse every invocation
@@ -810,7 +810,7 @@ async function main() {
   if (mode === "redact") { emit(cleanLong(args.length ? args[0] : "")); return; }
   // The scratch-directory guard is answered before pi is loaded too. It needs
   // the agent-directory rule alone, that rule needs no package, and its caller
-  // runs on every invocation: loading the helpers first turned a PI_BIN that
+  // runs on every invocation that reaches check selection: loading the helpers first turned a PI_BIN that
   // names a plain pi binary into a refusal of every run (G3-2).
   if (mode === "scratch-guard") return modeScratchGuard(args);
   let pi;
