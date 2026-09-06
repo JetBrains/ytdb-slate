@@ -571,7 +571,7 @@ A net much smaller than the ladder, for these subjects:
   ordering. The checker module has two nets of its own. See § The writing checker.
 - the **worker preamble and reviewer charter** across `extension/worker.ts`,
   `extension/threads.ts` and the marked block in `docs/review-rules.md`
-  (`worker-preamble`, `reviewer-charter-sync`). The checks cover historical
+  (`worker-preamble`, `reviewer-charter-sync`). The checks cover current measured
   untrusted bytes, the trust and charter gates, and worker prompt plumbing. They
   also cover normalized byte identity between the shipped charter and its source
   block. Nothing else in these modules is in scope here (see the load-path note
@@ -862,16 +862,16 @@ The **worker preamble** (`extension/worker.ts`):
 
 | id | what it proves |
 | --- | --- |
-| `worker-load` / `worker-preamble` | the module loads; untrusted workers keep the exact historical bounded-action preamble; trust adds writing guidance; the review-thread decision independently adds the charter; and no writing configuration parameter remains |
+| `worker-load` / `worker-preamble` | the module loads; untrusted workers keep the exact current measured bounded-action preamble; trust adds writing guidance; the review-thread decision independently adds the charter; and no writing configuration parameter remains |
 | `reviewer-charter-sync` | the non-empty marked generic charter block in `docs/review-rules.md` matches the shipped `REVIEWER_CHARTER` after whitespace normalization. The role-specific composite test charter remains in the document and is not injected into every review worker |
 
-The current measured preamble forms are 365 bytes for base, 617 with writing,
-2,520 with the reviewer charter, and 2,772 with both additions. The worker check
-pins the first two exact boundaries. `docs/context-budget.md` records all four.
+The current measured preamble forms are 544 bytes for base, 796 with writing,
+2,699 with the reviewer charter, and 2,951 with both additions. The worker check
+pins all four exact boundaries. `docs/context-budget.md` records all four.
 
 The worker check was mutation-verified against the trust gate, the removed
-configuration parameter, and the exact guidance. Each mutation makes
-`worker-preamble` fail.
+configuration parameter, the exact guidance, and both cost-reason sentences.
+Each mutation makes `worker-preamble` fail.
 
 The mutations that give all of these checks teeth are recorded with the module
 they defend, in § The writing checker.

@@ -348,15 +348,18 @@ per-turn doctrine.
 
 | Worker preamble form | UTF-8 bytes | Increase from base |
 | --- | ---: | ---: |
-| Base | 365 | — |
-| Base + writing guidance | 617 | 252 |
-| Base + reviewer charter | 2,520 | 2,155 |
-| Base + writing guidance + reviewer charter | 2,772 | 2,407 |
+| Base | 544 | — |
+| Base + writing guidance | 796 | 252 |
+| Base + reviewer charter | 2,699 | 2,155 |
+| Base + writing guidance + reviewer charter | 2,951 | 2,407 |
 
-The writing guidance is 251 bytes. The reviewer charter constant is
-2,154 bytes. The writing addendum needs one separating space. The reviewer
-charter addendum needs one separating newline. The current text uses UTF-8
-punctuation, so byte and character counts can differ.
+The preamble explains that the harness runs calls issued in one turn at the
+same time. It also explains that cumulative token cost grows with the square of
+the number of turns because each turn resends the conversation history. The
+writing guidance is 251 bytes. The reviewer charter constant is 2,154 bytes.
+The writing addendum needs one separating space. The reviewer charter addendum
+needs one separating newline. The current text uses UTF-8 punctuation, so byte
+and character counts can differ.
 This separate figure states the worker-session cost without presenting
 it as orchestrator doctrine.
 

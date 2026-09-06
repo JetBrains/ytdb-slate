@@ -3674,10 +3674,15 @@ production behaviour.`);
 				"Do the action fully, then stop.",
 				"Issue all independent tool calls simultaneously in one worker turn.",
 				"Use separate turns only when results depend on each other or conflict.",
+				"The harness runs calls issued in one turn at the same time. Cumulative token cost grows with the square of the number of turns because each turn resends the conversation history.",
 				"Your final message must state: what you did, what you found, files you touched,",
 				"and anything the orchestrator must know.",
 			].join(" ");
 			const parallelToolRule = "Issue all independent tool calls simultaneously in one worker turn. Use separate turns only when results depend on each other or conflict.";
+			const reasonSentences = [
+				"The harness runs calls issued in one turn at the same time.",
+				"Cumulative token cost grows with the square of the number of turns because each turn resends the conversation history.",
+			];
 			const currentGuidance = "Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file.";
 			const workerSource = readFileSync(join(REPO, "extension", "worker.ts"), "utf8")
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
@@ -3686,10 +3691,12 @@ production behaviour.`);
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
 			checkAll("worker-preamble", "common worker guidance keeps its exact text, writing guidance is keyed only by trust, and the removed configuration parameter is absent", [
-				["untrusted preamble is the 365-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 365, worker.workerPreamble(false, false)],
+				["untrusted preamble is the 544-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 544, worker.workerPreamble(false, false)],
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
+				["the two cost-reason sentences appear exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => reasonSentences.every((sentence) => preamble.split(sentence).length === 2)), { sentences: reasonSentences, base: worker.workerPreamble(false, false) }],
 				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(currentGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
-				["true trust enables the current 617-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 617, worker.workerPreamble(true, false)],
+				["true trust enables the current 796-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 796, worker.workerPreamble(true, false)],
+				["reviewer variants match the current measured byte boundaries", Buffer.byteLength(worker.workerPreamble(false, true)) === 2699 && Buffer.byteLength(worker.workerPreamble(true, true)) === 2951, { reviewer: Buffer.byteLength(worker.workerPreamble(false, true)), both: Buffer.byteLength(worker.workerPreamble(true, true)) }],
 				["worker prompt passes trust directly and keeps the charter as the second argument", /appendSystemPrompt\s*:\s*\[\s*workerPreamble\(trusted\s*,\s*opts\.reviewerCharter\s*===\s*true\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,180}/)?.[0] ?? "not found"],
 				["the removed writingCheck parameter and dispatch field are absent", !/writingCheck/.test(workerSource) && !/writingCheck/.test(threadsSource), { worker: workerSource.match(/writingCheck/)?.[0] ?? "absent", threads: threadsSource.match(/writingCheck/)?.[0] ?? "absent" }],
 				["ThreadManager derives the charter switch from effective thread type through the shared judgement-type predicate", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*isJudgementThreadType\(type\)/.test(threadsSource) && worker.JUDGEMENT_THREAD_TYPES?.join(",") === "reviewer,adversarial", { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found", judgementTypes: worker.JUDGEMENT_THREAD_TYPES }],

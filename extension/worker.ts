@@ -69,6 +69,7 @@ export const WORKER_PREAMBLE = [
 	"Do the action fully, then stop.",
 	"Issue all independent tool calls simultaneously in one worker turn.",
 	"Use separate turns only when results depend on each other or conflict.",
+	"The harness runs calls issued in one turn at the same time. Cumulative token cost grows with the square of the number of turns because each turn resends the conversation history.",
 	"Your final message must state: what you did, what you found, files you touched,",
 	"and anything the orchestrator must know.",
 ].join(" ");

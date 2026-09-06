@@ -54,6 +54,10 @@ const EXPECTED_CHARTER_BY_THREAD_TYPE = {
 
 const PARALLEL_TOOL_RULE =
   "Issue all independent tool calls simultaneously in one worker turn. Use separate turns only when results depend on each other or conflict.";
+const COST_REASON_SENTENCES = [
+  "The harness runs calls issued in one turn at the same time.",
+  "Cumulative token cost grows with the square of the number of turns because each turn resends the conversation history.",
+] as const;
 
 test("workerPreamble gates writing guidance on trust and composes reviewer guidance independently", () => {
   const untrusted = workerPreamble(false, false);
@@ -67,7 +71,12 @@ test("workerPreamble gates writing guidance on trust and composes reviewer guida
   assert.equal(trustedReviewer, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}\n${REVIEWER_CHARTER}`);
   for (const preamble of [untrusted, trusted, untrustedReviewer, trustedReviewer]) {
     assert.equal(preamble.split(PARALLEL_TOOL_RULE).length - 1, 1);
+    for (const sentence of COST_REASON_SENTENCES) assert.equal(preamble.split(sentence).length - 1, 1);
   }
+  assert.deepEqual(
+    [untrusted, trusted, untrustedReviewer, trustedReviewer].map((preamble) => Buffer.byteLength(preamble)),
+    [544, 796, 2699, 2951],
+  );
   assert.equal(untrustedReviewer.match(/^- /gm)?.length, 10);
   assert.equal(trustedReviewer.match(/^- /gm)?.length, 10);
   assert.doesNotMatch(untrusted, /Trace, don't guess/);
