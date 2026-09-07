@@ -4,7 +4,7 @@
  * A worker loads NO skills, prompt templates, or themes (DefaultResourceLoader
  * no* options), and by default no project or discovered extensions. Slate
  * supplies one internal reminder component. The structural excludeTools guard
- * keeps slate tools out (ExecPlan D7, depth-1 guard). It inherits the HOST session's
+ * keeps slate tools out through the depth-1 guard. It inherits the HOST session's
  * project-trust state via an explicit SettingsManager, so untrusted projects get
  * neither project-local settings nor the project SYSTEM.md override in workers.
  *
@@ -288,7 +288,7 @@ export async function openWorkerSession(opts: {
 	// A worker extension or the internal reminder component must not vanish
 	// silently. Surface every loader error naming the path. Paths and messages
 	// are extension-supplied and flow to the UI, the console and the persisted
-	// episode, so sanitize them (SE22) like every other displayed string.
+	// episode, so sanitize them like every other displayed string.
 	for (const err of loaded.errors ?? []) {
 		warn(`slate: worker extension failed to load — ${sanitizeForNotify(String(err.path))}: ${sanitizeForNotify(String(err.error))}`);
 	}
