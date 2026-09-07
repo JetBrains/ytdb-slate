@@ -348,15 +348,19 @@ per-turn doctrine.
 
 | Worker preamble form | UTF-8 bytes | Increase from base |
 | --- | ---: | ---: |
-| Base | 365 | — |
-| Base + writing guidance | 617 | 252 |
-| Base + reviewer charter | 2,520 | 2,155 |
-| Base + writing guidance + reviewer charter | 2,772 | 2,407 |
+| Base | 544 | — |
+| Base + writing guidance | 796 | 252 |
+| Base + reviewer charter | 2,699 | 2,155 |
+| Base + writing guidance + reviewer charter | 2,951 | 2,407 |
 
-The writing guidance is 251 bytes. The reviewer charter constant is
-2,154 bytes. The writing addendum needs one separating space. The reviewer
-charter addendum needs one separating newline. The current text uses UTF-8
-punctuation, so byte and character counts can differ.
+The preamble explains that the harness runs calls issued in one turn at the
+same time. It also explains that cumulative token cost grows with the square of
+the number of turns because each turn resends the conversation history.
+
+The writing guidance is 251 bytes. The reviewer charter constant is 2,154 bytes.
+The writing addendum needs one separating space. The reviewer charter addendum
+needs one separating newline. The current text uses UTF-8 punctuation, so byte
+and character counts can differ.
 This separate figure states the worker-session cost without presenting
 it as orchestrator doctrine.
 
@@ -365,6 +369,28 @@ it as orchestrator doctrine.
 The budget above applies to the orchestrator. Each worker session runs one action.
 Slate does not route worker actions by prompt size. Pi owns worker compaction and
 context overflow behavior. `model-routing.md` documents the routing guards.
+
+| Worker context item | Measured UTF-8 bytes per copy | Copies after N turns | Cumulative appearances across N requests |
+| --- | ---: | ---: | ---: |
+| Simultaneous-tool-call reminder | 150 text; 203 converted request message; 319 persisted JSONL line | N - 1 | N × (N - 1) / 2 |
+
+The reminder tells a worker to issue independent tool calls in one turn. `N` is
+the total number of provider turns in one action. The first `N - 1` turns have
+tool results that reach the reminder handler. The final turn returns the answer.
+
+The 150-byte figure is the exact ASCII production text. The 203-byte figure is
+the compact JSON form after pi converts the reminder to a provider request user
+message with one text part. It excludes the volatile timestamp.
+
+The 319-byte figure is one compact persisted `custom_message` record from pi
+0.83.0, including its identifiers, timestamp, JSON framing, and final line-feed
+byte. These figures contain no installed path, so the portable and rendered
+counts are identical.
+
+Before automatic compaction, transcript storage grows in proportion to the number
+of turns. Cumulative request appearances grow with the square of the number of
+turns. Provider cache reads can lower billed input without changing the number of
+logical appearances.
 
 ## Using GPT-5.6's full 1.05M window
 

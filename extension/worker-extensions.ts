@@ -2,7 +2,8 @@
  * Worker extensions: resolving which of the HOST session's pi extensions a
  * worker thread is allowed to load.
  *
- * Workers normally load NO extensions (worker.ts, depth-1 recursion guard D7).
+ * A worker loads no project or discovered extension by default (worker.ts,
+ * depth-1 recursion guard). Slate supplies one internal reminder component.
  * This module lets a trusted project opt SPECIFIC host extensions back in, by
  * regex, via the `workerExtensions` config. It NEVER loads anything itself —
  * it only resolves a SET of extension load units (file paths or package

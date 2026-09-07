@@ -47,6 +47,7 @@ This repo runs slate on itself:
      - the writing checker's correctness suite.
      - the writing checker's scaling gate (§ Writing-checker nets).
      - the writing-reminder integration check (§ Writing-reminder integration check).
+     - the worker-reminder integration check (§ Worker-reminder integration check).
 
      Each section states its own re-run trigger. CI excludes the ladder on purpose. The other hand-run nets are not wired into the workflow. The unit tests and the patch-coverage gate are NOT in this set any more: CI runs them (§ Unit tests and the coverage gate).
 
@@ -162,7 +163,7 @@ pi **stays silent** for each failure below: it exits 0, and it prints neither ma
 
   **Run the typecheck after ANY TypeScript change.** That trigger is wide on purpose, and the deep nets below use a narrow trigger instead. The run takes about 2 seconds, and it checks every file that it covers in one pass. Spend no time on a decision about the type relevance of your edit.
 
-  The silent-failure nets are the ladder, pure-resolver checks, packaging guards, extension-load check, unit tests with the patch-coverage gate, and package-content check. They also include both writing-checker nets and the writing-reminder integration check. The sections below define their scope.
+  The silent-failure nets are the ladder, pure-resolver checks, packaging guards, extension-load check, unit tests with the patch-coverage gate, and package-content check. They also include both writing-checker nets, the writing-reminder integration check and the worker-reminder integration check. The sections below define their scope.
 
   This inventory intentionally has no total. Earlier totals went stale twice. Add each new net to this inventory when you add it.
 
@@ -206,11 +207,12 @@ Record `pi --version` with the run. The ladder accepts pi from `PATH` as a last 
 - Run it with `bash verification/run-ladder.sh --repo .` (~3 min; `--only <ids>` for a subset). Not as root, and needs GNU coreutils. Exit 0 means nothing failed and the real settings file is unchanged — rungs can still report NOT RUN, so read the lines; automation should pass `--strict`, which makes any NOT RUN fatal.
 - **Re-run it after any change to `extension/model-default.ts` or to either switch site**, and **after any change to how a worker session is opened or switched** — `extension/worker.ts`'s settings manager, the model/`thinkingLevel` options it passes to `createAgentSession`, or the per-dispatch switch in `threads.ts`'s `applyRoute` (`WK1`). Both mechanisms fail silently when they regress — the switch still works, and the damage lands in the user's own pi configuration — so a passing smoke test proves nothing about either. Details, rung table and the timing-sensitive rungs: `verification/README.md`.
 
-### Pure-resolver checks (worker extensions + doctrine rules + model router + dispatch guards + state sanitizers + profile table + writing wiring)
+### Pure-resolver checks (worker extensions + worker reminders + doctrine rules + model router + dispatch guards + state sanitizers + profile table + writing wiring)
 
 `verification/run-resolver-checks.sh` is the automated net for the repo's PURE pipelines. It loads and exercises the modules listed below against fabricated in-memory registries, fabricated profile tables, fabricated events, fabricated doctrine inputs and a fabricated compaction predicate — no pi session, no real state — in ~1 second. How many checks that is, is the `roster` line's business and is deliberately NOT transcribed here: it moves with every check added, and both this file and `verification/README.md` have carried stale counts before. The roster asserts that every expected id reported exactly once, and the summary prints the identity (`N result lines = N−1 expected checks + this roster audit`), so a deleted, duplicated or crashed check cannot read as a clean exit — read those two lines, not a number in this file:
 
 - `extension/worker-extensions.ts` — the worker-extension resolver (candidate filtering, load-unit selection, barriers, matching, memoization) and the doctrine rule it feeds in `extension/mode.ts`;
+- `extension/worker-reminder.ts`, `extension/worker.ts` and `extension/threads.ts` — the worker reminder contract, session-local state, delivery detection and compression filtering. The runtime wiring checks cover loader setup, handler registration, loader error reporting, tool exclusion and the dispatch warning (`worker-reminder-*`);
 - `extension/mode.ts`'s **action-routing doctrine rule** (`doctrine-*`, driven through `registerSlateMode`'s `before_agent_start` handler with a fabricated resolution): that a router-OFF session gets byte-identically nothing, that an UNTRUSTED project gets no routing rule even with `router.models` fully configured (SE3's trust re-gate — defence in depth, so its removal has no visible symptom), that the conditional tail rules are numbered by position, its **injection safety** — the rule deliberately bypasses `sanitizeForDoctrine` (that sanitizer strips `|`, which would destroy the table), so the narrow `cell()` is the entire defence and the checks attack it structurally — that no research trace tag or `nonPreferred` reason leaks into the prompt, and a **size budget**, because this text is injected into every session's system prompt and paid for on every turn. The group is voided by `profiles-load`: one of its checks renders the real shipped table;
 - the shipped workflow contracts. These pin complete safety-floor and focus-table content, plus a unique canonical project-test-artifact definition. They also cover SMALL fast-path grants and exclusions, both composite-review sections, retired-role absence, and unique named headings across all five workflow documents.
 - `extension/model-router.ts` — the model router: the `router` config sanitizer, candidate resolution (drops, ordering by preference/tier-sourcing/tier/price, the `nonPreferred`-aware base-model pick, the W1/W3/failover-coverage warnings, dedup, memoization) and the dispatch-side effort predicate;
@@ -228,13 +230,14 @@ Record `pi --version` with the run. The ladder accepts pi from `PATH` as a last 
 - **Re-run it after any change to a covered module or source path.** Covered production modules are:
   - `extension/worker-extensions.ts`, `model-router.ts`, `route.ts`, `model-profiles.ts`, `base-model.ts` and `episodes.ts`.
   - `extension/writing.ts`, `writing-reminder.ts` and `writing-check.mjs`.
-  - The worker preamble or config plumbing in `extension/worker.ts` and `extension/threads.ts`.
+  - `extension/worker-reminder.ts`.
+  - The worker preamble, reminder wiring or config plumbing in `extension/worker.ts` and `extension/threads.ts`.
   - `extension/state.ts` spec helpers or snapshot sanitizers.
   - `extension/handoff.ts` reminder force ordering.
   - `extension/mode.ts` doctrine rendering, writing status or reminder wiring.
 
   Doctrine rendering is an injection surface and per-turn cost that only this suite watches. A `route.ts` guard change is the highest-stakes case. Re-read `threads.ts` when a guard input changes because the harness fabricates those inputs. Changes to shared `state.ts` helpers also need the ladder. Router errors can remain invisible while dispatch still works, so a smoke test proves nothing. `verification/README.md` records the checks and mutation method.
-- It imports `extension/worker.ts` for the preamble builder and reads the prompt/config plumbing in that module and `extension/threads.ts`; nothing else in either module is covered. The worker-session load path — the allowlist-mode extension load, the `excludeTools` deny list that keeps slate's dispatch tools out of a worker, and the post-load collision re-check — is out of its scope. Exercise those with the isolated-load smoke test (`pi --no-extensions -e .`) above after changing `extension/worker.ts`, and the ladder's `WK1` rung for that module's settings isolation. It likewise stops at the PURE boundary: it proves what the planner DECIDES, not what `threads.ts` does with a verdict (applying the switch, raising a tool error, aborting without an episode, remembering the long-context notice). Those are separate mechanisms; the ladder's `WK1` rung covers one slice of the first.
+- It imports `extension/worker.ts` for the preamble builder and reads prompt/config plumbing, internal reminder factory wiring, loader-error placement and the `excludeTools` deny list. It imports `extension/threads.ts` and calls the real compression helper. The worker-session load path — including execution of the allowlist-mode extension load and the post-load collision re-check — remains out of scope. Exercise those with the isolated-load smoke test (`pi --no-extensions -e .`) above after changing `extension/worker.ts`, and the ladder's `WK1` rung for that module's settings isolation. It likewise stops at the PURE boundary: it proves what the planner DECIDES, not what `threads.ts` does with a verdict (applying the switch, raising a tool error, aborting without an episode, remembering the long-context notice). Those are separate mechanisms; the ladder's `WK1` rung covers one slice of the first.
 - **Doctrine size figures are install-path dependent, so compare portable counts.** The trusted doctrine embeds four to six absolute docs paths. Each docs-directory character therefore costs four to six rendered characters. `doctrine-budget` removes each docs-directory occurrence while keeping filenames. Exact checks pin each fixture's occurrence count. `docs/context-budget.md` defines the same convention, and `docs/model-routing.md` defers to it. Rows using the same fixture and basis MUST agree across `docs/context-budget.md` and `verification/README.md`. A different basis must be named explicitly. Deliberate wording, roster, cap or fixture changes require fresh renders. A change to `.pi/slate.json` requires a fresh render of the dogfood row in `docs/context-budget.md`. Update resolver exact expectations and every published figure in the same commit.
 
 ### Writing-reminder integration check
@@ -291,6 +294,23 @@ Re-run it after these changes:
 A change to `extension/handoff.ts` still requires the full ladder. Run the
 pure-resolver checks for reminder policy, config, mode, doctrine or ordering
 changes.
+
+### Worker-reminder integration check
+
+`bash verification/run-worker-reminder-check.sh --repo .` starts one real offline pi session against a deterministic in-process provider. The orchestrator calls the real `thread` tool. The worker issues two independent built-in reads in one turn. The continuation provider context must receive one exact hidden worker reminder. The worker transcript must persist both unchanged tool results and one custom message with `display: false`. The compressor request and durable episode must contain no reminder. The thread result must contain no reminder-miss warning.
+
+The harness keeps `workerExtensions` empty and sets `cacheKeyEnabled` to `false`. It proves that the internal component loads across those two boundaries. Its fixed roster reports 18 result lines, including the roster audit. The harness exits 0 when every assertion passes, 1 when a check fails and 2 when it refuses to start. A clean run removes its disposable scratch directory. A failed run keeps it and prints the path.
+
+This net is outside CI, the load check and the ladder. It proves one clean worker path through the loader, tool-result hook, steer queue, provider context, JSON Lines persistence and episode filtering. It proves that successful delivery produces no false reminder-miss warning. A single clean run cannot prove that a real missing reminder produces the warning. The pure `worker-reminder-detection` and `worker-reminder-wiring` checks, plus `test/single-action-threads.test.ts`, prove the current rule. The rule reports a miss only when session-local handler evidence exists, the retained action slice has no exact reminder and no successful compaction invalidated that slice. Aborted compaction and a compaction event without a result do not suppress the warning. A real reminder loss during a successful compaction inside the same action is not reported. The project accepts this blind spot because the retained action slice no longer supports a conclusion about delivery. The integration run proves `display: false` structurally. It does not prove visual invisibility in the terminal user interface. Check that presentation manually. It does not prove concurrent worker-session isolation. The pure `worker-reminder-state` check covers two interleaved factory instances.
+
+Re-run it after these changes:
+
+- Reminder type, text, factory state, hook registration, message shape or detection in `extension/worker-reminder.ts`.
+- Internal factory loading or loader-error reporting in `extension/worker.ts`.
+- Action-slice detection, warning delivery or compression filtering in `extension/threads.ts`.
+- Custom-message or steer semantics.
+- `verification/run-worker-reminder-check.sh` or `verification/worker-reminder-canary.mjs`.
+- The pi pin, RPC shape, provider-evidence shape or JSON Lines shape.
 
 ### Package-content check (package-resolved runtime files)
 
