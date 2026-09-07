@@ -4,7 +4,7 @@
  * A worker loads NO skills, prompt templates, or themes (DefaultResourceLoader
  * no* options), and by default no project or discovered extensions. Slate
  * supplies one internal reminder component. The structural excludeTools guard
- * keeps slate tools out through the depth-1 guard. It inherits the HOST session's
+ * keeps slate tools out (depth-1 guard). It inherits the HOST session's
  * project-trust state via an explicit SettingsManager, so untrusted projects get
  * neither project-local settings nor the project SYSTEM.md override in workers.
  *
