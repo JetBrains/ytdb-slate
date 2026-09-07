@@ -249,10 +249,11 @@ and the package's declared entries provably match what the host loaded
 (BG20, below), otherwise the extension's own entry file:
 
 1. Only whitelisted units load, through pi's resource loader in allowlist
-   mode; a worker's extension set is exactly the allowlist and no
-   non-whitelisted module is ever imported (load errors surface as
-   warnings). Candidates are only what the host session already loaded,
-   enumerated from its tool registry — so an extension registering no
+   mode. A worker loads the extensions on the configured allowlist plus one
+   internal component that Slate always supplies. The component registers no
+   tool, and no other non-whitelisted module is ever imported (load errors
+   surface as warnings). Candidates are only what the host session already
+   loaded, enumerated from its tool registry — so an extension registering no
    tools is invisible, and a host started with extensions disabled yields
    an empty candidate set.
 2. Any unit that contains Slate's own package root is dropped whatever the

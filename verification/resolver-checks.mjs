@@ -61,6 +61,7 @@ const writingLoad = await tryImport("extension/writing.ts");
 const reminderLoad = await tryImport("extension/writing-reminder.ts");
 const handoffLoad = await tryImport("extension/handoff.ts");
 const workerLoad = await tryImport("extension/worker.ts");
+const workerReminderLoad = await tryImport("extension/worker-reminder.ts");
 // The base-model tracker is a PURE reducer over model-selection events (its own
 // module header says so), so it belongs here rather than in the ladder: it
 // touches no pi, no filesystem and no clock other than the injected one.
@@ -76,6 +77,7 @@ const writing = writingLoad.module;
 const reminder = reminderLoad.module;
 const handoff = handoffLoad.module;
 const worker = workerLoad.module;
+const workerReminder = workerReminderLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
 const checker = await import(pathToFileURL(`${REPO}/extension/writing-check.mjs`).href);
@@ -356,7 +358,15 @@ const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "pro
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
 const DOCTRINE_IDS = ["doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-follow-up", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite"];
-const WORKER_IDS = ["worker-preamble", "reviewer-charter-sync"];
+const WORKER_IDS = [
+	"worker-preamble",
+	"reviewer-charter-sync",
+	"worker-reminder-contract",
+	"worker-reminder-state",
+	"worker-reminder-detection",
+	"worker-reminder-compression",
+	"worker-reminder-wiring",
+];
 const DOCTRINE_CONTRACT_IDS = [
 	"contract-safety-floor-sync",
 	"contract-focus-table-sync",
@@ -3664,10 +3674,97 @@ production behaviour.`);
 			]);
 		});
 
+		checkAll("worker-reminder-contract", "the worker reminder module keeps the exact independent contract and text", [
+			["module loads", workerReminder !== undefined, workerReminderLoad.error?.stack ?? workerReminderLoad.error],
+			["custom type is exact", workerReminder?.WORKER_REMINDER_CUSTOM_TYPE === "slate-worker-reminder", workerReminder?.WORKER_REMINDER_CUSTOM_TYPE],
+			["custom type stays separate from the writing reminder", workerReminder?.WORKER_REMINDER_CUSTOM_TYPE !== "slate-writing-reminder", workerReminder?.WORKER_REMINDER_CUSTOM_TYPE],
+			["text is exact", workerReminder?.WORKER_REMINDER_TEXT === "Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict.", workerReminder?.WORKER_REMINDER_TEXT],
+			["text is 150 UTF-8 bytes", Buffer.byteLength(workerReminder?.WORKER_REMINDER_TEXT ?? "") === 150, Buffer.byteLength(workerReminder?.WORKER_REMINDER_TEXT ?? "")],
+			["text is ASCII", typeof workerReminder?.WORKER_REMINDER_TEXT === "string" && /^[\x00-\x7f]+$/.test(workerReminder.WORKER_REMINDER_TEXT), workerReminder?.WORKER_REMINDER_TEXT],
+		]);
+		if (workerReminder === undefined) {
+			skip("worker-reminder-state", "extension/worker-reminder.ts could not be loaded");
+			skip("worker-reminder-detection", "extension/worker-reminder.ts could not be loaded");
+		} else {
+			await section("worker-reminder", async () => {
+				const makeFixture = ({ throwFirst = false, reenter = false } = {}) => {
+					const handlers = new Map();
+					const sent = [];
+					let attempts = 0;
+					const api = {
+						on(name, handler) {
+							handlers.set(name, [...(handlers.get(name) ?? []), handler]);
+						},
+						sendMessage(message, options) {
+							attempts++;
+							if (throwFirst && attempts === 1) throw new Error("queue unavailable");
+							sent.push({ message, options });
+							if (reenter && attempts === 1) emit("tool_result", { marker: "nested" });
+						},
+					};
+					const emit = (name, event) => {
+						for (const handler of handlers.get(name) ?? []) handler(event, {});
+					};
+					const runtime = workerReminder.createWorkerReminderRuntime();
+					runtime.extension(api);
+					return { handlers, sent, emit, handledToolResult: runtime.handledToolResult, attempts: () => attempts };
+				};
+
+				const first = makeFixture({ reenter: true });
+				const second = makeFixture();
+				const firstToolResult = { content: [{ type: "text", text: "unchanged" }], details: { retained: true }, isError: false };
+				const originalToolResult = JSON.stringify(firstToolResult);
+				first.emit("tool_result", firstToolResult);
+				first.emit("tool_result", { marker: "duplicate" });
+				second.emit("tool_result", { marker: "independent" });
+				first.emit("message_end", { message: { role: "user" } });
+				first.emit("tool_result", { marker: "still-claimed" });
+				first.emit("message_end", { message: { role: "assistant" } });
+				first.emit("tool_result", { marker: "new-turn" });
+				const retry = makeFixture({ throwFirst: true });
+				retry.emit("tool_result", { marker: "throws" });
+				retry.emit("tool_result", { marker: "retry" });
+				const expectedSend = {
+					message: {
+						customType: workerReminder.WORKER_REMINDER_CUSTOM_TYPE,
+						content: workerReminder.WORKER_REMINDER_TEXT,
+						display: false,
+					},
+					options: { deliverAs: "steer" },
+				};
+				checkAll("worker-reminder-state", "each factory owns one synchronous per-turn claim, preserves tool results, and retries synchronous send failure", [
+					["handlers register directly in the factory body", first.handlers.has("message_end") && first.handlers.has("tool_result") && !first.handlers.has("session_start"), [...first.handlers.keys()]],
+					["handler evidence starts false and becomes local to each runtime", first.handledToolResult() && second.handledToolResult() && !makeFixture().handledToolResult(), { first: first.handledToolResult(), second: second.handledToolResult() }],
+					["reentrant and repeated tool results send only once", first.sent.length === 2 && first.attempts() === 2, { sent: first.sent, attempts: first.attempts() }],
+					["non-assistant messages do not reset but assistant messages do", first.sent.length === 2, first.sent],
+					["independent factory has independent state", second.sent.length === 1, second.sent],
+					["send shape and steer options are exact", first.sent.every((entry) => JSON.stringify(entry) === JSON.stringify(expectedSend)) && second.sent.every((entry) => JSON.stringify(entry) === JSON.stringify(expectedSend)), { first: first.sent, second: second.sent }],
+					["tool result remains unchanged", JSON.stringify(firstToolResult) === originalToolResult, firstToolResult],
+					["synchronous throw is retried by a later result", retry.attempts() === 2 && retry.sent.length === 1 && JSON.stringify(retry.sent[0]) === JSON.stringify(expectedSend), { attempts: retry.attempts(), sent: retry.sent }],
+				]);
+
+				const exact = { role: "custom", customType: workerReminder.WORKER_REMINDER_CUSTOM_TYPE };
+				const hostileRole = {};
+				Object.defineProperty(hostileRole, "role", { get() { throw new Error("unreadable role"); } });
+				const hostileType = { role: "custom" };
+				Object.defineProperty(hostileType, "customType", { get() { throw new Error("unreadable type"); } });
+				checkAll("worker-reminder-detection", "delivery detection is defensive and requires intact history plus session-local handler evidence", [
+					["no handler evidence is not a miss even with a retained short-path result", !workerReminder.workerReminderDeliveryMissing([], false, false) && !workerReminder.workerReminderDeliveryMissing([{ role: "toolResult" }], false, false), null],
+					["handler evidence without a reminder is a miss when history stayed intact", workerReminder.workerReminderDeliveryMissing([], true, false) && workerReminder.workerReminderDeliveryMissing([{ role: "toolResult" }], true, false), null],
+					["compaction makes reminder loss unknowable and stays silent", !workerReminder.workerReminderDeliveryMissing([], true, true) && !workerReminder.workerReminderDeliveryMissing([{ role: "toolResult" }], true, true), null],
+					["one exact reminder satisfies multiple retained tool turns", !workerReminder.workerReminderDeliveryMissing([{ role: "toolResult" }, { role: "assistant" }, { role: "toolResult" }, exact], true, false), null],
+					["wrong custom type does not satisfy delivery", workerReminder.workerReminderDeliveryMissing([{ role: "custom", customType: "other" }], true, false), null],
+					["exact predicate accepts only the exact custom message", workerReminder.isWorkerReminderMessage(exact) && !workerReminder.isWorkerReminderMessage({ role: "assistant", customType: workerReminder.WORKER_REMINDER_CUSTOM_TYPE }), exact],
+					["malformed and hostile values fail closed without throwing", [null, "x", 1, hostileRole, hostileType].every((value) => workerReminder.isWorkerReminderMessage(value) === false) && workerReminder.workerReminderDeliveryMissing([hostileRole, hostileType], true, false), null],
+				]);
+			});
+		}
+
 		check("worker-load", worker !== undefined, "extension/worker.ts loads for direct preamble verification", workerLoad.error?.stack ?? workerLoad.error);
 		if (worker === undefined) {
 			skip("worker-preamble", "extension/worker.ts could not be loaded");
 			skip("reviewer-charter-sync", "extension/worker.ts could not be loaded");
+			skip("worker-reminder-wiring", "extension/worker.ts could not be loaded");
 		} else {
 			const commonPreamble = [
 				"You are a worker thread executing ONE bounded action for an orchestrator.",
@@ -3684,12 +3781,42 @@ production behaviour.`);
 				"Cumulative token cost grows with the square of the number of turns because each turn resends the conversation history.",
 			];
 			const currentGuidance = "Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file.";
-			const workerSource = readFileSync(join(REPO, "extension", "worker.ts"), "utf8")
+			const workerRawSource = readFileSync(join(REPO, "extension", "worker.ts"), "utf8");
+			const workerSource = workerRawSource
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
-			const threadsSource = readFileSync(join(REPO, "extension", "threads.ts"), "utf8")
+			const threadsRawSource = readFileSync(join(REPO, "extension", "threads.ts"), "utf8");
+			const threadsSource = threadsRawSource
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+			const actionSliceStart = threadsSource.indexOf("const actionMessages = session ? session.messages.slice(messagesBefore) : [];");
+			const compressionStart = threadsSource.indexOf("const compressionMessages = messagesForCompression(", actionSliceStart);
+			const reminderDispatchBlock = actionSliceStart >= 0 && compressionStart > actionSliceStart
+				? threadsSource.slice(actionSliceStart, compressionStart)
+				: "";
+			const loaderStart = workerSource.indexOf("const loader = new DefaultResourceLoader(");
+			const reloadStart = workerSource.indexOf("await loader.reload()", loaderStart);
+			const allowlistStart = workerSource.indexOf("if (extensionPaths.length > 0)", reloadStart);
+			const sessionStart = workerSource.indexOf("const { session } = await createAgentSession(", allowlistStart);
+			const loaderBlock = loaderStart >= 0 && reloadStart > loaderStart ? workerSource.slice(loaderStart, reloadStart) : "";
+			const loadedBlock = reloadStart >= 0 && allowlistStart > reloadStart ? workerSource.slice(reloadStart, allowlistStart) : "";
+			const allowlistBlock = allowlistStart >= 0 && sessionStart > allowlistStart ? workerSource.slice(allowlistStart, sessionStart) : "";
+			const workerReminderSource = readFileSync(join(REPO, "extension", "worker-reminder.ts"), "utf8")
+				.replace(/\/\*[\s\S]*?\*\//g, " ")
+				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+			checkAll("worker-reminder-wiring", "worker reminder loader, handler, tool exclusion, and dispatch warning wiring stays intact", [
+				["worker creates the internal session-local runtime directly", /import\s*\{\s*createWorkerReminderRuntime\s*\}\s*from\s*["']\.\/worker-reminder\.ts["']/.test(workerSource) && /const\s+workerReminder\s*=\s*createWorkerReminderRuntime\(\)/.test(workerSource), workerSource.match(/import[^\n]*worker-reminder[^\n]*/)?.[0] ?? "not found"],
+				["every loader receives the exact named hidden factory", (workerSource.match(/new\s+DefaultResourceLoader\s*\(/g) ?? []).length === 1 && /extensionFactories\s*:\s*\[\s*\{\s*name\s*:\s*["']slate-worker-reminder["']\s*,\s*factory\s*:\s*workerReminder\.extension\s*,\s*hidden\s*:\s*true\s*,?\s*\}\s*,?\s*\]/.test(loaderBlock), loaderBlock.match(/extensionFactories\s*:[\s\S]{0,240}/)?.[0] ?? "not found"],
+				["factory wiring is independent of the allowlist and prompt cache key", loaderStart >= 0 && reloadStart > loaderStart && allowlistStart > reloadStart && !/promptCacheKey/.test(loaderBlock) && (loaderBlock.match(/workerReminder\.extension/g) ?? []).length === 1, { loaderStart, reloadStart, allowlistStart, promptCacheKey: loaderBlock.match(/promptCacheKey/)?.[0] ?? "absent", factoryCount: (loaderBlock.match(/workerReminder\.extension/g) ?? []).length }],
+				["handlers register directly in the internal factory rather than session_start", /pi\.on\(\s*["']message_end["']/.test(workerReminderSource) && /pi\.on\(\s*["']tool_result["']/.test(workerReminderSource) && !/["']session_start["']/.test(workerReminderSource), workerReminderSource.match(/pi\.on\([^\n]*/g) ?? []],
+				["loaded extensions are read exactly once after reload and before the allowlist gate", (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length === 1 && /const\s+loaded\s*=\s*loader\.getExtensions\(\)/.test(loadedBlock), { count: (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length, loadedBlock }],
+				["all loader errors use the sanitized warning channel before the allowlist gate", /const\s+warn\s*=/.test(loadedBlock) && /for\s*\(\s*const\s+err\s+of\s+loaded\.errors\s*\?\?\s*\[\]\s*\)/.test(loadedBlock) && /ctx\.hasUI\s*\?\s*ctx\.ui\.notify\(msg\s*,\s*["']warning["']\)\s*:\s*console\.warn\(msg\)/.test(loadedBlock) && /sanitizeForNotify\(String\(err\.path\)\)[\s\S]*sanitizeForNotify\(String\(err\.error\)\)/.test(loadedBlock), loadedBlock],
+				["extension tool collection and collision rejection stay inside the allowlist gate", /loaded\.extensions/.test(allowlistBlock) && /const\s+collisions\s*:\s*string\[\]\s*=\s*\[\]/.test(allowlistBlock) && /if\s*\(collisions\.length\s*>\s*0\)/.test(allowlistBlock), allowlistBlock.match(/loaded\.extensions|collisions\.length/g) ?? []],
+				["slate dispatch tools remain structurally excluded from every session", /excludeTools\s*:\s*SLATE_TOOL_NAMES/.test(workerSource), workerSource.match(/excludeTools\s*:[^,\n]*/)?.[0] ?? "not found"],
+				["dispatch combines the retained action slice with session-local handler and guarded successful-compaction evidence before compression", /workerReminderDeliveryMissing\(\s*actionMessages\s*,\s*session\?\.workerReminderHandledToolResult\?\.\(\)\s*===\s*true\s*,\s*actionCompacted\s*,?\s*\)/.test(reminderDispatchBlock) && /else\s+if\s*\(\s*event\.type\s*===\s*["']compaction_end["']\s*\)\s*\{\s*if\s*\(\s*event\.result\s*!==\s*undefined\s*&&\s*event\.aborted\s*!==\s*true\s*\)\s*actionCompacted\s*=\s*true\s*;/.test(threadsSource), reminderDispatchBlock],
+				["a reminder miss uses the exact warning channel and remains non-fatal", /routeWarn\(\s*["']slate: a worker tool result reached the reminder handler, but the reminder is missing\. Review the worker transcript before you rely on the result\.["']\s*\)\s*;\s*emit\(false\)/.test(reminderDispatchBlock), reminderDispatchBlock],
+			]);
+
 			checkAll("worker-preamble", "common worker guidance keeps its exact text, writing guidance is keyed only by trust, and the removed configuration parameter is absent", [
 				["untrusted preamble is the 544-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 544, worker.workerPreamble(false, false)],
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
@@ -6624,6 +6751,27 @@ production behaviour.`);
 		});
 	}
 
+	// Import threads.ts only after the aliased episode checks. Importing it sooner
+	// would populate the ordinary loader cache for episodes.ts and invalidate the
+	// isolated SDK-boundary fixtures above.
+	const threadsLoad = await tryImport("extension/threads.ts");
+	const threads = threadsLoad.module;
+	if (threads === undefined) {
+		skip("worker-reminder-compression", "extension/threads.ts could not be loaded");
+	} else {
+		const reminderMessage = { role: "custom", customType: "slate-worker-reminder", content: "reminder" };
+		const otherCustom = { role: "custom", customType: "other", content: "keep" };
+		const injected = { role: "user", content: "loaded episode text" };
+		const assistant = { role: "assistant", content: "result" };
+		const compacted = { role: "compactionSummary", content: "summary" };
+		checkAll("worker-reminder-compression", "episode compression removes every worker reminder while preserving unrelated custom messages and exact prompt filtering", [
+			["all reminder copies are removed without an injected prompt", JSON.stringify(threads.messagesForCompression([reminderMessage, assistant, reminderMessage, otherCustom])) === JSON.stringify([assistant, otherCustom]), threads.messagesForCompression([reminderMessage, assistant, reminderMessage, otherCustom])],
+			["all reminder copies and one exact injected prompt are removed together", JSON.stringify(threads.messagesForCompression([compacted, reminderMessage, injected, assistant, reminderMessage, otherCustom], "loaded episode text")) === JSON.stringify([compacted, assistant, otherCustom]), threads.messagesForCompression([compacted, reminderMessage, injected, assistant, reminderMessage, otherCustom], "loaded episode text")],
+			["an unrelated custom type is retained", threads.messagesForCompression([otherCustom, reminderMessage])[0] === otherCustom, threads.messagesForCompression([otherCustom, reminderMessage])],
+			["an exact prompt is retained when no injected prompt is named", threads.messagesForCompression([injected, reminderMessage])[0] === injected, threads.messagesForCompression([injected, reminderMessage])],
+		]);
+	}
+
 	// =========================================================================
 	// Shipped profile table (extension/model-profiles.ts) — STRUCTURAL only
 	// =========================================================================
@@ -6831,6 +6979,7 @@ production behaviour.`);
 		"writing-status-ignored-keys", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui", "writing-status-non-gate-pause",
 		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-cap-visible", "writing-status-counting", "writing-status-no-store-write",
 		"worker-load", "worker-preamble", "reviewer-charter-sync",
+		"worker-reminder-contract", "worker-reminder-state", "worker-reminder-detection", "worker-reminder-compression", "worker-reminder-wiring",
 		...DOCTRINE_CONTRACT_IDS,
 		"cand-builtin-sdk", "cand-missing-path",
 		"unit-directory", "unit-glob-fallback", "unit-unrun-fallback",

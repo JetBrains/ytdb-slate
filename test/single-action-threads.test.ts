@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { NO_SESSION_BASELINE } from "../extension/route.ts";
 import { registerSlateTools } from "../extension/tools.ts";
 import { sanitizeThreadRecord, SLATE_STATE_FORMAT, SlateStore, type EpisodeRecord, type ThreadRecord } from "../extension/state.ts";
 import { MAX_CONTEXT_EPISODES, messagesForCompression, ThreadManager, type DispatchOptions, type DispatchResult } from "../extension/threads.ts";
@@ -187,13 +188,124 @@ test("removed fields are absent from the schema and rejected before creation", a
   assert.equal(store.threads.size, 0);
 });
 
-test("episode compression excludes only the injected user prompt", () => {
+test("episode compression excludes worker reminders and only the injected user prompt", () => {
   const injected = { role: "user", content: "loaded episode text" };
   const assistant = { role: "assistant", content: "result" };
   const compacted = { role: "compactionSummary", content: "summary" };
-  assert.deepEqual(messagesForCompression([compacted, injected, assistant], "loaded episode text"), [compacted, assistant]);
+  const reminder = { role: "custom", customType: "slate-worker-reminder", content: "reminder" };
+  const otherCustom = { role: "custom", customType: "other", content: "keep" };
+  assert.deepEqual(
+    messagesForCompression([compacted, reminder, injected, assistant, reminder, otherCustom], "loaded episode text"),
+    [compacted, assistant, otherCustom],
+  );
+  assert.deepEqual(messagesForCompression([reminder, assistant, reminder]), [assistant]);
   assert.deepEqual(messagesForCompression([assistant], "loaded episode text"), [assistant]);
   assert.deepEqual(messagesForCompression([injected, assistant]), [injected, assistant]);
+});
+
+async function dispatchWithUnpairedToolResult(
+  handledToolResult: boolean,
+  compactionEvent?: "successful" | "aborted" | "missing-result",
+) {
+  const root = mkdtempSync(join(tmpdir(), "slate-reminder-miss-"));
+  try {
+    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const manager = new ThreadManager(store, {});
+    const listeners = new Set<(event: Record<string, unknown>) => void>();
+    const session = {
+      messages: (compactionEvent === "successful" ? [{ role: "user", content: "earlier turn" }] : []) as unknown[],
+      model: undefined,
+      thinkingLevel: undefined,
+      sessionFile: undefined,
+      workerReminderHandledToolResult: () => handledToolResult,
+      subscribe(listener: (event: Record<string, unknown>) => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      async prompt() {
+        const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "read", content: [{ type: "text", text: "data" }] };
+        const assistant = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }], usage: {} };
+        session.messages.push(toolResult);
+        if (compactionEvent === "successful") {
+          session.messages.push({ role: "custom", customType: "slate-worker-reminder", content: "reminder" });
+          session.messages.splice(0, session.messages.length, { role: "compactionSummary", content: "summary" });
+          for (const listener of listeners) listener({ type: "compaction_end", result: {} });
+        } else if (compactionEvent === "aborted") {
+          for (const listener of listeners) listener({ type: "compaction_end", result: {}, aborted: true });
+        } else if (compactionEvent === "missing-result") {
+          for (const listener of listeners) listener({ type: "compaction_end" });
+        }
+        session.messages.push(assistant);
+        for (const listener of listeners) listener({ type: "message_end", message: assistant });
+      },
+      async abort() {},
+      dispose() {},
+      async setModel() {},
+      setThinkingLevel() {},
+      getContextUsage() { return undefined; },
+    };
+    const internals = manager as unknown as {
+      live: Map<string, typeof session>;
+      openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: typeof session; baseline: typeof NO_SESSION_BASELINE }>;
+    };
+    internals.openWorkerFor = async ({ thread }) => {
+      internals.live.set(thread.id, session);
+      return { session, baseline: NO_SESSION_BASELINE };
+    };
+    return await manager.dispatch(
+      { type: "general", task: "complete despite the missing reminder" },
+      {
+        cwd: root,
+        hasUI: false,
+        modelRegistry: {
+          find() { return undefined; },
+          async getAvailable() { return []; },
+          hasConfiguredAuth() { return false; },
+        },
+      } as unknown as ExtensionContext,
+      undefined,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("a missing worker reminder warns without changing a successful action", { timeout: 1000 }, async () => {
+  const result = await dispatchWithUnpairedToolResult(true);
+  const warning = "slate: a worker tool result reached the reminder handler, but the reminder is missing. Review the worker transcript before you rely on the result.";
+  assert.equal(result.thread.status, "successful");
+  assert.equal(result.episode.status, "ok");
+  assert.deepEqual(result.warnings, [warning]);
+});
+
+test("a short-path tool result does not produce a false reminder warning", { timeout: 1000 }, async () => {
+  const result = await dispatchWithUnpairedToolResult(false);
+  assert.equal(result.thread.status, "successful");
+  assert.equal(result.episode.status, "ok");
+  assert.deepEqual(result.warnings, []);
+});
+
+test("successful history compaction during an action keeps reminder-loss detection silent", { timeout: 1000 }, async () => {
+  const result = await dispatchWithUnpairedToolResult(true, "successful");
+  assert.equal(result.thread.status, "successful");
+  assert.equal(result.episode.status, "ok");
+  assert.deepEqual(result.warnings, []);
+});
+
+test("aborted history compaction does not suppress a reminder-loss warning", { timeout: 1000 }, async () => {
+  const result = await dispatchWithUnpairedToolResult(true, "aborted");
+  assert.equal(result.thread.status, "successful");
+  assert.equal(result.episode.status, "ok");
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0] ?? "", /worker tool result reached the reminder handler/);
+});
+
+test("history compaction without a result does not suppress a reminder-loss warning", { timeout: 1000 }, async () => {
+  const result = await dispatchWithUnpairedToolResult(true, "missing-result");
+  assert.equal(result.thread.status, "successful");
+  assert.equal(result.episode.status, "ok");
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0] ?? "", /worker tool result reached the reminder handler/);
 });
 
 test("the current thread record sanitizer covers every terminal shape", () => {

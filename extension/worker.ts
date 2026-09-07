@@ -2,8 +2,9 @@
  * Worker sessions: in-process pi SDK AgentSessions with the recursion guard.
  *
  * A worker loads NO skills, prompt templates, or themes (DefaultResourceLoader
- * no* options), and by default NO extensions either — so a worker can never see
- * slate tools (ExecPlan D7, depth-1 guard). It inherits the HOST session's
+ * no* options), and by default no project or discovered extensions. Slate
+ * supplies one internal reminder component. The structural excludeTools guard
+ * keeps slate tools out (ExecPlan D7, depth-1 guard). It inherits the HOST session's
  * project-trust state via an explicit SettingsManager, so untrusted projects get
  * neither project-local settings nor the project SYSTEM.md override in workers.
  *
@@ -42,10 +43,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import { createWorkerReminderRuntime } from "./worker-reminder.ts";
 import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
-export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
+export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"] & {
+	workerReminderHandledToolResult(): boolean;
+};
 
 export const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
@@ -252,6 +256,7 @@ export async function openWorkerSession(opts: {
 	// project must never load extensions into a worker, whatever a future caller
 	// passes.
 	const extensionPaths = ctx.isProjectTrusted() ? (opts.extensionPaths ?? []) : [];
+	const workerReminder = createWorkerReminderRuntime();
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
 		agentDir,
@@ -263,6 +268,13 @@ export async function openWorkerSession(opts: {
 		// never specs). undefined when empty so the default worker is untouched.
 		noExtensions: true,
 		additionalExtensionPaths: extensionPaths.length > 0 ? extensionPaths : undefined,
+		extensionFactories: [
+			{
+				name: "slate-worker-reminder",
+				factory: workerReminder.extension,
+				hidden: true,
+			},
+		],
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
@@ -271,21 +283,21 @@ export async function openWorkerSession(opts: {
 		appendSystemPrompt: [workerPreamble(trusted, opts.reviewerCharter === true), ...promptDocs],
 	});
 	await loader.reload();
+	const loaded = loader.getExtensions();
+	const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
+	// A worker extension or the internal reminder component must not vanish
+	// silently. Surface every loader error naming the path. Paths and messages
+	// are extension-supplied and flow to the UI, the console and the persisted
+	// episode, so sanitize them (SE22) like every other displayed string.
+	for (const err of loaded.errors ?? []) {
+		warn(`slate: worker extension failed to load — ${sanitizeForNotify(String(err.path))}: ${sanitizeForNotify(String(err.error))}`);
+	}
 
 	// Extension tool names actually registered by the whitelisted units — needed
 	// both for the collision re-check and for the tools allowlist below. Stays
 	// empty (and this whole block is skipped) unless a whitelist was resolved.
 	const extensionToolNames: string[] = [];
 	if (extensionPaths.length > 0) {
-		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
-		const loaded = loader.getExtensions();
-		// A whitelisted extension that failed to load must not vanish silently —
-		// surface every loader error naming the path. Paths and messages are
-		// extension-supplied and flow to the UI, the console and the persisted
-		// episode, so sanitize them (SE22) like every other displayed string.
-		for (const err of loaded.errors ?? []) {
-			warn(`slate: worker extension failed to load — ${sanitizeForNotify(String(err.path))}: ${sanitizeForNotify(String(err.error))}`);
-		}
 		// Collect the tool names each loaded extension actually registered. Loose
 		// cast + Map guard: tolerate a malformed extensions/tools shape (state.ts
 		// pattern).
@@ -367,6 +379,7 @@ export async function openWorkerSession(opts: {
 		sessionManager,
 		settingsManager,
 	});
-	if (opts.promptCacheKey !== undefined) installPromptCacheKey(session, opts.promptCacheKey);
-	return session;
+	const workerSession = Object.assign(session, { workerReminderHandledToolResult: workerReminder.handledToolResult });
+	if (opts.promptCacheKey !== undefined) installPromptCacheKey(workerSession, opts.promptCacheKey);
+	return workerSession;
 }

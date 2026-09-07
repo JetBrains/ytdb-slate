@@ -569,18 +569,25 @@ A net much smaller than the ladder, for these subjects:
   The `writing-reminder-*` family covers the reminder policy module, requirement
   roster, cadence, gates, real mode handlers, runtime-only state, and handoff
   ordering. The checker module has two nets of its own. See § The writing checker.
+- the **worker reminder** across `extension/worker-reminder.ts`,
+  `extension/worker.ts` and `extension/threads.ts` (`worker-reminder-*`). The
+  checks cover its exact contract, session-local state, delivery detection,
+  compression filtering, loader wiring, handler registration, loader error
+  reporting, tool exclusion and the dispatch warning;
 - the **worker preamble and reviewer charter** across `extension/worker.ts`,
   `extension/threads.ts` and the marked block in `docs/review-rules.md`
   (`worker-preamble`, `reviewer-charter-sync`). The checks cover current measured
   untrusted bytes, the trust and charter gates, and worker prompt plumbing. They
   also cover normalized byte identity between the shipped charter and its source
-  block. Nothing else in these modules is in scope here (see the load-path note
-  below).
+  block. The worker-reminder families cover the additional source boundaries
+  named above (see the load-path note below).
 
 The TypeScript modules loaded are `worker-extensions.ts`, `mode.ts`, `paths.ts`,
 `model-router.ts`, `route.ts`, `state.ts`, `writing.ts`, `writing-reminder.ts`,
-`worker.ts`, `threads.ts` (source inspection only), `base-model.ts`,
-`model-profiles.ts` and — through the aliased loader — `episodes.ts`. The shipped command `extension/writing-check.mjs` is also imported
+`worker-reminder.ts`, `worker.ts`, `threads.ts`, `base-model.ts`,
+`model-profiles.ts` and — through the aliased loader — `episodes.ts`. The suite
+imports `threads.ts` and calls its real `messagesForCompression` helper. The
+shipped command `extension/writing-check.mjs` is also imported
 and spawned by its own checks. Every one of them is a re-run trigger — and
 because `state.ts`'s spec helpers are also used by `failover.ts`, a change to
 **them** additionally needs the ladder above. A change to the
@@ -857,6 +864,26 @@ The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`
 The family uses the real `registerSlateMode` handlers with fabricated contexts.
 It remains a pure harness with no pi session. The live hook and persistence path
 has its own integration check below.
+
+The **worker reminder** (`extension/worker-reminder.ts`, `extension/worker.ts`
+and `extension/threads.ts`):
+
+| id | what it proves |
+| --- | --- |
+| `worker-reminder-contract` | the custom type stays separate from the writing reminder; the exact 150-byte reminder stays ASCII and byte-identical |
+| `worker-reminder-state` | two factory instances keep independent state; repeated tool results send once per turn; only an assistant message resets the claim; the claim happens before any asynchronous boundary; the custom-message shape and steer options stay exact; tool results remain unchanged; and a synchronous send failure permits a retry |
+| `worker-reminder-detection` | malformed values and hostile getters fail closed; session-local evidence that the handler received a tool result plus no exact reminder reports a miss only when no successful compaction invalidated the retained action slice; absent handler evidence does not; aborted compaction and an event without a result do not suppress a miss; one exact reminder satisfies the action slice; and another custom type does not satisfy delivery |
+| `worker-reminder-compression` | the real `messagesForCompression` helper from `extension/threads.ts` removes every worker reminder with or without an injected prompt, keeps other custom messages, and preserves exact one-time injected-prompt removal |
+| `worker-reminder-wiring` | every worker loader receives the named hidden factory outside the allowlist and cache-key gates; handlers register in the factory body; loader errors report before the allowlist gate; Slate tools remain excluded; dispatch checks session-local handler evidence and the guarded successful-compaction signal, then warns without failing the action before compression; and the exact warning is `slate: a worker tool result reached the reminder handler, but the reminder is missing. Review the worker transcript before you rely on the result.` |
+
+A real reminder loss during a successful compaction inside the same action is not reported.
+The project accepts this blind spot because the retained action slice no longer supports a conclusion about delivery.
+
+The first three families invoke the real reminder module through fabricated
+extension surfaces. The compression family invokes the real helper. The wiring
+family inspects source boundaries. No family starts pi or proves delivery through
+a real worker session. The worker-reminder integration check below covers that
+path.
 
 The **worker preamble** (`extension/worker.ts`):
 
@@ -1871,12 +1898,13 @@ than a FAIL — it names a section, not a claim — so every reason read in this
 now goes through one helper that yields `""` for a proceed. The mutation testing is
 what surfaced it; a suite that only ever runs against correct code cannot.
 
-It loads the TypeScript modules listed above plus the standalone checker, and it
-reads `extension/worker.ts` only for the preamble constant, so it does **not**
-exercise that module's worker-session load path — the allowlist-mode extension
-load, the `excludeTools` deny list that structurally keeps slate's dispatch
-tools out of a worker, and the post-load collision re-check. Those need a live
-loader and session, so the manual isolated-load smoke test
+It loads the TypeScript modules listed above plus the standalone checker. Its
+reading of `extension/worker.ts` goes beyond the preamble constant. Source checks
+cover the unconditional internal factory, loader-error placement and the
+`excludeTools` deny list. The suite does **not** execute that module's
+worker-session load path, the allowlist-mode extension load or the post-load
+collision re-check. Those need a live loader and session, so the manual
+isolated-load smoke test
 (`pi --no-extensions -e .`, see `AGENTS.md`) covers them instead; a passing run
 here says nothing about them. **With the same caveat as the doctrine finding
 above**: those paths are reached by a DISPATCH, which needs orchestrator mode, which
@@ -2038,6 +2066,75 @@ wiring, doctrine rendering, or handoff ordering contract.
 | --- | --- |
 | `run-writing-reminder-check.sh` | driver, environment isolation, real pi session, evidence parser, assertions, roster, and artifact policy |
 | `writing-reminder-canary.mjs` | real canary tool, offline provider, pre-normalization hook observation, and provider evidence |
+
+# Worker-reminder integration check — `run-worker-reminder-check.sh`
+
+Run the hand-run integration net from the repository root:
+
+```sh
+bash verification/run-worker-reminder-check.sh --repo .
+```
+
+The harness starts one real offline pi session. A deterministic in-process
+provider makes the orchestrator call the real `thread` tool. The worker issues
+two independent built-in `read` calls in one turn, receives the hidden reminder
+on its continuation request, returns a fixed marker and produces an episode.
+The scratch config keeps `workerExtensions` empty and sets `cacheKeyEnabled` to
+`false`.
+
+On the reference machine, the run takes about five seconds. The hard bound is
+GNU `timeout`: TERM after 60 seconds and KILL five seconds later. Exit **0** means
+every assertion passed. Exit **1** means at least one check failed. Exit **2**
+means the harness refused to start because its invocation, tools, checkout,
+canary, pi binary or exact version pin did not satisfy a precondition.
+
+The 18 result lines assert these properties:
+
+1. Pi exits zero within the timeout.
+2. The RPC, host-session and worker-session JSON Lines parse completely.
+3. Pi emits no `extension_error` event.
+4. The `/slate` command comes from the checkout under test.
+5. The module-global custom API handles orchestrator, worker and compressor calls offline.
+6. One real thread dispatch completes with status `ok`.
+7. The worker makes one two-read request and one fixed-marker continuation request.
+8. Both built-in read results persist in their exact unchanged shape.
+9. Exactly one worker reminder persists with the exact type, text and `display: false`.
+10. The reminder follows both tool results and precedes the continuation assistant message.
+11. The continuation provider context contains exactly one reminder.
+12. The provider sees exactly two worker calls, two orchestrator calls and one compressor call.
+13. The delivered reminder produces no false reminder-miss warning.
+14. The compressor request contains no reminder text or custom type.
+15. The durable episode exists and contains no reminder text or custom type.
+16. An empty worker-extension allowlist and disabled cache key do not prevent delivery.
+17. The orchestrator receives the result and returns its fixed completion marker.
+18. The roster reports every expected identifier exactly once.
+
+The run proves one clean worker path through factory loading, tool-result hooks,
+steer delivery, provider context, worker JSON Lines and episode filtering. It
+proves that successful delivery produces no false reminder-miss warning. A single
+clean run cannot prove that a real missing reminder produces the warning. The
+pure `worker-reminder-detection` and `worker-reminder-wiring` checks, plus the
+unit tests in `test/single-action-threads.test.ts`, carry that property. The run
+proves `display: false` structurally. It does not prove visual invisibility in
+the terminal user interface. Check that presentation manually. It also does not
+prove concurrent session isolation. The pure `worker-reminder-state` family
+covers two interleaved factory instances.
+
+A clean run removes its disposable scratch directory. A failed run keeps the
+directory and inlines pi stderr and stdout. The child starts through `env -i`,
+uses dead proxy settings and sets `PI_OFFLINE=1`. The provider performs no
+network operation. This setup is not an operating-system network sandbox.
+
+Re-run this harness after changes to `extension/worker-reminder.ts`, reminder
+factory loading or error handling in `extension/worker.ts`, action-slice
+detection or compression filtering in `extension/threads.ts`, custom-message
+shape or steer delivery, either harness file, the pi pin, or an asserted RPC,
+provider-evidence or JSON Lines shape.
+
+| file | role |
+| --- | --- |
+| `run-worker-reminder-check.sh` | driver, isolated scratch environment, real pi session, evidence parser, 18-result roster and artifact policy |
+| `worker-reminder-canary.mjs` | deterministic offline provider, orchestrator and worker scripts, call classification and provider-context evidence |
 
 # Packaging guards — `run-packaging-checks.sh`
 

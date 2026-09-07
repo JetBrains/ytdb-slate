@@ -53,6 +53,7 @@ import {
 } from "./state.ts";
 import { DEFAULT_WORKER_TOOLS, isJudgementThreadType, openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
+import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker-reminder.ts";
 
 export function workerPromptCacheKey(cwd: string, shard: number): string {
 	// Sixteen hex characters provide a short stable project namespace without
@@ -163,9 +164,10 @@ function lastAssistantMessage(messages: unknown[]): WorkerAssistantMsg | undefin
 	return undefined;
 }
 
-/** Remove Slate's injected user prompt by its exact role and text identity. */
+/** Remove worker reminders and Slate's injected user prompt from episode input. */
 export function messagesForCompression(messages: unknown[], injectedPrompt?: string): unknown[] {
-	if (injectedPrompt === undefined) return messages;
+	const filtered = messages.filter((message) => !isWorkerReminderMessage(message));
+	if (injectedPrompt === undefined) return filtered;
 	const textOf = (message: unknown): string | undefined => {
 		const candidate = message as { role?: unknown; content?: unknown } | null;
 		if (candidate?.role !== "user") return undefined;
@@ -177,7 +179,7 @@ export function messagesForCompression(messages: unknown[], injectedPrompt?: str
 			.join("\n");
 	};
 	let removed = false;
-	return messages.filter((message) => {
+	return filtered.filter((message) => {
 		if (removed || textOf(message) !== injectedPrompt) return true;
 		removed = true;
 		return false;
@@ -548,10 +550,11 @@ export class ThreadManager {
 		// CN2: the switch below AWAITS, and every await is a window in which the dispatch
 		// can be aborted or this manager disposed — exactly the hazard the failover phase
 		// re-checks for (CN1/BG1/CN2 there). A disposed worker session does not throw on
-		// setModel (workers load no extensions, so the SDK's assertActive guard never
-		// fires), and an aborted dispatch that proceeds here still reaches the compressor
-		// and BILLS one. So the same predicate is checked before and after the await, and
-		// a hit aborts unbilled rather than becoming a failed episode.
+		// setModel because this direct worker-session call is not an extension-context
+		// operation guarded by the SDK's assertActive method. That remains true when the
+		// worker allowlist adds project extensions. An aborted dispatch still reaches the
+		// compressor and BILLS one. So the same predicate is checked before and after the
+		// await, and a hit aborts unbilled rather than becoming a failed episode.
 		const blocked = (): string | undefined => {
 			if (signal?.aborted === true) return "aborted by the orchestrator";
 			if (this.live.get(thread.id) !== session) return "its worker session was disposed";
@@ -779,6 +782,7 @@ export class ThreadManager {
 		let unsubscribe: (() => void) | undefined;
 		let onAbort: (() => void) | undefined;
 		let messagesBefore = 0;
+		let actionCompacted = false;
 		let workerCallStarted = false;
 		let workerProducedResponse = false;
 		let status: "ok" | "failed" = "ok";
@@ -882,6 +886,9 @@ export class ThreadManager {
 					lines.push(`→ ${(event as unknown as { toolName: string }).toolName}`);
 					emit(false);
 				} else if (event.type === "compaction_end") {
+					// Pi emits a successful compaction_end with a result after it replaces
+					// the session message history. The old action-slice index is then invalid.
+					if (event.result !== undefined && event.aborted !== true) actionCompacted = true;
 					if (seenCompactionEvents.has(event)) return;
 					seenCompactionEvents.add(event);
 					const result = (event as unknown as {
@@ -950,11 +957,12 @@ export class ThreadManager {
 			if (status === "failed" && !signal?.aborted && current) {
 				// CN1/BG1 + CN2: every await below is a window in which the dispatch
 				// can be aborted or this manager disposed. The abort listener cannot
-				// cover it — session.abort() no-ops on an idle session — and a
-				// DISPOSED worker session does not throw on setModel/prompt (workers
-				// load no extensions, so the SDK's assertActive guard never fires on
-				// this path). Re-check both hazards before each side effect; an abort
-				// or disposal anywhere in the window means NO retry.
+				// cover it — session.abort() no-ops on an idle session — and a DISPOSED worker
+				// session does not throw on setModel/prompt because these direct worker-session
+				// calls are not extension-context operations guarded by the SDK's assertActive
+				// method. That remains true when the worker allowlist adds project extensions.
+				// Re-check both hazards before each side effect. An abort or disposal anywhere
+				// in the window means NO retry.
 				const retryBlocked = () => signal?.aborted === true || this.live.get(thread.id) !== session;
 				const candidate =
 					isFailoverCandidate(outcome.final, current.contextWindow) ||
@@ -1079,6 +1087,14 @@ export class ThreadManager {
 		}
 
 		const actionMessages = session ? session.messages.slice(messagesBefore) : [];
+		if (workerReminderDeliveryMissing(
+			actionMessages,
+			session?.workerReminderHandledToolResult?.() === true,
+			actionCompacted,
+		)) {
+			routeWarn("slate: a worker tool result reached the reminder handler, but the reminder is missing. Review the worker transcript before you rely on the result.");
+			emit(false);
+		}
 		const compressionMessages = messagesForCompression(
 			actionMessages,
 			normalizeContextEpisodeIds(opts.contextEpisodeIds).length > 0 ? prompt : undefined,
