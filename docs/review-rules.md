@@ -59,11 +59,9 @@ separately dispatched test-structure specialist is retired for project test arti
 duties.
 
 
-Prefer the strongest available reviewer model with measured support for the
-review effort. Keep review and gate actions on measured effort levels. A model
-may cover more than one merge-eligible charter only under the merge rule.
-Different reviewers remain separate actions and fresh contexts. Do not reduce
-reviewer count because earlier reviews found nothing.
+A model may cover more than one merge-eligible charter only under the merge
+rule. Different reviewers remain separate actions and fresh contexts. Do not
+reduce reviewer count because earlier reviews found nothing.
 
 A project may add charters through `reviewPerspectivesPath` in `slate.json`.
 Compose each applicable charter beside the built-in set. Each charter declares a
