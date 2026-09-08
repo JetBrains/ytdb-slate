@@ -98,13 +98,6 @@ The doctrine includes these ten requirements in this order:
 - Do not explain an idea with a metaphor.
 - Do not invent a term when the project already has one.
 
-Seven project-authored summaries came from the investigation for
-[issue #96](https://github.com/JetBrains/ytdb-slate/issues/96). ASD-STE100
-informed that work. Slate copied no standard text or controlled
-vocabulary, and it claims no conformance. Three requirements come from
-[issue #257](https://github.com/JetBrains/ytdb-slate/issues/257). The plain-word
-requirement expands item four from that issue.
-
 The doctrine also renders `Use short, active language.` in its lead-in. The
 roster owns vocabulary, because one roster item fixes which words a writer may
 assume the reader knows. Slate dropped the earlier word-shortening rule from
