@@ -9,16 +9,18 @@ const CUSTOM_TYPE = "slate-writing-reminder";
 // This independent copy makes the integration check detect any shipped-renderer drift.
 const REMINDER = `[slate] Reminder:
 
-Writing requirements:
+Writing and conversation requirements:
+Use short, active language. Keep exact technical terms. Do not use semicolons or contractions.
+- Write for a reader whose first language is not English.
+- Use plain words that appear in standard libraries and textbooks. Treat any other term as new. A multi-word noun phrase, an abbreviation and a CamelCase name are terms.
 - Avoid idioms.
 - Replace bare-reference openers with the subject they reference.
-- Explain each project-specific term at first use.
+- Explain each term, including project-specific, at first use.
 - Define each abbreviation at first use.
 - Express one idea in each sentence.
 - Use one term for each concept.
 - Do not explain an idea with a metaphor.
 - Do not invent a term when the project already has one.
-- Use plain words that appear in standard libraries and textbooks.
 
 Design requirements:
 - Keep a design statement only if a different reasonable implementation keeps it true.

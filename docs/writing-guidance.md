@@ -85,31 +85,37 @@ Running the command by hand needs no config. It is a plain Node command.
 
 ## Writing requirements and reminders
 
-The doctrine includes these nine requirements in this order:
+The doctrine includes these ten requirements in this order:
 
+- Write for a reader whose first language is not English.
+- Use plain words that appear in standard libraries and textbooks. Treat any other term as new. A multi-word noun phrase, an abbreviation and a CamelCase name are terms.
 - Avoid idioms.
 - Replace bare-reference openers with the subject they reference.
-- Explain each project-specific term at first use.
+- Explain each term, including project-specific, at first use.
 - Define each abbreviation at first use.
 - Express one idea in each sentence.
 - Use one term for each concept.
 - Do not explain an idea with a metaphor.
 - Do not invent a term when the project already has one.
-- Use plain words that appear in standard libraries and textbooks.
 
-The first six project-authored summaries came from the investigation for
+Seven project-authored summaries came from the investigation for
 [issue #96](https://github.com/JetBrains/ytdb-slate/issues/96). ASD-STE100
 informed that work. Slate copied no standard text or controlled
-vocabulary, and it claims no conformance. The final three requirements come from
-[issue #257](https://github.com/JetBrains/ytdb-slate/issues/257). The ninth
-requirement is item four from that issue.
+vocabulary, and it claims no conformance. Three requirements come from
+[issue #257](https://github.com/JetBrains/ytdb-slate/issues/257). The plain-word
+requirement expands item four from that issue.
 
-The doctrine also renders `Use short, active, plain language.` That rule
-shortens words. The ninth requirement fixes which words a writer may assume
-the reader knows. The two rules govern different failures.
+The doctrine also renders `Use short, active language.` in its lead-in. The
+roster owns vocabulary, because one roster item fixes which words a writer may
+assume the reader knows. Slate dropped the earlier word-shortening rule from
+that lead-in. Two near-identical rules in one requirement block break the
+project requirement to use one term for each concept.
 
-The reminder repeats all nine writing requirements. It also carries this
-six-line design requirement block:
+The reminder starts with the title `Writing and conversation requirements`.
+The next line carries these three retained style rules: `Use short, active
+language.` `Keep exact technical terms.` `Do not use semicolons or
+contractions.` The reminder then repeats all ten writing requirements. It also
+carries this six-line design requirement block:
 
 - Keep a design statement only if a different reasonable implementation keeps it true.
 - Present to the user any item the approved goals do not list.
@@ -128,11 +134,12 @@ A high-level design remains governed even while it lives inside a research
 log. This document is the authority on the
 precise scope of every rendering.
 
-These requirements are not mechanical checker findings. The shipped
-checker has no rule for idioms or bare-reference openers. It also has
-no rule for project-term explanations or abbreviation definitions.
-It cannot count ideas in a sentence or enforce one term per concept. It tests
-neither metaphor-based explanations nor invented project terms.
+These requirements are not mechanical checker findings. The shipped checker
+has no rule for the reader's first language, vocabulary, idioms or
+bare-reference openers. It also has no rule for term explanations or
+abbreviation definitions. It cannot count ideas in a sentence or enforce one
+term per concept. It tests neither metaphor-based explanations nor invented
+project terms.
 
 After an eligible tool result, Slate queues a hidden custom message
 with active `steer`. The message has `display: false` and arrives
@@ -187,23 +194,36 @@ controlled comparison or claim that reminders improve prose.
 
 ## Keeping the requirement text synchronized
 
-`WRITING_REQUIREMENTS`, `DESIGN_REQUIREMENTS`, and `WRITING_SCOPE_EXCLUSION`
-in `extension/writing-reminder.ts` export the authoritative wording. The
-complete nine-line writing roster has five manual copies: this guide,
-AGENTS.md's roster, resolver exact fixtures, the integration canary, and the
-clause list in `test/doctrine-contract.test.ts`. The six-line design roster has
-four manual copies: this guide, resolver exact fixtures, the integration canary,
+`WRITING_REQUIREMENTS_TITLE`, `WRITING_STYLE_RULES`, `WRITING_REQUIREMENTS`,
+`DESIGN_REQUIREMENTS`, and `WRITING_SCOPE_EXCLUSION` in
+`extension/writing-reminder.ts` export the authoritative wording. The complete
+ten-line writing roster has six manual copies: this guide, the writing
+convention in `AGENTS.md` near line 372, and the `writingLines` and
+`doctrineRequirements` copies in
+`verification/resolver-checks.mjs`, `verification/writing-reminder-canary.mjs`,
+and the clause list in `test/doctrine-contract.test.ts`. The six-line design
+roster has four manual copies: this guide, the `designLines` copy in
+`verification/resolver-checks.mjs`, `verification/writing-reminder-canary.mjs`,
 and the clause list in `test/doctrine-contract.test.ts`.
 
+The title and retained style rules have five manual check copies. They are the
+`writingTitle`, `styleLines`, and `exactWritingOpening` values in
+`verification/resolver-checks.mjs`, the expected values in
+`test/writing.test.ts`, the doctrine clauses in `test/doctrine-contract.test.ts`,
+and the full message in `verification/writing-reminder-canary.mjs`. This guide
+holds the document copy.
+
 The scope exclusion has three exact copies: this guide, resolver exact
-fixtures, and the integration canary. AGENTS.md carries equivalent
+fixtures, and the integration canary. `AGENTS.md` carries equivalent
 scope prose, not an exact copy. All applicable copies must update in
 one commit.
 
-`extension/mode.ts` renders the authoritative writing exports directly. Its
-design doctrine rule repeats the six design requirements word for word. The
-shell harness reads expected text from canary evidence. Neither file holds a
-manual writing roster copy.
+The check counts literal occurrences and cannot detect a generated copy, while
+issue 317 tracks the general solution.
+
+`extension/mode.ts` renders the authoritative writing, style, title and design
+exports directly. The shell harness reads expected text from canary evidence.
+Neither file holds a manual roster copy.
 
 ## What it costs when it is on
 

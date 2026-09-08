@@ -369,19 +369,20 @@ A missing, all-zero, absent or HEAD-equal base exits 2. `workflow_dispatch` has 
 
 ## Writing convention
 
-The convention governs new or changed prose in the root `README.md`, PR descriptions and delivery commit bodies. It also governs issues, comments, release notes and agent messages to users. Use short, active, plain language. Write sentences a non-native reader understands on one reading. Keep exact technical terms. Do not use semicolons or contractions.
+The convention governs new or changed prose in the root `README.md`, PR descriptions and delivery commit bodies. It also governs issues, comments, release notes and agent messages to users. Use short, active language. Write sentences a reader understands on one reading. Keep exact technical terms. Do not use semicolons or contractions.
 
-These nine requirements are project-authored:
+These ten requirements are project-authored:
 
-1. Avoid idioms.
-2. Replace bare-reference openers with the subject they reference.
-3. Explain each project-specific term at first use.
-4. Define each abbreviation at first use.
-5. Express one idea in each sentence.
-6. Use one term for each concept.
-7. Do not explain an idea with a metaphor.
-8. Do not invent a term when the project already has one.
-9. Use plain words that appear in standard libraries and textbooks.
+1. Write for a reader whose first language is not English.
+2. Use plain words that appear in standard libraries and textbooks. Treat any other term as new. A multi-word noun phrase, an abbreviation and a CamelCase name are terms.
+3. Avoid idioms.
+4. Replace bare-reference openers with the subject they reference.
+5. Explain each term, including project-specific, at first use.
+6. Define each abbreviation at first use.
+7. Express one idea in each sentence.
+8. Use one term for each concept.
+9. Do not explain an idea with a metaphor.
+10. Do not invent a term when the project already has one.
 
 Research logs and worker-thread task text are excluded. A high-level design is always governed, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. The requirements govern `docs/`, but every checker finding there remains advisory. `verification/README.md` remains a precision-first mechanism reference and is excluded.
 

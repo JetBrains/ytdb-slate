@@ -85,7 +85,8 @@ test("a throwing remindPercent getter warns and falls back", () => {
 
 test("renderWritingReminder returns both exact roster blocks and the exclusion", () => {
   const expected = [
-    "Writing requirements:",
+    "Writing and conversation requirements:",
+    "Use short, active language. Keep exact technical terms. Do not use semicolons or contractions.",
     ...WRITING_REQUIREMENTS.map((entry) => `- ${entry.text}`),
     "",
     "Design requirements:",

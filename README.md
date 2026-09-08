@@ -94,7 +94,7 @@ The guidance has prompt cost. Each orchestrator system prompt contains both doct
 
 The shipped CLI checks plain files, JSONL records, and unified diffs. See [`docs/writing-guidance.md`](docs/writing-guidance.md) for its rules, limits, output, and command examples.
 
-Slate sends context-paced reminders after eligible tool results. Context-paced means Slate waits for configured context growth between reminders. The reminders are hidden from the normal terminal user interface. They repeat nine writing requirements and six design requirements before the next assistant response. The requirements exclude research logs, worker task text, and this project's agent instruction file.
+Slate sends context-paced reminders after eligible tool results. Context-paced means Slate waits for configured context growth between reminders. The reminders are hidden from the normal terminal user interface. They carry the writing and conversation title, three retained style rules, ten writing requirements, and six design requirements before the next assistant response. The requirements exclude research logs, worker task text, and this project's agent instruction file.
 
 ## Install
 

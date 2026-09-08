@@ -3,17 +3,28 @@ export interface WritingRequirement {
 	text: string;
 }
 
+/** The shared title for writing doctrine and reminders. */
+export const WRITING_REQUIREMENTS_TITLE = "Writing and conversation requirements";
+
+/** The retained style rules for writing doctrine and reminders. */
+export const WRITING_STYLE_RULES: readonly WritingRequirement[] = Object.freeze([
+	Object.freeze({ text: "Use short, active language." }),
+	Object.freeze({ text: "Keep exact technical terms." }),
+	Object.freeze({ text: "Do not use semicolons or contractions." }),
+]);
+
 /** The ordered source of truth for writing doctrine and reminders. */
 export const WRITING_REQUIREMENTS: readonly WritingRequirement[] = Object.freeze([
+	Object.freeze({ text: "Write for a reader whose first language is not English." }),
+	Object.freeze({ text: "Use plain words that appear in standard libraries and textbooks. Treat any other term as new. A multi-word noun phrase, an abbreviation and a CamelCase name are terms." }),
 	Object.freeze({ text: "Avoid idioms." }),
 	Object.freeze({ text: "Replace bare-reference openers with the subject they reference." }),
-	Object.freeze({ text: "Explain each project-specific term at first use." }),
+	Object.freeze({ text: "Explain each term, including project-specific, at first use." }),
 	Object.freeze({ text: "Define each abbreviation at first use." }),
 	Object.freeze({ text: "Express one idea in each sentence." }),
 	Object.freeze({ text: "Use one term for each concept." }),
 	Object.freeze({ text: "Do not explain an idea with a metaphor." }),
 	Object.freeze({ text: "Do not invent a term when the project already has one." }),
-	Object.freeze({ text: "Use plain words that appear in standard libraries and textbooks." }),
 ]);
 
 /** The ordered source of truth for design reminders. */
@@ -173,8 +184,30 @@ export function resetWritingReminderSession(runtime: WritingReminderRuntime): Wr
 	};
 }
 
+export function renderWritingStyleRules(separator = " "): string {
+	return WRITING_STYLE_RULES.map((requirement) => requirement.text).join(separator);
+}
+
+export function renderWritingDoctrineStyleRules(indent = ""): string {
+	const finalRule = WRITING_STYLE_RULES.at(-1);
+	if (finalRule === undefined) return "";
+	const openingRules = WRITING_STYLE_RULES.slice(0, -1).map((requirement) => requirement.text).join(" ");
+	return `${openingRules}\n${indent}${finalRule.text}`;
+}
+
 export function renderWritingDoctrineRequirements(indent = ""): string {
 	return WRITING_REQUIREMENTS.map((requirement) => `${indent}- ${requirement.text}`).join("\n");
+}
+
+export function renderDesignDoctrineRequirements(indent = ""): string {
+	const words = DESIGN_REQUIREMENTS.map((requirement) => requirement.text).join(" ").split(" ");
+	const lines: string[] = [];
+	for (const word of words) {
+		const current = lines.at(-1);
+		if (current === undefined || `${current} ${word}`.length > 75) lines.push(word);
+		else lines[lines.length - 1] = `${current} ${word}`;
+	}
+	return lines.join(`\n${indent}`);
 }
 
 export function renderWritingScopeExclusion(indent = ""): string {
@@ -186,7 +219,8 @@ const WRITING_REMINDER_HEADER = "[slate] Reminder:";
 const WRITING_REMINDER_MESSAGE = [
 	WRITING_REMINDER_HEADER,
 	"",
-	"Writing requirements:",
+	`${WRITING_REQUIREMENTS_TITLE}:`,
+	renderWritingStyleRules(),
 	...WRITING_REQUIREMENTS.map((requirement) => `- ${requirement.text}`),
 	"",
 	"Design requirements:",

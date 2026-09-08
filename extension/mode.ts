@@ -43,12 +43,15 @@ import {
 } from "./state.ts";
 import {
 	claimWritingReminder,
+	renderDesignDoctrineRequirements,
 	commitWritingReminder,
 	decideWritingReminder,
 	rearmWritingReminder,
 	renderWritingDoctrineRequirements,
+	renderWritingDoctrineStyleRules,
 	renderWritingReminderMessage,
 	renderWritingScopeExclusion,
+	WRITING_REQUIREMENTS_TITLE,
 	resetWritingReminderSession,
 	WRITING_REMINDER_CUSTOM_TYPE,
 	writingReminderDeliveryDetails,
@@ -420,14 +423,14 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
  */
 function buildWritingRule(n: number): string {
 	return `
-${n}. Check user-facing prose before delivery. Write sentences a non-native reader
-   understands on one reading. Use short, active, plain language. Keep exact
-   technical terms. Do not use semicolons or contractions. The checker does not
-   test vocabulary. Follow these requirements:
+${n}. Check user-facing prose before delivery. Write sentences a reader understands
+   on one reading. ${renderWritingDoctrineStyleRules("   ")} The checker does not
+   test vocabulary. Follow these ${WRITING_REQUIREMENTS_TITLE.toLowerCase()}:
 ${renderWritingDoctrineRequirements("   ")}
 
-   Apply them to README and documentation text, code comments, pull request text,
-   commit bodies, issues, review comments, release notes, and user messages.
+   Apply these requirements to README and documentation text, code comments and
+   pull request text. Apply these requirements also to commit bodies, issues,
+   review comments, release notes and user messages.
 ${renderWritingScopeExclusion("   ")}
    Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}. Read it only for an unusual
    prose decision. Skip it if already in context.`;
@@ -436,11 +439,7 @@ ${renderWritingScopeExclusion("   ")}
 /** Render the final trusted doctrine rule for design discipline. */
 function buildDesignRule(n: number): string {
 	return `
-${n}. Keep a design statement only if a different reasonable implementation keeps
-   it true. Present to the user any item the approved goals do not list. Never
-   add or remove an approved goal yourself. Propose a repeated regression as a
-   non-goal candidate. Present what changed when you update a design. Assume
-   the user knows software but not this project.`;
+${n}. ${renderDesignDoctrineRequirements("   ")}`;
 }
 
 function buildDoctrine(
