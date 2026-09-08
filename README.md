@@ -6,7 +6,7 @@ Slate is a thread-weaving orchestration extension for the [pi coding agent](http
 
 The orchestrator is your main pi session. It dispatches each **bounded action** to a new **worker thread**. Each thread runs one action. A large language model compresses successful work and failed partial work into one **episode**. A failure without a worker response uses a fixed episode and no compression call. The episode retains intent, actions, findings, artifacts, open issues, and handoff notes.
 
-The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use a confirmed size grade and the focus areas the change engages. Optional umbrella **draft-PR publishing** covers tracks.
+The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use a confirmed size grade and a validated focus declaration. Optional umbrella **draft-PR publishing** covers tracks.
 
 An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative. A second opt-in, **action-level model routing**, gives each dispatched action a model and an effort level chosen to be up to the task and no more, so cost is bounded per action instead of per session.
 
@@ -46,23 +46,22 @@ Slate uses three workload grades. SMALL covers up to 50 predicted changed
 production-logic lines. MEDIUM covers 51 through 1,000. LARGE covers more than
 1,000. More than 25 changed files raises SMALL or MEDIUM by one grade.
 
-Focus is separate from size. Ten focus areas add design or review gates. They
-cover concurrency, durability, security, core behavior, performance, design
-uncertainty, contracts, silent failures, project test artifacts, and
-user-facing or licensing-adjacent prose. Every project test artifact gets a
+Focus is separate from size. Nine focus areas add review gates. They cover
+concurrency, durability, security, core behavior, performance, contracts, silent
+failures, project test artifacts, and user-facing or licensing-adjacent prose. Every project test artifact gets a
 separate test-quality and structure reviewer. That reviewer checks behavioral
 effectiveness and test isolation.
 
 The workflow follows these steps:
 
-1. **Predict and confirm** — the orchestrator predicts size and focus before implementation. The user confirms both together.
-2. **Design** — MEDIUM and LARGE need a high-level design. Design uncertainty adds adversarial review. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
+1. **Predict and confirm** — the orchestrator predicts the size grade before implementation. The user confirms that grade.
+2. **Design** — MEDIUM and LARGE need a high-level design. The orchestrator adds adversarial review when the design needs it. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
 3. **Implement tracks** — each track declares its files and focus areas. Track reviews are non-blocking. Final change acceptance remains blocking.
 4. **Measure** — the size command shipped with Slate checks the committed range at the first track boundary.
 5. **Review and deliver** — grade and focus select fresh machine reviewers. The user gives final acceptance and performs any squash merge.
 
-SMALL has a mechanical fast path. Any focus area, project test artifact, or
-verification machinery voids it. Umbrella draft-PR publishing activates only
+SMALL has a mechanical fast path. A project test artifact or verification
+machinery voids it. Umbrella draft-PR publishing activates only
 when `workflow.draftPRs` is `true`.
 
 This summary provides orientation only. The shipped docs listed below are normative.
@@ -122,7 +121,7 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `orchestratorPromptDocs` | string[] | `[]` | Project markdown files (paths relative to the project root) whose **contents** are appended to the orchestrator system prompt. |
 | `workerPromptDocs` | string[] | `[]` | Project markdown files whose **contents** are appended to every worker-thread system prompt. |
 | `workflow.draftPRs` | boolean | `false` | Enable umbrella draft-PR publishing for tracks. |
-| `workflow.followUpIssues` | boolean | `false` | When true, the orchestrator asks which suggestions become follow-up issues in the project tracker. Suggestions are always reported whatever the value. |
+| `workflow.followUpIssues` | boolean | `false` | When true, the orchestrator asks which deferred items become tracked issues. Deferred items are always reported whatever the value. |
 | `writing.check` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Guidance is automatic in trusted projects during orchestrator mode. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remind` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Reminder gates are orchestrator mode, project trust, no pause, cadence or handoff force, and one-per-round control. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remindPercent` | number | `5` | Set cadence as a percentage of Slate's current effective context budget. The value must be finite and in `(0, 100]`. The interval has an 8,192-token floor and no cap. A handoff force bypasses this threshold. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |

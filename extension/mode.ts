@@ -459,7 +459,7 @@ function buildDoctrine(
 			: `Durable workflow records anchor in the retained repo-root research
    log per the workflow doc.`;
 	const followUpTail = trusted && config.workflow?.followUpIssues === true
-		? "\n   After review, ask the user which review suggestions become tracker issues."
+		? "\n   After review, ask the user which deferred items become tracked issues."
 		: "";
 	const perspectives = config.reviewPerspectivesPath;
 	const rule9Tail =
@@ -490,18 +490,18 @@ threads execute. Rules:
    responses into failed episodes. A failure without a worker response uses a fixed
    episode. Episodes marked STATUS: FAILED require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.
-8. Scale change gates by size grade: SMALL, MEDIUM, or LARGE. Predict focus
-   areas separately. The orchestrator owns the track split. For repository changes,
+8. Scale change gates by size grade: SMALL, MEDIUM, or LARGE. The implementer
+   declares focus after implementation, and you validate that declaration. The orchestrator owns the track split. For repository changes,
    read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).
    MEDIUM and LARGE always keep a research log; SMALL opens one on a listed trigger.
-   Track packets are non-blocking, but final change acceptance is blocking. Before
-   the first file-modifying dispatch, confirm the user confirmed the predicted grade
-   and focus set, and every required pre-implementation gate ran. Validate each
+   Track packets are non-blocking, but final change acceptance is blocking. Before the first file-modifying dispatch, confirm the user confirmed the
+   predicted grade and every required pre-implementation gate ran. Validate each
    required design before adversarial design review, then obtain final user approval.
    ${rule8Tail}
 9. Review every track with the set required by its grade and engaged focus areas.
    Verification or gate machinery receives the general implementation reviewer even
-   at SMALL. Before dispatching review threads, read
+   at SMALL. A SMALL track whose validated declaration names no per-track area also
+   receives that reviewer. Before dispatching review threads, read
    ${REVIEW_RULES_DOC}
    (skip the read if it is already in your context) and follow it.${rule9Tail}${followUpTail}
 10. The design principles behind this architecture are documented in

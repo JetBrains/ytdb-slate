@@ -152,12 +152,12 @@ or two problems for the others:
   in the Dumb Zone.
 
 - **P11 — Proportional process.** *(Repo-local note, not from the report.)*
-  Required gates and artifacts follow the confirmed size grade and the engaged
-  focus set. The scope paragraph below states which rules add cost. No rule that
+  Required gates and artifacts follow the confirmed size grade and the validated
+  focus declaration. The scope paragraph below states which rules add cost. No rule that
   adds cost is unconditional. A rule that adds cost names the condition that
-  engages it. The condition is the size grade, the engaged focus set, an
-  artifact whose own existence those two decide, or specific evidence that does
-  not appear in every track.
+  engages it. The condition is the size grade, the validated focus declaration, an artifact
+  whose own existence those two decide, or specific evidence that does not
+  appear in every track.
 
 Repo-local note (not from the report): Principle P11 governs the count of
 required gates, required artifacts and required review actions. A rule that
@@ -334,19 +334,17 @@ the load-on-demand discipline the extension itself prescribes:
   distillation of P1–P10, the review discipline defined in
   `review-rules.md`, and a pointer to the size-grade and focus-area workflow
   that ships with this package (`track-workflow.md` in this directory),
-  appended to the system prompt every turn while orchestrator mode is
-  on. Sizing it matters to the tiering argument, so it is measured
-  rather than asserted. With every conditional tail rule off and
-  `workflow.draftPRs` off, the block is **2,908 portable characters /
-  48 lines**. The fixed fabricated six-model fixture grows it to
-  **4,938 portable characters / 69 lines** on that same basis. The routing rule
-  renders one table row per routable model. (Portable characters, and
-  the rest of the configurations, are defined and tabulated in
-  `context-budget.md`; the raw count also depends on where the package
-  is installed, because the doctrine embeds absolute doc paths.) At a
-  rough four characters per token that is about 727 tokens, or 1,235
-  with the six-model router. The original "a few hundred tokens" holds
-  only for the fixed rules, and a configured router buys its table with
+  appended to the system prompt every turn while orchestrator mode is on.
+
+  The size of this always-loaded block matters to the tiering argument. The
+  project uses measurements, not assertions. `context-budget.md` owns the
+  measurements and the configuration table.
+
+  The routing rule has one table row for each routable model. The raw count
+  depends on where the package is
+  installed because the doctrine embeds absolute doc paths. The original "a
+  few hundred tokens" holds only for the fixed rules, and a configured router
+  buys its table with
   a real slice of every request. It still covers everything routine
   dispatching needs.
 - **Tier 2 — on demand.** This document. The doctrine carries a short

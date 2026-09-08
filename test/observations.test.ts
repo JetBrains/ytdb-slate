@@ -295,6 +295,7 @@ test("dispatch joins text around non-text blocks and distinguishes malformed war
       message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "BG1 | blocker | x.ts:1 | summary" }] },
     });
     assert.ok(malformed.warnings.some((warning) => warning.includes("malformed findings row")));
+    assert.ok(malformed.warnings.some((warning) => warning.includes("Put a file and line or line range in the location field, with no pipe character.")));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -387,7 +388,7 @@ test("public dispatch gates each grammar warning by outcome and judgement type",
         assert.equal(grammarWarnings.length, 1, item.label);
         assert.match(grammarWarnings[0] ?? "", new RegExp(item.expected), item.label);
         if (item.expected.includes("no pipe-delimited")) {
-          assert.match(grammarWarnings[0] ?? "", /exactly five fields for each finding, or end with the exact line No findings\./, item.label);
+          assert.match(grammarWarnings[0] ?? "", /exactly five fields for each finding\. Put a file and line or line range in the location field, with no pipe character\. Otherwise end with the exact line No findings\./, item.label);
         }
         assert.ok(progress.some((update) => !update.done && update.lines.some((line) => line.includes(item.expected ?? ""))), item.label);
       }

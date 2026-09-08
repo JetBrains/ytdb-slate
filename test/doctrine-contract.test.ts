@@ -135,12 +135,12 @@ test("single-action doctrine requires new threads and episode references", { tim
   assert.doesNotMatch(doctrine, /freshContext|threadChoice|restart/);
 });
 
-test("doctrine reads workflow only for changes and enforces size-focus confirmation", { timeout: 5000 }, async () => {
+test("doctrine reads workflow only for changes and enforces size confirmation", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
   assert.ok(doctrine.includes("Scale change gates by size grade: SMALL, MEDIUM, or LARGE."));
-  assert.ok(doctrine.includes("Predict focus areas separately."));
+  assert.ok(doctrine.includes("The implementer declares focus after implementation, and you validate that declaration."));
   assert.ok(doctrine.includes(`For repository changes, read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).`));
-  assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the predicted grade and focus set, and every required pre-implementation gate ran."));
+  assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the predicted grade and every required pre-implementation gate ran."));
 });
 
 test("design gates state validation, adversarial review, and final approval as one ordered contract", { timeout: 5000 }, async () => {
@@ -172,7 +172,7 @@ test("rule 8 renders the exact research-log and draft-publishing tails", { timeo
 
 
 test("follow-up issue doctrine renders after review only when enabled", { timeout: 5000 }, async () => {
-  const sentence = "After review, ask the user which review suggestions become tracker issues.";
+  const sentence = "After review, ask the user which deferred items become tracked issues.";
   assert.ok((await renderDoctrine(undefined, { workflow: { followUpIssues: true } })).includes(sentence));
   assert.equal((await renderDoctrine(undefined, { workflow: { followUpIssues: false } })).includes(sentence), false);
   assert.equal((await renderDoctrine()).includes(sentence), false);

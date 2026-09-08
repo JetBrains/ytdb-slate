@@ -1231,11 +1231,11 @@ export class ThreadManager {
 				const responseScope = observation.stored ? "stored final response" : "final response";
 				if (observation.grammar === "absent") {
 					routeWarn(
-						`slate: episode ${safeEpisodeId}'s ${responseScope} has no pipe-delimited findings row. Use exactly five fields for each finding, or end with the exact line No findings.`,
+						`slate: episode ${safeEpisodeId}'s ${responseScope} has no pipe-delimited findings row. Use exactly five fields for each finding. Put a file and line or line range in the location field, with no pipe character. Otherwise end with the exact line No findings.`,
 					);
 				} else {
 					routeWarn(
-						`slate: episode ${safeEpisodeId}'s ${responseScope} has a malformed findings row. Use exactly five pipe-delimited fields for each finding.`,
+						`slate: episode ${safeEpisodeId}'s ${responseScope} has a malformed findings row. Use exactly five pipe-delimited fields for each finding. Put a file and line or line range in the location field, with no pipe character.`,
 					);
 				}
 			}

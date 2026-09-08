@@ -4,7 +4,7 @@
 
 This repo is a [pi package](https://pi.dev/docs/latest/packages). It provides the **slate** extension for thread-weaving orchestration in pi. The orchestrator dispatches bounded actions to persistent worker threads. Results return as compressed episodes.
 
-The shipped doctrine uses SMALL, MEDIUM and LARGE size grades. Ten focus areas select additional gates. Draft pull request publishing is optional.
+The shipped doctrine uses SMALL, MEDIUM and LARGE size grades. Nine focus areas select additional gates. Draft pull request publishing is optional.
 
 Dispatch also carries **action-level model routing**: `router.models` in the project's `slate.json` names a CLOSED candidate list, resolved once per session, from which each action's model and effort are chosen and guarded. It is off by default: an empty list adds no candidate-routing policy, base seed, context-window substitution, billing notice, or routing doctrine rule. Per-action arguments and pre-existing live failover holds remain active. Reference: `docs/model-routing.md`, which the doctrine cites at runtime alongside the workflow/review/design docs.
 

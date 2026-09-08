@@ -59,7 +59,7 @@ const COST_REASON_SENTENCES = [
   "Cumulative token cost grows with the square of the number of turns because each turn resends the conversation history.",
 ] as const;
 
-test("workerPreamble gates writing guidance on trust and composes reviewer guidance independently", () => {
+test("workerPreamble keeps unchanged reviewer guidance independent of writing trust", () => {
   const untrusted = workerPreamble(false, false);
   const trusted = workerPreamble(true, false);
   const untrustedReviewer = workerPreamble(false, true);
