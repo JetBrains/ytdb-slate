@@ -8,55 +8,55 @@ function sanitize(raw: unknown): { result: ReturnType<typeof sanitizeWorkflowCon
   return { result, warnings };
 }
 
-test("workflow follow-up issues accepts true", () => {
+test("workflow deferred-issue prompt accepts true", () => {
   const { result, warnings } = sanitize({ followUpIssues: true });
   assert.equal(result.followUpIssues, true);
   assert.deepEqual(warnings, []);
 });
 
-test("workflow follow-up issues accepts false", () => {
+test("workflow deferred-issue prompt accepts false", () => {
   const { result, warnings } = sanitize({ followUpIssues: false });
   assert.equal(result.followUpIssues, false);
   assert.deepEqual(warnings, []);
 });
 
-test("workflow follow-up issues defaults to false when the key is absent", () => {
+test("workflow deferred-issue prompt defaults to false when the key is absent", () => {
   const { result, warnings } = sanitize({});
   assert.equal(result.followUpIssues, false);
   assert.deepEqual(warnings, []);
 });
 
-test("workflow follow-up issues defaults to false when workflow is absent", () => {
+test("workflow deferred-issue prompt defaults to false when workflow is absent", () => {
   const { result, warnings } = sanitize(undefined);
   assert.deepEqual(result, { followUpIssues: false });
   assert.deepEqual(warnings, []);
 });
 
-test("workflow follow-up issues defaults to false when workflow is null", () => {
+test("workflow deferred-issue prompt defaults to false when workflow is null", () => {
   const { result, warnings } = sanitize(null);
   assert.deepEqual(result, { followUpIssues: false });
   assert.deepEqual(warnings, []);
 });
 
-test("workflow follow-up issues defaults to false when workflow is an array", () => {
+test("workflow deferred-issue prompt defaults to false when workflow is an array", () => {
   const { result, warnings } = sanitize([]);
   assert.deepEqual(result, { followUpIssues: false });
   assert.deepEqual(warnings, []);
 });
 
-test("workflow follow-up issues defaults to false when workflow is a string", () => {
+test("workflow deferred-issue prompt defaults to false when workflow is a string", () => {
   const { result, warnings } = sanitize("invalid workflow");
   assert.deepEqual(result, { followUpIssues: false });
   assert.deepEqual(warnings, []);
 });
 
-test("workflow follow-up issues defaults to false when workflow is a number", () => {
+test("workflow deferred-issue prompt defaults to false when workflow is a number", () => {
   const { result, warnings } = sanitize(42);
   assert.deepEqual(result, { followUpIssues: false });
   assert.deepEqual(warnings, []);
 });
 
-test("workflow follow-up issues warns and defaults to false for a non-boolean value", () => {
+test("workflow deferred-issue prompt warns and defaults to false for a non-boolean value", () => {
   const { result, warnings } = sanitize({ followUpIssues: "yes" });
   assert.equal(result.followUpIssues, false);
   assert.deepEqual(warnings, [
@@ -64,14 +64,14 @@ test("workflow follow-up issues warns and defaults to false for a non-boolean va
   ]);
 });
 
-test("workflow sanitization preserves draftPRs beside follow-up issues", () => {
+test("workflow sanitization preserves draftPRs beside deferred-issue prompt", () => {
   const { result, warnings } = sanitize({ draftPRs: "unchanged", followUpIssues: true });
   assert.equal(result.draftPRs, "unchanged");
   assert.equal(result.followUpIssues, true);
   assert.deepEqual(warnings, []);
 });
 
-test("workflow follow-up issues renders a symbol through the string fallback", () => {
+test("workflow deferred-issue prompt renders a symbol through the string fallback", () => {
   const { result, warnings } = sanitize({ followUpIssues: Symbol("unsupported") });
   assert.equal(result.followUpIssues, false);
   assert.deepEqual(warnings, [
@@ -79,7 +79,7 @@ test("workflow follow-up issues renders a symbol through the string fallback", (
   ]);
 });
 
-test("workflow follow-up issues contains an unprintable fallback value", () => {
+test("workflow deferred-issue prompt contains an unprintable fallback value", () => {
   const value = {
     toJSON: () => undefined,
     [Symbol.toPrimitive]: () => { throw new Error("cannot render"); },
@@ -91,7 +91,7 @@ test("workflow follow-up issues contains an unprintable fallback value", () => {
   ]);
 });
 
-test("workflow follow-up issues contains a deeply nested invalid value", () => {
+test("workflow deferred-issue prompt contains a deeply nested invalid value", () => {
   let value: Record<string, unknown> = {};
   for (let depth = 0; depth < 5_000; depth += 1) value = { nested: value };
   const { result, warnings } = sanitize({ followUpIssues: value });
@@ -101,7 +101,7 @@ test("workflow follow-up issues contains a deeply nested invalid value", () => {
   ]);
 });
 
-test("workflow follow-up issues ignores an inherited value", () => {
+test("workflow deferred-issue prompt ignores an inherited value", () => {
   const workflow = Object.create({ followUpIssues: true }) as Record<string, unknown>;
   const { result, warnings } = sanitize(workflow);
   assert.deepEqual(result, { followUpIssues: false });

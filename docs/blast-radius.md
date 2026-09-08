@@ -14,20 +14,20 @@ initial grade. The prediction states its basis and uncertainty. The script
 verifies the real committed range at the first track boundary. It never claims
 to measure absent work.
 
-**Focus is judged.** The orchestrator decides which focus areas the change and
-each track engage. No script decides focus.
+**Focus is declared and validated.** The implementer declares every focus area
+that each changed file engages. The orchestrator validates the declaration
+against the committed difference before review. It also checks the high-level
+design and implementer report when they exist. No script decides focus.
 
 The axes never substitute for each other. Size carries no risk meaning. A
 focus area never changes a measured count.
 
-Resolve uncertainty independently on each axis. An uncertain focus area counts
-as engaged. An uncertain size grade takes the higher value. The user may
-confirm a lower grade only before implementation starts. The confirmation
-record states the reason.
+Resolve size uncertainty by taking the higher grade. The user may confirm a
+lower grade only before implementation starts. The confirmation record states
+the reason.
 
-Neither axis may shrink after implementation starts. A later event may add a
-focus area or raise the grade. It may not remove an area from the change-level
-set or lower the grade.
+The grade may not shrink after implementation starts. Focus validation may add
+or remove an area when the evidence supports that.
 
 ## Size measurement and the exclusion list
 
@@ -191,11 +191,8 @@ escalation threshold, not a hard track cap.
 
 ## Focus areas and their gates
 
-A focus area is one named area of risk that a change engages. A focus area
-engaged anywhere belongs to the change-level set. A focus area whose canonical
-gate runs per track adds its reviewer to each track that engages it. A
-change-level-only gate does not add a track reviewer. An area that two tracks
-engage together, and neither engages alone, reaches the closing review.
+A focus area is one named area of risk that a changed file engages. Each area
+adds its reviewer to every track that engages it.
 
 <!-- focus-area-table:begin -->
 | # | focus area | the gate it adds | where the gate runs |
@@ -205,14 +202,13 @@ engage together, and neither engages alone, reaches the closing review.
 | 3 | security | one area reviewer for security | every track that engages the area |
 | 4 | core behaviour or algorithms | one area reviewer for behavioural correctness | every track that engages the area |
 | 5 | performance | one area reviewer for performance | every track that engages the area |
-| 6 | design uncertainty | the change-level adversarial design review, and no track reviewer | once, at the design loop |
-| 7 | public interface or contract | one contract reviewer | every track that engages the area |
-| 8 | silent failure mode | one area reviewer that must state how each failure would be detected | every track that engages the area |
-| 9 | project test artifact | one test-quality and structure reviewer | every track that engages the area |
-| 10 | user-facing or licensing-adjacent prose | one prose and licensing reviewer | every track that engages the area |
+| 6 | public interface or contract | one contract reviewer | every track that engages the area |
+| 7 | silent failure mode | one area reviewer that must state how each failure would be detected | every track that engages the area |
+| 8 | project test artifact | one test-quality and structure reviewer | every track that engages the area |
+| 9 | user-facing or licensing-adjacent prose | one prose and licensing reviewer | every track that engages the area |
 <!-- focus-area-table:end -->
 
-The marked table is the canonical copy of the duplicated ten-area table. Its
+The marked table is the canonical copy of the duplicated nine-area table. Its
 second copy is in [track-workflow.md](track-workflow.md). The two marked blocks
 must remain equal.
 
@@ -272,31 +268,22 @@ A general concern that a change might affect performance does not establish a
 signal. When no repository artifact exists, the orchestrator still judges the
 area from the design and diff.
 
-### 6. Design uncertainty
-
-Design uncertainty engages when the shape is unclear, several parts interact,
-or a live design alternative exists. It adds the change-level adversarial
-design review and no track reviewer.
-
-### 7. Public interface or contract
+### 6. Public interface or contract
 
 This area covers an externally depended-on surface that changes the meaning of
 a rule or contract. An internal method does not engage the area merely because
 its language-level visibility is public. A typographical, formatting or
 wording correction that changes no rule does not engage it.
 
-The contract reviewer always runs on a track that engages this area. The area
-also adds the change-level design adversary when the change removes or alters
-an existing consumer-reachable rule. A purely additive interface change does
-not add that adversary.
+The contract reviewer always runs on a track that engages this area.
 
-### 8. Silent failure mode
+### 7. Silent failure mode
 
 A silent failure mode is a failure that produces no signal by which a later
 check or operator can detect it. Its reviewer must state how every in-scope
 failure would be detected.
 
-### 9. Project test artifact
+### 8. Project test artifact
 
 <!-- project-test-artifact-definition:begin -->
 A project test artifact is an artifact whose purpose is to exercise, configure,
@@ -306,20 +293,20 @@ stubs, harnesses, test-specific configuration, and test support.
 
 Decide purpose from content, imports, callers, project test commands, and
 optional declarations. Filenames and directories are evidence, not
-definitions. Uncertainty engages area 9.
+definitions.
 
 For a dual-purpose artifact, inspect the changed responsibility. A product
-artifact does not engage area 9 merely because tests call it. Engage area 9
+artifact does not engage area 8 merely because tests call it. Engage area 8
 when the changed responsibility serves test execution, isolation, inputs, or
 evidence.
 <!-- project-test-artifact-definition:end -->
 
-Area 9 always adds one `test-quality and structure reviewer` at every size
+Area 8 always adds one `test-quality and structure reviewer` at every size
 grade. No tests-alone or weakening condition limits this rule. Reviewer
 composition belongs to [review-rules.md](review-rules.md) § Reviewer sets,
 merge rule and charters.
 
-### 10. User-facing or licensing-adjacent prose
+### 9. User-facing or licensing-adjacent prose
 
 This area covers text that a consumer of the package can read. It includes
 user documentation, command help, release notes, prompt strings and
@@ -337,89 +324,58 @@ charters. This document does not duplicate those rules.
 
 A project may declare paths for a focus area as prose in its contributor
 guide. No configuration key or parser is required. A declaration is optional
-and add-only.
+and supplies evidence for validation.
 
 1. Touching a declared path engages that focus area for certain.
 2. A change outside all declared paths still receives orchestrator judgement.
-3. A declaration may add a focus area and may never remove one.
-4. A narrow or stale declaration may never switch a gate off.
+3. A declaration may support adding or removing an area during validation.
+4. A narrow or stale declaration does not decide the validated result.
 
-A path is evidence, not a definition. Paths cannot decide core behaviour or
-algorithms, design uncertainty, or a silent failure mode.
+A path is evidence, not a definition. Paths cannot decide core behaviour or algorithms, or a silent failure mode.
 
 ## Lifecycle rules owned by the spine
 
-[track-workflow.md](track-workflow.md) § Focus touchpoints owns prediction,
-declaration, confirmation and the reviewer backstop. Its § Fast path owns fast
+[track-workflow.md](track-workflow.md) § Focus touchpoints owns declaration and
+validation. Its § Fast path owns fast
 path eligibility, the omitted gates, retained sequence, mechanical checklist,
 every voiding condition and the verification-machinery carve-out. This document
 does not duplicate those rules.
 
 [review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters owns
-Reviewer I on a SMALL track removed by that carve-out.
+Reviewer I on a SMALL track.
 
 ## Halt, re-derivation and grade correction
 
-An implementer halts when work engages an unlisted focus area or requires an
-unplanned sensitive configuration change. The implementer also halts before
-weakening a test or materially deviating from the approved design. A reviewer
-backstop that finds a missed area also fires a halt. The halt occurs before
-further work builds on the new fact.
+An implementer halts for an unplanned sensitive configuration change, before
+weakening a test, or before materially deviating from the approved design. The
+halt occurs before further work builds on the new fact.
 
 On a halt, the orchestrator:
 
 1. pauses implementation.
-2. re-derives the change-level and per-track focus sets.
-3. re-runs the size command and re-derives the grade upward only.
-4. returns to the user confirmation gate when an area was added or the grade
-   rose.
-5. updates or creates the coverage register.
-6. runs every newly required gate over all affected completed work.
-7. resumes only after the blocking re-confirmation and retroactive gates pass.
+2. re-runs the size command and re-derives the grade upward only.
+3. returns to the user confirmation gate when the grade rose.
+4. resumes only after the blocking re-confirmation passes.
 
 A first-boundary measurement above the confirmed band fires this halt
 immediately. Present the measured counts at re-confirmation. A measurement
 below the confirmed band does not lower the grade. The route for confirming a
 lower grade closes when implementation starts.
 
-A halt may never remove an area or lower the grade after implementation has
-started.
+A halt may never lower the grade after implementation has started.
 
 ## Review coverage and the coverage register
 
-Every part of the combined diff must reach the review set required by the
-whole change, except for a user-review fix range. That range does not enter the
-change-level review set, and its dedicated gate thread satisfies the coverage
-invariant for that range.
-A track whose review set is below the change-level set
-contributes its whole commit range to the closing review. User review does not
-satisfy this machine-review floor.
+Every part of a track range must reach the perspectives that the engaged areas
+of that track require. User review never replaces machine review.
 
-The closing-review scope is the union of every contributed commit range, plus
-integration across track boundaries, plus conformance to the approved design.
-A LARGE change always receives a closing review. A SMALL or MEDIUM change with
-more than one track receives one when the tracks share a file or interface.
-[track-workflow.md](track-workflow.md) defines the closing-review combinations,
-reviewers and fix budget.
+Create a coverage register when a user-review fix commit exists. Record each
+contiguous user-review fix range and its gate verdict. The register remains the
+review-accounting authority for those ranges. The track table remains a
+display-only split index and carries no commit identifier.
 
-Create a coverage register when any condition first holds:
-
-1. the change has more than one track.
-2. any track's review set is below the change-level set.
-3. a user-review fix commit exists.
-
-For every track, record its track number, review set and review commit range.
-Record each contiguous user-review fix range and its gate verdict. Update the
-register when a halt changes coverage. Add each required track range and
-user-review fix range.
-The register remains the review-accounting authority.
-The track table remains a display-only split index and carries no commit
-identifier.
-
-A single-track change whose track review set equals the change-level set
-satisfies the invariant without a register. At delivery, a live register
-produces the one-line coverage conclusion required by
-[track-workflow.md](track-workflow.md). The detailed register stays in the
+At delivery, a live register produces the one-line coverage conclusion required
+by [track-workflow.md](track-workflow.md). The detailed register stays in the
 research log.
 
 ## Commit discipline for drift and boundaries

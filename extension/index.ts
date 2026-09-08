@@ -25,7 +25,8 @@
  *                 resolver that turns `router.models` into routable candidates
  *   route.ts    — PURE per-action route planning + the seven dispatch guards
  *
- * Optional config at <config dir>/slate.json (config dir = CONFIG_DIR_NAME,
+ * Optional config, including the deferred-issue prompt, lives at
+ * <config dir>/slate.json (config dir = CONFIG_DIR_NAME,
  * ".pi" by default), honored ONLY when the project is trusted — untrusted
  * projects run on built-in defaults with no project file injection:
  *   { "episodeModel": "provider/id", "workerTools": [...],

@@ -764,7 +764,7 @@ export interface RouterConfig {
 	showWarnings?: boolean;
 }
 
-/** Optional raw workflow publishing and follow-up issue controls. */
+/** Optional raw workflow publishing and deferred-issue controls. */
 export interface WorkflowConfig {
 	draftPRs?: boolean;
 	followUpIssues?: boolean;
@@ -794,7 +794,7 @@ function quotedWorkflowValue(value: unknown): string {
 	return sanitizeForNotify(text);
 }
 
-/** Validate the follow-up issue switch while preserving an own draft publishing value. */
+/** Validate the deferred-issue switch while preserving an own draft publishing value. */
 export function sanitizeWorkflowConfig(raw: unknown, warn: (msg: string) => void): SanitizedWorkflowConfig {
 	if (raw === undefined) return { followUpIssues: false };
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { followUpIssues: false };

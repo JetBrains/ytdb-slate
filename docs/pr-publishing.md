@@ -16,10 +16,10 @@ One final approval covers the design and description. The description has no
 separate approval gate.
 
 The umbrella draft pull request is created after the gates required by the
-confirmed size grade and focus set pass. It is created before implementation.
+confirmed size grade pass. It is created before implementation.
 Validation always precedes a required adversarial design review. Final design
 approval follows that review. A SMALL change with no high-level design creates
-the pull request after the user confirms grade and focus, and before
+the pull request after the user confirms the size grade, and before
 implementation:
 
 - Created as a DRAFT, based on the repository's default development
@@ -27,8 +27,7 @@ implementation:
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
 - At creation for every change with a high-level design, the research log's
-  Planned changes content folds into the PR description. This includes a SMALL
-  change whose focus set required design. Create the pull request only after
+  Planned changes content folds into the PR description. This includes a SMALL change for which the orchestrator required design. Create the pull request only after
   final design approval, as stated above.
 
   Key decisions, Risks, and Open questions feed the corresponding
@@ -37,7 +36,7 @@ implementation:
   there only when that review ran. A change without that review carries the
   design verdict lines alone.
 - For a SMALL change without a high-level design, the initial request supplies
-  Motivation. The confirmed grade, focus proposal, and intended fix supply
+  Motivation. The confirmed grade and intended fix supply
   Planned changes. If
   a log exists, its relevant decisions and Open Questions also fold
   into the description.
@@ -69,10 +68,8 @@ Subsections activate when their content exists:
 - **Risks & accepted trade-offs** — including the applicable design
   review verdict lines, and the adversarial review verdict line only
   when that review ran.
-- **Suggestions** — a one-line index per suggestion: identifier,
-  location, and one-line summary. The standalone text lives in the
-  final report to the user or in a tracker issue when
-  `workflow.followUpIssues` enables that prompt.
+- **Ignored findings** — a one-line index for every ignored finding. Each entry
+  carries its identifier, location, and one-line summary.
 - **Verification approach** — 1–2 lines.
 
 "Deep enough" test: a reviewer who knows the codebase but not this
@@ -140,8 +137,8 @@ executed in order:
 - All commits landed since the last user-approved gate are presented
   to the user. For a SMALL change without a design gate, present the description
   here because no design approval presented it before implementation.
-- Every remaining suggestion is reported to the user, and the
-  Suggestions index is present in the description.
+- Every ignored finding is reported to the user, and the Ignored findings index
+  is present in the description.
 - Strip the whole Tracks section from the description, whatever its
   form — the table for multi-track changes or the "N/A (single-track)"
   placeholder — plus any notes under it. Track numbers are ephemeral
