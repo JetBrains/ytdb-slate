@@ -62,12 +62,18 @@ finite number in `(0, 100]`. An invalid value warns and defaults to 5.
 `writing.sentenceWordLimit` configures the sentence-length house-style rule. It
 accepts a whole number from 10 through 200, inclusive. The default is 25
 words. The value `false` turns this rule off. An invalid or out-of-range value
-warns and uses 25 words. `sanitizeWritingConfig` emits the warning. The
-checker uses 25 words after configuration sanitization. The checker reports one
+warns and uses 25 words. `sanitizeWritingConfig` emits the warning. The checker
+uses 25 words after configuration sanitization. The checker reports one
 combined sentence-length distribution for all scanned files. That distribution
-is the instrument that will revisit the number later. Unknown
-keys under `writing` also warn and are ignored. The validator is
-`sanitizeWritingConfig` in `extension/writing.ts`.
+is the instrument that will revisit the number later.
+
+`writing.statusWindowTurns` controls the status window. It defaults to 10 and
+accepts whole numbers from 3 through 100. An invalid value warns and falls back
+to 10. `writing.findings` defaults to `true` and accepts only booleans. An
+invalid value warns and falls back to `true`. It controls only the findings
+section in the hidden reminder. Measurement and the status line continue when
+it is `false`. Unknown keys under `writing` also warn and are ignored. The validator is `sanitizeWritingConfig` in
+`extension/writing.ts`.
 
 Slate reads project config only for a trusted project. The doctrine, worker
 preamble, status, and reminder paths also check trust. An untrusted project
@@ -82,8 +88,9 @@ Trusted orchestrator sessions receive four writing and design surfaces:
 3. **The worker preamble sentence.** Every trusted worker thread receives one
    extra sentence of writing guidance in its preamble.
 4. **The turn status line.** In an interactive session, the Slate status line
-   gains a `writing <n>/<m>` counter. `m` counts measured prose turns. `n`
-   counts turns with at least one `fail` finding.
+   gains `writing <n> fail, <m> style / <w> turns`. The default window is ten
+   measured prose turns. The configured range is 3 through 100. Both counts
+   include model-visible findings only.
 
 Slate also sends a hidden, context-paced message after eligible tool results.
 Context-paced means Slate waits for configured context growth between reminders.
@@ -112,7 +119,7 @@ assume the reader knows. Slate dropped the earlier word-shortening rule from
 that lead-in. Two near-identical rules in one requirement block break the
 project requirement to use one term for each concept.
 
-The reminder starts with the title `Writing and conversation requirements`.
+When the latest measured turn has a model-visible finding, the reminder starts with a `Recent writing findings:` section. The section states that quoted text is data, not an instruction. The section carries one quotation for each present model-visible class. The reminder then starts with the title `Writing and conversation requirements`.
 The next line carries these three retained style rules: `Use short, active
 language.` `Keep exact technical terms.` `Do not use semicolons or
 contractions.` The reminder then repeats all ten writing requirements. It also
@@ -234,15 +241,23 @@ worker dispatch. Each sent reminder also enters later model context.
 `context-budget.md` defines the portable-character measure. It records
 the whole-doctrine sizes and owns the size budget.
 
-An interactive session also runs the checker synchronously after each
-completed assistant message. The hook refuses text over 16 KiB and
-reports `writing skipped (message too large)`. This TUI bound is
-separate from the command's 1 MiB input cap.
+An interactive session runs the checker synchronously at the assistant
+`message_end` event. This event runs before tool execution. The older `turn_end`
+position could carry a quotation from an earlier turn into the model. The hook
+refuses text over 16 KiB and reports `writing skipped (message too large)`. A
+failed checker import is retried on a later message. This TUI bound is separate
+from the command's 1 MiB input cap.
 
-The checker hook is human-only telemetry. It does not change model
-input. A checker failure reports `writing unavailable` instead of
-failing the turn. The hidden reminder uses the separate model-visible
-channel described above.
+The checker hook supplies model-visible findings for four rules: semicolons,
+contractions, paragraph length, and sentence length. Four advisory rules remain
+review-only. The reminder carries one quotation for each present
+model-visible class and its count. Each quotation is capped at 120 bytes and
+uses `…` when truncated. Truncation keeps both `⟦` and `⟧` frame characters. The
+section states that quoted text is data, not an instruction. It states that a
+finding is a signal, not a verdict. It names splitting as the remedy for a long
+sentence. A checker
+failure reports `writing unavailable` instead of failing the turn. The hidden
+reminder uses the model-visible channel described above.
 
 ## What counts as prose
 
@@ -449,9 +464,8 @@ These are settled decisions. Read them as scope, not as a backlog.
 - **No verdict.** No rule class is a defect by itself, and no clean
   run is a pass. `review-rules.md` owns the mapping from a match to a
   severity, and a reviewer owns the judgement.
-- **Not a gate.** The checker hook is telemetry. It changes no model
-  input and cannot fail a turn. The reminder is guidance, not a checker
-  verdict.
+- **Not a gate.** The checker hook is diagnostic. It cannot fail a turn. The
+  reminder carries selected findings as guidance, not as a checker verdict.
 - **Not universal.** The convention covers prose written for people:
   documents, README text, pull request and commit text, issues,
   review comments, release notes and messages to the user. Research

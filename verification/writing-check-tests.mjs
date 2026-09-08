@@ -5,7 +5,7 @@ import os from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { measureWritingTurn } from '../extension/writing.ts';
+import { createWritingCounters, measureWritingTurn } from '../extension/writing.ts';
 import {
   checkRecord, checkText, normalizeMarkdown, makeBlocks, segmentSentences, wordTokens, run, formatText,
   recordsFromFiles, recordsFromUnifiedDiff, parseJsonl, readRegularFile, findingAllowance,
@@ -522,25 +522,25 @@ test('bounded reads reject content that grows past the opened size', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
-test('writing status counts only fail findings and passes the sentence limit', () => {
-  const counters = { measuredTurns: 0, findingTurns: 0 };
+test('writing status counts only model-visible findings and passes the sentence limit', () => {
+  const counters = createWritingCounters();
   let seenLimit;
   measureWritingTurn({ role: 'assistant', content: 'This is a clean turn.' }, { checkText: (_text, options) => { seenLimit = options.sentenceWordLimit; return { findings: [] }; } }, counters, false);
-  measureWritingTurn({ role: 'assistant', content: 'Open the panel; stop.' }, { checkText: text => ({ findings: [{ class: 'fail' }] }) }, counters);
-  measureWritingTurn({ role: 'assistant', content: 'A warning.' }, { checkText: text => ({ findings: [{ class: 'warning' }] }) }, counters);
-  measureWritingTurn({ role: 'user', content: 'Open the panel; stop.' }, { checkText: text => ({ findings: [{ class: 'fail' }] }) }, counters);
-  assert.deepEqual(counters, { measuredTurns: 3, findingTurns: 1 });
+  measureWritingTurn({ role: 'assistant', content: 'Open the panel; stop.' }, { checkText: () => ({ findings: [{ id: 'SEMICOLON', class: 'fail', excerpt: '⟦panel; stop⟧' }] }) }, counters);
+  measureWritingTurn({ role: 'assistant', content: 'A warning.' }, { checkText: () => ({ findings: [{ id: 'OTHER', class: 'fail', excerpt: '⟦hidden⟧' }] }) }, counters);
+  measureWritingTurn({ role: 'user', content: 'Open the panel; stop.' }, { checkText: () => ({ findings: [{ id: 'SEMICOLON', class: 'fail', excerpt: '⟦hidden⟧' }] }) }, counters);
+  assert.deepEqual({ measuredTurns: counters.measuredTurns, failCount: counters.failCount, styleCount: counters.styleCount }, { measuredTurns: 3, failCount: 1, styleCount: 0 });
   assert.equal(seenLimit, false);
 });
 test('writing status fails open when the checker throws', () => {
-  const counters = { measuredTurns: 0, findingTurns: 0 };
+  const counters = createWritingCounters();
   measureWritingTurn({ role: 'assistant', content: 'This message is too large.' }, { checkText: () => { throw new Error('cap'); } }, counters);
-  assert.deepEqual(counters, { measuredTurns: 0, findingTurns: 0 });
+  assert.deepEqual({ measuredTurns: counters.measuredTurns, failCount: counters.failCount, latest: counters.latest }, { measuredTurns: 0, failCount: 0, latest: undefined });
 });
 test('writing measurement fails open on the checker byte cap', () => {
-  const counters = { measuredTurns: 0, findingTurns: 0 };
+  const counters = createWritingCounters();
   measureWritingTurn({ role: 'assistant', content: 'x'.repeat(2 * 1024 * 1024) }, { checkText: text => checkText(text) }, counters);
-  assert.deepEqual(counters, { measuredTurns: 0, findingTurns: 0 });
+  assert.deepEqual({ measuredTurns: counters.measuredTurns, failCount: counters.failCount, latest: counters.latest }, { measuredTurns: 0, failCount: 0, latest: undefined });
 });
 // --------------------------------------------------------------------------
 // FX2 — a turn with no prose is not a broken checker.
@@ -555,7 +555,7 @@ const toolCall = { type: 'toolCall', id: 'call_1', name: 'bash', arguments: { co
 const textPart = text => ({ type: 'text', text });
 const assistantParts = (...content) => ({ role: 'assistant', content });
 const cleanChecker = { checkText: () => ({ findings: [] }) };
-const failChecker = { checkText: () => ({ findings: [{ class: 'fail' }] }) };
+const failChecker = { checkText: () => ({ findings: [{ id: 'SEMICOLON', class: 'fail', excerpt: '⟦failure⟧' }] }) };
 
 test('FX2 a turn with no text part reports no-text and leaves the counters alone', () => {
   const shapes = [
@@ -566,34 +566,38 @@ test('FX2 a turn with no text part reports no-text and leaves the counters alone
     ['non-assistant message', { role: 'user', content: [textPart('Open the panel; stop.')] }],
   ];
   for (const [name, message] of shapes) {
-    const counters = { measuredTurns: 3, findingTurns: 1 };
+    const counters = createWritingCounters();
+    const before = structuredClone(counters);
     assert.equal(measureWritingTurn(message, failChecker, counters), 'no-text', name);
-    assert.deepEqual(counters, { measuredTurns: 3, findingTurns: 1 }, name);
+    assert.deepEqual(counters, before, name);
   }
 });
 test('FX2 array content with a text part is measured like string content', () => {
-  const counters = { measuredTurns: 0, findingTurns: 0 };
+  const counters = createWritingCounters();
   assert.equal(measureWritingTurn(assistantParts(textPart('Open the panel; stop.')), failChecker, counters), 'measured');
   assert.equal(measureWritingTurn(assistantParts(textPart('A clean turn.'), toolCall), cleanChecker, counters), 'measured');
   assert.equal(measureWritingTurn(assistantParts(toolCall), failChecker, counters), 'no-text');
-  assert.deepEqual(counters, { measuredTurns: 2, findingTurns: 1 });
+  assert.deepEqual({ measuredTurns: counters.measuredTurns, failCount: counters.failCount }, { measuredTurns: 2, failCount: 1 });
 });
-test('FX2 a throwing or malformed checker reports failed without moving counters', () => {
-  const counters = { measuredTurns: 2, findingTurns: 0 };
+test('FX2 a throwing or malformed checker reports failed without moving the window', () => {
+  const counters = createWritingCounters();
+  measureWritingTurn(assistantParts(textPart('Measured prose.')), cleanChecker, counters);
+  const before = { measuredTurns: counters.measuredTurns, failCount: counters.failCount, styleCount: counters.styleCount };
   const thrower = { checkText: () => { throw new Error('synthetic checker failure'); } };
   const malformed = { checkText: () => ({ findings: null }) };
   assert.equal(measureWritingTurn(assistantParts(textPart('Prose to measure.')), thrower, counters), 'failed');
   assert.equal(measureWritingTurn(assistantParts(textPart('Malformed result.')), malformed, counters), 'failed');
   assert.equal(measureWritingTurn(assistantParts(toolCall), thrower, counters), 'no-text');
-  assert.deepEqual(counters, { measuredTurns: 2, findingTurns: 0 });
+  assert.deepEqual({ measuredTurns: counters.measuredTurns, failCount: counters.failCount, styleCount: counters.styleCount }, before);
+  assert.equal(counters.latest, undefined);
 });
 test('FX2 the turn hook reads the outcome instead of inferring failure from a counter', () => {
   // mode.ts cannot be imported here (it pulls the pi SDK), and the resolver
   // suite drives it with string content only. This pins the wiring that decides
   // the status: an outcome-driven branch, with no counter-delta inference left.
   const source = fs.readFileSync(fileURLToPath(new URL('../extension/mode.ts', import.meta.url)), 'utf8');
-  const start = source.indexOf('pi.on("turn_end"');
-  assert.equal(start > 0, true, 'the turn_end handler moved');
+  const start = source.indexOf('pi.on("message_end"');
+  assert.equal(start > 0, true, 'the message_end handler moved');
   const handler = source.slice(start, source.indexOf('pi.on(', start + 10));
   assert.match(handler, /=\s*measureWritingTurn\(/);
   assert.match(handler, /outcome === "measured"/);
@@ -991,12 +995,12 @@ const EXPECTED = [
   'pre-read size refusal rejects an oversized file without opening it',
   'post-open size refusal catches a file larger than its pre-read snapshot',
   'bounded reads reject content that grows past the opened size',
-  'writing status counts only fail findings and passes the sentence limit',
+  'writing status counts only model-visible findings and passes the sentence limit',
   'writing status fails open when the checker throws',
   'writing measurement fails open on the checker byte cap',
   'FX2 a turn with no text part reports no-text and leaves the counters alone',
   'FX2 array content with a text part is measured like string content',
-  'FX2 a throwing or malformed checker reports failed without moving counters',
+  'FX2 a throwing or malformed checker reports failed without moving the window',
   'FX2 the turn hook reads the outcome instead of inferring failure from a counter',
   'CLI refuses a symlink to a special file',
   'BG8 CLI runs when its module path is a symlink',

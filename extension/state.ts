@@ -816,6 +816,8 @@ export interface WritingConfig {
 	remind?: boolean;
 	remindPercent?: number;
 	sentenceWordLimit?: number | false;
+	statusWindowTurns?: number;
+	findings?: boolean;
 }
 
 export interface SlateConfig {

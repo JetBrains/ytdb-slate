@@ -155,7 +155,7 @@ test("doctrine states research-log, packet, acceptance, and reviewer rules", { t
   assert.ok(doctrine.includes("Track packets are non-blocking, but final change acceptance is blocking."));
   assert.ok(doctrine.includes("Review every track with the set required by its grade and engaged focus areas."));
   assert.ok(doctrine.includes("Verification or gate machinery receives the general implementation reviewer even at SMALL."));
-  assert.ok(doctrine.includes(`Before dispatching review threads, read ${REVIEW_RULES_DOC}`));
+  assert.ok(doctrine.includes(`Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow it. Skip the read when that file is already in your context.`));
 });
 
 test("rule 8 renders the exact research-log and draft-publishing tails", { timeout: 5000 }, async () => {

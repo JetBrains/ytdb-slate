@@ -242,11 +242,15 @@ Record `pi --version` with the run. The ladder accepts pi from `PATH` as a last 
 
 ### Writing-reminder integration check
 
-`bash verification/run-writing-reminder-check.sh --repo .` starts one real pi
-session against a deterministic in-process fake provider. Two parallel canary
-tool calls must produce one hidden reminder steer. The next provider call must
-receive it. Session JSONL must persist one custom message with `display: false`.
-Both tool results must equal the exact one-block content shape.
+`bash verification/run-writing-reminder-check.sh --repo .` starts two real pi
+sessions against a deterministic in-process fake provider. The primary session
+runs with `writing.findings: true` and proves two hidden reminder steers carry
+the findings section. The auxiliary session runs with `writing.findings: false`
+and proves one reminder omits the section while measurement continues. Two
+parallel canary tool calls must produce one hidden reminder steer in each
+eligible session. Session JSONL must persist two enabled reminders and one
+findings-off reminder with `display: false`. All tool results must equal the
+exact one-block content shape.
 
 The harness requires `node`, `mktemp`, GNU `timeout`, `mkdir`, `rm`, `date`,
 `env`, `cat`, `tr` and `sed`. GNU `timeout` supplies the required
@@ -263,7 +267,7 @@ the boundary.
 operation. This is not a network sandbox because reviewed extension code can
 still open raw sockets.
 
-The canary uses a 1,000,000-token model window and reports 25,000 input tokens.
+The canary uses a 1,000,000-token model window and reports 25,000 input tokens. The controller paces prompts from the RPC `agent_settled` event instead of using a fixed delay.
 The project config sets both ignored writing keys to false. It also sets a
 200,000-token budget and `remindPercent: 12.5`. Delivery proves those keys cannot
 disable reminders. The correct 25,000-token interval fires, while an incorrect
@@ -299,7 +303,7 @@ changes.
 
 `bash verification/run-worker-reminder-check.sh --repo .` starts one real offline pi session against a deterministic in-process provider. The orchestrator calls the real `thread` tool. The worker issues two independent built-in reads in one turn. The continuation provider context must receive one exact hidden worker reminder. The worker transcript must persist both unchanged tool results and one custom message with `display: false`. The compressor request and durable episode must contain no reminder. The thread result must contain no reminder-miss warning.
 
-The harness keeps `workerExtensions` empty and sets `cacheKeyEnabled` to `false`. It proves that the internal component loads across those two boundaries. Its fixed roster reports 18 result lines, including the roster audit. The harness exits 0 when every assertion passes, 1 when a check fails and 2 when it refuses to start. A clean run removes its disposable scratch directory. A failed run keeps it and prints the path.
+The harness keeps `workerExtensions` empty and sets `cacheKeyEnabled` to `false`. It proves that the internal component loads across those two boundaries. Its fixed roster reports 18 result lines, including the roster audit. The roster has 17 expected checks plus the audit. The harness exits 0 when every assertion passes, 1 when a check fails and 2 when it refuses to start. A clean run removes its disposable scratch directory. A failed run keeps it and prints the path.
 
 This net is outside CI, the load check and the ladder. It proves one clean worker path through the loader, tool-result hook, steer queue, provider context, JSON Lines persistence and episode filtering. It proves that successful delivery produces no false reminder-miss warning. A single clean run cannot prove that a real missing reminder produces the warning. The pure `worker-reminder-detection` and `worker-reminder-wiring` checks, plus `test/single-action-threads.test.ts`, prove the current rule. The rule reports a miss only when session-local handler evidence exists, the retained action slice has no exact reminder and no successful compaction invalidated that slice. Aborted compaction and a compaction event without a result do not suppress the warning. A real reminder loss during a successful compaction inside the same action is not reported. The project accepts this blind spot because the retained action slice no longer supports a conclusion about delivery. The integration run proves `display: false` structurally. It does not prove visual invisibility in the terminal user interface. Check that presentation manually. It does not prove concurrent worker-session isolation. The pure `worker-reminder-state` check covers two interleaved factory instances.
 
@@ -331,7 +335,7 @@ The self-test uses temporary fixtures outside the checkout. It proves recursive 
 
 ### Writing-checker nets (correctness suite + scaling gate)
 
-`extension/writing-check.mjs` is the shipped writing checker and the only module with two nets of its own. It has them because it is called from a HOT path: `extension/mode.ts`'s `turn_end` hook runs it synchronously on the completed assistant message, so its wall clock is the TUI's. `WRITING_TURN_MAX_BYTES` (16 KiB of assistant text, in `mode.ts`) is what keeps a pathological input away from that hook — the command's own cap is 1 MiB, three orders of magnitude higher, and only the command can reach it.
+`extension/writing-check.mjs` is the shipped writing checker and the only module with two nets of its own. It has them because it is called from a HOT path: `extension/mode.ts`'s `message_end` hook runs it synchronously on the completed assistant message, so its wall clock is the TUI's. `WRITING_TURN_MAX_BYTES` (16 KiB of assistant text, in `mode.ts`) is what keeps a pathological input away from that hook — the command's own cap is 1 MiB, three orders of magnitude higher, and only the command can reach it.
 
 - `node verification/writing-check-tests.mjs` — CORRECTNESS: the rules, source offsets (BG2), the caps, report and file-input safety, command modes, the five hand-written scanners against the regexes they replaced, and `extension/writing.ts`'s turn outcomes. Under 1 s, machine-independent. Exit 1 on any failure. It is fail-soft (one failure does not hide the rest) and ends with a **roster audit** against an `EXPECTED` list, so a deleted, duplicated or crashed test cannot exit 0. Any test added, renamed or removed must update `EXPECTED`. Its test count and test numbers are the run's business and are deliberately NOT transcribed here or in `verification/README.md`: both were, and both went stale.
 - `node verification/writing-check-scaling.mjs` — GROWTH: nothing in that module may grow faster than linearly. ~18 s, wall-clock. It is a separate file on purpose, so a timing assertion never makes the correctness suite read as machine-dependent.
