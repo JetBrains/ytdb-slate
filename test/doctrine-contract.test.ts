@@ -246,7 +246,7 @@ test("writing guide rosters match the frozen production rosters", () => {
   };
   assert.ok(Object.isFrozen(WRITING_REQUIREMENTS) && Object.isFrozen(DESIGN_REQUIREMENTS));
   assert.deepEqual(
-    bullets("The doctrine includes these ten requirements in this order:", "Seven project-authored summaries"),
+    bullets("The doctrine includes these ten requirements in this order:", "The doctrine also renders"),
     WRITING_REQUIREMENTS.map((entry) => entry.text),
     "writing roster changed; update docs/writing-guidance.md in the same commit",
   );
