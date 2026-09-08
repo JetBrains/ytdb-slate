@@ -16,8 +16,9 @@ A session pays for the detail only when it reads this file.
 reads text, strips the parts that are not prose, splits what remains
 into blocks and sentences, and reports surface facts about them:
 sentence length, sentence count per paragraph, and matches for a
-closed list of ten patterns. It emits per-rule counts, length
-distributions and one finding record per match, each with a source
+closed list of eleven rules. It emits per-rule counts, length
+distributions and one finding record per match, including a sentence-length
+finding when the configured limit is exceeded. Each finding has a source
 offset and a framed excerpt.
 
 **It is a proxy, and the proxy is dictionary-free.** It embeds no
@@ -57,7 +58,14 @@ Either explicitly set key produces one configuration notice, even when its
 value is `false`. When both keys are present, Slate sends one notice.
 
 `writing.remindPercent` remains configurable. It defaults to 5 and must be a
-finite number in `(0, 100]`. An invalid value warns and defaults to 5. Unknown
+finite number in `(0, 100]`. An invalid value warns and defaults to 5.
+`writing.sentenceWordLimit` configures the sentence-length house-style rule. It
+accepts a whole number from 10 through 200, inclusive. The default is 25
+words. The value `false` turns this rule off. An invalid or out-of-range value
+warns and uses 25 words. `sanitizeWritingConfig` emits the warning. The
+checker uses 25 words after configuration sanitization. The checker reports one
+combined sentence-length distribution for all scanned files. That distribution
+is the instrument that will revisit the number later. Unknown
 keys under `writing` also warn and are ignored. The validator is
 `sanitizeWritingConfig` in `extension/writing.ts`.
 
@@ -279,7 +287,7 @@ A word is a run of letters and digits, with internal apostrophes and
 hyphens kept, that contains at least one letter. So a hyphenated
 compound counts as one word and a bare number counts as none.
 
-Four of the ten rules ignore identifier-shaped text. `PASSIVE`,
+Four of the pattern rules ignore identifier-shaped text. `PASSIVE`,
 `INGFORM`, `NOUNCLUSTER` and `MULTICMD` run over a filtered token
 list with path-like tokens, dotted names, `snake_case`, `camelCase`
 and em-dash-bearing quotations removed, so a file name or a symbol
@@ -288,7 +296,7 @@ text.
 
 ## The rules
 
-Ten rules in four severity classes. The class is the checker's own
+Eleven rules in four severity classes. The class is the checker's own
 label, reported with every finding and in the per-rule summary.
 
 **`fail` — a mechanical violation of the convention.**
@@ -305,6 +313,7 @@ label, reported with every finding and in the per-rule summary.
 | rule | what it flags |
 | --- | --- |
 | `PARA6` | a paragraph block of more than 6 sentences |
+| `SENTENCE_LENGTH` | a sentence longer than the configured whole-word limit. The default is 25 words, the accepted range is 10 through 200, and `false` turns this rule off |
 | `PARENTHETICAL_PAREN` | a parenthesis pair whose content looks like a clause rather than an aside. The test is a surface one: an auxiliary or `be` form, a word ending in `ed` or `es`, or a non-initial word ending in `s` |
 | `PARENTHETICAL_DASH` | a paired em dash, or a spaced en dash pair, enclosing text. A pair inside a quotation that itself contains an em dash is suppressed |
 | `SLASHED` | a letters-only `word/word` construction such as `and/or`. Paths and URLs are already blanked, and a longer slash run does not match |
@@ -333,9 +342,9 @@ checker's and never the text's.
 ## The command line
 
 ```
-node extension/writing-check.mjs --input records.jsonl [--format json|text]
-node extension/writing-check.mjs --file PATH [--file PATH ...] [--format json|text]
-node extension/writing-check.mjs --diff changes.diff [--format json|text]
+node extension/writing-check.mjs --input records.jsonl [--format json|text] [--sentence-word-limit 10..200|off]
+node extension/writing-check.mjs --file PATH [--file PATH ...] [--format json|text] [--sentence-word-limit 10..200|off]
+node extension/writing-check.mjs --diff changes.diff [--format json|text] [--sentence-word-limit 10..200|off]
 ```
 
 Exactly one input mode per run. `--format` is `json` by default and

@@ -27,7 +27,6 @@ import {
 	PR_PUBLISHING_DOC,
 	REVIEW_RULES_DOC,
 	TRACK_WORKFLOW_DOC,
-	WRITING_CHECKER_URL,
 	WRITING_GUIDANCE_DOC,
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
@@ -58,7 +57,13 @@ import {
 	writingReminderGateOpen,
 	writingReminderInterval,
 } from "./writing-reminder.ts";
-import { measureWritingTurn, type WritingChecker, type WritingCounters } from "./writing.ts";
+import {
+	DEFAULT_SENTENCE_WORD_LIMIT,
+	loadWritingChecker as loadWritingCheckerModule,
+	measureWritingTurn,
+	type WritingChecker,
+	type WritingCounters,
+} from "./writing.ts";
 import type { WorkerExtensionSet, WorkerExtensionUnit } from "./worker-extensions.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
@@ -576,7 +581,7 @@ export function registerSlateMode(
 	getRouter: () => ModelRouterResolution = () => ROUTER_OFF,
 	// Injected only by the pure harness so it can exercise both dynamic-import
 	// failure and checker failure through the real turn hook.
-	loadWritingChecker: () => Promise<WritingChecker> = () => import(WRITING_CHECKER_URL),
+	loadWritingChecker: () => Promise<WritingChecker> = loadWritingCheckerModule,
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
@@ -774,7 +779,12 @@ export function registerSlateMode(
 		try {
 			writingCheckerPromise ??= loadWritingChecker();
 			const checker = await writingCheckerPromise;
-			const outcome = measureWritingTurn(event.message, checker, writingCounters);
+			const outcome = measureWritingTurn(
+				event.message,
+				checker,
+				writingCounters,
+				getConfig().writing?.sentenceWordLimit ?? DEFAULT_SENTENCE_WORD_LIMIT,
+			);
 			// FX2: a turn with no prose is not a broken checker. Inferring failure
 			// from an unchanged counter reported `writing unavailable` after every
 			// tool-call-only turn and threw away the rate measured so far. Only the

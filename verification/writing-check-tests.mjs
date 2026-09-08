@@ -10,6 +10,7 @@ import {
   checkRecord, checkText, normalizeMarkdown, makeBlocks, segmentSentences, wordTokens, run, formatText,
   recordsFromFiles, recordsFromUnifiedDiff, parseJsonl, readRegularFile, findingAllowance,
   NOT_CHECKED, RULES, MAX_FINDINGS, MAX_TOTAL_FINDINGS, MAX_INPUT_BYTES, MAX_RECORDS,
+  DEFAULT_SENTENCE_WORD_LIMIT, MIN_SENTENCE_WORD_LIMIT, MAX_SENTENCE_WORD_LIMIT,
   MAX_STRIPPED, MAX_BLOCK_DETAILS, MAX_EXCERPT_CHARS,
   scanHtmlComments, scanAutolinks, scanInlineCode, scanLogLines, scanPathTokens,
   sanitizeReportId, REGULAR_FILE_OPEN_FLAGS, excerpt, isProseDiffPath, decodeGitPath, makeAbbreviationSet,
@@ -39,12 +40,23 @@ const has = (result, id) => ids(result).includes(id);
 const lacks = (result, id) => !has(result, id);
 const words = n => Array.from({ length: n }, (_, i) => `word${i + 1}`).join(' ');
 
-test('sentence length is telemetry only across short and long prose', () => {
+test('sentence length reports house style above the default limit', () => {
   assert.equal(RULES.some(([, cls]) => cls === 'warning'), false);
-  for (const length of [1, 20, 21, 25, 26, 50, 200]) {
-    const r = check(words(length) + '.');
-    assert.equal(r.findings.some(f => f.class === 'fail' || f.class === 'warning'), false, `length ${length}: ${JSON.stringify(r.findings)}`);
+  for (const length of [1, 10, 24, 25]) {
+    assert.equal(lacks(check(words(length) + '.'), 'SENTENCE_LENGTH'), true, `length ${length}`);
   }
+  for (const length of [26, 50, 200]) {
+    const finding = check(words(length) + '.').findings.find(f => f.id === 'SENTENCE_LENGTH');
+    assert.equal(finding?.class, 'house-style', `length ${length}`);
+  }
+});
+test('sentence length accepts both configured boundaries and false disables only that rule', () => {
+  assert.equal(lacks(checkRecord({ text: words(10) + '.' }, 0, { sentenceWordLimit: 10 }), 'SENTENCE_LENGTH'), true);
+  assert.equal(has(checkRecord({ text: words(11) + '.' }, 0, { sentenceWordLimit: 10 }), 'SENTENCE_LENGTH'), true);
+  assert.equal(lacks(checkRecord({ text: words(200) + '.' }, 0, { sentenceWordLimit: 200 }), 'SENTENCE_LENGTH'), true);
+  const off = checkRecord({ text: `${words(30)};` }, 0, { sentenceWordLimit: false });
+  assert.equal(lacks(off, 'SENTENCE_LENGTH'), true);
+  assert.equal(has(off, 'SEMICOLON'), true);
 });
 test('declared text types have no effect and are absent from output', () => {
   const text = 'Open the panel; inspect the seal.';
@@ -449,6 +461,19 @@ test('GT3 diff mode reports an undecodable path and keeps other files', () => {
     assert.equal(JSON.parse(json.stdout).records.length, 2);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+test('CLI forwards a non-default sentence limit through run and record analysis', () => {
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-limit-'));
+  try {
+    const path = join(dir, 'input.md');
+    fs.writeFileSync(path, words(26) + '.');
+    const baseline = spawnSync(process.execPath, [CHECKER, '--file', path], { encoding: 'utf8' });
+    const configured = spawnSync(process.execPath, [CHECKER, '--file', path, '--sentence-word-limit', '30'], { encoding: 'utf8' });
+    assert.equal(baseline.status, 0, baseline.stderr);
+    assert.equal(configured.status, 0, configured.stderr);
+    assert.equal(JSON.parse(baseline.stdout).aggregate.rules.SENTENCE_LENGTH.findings, 1);
+    assert.equal(JSON.parse(configured.stdout).aggregate.rules.SENTENCE_LENGTH.findings, 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 test('CLI unified-diff mode reports only an added finding', () => {
   const dir = fs.mkdtempSync(join(os.tmpdir(), 'writing-check-diff-'));
   try {
@@ -497,13 +522,15 @@ test('bounded reads reject content that grows past the opened size', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
-test('writing status counts only fail findings on completed assistant text', () => {
+test('writing status counts only fail findings and passes the sentence limit', () => {
   const counters = { measuredTurns: 0, findingTurns: 0 };
-  measureWritingTurn({ role: 'assistant', content: 'This is a clean turn.' }, { checkText: text => ({ findings: [] }) }, counters);
+  let seenLimit;
+  measureWritingTurn({ role: 'assistant', content: 'This is a clean turn.' }, { checkText: (_text, options) => { seenLimit = options.sentenceWordLimit; return { findings: [] }; } }, counters, false);
   measureWritingTurn({ role: 'assistant', content: 'Open the panel; stop.' }, { checkText: text => ({ findings: [{ class: 'fail' }] }) }, counters);
   measureWritingTurn({ role: 'assistant', content: 'A warning.' }, { checkText: text => ({ findings: [{ class: 'warning' }] }) }, counters);
   measureWritingTurn({ role: 'user', content: 'Open the panel; stop.' }, { checkText: text => ({ findings: [{ class: 'fail' }] }) }, counters);
   assert.deepEqual(counters, { measuredTurns: 3, findingTurns: 1 });
+  assert.equal(seenLimit, false);
 });
 test('writing status fails open when the checker throws', () => {
   const counters = { measuredTurns: 0, findingTurns: 0 };
@@ -874,7 +901,8 @@ test('SC6 regular-file opens are nonblocking and legitimate files still read', (
 // and fail it. Keep the names, not a transcribed count: the suite computes and
 // publishes the arithmetic below.
 const EXPECTED = [
-  'sentence length is telemetry only across short and long prose',
+  'sentence length reports house style above the default limit',
+  'sentence length accepts both configured boundaries and false disables only that rule',
   'declared text types have no effect and are absent from output',
   'PARA6 is house-style at seven paragraph sentences',
   'PARA6 stays silent at six sentences',
@@ -958,11 +986,12 @@ const EXPECTED = [
   'BG7 an incomplete final hunk is rejected instead of returned partially',
   'FX4 Git C-quoted paths are decoded for classification and reporting',
   'GT3 diff mode reports an undecodable path and keeps other files',
+  'CLI forwards a non-default sentence limit through run and record analysis',
   'CLI unified-diff mode reports only an added finding',
   'pre-read size refusal rejects an oversized file without opening it',
   'post-open size refusal catches a file larger than its pre-read snapshot',
   'bounded reads reject content that grows past the opened size',
-  'writing status counts only fail findings on completed assistant text',
+  'writing status counts only fail findings and passes the sentence limit',
   'writing status fails open when the checker throws',
   'writing measurement fails open on the checker byte cap',
   'FX2 a turn with no text part reports no-text and leaves the counters alone',

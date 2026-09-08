@@ -170,10 +170,12 @@ and makes no claim about the shape of the current gate curve.
 
 - **P12 — Reader understanding decides the form.** *(Repo-local note, not from the report.)*
   Write so that a reader whose first language is not English, and who knows
-  nothing about the project,
-  understands the text on one reading. Sentence length is a result of that goal,
-  never a target. Do not compress when compression removes information the
-  reader needs. Do not add words that carry no information.
+  nothing about the project, understands the text on one reading. Sentence
+  length is a signal. Split a long sentence while keeping the logical
+  connection explicit. Name the subject instead of using a bare reference.
+  Accept the repeated subject and its word cost. Avoid disconnected fragments.
+  The configured lower bound limits the maximum setting. It does not report
+  short sentences.
 
 ## 5. Where each principle lives in the code
 

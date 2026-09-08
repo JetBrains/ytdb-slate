@@ -809,7 +809,7 @@ own — see § The writing checker:
 
 | id | what it proves |
 | --- | --- |
-| `writing-checker-length` / `writing-checker-para` / `writing-checker-semicolon` / `writing-checker-contraction` | sentence length stays telemetry-only and emits no finding; the warning class stays empty; each surviving rule has positive and negative cases; `PARA6` stays house-style |
+| `writing-checker-length` / `writing-checker-para` / `writing-checker-semicolon` / `writing-checker-contraction` | sentence length emits a `house-style` finding above the default or configured limit and stays silent when the rule is off; the warning class stays empty; each surviving rule has positive and negative cases; `PARA6` stays house-style |
 | `writing-checker-class` / `writing-checker-not-checked` | house-style findings stay out of fail counts; the fixed not-checked list is non-empty and every item has a reason |
 | `writing-checker-caps` | spawned command input caps reject an oversized regular file and a symlink to a special file with non-zero, explanatory errors |
 | `writing-checker-modes` / `writing-checker-determinism` | JSONL, direct-file and unified-diff modes work; diff mode checks added lines in prose files; repeated input produces byte-identical output |
@@ -827,6 +827,7 @@ The **human-only writing status line** is covered through `registerSlateMode` wi
 | `writing-status-cap-visible` | the **turn** bound (`WRITING_TURN_MAX_BYTES`, 16 KiB in `mode.ts`): a larger assistant message goes through the real `turn_end` hook, is never handed to the checker, and the status line says `writing skipped (message too large)` |
 | `writing-status-counting` | only fail findings count; warnings, house-style findings and advisories do not |
 | `writing-status-no-store-write` | counter updates do not call `SlateStore.save()` or persist the orchestrator-mode seed |
+| `writing-status-sentence-limit` | the turn hook passes the configured sentence word limit to the checker |
 
 `measureWritingTurn` lives in `extension/writing.ts`, beside the writing config
 boundary. This keeps the pi-shaped message handling typechecked while the standalone
@@ -838,7 +839,8 @@ doctrine rule** (`extension/mode.ts`), rendered through the same
 
 | id | what it proves |
 | --- | --- |
-| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ remindPercent: 5 }`; malformed shapes warn and default; unknown keys warn and disappear; any own `check` or `remind` key produces one exact notice, including `false` and both keys together |
+| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ remindPercent: 5, sentenceWordLimit: 25 }`; malformed shapes warn and default; unknown keys warn and disappear; any own `check` or `remind` key produces one exact notice, including `false` and both keys together |
+| `writing-config-sentence-limit` | the sentence word limit keeps both range ends, uses `false` as off, and warns before falling back to 25 for invalid values |
 | `writing-config-reminder-valid` / `writing-config-reminder-ignored` / `writing-config-reminder-percent` | a finite percentage in `(0, 100]` survives; both ignored writing keys produce one notice without changing it; bad percentages warn once and fall back to 5 |
 | `writing-config-hostile` | a prototype-polluting object, a getter on an ignored writing key, a throwing percentage getter, an inherited `check` and a 30,000-deep value neither crash nor pollute. Ignored writing key values are never read, every result is fresh, and inherited keys stay absent |
 | `writing-doctrine-off` / `writing-doctrine-untrusted` | trusted doctrine renders the writing rule byte-identically for `writing.check` false, true, or absent; untrusted doctrine renders no writing rule. The same configured input under both trust states makes the trust gate observable |
@@ -2764,8 +2766,8 @@ transcribed here before and both went stale.
 - **Every rule, positively and negatively.** `PARA6`, `SEMICOLON`,
   `CONTRACTION`, `PARENTHETICAL_PAREN`, `PARENTHETICAL_DASH`, `SLASHED`,
   `PASSIVE`, `INGFORM`, `NOUNCLUSTER` and `MULTICMD` each have a case that fires
-  and a case that must stay silent. Separate cases prove sentence length remains
-  telemetry-only and the warning class remains empty.
+  and a case that must stay silent. Separate cases prove sentence length emits
+  the configured house-style finding and the warning class remains empty.
 - **The class boundary.** House-style and advisory findings never enter the
   fail count, and the fixed `NOT CHECKED` list is non-empty with a reason per
   item.

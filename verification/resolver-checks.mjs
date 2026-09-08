@@ -1731,10 +1731,15 @@ try {
 
 		await section("writing-checker", async () => {
 			const w = (count) => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
-			const lengthCases = [1, 20, 21, 25, 26, 50, 200].map((length) => [length, checker.checkText(`${w(length)}.`)]);
+			const defaultLengthCases = [1, 10, 24, 25, 26, 50, 200].map((length) => [length, checker.checkText(`${w(length)}.`)]);
+			const customAt = checker.checkText(`${w(10)}.`, { sentenceWordLimit: 10 });
+			const customAbove = checker.checkText(`${w(11)}.`, { sentenceWordLimit: 10 });
+			const off = checker.checkText(`${w(30)};`, { sentenceWordLimit: false });
 			const lengthAggregate = checker.run([{ text: `${w(200)}.` }]).aggregate;
-			checkAll("writing-checker-length", "sentence length remains telemetry only across short and long prose, and the warning class is empty", [
-				["no tested sentence length emits a fail or warning finding", lengthCases.every(([, result]) => !result.findings.some((f) => f.class === "fail" || f.class === "warning")), lengthCases.map(([length, result]) => [length, result.findings])],
+			checkAll("writing-checker-length", "sentence length reports house style above the selected limit while telemetry and other rules stay active", [
+				["the default is silent through 25 and reports above 25", defaultLengthCases.every(([length, result]) => result.findings.some((f) => f.id === "SENTENCE_LENGTH" && f.class === "house-style") === (length > 25)), defaultLengthCases.map(([length, result]) => [length, result.findings])],
+				["a custom limit is inclusive", !customAt.findings.some((f) => f.id === "SENTENCE_LENGTH") && customAbove.findings.some((f) => f.id === "SENTENCE_LENGTH" && f.class === "house-style"), [customAt.findings, customAbove.findings]],
+				["false disables only sentence length", !off.findings.some((f) => f.id === "SENTENCE_LENGTH") && off.findings.some((f) => f.id === "SEMICOLON"), off.findings],
 				["sentence length remains telemetry", lengthAggregate.sentenceLength.max === 200, lengthAggregate.sentenceLength],
 				["no rule has warning severity", !checker.RULES.some(([, cls]) => cls === "warning"), checker.RULES],
 			]);
@@ -1802,15 +1807,16 @@ try {
 			const gatedTurn = async (options) => {
 				let loads = 0;
 				let checks = 0;
+				const checkerOptions = [];
 				const fixture = writingStatusFixture({
 					...options,
 					loadWritingChecker: async () => {
 						loads++;
-						return { checkText: () => { checks++; return { findings: [] }; } };
+						return { checkText: (_text, received) => { checks++; checkerOptions.push(received); return { findings: [] }; } };
 					},
 				});
 				await writingTurn(fixture);
-				return { fixture, loads, checks };
+				return { fixture, loads, checks, checkerOptions };
 			};
 			const untrusted = await gatedTurn({ trusted: false });
 			check("writing-status-gate-trust", untrusted.loads === 0 && untrusted.checks === 0 && !/writing \d+\/\d+/.test(untrusted.fixture.getStatus() ?? ""), "an untrusted project keeps the checker inactive and suppresses the status rate", untrusted);
@@ -1820,6 +1826,8 @@ try {
 			check("writing-status-gate-ui", noUi.loads === 0 && noUi.checks === 0 && noUi.fixture.getStatus() === undefined, "a session without UI keeps the checker inactive and emits no status", noUi);
 			const paused = await gatedTurn({ paused: true });
 			check("writing-status-non-gate-pause", paused.loads === 1 && paused.checks === 1 && /writing 0\/1/.test(paused.fixture.getStatus() ?? ""), "pause is not a writing status or checker gate; the reminder pause gate is separate", paused);
+			const configuredLimit = await gatedTurn({ writingConfig: { remindPercent: 5, sentenceWordLimit: false } });
+			check("writing-status-sentence-limit", JSON.stringify(configuredLimit.checkerOptions) === JSON.stringify([{ sentenceWordLimit: false }]), "the turn hook passes the configured sentence word limit to the checker", configuredLimit.checkerOptions);
 
 			const importFailed = await writingTurn(writingStatusFixture({
 				loadWritingChecker: async () => { throw new Error("synthetic import failure"); },
@@ -3483,20 +3491,32 @@ try {
 			};
 			const absentConfig = sanitize(undefined);
 			const absentKeys = sanitize({ remindPercent: 10 });
-			checkAll("writing-config-default", "absent ignored writing keys are silent and the sanitizer returns only the configurable percentage", [
-				["absent config has the exact percentage-only default", JSON.stringify(absentConfig.result) === JSON.stringify({ remindPercent: 5 }), absentConfig],
-				["an object with both keys absent is silent", JSON.stringify(absentKeys.result) === JSON.stringify({ remindPercent: 10 }) && absentKeys.warned.length === 0, absentKeys],
+			checkAll("writing-config-default", "absent ignored writing keys are silent and the sanitizer returns both configurable defaults", [
+				["absent config has the exact defaults", JSON.stringify(absentConfig.result) === JSON.stringify({ remindPercent: 5, sentenceWordLimit: 25 }), absentConfig],
+				["an object with both keys absent is silent", JSON.stringify(absentKeys.result) === JSON.stringify({ remindPercent: 10, sentenceWordLimit: 25 }) && absentKeys.warned.length === 0, absentKeys],
 				["undefined config is silent", absentConfig.warned.length === 0, absentConfig.warned],
 			]);
 
+			const sentenceMinimum = sanitize({ sentenceWordLimit: 10 });
+			const sentenceMaximum = sanitize({ sentenceWordLimit: 200 });
+			const sentenceOff = sanitize({ sentenceWordLimit: false });
+			const invalidSentenceValues = [9, 201, 10.5, "25", true, null];
+			const invalidSentences = invalidSentenceValues.map((raw) => ({ raw, ...sanitize({ sentenceWordLimit: raw }) }));
+			checkAll("writing-config-sentence-limit", "the sentence word limit keeps both range ends, uses false as off, and warns before clamping invalid values to 25", [
+				["the minimum survives", JSON.stringify(sentenceMinimum) === JSON.stringify({ result: { remindPercent: 5, sentenceWordLimit: 10 }, warned: [] }), sentenceMinimum],
+				["the maximum survives", JSON.stringify(sentenceMaximum) === JSON.stringify({ result: { remindPercent: 5, sentenceWordLimit: 200 }, warned: [] }), sentenceMaximum],
+				["false is the only off value", JSON.stringify(sentenceOff) === JSON.stringify({ result: { remindPercent: 5, sentenceWordLimit: false }, warned: [] }), sentenceOff],
+				["out-of-range and wrong-type values warn and use 25", invalidSentences.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify({ remindPercent: 5, sentenceWordLimit: 25 }) && warned.length === 1 && /whole number from 10 to 200, or false \(defaulting to 25\)/.test(warned[0])), invalidSentences],
+			]);
+
 			const valid = sanitize({ remindPercent: 0.1 });
-			check("writing-config-reminder-valid", JSON.stringify(valid.result) === JSON.stringify({ remindPercent: 0.1 }) && valid.warned.length === 0, "a finite boundary percentage survives unchanged without ignored writing keys", valid);
+			check("writing-config-reminder-valid", JSON.stringify(valid.result) === JSON.stringify({ remindPercent: 0.1, sentenceWordLimit: 25 }) && valid.warned.length === 0, "a finite boundary percentage survives unchanged without ignored writing keys", valid);
 			const both = sanitize({ check: false, remind: true, remindPercent: 100 });
-			check("writing-config-reminder-ignored", JSON.stringify(both.result) === JSON.stringify({ remindPercent: 100 }) && JSON.stringify(both.warned) === JSON.stringify([notice]), "both ignored writing keys produce one notice without rewriting a valid percentage", both);
+			check("writing-config-reminder-ignored", JSON.stringify(both.result) === JSON.stringify({ remindPercent: 100, sentenceWordLimit: 25 }) && JSON.stringify(both.warned) === JSON.stringify([notice]), "both ignored writing keys produce one notice without rewriting a valid percentage", both);
 
 			const invalidPercentValues = ["10", Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, -0.1, 100.1];
 			const invalidPercents = invalidPercentValues.map((raw) => ({ raw: String(raw), ...sanitize({ remindPercent: raw }) }));
-			check("writing-config-reminder-percent", invalidPercents.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify({ remindPercent: 5 }) && warned.length === 1 && /finite number in \(0, 100\]/.test(warned[0])), "invalid percentages warn once and fall back to the percentage-only default", invalidPercents);
+			check("writing-config-reminder-percent", invalidPercents.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify({ remindPercent: 5, sentenceWordLimit: 25 }) && warned.length === 1 && /finite number in \(0, 100\]/.test(warned[0])), "invalid percentages warn once and retain the sentence limit default", invalidPercents);
 
 			const invalid = [null, [], "yes", 7].map((raw) => sanitize(raw));
 			const unknown = sanitize({ typo: true });
@@ -3504,8 +3524,8 @@ try {
 			const falseKey = sanitize({ remind: false });
 			const bothFalse = sanitize({ check: false, remind: false });
 			checkAll("writing-config-invalid", "malformed shapes and unknown keys still warn while any ignored writing key produces one exact notice", [
-				["every invalid shape warns once and returns exact defaults", invalid.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify({ remindPercent: 5 }) && warned.length === 1), invalid],
-				["unknown key warns and is not rebuilt", JSON.stringify(unknown.result) === JSON.stringify({ remindPercent: 5 }) && unknown.warned.length === 1 && /unknown writing key/.test(unknown.warned[0]), unknown],
+				["every invalid shape warns once and returns exact defaults", invalid.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify({ remindPercent: 5, sentenceWordLimit: 25 }) && warned.length === 1), invalid],
+				["unknown key warns and is not rebuilt", JSON.stringify(unknown.result) === JSON.stringify({ remindPercent: 5, sentenceWordLimit: 25 }) && unknown.warned.length === 1 && /unknown writing key/.test(unknown.warned[0]), unknown],
 				["check true produces the notice", JSON.stringify(trueKey.warned) === JSON.stringify([notice]), trueKey],
 				["remind false still produces the notice", JSON.stringify(falseKey.warned) === JSON.stringify([notice]), falseKey],
 				["both false produce one notice", JSON.stringify(bothFalse.warned) === JSON.stringify([notice]), bothFalse],
@@ -3521,14 +3541,16 @@ try {
 			for (let i = 0; i < 30000; i++) { cursor.nested = { nested: null }; cursor = cursor.nested; }
 			const percentGetter = {};
 			Object.defineProperty(percentGetter, "remindPercent", { enumerable: true, get() { throw new Error("percentage getter exploded"); } });
+			const sentenceLimitGetter = {};
+			Object.defineProperty(sentenceLimitGetter, "sentenceWordLimit", { enumerable: true, get() { throw new Error("sentence limit getter exploded"); } });
 			const inherited = Object.create({ check: true });
-			const hostile = [proto, getter, percentGetter, inherited, { check: deep }];
+			const hostile = [proto, getter, percentGetter, sentenceLimitGetter, inherited, { check: deep }];
 			const hostileResults = hostile.map((raw) => {
 				try { return { raw, ...sanitize(raw) }; } catch { return { raw, result: null, warned: [] }; }
 			});
-			checkAll("writing-config-hostile", "hostile ignored writing key values are never read, an unreadable percentage defaults, inherited keys remain absent, and every result is fresh and safe", [
-				["all hostile inputs survive with exact percentage defaults", hostileResults.every(({ result }) => JSON.stringify(result) === JSON.stringify({ remindPercent: 5 })), hostileResults.map(({ result }) => result)],
-				["own hostile keys warn, the unreadable percentage warns, and inherited input stays silent", hostileResults[0].warned.length === 1 && /unknown writing key/.test(hostileResults[0].warned[0]) && hostileResults[1].warned[0] === notice && hostileResults[2].warned.length === 1 && /could not read the value/.test(hostileResults[2].warned[0]) && hostileResults[3].warned.length === 0 && hostileResults[4].warned[0] === notice, hostileResults.map(({ warned }) => warned)],
+			checkAll("writing-config-hostile", "hostile ignored writing key values are never read, unreadable configurable values default, inherited keys remain absent, and every result is fresh and safe", [
+				["all hostile inputs survive with exact configurable defaults", hostileResults.every(({ result }) => JSON.stringify(result) === JSON.stringify({ remindPercent: 5, sentenceWordLimit: 25 })), hostileResults.map(({ result }) => result)],
+				["own hostile keys warn, unreadable configurable values warn, and inherited input stays silent", hostileResults[0].warned.length === 1 && /unknown writing key/.test(hostileResults[0].warned[0]) && hostileResults[1].warned[0] === notice && hostileResults[2].warned.length === 1 && /writing\.remindPercent.*could not read/.test(hostileResults[2].warned[0]) && hostileResults[3].warned.length === 1 && /writing\.sentenceWordLimit.*could not read/.test(hostileResults[3].warned[0]) && hostileResults[4].warned.length === 0 && hostileResults[5].warned[0] === notice, hostileResults.map(({ warned }) => warned)],
 				["result is fresh", hostileResults.every(({ raw, result }) => result !== raw), hostileResults.map(({ raw, result }) => raw === result)],
 				["no prototype pollution", ({}).polluted === undefined && ({}).typo === undefined, Object.prototype],
 			]);
@@ -7011,14 +7033,14 @@ production behaviour.`);
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-deferred",
-		"writing-config-default", "writing-config-reminder-valid", "writing-config-reminder-ignored", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
+		"writing-config-default", "writing-config-sentence-limit", "writing-config-reminder-valid", "writing-config-reminder-ignored", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
 		"writing-reminder-load", "writing-reminder-roster", "writing-copy-independence", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-size", "writing-reminder-interval", "writing-reminder-cadence", "writing-reminder-gates", "writing-reminder-state-machine",
 		"writing-reminder-mode-send", "writing-reminder-rearm", "writing-reminder-mode-gates", "writing-reminder-mode-force", "writing-reminder-send-retry", "writing-reminder-cleared-retry", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",
 		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite",
 		"writing-checker-length", "writing-checker-para", "writing-checker-semicolon", "writing-checker-contraction",
 		"writing-checker-class", "writing-checker-not-checked", "writing-checker-caps", "writing-checker-modes", "writing-checker-determinism",
 		"writing-status-fresh", "writing-status-clean", "writing-status-positive", "writing-status-import-url", "writing-status-import-fail",
-		"writing-status-ignored-keys", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui", "writing-status-non-gate-pause",
+		"writing-status-ignored-keys", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui", "writing-status-non-gate-pause", "writing-status-sentence-limit",
 		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-cap-visible", "writing-status-counting", "writing-status-no-store-write",
 		"worker-load", "worker-preamble", "reviewer-charter-sync",
 		"worker-reminder-contract", "worker-reminder-state", "worker-reminder-detection", "worker-reminder-compression", "worker-reminder-wiring",

@@ -229,7 +229,8 @@ test("writing doctrine is active for trusted projects regardless of ignored writ
     "design doctrine must match the reminder roster word for word",
   );
   assert.ok(normalized.includes(`Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}.`));
-  assert.doesNotMatch(normalized, /20 words|25 words|SENT20|SENT25/);
+  assert.doesNotMatch(normalized, /\b\d+\s+words\b/i);
+  assert.doesNotMatch(normalized, /\bSENT\d+\b/);
 });
 
 test("writing guide rosters match the frozen production rosters", () => {

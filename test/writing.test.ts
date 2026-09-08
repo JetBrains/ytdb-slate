@@ -10,7 +10,11 @@ import {
   writingReminderGateOpen,
 } from "../extension/writing-reminder.ts";
 import {
+  DEFAULT_SENTENCE_WORD_LIMIT,
+  loadWritingChecker,
+  MAX_SENTENCE_WORD_LIMIT,
   measureWritingTurn,
+  MIN_SENTENCE_WORD_LIMIT,
   sanitizeWritingConfig,
   type WritingChecker,
   type WritingCounters,
@@ -29,29 +33,66 @@ function assistant(content: unknown): TurnEndEvent["message"] {
   return { role: "assistant", content } as TurnEndEvent["message"];
 }
 
-test("malformed writing config warns and uses the five-percent default", () => {
+test("malformed writing config warns and uses both defaults", () => {
   assert.deepEqual(sanitize("invalid"), {
-    result: { remindPercent: 5 },
-    warnings: ['slate: ignoring writing — expected an object like { "remindPercent": 5 }'],
+    result: { remindPercent: 5, sentenceWordLimit: 25 },
+    warnings: ['slate: ignoring writing — expected an object like { "remindPercent": 5, "sentenceWordLimit": 25 }'],
   });
 });
 
 test("writing.check true is an ignored writing key and emits the shared notice", () => {
   const { result, warnings } = sanitize({ check: true, remindPercent: 7 });
-  assert.deepEqual(result, { remindPercent: 7 });
+  assert.deepEqual(result, { remindPercent: 7, sentenceWordLimit: 25 });
   assert.deepEqual(warnings, [IGNORED_KEYS_NOTICE]);
 });
 
 test("writing.remind false is an ignored writing key and emits the shared notice", () => {
   const { result, warnings } = sanitize({ remind: false });
-  assert.deepEqual(result, { remindPercent: 5 });
+  assert.deepEqual(result, { remindPercent: 5, sentenceWordLimit: 25 });
   assert.deepEqual(warnings, [IGNORED_KEYS_NOTICE]);
 });
 
 test("absent ignored writing keys emit no shared notice", () => {
   const { result, warnings } = sanitize({ remindPercent: 25 });
-  assert.deepEqual(result, { remindPercent: 25 });
+  assert.deepEqual(result, { remindPercent: 25, sentenceWordLimit: 25 });
   assert.deepEqual(warnings, []);
+});
+
+test("sentence word limit constants match the real checker", async () => {
+  const checker = await loadWritingChecker();
+  assert.deepEqual(
+    [MIN_SENTENCE_WORD_LIMIT, DEFAULT_SENTENCE_WORD_LIMIT, MAX_SENTENCE_WORD_LIMIT],
+    [checker.MIN_SENTENCE_WORD_LIMIT, checker.DEFAULT_SENTENCE_WORD_LIMIT, checker.MAX_SENTENCE_WORD_LIMIT],
+  );
+});
+
+test("the real checker loader applies a non-default sentence limit", async () => {
+  const checker = await loadWritingChecker();
+  const text = Array.from({ length: 26 }, (_, index) => `word${index}`).join(" ") + ".";
+  assert.equal(checker.checkText(text).findings.some((finding) => finding.class === "house-style"), true);
+  assert.equal(checker.checkText(text, { sentenceWordLimit: 30 }).findings.some((finding) => finding.class === "house-style"), false);
+});
+
+test("sentence word limit accepts both ends and false", () => {
+  assert.deepEqual(sanitize({ sentenceWordLimit: MIN_SENTENCE_WORD_LIMIT }), {
+    result: { remindPercent: 5, sentenceWordLimit: 10 },
+    warnings: [],
+  });
+  assert.deepEqual(sanitize({ sentenceWordLimit: MAX_SENTENCE_WORD_LIMIT }), {
+    result: { remindPercent: 5, sentenceWordLimit: MAX_SENTENCE_WORD_LIMIT },
+    warnings: [],
+  });
+  assert.deepEqual(sanitize({ sentenceWordLimit: false }), {
+    result: { remindPercent: 5, sentenceWordLimit: false },
+    warnings: [],
+  });
+});
+
+test("invalid sentence word limit warns and uses 25", () => {
+  assert.deepEqual(sanitize({ sentenceWordLimit: 201 }), {
+    result: { remindPercent: 5, sentenceWordLimit: 25 },
+    warnings: ["slate: ignoring writing.sentenceWordLimit — expected a whole number from 10 to 200, or false (defaulting to 25)"],
+  });
 });
 
 test("both ignored writing keys produce one notice", () => {
@@ -61,7 +102,7 @@ test("both ignored writing keys produce one notice", () => {
 
 test("invalid remindPercent falls back without hiding the ignored writing keys notice", () => {
   const { result, warnings } = sanitize({ check: false, remindPercent: 0 });
-  assert.deepEqual(result, { remindPercent: 5 });
+  assert.deepEqual(result, { remindPercent: 5, sentenceWordLimit: 25 });
   assert.deepEqual(warnings, [
     IGNORED_KEYS_NOTICE,
     "slate: ignoring writing.remindPercent — expected a finite number in (0, 100] (defaulting to 5)",
@@ -78,8 +119,23 @@ test("a throwing remindPercent getter warns and falls back", () => {
   });
 
   assert.deepEqual(sanitize(raw), {
-    result: { remindPercent: 5 },
+    result: { remindPercent: 5, sentenceWordLimit: 25 },
     warnings: ["slate: ignoring writing.remindPercent — could not read the value (defaulting to 5)"],
+  });
+});
+
+test("a throwing sentenceWordLimit getter warns and falls back", () => {
+  const raw = {};
+  Object.defineProperty(raw, "sentenceWordLimit", {
+    enumerable: true,
+    get() {
+      throw new Error("unreadable sentence limit");
+    },
+  });
+
+  assert.deepEqual(sanitize(raw), {
+    result: { remindPercent: 5, sentenceWordLimit: DEFAULT_SENTENCE_WORD_LIMIT },
+    warnings: ["slate: ignoring writing.sentenceWordLimit — could not read the value (defaulting to 25)"],
   });
 });
 
@@ -109,18 +165,18 @@ test("writing reminder gates exclude the ignored writing keys", () => {
   assert.equal(writingReminderGateOpen({ orchestratorMode: true, trusted: true, paused: false }, true), false);
 });
 
-test("measureWritingTurn counts a measured turn and one fail-class finding", () => {
-  const seen: string[] = [];
+test("measureWritingTurn counts a measured turn and passes the sentence limit", () => {
+  const seen: Array<[string, number | false | undefined]> = [];
   const checker: WritingChecker = {
-    checkText(text) {
-      seen.push(text);
+    checkText(text, options) {
+      seen.push([text, options?.sentenceWordLimit]);
       return { findings: [{ class: "house-style" }, { class: "fail" }] };
     },
   };
   const counters: WritingCounters = { measuredTurns: 2, findingTurns: 1 };
 
-  assert.equal(measureWritingTurn(assistant("User-facing prose."), checker, counters), "measured");
-  assert.deepEqual(seen, ["User-facing prose."]);
+  assert.equal(measureWritingTurn(assistant("User-facing prose."), checker, counters, false), "measured");
+  assert.deepEqual(seen, [["User-facing prose.", false]]);
   assert.deepEqual(counters, { measuredTurns: 3, findingTurns: 2 });
 });
 

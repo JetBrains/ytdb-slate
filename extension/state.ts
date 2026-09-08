@@ -815,6 +815,7 @@ export interface WritingConfig {
 	check?: boolean;
 	remind?: boolean;
 	remindPercent?: number;
+	sentenceWordLimit?: number | false;
 }
 
 export interface SlateConfig {

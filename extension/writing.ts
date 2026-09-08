@@ -1,14 +1,32 @@
 import type { TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
+import { WRITING_CHECKER_URL } from "./paths.ts";
 import type { WritingConfig } from "./state.ts";
 
+export const DEFAULT_SENTENCE_WORD_LIMIT = 25;
+export const MIN_SENTENCE_WORD_LIMIT = 10;
+export const MAX_SENTENCE_WORD_LIMIT = 200;
+
+export type SentenceWordLimit = number | false;
+
 export interface WritingChecker {
-	checkText(text: string): { findings: readonly { class: string }[] };
+	checkText(text: string, options?: { sentenceWordLimit?: SentenceWordLimit }): { findings: readonly { class: string }[] };
+}
+
+export interface WritingCheckerModule extends WritingChecker {
+	readonly DEFAULT_SENTENCE_WORD_LIMIT: number;
+	readonly MIN_SENTENCE_WORD_LIMIT: number;
+	readonly MAX_SENTENCE_WORD_LIMIT: number;
 }
 
 export interface WritingCounters {
 	measuredTurns: number;
 	findingTurns: number;
+}
+
+/** Load the dependency-free checker used by the turn hook. */
+export async function loadWritingChecker(): Promise<WritingCheckerModule> {
+	return import(WRITING_CHECKER_URL);
 }
 
 /**
@@ -49,6 +67,7 @@ export function measureWritingTurn(
 	message: TurnEndEvent["message"],
 	checker: WritingChecker,
 	counters: WritingCounters,
+	sentenceWordLimit: SentenceWordLimit = DEFAULT_SENTENCE_WORD_LIMIT,
 ): WritingTurnOutcome {
 	let text: string | undefined;
 	try {
@@ -59,7 +78,7 @@ export function measureWritingTurn(
 	}
 	if (text === undefined) return "no-text";
 	try {
-		const result = checker.checkText(text);
+		const result = checker.checkText(text, { sentenceWordLimit });
 		const hasFailFinding = result.findings.some((finding) => finding.class === "fail");
 		counters.measuredTurns += 1;
 		if (hasFailFinding) counters.findingTurns += 1;
@@ -71,20 +90,20 @@ export function measureWritingTurn(
 }
 
 /** The known `writing` keys. Report anything else as a likely typo. */
-const WRITING_KEYS = ["check", "remind", "remindPercent"];
+const WRITING_KEYS = ["check", "remind", "remindPercent", "sentenceWordLimit"];
 
-/** Validate the raw `writing` config and retain its configurable percentage. */
+/** Validate the raw `writing` config and retain its configurable limits. */
 export function sanitizeWritingConfig(
 	raw: unknown,
 	warn: (msg: string) => void,
-): Pick<Required<WritingConfig>, "remindPercent"> {
-	const defaults = { remindPercent: 5 };
+): Pick<Required<WritingConfig>, "remindPercent" | "sentenceWordLimit"> {
+	const defaults = { remindPercent: 5, sentenceWordLimit: DEFAULT_SENTENCE_WORD_LIMIT as SentenceWordLimit };
 	if (raw === undefined) return defaults;
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-		warn('slate: ignoring writing — expected an object like { "remindPercent": 5 }');
+		warn('slate: ignoring writing — expected an object like { "remindPercent": 5, "sentenceWordLimit": 25 }');
 		return defaults;
 	}
-	const value = raw as { check?: unknown; remind?: unknown; remindPercent?: unknown };
+	const value = raw as { check?: unknown; remind?: unknown; remindPercent?: unknown; sentenceWordLimit?: unknown };
 
 	const unknownKeys = Object.keys(value).filter((key) => !WRITING_KEYS.includes(key));
 	if (unknownKeys.length > 0) {
@@ -121,5 +140,28 @@ export function sanitizeWritingConfig(
 		}
 	}
 
-	return { remindPercent };
+	let rawSentenceWordLimit: unknown;
+	if (Object.prototype.hasOwnProperty.call(value, "sentenceWordLimit")) {
+		try {
+			rawSentenceWordLimit = value.sentenceWordLimit;
+		} catch {
+			warn("slate: ignoring writing.sentenceWordLimit — could not read the value (defaulting to 25)");
+		}
+	}
+	let sentenceWordLimit = defaults.sentenceWordLimit;
+	if (rawSentenceWordLimit !== undefined) {
+		if (rawSentenceWordLimit === false) {
+			sentenceWordLimit = false;
+		} else if (
+			Number.isSafeInteger(rawSentenceWordLimit) &&
+			(rawSentenceWordLimit as number) >= MIN_SENTENCE_WORD_LIMIT &&
+			(rawSentenceWordLimit as number) <= MAX_SENTENCE_WORD_LIMIT
+		) {
+			sentenceWordLimit = rawSentenceWordLimit as number;
+		} else {
+			warn("slate: ignoring writing.sentenceWordLimit — expected a whole number from 10 to 200, or false (defaulting to 25)");
+		}
+	}
+
+	return { remindPercent, sentenceWordLimit };
 }
