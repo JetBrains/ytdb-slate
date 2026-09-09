@@ -787,8 +787,8 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-numbering` | tail rules are numbered by **position**, not identity. Trusted design is always last. Writing is rule 11 alone, rule 12 after extensions or routing, and rule 13 when both precede it. Every combination stays contiguous, and the routing body remains identical when its number moves |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,720 portable characters, 43 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **8,138 of 8,700** portable characters. The draft-disabled pin is **8,119**. Writing plus routing is **6,772 of 7,200**. All tails are **7,027 of 7,400**. The capped worker rule is **1,347 of 1,600**. A **9,454-character** positive control exceeds the maximal bound by 754. These are verification budgets, not runtime limits. |
-| `doctrine-budget-deferred` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,212 of 8,700** portable characters and 102 lines and keeps 488 characters of reserve. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,757 portable characters, 43 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **8,410 of 9,000** portable characters. The draft-disabled pin is **8,391**. Writing plus routing is **7,044 of 7,400**. All tails are **7,299 of 7,700**. The capped worker rule is **1,347 of 1,600**. A **9,726-character** positive control exceeds the maximal bound by 726. These are verification budgets, not runtime limits. |
+| `doctrine-budget-deferred` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,484 of 9,000** portable characters and 104 lines and keeps 516 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
@@ -809,28 +809,31 @@ own — see § The writing checker:
 
 | id | what it proves |
 | --- | --- |
-| `writing-checker-length` / `writing-checker-para` / `writing-checker-semicolon` / `writing-checker-contraction` | sentence length stays telemetry-only and emits no finding; the warning class stays empty; each surviving rule has positive and negative cases; `PARA6` stays house-style |
+| `writing-checker-length` / `writing-checker-para` / `writing-checker-semicolon` / `writing-checker-contraction` | sentence length emits a `house-style` finding above the default or configured limit and stays silent when the rule is off; the warning class stays empty; each surviving rule has positive and negative cases; `PARA6` stays house-style |
 | `writing-checker-class` / `writing-checker-not-checked` | house-style findings stay out of fail counts; the fixed not-checked list is non-empty and every item has a reason |
 | `writing-checker-caps` | spawned command input caps reject an oversized regular file and a symlink to a special file with non-zero, explanatory errors |
 | `writing-checker-modes` / `writing-checker-determinism` | JSONL, direct-file and unified-diff modes work; diff mode checks added lines in prose files; repeated input produces byte-identical output |
 
-The **human-only writing status line** is covered through `registerSlateMode` with fabricated hooks and contexts:
+The **writing status line** is covered through `registerSlateMode` with fabricated hooks and contexts. It reports fail and style counts over a configured measured-turn window.
 
 | id | what it proves |
 | --- | --- |
-| `writing-status-fresh` / `writing-status-clean` / `writing-status-positive` | real hook cycles distinguish no completed turns (`0/0`), one clean turn (`0/1`), and one failing turn (`1/1`) |
-| `writing-status-import-fail` / `writing-status-fail-open` | a rejected checker import and a checker throw both fail open through `turn_end` and render `writing unavailable` |
+| `writing-status-fresh` / `writing-status-clean` / `writing-status-positive` | real hook cycles distinguish zero counts, a clean turn, and model-visible fail and style counts in the `writing N fail, M style / W turns` format |
+| `writing-status-import-fail` / `writing-status-fail-open` | a rejected checker import and a checker throw both fail open through `message_end` and render `writing unavailable` |
 | `writing-status-ignored-keys` | `writing.check: false` leaves the checker and status active |
 | `writing-status-gate-trust` / `writing-status-gate-mode` / `writing-status-gate-ui` | each surviving gate keeps the checker inactive. The checks observe checker loading and calls, not only status output |
 | `writing-status-non-gate-pause` | a paused trusted orchestrator session with a UI still loads and runs the checker. Reminder pause gating remains separate |
 | `writing-status-cap-skip` | the **checker's own** 1 MiB input cap (`MAX_INPUT_BYTES`) fails open: an oversized message is skipped rather than counted or thrown. It calls `measureWritingTurn` directly with `MAX_INPUT_BYTES + 1` bytes, so it says nothing about the 16 KiB turn bound — that is the row below |
-| `writing-status-cap-visible` | the **turn** bound (`WRITING_TURN_MAX_BYTES`, 16 KiB in `mode.ts`): a larger assistant message goes through the real `turn_end` hook, is never handed to the checker, and the status line says `writing skipped (message too large)` |
+| `writing-status-cap-visible` | the **turn** bound (`WRITING_TURN_MAX_BYTES`, 16 KiB in `mode.ts`): a larger assistant message goes through the real `message_end` hook, is never handed to the checker, and the status line says `writing skipped (message too large)` |
 | `writing-status-counting` | only fail findings count; warnings, house-style findings and advisories do not |
 | `writing-status-no-store-write` | counter updates do not call `SlateStore.save()` or persist the orchestrator-mode seed |
+| `writing-status-sentence-limit` | the turn hook passes the configured sentence word limit to the checker |
 
 `measureWritingTurn` lives in `extension/writing.ts`, beside the writing config
 boundary. This keeps the pi-shaped message handling typechecked while the standalone
 checker and CLI remain dependency-free plain JavaScript.
+
+The current resolver roster contains 244 expected identifiers and reports 245 result lines with its roster audit. The suite output remains the definition of record.
 
 The **writing config sanitizer** (`extension/writing.ts`) and the **writing
 doctrine rule** (`extension/mode.ts`), rendered through the same
@@ -838,13 +841,14 @@ doctrine rule** (`extension/mode.ts`), rendered through the same
 
 | id | what it proves |
 | --- | --- |
-| `writing-config-default` / `writing-config-invalid` | an absent config silently yields `{ remindPercent: 5 }`; malformed shapes warn and default; unknown keys warn and disappear; any own `check` or `remind` key produces one exact notice, including `false` and both keys together |
-| `writing-config-reminder-valid` / `writing-config-reminder-ignored` / `writing-config-reminder-percent` | a finite percentage in `(0, 100]` survives; both ignored writing keys produce one notice without changing it; bad percentages warn once and fall back to 5 |
-| `writing-config-hostile` | a prototype-polluting object, a getter on an ignored writing key, a throwing percentage getter, an inherited `check` and a 30,000-deep value neither crash nor pollute. Ignored writing key values are never read, every result is fresh, and inherited keys stay absent |
+| `writing-config-default` / `writing-config-reminder-turns` / `writing-config-reminder-trigger` / `writing-config-trigger-interaction` / `writing-config-invalid` | defaults, the 1-to-20 completed-turn range, boolean trigger validation, the notice when `writing.findings` disables the trigger, malformed values, unknown keys, and ignored legacy keys |
+| `writing-config-sentence-limit` | the sentence word limit keeps both range ends, uses `false` as off, and warns before falling back to 25 for invalid values |
+| `writing-config-reminder-ignored` / `writing-config-reminder-percent` | ignored legacy keys remain absent; `remindPercent` is ignored with one cadence-change notice |
+| `writing-config-hostile` | a prototype-polluting object, getters on ignored and active writing keys, an inherited `check` and a 30,000-deep value neither crash nor pollute. Ignored writing key values are never read, every result is fresh, and inherited keys stay absent |
 | `writing-doctrine-off` / `writing-doctrine-untrusted` | trusted doctrine renders the writing rule byte-identically for `writing.check` false, true, or absent; untrusted doctrine renders no writing rule. The same configured input under both trust states makes the trust gate observable |
-| `writing-doctrine-numbering` | the writing rule keeps its tail **position** over every routing and worker-extension combination. The trust-gated design rule follows it without changing the numbers of preceding rules |
+| `writing-doctrine-numbering` | the writing rule keeps its tail **position** over every routing and worker-extension combination. The trust-gated design rule follows it without changing the numbers of preceding rules. The opening style rules keep their exact two-line split |
 | `design-doctrine-size` | the two-digit design rule is exactly 364 characters and six lines; its 450-character bound retains at least five percent reserve |
-| `writing-prompt-check` | the design rule keeps exactly six sentences with spaces after terminators, and the shipped checker reports no finding above advisory for either prompt; positive controls require a seventh sentence to trigger `PARA6` and a byte-neutral glued boundary to fail spacing |
+| `writing-prompt-check` | the writing and design rules and the reminder carry no finding above advisory; every paragraph on these prompt surfaces stays at six sentences or fewer; positive controls require a seventh design sentence to trigger `PARA6` and a byte-neutral glued boundary to fail spacing |
 | `writing-doctrine-inject` | the rule is **static**: configs carrying extra and nested keys render byte-identically to the plain trusted rendering, so no config-derived text reaches the prompt |
 | `writing-doctrine-cite` | the rule's **doc citation** (`docs/writing-guidance.md`, absolute and package-resolved like rules 8–10) renders **exactly once** in every trusted doctrine and never in untrusted doctrine. It remains inside the rule rather than elsewhere in the block. The path is read from `paths.ts`, never re-derived from the rendered text, so a rename that leaves the doctrine citing a document the package no longer ships fails here; the named file must also exist on disk, which is the half `package-content-check.mjs` cannot see (it checks the publish set, not the rendering). Two terms guard the shape: the rule still carries exactly **one** numbered line, so a citation line cannot become a forged tail rule, and ignored writing keys add no bytes. Its per-turn **cost** is bounded by `doctrine-budget`, which since the citation landed also bounds the writing rule's own portable size, its line count and its **one** embedded path |
 
@@ -853,17 +857,24 @@ The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`
 
 | id | what it proves |
 | --- | --- |
-| `writing-reminder-load` / `writing-reminder-roster` / `writing-reminder-render` | the pure module loads; the frozen nine-line writing roster and six-line design roster keep exact order; doctrine renders every writing line; the reminder renders every entry from both rosters and the shared exclusion |
-| `writing-reminder-size` | the 920-byte, 22-line message stays pure ASCII and within 1,280 bytes with five percent reserve; two renders match; no absolute-path shape appears; five adversarial path forms must match the detector; the header, labels, and exclusion each appear once. To prove the check fires, omit one roster entry from the module-load render or append one ASCII character to the message |
-| `writing-reminder-interval` / `writing-reminder-cadence` / `writing-reminder-budget` | the percentage derives cadence from the effective clamped budget with an 8,192-token floor; equality sends; lower usage repairs a stale mark; unusable usage does not send; force works without usage; override, scalar, Anthropic default, global default and clamp branches reach the real hook |
-| `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, pause state and the one-send round slot close independently; false ignored writing keys cannot close delivery; force does not bypass surviving policy gates; no UI gate exists |
-| `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-rearm` / `writing-reminder-mode-force` | claim queues a pending mark without consuming force; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; only assistant `message_end` re-arms the next round |
-| `writing-reminder-send-retry` / `writing-reminder-cleared-retry` | a synchronous `sendMessage` throw releases the claim for retry; an assistant response that arrives before delivery also clears the pending claim without consuming cadence or force |
-| `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters snapshots; the real handoff adoption handler sets force before mode reset; reset preserves that force while clearing mark, round and pending state |
+| `writing-reminder-load` / `writing-reminder-roster` / `writing-copy-independence` / `writing-reminder-render` / `writing-reminder-full-render` / `writing-reminder-model-visible-rules` | the pure module loads; exact source rosters keep order; doctrine and reminder rendering stays complete; and only explicit model-visible finding classes enter the quotation |
+| `writing-reminder-size` | the measured multibyte two-class message stays within 1,800 bytes with a 107-byte reserve; structural labels and the 120-byte quotation cap remain present; the checker detects omitted roster content and extra bytes |
+| `writing-reminder-counter` / `writing-reminder-cadence` / `writing-reminder-delivery-mode` / `writing-reminder-budget` | completed turns advance the cadence; the 1-to-20 interval sends at equality; finding triggers send when enabled; the counter restarts after delivery; aborted turns count, provider retries do not; delivery selects steer or next-turn mode; and force works without a turn count |
+| `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, pause state, and the one-send response-round slot close independently; false ignored writing keys cannot close delivery; force does not bypass surviving policy gates; no UI gate exists |
+| `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-mode-delivery` / `writing-reminder-trigger` / `writing-reminder-trigger-switch` / `writing-reminder-trigger-reset` | claim resets the turn counter and finding trigger; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; assistant turn completion re-arms the next response round; delivery follows tool-result shape; and the trigger switches and resets work |
+| `writing-reminder-retry-boundary` / `writing-reminder-completed-shapes` / `writing-reminder-abort-round` / `writing-reminder-summary-staleness` | provider retries do not count; final errors count once; aborted and text-free turns count; an abort after a tool turn does not reopen the response round; and the latest measured summary is always quoted |
+| `writing-reminder-session-reset` / `writing-reminder-local-reset` / `writing-reminder-round-gate` / `writing-reminder-gate-claim-order` / `writing-reminder-claim-delivery` / `writing-reminder-correlation` / `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | session-local state resets; the response-round gate, gate-before-claim order, claim semantics when sending throws, exact delivery correlation, snapshot exclusion, and handoff force ordering remain correct |
+
+The round-one code fix added or corrected `writing-reminder-trigger-reset`, `writing-reminder-mode-gates`, `writing-reminder-delivery-failure-independent`, `writing-reminder-checker-failure-independent`, `writing-reminder-findings-off`, `writing-reminder-retry-boundary`, `writing-reminder-abort-round`, `writing-reminder-summary-staleness`, `writing-reminder-local-reset`, and `writing-reminder-round-gate`. These checks cover the trigger reset, the two closed gates, three independence properties, final-error delivery, the abort case, unconditional latest-summary quotation, and both session-start resets.
 
 The family uses the real `registerSlateMode` handlers with fabricated contexts.
-It remains a pure harness with no pi session. The live hook and persistence path
-has its own integration check below.
+It remains a pure harness with no pi session. The live hook, delivery-mode and persistence paths have their own integration check below.
+
+Track 4 added these resolver identifiers: `writing-config-status-window`,
+`writing-config-findings`, `writing-reminder-model-visible-rules`,
+`writing-reminder-delivery-failure-independent`,
+`writing-reminder-checker-failure-independent`, `writing-reminder-findings-off`,
+`writing-status-window`, and `writing-status-latest-summary`.
 
 The **worker reminder** (`extension/worker-reminder.ts`, `extension/worker.ts`
 and `extension/threads.ts`):
@@ -996,20 +1007,20 @@ owns these stable verification fixtures:
 | fixture | paths | portable | lines | bound |
 | --- | ---: | ---: | ---: | ---: |
 | routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
-| writing rule | 1 | **1,103** | 20 | 1,200 |
+| writing rule | 1 | **1,338** | 22 | 1,500 |
 | design rule | 0 | **364** | 6 | 450 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| trusted router-off doctrine | 4 | **4,187** | 67 | — |
-| trusted router-on doctrine | 5 | **6,772** | 91 | 7,200 |
-| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **6,994** | 97 | — |
-| writing and design doctrine | 4 | **4,187** | 67 | 5,600 |
-| writing plus router | 5 | **6,772** | 91 | 7,200 |
-| writing plus extensions | 4 | **4,442** | 73 | 6,000 |
-| writing plus router and extensions | 5 | **7,027** | 97 | 7,400 |
-| maximal doctrine with draft PRs enabled | 6 | **8,138** | 101 | 8,700 |
-| maximal doctrine with draft PRs disabled | 5 | **8,119** | 101 | 8,700 |
-| maximal doctrine with deferred-issue prompt enabled | 6 | **8,212** | 102 | 8,700 |
-| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,454** | 108 | must exceed 8,700 |
+| trusted router-off doctrine | 4 | **4,459** | 69 | — |
+| trusted router-on doctrine | 5 | **7,044** | 93 | 7,400 |
+| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **7,266** | 99 | — |
+| writing and design doctrine | 4 | **4,459** | 69 | 5,600 |
+| writing plus router | 5 | **7,044** | 93 | 7,400 |
+| writing plus extensions | 4 | **4,714** | 75 | 6,000 |
+| writing plus router and extensions | 5 | **7,299** | 99 | 7,700 |
+| maximal doctrine with draft PRs enabled | 6 | **8,410** | 103 | 9,000 |
+| maximal doctrine with draft PRs disabled | 5 | **8,391** | 103 | 9,000 |
+| maximal doctrine with deferred-issue prompt enabled | 6 | **8,484** | 104 | 9,000 |
+| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,726** | 110 | must exceed 9,000 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
 fabricated dogfood fixture mirrors the five configured models and resolves them
@@ -1024,17 +1035,17 @@ the next whole line.
 
 A doctrine change updates its exact literal. A bound changes only when this
 reserve policy requires it. Writing plus routing uses
-`6,772 × 1.05 = 7,110.6`. Ceiling gives 7,111. The 7,200 bound remains larger.
+`7,044 × 1.05 = 7,396.2`. Ceiling gives 7,397. The 7,400 bound remains larger.
 
-All tails use `7,027 × 1.05 = 7,378.35`. Ceiling gives 7,379. The 7,400 bound
+All tails use `7,299 × 1.05 = 7,663.95`. Ceiling gives 7,664. The 7,700 bound
 remains larger.
 
-The largest maximal fixture uses `8,212 × 1.05 = 8,622.6`.
-The 8,700 bound remains larger. The enabled, disabled, and deferred-issue
-maximal reserves are 562, 581, and 488.
+The largest maximal fixture uses `8,484 × 1.05 = 8,908.2`.
+Ceiling gives 8,909. The 9,000 bound remains larger. The enabled, disabled, and
+deferred-issue maximal reserves are 590, 609, and 516.
 
 The largest model-row growth is 184 characters. The capped tool-line growth is
-212 characters. The positive control exceeds the maximal bound by 754.
+212 characters. The positive control exceeds the maximal bound by 726.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
@@ -1982,27 +1993,31 @@ temp directory.
 
 The child starts through `env -i`. Only explicit throwaway values cross that
 boundary: `HOME`, `PATH`, `TMPDIR`, `PI_CODING_AGENT_DIR`, `PI_OFFLINE`, dead
-proxy variables and the canary evidence paths. `PI_OFFLINE=1` keeps pi startup
+proxy variables and the canary evidence paths. The controller waits for the RPC
+`agent_settled` event between prompts instead of using a fixed delay. `PI_OFFLINE=1` keeps pi startup
 offline. The fake provider performs no network operation. This is **not** a
 network sandbox because reviewed extension code can still open raw sockets.
 
-The project config enables orchestrator mode and sets both ignored writing keys
-to false. It sets `contextBudget: 200000` and `remindPercent: 12.5`. Delivery
-proves that the ignored writing keys cannot disable reminders. The fake model
-advertises a 1,000,000-token window. The first response reports 25,000 input
-tokens. The correct effective interval is 25,000 and fires. A broken path using
-the model window would derive 125,000 and stay silent. This makes budget
-selection and the clamp load-bearing.
+The harness runs three trusted projects. The main project enables
+`writing.findings` and `remindOnFinding`. The trigger-off project disables
+`remindOnFinding`. The findings-off project disables `writing.findings`. All
+projects set `remindTurns: 4`. The main session proves the finding trigger and
+the later cadence reminder. The two switch sessions prove that cadence remains
+active. The findings-off session proves that the findings section disappears when
+disabled. Measurement continues in the disabled case. The fake model advertises a 1,000,000-token
+window. The canary completes a finding-heavy first turn. The controller records the event position before each command. It waits only for events after that position, including `agent_settled` between prompts.
 
-The canary registers an in-process fake provider and one real tool. The first
-provider response emits two parallel calls to that tool. Both executions append a
-marker. Each persisted tool result must contain exactly one text block, no extra
-block or key, and the text `CANARY_TOOL_RESULT_ONLY`. Slate's real `tool_result`
-hook sends one hidden custom steer despite the parallel results.
+The canary registers an in-process fake provider and one real tool. The main
+provider response emits two parallel calls to that tool. Both executions append
+a marker. Each persisted tool result must contain exactly one text block, no
+extra block or key, and the text `CANARY_TOOL_RESULT_ONLY`. Slate's real
+turn-end path selects steer delivery for the tool-result turn and next-turn
+delivery for the later tool-free turn.
 
-The second provider call must receive the exact nine writing requirements,
-six design requirements, and shared scope exclusion once. It writes a unique success response only after observing
-the exact text and pre-normalized custom metadata.
+The main session runs six provider calls and persists two reminders. The
+trigger-off and findings-off sessions run five calls and persist one cadence
+reminder each. Each provider call writes a unique response after observing the
+expected reminder shape.
 
 Pi normalizes custom messages into user messages before the provider call. The
 canary therefore checks two points. Its `message_start` hook sees
@@ -2020,11 +2035,13 @@ The checks assert all of these facts:
 - The fake provider observes the trusted scratch project.
 - Both parallel tool calls execute and both tool results persist.
 - Each tool result equals the complete one-block content shape.
-- The provider runs exactly twice and emits its success marker.
-- The next model call receives exactly one exact reminder.
-- Session JSONL persists exactly one exact reminder with `display: false`.
+- The provider runs the expected calls and emits its success markers.
+- The next model calls receive the expected exact reminders.
+- The main session persists two reminders and each switch session persists one reminder with `display: false`.
 - No tool result carries extra content, keys or reminder text.
-- The expected check roster reports exactly once.
+- The three sessions report the expected checks.
+- The fixed roster has 27 expected identifiers plus the roster audit, for 28 result lines. The identifiers are `pi-exit`, `rpc-json`, `hook-errors`, `working-tree`, `trusted-config`, `tool-executed`, `provider-calls`, `trigger-position`, `cadence-position`, `delivery-modes`, `counter-restart`, `trigger-switch`, `findings-grammar`, `requirements-complete`, `findings-classes`, `quotation-cap`, `findings-next-call`, `reminder-persisted`, `reminder-counts`, `display-false`, `no-findings-clean`, `findings-off`, `findings-off-measurement`, `advisory-hidden`, `message-bound`, `delivery-details-hidden`, and `tool-result-clean`.
+- The checks cover finding-trigger timing, four-turn cadence, delivery modes, switch behavior, findings order, classes, quotations, persistence, hidden delivery, and the message bound.
 
 A clean run removes its physical scratch directory. A failure keeps the
 directory, prints its path, and inlines pi stderr and stdout. The directory also
@@ -2036,8 +2053,8 @@ parsed analysis.
 This is an integration net, but it is not part of CI. It is also separate
 from the extension-load check and the ladder. The load check proves registration
 without executing a tool. The ladder covers model-default restoration and worker
-settings isolation. This harness covers one reminder steer through a real pi
-session. No current workflow invokes it automatically.
+settings isolation. This harness covers three reminder sessions through real pi.
+No current workflow invokes it automatically.
 
 The harness structurally proves `display: false`. It does not prove that the TUI
 visually hides the message. Confirm visual invisibility manually in an interactive
@@ -2049,10 +2066,10 @@ Re-run the harness after changes to:
 - `extension/writing-reminder.ts`, including requirement text, rendering, cadence,
   or gates.
 - Reminder config sanitization in `extension/writing.ts`.
-- The `message_end` or `tool_result` reminder hooks in `extension/mode.ts`.
+- The `message_end`, `turn_end` or `agent_settled` reminder hooks in `extension/mode.ts`.
 - The handoff `forceNext` assignment or session-start ordering in
   `extension/handoff.ts` and `extension/mode.ts`.
-- Custom message options, custom type, or steer delivery.
+- Custom message options, custom type, steer delivery or next-turn delivery.
 - `verification/writing-reminder-canary.mjs` or the harness itself.
 - The pinned pi version or any asserted RPC and JSONL shape.
 
@@ -2699,12 +2716,14 @@ Two callers, with different bounds:
 
 | caller | what it reads | the bound applied before the checker runs |
 | --- | --- | --- |
-| the `turn_end` hook in `extension/mode.ts`, through `measureWritingTurn` in `extension/writing.ts` | the completed assistant message of one turn, for the human-only `writing n/m` status line | `WRITING_TURN_MAX_BYTES` — 16 KiB of assistant text. A larger message is never handed to the checker, and the status line says it was skipped |
+| the `message_end` hook in `extension/mode.ts`, through `measureWritingTurn` in `extension/writing.ts` | the completed assistant message before tool execution, for the `writing N fail, M style / W turns` status line and the latest reminder findings | `WRITING_TURN_MAX_BYTES` — 16 KiB of assistant text. A larger message is never handed to the checker, and the status line says it was skipped |
 | the command — `--input records.jsonl`, `--file PATH …`, `--diff changes.diff` | whole files, JSONL records, or the added prose lines of a unified diff | the module's own `MAX_INPUT_BYTES` — 1 MiB per record and per run |
 
 The hook is why the module's wall clock matters at all: it runs synchronously
-inside `turn_end`, so time spent in the checker is time the TUI is frozen. The
-16 KiB bound exists for that reason and is the reason the module's slowest legal
+inside `message_end`, so time spent in the checker is time the TUI is frozen. The
+message-end position runs before tool execution. The older turn-end position let
+an earlier quotation reach the model. A rejected checker import clears its load
+promise, so a later message retries the import. The 16 KiB bound exists for that reason and is the reason the module's slowest legal
 input is a command-line concern rather than a hook concern.
 
 Three nets watch it, and they see different failures:
@@ -2764,8 +2783,8 @@ transcribed here before and both went stale.
 - **Every rule, positively and negatively.** `PARA6`, `SEMICOLON`,
   `CONTRACTION`, `PARENTHETICAL_PAREN`, `PARENTHETICAL_DASH`, `SLASHED`,
   `PASSIVE`, `INGFORM`, `NOUNCLUSTER` and `MULTICMD` each have a case that fires
-  and a case that must stay silent. Separate cases prove sentence length remains
-  telemetry-only and the warning class remains empty.
+  and a case that must stay silent. Separate cases prove sentence length emits
+  the configured house-style finding and the warning class remains empty.
 - **The class boundary.** House-style and advisory findings never enter the
   fail count, and the fixed `NOT CHECKED` list is non-empty with a reason per
   item.
@@ -3311,7 +3330,7 @@ The status-line and wiring mutations run against the **resolver** suite:
 | count house-style findings as fail-level | `writing-status-counting` |
 | remove the trust gate | `writing-status-gate-trust` |
 | rethrow checker errors | `writing-status-crash` (the fail-open section cannot complete) |
-| emit a sentence-length finding or populate the warning class | `writing-checker-length` |
+| suppress a sentence-length finding or populate the warning class | `writing-checker-length` |
 | blank the rendered writing status line | `writing-status-positive` |
 | remove the `measureWritingTurn` call | `writing-status-positive` |
 | break the checker import path | `writing-status-positive` |

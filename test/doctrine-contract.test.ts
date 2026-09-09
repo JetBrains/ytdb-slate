@@ -155,7 +155,7 @@ test("doctrine states research-log, packet, acceptance, and reviewer rules", { t
   assert.ok(doctrine.includes("Track packets are non-blocking, but final change acceptance is blocking."));
   assert.ok(doctrine.includes("Review every track with the set required by its grade and engaged focus areas."));
   assert.ok(doctrine.includes("Verification or gate machinery receives the general implementation reviewer even at SMALL."));
-  assert.ok(doctrine.includes(`Before dispatching review threads, read ${REVIEW_RULES_DOC}`));
+  assert.ok(doctrine.includes(`Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow it. Skip the read when that file is already in your context.`));
 });
 
 test("rule 8 renders the exact research-log and draft-publishing tails", { timeout: 5000 }, async () => {
@@ -195,28 +195,30 @@ test("writing doctrine is active for trusted projects regardless of ignored writ
   const normalized = doctrine.replace(/\s+/g, " ");
   const requiredClauses = [
     "Check user-facing prose before delivery.",
-    "Write sentences a non-native reader understands on one reading.",
-    "Use short, active, plain language.",
+    "Write sentences a reader understands on one reading.",
+    "Use short, active language.",
     "Keep exact technical terms.",
     "Do not use semicolons or contractions.",
     "The checker does not test vocabulary.",
-    "Follow these requirements:",
+    "Follow these writing and conversation requirements:",
+    "Write for a reader whose first language is not English.",
+    "Use plain words that appear in standard libraries and textbooks. Treat any other term as new. A multi-word noun phrase, an abbreviation and a CamelCase name are terms.",
     "Avoid idioms.",
     "Replace bare-reference openers with the subject they reference.",
-    "Explain each project-specific term at first use.",
+    "Explain each term, including project-specific, at first use.",
     "Define each abbreviation at first use.",
     "Express one idea in each sentence.",
     "Use one term for each concept.",
     "Do not explain an idea with a metaphor.",
     "Do not invent a term when the project already has one.",
-    "Use plain words that appear in standard libraries and textbooks.",
     "Keep a design statement only if a different reasonable implementation keeps it true.",
     "Present to the user any item the approved goals do not list.",
     "Never add or remove an approved goal yourself.",
     "Propose a repeated regression as a non-goal candidate.",
     "Present what changed when you update a design.",
     "Assume the user knows software but not this project.",
-    "Apply them to README and documentation text, code comments, pull request text, commit bodies, issues, review comments, release notes, and user messages.",
+    "Apply these requirements to README and documentation text, code comments and pull request text.",
+    "Apply these requirements also to commit bodies, issues, review comments, release notes and user messages.",
     "Exclude research logs, worker task text, and the project's own agent instruction file.",
     "Read it only for an unusual prose decision.",
     "Skip it if already in context.",
@@ -227,7 +229,8 @@ test("writing doctrine is active for trusted projects regardless of ignored writ
     "design doctrine must match the reminder roster word for word",
   );
   assert.ok(normalized.includes(`Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}.`));
-  assert.doesNotMatch(normalized, /20 words|25 words|SENT20|SENT25/);
+  assert.doesNotMatch(normalized, /\b\d+\s+words\b/i);
+  assert.doesNotMatch(normalized, /\bSENT\d+\b/);
 });
 
 test("writing guide rosters match the frozen production rosters", () => {
@@ -244,7 +247,7 @@ test("writing guide rosters match the frozen production rosters", () => {
   };
   assert.ok(Object.isFrozen(WRITING_REQUIREMENTS) && Object.isFrozen(DESIGN_REQUIREMENTS));
   assert.deepEqual(
-    bullets("The doctrine includes these nine requirements in this order:", "The first six project-authored summaries"),
+    bullets("The doctrine includes these ten requirements in this order:", "The doctrine also renders"),
     WRITING_REQUIREMENTS.map((entry) => entry.text),
     "writing roster changed; update docs/writing-guidance.md in the same commit",
   );
@@ -255,7 +258,7 @@ test("writing guide rosters match the frozen production rosters", () => {
   );
 });
 
-test("mode skips reminder cadence when no effective budget exists", { timeout: 5000 }, async () => {
+test("mode uses the four-turn reminder fallback when writing config is absent", { timeout: 5000 }, async () => {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
@@ -267,36 +270,14 @@ test("mode skips reminder cadence when no effective budget exists", { timeout: 5
     () => EMPTY_WORKER_EXTENSION_SET,
     () => ROUTER_OFF,
   );
-  const context = {
-    ...extensionContext(scratch),
-    getContextUsage: () => ({ tokens: 10_000, contextWindow: 200_000 }),
-  } as ExtensionContext;
-  await api.emit("tool_result", {}, context);
+  const context = extensionContext(scratch);
+  const turn = { message: { role: "assistant", content: [], stopReason: "stop" }, toolResults: [] };
+  for (let index = 0; index < 3; index++) await api.emit("turn_end", turn, context);
   assert.deepEqual(api.sentMessages, []);
-  assert.equal(store.writingReminder.sentThisRound, false);
-  assert.equal(store.writingReminder.pending, undefined);
-});
-
-test("mode uses the five-percent reminder fallback when writing config is absent", { timeout: 5000 }, async () => {
-  const api = new FakeExtensionApi();
-  const store = new SlateStore(api as unknown as ExtensionAPI);
-  store.orchestratorMode = true;
-  registerSlateMode(
-    api as unknown as ExtensionAPI,
-    store,
-    { startHandoff: async () => {}, effectiveContextBudget: () => 200_000 } as any,
-    () => ({}),
-    () => EMPTY_WORKER_EXTENSION_SET,
-    () => ROUTER_OFF,
-  );
-  const context = {
-    ...extensionContext(scratch),
-    getContextUsage: () => ({ tokens: 10_000, contextWindow: 200_000 }),
-  } as ExtensionContext;
-  await api.emit("tool_result", {}, context);
-  assert.equal(api.sentMessages.length, 1, "the default 5 percent interval must fire at 10,000 of 200,000 tokens");
-  assert.equal(store.writingReminder.markTokens, 0, "cadence stays uncommitted before delivery");
-  assert.equal(store.writingReminder.pending?.nextMarkTokens, 10_000, "the fallback interval records the reached usage");
+  assert.equal(store.writingReminder.turnsSinceDelivery, 3);
+  await api.emit("turn_end", turn, context);
+  assert.equal(api.sentMessages.length, 1, "the default interval must fire on turn four");
+  assert.equal(store.writingReminder.turnsSinceDelivery, 0, "the claim restarts cadence");
 
   const configuredApi = new FakeExtensionApi();
   const configuredStore = new SlateStore(configuredApi as unknown as ExtensionAPI);
@@ -304,14 +285,13 @@ test("mode uses the five-percent reminder fallback when writing config is absent
   registerSlateMode(
     configuredApi as unknown as ExtensionAPI,
     configuredStore,
-    { startHandoff: async () => {}, effectiveContextBudget: () => 200_000 } as any,
-    () => ({ writing: { remindPercent: 10 } }),
+    { startHandoff: async () => {}, effectiveContextBudget: () => undefined } as any,
+    () => ({ writing: { remindTurns: 5 } }),
     () => EMPTY_WORKER_EXTENSION_SET,
     () => ROUTER_OFF,
   );
-  await configuredApi.emit("tool_result", {}, context);
-  assert.deepEqual(configuredApi.sentMessages, [], "a configured 10 percent interval must not fire at 10,000 tokens");
-  assert.equal(configuredStore.writingReminder.pending, undefined);
+  for (let index = 0; index < 4; index++) await configuredApi.emit("turn_end", turn, context);
+  assert.deepEqual(configuredApi.sentMessages, [], "a configured five-turn interval must stay silent through turn four");
 });
 
 test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {
@@ -338,7 +318,7 @@ test("entry configuration reports either ignored writing key through the shared 
 
   assert.deepEqual(await run("writing-check-true", { check: true }), [notice]);
   assert.deepEqual(await run("writing-remind-false", { remind: false }), [notice]);
-  assert.deepEqual(await run("writing-keys-absent", { remindPercent: 10 }), []);
+  assert.match((await run("writing-percent-retired", { remindPercent: 10 }))[0] ?? "", /token share to a turn count/);
 });
 
 test("entry configuration accepts valid cache shards and rejects invalid counts", { timeout: 5000 }, async () => {

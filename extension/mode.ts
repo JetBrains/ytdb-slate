@@ -27,7 +27,6 @@ import {
 	PR_PUBLISHING_DOC,
 	REVIEW_RULES_DOC,
 	TRACK_WORKFLOW_DOC,
-	WRITING_CHECKER_URL,
 	WRITING_GUIDANCE_DOC,
 } from "./paths.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
@@ -42,20 +41,35 @@ import {
 	type ThreadRecord,
 } from "./state.ts";
 import {
+	advanceWritingReminderTurn,
 	claimWritingReminder,
+	renderDesignDoctrineRequirements,
 	commitWritingReminder,
 	decideWritingReminder,
 	rearmWritingReminder,
 	renderWritingDoctrineRequirements,
+	renderWritingDoctrineStyleRules,
 	renderWritingReminderMessage,
 	renderWritingScopeExclusion,
+	WRITING_REQUIREMENTS_TITLE,
 	resetWritingReminderSession,
 	WRITING_REMINDER_CUSTOM_TYPE,
 	writingReminderDeliveryDetails,
+	writingReminderDeliveryMode,
 	writingReminderGateOpen,
-	writingReminderInterval,
 } from "./writing-reminder.ts";
-import { measureWritingTurn, type WritingChecker, type WritingCounters } from "./writing.ts";
+import {
+	createWritingCounters,
+	DEFAULT_REMIND_ON_FINDING,
+	DEFAULT_REMIND_TURNS,
+	DEFAULT_SENTENCE_WORD_LIMIT,
+	DEFAULT_STATUS_WINDOW_TURNS,
+	loadWritingChecker as loadWritingCheckerModule,
+	measureWritingTurn,
+	resetWritingCounters,
+	resizeWritingWindow,
+	type WritingChecker,
+} from "./writing.ts";
 import type { WorkerExtensionSet, WorkerExtensionUnit } from "./worker-extensions.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
@@ -420,14 +434,14 @@ ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
  */
 function buildWritingRule(n: number): string {
 	return `
-${n}. Check user-facing prose before delivery. Write sentences a non-native reader
-   understands on one reading. Use short, active, plain language. Keep exact
-   technical terms. Do not use semicolons or contractions. The checker does not
-   test vocabulary. Follow these requirements:
+${n}. Check user-facing prose before delivery. Write sentences a reader understands
+   on one reading. ${renderWritingDoctrineStyleRules("   ")} The checker does not
+   test vocabulary. Follow these ${WRITING_REQUIREMENTS_TITLE.toLowerCase()}:
 ${renderWritingDoctrineRequirements("   ")}
 
-   Apply them to README and documentation text, code comments, pull request text,
-   commit bodies, issues, review comments, release notes, and user messages.
+   Apply these requirements to README and documentation text, code comments and
+   pull request text. Apply these requirements also to commit bodies, issues,
+   review comments, release notes and user messages.
 ${renderWritingScopeExclusion("   ")}
    Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}. Read it only for an unusual
    prose decision. Skip it if already in context.`;
@@ -436,11 +450,7 @@ ${renderWritingScopeExclusion("   ")}
 /** Render the final trusted doctrine rule for design discipline. */
 function buildDesignRule(n: number): string {
 	return `
-${n}. Keep a design statement only if a different reasonable implementation keeps
-   it true. Present to the user any item the approved goals do not list. Never
-   add or remove an approved goal yourself. Propose a repeated regression as a
-   non-goal candidate. Present what changed when you update a design. Assume
-   the user knows software but not this project.`;
+${n}. ${renderDesignDoctrineRequirements("   ")}`;
 }
 
 function buildDoctrine(
@@ -502,14 +512,14 @@ threads execute. Rules:
    Verification or gate machinery receives the general implementation reviewer even
    at SMALL. A SMALL track whose validated declaration names no per-track area also
    receives that reviewer. Before dispatching review threads, read
-   ${REVIEW_RULES_DOC}
-   (skip the read if it is already in your context) and follow it.${rule9Tail}${followUpTail}
+   ${REVIEW_RULES_DOC} and follow it. Skip the read when that file is already
+   in your context.${rule9Tail}${followUpTail}
 10. The design principles behind this architecture are documented in
    ${DESIGN_PRINCIPLES_DOC}.
-   Read that file only when you must reason about slate itself (explaining
-   it, changing the extension, or an unusual routing/compaction decision) —
-   never for routine dispatching. Skip the read if it is already in your
-   context.${numberedTail([
+   Read that file only when you must reason about slate itself.
+   Reasons include explaining slate, changing the extension, and an unusual
+   routing or compaction decision. Never read it for routine dispatching.
+   Skip the read if it is already in your context.${numberedTail([
 		(n) => buildWorkerExtensionsRule(extensions, n),
 		// SE3 — DEFENSE IN DEPTH, the rule worker.ts follows for prompt docs and
 		// extension paths: re-gate project-derived prompt content on trust AT the
@@ -577,16 +587,19 @@ export function registerSlateMode(
 	getRouter: () => ModelRouterResolution = () => ROUTER_OFF,
 	// Injected only by the pure harness so it can exercise both dynamic-import
 	// failure and checker failure through the real turn hook.
-	loadWritingChecker: () => Promise<WritingChecker> = () => import(WRITING_CHECKER_URL),
+	loadWritingChecker: () => Promise<WritingChecker> = loadWritingCheckerModule,
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
-	const writingCounters: WritingCounters = { measuredTurns: 0, findingTurns: 0 };
+	const writingCounters = createWritingCounters();
 	let writingStatus: WritingStatus = "fresh";
 	let writingCheckerPromise: Promise<WritingChecker> | undefined;
+	let latestTurnHasFinding = false;
+	let pendingErrorTurn = false;
+	let previousTurnHadTools = false;
 
-	const writingIsVisible = (ctx: ExtensionContext): boolean =>
-		ctx.hasUI && store.orchestratorMode && ctx.isProjectTrusted();
+	const writingIsActive = (ctx: ExtensionContext): boolean => store.orchestratorMode && ctx.isProjectTrusted();
+	const writingIsVisible = (ctx: ExtensionContext): boolean => ctx.hasUI && writingIsActive(ctx);
 
 	const updateWidget = () => {
 		if (!uiCtx?.hasUI) return;
@@ -602,14 +615,15 @@ export function registerSlateMode(
 		// Keep the line short in the common no-handoff case.
 		const carried = store.carriedCostUsd > 0 ? ` + carried $${store.carriedCostUsd.toFixed(4)}` : "";
 		const costLine = `total $${total.toFixed(4)} (me $${orchestratorCost.toFixed(4)} + workers $${store.workerCostUsd.toFixed(4)}${carried})`;
+		const statusWindowTurns = getConfig().writing?.statusWindowTurns ?? DEFAULT_STATUS_WINDOW_TURNS;
 		const writingLine = writingIsVisible(uiCtx)
 			? writingStatus === "ready"
-				? ` ⋅ writing ${writingCounters.findingTurns}/${writingCounters.measuredTurns}`
+				? ` ⋅ writing ${writingCounters.failCount} fail, ${writingCounters.styleCount} style / ${statusWindowTurns} turns`
 				: writingStatus === "skipped"
 					? " ⋅ writing skipped (message too large)"
 					: writingStatus === "unavailable"
 						? " ⋅ writing unavailable"
-						: " ⋅ writing 0/0"
+						: ` ⋅ writing 0 fail, 0 style / ${statusWindowTurns} turns`
 			: "";
 		uiCtx.ui.setStatus("slate", `slate: orchestrator ⋅ ${costLine}${writingLine}`);
 		const threads = [...store.threads.values()];
@@ -697,28 +711,61 @@ export function registerSlateMode(
 		return { systemPrompt: event.systemPrompt + parts.join("") };
 	});
 
-	// Each assistant response opens one reminder slot for its following tools.
-	// A prior queue claim that never started delivery is retryable in this slot.
-	pi.on("message_end", (event) => {
-		if (event.message.role === "assistant") {
+	// message_end is awaited before pi executes this response's tools. Measure here
+	// so the completed-turn claim can only quote this response, never an older turn.
+	// Each assistant response also opens one reminder slot.
+	pi.on("message_end", async (event, ctx) => {
+		if (event.message.role !== "assistant") return;
+		if (!(event.message.stopReason === "aborted" && previousTurnHadTools)) {
 			Object.assign(store.writingReminder, rearmWritingReminder(store.writingReminder));
 		}
-	});
-
-	// message_start proves that pi began delivering our custom steer.
-	pi.on("message_start", (event) => {
-		if (event.message.role === "custom" && event.message.customType === WRITING_REMINDER_CUSTOM_TYPE) {
-			Object.assign(
-				store.writingReminder,
-				commitWritingReminder(store.writingReminder, event.message.details, event.message.content),
-			);
+		previousTurnHadTools = false;
+		latestTurnHasFinding = false;
+		uiCtx = ctx;
+		if (!writingIsActive(ctx)) return;
+		const bytes = assistantTextBytes(event.message);
+		if (bytes !== undefined && bytes > WRITING_TURN_MAX_BYTES) {
+			writingCounters.latest = undefined;
+			writingStatus = "skipped";
+			updateWidget();
+			return;
 		}
+		let checker: WritingChecker;
+		try {
+			writingCheckerPromise ??= loadWritingChecker();
+			checker = await writingCheckerPromise;
+		} catch {
+			writingCheckerPromise = undefined;
+			writingCounters.latest = undefined;
+			writingStatus = "unavailable";
+			updateWidget();
+			return;
+		}
+		const writingConfig = getConfig().writing;
+		resizeWritingWindow(writingCounters, writingConfig?.statusWindowTurns ?? DEFAULT_STATUS_WINDOW_TURNS);
+		const outcome = measureWritingTurn(
+			event.message,
+			checker,
+			writingCounters,
+			writingConfig?.sentenceWordLimit ?? DEFAULT_SENTENCE_WORD_LIMIT,
+		);
+		// A turn with no prose leaves the prior status and counters unchanged.
+		if (outcome === "measured") {
+			writingStatus = "ready";
+			latestTurnHasFinding =
+				(writingCounters.latest?.failCount ?? 0) + (writingCounters.latest?.styleCount ?? 0) > 0;
+		} else if (outcome === "failed") {
+			writingStatus = "unavailable";
+		}
+		updateWidget();
 	});
 
-	// Claim the round before sendMessage can synchronously trigger other hooks.
-	pi.on("tool_result", (_event, ctx) => {
+	// Gate and claim stay synchronous. The claim is the cadence delivery.
+	const completeWritingTurn = (ctx: ExtensionContext, hasToolResult: boolean) => {
 		const config = getConfig().writing;
 		const runtime = store.writingReminder;
+		const triggerEnabled = (config?.findings ?? true) && (config?.remindOnFinding ?? DEFAULT_REMIND_ON_FINDING);
+		Object.assign(runtime, advanceWritingReminderTurn(runtime, triggerEnabled && latestTurnHasFinding));
 		if (
 			!writingReminderGateOpen(
 				{
@@ -728,22 +775,19 @@ export function registerSlateMode(
 				},
 				runtime.sentThisRound,
 			)
-		) {
-			return;
-		}
-		const usage = ctx.getContextUsage();
-		const effectiveBudget = usage ? hooks.effectiveContextBudget(usage.contextWindow, ctx) : undefined;
-		const interval =
-			effectiveBudget === undefined ? undefined : writingReminderInterval(effectiveBudget, config?.remindPercent ?? 5);
-		const decision = decideWritingReminder(runtime.markTokens, usage?.tokens, interval, runtime.forceNext);
-		const reminderContent = renderWritingReminderMessage();
+		) return;
+		const decision = decideWritingReminder(
+			runtime.turnsSinceDelivery,
+			config?.remindTurns ?? DEFAULT_REMIND_TURNS,
+			runtime.findingPending,
+			triggerEnabled,
+			runtime.forceNext,
+		);
+		const reminderContent = renderWritingReminderMessage(writingCounters.latest, config?.findings ?? true);
 		Object.assign(runtime, claimWritingReminder(runtime, decision, reminderContent));
 		if (!decision.send) return;
 		const deliveryId = runtime.pending?.deliveryId;
-		if (deliveryId === undefined) {
-			Object.assign(runtime, rearmWritingReminder(runtime));
-			return;
-		}
+		if (deliveryId === undefined) return;
 		try {
 			pi.sendMessage(
 				{
@@ -752,56 +796,59 @@ export function registerSlateMode(
 					display: false,
 					details: writingReminderDeliveryDetails(deliveryId),
 				},
-				{ deliverAs: "steer" },
+				{ deliverAs: writingReminderDeliveryMode(hasToolResult) },
 			);
 		} catch {
-			// A synchronous queue failure leaves force and cadence retryable.
-			if (runtime.pending) Object.assign(runtime, rearmWritingReminder(runtime));
+			// The claim already completed cadence delivery. Release only the round slot.
+			Object.assign(runtime, rearmWritingReminder(runtime));
 		}
-	});
+	};
 
-	// The writing checker reads only the completed assistant message from
-	// turn_end. It returns no hook result, so it is human-only telemetry and
-	// cannot alter what the model receives.
-	pi.on("turn_end", async (event, ctx) => {
-		uiCtx = ctx;
-		if (!writingIsVisible(ctx)) return;
-		const bytes = assistantTextBytes(event.message);
-		if (bytes !== undefined && bytes > WRITING_TURN_MAX_BYTES) {
-			writingStatus = "skipped";
-			updateWidget();
+	// A retryable provider error is not countable yet. A later successful turn
+	// replaces it. agent_settled confirms an error was the final attempt.
+	pi.on("turn_end", (event, ctx) => {
+		const failedAttempt =
+			event.message.role === "assistant" && event.message.stopReason === "error";
+		if (failedAttempt) {
+			pendingErrorTurn = true;
 			return;
 		}
-		try {
-			writingCheckerPromise ??= loadWritingChecker();
-			const checker = await writingCheckerPromise;
-			const outcome = measureWritingTurn(event.message, checker, writingCounters);
-			// FX2: a turn with no prose is not a broken checker. Inferring failure
-			// from an unchanged counter reported `writing unavailable` after every
-			// tool-call-only turn and threw away the rate measured so far. Only the
-			// checker's own failure moves the status now; `no-text` leaves both the
-			// status and the counters exactly as they were.
-			if (outcome === "measured") writingStatus = "ready";
-			else if (outcome === "failed") writingStatus = "unavailable";
-			updateWidget();
-		} catch {
-			writingStatus = "unavailable";
-			updateWidget();
+		pendingErrorTurn = false;
+		previousTurnHadTools = event.toolResults.length > 0;
+		completeWritingTurn(ctx, previousTurnHadTools);
+	});
+
+	// message_start proves that pi began delivering our custom message.
+	pi.on("message_start", (event) => {
+		if (event.message.role === "custom" && event.message.customType === WRITING_REMINDER_CUSTOM_TYPE) {
+			Object.assign(
+				store.writingReminder,
+				commitWritingReminder(store.writingReminder, event.message.details, event.message.content),
+			);
 		}
 	});
 
-	// Refresh the orchestrator's own cost after each of its settled runs.
+	// Refresh cost after the final attempt. A final provider error counts once.
 	pi.on("agent_settled", async (_event, ctx) => {
+		if (pendingErrorTurn) {
+			completeWritingTurn(ctx, false);
+			pendingErrorTurn = false;
+		}
 		uiCtx = ctx;
 		updateWidget();
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		uiCtx = ctx;
-		writingCounters.measuredTurns = 0;
-		writingCounters.findingTurns = 0;
+		resetWritingCounters(
+			writingCounters,
+			getConfig().writing?.statusWindowTurns ?? DEFAULT_STATUS_WINDOW_TURNS,
+		);
 		writingCheckerPromise = undefined;
 		writingStatus = "fresh";
+		latestTurnHasFinding = false;
+		pendingErrorTurn = false;
+		previousTurnHadTools = false;
 		Object.assign(store.writingReminder, resetWritingReminderSession(store.writingReminder));
 		// Preserve force only when the earlier handoff handler marked this cycle.
 		// The reset consumes that marker, so a later generic session_start clears

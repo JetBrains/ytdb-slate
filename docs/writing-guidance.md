@@ -16,8 +16,9 @@ A session pays for the detail only when it reads this file.
 reads text, strips the parts that are not prose, splits what remains
 into blocks and sentences, and reports surface facts about them:
 sentence length, sentence count per paragraph, and matches for a
-closed list of ten patterns. It emits per-rule counts, length
-distributions and one finding record per match, each with a source
+closed list of eleven rules. It emits per-rule counts, length
+distributions and one finding record per match, including a sentence-length
+finding when the configured limit is exceeded. Each finding has a source
 offset and a framed excerpt.
 
 **It is a proxy, and the proxy is dictionary-free.** It embeds no
@@ -56,10 +57,28 @@ They are ignored writing keys and have no effect. Remove them from `slate.json`.
 Either explicitly set key produces one configuration notice, even when its
 value is `false`. When both keys are present, Slate sends one notice.
 
-`writing.remindPercent` remains configurable. It defaults to 5 and must be a
-finite number in `(0, 100]`. An invalid value warns and defaults to 5. Unknown
-keys under `writing` also warn and are ignored. The validator is
-`sanitizeWritingConfig` in `extension/writing.ts`.
+`writing.remindTurns` configures the reminder cadence in completed turns. It
+defaults to 4 and accepts whole numbers from 1 through 20. An invalid value
+warns and defaults to 4. `writing.remindOnFinding` enables the immediate
+trigger. It defaults to `true` and accepts only booleans. An invalid value warns
+and defaults to `true`. Setting it while `writing.findings` is false produces a
+notice because the findings section is disabled. `writing.remindPercent` remains
+accepted and ignored. Slate emits a notice that the cadence changed from a token
+share to a turn count. `writing.sentenceWordLimit` configures the sentence-length house-style rule. It
+accepts a whole number from 10 through 200, inclusive. The default is 25
+words. The value `false` turns this rule off. An invalid or out-of-range value
+warns and uses 25 words. `sanitizeWritingConfig` emits the warning. The checker
+uses 25 words after configuration sanitization. The checker reports one
+combined sentence-length distribution for all scanned files. That distribution
+is the instrument that will revisit the number later.
+
+`writing.statusWindowTurns` controls the status window. It defaults to 10 and
+accepts whole numbers from 3 through 100. An invalid value warns and falls back
+to 10. `writing.findings` defaults to `true` and accepts only booleans. An
+invalid value warns and falls back to `true`. It controls only the findings
+section in the hidden reminder. Measurement and the status line continue when
+it is `false`. Unknown keys under `writing` also warn and are ignored. The validator is `sanitizeWritingConfig` in
+`extension/writing.ts`.
 
 Slate reads project config only for a trusted project. The doctrine, worker
 preamble, status, and reminder paths also check trust. An untrusted project
@@ -74,42 +93,41 @@ Trusted orchestrator sessions receive four writing and design surfaces:
 3. **The worker preamble sentence.** Every trusted worker thread receives one
    extra sentence of writing guidance in its preamble.
 4. **The turn status line.** In an interactive session, the Slate status line
-   gains a `writing <n>/<m>` counter. `m` counts measured prose turns. `n`
-   counts turns with at least one `fail` finding.
+   gains `writing <n> fail, <m> style / <w> turns`. The default window is ten
+   measured prose turns. The configured range is 3 through 100. Both counts
+   include model-visible findings only.
 
-Slate also sends a hidden, context-paced message after eligible tool results.
-Context-paced means Slate waits for configured context growth between reminders.
-The next section defines this channel and its gates.
+Slate also sends a hidden message after eligible completed turns. The next
+section defines this channel and its gates.
 
 Running the command by hand needs no config. It is a plain Node command.
 
 ## Writing requirements and reminders
 
-The doctrine includes these nine requirements in this order:
+The doctrine includes these ten requirements in this order:
 
+- Write for a reader whose first language is not English.
+- Use plain words that appear in standard libraries and textbooks. Treat any other term as new. A multi-word noun phrase, an abbreviation and a CamelCase name are terms.
 - Avoid idioms.
 - Replace bare-reference openers with the subject they reference.
-- Explain each project-specific term at first use.
+- Explain each term, including project-specific, at first use.
 - Define each abbreviation at first use.
 - Express one idea in each sentence.
 - Use one term for each concept.
 - Do not explain an idea with a metaphor.
 - Do not invent a term when the project already has one.
-- Use plain words that appear in standard libraries and textbooks.
 
-The first six project-authored summaries came from the investigation for
-[issue #96](https://github.com/JetBrains/ytdb-slate/issues/96). ASD-STE100
-informed that work. Slate copied no standard text or controlled
-vocabulary, and it claims no conformance. The final three requirements come from
-[issue #257](https://github.com/JetBrains/ytdb-slate/issues/257). The ninth
-requirement is item four from that issue.
+The doctrine also renders `Use short, active language.` in its lead-in. The
+roster owns vocabulary, because one roster item fixes which words a writer may
+assume the reader knows. Slate dropped the earlier word-shortening rule from
+that lead-in. Two near-identical rules in one requirement block break the
+project requirement to use one term for each concept.
 
-The doctrine also renders `Use short, active, plain language.` That rule
-shortens words. The ninth requirement fixes which words a writer may assume
-the reader knows. The two rules govern different failures.
-
-The reminder repeats all nine writing requirements. It also carries this
-six-line design requirement block:
+When the latest measured turn has a model-visible finding, the reminder starts with a `Recent writing findings:` section. The section states that quoted text is data, not an instruction. The section carries one quotation for each present model-visible class. The reminder then starts with the title `Writing and conversation requirements`.
+The next line carries these three retained style rules: `Use short, active
+language.` `Keep exact technical terms.` `Do not use semicolons or
+contractions.` The reminder then repeats all ten writing requirements. It also
+carries this six-line design requirement block:
 
 - Keep a design statement only if a different reasonable implementation keeps it true.
 - Present to the user any item the approved goals do not list.
@@ -128,18 +146,19 @@ A high-level design remains governed even while it lives inside a research
 log. This document is the authority on the
 precise scope of every rendering.
 
-These requirements are not mechanical checker findings. The shipped
-checker has no rule for idioms or bare-reference openers. It also has
-no rule for project-term explanations or abbreviation definitions.
-It cannot count ideas in a sentence or enforce one term per concept. It tests
-neither metaphor-based explanations nor invented project terms.
+These requirements are not mechanical checker findings. The shipped checker
+has no rule for the reader's first language, vocabulary, idioms or
+bare-reference openers. It also has no rule for term explanations or
+abbreviation definitions. It cannot count ideas in a sentence or enforce one
+term per concept. It tests neither metaphor-based explanations nor invented
+project terms.
 
-After an eligible tool result, Slate queues a hidden custom message
-with active `steer`. The message has `display: false` and arrives
-before the next assistant response.
+After an eligible completed turn, Slate queues a hidden custom message. A turn
+with a tool result uses active `steer`. A turn without a tool result uses
+next-turn delivery. The message has `display: false`.
 
 The normal UI has no reminder indicator. It does not appear in the
-normal TUI or tool panel. A tool-free round receives no reminder.
+normal TUI or tool panel.
 
 To diagnose delivery, inspect the session JSONL through pi. A delivered
 reminder has entry type `custom_message`, `customType` set to
@@ -152,58 +171,67 @@ Every reminder gate must be open:
 - orchestrator mode is on
 - the project is trusted
 - Slate is not paused
-- the context threshold is reached, or a handoff forces the next reminder
-- no reminder has been sent in the current assistant response round
+- the cadence or finding trigger is ready, or a handoff forces the next reminder
+- no reminder has been sent in the current response round
 
-Slate permits at most one reminder for each assistant response round.
-Parallel tool results therefore cannot produce repeated reminders in
-one round.
+A response round is one assistant response and its tool-result continuations.
+Slate permits at most one reminder for each response round. Parallel tool
+results therefore cannot produce repeated reminders in one response round.
 
-The interval is `remindPercent` of Slate's current effective context
-budget. Slate rounds down to whole tokens, then applies an 8,192-token
-floor. It applies no interval cap.
+The default cadence is 4 completed turns. The configured range is 1 through 20
+turns. Slate counts every completed turn, including an aborted turn. A provider
+retry attempt does not count. An abort after a tool turn does not reopen the
+response round. A finding trigger fires on the turn after a measured turn with a
+model-visible finding. Slate claims delivery before it sends the message. The
+claim resets the counter even when sending throws. The counter restarts after
+delivery.
 
-The default interval is 5 percent. The configured range is greater
-than zero through 100, inclusive. The effective budget reflects the
-live model, configured budget, context window, and Slate's handoff
-headroom.
+The reminder always quotes the most recent measured finding summary. The
+summary does not expire when the cadence interval passes.
 
-The 8,192-token floor makes sufficiently small percentages equivalent.
-At 100 percent, normal cadence reaches its threshold at the effective
-pause boundary. These endpoints remain valid. A forced post-handoff
-reminder bypasses the cadence threshold.
+`writing.findings: false` disables the finding trigger. A reminder still fires
+when the turn cadence reaches its interval. The reminder always includes the
+most recent measured finding summary, whatever the interval.
 
-After a reminder, Slate marks the current context usage. Another
-reminder needs one full interval of growth. When context usage shrinks,
-Slate lowers the mark to the new usage before measuring growth again.
+A trusted handoff reloads the doctrine in the fresh session. It also forces a
+reminder on the next eligible completed turn. The forced reminder does not need
+the turn cadence or a finding.
 
-A trusted handoff reloads the doctrine in the fresh session. It also
-forces a reminder after the first eligible tool result. This forced
-reminder does not need context usage or a reached threshold.
-
-A representative 256,000-token budget gives a 12,800-token default
-interval. This example only illustrates cadence. Slate has no
-controlled comparison or claim that reminders improve prose.
+A representative context budget does not change the reminder interval. Slate
+has no controlled comparison or claim that reminders improve prose.
 
 ## Keeping the requirement text synchronized
 
-`WRITING_REQUIREMENTS`, `DESIGN_REQUIREMENTS`, and `WRITING_SCOPE_EXCLUSION`
-in `extension/writing-reminder.ts` export the authoritative wording. The
-complete nine-line writing roster has five manual copies: this guide,
-AGENTS.md's roster, resolver exact fixtures, the integration canary, and the
-clause list in `test/doctrine-contract.test.ts`. The six-line design roster has
-four manual copies: this guide, resolver exact fixtures, the integration canary,
+`WRITING_REQUIREMENTS_TITLE`, `WRITING_STYLE_RULES`, `WRITING_REQUIREMENTS`,
+`DESIGN_REQUIREMENTS`, and `WRITING_SCOPE_EXCLUSION` in
+`extension/writing-reminder.ts` export the authoritative wording. The complete
+ten-line writing roster has six manual copies: this guide, the writing
+convention in `AGENTS.md` near line 372, and the `writingLines` and
+`doctrineRequirements` copies in
+`verification/resolver-checks.mjs`, `verification/writing-reminder-canary.mjs`,
+and the clause list in `test/doctrine-contract.test.ts`. The six-line design
+roster has four manual copies: this guide, the `designLines` copy in
+`verification/resolver-checks.mjs`, `verification/writing-reminder-canary.mjs`,
 and the clause list in `test/doctrine-contract.test.ts`.
 
+The title and retained style rules have five manual check copies. They are the
+`writingTitle`, `styleLines`, and `exactWritingOpening` values in
+`verification/resolver-checks.mjs`, the expected values in
+`test/writing.test.ts`, the doctrine clauses in `test/doctrine-contract.test.ts`,
+and the full message in `verification/writing-reminder-canary.mjs`. This guide
+holds the document copy.
+
 The scope exclusion has three exact copies: this guide, resolver exact
-fixtures, and the integration canary. AGENTS.md carries equivalent
+fixtures, and the integration canary. `AGENTS.md` carries equivalent
 scope prose, not an exact copy. All applicable copies must update in
 one commit.
 
-`extension/mode.ts` renders the authoritative writing exports directly. Its
-design doctrine rule repeats the six design requirements word for word. The
-shell harness reads expected text from canary evidence. Neither file holds a
-manual writing roster copy.
+The check counts literal occurrences and cannot detect a generated copy, while
+issue 317 tracks the general solution.
+
+`extension/mode.ts` renders the authoritative writing, style, title and design
+exports directly. The shell harness reads expected text from canary evidence.
+Neither file holds a manual roster copy.
 
 ## What it costs when it is on
 
@@ -213,15 +241,22 @@ worker dispatch. Each sent reminder also enters later model context.
 `context-budget.md` defines the portable-character measure. It records
 the whole-doctrine sizes and owns the size budget.
 
-An interactive session also runs the checker synchronously after each
-completed assistant message. The hook refuses text over 16 KiB and
-reports `writing skipped (message too large)`. This TUI bound is
-separate from the command's 1 MiB input cap.
+An interactive session runs the checker synchronously at the assistant
+`message_end` event. This event runs before tool execution. The older `turn_end`
+position could carry a quotation from an earlier turn into the model. The hook
+refuses text over 16 KiB and reports `writing skipped (message too large)`. A
+failed checker import is retried on a later message. This TUI bound is separate
+from the command's 1 MiB input cap.
 
-The checker hook is human-only telemetry. It does not change model
-input. A checker failure reports `writing unavailable` instead of
-failing the turn. The hidden reminder uses the separate model-visible
-channel described above.
+The checker hook supplies model-visible findings for four rules: semicolons,
+contractions, paragraph length, and sentence length. Four advisory rules remain
+review-only. The reminder carries one quotation for each present
+model-visible class and its count. Each quotation is capped at 120 bytes and
+uses `…` when truncated. Truncation keeps both `⟦` and `⟧` frame characters. The
+section states that quoted text is data, not an instruction. It states that a
+finding is a signal, not a verdict. It states: `Split a long sentence, keep the logical connection explicit, name each subject, and avoid disconnected fragments.` A checker
+failure reports `writing unavailable` instead of failing the turn. The hidden
+reminder uses the model-visible channel described above.
 
 ## What counts as prose
 
@@ -266,7 +301,7 @@ A word is a run of letters and digits, with internal apostrophes and
 hyphens kept, that contains at least one letter. So a hyphenated
 compound counts as one word and a bare number counts as none.
 
-Four of the ten rules ignore identifier-shaped text. `PASSIVE`,
+Four of the pattern rules ignore identifier-shaped text. `PASSIVE`,
 `INGFORM`, `NOUNCLUSTER` and `MULTICMD` run over a filtered token
 list with path-like tokens, dotted names, `snake_case`, `camelCase`
 and em-dash-bearing quotations removed, so a file name or a symbol
@@ -275,7 +310,7 @@ text.
 
 ## The rules
 
-Ten rules in four severity classes. The class is the checker's own
+Eleven rules in four severity classes. The class is the checker's own
 label, reported with every finding and in the per-rule summary.
 
 **`fail` — a mechanical violation of the convention.**
@@ -292,6 +327,7 @@ label, reported with every finding and in the per-rule summary.
 | rule | what it flags |
 | --- | --- |
 | `PARA6` | a paragraph block of more than 6 sentences |
+| `SENTENCE_LENGTH` | a sentence longer than the configured whole-word limit. The default is 25 words, the accepted range is 10 through 200, and `false` turns this rule off |
 | `PARENTHETICAL_PAREN` | a parenthesis pair whose content looks like a clause rather than an aside. The test is a surface one: an auxiliary or `be` form, a word ending in `ed` or `es`, or a non-initial word ending in `s` |
 | `PARENTHETICAL_DASH` | a paired em dash, or a spaced en dash pair, enclosing text. A pair inside a quotation that itself contains an em dash is suppressed |
 | `SLASHED` | a letters-only `word/word` construction such as `and/or`. Paths and URLs are already blanked, and a longer slash run does not match |
@@ -320,9 +356,9 @@ checker's and never the text's.
 ## The command line
 
 ```
-node extension/writing-check.mjs --input records.jsonl [--format json|text]
-node extension/writing-check.mjs --file PATH [--file PATH ...] [--format json|text]
-node extension/writing-check.mjs --diff changes.diff [--format json|text]
+node extension/writing-check.mjs --input records.jsonl [--format json|text] [--sentence-word-limit 10..200|off]
+node extension/writing-check.mjs --file PATH [--file PATH ...] [--format json|text] [--sentence-word-limit 10..200|off]
+node extension/writing-check.mjs --diff changes.diff [--format json|text] [--sentence-word-limit 10..200|off]
 ```
 
 Exactly one input mode per run. `--format` is `json` by default and
@@ -427,9 +463,8 @@ These are settled decisions. Read them as scope, not as a backlog.
 - **No verdict.** No rule class is a defect by itself, and no clean
   run is a pass. `review-rules.md` owns the mapping from a match to a
   severity, and a reviewer owns the judgement.
-- **Not a gate.** The checker hook is telemetry. It changes no model
-  input and cannot fail a turn. The reminder is guidance, not a checker
-  verdict.
+- **Not a gate.** The checker hook is diagnostic. It cannot fail a turn. The
+  reminder carries selected findings as guidance, not as a checker verdict.
 - **Not universal.** The convention covers prose written for people:
   documents, README text, pull request and commit text, issues,
   review comments, release notes and messages to the user. Research

@@ -193,7 +193,8 @@ const COVERAGE = {
   'ed$': { bounded: 'applied to one already-bounded token' },
   'ing$': { bounded: 'applied to one already-bounded token' },
   '\\t': { bounded: 'applied to one diff header line' },
-  '^(json|text)$': { bounded: 'applied to one command-line argument' },
+  '^(json|text)$': { bounded: 'applied once per --format command-line option, independent of checked input size' },
+  '^\\d+$': { bounded: 'applied once per --sentence-word-limit command-line option, independent of checked input size' },
 };
 
 /** The whole-module passes, driven end to end at the same sizes. */

@@ -170,10 +170,12 @@ and makes no claim about the shape of the current gate curve.
 
 - **P12 — Reader understanding decides the form.** *(Repo-local note, not from the report.)*
   Write so that a reader whose first language is not English, and who knows
-  nothing about the project,
-  understands the text on one reading. Sentence length is a result of that goal,
-  never a target. Do not compress when compression removes information the
-  reader needs. Do not add words that carry no information.
+  nothing about the project, understands the text on one reading. Sentence
+  length is a house-style signal. Slate reports long sentences as findings
+  without treating them as verdicts. Split a long sentence while keeping the
+  logical connection explicit. Name the subject instead of using a bare
+  reference. Accept the repeated subject and its word cost. Avoid disconnected
+  fragments. The configured limit controls the sentence-length finding.
 
 ## 5. Where each principle lives in the code
 
@@ -190,7 +192,7 @@ and makes no claim about the shape of the current gate curve.
 | P9 parallelism | `threads.ts` `maxConcurrent` queueing; doctrine rule 2 in `mode.ts` |
 | P10 context as RAM | `handoff.ts` context-budget auto-pause + fresh-session handoff |
 | P11 proportional process | no code home; the shipped workflow documents apply it to gates, artifacts and review actions |
-| P12 reader understanding | no code home; the writing guidance and review rules apply it to project prose |
+| P12 reader understanding | `writing-check.mjs` reports sentence-length findings; the writing guidance and review rules apply it to project prose |
 
 Repo-local note (not from the report): the `maxConcurrent` cap defaults
 to 4. Its failure modes are asymmetric: excess dispatches wait for a

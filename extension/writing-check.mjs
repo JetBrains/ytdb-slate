@@ -9,6 +9,9 @@ import { fileURLToPath } from 'node:url';
 
 export const MAX_INPUT_BYTES = 1024 * 1024;
 export const MAX_RECORDS = 10000;
+export const DEFAULT_SENTENCE_WORD_LIMIT = 25;
+export const MIN_SENTENCE_WORD_LIMIT = 10;
+export const MAX_SENTENCE_WORD_LIMIT = 200;
 /** Per-record cap. One noisy record must not consume another record's budget. */
 export const MAX_FINDINGS = 1000;
 /**
@@ -79,7 +82,7 @@ export const NOT_CHECKED = [
 ];
 
 export const RULES = [
-  ['PARA6', 'house-style'], ['SEMICOLON', 'fail'], ['CONTRACTION', 'fail'],
+  ['SENTENCE_LENGTH', 'house-style'], ['PARA6', 'house-style'], ['SEMICOLON', 'fail'], ['CONTRACTION', 'fail'],
   ['PARENTHETICAL_PAREN', 'house-style'], ['PARENTHETICAL_DASH', 'house-style'],
   ['SLASHED', 'house-style'], ['PASSIVE', 'advisory'], ['INGFORM', 'advisory'],
   ['NOUNCLUSTER', 'advisory'], ['MULTICMD', 'advisory'],
@@ -617,6 +620,11 @@ export function checkRecord(record, ordinal = 0, options = {}) {
   const findings = [], sentenceLengths = [], paragraphSentences = [];
   let sentenceCount = 0, totalWords = 0, omittedFindings = 0;
   const maxFindings = Math.max(0, Math.min(MAX_FINDINGS, Number.isSafeInteger(options.maxFindings) ? options.maxFindings : MAX_FINDINGS));
+  const sentenceWordLimit = options.sentenceWordLimit === false
+    ? false
+    : Number.isSafeInteger(options.sentenceWordLimit) && options.sentenceWordLimit >= MIN_SENTENCE_WORD_LIMIT && options.sentenceWordLimit <= MAX_SENTENCE_WORD_LIMIT
+      ? options.sentenceWordLimit
+      : DEFAULT_SENTENCE_WORD_LIMIT;
   /**
    * `start` and `end` are BLOCK-TEXT positions. Rules work in block coordinates
    * throughout and the translation to source happens here, once, so a rule
@@ -666,6 +674,9 @@ export function checkRecord(record, ordinal = 0, options = {}) {
     block.sentences.forEach((sentence, si) => {
       const tokens = wordTokens(sentence.text, sentence.start);
       sentenceLengths.push(tokens.length);
+      if (sentenceWordLimit !== false && tokens.length > sentenceWordLimit) {
+        add('SENTENCE_LENGTH', block, si, sentence.start, sentence.end);
+      }
       const excluded = excludedHeuristicRanges(sentence.text, sentence.start).sort((a, b) => a.start - b.start || a.end - b.end);
       const heuristicTokens = withoutExcluded(tokens, excluded);
       for (let i = 0; i < heuristicTokens.length - 1; i++) {
@@ -795,7 +806,10 @@ export function run(records, options = {}) {
   // so the total output is bounded. Every record that loses findings reports its
   // own shortfall, and formatText states the budget before any finding line.
   const allowance = findingAllowance(records.length, limit);
-  const checked = records.map((record, ordinal) => checkRecord(record, ordinal, { maxFindings: allowance }));
+  const checked = records.map((record, ordinal) => checkRecord(record, ordinal, {
+    maxFindings: allowance,
+    sentenceWordLimit: options.sentenceWordLimit,
+  }));
   const summary = aggregate(checked, { findingAllowance: allowance, perRecordLimit: limit });
   if (Array.isArray(records[DIFF_SKIPS]) && records[DIFF_SKIPS].length > 0) {
     summary.skippedDiffFiles = records[DIFF_SKIPS];
@@ -1021,16 +1035,22 @@ export function recordsFromUnifiedDiff(text, id = 'diff') {
 }
 
 function usage() {
-  return `Usage:\n  node writing-check.mjs --input records.jsonl [--format json|text]\n  node writing-check.mjs --file PATH [--file PATH ...] [--format json|text]\n  node writing-check.mjs --diff changes.diff [--format json|text]\n\n--diff accepts a unified-diff file and checks added lines in prose files. Inputs must be regular files. The combined byte limit is ${MAX_INPUT_BYTES}, the record limit is ${MAX_RECORDS}, and output is capped at ${MAX_FINDINGS} findings per record and ${MAX_TOTAL_FINDINGS} findings per run.`;
+  return `Usage:\n  node writing-check.mjs --input records.jsonl [--format json|text] [--sentence-word-limit 10..200|off]\n  node writing-check.mjs --file PATH [--file PATH ...] [--format json|text] [--sentence-word-limit 10..200|off]\n  node writing-check.mjs --diff changes.diff [--format json|text] [--sentence-word-limit 10..200|off]\n\n--diff accepts a unified-diff file and checks added lines in prose files. The sentence word limit defaults to ${DEFAULT_SENTENCE_WORD_LIMIT}. The value off disables only that rule. Inputs must be regular files. The combined byte limit is ${MAX_INPUT_BYTES}, the record limit is ${MAX_RECORDS}, and output is capped at ${MAX_FINDINGS} findings per record and ${MAX_TOTAL_FINDINGS} findings per run.`;
 }
 
 function cli() {
-  const args = process.argv.slice(2); let input = null, diff = null, format = 'json'; const files = [];
+  const args = process.argv.slice(2); let input = null, diff = null, format = 'json', sentenceWordLimit = DEFAULT_SENTENCE_WORD_LIMIT; const files = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--input' && args[i + 1]) input = args[++i];
     else if (args[i] === '--file' && args[i + 1]) files.push(args[++i]);
     else if (args[i] === '--diff' && args[i + 1]) diff = args[++i];
     else if (args[i] === '--format' && /^(json|text)$/.test(args[i + 1] || '')) format = args[++i];
+    else if (args[i] === '--sentence-word-limit' && args[i + 1]) {
+      const value = args[++i];
+      if (value === 'off') sentenceWordLimit = false;
+      else if (/^\d+$/.test(value) && Number(value) >= MIN_SENTENCE_WORD_LIMIT && Number(value) <= MAX_SENTENCE_WORD_LIMIT) sentenceWordLimit = Number(value);
+      else throw new Error(`Invalid --sentence-word-limit: expected ${MIN_SENTENCE_WORD_LIMIT}..${MAX_SENTENCE_WORD_LIMIT} or off`);
+    }
     else if (args[i] === '--help') { console.log(usage()); return; }
     else throw new Error(`Unknown or incomplete argument: ${args[i]}`);
   }
@@ -1044,7 +1064,7 @@ function cli() {
     const loaded = readRegularFile(path, MAX_INPUT_BYTES);
     records = input ? parseJsonl(loaded.text) : recordsFromUnifiedDiff(loaded.text, basename(path));
   }
-  const result = run(records);
+  const result = run(records, { sentenceWordLimit });
   process.stdout.write(format === 'json' ? JSON.stringify(result, null, 2) + '\n' : formatText(result) + '\n');
 }
 
