@@ -110,22 +110,23 @@ half-window floor keeps small-window models usable.
 
 ## Writing-reminder cadence
 
-The effective budget also sets the hidden writing-reminder cadence. In every
-trusted project with orchestrator mode active, Slate computes:
+The effective context budget does not set the hidden writing-reminder cadence.
+In every trusted project with orchestrator mode active, Slate counts completed
+turns. The default interval is 4 turns. The configured range is 1 through 20
+turns. The `writing.remindTurns` key sets the interval.
 
-```
-interval = max(8192, floor(effectiveBudget × remindPercent / 100))
-```
+The `writing.remindOnFinding` key enables a trigger after a measured turn with a
+model-visible finding. The trigger defaults to `true`. The `writing.findings`
+key disables the trigger when it is `false`. The retired `writing.remindPercent`
+key is accepted and ignored with a notice that the cadence changed from a token
+share to a turn count.
 
-`remindPercent` defaults to 5 and accepts a finite value in `(0, 100]`. The
-context-window clamp therefore shortens the cadence on a model whose configured
-budget does not fit. Slate checks the cadence after tool results. One reminder
-slot can fire after each assistant response.
-
-A successful handoff adoption sets `forceNext`. The next eligible tool result
-then bypasses token cadence and missing usage. It does not bypass trust,
-orchestrator mode, or the pause gate. Slate
-commits the cadence mark only when pi starts delivery of the custom message.
+A turn with a tool result receives a steer. A turn without a tool result receives
+next-turn delivery. Slate counts aborted completed turns. It does not count a
+provider retry attempt. An abort after a tool turn does not reopen the response
+round. The counter restarts after delivery. A trusted handoff sets `forceNext`,
+which bypasses the turn cadence on the next eligible turn. It does not bypass
+trust, orchestrator mode, or the pause gate.
 
 The current hidden message has a checked worst case of 1,693 UTF-8 bytes. The
 1,800-byte bound leaves a 107-byte reserve. The case includes the header, the

@@ -13,12 +13,16 @@ import {
 import {
   capWritingQuotation,
   createWritingCounters,
+  DEFAULT_REMIND_ON_FINDING,
+  DEFAULT_REMIND_TURNS,
   DEFAULT_SENTENCE_WORD_LIMIT,
   DEFAULT_STATUS_WINDOW_TURNS,
   loadWritingChecker,
+  MAX_REMIND_TURNS,
   MAX_SENTENCE_WORD_LIMIT,
   MAX_STATUS_WINDOW_TURNS,
   measureWritingTurn,
+  MIN_REMIND_TURNS,
   MIN_SENTENCE_WORD_LIMIT,
   MIN_STATUS_WINDOW_TURNS,
   MODEL_VISIBLE_WRITING_RULES,
@@ -29,7 +33,8 @@ import {
 } from "../extension/writing.ts";
 
 const DEFAULT_CONFIG = {
-  remindPercent: 5,
+  remindTurns: DEFAULT_REMIND_TURNS,
+  remindOnFinding: DEFAULT_REMIND_ON_FINDING,
   sentenceWordLimit: 25,
   statusWindowTurns: 10,
   findings: true,
@@ -50,7 +55,7 @@ function assistant(content: unknown): TurnEndEvent["message"] {
 test("malformed writing config warns and uses all defaults", () => {
   assert.deepEqual(sanitize("invalid"), {
     result: DEFAULT_CONFIG,
-    warnings: ['slate: ignoring writing — expected an object like { "sentenceWordLimit": 25, "statusWindowTurns": 10, "findings": true }'],
+    warnings: ['slate: ignoring writing — expected an object like { "remindTurns": 4, "remindOnFinding": true, "sentenceWordLimit": 25, "statusWindowTurns": 10, "findings": true }'],
   });
 });
 
@@ -59,6 +64,31 @@ test("ignored writing keys emit one shared notice", () => {
     result: DEFAULT_CONFIG,
     warnings: [IGNORED_KEYS_NOTICE],
   });
+});
+
+test("turn interval accepts both ends and rejects other values", () => {
+  assert.equal(sanitize({ remindTurns: MIN_REMIND_TURNS }).result.remindTurns, 1);
+  assert.equal(sanitize({ remindTurns: MAX_REMIND_TURNS }).result.remindTurns, 20);
+  for (const value of [0, 21, 1.5, "4", true]) {
+    const { result, warnings } = sanitize({ remindTurns: value });
+    assert.equal(result.remindTurns, DEFAULT_REMIND_TURNS);
+    assert.match(warnings[0] ?? "", /whole number from 1 to 20/);
+  }
+});
+
+test("finding trigger accepts booleans and reports its disabled interaction", () => {
+  assert.equal(sanitize({ remindOnFinding: false }).result.remindOnFinding, false);
+  const invalid = sanitize({ remindOnFinding: "false" });
+  assert.equal(invalid.result.remindOnFinding, true);
+  assert.match(invalid.warnings[0] ?? "", /expected true or false/);
+  assert.match(sanitize({ findings: false, remindOnFinding: true }).warnings.at(-1) ?? "", /has no effect/);
+});
+
+test("retired percentage is known, ignored, and explains the cadence change", () => {
+  const result = sanitize({ remindPercent: 99 });
+  assert.deepEqual(result.result, DEFAULT_CONFIG);
+  assert.match(result.warnings[0] ?? "", /ignored/);
+  assert.match(result.warnings[0] ?? "", /token share to a turn count/);
 });
 
 test("sentence word limit accepts both ends and false", () => {
@@ -90,11 +120,12 @@ test("findings accepts booleans and rejects other values", () => {
 
 test("new writing keys are known and throwing getters fall back", () => {
   const raw = {} as Record<string, unknown>;
-  Object.defineProperty(raw, "statusWindowTurns", { enumerable: true, get() { throw new Error("no"); } });
-  Object.defineProperty(raw, "findings", { enumerable: true, get() { throw new Error("no"); } });
+  for (const key of ["remindTurns", "remindOnFinding", "statusWindowTurns", "findings"]) {
+    Object.defineProperty(raw, key, { enumerable: true, get() { throw new Error("no"); } });
+  }
   const { result, warnings } = sanitize(raw);
   assert.deepEqual(result, DEFAULT_CONFIG);
-  assert.equal(warnings.length, 2);
+  assert.equal(warnings.length, 4);
   assert.ok(warnings.every((warning) => !warning.includes("unknown writing key")));
 });
 
@@ -251,22 +282,24 @@ test("a delivery-side failure cannot mutate measurement", () => {
   assert.deepEqual(counters, before);
 });
 
-test("mode measures at message end, clears failures, and retries checker loading", async () => {
+test("mode measures at message end, retries loading, and advances turn cadence", async () => {
   const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>();
   const statuses: Array<string | undefined> = [];
+  const sent: Array<[unknown, unknown]> = [];
   const store = {
     orchestratorMode: true,
     paused: false,
     threads: new Map(),
     workerCostUsd: 0,
     carriedCostUsd: 0,
-    writingReminder: { markTokens: 0, sentThisRound: false, forceNext: false, deliverySequence: 0, adoptedThisSessionStart: false },
+    writingReminder: { turnsSinceDelivery: 0, findingPending: false, sentThisRound: false, forceNext: false, deliverySequence: 0, adoptedThisSessionStart: false },
     save() {},
     set onDidChange(_handler: () => void) {},
   };
   const pi = {
     on(event: string, handler: (event: any, ctx: ExtensionContext) => unknown) { const list = handlers.get(event) ?? []; list.push(handler); handlers.set(event, list); },
-    registerCommand() {}, getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [], sendMessage() {},
+    registerCommand() {}, getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [],
+    sendMessage(message: unknown, options: unknown) { sent.push([message, options]); },
   } as unknown as ExtensionAPI;
   let loads = 0;
   registerSlateMode(
@@ -299,4 +332,41 @@ test("mode measures at message end, clears failures, and retries checker loading
   assert.match(statuses.at(-1) ?? "", /writing skipped/);
   await emit("message_end", { message: { role: "assistant", content: [] } });
   assert.match(statuses.at(-1) ?? "", /writing skipped/);
+
+  const complete = async (content: unknown, stopReason = "stop", toolResults: unknown[] = []) => {
+    const message = { role: "assistant", content, stopReason };
+    await emit("message_end", { message });
+    await emit("turn_end", { message, toolResults });
+  };
+  await complete("The report is ready.");
+  await complete([]);
+  await complete("The report remains ready.");
+  assert.equal(sent.length, 0);
+  await complete("The report is final.");
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0]?.[1], { deliverAs: "nextTurn" });
+  assert.equal(store.writingReminder.turnsSinceDelivery, 0);
+
+  const retryError = { role: "assistant", content: [], stopReason: "error" };
+  await emit("message_end", { message: retryError });
+  await emit("turn_end", { message: retryError, toolResults: [] });
+  assert.equal(store.writingReminder.turnsSinceDelivery, 0);
+  await complete("The retry succeeded.");
+  assert.equal(store.writingReminder.turnsSinceDelivery, 1);
+
+  store.writingReminder.forceNext = true;
+  await complete("Use the tool.", "stop", [{ role: "toolResult" }]);
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent[1]?.[1], { deliverAs: "steer" });
+  const aborted = { role: "assistant", content: [], stopReason: "aborted" };
+  await emit("message_end", { message: aborted });
+  await emit("turn_end", { message: aborted, toolResults: [] });
+  assert.equal(sent.length, 2, "an aborted tool continuation stays in the claimed round");
+
+  await emit("message_end", { message: retryError });
+  await emit("turn_end", { message: retryError, toolResults: [] });
+  await emit("agent_settled", {});
+  assert.equal(store.writingReminder.turnsSinceDelivery, 2);
+  await emit("agent_settled", {});
+  assert.equal(store.writingReminder.turnsSinceDelivery, 2);
 });

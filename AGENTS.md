@@ -242,15 +242,12 @@ Record `pi --version` with the run. The ladder accepts pi from `PATH` as a last 
 
 ### Writing-reminder integration check
 
-`bash verification/run-writing-reminder-check.sh --repo .` starts two real pi
-sessions against a deterministic in-process fake provider. The primary session
-runs with `writing.findings: true` and proves two hidden reminder steers carry
-the findings section. The auxiliary session runs with `writing.findings: false`
-and proves one reminder omits the section while measurement continues. Two
-parallel canary tool calls must produce one hidden reminder steer in each
-eligible session. Session JSONL must persist two enabled reminders and one
-findings-off reminder with `display: false`. All tool results must equal the
-exact one-block content shape.
+`bash verification/run-writing-reminder-check.sh --repo .` starts three real pi
+sessions against a deterministic in-process fake provider. The main scenario proves the finding trigger and four-turn cadence. The
+trigger-off and findings-off scenarios prove that cadence remains active when
+the trigger or findings section is disabled. Session JSONL must persist hidden
+custom messages with `display: false`. Tool results must equal the exact
+one-block content shape.
 
 The harness requires `node`, `mktemp`, GNU `timeout`, `mkdir`, `rm`, `date`,
 `env`, `cat`, `tr` and `sed`. GNU `timeout` supplies the required
@@ -267,12 +264,11 @@ the boundary.
 operation. This is not a network sandbox because reviewed extension code can
 still open raw sockets.
 
-The canary uses a 1,000,000-token model window and reports 25,000 input tokens. The controller paces prompts from the RPC `agent_settled` event instead of using a fixed delay.
-The project config sets both ignored writing keys to false. It also sets a
-200,000-token budget and `remindPercent: 12.5`. Delivery proves those keys cannot
-disable reminders. The correct 25,000-token interval fires, while an incorrect
-125,000-token interval does not. This makes the effective-budget path
-load-bearing.
+The canary uses a 1,000,000-token model window and reports 25,001 input tokens on its first provider call. The controller paces prompts from the RPC `agent_settled` event instead of using a fixed delay.
+The three project configs set `remindTurns: 4` and vary `remindOnFinding` and
+`findings`. The main scenario proves the immediate finding reminder and the
+later cadence reminder. The two switch scenarios prove that the four-turn
+cadence still fires.
 
 The pi phase is about one second on the reference machine. The wrapper's observed
 wall clock is around two seconds. These figures describe one machine, not a speed
@@ -283,7 +279,7 @@ the harness refused to start. A failed run keeps its scratch directory and
 inlines pi stderr and stdout. A clean run removes the directory.
 
 This net is outside CI, the load check and the ladder. It proves the real
-hook, steer, provider and persistence path. It proves `display: false`
+hook, steer, next-turn, provider and persistence paths. It proves `display: false`
 structurally, not visual TUI invisibility. Check that presentation manually.
 
 Re-run it after these changes:
@@ -292,7 +288,7 @@ Re-run it after these changes:
 - Reminder config in `extension/writing.ts`.
 - Reminder hooks or reset ordering in `extension/mode.ts`.
 - The handoff `forceNext` assignment in `extension/handoff.ts`.
-- Custom-message type, options or steer delivery.
+- Custom-message type, options, steer delivery or next-turn delivery.
 - The canary, harness, pi pin, RPC shape or JSONL shape.
 
 A change to `extension/handoff.ts` still requires the full ladder. Run the

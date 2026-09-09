@@ -41,6 +41,7 @@ import {
 	type ThreadRecord,
 } from "./state.ts";
 import {
+	advanceWritingReminderTurn,
 	claimWritingReminder,
 	renderDesignDoctrineRequirements,
 	commitWritingReminder,
@@ -54,11 +55,13 @@ import {
 	resetWritingReminderSession,
 	WRITING_REMINDER_CUSTOM_TYPE,
 	writingReminderDeliveryDetails,
+	writingReminderDeliveryMode,
 	writingReminderGateOpen,
-	writingReminderInterval,
 } from "./writing-reminder.ts";
 import {
 	createWritingCounters,
+	DEFAULT_REMIND_ON_FINDING,
+	DEFAULT_REMIND_TURNS,
 	DEFAULT_SENTENCE_WORD_LIMIT,
 	DEFAULT_STATUS_WINDOW_TURNS,
 	loadWritingChecker as loadWritingCheckerModule,
@@ -591,6 +594,9 @@ export function registerSlateMode(
 	const writingCounters = createWritingCounters();
 	let writingStatus: WritingStatus = "fresh";
 	let writingCheckerPromise: Promise<WritingChecker> | undefined;
+	let latestTurnHasFinding = false;
+	let pendingErrorTurn = false;
+	let previousTurnHadTools = false;
 
 	const writingIsActive = (ctx: ExtensionContext): boolean => store.orchestratorMode && ctx.isProjectTrusted();
 	const writingIsVisible = (ctx: ExtensionContext): boolean => ctx.hasUI && writingIsActive(ctx);
@@ -706,11 +712,15 @@ export function registerSlateMode(
 	});
 
 	// message_end is awaited before pi executes this response's tools. Measure here
-	// so a tool-result claim can only quote this response, never an older turn.
-	// Each assistant response also opens one reminder slot for its following tools.
+	// so the completed-turn claim can only quote this response, never an older turn.
+	// Each assistant response also opens one reminder slot.
 	pi.on("message_end", async (event, ctx) => {
 		if (event.message.role !== "assistant") return;
-		Object.assign(store.writingReminder, rearmWritingReminder(store.writingReminder));
+		if (!(event.message.stopReason === "aborted" && previousTurnHadTools)) {
+			Object.assign(store.writingReminder, rearmWritingReminder(store.writingReminder));
+		}
+		previousTurnHadTools = false;
+		latestTurnHasFinding = false;
 		uiCtx = ctx;
 		if (!writingIsActive(ctx)) return;
 		const bytes = assistantTextBytes(event.message);
@@ -740,25 +750,22 @@ export function registerSlateMode(
 			writingConfig?.sentenceWordLimit ?? DEFAULT_SENTENCE_WORD_LIMIT,
 		);
 		// A turn with no prose leaves the prior status and counters unchanged.
-		if (outcome === "measured") writingStatus = "ready";
-		else if (outcome === "failed") writingStatus = "unavailable";
+		if (outcome === "measured") {
+			writingStatus = "ready";
+			latestTurnHasFinding =
+				(writingCounters.latest?.failCount ?? 0) + (writingCounters.latest?.styleCount ?? 0) > 0;
+		} else if (outcome === "failed") {
+			writingStatus = "unavailable";
+		}
 		updateWidget();
 	});
 
-	// message_start proves that pi began delivering our custom steer.
-	pi.on("message_start", (event) => {
-		if (event.message.role === "custom" && event.message.customType === WRITING_REMINDER_CUSTOM_TYPE) {
-			Object.assign(
-				store.writingReminder,
-				commitWritingReminder(store.writingReminder, event.message.details, event.message.content),
-			);
-		}
-	});
-
-	// Claim the round before sendMessage can synchronously trigger other hooks.
-	pi.on("tool_result", (_event, ctx) => {
+	// Gate and claim stay synchronous. The claim is the cadence delivery.
+	const completeWritingTurn = (ctx: ExtensionContext, hasToolResult: boolean) => {
 		const config = getConfig().writing;
 		const runtime = store.writingReminder;
+		const triggerEnabled = (config?.findings ?? true) && (config?.remindOnFinding ?? DEFAULT_REMIND_ON_FINDING);
+		Object.assign(runtime, advanceWritingReminderTurn(runtime, triggerEnabled && latestTurnHasFinding));
 		if (
 			!writingReminderGateOpen(
 				{
@@ -768,25 +775,19 @@ export function registerSlateMode(
 				},
 				runtime.sentThisRound,
 			)
-		) {
-			return;
-		}
-		const usage = ctx.getContextUsage();
-		const effectiveBudget = usage ? hooks.effectiveContextBudget(usage.contextWindow, ctx) : undefined;
-		const interval =
-			effectiveBudget === undefined ? undefined : writingReminderInterval(effectiveBudget, config?.remindPercent ?? 5);
-		const decision = decideWritingReminder(runtime.markTokens, usage?.tokens, interval, runtime.forceNext);
-		const reminderContent = renderWritingReminderMessage(
-			writingCounters.latest,
-			config?.findings ?? true,
+		) return;
+		const decision = decideWritingReminder(
+			runtime.turnsSinceDelivery,
+			config?.remindTurns ?? DEFAULT_REMIND_TURNS,
+			runtime.findingPending,
+			triggerEnabled,
+			runtime.forceNext,
 		);
+		const reminderContent = renderWritingReminderMessage(writingCounters.latest, config?.findings ?? true);
 		Object.assign(runtime, claimWritingReminder(runtime, decision, reminderContent));
 		if (!decision.send) return;
 		const deliveryId = runtime.pending?.deliveryId;
-		if (deliveryId === undefined) {
-			Object.assign(runtime, rearmWritingReminder(runtime));
-			return;
-		}
+		if (deliveryId === undefined) return;
 		try {
 			pi.sendMessage(
 				{
@@ -795,16 +796,44 @@ export function registerSlateMode(
 					display: false,
 					details: writingReminderDeliveryDetails(deliveryId),
 				},
-				{ deliverAs: "steer" },
+				{ deliverAs: writingReminderDeliveryMode(hasToolResult) },
 			);
 		} catch {
-			// A synchronous queue failure leaves force and cadence retryable.
-			if (runtime.pending) Object.assign(runtime, rearmWritingReminder(runtime));
+			// The claim already completed cadence delivery. Release only the round slot.
+			Object.assign(runtime, rearmWritingReminder(runtime));
+		}
+	};
+
+	// A retryable provider error is not countable yet. A later successful turn
+	// replaces it. agent_settled confirms an error was the final attempt.
+	pi.on("turn_end", (event, ctx) => {
+		const failedAttempt =
+			event.message.role === "assistant" && event.message.stopReason === "error";
+		if (failedAttempt) {
+			pendingErrorTurn = true;
+			return;
+		}
+		pendingErrorTurn = false;
+		previousTurnHadTools = event.toolResults.length > 0;
+		completeWritingTurn(ctx, previousTurnHadTools);
+	});
+
+	// message_start proves that pi began delivering our custom message.
+	pi.on("message_start", (event) => {
+		if (event.message.role === "custom" && event.message.customType === WRITING_REMINDER_CUSTOM_TYPE) {
+			Object.assign(
+				store.writingReminder,
+				commitWritingReminder(store.writingReminder, event.message.details, event.message.content),
+			);
 		}
 	});
 
-	// Refresh the orchestrator's own cost after each of its settled runs.
+	// Refresh cost after the final attempt. A final provider error counts once.
 	pi.on("agent_settled", async (_event, ctx) => {
+		if (pendingErrorTurn) {
+			completeWritingTurn(ctx, false);
+			pendingErrorTurn = false;
+		}
 		uiCtx = ctx;
 		updateWidget();
 	});
@@ -817,6 +846,9 @@ export function registerSlateMode(
 		);
 		writingCheckerPromise = undefined;
 		writingStatus = "fresh";
+		latestTurnHasFinding = false;
+		pendingErrorTurn = false;
+		previousTurnHadTools = false;
 		Object.assign(store.writingReminder, resetWritingReminderSession(store.writingReminder));
 		// Preserve force only when the earlier handoff handler marked this cycle.
 		// The reset consumes that marker, so a later generic session_start clears

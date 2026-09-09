@@ -258,7 +258,7 @@ test("writing guide rosters match the frozen production rosters", () => {
   );
 });
 
-test("mode skips reminder cadence when no effective budget exists", { timeout: 5000 }, async () => {
+test("mode uses the four-turn reminder fallback when writing config is absent", { timeout: 5000 }, async () => {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
@@ -270,36 +270,14 @@ test("mode skips reminder cadence when no effective budget exists", { timeout: 5
     () => EMPTY_WORKER_EXTENSION_SET,
     () => ROUTER_OFF,
   );
-  const context = {
-    ...extensionContext(scratch),
-    getContextUsage: () => ({ tokens: 10_000, contextWindow: 200_000 }),
-  } as ExtensionContext;
-  await api.emit("tool_result", {}, context);
+  const context = extensionContext(scratch);
+  const turn = { message: { role: "assistant", content: [], stopReason: "stop" }, toolResults: [] };
+  for (let index = 0; index < 3; index++) await api.emit("turn_end", turn, context);
   assert.deepEqual(api.sentMessages, []);
-  assert.equal(store.writingReminder.sentThisRound, false);
-  assert.equal(store.writingReminder.pending, undefined);
-});
-
-test("mode uses the five-percent reminder fallback when writing config is absent", { timeout: 5000 }, async () => {
-  const api = new FakeExtensionApi();
-  const store = new SlateStore(api as unknown as ExtensionAPI);
-  store.orchestratorMode = true;
-  registerSlateMode(
-    api as unknown as ExtensionAPI,
-    store,
-    { startHandoff: async () => {}, effectiveContextBudget: () => 200_000 } as any,
-    () => ({}),
-    () => EMPTY_WORKER_EXTENSION_SET,
-    () => ROUTER_OFF,
-  );
-  const context = {
-    ...extensionContext(scratch),
-    getContextUsage: () => ({ tokens: 10_000, contextWindow: 200_000 }),
-  } as ExtensionContext;
-  await api.emit("tool_result", {}, context);
-  assert.equal(api.sentMessages.length, 1, "the default 5 percent interval must fire at 10,000 of 200,000 tokens");
-  assert.equal(store.writingReminder.markTokens, 0, "cadence stays uncommitted before delivery");
-  assert.equal(store.writingReminder.pending?.nextMarkTokens, 10_000, "the fallback interval records the reached usage");
+  assert.equal(store.writingReminder.turnsSinceDelivery, 3);
+  await api.emit("turn_end", turn, context);
+  assert.equal(api.sentMessages.length, 1, "the default interval must fire on turn four");
+  assert.equal(store.writingReminder.turnsSinceDelivery, 0, "the claim restarts cadence");
 
   const configuredApi = new FakeExtensionApi();
   const configuredStore = new SlateStore(configuredApi as unknown as ExtensionAPI);
@@ -307,14 +285,13 @@ test("mode uses the five-percent reminder fallback when writing config is absent
   registerSlateMode(
     configuredApi as unknown as ExtensionAPI,
     configuredStore,
-    { startHandoff: async () => {}, effectiveContextBudget: () => 200_000 } as any,
-    () => ({ writing: { remindPercent: 10 } }),
+    { startHandoff: async () => {}, effectiveContextBudget: () => undefined } as any,
+    () => ({ writing: { remindTurns: 5 } }),
     () => EMPTY_WORKER_EXTENSION_SET,
     () => ROUTER_OFF,
   );
-  await configuredApi.emit("tool_result", {}, context);
-  assert.deepEqual(configuredApi.sentMessages, [], "a configured 10 percent interval must not fire at 10,000 tokens");
-  assert.equal(configuredStore.writingReminder.pending, undefined);
+  for (let index = 0; index < 4; index++) await configuredApi.emit("turn_end", turn, context);
+  assert.deepEqual(configuredApi.sentMessages, [], "a configured five-turn interval must stay silent through turn four");
 });
 
 test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {
@@ -341,7 +318,7 @@ test("entry configuration reports either ignored writing key through the shared 
 
   assert.deepEqual(await run("writing-check-true", { check: true }), [notice]);
   assert.deepEqual(await run("writing-remind-false", { remind: false }), [notice]);
-  assert.deepEqual(await run("writing-keys-absent", { remindPercent: 10 }), []);
+  assert.match((await run("writing-percent-retired", { remindPercent: 10 }))[0] ?? "", /token share to a turn count/);
 });
 
 test("entry configuration accepts valid cache shards and rejects invalid counts", { timeout: 5000 }, async () => {

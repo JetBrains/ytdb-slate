@@ -57,9 +57,14 @@ They are ignored writing keys and have no effect. Remove them from `slate.json`.
 Either explicitly set key produces one configuration notice, even when its
 value is `false`. When both keys are present, Slate sends one notice.
 
-`writing.remindPercent` remains configurable. It defaults to 5 and must be a
-finite number in `(0, 100]`. An invalid value warns and defaults to 5.
-`writing.sentenceWordLimit` configures the sentence-length house-style rule. It
+`writing.remindTurns` configures the reminder cadence in completed turns. It
+defaults to 4 and accepts whole numbers from 1 through 20. An invalid value
+warns and defaults to 4. `writing.remindOnFinding` enables the immediate
+trigger. It defaults to `true` and accepts only booleans. An invalid value warns
+and defaults to `true`. Setting it while `writing.findings` is false produces a
+notice because the findings section is disabled. `writing.remindPercent` remains
+accepted and ignored. Slate emits a notice that the cadence changed from a token
+share to a turn count. `writing.sentenceWordLimit` configures the sentence-length house-style rule. It
 accepts a whole number from 10 through 200, inclusive. The default is 25
 words. The value `false` turns this rule off. An invalid or out-of-range value
 warns and uses 25 words. `sanitizeWritingConfig` emits the warning. The checker
@@ -92,9 +97,8 @@ Trusted orchestrator sessions receive four writing and design surfaces:
    measured prose turns. The configured range is 3 through 100. Both counts
    include model-visible findings only.
 
-Slate also sends a hidden, context-paced message after eligible tool results.
-Context-paced means Slate waits for configured context growth between reminders.
-The next section defines this channel and its gates.
+Slate also sends a hidden message after eligible completed turns. The next
+section defines this channel and its gates.
 
 Running the command by hand needs no config. It is a plain Node command.
 
@@ -149,12 +153,12 @@ abbreviation definitions. It cannot count ideas in a sentence or enforce one
 term per concept. It tests neither metaphor-based explanations nor invented
 project terms.
 
-After an eligible tool result, Slate queues a hidden custom message
-with active `steer`. The message has `display: false` and arrives
-before the next assistant response.
+After an eligible completed turn, Slate queues a hidden custom message. A turn
+with a tool result uses active `steer`. A turn without a tool result uses
+next-turn delivery. The message has `display: false`.
 
 The normal UI has no reminder indicator. It does not appear in the
-normal TUI or tool panel. A tool-free round receives no reminder.
+normal TUI or tool panel.
 
 To diagnose delivery, inspect the session JSONL through pi. A delivered
 reminder has entry type `custom_message`, `customType` set to
@@ -167,38 +171,34 @@ Every reminder gate must be open:
 - orchestrator mode is on
 - the project is trusted
 - Slate is not paused
-- the context threshold is reached, or a handoff forces the next reminder
-- no reminder has been sent in the current assistant response round
+- the cadence or finding trigger is ready, or a handoff forces the next reminder
+- no reminder has been sent in the current response round
 
-Slate permits at most one reminder for each assistant response round.
-Parallel tool results therefore cannot produce repeated reminders in
-one round.
+A response round is one assistant response and its tool-result continuations.
+Slate permits at most one reminder for each response round. Parallel tool
+results therefore cannot produce repeated reminders in one response round.
 
-The interval is `remindPercent` of Slate's current effective context
-budget. Slate rounds down to whole tokens, then applies an 8,192-token
-floor. It applies no interval cap.
+The default cadence is 4 completed turns. The configured range is 1 through 20
+turns. Slate counts every completed turn, including an aborted turn. A provider
+retry attempt does not count. An abort after a tool turn does not reopen the
+response round. A finding trigger fires on the turn after a measured turn with a
+model-visible finding. Slate claims delivery before it sends the message. The
+claim resets the counter even when sending throws. The counter restarts after
+delivery.
 
-The default interval is 5 percent. The configured range is greater
-than zero through 100, inclusive. The effective budget reflects the
-live model, configured budget, context window, and Slate's handoff
-headroom.
+The reminder always quotes the most recent measured finding summary. The
+summary does not expire when the cadence interval passes.
 
-The 8,192-token floor makes sufficiently small percentages equivalent.
-At 100 percent, normal cadence reaches its threshold at the effective
-pause boundary. These endpoints remain valid. A forced post-handoff
-reminder bypasses the cadence threshold.
+`writing.findings: false` disables the finding trigger. A reminder still fires
+when the turn cadence reaches its interval. The reminder always includes the
+most recent measured finding summary, whatever the interval.
 
-After a reminder, Slate marks the current context usage. Another
-reminder needs one full interval of growth. When context usage shrinks,
-Slate lowers the mark to the new usage before measuring growth again.
+A trusted handoff reloads the doctrine in the fresh session. It also forces a
+reminder on the next eligible completed turn. The forced reminder does not need
+the turn cadence or a finding.
 
-A trusted handoff reloads the doctrine in the fresh session. It also
-forces a reminder after the first eligible tool result. This forced
-reminder does not need context usage or a reached threshold.
-
-A representative 256,000-token budget gives a 12,800-token default
-interval. This example only illustrates cadence. Slate has no
-controlled comparison or claim that reminders improve prose.
+A representative context budget does not change the reminder interval. Slate
+has no controlled comparison or claim that reminders improve prose.
 
 ## Keeping the requirement text synchronized
 

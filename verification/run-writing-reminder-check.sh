@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# slate — writing-reminder hook/steer integration check
+# slate — writing-reminder turn-cadence integration check
 # =============================================================================
-# Starts real pi sessions against a deterministic in-process fake provider. The
-# primary session proves a findings reminder and a later plain reminder. A
-# second session proves writing.findings=false against the same finding-heavy
-# assistant turn. Both sessions remain offline and use throwaway state.
+# Starts three real pi sessions against a deterministic in-process fake
+# provider. The main session proves finding-triggered steer delivery and later
+# four-turn next-turn delivery. Two sessions prove each trigger switch while
+# the four-turn cadence remains active. All state is throwaway and offline.
 #
 # This check does not prove visual TUI invisibility. It proves the SDK-visible
 # contract behind invisibility by asserting display:false structurally.
@@ -62,34 +62,25 @@ NODE_BIN="$(command -v node)"; NODE_DIR="${NODE_BIN%/*}"; PI_DIR="${PI%/*}"
 CHILD_PATH="$NODE_DIR:$PI_DIR:/usr/bin:/bin"; DEAD_PROXY="http://127.0.0.1:9"
 
 run_scenario() {
-	local scenario="$1" findings="$2" prompts="$3"
+	local scenario="$1" findings="$2" trigger="$3"
 	local project="$LAB/project-$scenario" agent="$LAB/agent-$scenario"
 	mkdir -p "$project/.pi" "$agent" || return 125
 	cat > "$project/.pi/slate.json" <<JSON
 {
   "orchestratorModeDefault": true,
-  "contextBudget": 200000,
-  "writing": { "check": false, "remind": false, "remindPercent": 12.5, "findings": $findings }
+  "writing": { "remindTurns": 4, "remindOnFinding": $trigger, "findings": $findings }
 }
 JSON
 	[ "$?" = 0 ] || return 125
 	printf '%s\n' '{"id":"commands","type":"get_commands"}' '{"id":"mode","type":"prompt","message":"/slate on"}' > "$LAB/$scenario.rpc.in" || return 125
-	if [ "$prompts" = 4 ]; then
-		printf '%s\n' \
-			'{"id":"finding","type":"prompt","message":"Write the finding canary."}' \
-			'{"id":"findings-reminder","type":"prompt","message":"Execute the writing_reminder_canary tool now."}' \
-			'{"id":"clean","type":"prompt","message":"Write the clean canary."}' \
-			'{"id":"plain-reminder","type":"prompt","message":"Execute the writing_reminder_canary tool now."}' >> "$LAB/$scenario.rpc.in"
-	else
-		printf '%s\n' \
-			'{"id":"finding","type":"prompt","message":"Write the finding canary."}' \
-			'{"id":"off-reminder","type":"prompt","message":"Execute the writing_reminder_canary tool now."}' >> "$LAB/$scenario.rpc.in"
-	fi
+	for prompt in 1 2 3 4 5; do
+		printf '{"id":"turn-%s","type":"prompt","message":"Run writing reminder canary turn %s."}\n' "$prompt" "$prompt" >> "$LAB/$scenario.rpc.in" || return 125
+	done
 	(
 		cd "$project" || exit 125
 		# The RPC prompt response confirms preflight only. The controller waits for
-		# agent_settled after each model prompt, which is the deterministic signal
-		# that message_end, turn_end, and every continuation have completed.
+		# agent_settled after each model prompt. This event proves that message_end,
+		# turn_end, tool continuations, and reminder continuations have completed.
 		env -i HOME="$CHILD_HOME" PATH="$CHILD_PATH" TMPDIR="$CHILD_TMP" \
 			PI_CODING_AGENT_DIR="$agent" PI_OFFLINE=1 \
 			HTTP_PROXY="$DEAD_PROXY" HTTPS_PROXY="$DEAD_PROXY" ALL_PROXY="$DEAD_PROXY" NO_PROXY="" \
@@ -118,15 +109,16 @@ child.stdout.on("data", chunk => {
     try { publish(JSON.parse(line)); } catch {}
   }
 });
-function waitFor(predicate) {
-  if (events.some(predicate)) return Promise.resolve();
+function waitFor(predicate, after) {
+  if (events.slice(after).some(predicate)) return Promise.resolve();
   return new Promise(resolve => waiters.push({ predicate, resolve }));
 }
 (async () => {
   for (const command of commands) {
+    const eventPosition = events.length;
     child.stdin.write(JSON.stringify(command) + "\n");
-    await waitFor(value => value?.type === "response" && value.id === command.id && value.success === true);
-    if (command.type === "prompt" && command.id !== "mode") await waitFor(value => value?.type === "agent_settled");
+    await waitFor(value => value?.type === "response" && value.id === command.id && value.success === true, eventPosition);
+    if (command.type === "prompt" && command.id !== "mode") await waitFor(value => value?.type === "agent_settled", eventPosition);
   }
   child.stdin.end();
 })().catch(error => { console.error(error); child.kill("SIGTERM"); });
@@ -137,9 +129,10 @@ NODE
 }
 
 START_NS="$(date +%s%N)"
-run_scenario on true 4; ON_RC=$?
-run_scenario off false 2; OFF_RC=$?
-if [ "$ON_RC" = 125 ] || [ "$OFF_RC" = 125 ]; then die "could not create a scenario scratch fixture"; fi
+run_scenario main true true; MAIN_RC=$?
+run_scenario trigger-off true false; TRIGGER_OFF_RC=$?
+run_scenario findings-off false true; FINDINGS_OFF_RC=$?
+if [ "$MAIN_RC" = 125 ] || [ "$TRIGGER_OFF_RC" = 125 ] || [ "$FINDINGS_OFF_RC" = 125 ]; then die "could not create a scenario scratch fixture"; fi
 END_NS="$(date +%s%N)"
 
 find_session() {
@@ -147,13 +140,13 @@ find_session() {
 const fs=require("node:fs"),path=require("node:path");let best="",time=-1;
 function walk(d){let es=[];try{es=fs.readdirSync(d,{withFileTypes:true})}catch{return}for(const e of es){const p=path.join(d,e.name);if(e.isDirectory())walk(p);else if(e.isFile()&&p.endsWith(".jsonl")){const t=fs.statSync(p).mtimeMs;if(t>time){time=t;best=p}}}}walk(process.argv[1]);process.stdout.write(best);' "$1"
 }
-ON_SESSION="$(find_session "$LAB/agent-on/sessions")"
-OFF_SESSION="$(find_session "$LAB/agent-off/sessions")"
+MAIN_SESSION="$(find_session "$LAB/agent-main/sessions")"
+TRIGGER_OFF_SESSION="$(find_session "$LAB/agent-trigger-off/sessions")"
+FINDINGS_OFF_SESSION="$(find_session "$LAB/agent-findings-off/sessions")"
 ANALYSIS="$LAB/analysis.json"
-node - "$LAB" "$ON_SESSION" "$OFF_SESSION" "$REPO" "$ANALYSIS" <<'NODE'
+node - "$LAB" "$MAIN_SESSION" "$TRIGGER_OFF_SESSION" "$FINDINGS_OFF_SESSION" "$REPO" "$ANALYSIS" <<'NODE'
 const fs = require("node:fs");
-const [lab, onSessionFile, offSessionFile, repo, analysisFile] = process.argv.slice(2);
-const SUCCESS = "SLATE_REMINDER_REACHED_NEXT_MODEL_CALL_7f31c2";
+const [lab, mainSessionFile, triggerOffSessionFile, findingsOffSessionFile, repo, analysisFile] = process.argv.slice(2);
 const HEADER = "[slate] Reminder:";
 const FINDINGS = "Recent writing findings:";
 const REQUIREMENTS = "Writing and conversation requirements:";
@@ -168,8 +161,8 @@ function sessionFacts(file) {
   const parsed = jsonLines(file);
   const custom = parsed.values.filter((e) => e?.type === "custom_message" && e.customType === "slate-writing-reminder");
   const tools = parsed.values.filter((e) => e?.type === "message" && e.message?.role === "toolResult" && e.message.toolName === "writing_reminder_canary");
-  const assistantText = parsed.values.filter((e) => e?.type === "message" && e.message?.role === "assistant").flatMap((e) => Array.isArray(e.message.content) ? e.message.content : []).filter((p) => p?.type === "text").map((p) => p.text);
-  return { parsed, custom, tools, assistantText };
+  const assistants = parsed.values.filter((e) => e?.type === "message" && e.message?.role === "assistant");
+  return { parsed, custom, tools, assistants };
 }
 function rpcFacts(name) {
   const parsed = jsonLines(`${lab}/${name}.out`);
@@ -191,51 +184,64 @@ function structural(text) {
     fail, style, failQuote: quote(fail), styleQuote: quote(style), bytes: Buffer.byteLength(text ?? "", "utf8"),
   };
 }
-const on = sessionFacts(onSessionFile), off = sessionFacts(offSessionFile);
-const onRpc = rpcFacts("on"), offRpc = rpcFacts("off");
-const onEvidence = jsonFile(`${lab}/on.evidence.json`), offEvidence = jsonFile(`${lab}/off.evidence.json`);
-const findingReminder = onEvidence?.providerReminderContents?.[0];
-const plainReminder = onEvidence?.providerNewestReminder;
-const offReminder = offEvidence?.providerNewestReminder;
+const names = ["main", "trigger-off", "findings-off"];
+const sessions = [sessionFacts(mainSessionFile), sessionFacts(triggerOffSessionFile), sessionFacts(findingsOffSessionFile)];
+const rpcs = names.map(rpcFacts);
+const evidence = names.map((name) => jsonFile(`${lab}/${name}.evidence.json`));
+const [main, triggerOff, findingsOff] = evidence;
+const [mainSession, triggerOffSession, findingsOffSession] = sessions;
+const counts = (x) => x?.providerCalls?.map((call) => call.reminderContents.length);
+const mainContents = main?.providerCalls?.at(-1)?.reminderContents ?? [];
+const triggerOffContents = triggerOff?.providerCalls?.at(-1)?.reminderContents ?? [];
+const findingsOffContents = findingsOff?.providerCalls?.at(-1)?.reminderContents ?? [];
+const findingReminder = mainContents[0];
+const cadenceReminder = mainContents[1];
 const shape = structural(findingReminder);
-const allCustom = [...on.custom, ...off.custom];
+const allCustom = sessions.flatMap((session) => session.custom);
+const finalProviderContents = [mainContents, triggerOffContents, findingsOffContents];
 const safeIds = allCustom.every((e) => Number.isSafeInteger(e.details?.deliveryId) && e.details.deliveryId > 0);
-const persistedContents = on.custom.map((e) => e.content).concat(off.custom.map((e) => e.content));
-const providerContents = [...(onEvidence?.providerReminderContents ?? []), ...(offEvidence?.providerReminderContents ?? [])];
-const cleanTools = [...on.tools, ...off.tools].every((entry) => {
+const persisted = sessions.every((session, i) => session.custom.length === finalProviderContents[i].length && session.custom.every((entry, j) => entry.content === finalProviderContents[i][j]));
+const cleanTools = sessions.flatMap((session) => session.tools).every((entry) => {
   const c = entry.message.content;
   return Array.isArray(c) && c.length === 1 && c[0] && typeof c[0] === "object" && Object.keys(c[0]).sort().join(",") === "text,type" && c[0].type === "text" && c[0].text === "CANARY_TOOL_RESULT_ONLY";
 });
+const allStructures = evidence.flatMap((item) => item?.providerCalls?.at(-1)?.requirementStructures ?? []);
+const allDetailsAbsent = evidence.flatMap((item) => item?.providerCalls ?? []).every((call) => call.reminderDetailsAbsent);
 const result = {
-  rpcBad: [...onRpc.parsed.bad, ...offRpc.parsed.bad], sessionBad: [...on.parsed.bad, ...off.parsed.bad],
-  extensionErrors: [...onRpc.extensionErrors, ...offRpc.extensionErrors],
-  workingTree: [onRpc.slatePath, offRpc.slatePath].every((p) => p === repo || p.startsWith(repo + "/")),
-  slatePaths: [onRpc.slatePath, offRpc.slatePath],
-  trustedConfig: onEvidence?.trusted === true && offEvidence?.trusted === true && onEvidence?.cwd === `${lab}/project-on` && offEvidence?.cwd === `${lab}/project-off`,
-  toolExecuted: fs.existsSync(`${lab}/on.tool.txt`) && fs.readFileSync(`${lab}/on.tool.txt`, "utf8") === "executed\n".repeat(4) && fs.existsSync(`${lab}/off.tool.txt`) && fs.readFileSync(`${lab}/off.tool.txt`, "utf8") === "executed\n".repeat(2) && on.tools.length === 4 && off.tools.length === 2,
-  providerCalls: onEvidence?.calls === 6 && offEvidence?.calls === 3 && on.assistantText.filter((x) => x === SUCCESS).length >= 2 && off.assistantText.includes(SUCCESS),
+  rpcBad: rpcs.flatMap((rpc) => rpc.parsed.bad), sessionBad: sessions.flatMap((session) => session.parsed.bad),
+  extensionErrors: rpcs.flatMap((rpc) => rpc.extensionErrors),
+  workingTree: rpcs.every((rpc) => rpc.slatePath === repo || rpc.slatePath.startsWith(repo + "/")),
+  slatePaths: rpcs.map((rpc) => rpc.slatePath),
+  trustedConfig: evidence.every((item, i) => item?.trusted === true && item?.cwd === `${lab}/project-${names[i]}`),
+  toolExecuted: fs.existsSync(`${lab}/main.tool.txt`) && fs.readFileSync(`${lab}/main.tool.txt`, "utf8") === "executed\n".repeat(2) && !fs.existsSync(`${lab}/trigger-off.tool.txt`) && !fs.existsSync(`${lab}/findings-off.tool.txt`) && mainSession.tools.length === 2 && triggerOffSession.tools.length === 0 && findingsOffSession.tools.length === 0,
+  providerCalls: main?.calls === 6 && triggerOff?.calls === 5 && findingsOff?.calls === 5 && mainSession.assistants.length === 6 && triggerOffSession.assistants.length === 5 && findingsOffSession.assistants.length === 5,
+  triggerPosition: JSON.stringify(counts(main)) === JSON.stringify([0, 1, 1, 1, 1, 2]),
+  cadencePosition: JSON.stringify(counts(triggerOff)) === JSON.stringify([0, 0, 0, 0, 1]) && JSON.stringify(counts(findingsOff)) === JSON.stringify([0, 0, 0, 0, 1]),
+  deliveryModes: counts(main)?.[0] === 0 && counts(main)?.[1] === 1 && mainSession.tools.length === 2 && counts(main)?.[4] === 1 && counts(main)?.[5] === 2,
+  counterRestart: counts(main)?.[1] === 1 && counts(main)?.slice(2, 5).every((n) => n === 1) && counts(main)?.[5] === 2,
+  triggerSwitch: triggerOff?.findingText === main?.findingText && counts(triggerOff)?.slice(0, 4).every((n) => n === 0) && counts(triggerOff)?.[4] === 1,
   findingsGrammar: shape.headerOnce && shape.findingsOnce && shape.requirementsOnce && shape.order && shape.exactGrammar,
-  requirementsComplete: [...(onEvidence?.providerRequirementStructures ?? []), ...(offEvidence?.providerRequirementStructures ?? [])].length === 3 && [...onEvidence.providerRequirementStructures, ...offEvidence.providerRequirementStructures].every(Boolean),
+  requirementsComplete: allStructures.length === 4 && allStructures.every(Boolean),
   findingsClasses: /^- Fail \(1\): /.test(shape.fail ?? "") && /^- Style \(1\): /.test(shape.style ?? ""),
   quotationCap: [shape.failQuote, shape.styleQuote].every((q) => Buffer.byteLength(q, "utf8") <= 120 && Buffer.byteLength(q, "utf8") > Buffer.byteLength("…", "utf8") && q.startsWith("⟦") && q.endsWith("…⟧")),
-  findingsNextCall: onEvidence?.providerReminderContents?.length === 2 && typeof findingReminder === "string",
-  persisted: safeIds && persistedContents.length === 3 && persistedContents.every((text, i) => text === providerContents[i]),
-  reminderCounts: on.custom.length === 2 && off.custom.length === 1,
-  displayFalse: allCustom.length === 3 && allCustom.every((e) => e.display === false),
-  cleanNoFindings: typeof plainReminder === "string" && !plainReminder.includes(FINDINGS) && plainReminder.startsWith(`${HEADER}\n\n${REQUIREMENTS}`),
-  findingsOff: typeof offReminder === "string" && !offReminder.includes(FINDINGS) && offReminder.startsWith(`${HEADER}\n\n${REQUIREMENTS}`),
-  findingsOffMeasuredInput: offEvidence?.findingText === onEvidence?.findingText && offEvidence?.findingText?.includes(";") && offEvidence.findingText.split(".").length > 7,
+  findingsNextCall: counts(main)?.[0] === 0 && counts(main)?.[1] === 1 && typeof findingReminder === "string",
+  persisted: safeIds && persisted,
+  reminderCounts: mainSession.custom.length === 2 && triggerOffSession.custom.length === 1 && findingsOffSession.custom.length === 1,
+  displayFalse: allCustom.length === 4 && allCustom.every((e) => e.display === false),
+  cleanNoFindings: typeof cadenceReminder === "string" && !cadenceReminder.includes(FINDINGS) && cadenceReminder.startsWith(`${HEADER}\n\n${REQUIREMENTS}`),
+  findingsOff: findingsOff?.findingText === main?.findingText && typeof findingsOffContents[0] === "string" && !findingsOffContents[0].includes(FINDINGS) && findingsOffContents[0].startsWith(`${HEADER}\n\n${REQUIREMENTS}`),
+  findingsOffMeasuredInput: findingsOff?.findingText?.includes(";") && findingsOff.findingText.split(".").length > 7,
   advisoryHidden: !findingReminder?.includes("was accepted"),
   messageBound: shape.bytes > 0 && shape.bytes <= 1800,
-  detailsHidden: onEvidence?.providerReminderDetailsAbsent === true && offEvidence?.providerReminderDetailsAbsent === true,
+  detailsHidden: allDetailsAbsent,
   toolResultClean: cleanTools,
-  onSessionFile, offSessionFile, shape,
+  mainSessionFile, triggerOffSessionFile, findingsOffSessionFile, counts: evidence.map(counts), shape,
 };
 fs.writeFileSync(analysisFile, JSON.stringify(result, null, 2));
 NODE
 ANALYZE_RC=$?
 
-EXPECTED="pi-exit rpc-json hook-errors working-tree trusted-config tool-executed provider-calls findings-grammar requirements-complete findings-classes quotation-cap findings-next-call reminder-persisted reminder-counts display-false no-findings-clean findings-off findings-off-measurement advisory-hidden message-bound delivery-details-hidden tool-result-clean"
+EXPECTED="pi-exit rpc-json hook-errors working-tree trusted-config tool-executed provider-calls trigger-position cadence-position delivery-modes counter-restart trigger-switch findings-grammar requirements-complete findings-classes quotation-cap findings-next-call reminder-persisted reminder-counts display-false no-findings-clean findings-off findings-off-measurement advisory-hidden message-bound delivery-details-hidden tool-result-clean"
 declare -A SEEN=()
 PASS=0; FAIL=0
 report() { local id="$1" verdict="$2" detail="$3"; SEEN[$id]=$(( ${SEEN[$id]:-0} + 1 )); if [ "$verdict" = PASS ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi; printf 'CHECK %-32s %-4s — %s\n' "$id" "$verdict" "$detail"; }
@@ -243,24 +249,29 @@ value() { node -e 'const x=require(process.argv[1]);let v=x[process.argv[2]];pro
 truev() { [ "$(value "$1")" = true ]; }
 check_true() { if truev "$2"; then report "$1" PASS "$3"; else report "$1" FAIL "$4"; fi; }
 
-if [ "$ON_RC" = 0 ] && [ "$OFF_RC" = 0 ]; then report pi-exit PASS "both real pi sessions exited 0 before each timeout bound"; else report pi-exit FAIL "pi exits were on=$ON_RC off=$OFF_RC"; fi
-if [ "$ANALYZE_RC" = 0 ] && [ -f "$ANALYSIS" ] && [ "$(value rpcBad)" = '[]' ] && [ "$(value sessionBad)" = '[]' ]; then report rpc-json PASS "both rpc streams and session JSONL files parse completely"; else report rpc-json FAIL "unparseable evidence (rpc=$(value rpcBad), session=$(value sessionBad))"; fi
+if [ "$MAIN_RC" = 0 ] && [ "$TRIGGER_OFF_RC" = 0 ] && [ "$FINDINGS_OFF_RC" = 0 ]; then report pi-exit PASS "all three real pi sessions exited 0 before each timeout bound"; else report pi-exit FAIL "pi exits were main=$MAIN_RC trigger-off=$TRIGGER_OFF_RC findings-off=$FINDINGS_OFF_RC"; fi
+if [ "$ANALYZE_RC" = 0 ] && [ -f "$ANALYSIS" ] && [ "$(value rpcBad)" = '[]' ] && [ "$(value sessionBad)" = '[]' ]; then report rpc-json PASS "all rpc streams and session JSONL files parse completely"; else report rpc-json FAIL "unparseable evidence (rpc=$(value rpcBad), session=$(value sessionBad))"; fi
 if [ "$(value extensionErrors)" = '[]' ]; then report hook-errors PASS "pi emitted no extension_error event"; else report hook-errors FAIL "extension errors: $(value extensionErrors)"; fi
-check_true working-tree workingTree "both /slate commands are attributed inside the checkout under test" "a /slate source path is outside the checkout: $(value slatePaths)"
-check_true trusted-config trustedConfig "both canaries observed their trusted scratch project and config" "provider evidence did not confirm both trusted scratch projects"
-check_true tool-executed toolExecuted "six parallel real canary tools executed and persisted" "tool markers or persisted tool results are missing"
-check_true provider-calls providerCalls "the expected provider calls and success markers completed" "provider call count or success marker is wrong"
+check_true working-tree workingTree "all /slate commands are attributed inside the checkout under test" "a /slate source path is outside the checkout: $(value slatePaths)"
+check_true trusted-config trustedConfig "all canaries observed their trusted scratch project and config" "provider evidence did not confirm every trusted scratch project"
+check_true tool-executed toolExecuted "the two parallel real canary tools executed and persisted only in the main session" "tool markers or persisted tool results are wrong"
+check_true provider-calls providerCalls "provider and persisted assistant call counts are exactly 6, 5, and 5" "provider or assistant call count is wrong: $(value counts)"
+check_true trigger-position triggerPosition "the first reminder is absent from call 1, appears in call 2, and no second reminder appears before call 6" "finding-trigger positions are wrong: $(value counts)"
+check_true cadence-position cadencePosition "both switch sessions stay silent through call 4 and receive the cadence reminder in call 5" "four-turn cadence positions are wrong: $(value counts)"
+check_true delivery-modes deliveryModes "the tool-result turn steers into call 2 and the tool-free turn waits for call 6" "provider positions do not prove both delivery modes: $(value counts)"
+check_true counter-restart counterRestart "the finding delivery restarts the counter and the next reminder follows four completed turns" "the post-trigger cadence did not restart: $(value counts)"
+check_true trigger-switch triggerSwitch "remindOnFinding=false suppresses the immediate finding reminder while cadence still fires" "the trigger-off scenario has the wrong positions: $(value counts)"
 check_true findings-grammar findingsGrammar "the findings section matches its exact grammar above the requirement block" "the findings section has a missing, reordered, or extra line"
 check_true requirements-complete requirementsComplete "every delivered reminder contains each independent requirement fragment once and in block order" "a delivered requirement block is incomplete or out of order"
 check_true findings-classes findingsClasses "the section names one Fail and one Style quotation with count 1" "class labels, counts, or quotations are wrong"
 check_true quotation-cap quotationCap "both multibyte quotations respect the 120-byte cap and end with the truncation marker" "a quotation violates the 120-byte cap or truncation marker rule"
-check_true findings-next-call findingsNextCall "the next provider call received the findings reminder" "the findings reminder did not reach the next provider call"
+check_true findings-next-call findingsNextCall "the provider call after the measured finding received the findings reminder" "the findings reminder did not reach the next provider call"
 check_true reminder-persisted persisted "all provider reminders match persisted custom-message content and safe delivery ids" "persisted content or delivery id correlation is wrong"
-check_true reminder-counts reminderCounts "session JSONL has two enabled reminders and one findings-off reminder" "session JSONL reminder counts are wrong"
-check_true display-false displayFalse "all three persisted reminders have display:false" "a persisted reminder is not hidden by construction"
-check_true no-findings-clean cleanNoFindings "a clean measured turn produced a reminder without a findings section" "the clean-turn reminder has the wrong structure"
-check_true findings-off findingsOff "writing.findings=false removed the section from the delivered reminder" "the findings-off reminder has the wrong structure"
-check_true findings-off-measurement findingsOffMeasuredInput "the findings-off session completed the same model-visible finding turn before delivery" "the findings-off session did not complete the finding-heavy measurement input"
+check_true reminder-counts reminderCounts "session JSONL has two main reminders and one reminder in each switch session" "session JSONL reminder counts are wrong"
+check_true display-false displayFalse "all four persisted reminders have display:false" "a persisted reminder is not hidden by construction"
+check_true no-findings-clean cleanNoFindings "the later clean cadence reminder has no findings section" "the clean cadence reminder has the wrong structure"
+check_true findings-off findingsOff "writing.findings=false disables the immediate trigger and removes the section while cadence still fires" "the findings-off reminder has the wrong timing or structure"
+check_true findings-off-measurement findingsOffMeasuredInput "the findings-off session completed the same model-visible finding turn" "the findings-off session did not complete the finding-heavy input"
 check_true advisory-hidden advisoryHidden "the advisory passive-rule excerpt is absent from the findings reminder" "an advisory-rule finding reached the reminder"
 check_true message-bound messageBound "the delivered findings reminder stays within the 1800-byte bound" "the findings reminder is empty or exceeds 1800 bytes"
 check_true delivery-details-hidden detailsHidden "provider contexts contain reminder text without hidden delivery details" "provider reminder details leaked across the API boundary"
@@ -269,13 +280,13 @@ check_true tool-result-clean toolResultClean "all toolResults equal one exact te
 ROSTER_OK=1
 for id in $EXPECTED; do [ "${SEEN[$id]:-0}" = 1 ] || ROSTER_OK=0; done
 for id in "${!SEEN[@]}"; do case " $EXPECTED " in *" $id "*) ;; *) ROSTER_OK=0 ;; esac; done
-if [ "$ROSTER_OK" = 1 ]; then printf 'CHECK %-32s %-4s — %s\n' roster PASS "all 22 expected check ids reported exactly once"; PASS=$((PASS+1)); else printf 'CHECK %-32s %-4s — %s\n' roster FAIL "missing, duplicate, or unexpected check id"; FAIL=$((FAIL+1)); fi
+if [ "$ROSTER_OK" = 1 ]; then printf 'CHECK %-32s %-4s — %s\n' roster PASS "all 27 expected check ids reported exactly once"; PASS=$((PASS+1)); else printf 'CHECK %-32s %-4s — %s\n' roster FAIL "missing, duplicate, or unexpected check id"; FAIL=$((FAIL+1)); fi
 
 ELAPSED_MS=$(( (END_NS - START_NS) / 1000000 ))
 echo "== summary: $PASS pass, $FAIL fail (${ELAPSED_MS} ms, pi $PIVER) =="
 if [ "$FAIL" -ne 0 ]; then
 	KEEP=1; echo
-	for scenario in on off; do echo "---- $scenario pi stderr ----"; cat "$LAB/$scenario.err"; echo "---- $scenario pi stdout ----"; cat "$LAB/$scenario.out"; done
+	for scenario in main trigger-off findings-off; do echo "---- $scenario pi stderr ----"; cat "$LAB/$scenario.err"; echo "---- $scenario pi stdout ----"; cat "$LAB/$scenario.out"; done
 	echo "artifacts: $LAB"
 fi
 [ "$FAIL" -eq 0 ]

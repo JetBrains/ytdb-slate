@@ -177,7 +177,7 @@ function writingStatusFixture({ writing = true, writingConfig, trusted = true, o
 		threads: new Map(),
 		workerCostUsd: 0,
 		carriedCostUsd: 0,
-		writingReminder: { markTokens: 0, sentThisRound: false, forceNext: false, deliverySequence: 0, adoptedThisSessionStart: false },
+		writingReminder: { turnsSinceDelivery: 0, findingPending: false, sentThisRound: false, forceNext: false, deliverySequence: 0, adoptedThisSessionStart: false },
 		save: () => { saves++; },
 		set onDidChange(_value) {},
 	};
@@ -903,33 +903,27 @@ try {
 			["parsed reminder rosters exactly match code order and text", (() => { const parsed = parseReminderRosters(reminder.renderWritingReminder()); return parsed.shape && JSON.stringify(parsed.writing) === JSON.stringify(writingLines) && JSON.stringify(parsed.design) === JSON.stringify(designLines); })(), parseReminderRosters(reminder.renderWritingReminder())],
 		]);
 
-		const intervals = [
-			[100_000, 0.1, 8_192],
-			[100_000, 10, 10_000],
-			[100_000, 100, 100_000],
-			[10_000_000, 100, 10_000_000],
-			[Number.MAX_SAFE_INTEGER, 0.1, Math.floor(Number.MAX_SAFE_INTEGER * 0.001)],
-		];
-		check("writing-reminder-interval", intervals.every(([budget, percent, expected]) => reminder.writingReminderInterval(budget, percent) === expected), "the interval uses the sanitized percentage of the effective budget, floors at 8,192, and has no upper cap", intervals.map(([budget, percent, expected]) => [budget, percent, expected, reminder.writingReminderInterval(budget, percent)]));
-
 		const decide = reminder.decideWritingReminder;
-		const cadence = {
-			below: decide(0, 8_191, 8_192, false),
-			equal: decide(0, 8_192, 8_192, false),
-			above: decide(8_192, 20_000, 8_192, false),
-			lower: decide(20_000, 5_000, 8_192, false),
-			null: decide(5_000, null, 8_192, false),
-			nan: decide(5_000, Number.NaN, 8_192, false),
-			infinity: decide(5_000, Number.POSITIVE_INFINITY, 8_192, false),
-			forced: decide(5_000, null, undefined, true),
-		};
-		checkAll("writing-reminder-cadence", "cadence starts at zero, sends at equality or above, updates marks, lowers a stale mark, rejects unusable usage, and force sends without usage", [
-			["below does not send", cadence.below.send === false && cadence.below.nextMarkTokens === 0, cadence.below],
-			["equality sends and records usage", cadence.equal.send === true && cadence.equal.nextMarkTokens === 8_192, cadence.equal],
-			["above sends and records usage", cadence.above.send === true && cadence.above.nextMarkTokens === 20_000, cadence.above],
-			["smaller usage lowers without sending", cadence.lower.send === false && cadence.lower.nextMarkTokens === 5_000, cadence.lower],
-			["null and non-finite do not send", [cadence.null, cadence.nan, cadence.infinity].every((d) => !d.send && d.nextMarkTokens === 5_000), cadence],
-			["force sends with null and preserves mark", cadence.forced.send === true && cadence.forced.nextMarkTokens === 5_000, cadence.forced],
+		const initial = reminder.createWritingReminderRuntime();
+		const oneTurn = reminder.advanceWritingReminderTurn(initial, false);
+		const findingTurn = reminder.advanceWritingReminderTurn(oneTurn, true);
+		const closedAdvance = reminder.advanceWritingReminderTurn(findingTurn, false);
+		checkAll("writing-reminder-counter", "every genuine completed turn advances the counter and a blocked finding stays pending", [
+			["counter starts at zero", initial.turnsSinceDelivery === 0 && !initial.findingPending, initial],
+			["ordinary turn advances", oneTurn.turnsSinceDelivery === 1 && !oneTurn.findingPending, oneTurn],
+			["finding raises trigger", findingTurn.turnsSinceDelivery === 2 && findingTurn.findingPending, findingTurn],
+			["closed gate cannot stop advance or clear trigger", closedAdvance.turnsSinceDelivery === 3 && closedAdvance.findingPending, closedAdvance],
+		]);
+		checkAll("writing-reminder-cadence", "the interval and optional finding trigger decide eligibility while force remains authoritative", [
+			["below interval stays silent", !decide(3, 4, false, true, false).send, decide(3, 4, false, true, false)],
+			["interval equality sends", decide(4, 4, false, true, false).send, decide(4, 4, false, true, false)],
+			["finding sends when enabled", decide(1, 4, true, true, false).send, decide(1, 4, true, true, false)],
+			["finding stays silent when disabled", !decide(1, 4, true, false, false).send, decide(1, 4, true, false, false)],
+			["force sends", decide(0, 4, false, false, true).send, decide(0, 4, false, false, true)],
+		]);
+		checkAll("writing-reminder-delivery-mode", "delivery follows whether the completed turn carried a tool result", [
+			["tool result selects steer", reminder.writingReminderDeliveryMode(true) === "steer", reminder.writingReminderDeliveryMode(true)],
+			["tool-free selects next turn", reminder.writingReminderDeliveryMode(false) === "nextTurn", reminder.writingReminderDeliveryMode(false)],
 		]);
 
 		const open = { orchestratorMode: true, trusted: true, paused: false };
@@ -949,24 +943,23 @@ try {
 			{ id: "PARA6", class: "house-style", excerpt: helperExcerpt },
 		]);
 		const worstReminderContent = reminder.renderWritingReminderMessage(worstSummary);
-		const claimBase = { ...reminder.createWritingReminderRuntime(), markTokens: 5_000, forceNext: true };
-		const claimed = reminder.claimWritingReminder(claimBase, decide(5_000, 12_000, 8_192, true), reminderContent);
+		const claimBase = { ...closedAdvance, forceNext: true };
+		const claimed = reminder.claimWritingReminder(claimBase, { send: true }, reminderContent);
 		const wrongIdCommit = reminder.commitWritingReminder(claimed, { deliveryId: 99 }, reminderContent);
 		const wrongContentCommit = reminder.commitWritingReminder(claimed, { deliveryId: 1 }, `${reminderContent} wrong`);
 		const committed = reminder.commitWritingReminder(claimed, { deliveryId: 1 }, reminderContent);
 		const retried = reminder.rearmWritingReminder(claimed);
-		const secondClaim = reminder.claimWritingReminder(retried, decide(5_000, 13_000, 8_192, true), reminderContent);
-		const adoptedReset = reminder.resetWritingReminderSession({ ...claimed, markTokens: 99_000, adoptedThisSessionStart: true });
-		const genericReset = reminder.resetWritingReminderSession({ ...claimed, markTokens: 99_000, adoptedThisSessionStart: false });
-		checkAll("writing-reminder-state-machine", "claims allocate monotone ids, matching delivery commits, wrong delivery stays pending, rearm retries, and only this cycle's adoption preserves force", [
-			["first claim stores exact content", claimed.sentThisRound && claimed.forceNext && claimed.markTokens === 5_000 && claimed.deliverySequence === 1 && claimed.pending?.deliveryId === 1 && claimed.pending?.nextMarkTokens === 12_000 && claimed.pending?.consumeForce && claimed.pending?.expectedContent === reminderContent, claimed],
-			["wrong id cannot commit", wrongIdCommit === claimed && wrongIdCommit.pending?.deliveryId === 1 && wrongIdCommit.forceNext, wrongIdCommit],
-			["wrong content cannot commit", wrongContentCommit === claimed && wrongContentCommit.pending?.deliveryId === 1 && wrongContentCommit.forceNext, wrongContentCommit],
-			["matching id and content commit", committed.sentThisRound && !committed.forceNext && committed.markTokens === 12_000 && committed.pending === undefined, committed],
-			["undelivered rearm retries", !retried.sentThisRound && retried.forceNext && retried.markTokens === 5_000 && retried.pending === undefined, retried],
-			["retry increments id", secondClaim.deliverySequence === 2 && secondClaim.pending?.deliveryId === 2, secondClaim],
-			["adopted reset preserves force once", !adoptedReset.sentThisRound && adoptedReset.forceNext && adoptedReset.markTokens === 0 && adoptedReset.deliverySequence === 1 && !adoptedReset.adoptedThisSessionStart && adoptedReset.pending === undefined, adoptedReset],
-			["generic reset clears stale force", !genericReset.forceNext && genericReset.deliverySequence === 1 && !genericReset.adoptedThisSessionStart, genericReset],
+		const secondClaim = reminder.claimWritingReminder(retried, { send: true }, reminderContent);
+		const adoptedReset = reminder.resetWritingReminderSession({ ...claimed, turnsSinceDelivery: 19, findingPending: true, adoptedThisSessionStart: true, forceNext: true });
+		const genericReset = reminder.resetWritingReminderSession({ ...claimed, turnsSinceDelivery: 19, findingPending: true, adoptedThisSessionStart: false, forceNext: true });
+		checkAll("writing-reminder-state-machine", "the claim restarts cadence, clears trigger and force, allocates a monotone id, and reset clears session cadence", [
+			["claim is completed cadence delivery", claimed.sentThisRound && !claimed.forceNext && claimed.turnsSinceDelivery === 0 && !claimed.findingPending && claimed.deliverySequence === 1 && claimed.pending?.deliveryId === 1 && claimed.pending?.expectedContent === reminderContent, claimed],
+			["wrong delivery cannot commit", wrongIdCommit === claimed && wrongContentCommit === claimed, { wrongIdCommit, wrongContentCommit }],
+			["matching delivery clears only correlation", committed.sentThisRound && committed.turnsSinceDelivery === 0 && committed.pending === undefined, committed],
+			["rearm retains completed cadence", !retried.sentThisRound && !retried.forceNext && retried.turnsSinceDelivery === 0 && retried.pending === undefined, retried],
+			["next claim increments id", secondClaim.deliverySequence === 2 && secondClaim.pending?.deliveryId === 2, secondClaim],
+			["adopted reset preserves force once and clears cadence", adoptedReset.forceNext && adoptedReset.turnsSinceDelivery === 0 && !adoptedReset.findingPending && !adoptedReset.adoptedThisSessionStart, adoptedReset],
+			["generic reset clears force and cadence", !genericReset.forceNext && genericReset.turnsSinceDelivery === 0 && !genericReset.findingPending, genericReset],
 		]);
 
 		const scope = reminder.WRITING_SCOPE_EXCLUSION;
@@ -1005,105 +998,169 @@ try {
 			["every listed identifier resolves", listedRules.every((id) => checkerRuleIds.includes(id)), { listedRules, checkerRuleIds }],
 			["an unlisted fail-class rule remains invisible", classOnly.failCount === 0 && classOnly.styleCount === 0 && classOnly.failQuotation === undefined, classOnly],
 		]);
-		const eligible = writingStatusFixture({ writingConfig: { check: true, remind: true, remindPercent: 7 }, usageTokens: 10_000 });
-		await writingSession(eligible);
-		const firstResult = await eligible.emit("tool_result", { toolName: "read" });
-		await eligible.emit("tool_result", { toolName: "grep" });
-		const beforeDelivery = { ...eligible.store.writingReminder, pending: { ...eligible.store.writingReminder.pending } };
-		await eligible.emit("message_start", { message: { role: "custom", customType: "not-ours", content: exactContent, display: false, details: { deliveryId: 1 } } });
-		await eligible.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, display: false } });
-		await eligible.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, display: false, details: { deliveryId: 99 } } });
-		await eligible.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: `${exactContent} wrong`, display: false, details: { deliveryId: 1 } } });
-		const afterCollisions = { ...eligible.store.writingReminder, pending: { ...eligible.store.writingReminder.pending } };
-		await eligible.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, display: false, details: { deliveryId: 1 } } });
-		checkAll("writing-reminder-mode-send", "the real hooks queue one hidden steer and commit only when role, custom type, pending delivery id, and exact content all match", [
-			["one send despite repeated tool results", eligible.sent.length === 1, eligible.sent],
-			["exact message with correlation details", JSON.stringify(eligible.sent[0]?.[0]) === JSON.stringify({ customType: "slate-writing-reminder", content: exactContent, display: false, details: { deliveryId: 1 } }), eligible.sent[0]?.[0]],
-			["exact options", JSON.stringify(eligible.sent[0]?.[1]) === JSON.stringify({ deliverAs: "steer" }), eligible.sent[0]?.[1]],
-			["no hook patch", firstResult === undefined, firstResult],
-			["queue claim leaves cadence uncommitted", beforeDelivery.markTokens === 0 && beforeDelivery.sentThisRound && beforeDelivery.pending?.deliveryId === 1 && beforeDelivery.pending?.nextMarkTokens === 10_000, beforeDelivery],
-			["wrong type, missing id, wrong id, and wrong content cannot commit", JSON.stringify(afterCollisions) === JSON.stringify(beforeDelivery), afterCollisions],
-			["matching message commits", eligible.store.writingReminder.markTokens === 10_000 && eligible.store.writingReminder.sentThisRound && eligible.store.writingReminder.pending === undefined, eligible.store.writingReminder],
-			["usage read once and window passed through", eligible.getContextUsageReads() === 1 && eligible.budgetCalls.length === 1 && eligible.budgetCalls[0]?.[0] === 200_000, { reads: eligible.getContextUsageReads(), calls: eligible.budgetCalls.length, window: eligible.budgetCalls[0]?.[0] }],
-		]);
 
-		await eligible.emit("message_end", { message: { role: "user", content: "no" } });
-		await eligible.emit("tool_result");
-		const afterUser = eligible.sent.length;
-		await eligible.emit("message_end", { message: { role: "assistant", content: "yes" } });
-		eligible.store.writingReminder.forceNext = true;
-		await eligible.emit("tool_result");
-		const forcedValidQueued = { ...eligible.store.writingReminder, pending: { ...eligible.store.writingReminder.pending } };
-		await eligible.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, display: false, details: { deliveryId: 2 } } });
-		check("writing-reminder-rearm", afterUser === 1 && eligible.sent.length === 2 && forcedValidQueued.forceNext && forcedValidQueued.markTokens === 10_000 && forcedValidQueued.pending?.nextMarkTokens === 10_000 && !eligible.store.writingReminder.forceNext && eligible.store.writingReminder.markTokens === 10_000, "only assistant message_end re-arms, and forced valid usage commits its expected mark only at delivery", { afterUser, sends: eligible.sent.length, queued: forcedValidQueued, committed: eligible.store.writingReminder });
+		const completeTurn = async (fixture, content = "The report is ready.", toolResults = [], eventCtx = fixture.ctx) => {
+			const message = { role: "assistant", content, stopReason: "stop" };
+			await fixture.emit("message_end", { message }, eventCtx);
+			await fixture.emit("turn_end", { message, toolResults }, eventCtx);
+		};
+		const scheduled = writingStatusFixture({ writingConfig: { remindTurns: 4, remindOnFinding: false } });
+		await writingSession(scheduled);
+		for (let i = 0; i < 3; i++) await completeTurn(scheduled);
+		const beforeFourth = scheduled.sent.length;
+		await completeTurn(scheduled);
+		checkAll("writing-reminder-mode-send", "the fourth completed turn queues one hidden next-turn message and the claim restarts cadence", [
+			["first three turns stay silent", beforeFourth === 0, beforeFourth],
+			["fourth turn sends once", scheduled.sent.length === 1, scheduled.sent],
+			["tool-free delivery waits for next turn", scheduled.sent[0]?.[1]?.deliverAs === "nextTurn", scheduled.sent[0]?.[1]],
+			["claim restarts before message_start", scheduled.store.writingReminder.turnsSinceDelivery === 0 && scheduled.store.writingReminder.sentThisRound && scheduled.store.writingReminder.pending?.deliveryId === 1, scheduled.store.writingReminder],
+		]);
+		const toolTurn = writingStatusFixture({ writingConfig: { remindTurns: 1, remindOnFinding: false } });
+		await writingSession(toolTurn);
+		await completeTurn(toolTurn, "The report is ready.", [{ role: "toolResult" }]);
+		check("writing-reminder-mode-delivery", toolTurn.sent[0]?.[1]?.deliverAs === "steer", "a completed turn with a tool result uses steer delivery", toolTurn.sent);
+
+		const triggered = writingStatusFixture({ writingConfig: { remindTurns: 20, remindOnFinding: true, findings: true } });
+		await writingSession(triggered);
+		await completeTurn(triggered, "Open the panel; stop.");
+		check("writing-reminder-trigger", triggered.sent.length === 1 && /Recent writing findings:/.test(triggered.sent[0]?.[0]?.content ?? "") && triggered.store.writingReminder.turnsSinceDelivery === 0 && !triggered.store.writingReminder.findingPending, "a model-visible finding triggers the next-turn delivery and claim restarts the counter", { sent: triggered.sent, runtime: triggered.store.writingReminder });
+		const triggerOff = writingStatusFixture({ writingConfig: { remindTurns: 20, remindOnFinding: false, findings: true } });
+		await writingSession(triggerOff);
+		await completeTurn(triggerOff, "Open the panel; stop.");
+		const findingsOff = writingStatusFixture({ writingConfig: { remindTurns: 20, remindOnFinding: true, findings: false } });
+		await writingSession(findingsOff);
+		await completeTurn(findingsOff, "Open the panel; stop.");
+		check("writing-reminder-trigger-switch", triggerOff.sent.length === 0 && findingsOff.sent.length === 0 && !triggerOff.store.writingReminder.findingPending && !findingsOff.store.writingReminder.findingPending, "the trigger switch and findings section switch independently disable immediate delivery", { triggerOff: triggerOff.store.writingReminder, findingsOff: findingsOff.store.writingReminder });
+
+		const triggerResetConfig = { remindTurns: 20, remindOnFinding: false, findings: true };
+		const triggerReset = writingStatusFixture({ writingConfig: triggerResetConfig });
+		await writingSession(triggerReset);
+		await completeTurn(triggerReset, "Open the panel; stop.");
+		triggerResetConfig.remindOnFinding = true;
+		await completeTurn(triggerReset, []);
+		check("writing-reminder-trigger-reset", triggerReset.sent.length === 0 && !triggerReset.store.writingReminder.findingPending, "a text-free later turn cannot reuse the previous turn finding trigger", triggerReset.store.writingReminder);
 
 		const closedFixtures = [
-			writingStatusFixture({ orchestrator: false, writingConfig: { check: false, remind: false } }),
-			writingStatusFixture({ trusted: false, writingConfig: { check: false, remind: false } }),
-			writingStatusFixture({ paused: true, writingConfig: { check: false, remind: false } }),
+			writingStatusFixture({ orchestrator: false, writingConfig: { remindTurns: 2, remindOnFinding: false } }),
+			writingStatusFixture({ trusted: false, writingConfig: { remindTurns: 2, remindOnFinding: false } }),
+			writingStatusFixture({ paused: true, writingConfig: { remindTurns: 2, remindOnFinding: false } }),
 		];
 		for (const fixture of closedFixtures) {
 			await writingSession(fixture);
-			fixture.store.writingReminder.forceNext = true;
-			await fixture.emit("tool_result");
+			await completeTurn(fixture);
+			await completeTurn(fixture);
 		}
-		const ignoredKeys = writingStatusFixture({ writingConfig: { check: false, remind: false } });
-		await writingSession(ignoredKeys);
-		ignoredKeys.store.writingReminder.forceNext = true;
-		await ignoredKeys.emit("tool_result");
-		check("writing-reminder-mode-gates", closedFixtures.every((fixture) => fixture.sent.length === 0 && fixture.store.writingReminder.forceNext) && ignoredKeys.sent.length === 1, "the real handler retains orchestrator, trust, and pause gates while false ignored writing keys cannot close it", { closed: closedFixtures.map((fixture) => [fixture.sent.length, fixture.store.writingReminder]), ignoredKeys: ignoredKeys.sent.length });
+		closedFixtures[0].store.orchestratorMode = true;
+		const trustedCtx = { ...closedFixtures[1].ctx, isProjectTrusted: () => true };
+		closedFixtures[2].store.paused = false;
+		await completeTurn(closedFixtures[0]);
+		await completeTurn(closedFixtures[1], undefined, [], trustedCtx);
+		await completeTurn(closedFixtures[2]);
+		check("writing-reminder-mode-gates", closedFixtures.every((fixture) => fixture.sent.length === 1 && fixture.store.writingReminder.turnsSinceDelivery === 0), "orchestrator mode, project trust, and pause independently block the real hook without stopping its counter", closedFixtures.map((fixture) => ({ sent: fixture.sent.length, runtime: fixture.store.writingReminder })));
 
-		const forced = writingStatusFixture({ writingConfig: { check: true, remind: true }, usageTokens: null, effectiveBudget: undefined });
-		await writingSession(forced);
-		forced.store.writingReminder.forceNext = true;
-		await forced.emit("tool_result");
-		const forcedNullQueued = { ...forced.store.writingReminder, pending: { ...forced.store.writingReminder.pending } };
-		await forced.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, display: false, details: { deliveryId: 1 } } });
-		check("writing-reminder-mode-force", forced.sent.length === 1 && forcedNullQueued.forceNext && forcedNullQueued.markTokens === 0 && forcedNullQueued.pending?.nextMarkTokens === 0 && !forced.store.writingReminder.forceNext && forced.store.writingReminder.markTokens === 0, "forceNext queues with null usage, then delivery consumes force while deterministically preserving the mark", { sent: forced.sent.length, queued: forcedNullQueued, committed: forced.store.writingReminder });
-
-		const rejected = writingStatusFixture({ writingConfig: { check: true, remind: true }, usageTokens: null, sendMessageThrows: true });
-		await writingSession(rejected);
-		rejected.store.writingReminder.forceNext = true;
-		await rejected.emit("tool_result");
-		check("writing-reminder-send-retry", rejected.sent.length === 0 && rejected.store.writingReminder.forceNext && !rejected.store.writingReminder.sentThisRound && rejected.store.writingReminder.pending === undefined, "a synchronous queue failure releases the round claim and preserves force for retry", rejected.store.writingReminder);
-
-		const deliveryFailed = writingStatusFixture({ usageTokens: null, sendMessageThrows: true });
-		await writingTurn(deliveryFailed, { role: "assistant", content: "Open the panel; stop." });
-		deliveryFailed.store.writingReminder.forceNext = true;
-		await deliveryFailed.emit("tool_result");
+		const deliveryFailed = writingStatusFixture({ writingConfig: { remindTurns: 1 }, sendMessageThrows: true });
+		await writingSession(deliveryFailed);
+		await completeTurn(deliveryFailed, "Open the panel; stop.");
 		check("writing-reminder-delivery-failure-independent", /writing 1 fail, 0 style \/ 10 turns/.test(deliveryFailed.getStatus() ?? "") && deliveryFailed.sent.length === 0, "a delivery failure leaves completed measurement and status intact", { status: deliveryFailed.getStatus(), sent: deliveryFailed.sent });
 
-		const checkerFailed = writingStatusFixture({ usageTokens: null, loadWritingChecker: async () => ({ checkText: () => { throw new Error("checker failed"); } }) });
-		await writingTurn(checkerFailed, { role: "assistant", content: "prose" });
-		checkerFailed.store.writingReminder.forceNext = true;
-		await checkerFailed.emit("tool_result");
-		check("writing-reminder-checker-failure-independent", checkerFailed.sent.length === 1 && checkerFailed.sent[0]?.[0]?.content === reminderContent && !checkerFailed.sent[0]?.[0]?.content.includes("Recent writing findings:"), "a checker failure still queues the plain requirement reminder", { status: checkerFailed.getStatus(), sent: checkerFailed.sent });
+		const checkerFailed = writingStatusFixture({ writingConfig: { remindTurns: 1 }, loadWritingChecker: async () => ({ checkText: () => { throw new Error("checker failed"); } }) });
+		await writingSession(checkerFailed);
+		await completeTurn(checkerFailed, "prose");
+		check("writing-reminder-checker-failure-independent", checkerFailed.sent.length === 1 && checkerFailed.sent[0]?.[0]?.content === reminderContent, "a checker failure still queues the plain requirement reminder", { status: checkerFailed.getStatus(), sent: checkerFailed.sent });
 
-		const freshAtClaim = writingStatusFixture({ usageTokens: null });
-		await writingSession(freshAtClaim);
-		await freshAtClaim.emit("message_end", { message: { role: "assistant", content: "Open the panel; stop." } });
-		// The extra legacy event seeds the old turn_end implementation. The current
-		// implementation ignores it, which makes this one fixture discriminate both orders.
-		await freshAtClaim.emit("turn_end", { message: { role: "assistant", content: "Open the panel; stop." } });
-		await freshAtClaim.emit("message_end", { message: { role: "assistant", content: "The report is ready." } });
-		freshAtClaim.store.writingReminder.forceNext = true;
-		await freshAtClaim.emit("tool_result");
-		check("writing-reminder-message-end-freshness", freshAtClaim.sent.length === 1 && freshAtClaim.sent[0]?.[0]?.content === reminderContent, "message_end measurement finishes before a same-response tool result can freeze reminder content", freshAtClaim.sent[0]?.[0]?.content);
+		const measurementWithFindingsOff = writingStatusFixture({ writingConfig: { remindTurns: 1, findings: false } });
+		await writingSession(measurementWithFindingsOff);
+		await completeTurn(measurementWithFindingsOff, "Open the panel; stop.");
+		check("writing-reminder-findings-off", /writing 1 fail, 0 style \/ 10 turns/.test(measurementWithFindingsOff.getStatus() ?? "") && measurementWithFindingsOff.sent[0]?.[0]?.content === reminderContent, "findings off removes the section while measurement and status continue", { status: measurementWithFindingsOff.getStatus(), sent: measurementWithFindingsOff.sent });
 
-		const findingsOff = writingStatusFixture({ writingConfig: { findings: false, statusWindowTurns: 10 }, usageTokens: null });
-		await writingTurn(findingsOff, { role: "assistant", content: "Open the panel; stop." });
-		findingsOff.store.writingReminder.forceNext = true;
-		await findingsOff.emit("tool_result");
-		check("writing-reminder-findings-off", /writing 1 fail, 0 style \/ 10 turns/.test(findingsOff.getStatus() ?? "") && findingsOff.sent[0]?.[0]?.content === reminderContent, "findings off removes the section while measurement and status continue", { status: findingsOff.getStatus(), content: findingsOff.sent[0]?.[0]?.content });
+		const retry = writingStatusFixture({ writingConfig: { remindTurns: 2, remindOnFinding: false } });
+		await writingSession(retry);
+		const errorMessage = { role: "assistant", content: [], stopReason: "error" };
+		await retry.emit("message_end", { message: errorMessage });
+		await retry.emit("turn_end", { message: errorMessage, toolResults: [] });
+		const afterRetryAttempt = retry.store.writingReminder.turnsSinceDelivery;
+		await completeTurn(retry);
+		const afterFinalSuccess = retry.store.writingReminder.turnsSinceDelivery;
+		const finalError = writingStatusFixture({ writingConfig: { remindTurns: 2, remindOnFinding: false } });
+		await writingSession(finalError);
+		await finalError.emit("message_end", { message: errorMessage });
+		await finalError.emit("turn_end", { message: errorMessage, toolResults: [{ role: "toolResult" }] });
+		await finalError.emit("agent_settled");
+		const dueFinalError = writingStatusFixture({ writingConfig: { remindTurns: 1, remindOnFinding: false } });
+		await writingSession(dueFinalError);
+		await dueFinalError.emit("message_end", { message: errorMessage });
+		await dueFinalError.emit("turn_end", { message: errorMessage, toolResults: [{ role: "toolResult" }] });
+		await dueFinalError.emit("agent_settled");
+		check("writing-reminder-retry-boundary", afterRetryAttempt === 0 && afterFinalSuccess === 1 && finalError.store.writingReminder.turnsSinceDelivery === 1 && finalError.sent.length === 0 && dueFinalError.sent[0]?.[1]?.deliverAs === "nextTurn", "a provider retry attempt does not count while its successful or final failed attempt counts once, and a due final error uses next-turn delivery", { afterRetryAttempt, afterFinalSuccess, finalError: finalError.store.writingReminder, dueFinalError: dueFinalError.sent });
 
-		const dropped = writingStatusFixture({ writingConfig: { check: true, remind: true }, usageTokens: null });
-		await writingSession(dropped);
-		dropped.store.writingReminder.forceNext = true;
-		await dropped.emit("tool_result");
-		await dropped.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: `${exactContent} wrong`, display: false, details: { deliveryId: 1 } } });
-		await dropped.emit("message_end", { message: { role: "assistant", content: "retry" } });
-		await dropped.emit("tool_result");
-		check("writing-reminder-cleared-retry", dropped.sent.length === 2 && dropped.store.writingReminder.forceNext && dropped.store.writingReminder.sentThisRound && dropped.store.writingReminder.deliverySequence === 2 && dropped.store.writingReminder.pending?.deliveryId === 2 && dropped.store.writingReminder.pending?.consumeForce, "the next assistant message retries a claim after a wrong-content collision or cleared queue, using a new delivery id", { sent: dropped.sent.length, runtime: dropped.store.writingReminder });
+		const completedShapes = writingStatusFixture({ writingConfig: { remindTurns: 20, remindOnFinding: false } });
+		await writingSession(completedShapes);
+		for (const stopReason of ["aborted", "stop"]) {
+			const message = { role: "assistant", content: [], stopReason };
+			await completedShapes.emit("message_end", { message });
+			await completedShapes.emit("turn_end", { message, toolResults: [] });
+		}
+		check("writing-reminder-completed-shapes", completedShapes.store.writingReminder.turnsSinceDelivery === 2, "an aborted turn and a completed turn with no assistant text both count", completedShapes.store.writingReminder);
+
+		const abortedAfterTools = writingStatusFixture({ writingConfig: { remindTurns: 1, remindOnFinding: false } });
+		await writingSession(abortedAfterTools);
+		await completeTurn(abortedAfterTools, "Use the tool.", [{ role: "toolResult" }]);
+		const abortedMessage = { role: "assistant", content: [], stopReason: "aborted" };
+		await abortedAfterTools.emit("message_end", { message: abortedMessage });
+		await abortedAfterTools.emit("turn_end", { message: abortedMessage, toolResults: [] });
+		check("writing-reminder-abort-round", abortedAfterTools.sent.length === 1 && abortedAfterTools.store.writingReminder.turnsSinceDelivery === 1, "an aborted continuation after a tool turn cannot deliver a second reminder in the same round", { sent: abortedAfterTools.sent, runtime: abortedAfterTools.store.writingReminder });
+
+		const stale = writingStatusFixture({ paused: true, writingConfig: { remindTurns: 4, remindOnFinding: true, findings: true } });
+		await writingSession(stale);
+		await completeTurn(stale, "Open the panel; stop.");
+		for (let i = 0; i < 4; i++) await completeTurn(stale, []);
+		stale.store.paused = false;
+		await completeTurn(stale, []);
+		check("writing-reminder-summary-staleness", stale.sent.length === 1 && stale.sent[0]?.[0]?.content.includes("Recent writing findings:"), "an overdue delivery quotes the most recent measured turn whatever the interval", stale.sent[0]?.[0]?.content);
+
+		const reset = writingStatusFixture({ writingConfig: { remindTurns: 4 } });
+		await writingSession(reset);
+		await completeTurn(reset);
+		reset.store.writingReminder.findingPending = true;
+		await reset.emit("session_start");
+		check("writing-reminder-session-reset", reset.store.writingReminder.turnsSinceDelivery === 0 && !reset.store.writingReminder.findingPending, "session start clears the turn counter and finding trigger", reset.store.writingReminder);
+
+		const resetLocals = writingStatusFixture({ writingConfig: { remindTurns: 20, remindOnFinding: true } });
+		await writingSession(resetLocals);
+		await resetLocals.emit("message_end", { message: { role: "assistant", content: "Open the panel; stop.", stopReason: "error" } });
+		await resetLocals.emit("turn_end", { message: errorMessage, toolResults: [] });
+		resetLocals.store.writingReminder.sentThisRound = true;
+		await resetLocals.emit("session_start");
+		await resetLocals.emit("agent_settled");
+		await completeTurn(resetLocals, []);
+		check("writing-reminder-local-reset", resetLocals.sent.length === 0 && resetLocals.store.writingReminder.turnsSinceDelivery === 1 && !resetLocals.store.writingReminder.sentThisRound && !resetLocals.store.writingReminder.findingPending, "session start clears the pending error, previous finding, and per-round claim before the next turn", resetLocals.store.writingReminder);
+
+		const roundGate = writingStatusFixture({ writingConfig: { remindTurns: 1, remindOnFinding: false } });
+		await writingSession(roundGate);
+		roundGate.store.writingReminder.sentThisRound = true;
+		await roundGate.emit("turn_end", { message: { role: "assistant", content: [], stopReason: "stop" }, toolResults: [] });
+		const blockedRoundSent = roundGate.sent.length;
+		await completeTurn(roundGate, []);
+		check("writing-reminder-round-gate", blockedRoundSent === 0 && roundGate.sent.length === 1, "the real hook passes the per-round claim to the gate and a later assistant response rearms it", { blockedRoundSent, sent: roundGate.sent });
+
+		const source = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
+		const gateToClaim = /writingReminderGateOpen\([\s\S]*?Object\.assign\(runtime, claimWritingReminder/.exec(source)?.[0] ?? "";
+		check("writing-reminder-gate-claim-order", gateToClaim !== "" && !/\bawait\b/.test(gateToClaim), "the real delivery path checks the gate then claims with no wait between them", gateToClaim);
+
+		const rejected = writingStatusFixture({ writingConfig: { remindTurns: 1 }, sendMessageThrows: true });
+		await writingSession(rejected);
+		await completeTurn(rejected);
+		check("writing-reminder-claim-delivery", rejected.sent.length === 0 && rejected.store.writingReminder.turnsSinceDelivery === 0 && !rejected.store.writingReminder.findingPending && !rejected.store.writingReminder.sentThisRound, "the claim counts as cadence delivery even when queueing throws", rejected.store.writingReminder);
+
+		const collision = writingStatusFixture({ writingConfig: { remindTurns: 1, remindOnFinding: false } });
+		await writingSession(collision);
+		await completeTurn(collision);
+		const beforeDelivery = { ...collision.store.writingReminder, pending: { ...collision.store.writingReminder.pending } };
+		await collision.emit("message_start", { message: { role: "custom", customType: "not-ours", content: exactContent, details: { deliveryId: 1 } } });
+		await collision.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, details: { deliveryId: 99 } } });
+		const afterCollisions = { ...collision.store.writingReminder, pending: { ...collision.store.writingReminder.pending } };
+		await collision.emit("message_start", { message: { role: "custom", customType: "slate-writing-reminder", content: exactContent, details: { deliveryId: 1 } } });
+		check("writing-reminder-correlation", JSON.stringify(beforeDelivery) === JSON.stringify(afterCollisions) && collision.store.writingReminder.pending === undefined, "only matching role, type, id and content clear delivery correlation", { beforeDelivery, afterCollisions, committed: collision.store.writingReminder });
 
 		const stateSource = readFileSync(join(REPO, "extension", "state.ts"), "utf8");
 		const snapshotType = /export interface SlateSnapshot \{([\s\S]*?)\n\}/.exec(stateSource)?.[1] ?? "";
@@ -1242,11 +1299,12 @@ try {
 			const events = [];
 			let forceValue = false;
 			const runtime = {
-				markTokens: 91_000,
+				turnsSinceDelivery: 19,
+				findingPending: true,
 				sentThisRound: true,
 				deliverySequence: 7,
 				adoptedThisSessionStart: false,
-				pending: { deliveryId: 7, nextMarkTokens: 92_000, consumeForce: true },
+				pending: { deliveryId: 7, expectedContent: "pending" },
 			};
 			Object.defineProperty(runtime, "forceNext", {
 				enumerable: true,
@@ -1298,7 +1356,7 @@ try {
 			await writingSession(stale);
 			checkAll("writing-reminder-handoff-order", "real registration order preserves force only during the adoption cycle, then consecutive and generic starts clear stale force", [
 				["handoff forces after adoption", events[0] === "adopt" && events[1] === "force", events],
-				["first mode start preserves once", afterAdoptionCycle.forceNext && afterAdoptionCycle.markTokens === 0 && !afterAdoptionCycle.sentThisRound && afterAdoptionCycle.pending === undefined && !afterAdoptionCycle.adoptedThisSessionStart && afterAdoptionCycle.deliverySequence === 7, afterAdoptionCycle],
+				["first mode start preserves once", afterAdoptionCycle.forceNext && afterAdoptionCycle.turnsSinceDelivery === 0 && !afterAdoptionCycle.findingPending && !afterAdoptionCycle.sentThisRound && afterAdoptionCycle.pending === undefined && !afterAdoptionCycle.adoptedThisSessionStart && afterAdoptionCycle.deliverySequence === 7, afterAdoptionCycle],
 				["second start clears force", !afterGenericCycle.forceNext && !afterGenericCycle.adoptedThisSessionStart && afterGenericCycle.deliverySequence === 7, afterGenericCycle],
 				["generic start clears stale force", !stale.store.writingReminder.forceNext && stale.store.writingReminder.deliverySequence === 12, stale.store.writingReminder],
 			]);
@@ -1918,7 +1976,7 @@ try {
 			await latest.emit("message_end", { message: { role: "assistant", content: "Open the panel; stop." } });
 			await latest.emit("message_end", { message: { role: "assistant", content: "The report is ready." } });
 			latest.store.writingReminder.forceNext = true;
-			await latest.emit("tool_result");
+			await latest.emit("turn_end", { message: { role: "assistant", content: "The report is ready.", stopReason: "stop" }, toolResults: [] });
 			check("writing-status-latest-summary", latest.sent.length === 1 && !latest.sent[0]?.[0]?.content.includes("Recent writing findings:"), "only the newest measured turn can supply the findings section", latest.sent[0]?.[0]?.content);
 
 			const skippedLatest = writingStatusFixture({ usageTokens: null });
@@ -1926,7 +1984,7 @@ try {
 			await skippedLatest.emit("message_end", { message: { role: "assistant", content: "Open the panel; stop." } });
 			await skippedLatest.emit("message_end", { message: { role: "assistant", content: "x".repeat(16 * 1024 + 1) } });
 			skippedLatest.store.writingReminder.forceNext = true;
-			await skippedLatest.emit("tool_result");
+			await skippedLatest.emit("turn_end", { message: { role: "assistant", content: [], stopReason: "stop" }, toolResults: [] });
 			check("writing-status-skip-clears-latest", skippedLatest.sent[0]?.[0]?.content === reminder.renderWritingReminderMessage(), "an oversized newest response clears an older findings summary before reminder delivery", skippedLatest.sent[0]?.[0]?.content);
 
 			const sessionLatest = writingStatusFixture({ usageTokens: null });
@@ -1934,7 +1992,7 @@ try {
 			await sessionLatest.emit("message_end", { message: { role: "assistant", content: "Open the panel; stop." } });
 			await sessionLatest.emit("session_start");
 			sessionLatest.store.writingReminder.forceNext = true;
-			await sessionLatest.emit("tool_result");
+			await sessionLatest.emit("turn_end", { message: { role: "assistant", content: [], stopReason: "stop" }, toolResults: [] });
 			check("writing-status-session-clears-latest", sessionLatest.sent[0]?.[0]?.content === reminder.renderWritingReminderMessage(), "session_start clears the prior session findings summary before reminder delivery", sessionLatest.sent[0]?.[0]?.content);
 
 			const clearWiringSource = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
@@ -3573,19 +3631,36 @@ try {
 		});
 
 		await section("writing-config", async () => {
-			const notice = "slate: writing.check and writing.remind are ignored writing keys. Remove them from slate.json. Slate controls writing checks and reminders automatically for trusted projects in orchestrator mode.";
-			const defaults = { remindPercent: 5, sentenceWordLimit: 25, statusWindowTurns: 10, findings: true };
+			const ignoredNotice = "slate: writing.check and writing.remind are ignored writing keys. Remove them from slate.json. Slate controls writing checks and reminders automatically for trusted projects in orchestrator mode.";
+			const percentNotice = "slate: writing.remindPercent is ignored. Remove it from slate.json. The reminder cadence changed from a token share to a turn count.";
+			const defaults = { remindTurns: 4, remindOnFinding: true, sentenceWordLimit: 25, statusWindowTurns: 10, findings: true };
 			const sanitize = (raw) => {
 				const warned = [];
 				const result = writing.sanitizeWritingConfig(raw, (message) => warned.push(message));
 				return { result, warned };
 			};
 			const absentConfig = sanitize(undefined);
-			const absentKeys = sanitize({ remindPercent: 10 });
+			const absentKeys = sanitize({ remindTurns: 7 });
 			checkAll("writing-config-default", "absent keys are silent and every configurable default is explicit", [
 				["absent config has exact defaults", JSON.stringify(absentConfig.result) === JSON.stringify(defaults), absentConfig],
-				["one configured key preserves the other defaults", JSON.stringify(absentKeys.result) === JSON.stringify({ ...defaults, remindPercent: 10 }) && absentKeys.warned.length === 0, absentKeys],
+				["one configured key preserves the other defaults", JSON.stringify(absentKeys.result) === JSON.stringify({ ...defaults, remindTurns: 7 }) && absentKeys.warned.length === 0, absentKeys],
 			]);
+
+			const intervals = [sanitize({ remindTurns: 1 }), sanitize({ remindTurns: 20 })];
+			const invalidIntervals = [0, 21, 1.5, "4", true, null].map((raw) => ({ raw, ...sanitize({ remindTurns: raw }) }));
+			checkAll("writing-config-reminder-turns", "remindTurns accepts whole numbers from 1 to 20 and defaults invalid values to 4", [
+				["both boundaries survive", intervals.map((x) => x.result.remindTurns).join(",") === "1,20" && intervals.every((x) => x.warned.length === 0), intervals],
+				["invalid forms warn and default", invalidIntervals.every(({ result, warned }) => result.remindTurns === 4 && warned.length === 1 && /whole number from 1 to 20/.test(warned[0])), invalidIntervals],
+			]);
+
+			const triggers = [sanitize({ remindOnFinding: true }), sanitize({ remindOnFinding: false })];
+			const invalidTriggers = [0, 1, "false", null, []].map((raw) => ({ raw, ...sanitize({ remindOnFinding: raw }) }));
+			checkAll("writing-config-reminder-trigger", "remindOnFinding accepts only booleans and defaults invalid values to true", [
+				["both booleans survive", triggers[0].result.remindOnFinding === true && triggers[1].result.remindOnFinding === false && triggers.every((x) => x.warned.length === 0), triggers],
+				["invalid forms warn and default", invalidTriggers.every(({ result, warned }) => result.remindOnFinding === true && warned.length === 1 && /expected true or false/.test(warned[0])), invalidTriggers],
+			]);
+			const disabledTrigger = sanitize({ findings: false, remindOnFinding: true });
+			check("writing-config-trigger-interaction", disabledTrigger.result.findings === false && disabledTrigger.result.remindOnFinding === true && disabledTrigger.warned.length === 1 && /has no effect while writing\.findings is false/.test(disabledTrigger.warned[0]), "an explicitly configured trigger reports that findings off disables it", disabledTrigger);
 
 			const sentenceCases = [sanitize({ sentenceWordLimit: 10 }), sanitize({ sentenceWordLimit: 200 }), sanitize({ sentenceWordLimit: false })];
 			const invalidSentences = [9, 201, 10.5, "25", true, null].map((raw) => ({ raw, ...sanitize({ sentenceWordLimit: raw }) }));
@@ -3608,12 +3683,10 @@ try {
 				["invalid forms warn and default", invalidFindings.every(({ result, warned }) => result.findings === true && warned.length === 1 && /expected true or false/.test(warned[0])), invalidFindings],
 			]);
 
-			const valid = sanitize({ remindPercent: 0.1 });
-			check("writing-config-reminder-valid", valid.result.remindPercent === 0.1 && valid.warned.length === 0, "a finite boundary percentage survives", valid);
-			const both = sanitize({ check: false, remind: true, remindPercent: 100 });
-			check("writing-config-reminder-ignored", both.result.remindPercent === 100 && JSON.stringify(both.warned) === JSON.stringify([notice]), "both ignored writing keys produce one notice", both);
-			const invalidPercents = ["10", Number.NaN, Number.POSITIVE_INFINITY, 0, -0.1, 100.1].map((raw) => ({ raw: String(raw), ...sanitize({ remindPercent: raw }) }));
-			check("writing-config-reminder-percent", invalidPercents.every(({ result, warned }) => result.remindPercent === 5 && warned.length === 1 && /finite number/.test(warned[0])), "invalid percentages warn and default", invalidPercents);
+			const retired = [0.1, 100, "old", null].map((value) => sanitize({ remindPercent: value }));
+			check("writing-config-reminder-percent", retired.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify(defaults) && warned.length === 1 && warned[0] === percentNotice), "the retired percentage key is known, ignored for every value, and reports the cadence change", retired);
+			const ignoredTogether = sanitize({ check: false, remind: true, remindPercent: 100 });
+			check("writing-config-reminder-ignored", JSON.stringify(ignoredTogether.result) === JSON.stringify(defaults) && JSON.stringify(ignoredTogether.warned) === JSON.stringify([ignoredNotice, percentNotice]), "legacy ignored keys keep their shared notice while retired percentage gets its own notice", ignoredTogether);
 
 			const invalid = [null, [], "yes", 7].map((raw) => sanitize(raw));
 			const unknown = sanitize({ typo: true });
@@ -3621,22 +3694,24 @@ try {
 			checkAll("writing-config-invalid", "malformed and unknown keys warn while ignored keys never survive", [
 				["invalid shapes warn and default", invalid.every(({ result, warned }) => JSON.stringify(result) === JSON.stringify(defaults) && warned.length === 1), invalid],
 				["unknown warns and defaults", JSON.stringify(unknown.result) === JSON.stringify(defaults) && unknown.warned.length === 1 && /unknown writing key/.test(unknown.warned[0]), unknown],
-				["ignored keys produce one notice and do not survive", ignored.every(({ result, warned }) => warned[0] === notice && !Object.hasOwn(result, "check") && !Object.hasOwn(result, "remind")), ignored],
+				["ignored keys produce one notice and do not survive", ignored.every(({ result, warned }) => warned[0] === ignoredNotice && !Object.hasOwn(result, "check") && !Object.hasOwn(result, "remind")), ignored],
 			]);
 
 			const proto = Object.create(null);
 			Object.defineProperty(proto, "__proto__", { value: { polluted: true }, enumerable: true });
-			const hostileKeys = ["remindPercent", "sentenceWordLimit", "statusWindowTurns", "findings"];
+			const hostileKeys = ["remindTurns", "remindOnFinding", "sentenceWordLimit", "statusWindowTurns", "findings"];
 			const getters = hostileKeys.map((key) => { const value = {}; Object.defineProperty(value, key, { enumerable: true, get() { throw new Error("exploded"); } }); return value; });
+			const percentGetter = {};
+			Object.defineProperty(percentGetter, "remindPercent", { enumerable: true, get() { throw new Error("must not read"); } });
 			const ignoredGetter = {};
 			Object.defineProperty(ignoredGetter, "check", { enumerable: true, get() { throw new Error("must not read"); } });
 			const inherited = Object.create({ findings: false });
-			const hostile = [proto, ...getters, ignoredGetter, inherited];
+			const hostile = [proto, ...getters, percentGetter, ignoredGetter, inherited];
 			const hostileResults = hostile.map((raw) => { try { return { raw, ...sanitize(raw) }; } catch { return { raw, result: null, warned: [] }; } });
-			checkAll("writing-config-hostile", "hostile values fail open without reads, inheritance, or prototype pollution", [
+			checkAll("writing-config-hostile", "hostile values fail open without unsafe reads, inheritance, or prototype pollution", [
 				["all inputs survive with defaults", hostileResults.every(({ result }) => JSON.stringify(result) === JSON.stringify(defaults)), hostileResults],
-				["each own getter warns and inherited input is silent", getters.every((_, i) => /could not read/.test(hostileResults[i + 1].warned[0] ?? "")) && hostileResults.at(-1).warned.length === 0, hostileResults.map((x) => x.warned)],
-				["ignored getter is not read", hostileResults.at(-2).warned[0] === notice, hostileResults.at(-2)],
+				["each configurable getter warns and inherited input is silent", getters.every((_, i) => /could not read/.test(hostileResults[i + 1].warned[0] ?? "")) && hostileResults.at(-1).warned.length === 0, hostileResults.map((x) => x.warned)],
+				["retired and shared ignored getters are not read", hostileResults.at(-3).warned[0] === percentNotice && hostileResults.at(-2).warned[0] === ignoredNotice, hostileResults.slice(-3, -1)],
 				["results are fresh and prototypes stay clean", hostileResults.every(({ raw, result }) => raw !== result) && ({}).polluted === undefined, Object.prototype],
 			]);
 		});
@@ -7118,9 +7193,9 @@ production behaviour.`);
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
 		"doctrine-router-off", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-deferred",
-		"writing-config-default", "writing-config-sentence-limit", "writing-config-status-window", "writing-config-findings", "writing-config-reminder-valid", "writing-config-reminder-ignored", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
-		"writing-reminder-load", "writing-reminder-roster", "writing-copy-independence", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-size", "writing-reminder-model-visible-rules", "writing-reminder-interval", "writing-reminder-cadence", "writing-reminder-gates", "writing-reminder-state-machine",
-		"writing-reminder-mode-send", "writing-reminder-rearm", "writing-reminder-mode-gates", "writing-reminder-mode-force", "writing-reminder-send-retry", "writing-reminder-delivery-failure-independent", "writing-reminder-checker-failure-independent", "writing-reminder-message-end-freshness", "writing-reminder-findings-off", "writing-reminder-cleared-retry", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",
+		"writing-config-default", "writing-config-reminder-turns", "writing-config-reminder-trigger", "writing-config-trigger-interaction", "writing-config-sentence-limit", "writing-config-status-window", "writing-config-findings", "writing-config-reminder-ignored", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
+		"writing-reminder-load", "writing-reminder-roster", "writing-copy-independence", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-size", "writing-reminder-model-visible-rules", "writing-reminder-counter", "writing-reminder-cadence", "writing-reminder-delivery-mode", "writing-reminder-gates", "writing-reminder-state-machine",
+		"writing-reminder-mode-send", "writing-reminder-mode-delivery", "writing-reminder-trigger", "writing-reminder-trigger-switch", "writing-reminder-trigger-reset", "writing-reminder-mode-gates", "writing-reminder-delivery-failure-independent", "writing-reminder-checker-failure-independent", "writing-reminder-findings-off", "writing-reminder-retry-boundary", "writing-reminder-completed-shapes", "writing-reminder-abort-round", "writing-reminder-summary-staleness", "writing-reminder-session-reset", "writing-reminder-local-reset", "writing-reminder-round-gate", "writing-reminder-gate-claim-order", "writing-reminder-claim-delivery", "writing-reminder-correlation", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",
 		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite",
 		"writing-checker-length", "writing-checker-para", "writing-checker-semicolon", "writing-checker-contraction",
 		"writing-checker-class", "writing-checker-not-checked", "writing-checker-caps", "writing-checker-modes", "writing-checker-determinism",

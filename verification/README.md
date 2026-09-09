@@ -833,16 +833,18 @@ The **writing status line** is covered through `registerSlateMode` with fabricat
 boundary. This keeps the pi-shaped message handling typechecked while the standalone
 checker and CLI remain dependency-free plain JavaScript.
 
+The current resolver roster contains 244 expected identifiers and reports 245 result lines with its roster audit. The suite output remains the definition of record.
+
 The **writing config sanitizer** (`extension/writing.ts`) and the **writing
 doctrine rule** (`extension/mode.ts`), rendered through the same
 `before_agent_start` handler the routing rule uses:
 
 | id | what it proves |
 | --- | --- |
-| `writing-config-default` / `writing-config-invalid` | an absent config yields `{ remindPercent: 5, sentenceWordLimit: 25, statusWindowTurns: 10, findings: true }`; malformed shapes warn and default; unknown keys warn and disappear; any own `check` or `remind` key produces one exact notice |
+| `writing-config-default` / `writing-config-reminder-turns` / `writing-config-reminder-trigger` / `writing-config-trigger-interaction` / `writing-config-invalid` | defaults, the 1-to-20 completed-turn range, boolean trigger validation, the notice when `writing.findings` disables the trigger, malformed values, unknown keys, and ignored legacy keys |
 | `writing-config-sentence-limit` | the sentence word limit keeps both range ends, uses `false` as off, and warns before falling back to 25 for invalid values |
-| `writing-config-reminder-valid` / `writing-config-reminder-ignored` / `writing-config-reminder-percent` | a finite percentage in `(0, 100]` survives; both ignored writing keys produce one notice without changing it; bad percentages warn once and fall back to 5 |
-| `writing-config-hostile` | a prototype-polluting object, a getter on an ignored writing key, a throwing percentage getter, an inherited `check` and a 30,000-deep value neither crash nor pollute. Ignored writing key values are never read, every result is fresh, and inherited keys stay absent |
+| `writing-config-reminder-ignored` / `writing-config-reminder-percent` | ignored legacy keys remain absent; `remindPercent` is ignored with one cadence-change notice |
+| `writing-config-hostile` | a prototype-polluting object, getters on ignored and active writing keys, an inherited `check` and a 30,000-deep value neither crash nor pollute. Ignored writing key values are never read, every result is fresh, and inherited keys stay absent |
 | `writing-doctrine-off` / `writing-doctrine-untrusted` | trusted doctrine renders the writing rule byte-identically for `writing.check` false, true, or absent; untrusted doctrine renders no writing rule. The same configured input under both trust states makes the trust gate observable |
 | `writing-doctrine-numbering` | the writing rule keeps its tail **position** over every routing and worker-extension combination. The trust-gated design rule follows it without changing the numbers of preceding rules. The opening style rules keep their exact two-line split |
 | `design-doctrine-size` | the two-digit design rule is exactly 364 characters and six lines; its 450-character bound retains at least five percent reserve |
@@ -855,17 +857,18 @@ The **writing reminder policy and mode wiring** (`extension/writing-reminder.ts`
 
 | id | what it proves |
 | --- | --- |
-| `writing-reminder-load` / `writing-reminder-roster` / `writing-copy-independence` / `writing-reminder-render` | the pure module loads; the frozen three-line style source, ten-line writing roster and six-line design roster keep exact order; every checked roster copy and the writing-guide copy remain hand-written literals; doctrine renders each shared source; the reminder renders each source and the shared exclusion |
+| `writing-reminder-load` / `writing-reminder-roster` / `writing-copy-independence` / `writing-reminder-render` / `writing-reminder-full-render` / `writing-reminder-model-visible-rules` | the pure module loads; exact source rosters keep order; doctrine and reminder rendering stays complete; and only explicit model-visible finding classes enter the quotation |
 | `writing-reminder-size` | the measured multibyte two-class message stays within 1,800 bytes with a 107-byte reserve; structural labels and the 120-byte quotation cap remain present; the checker detects omitted roster content and extra bytes |
-| `writing-reminder-interval` / `writing-reminder-cadence` / `writing-reminder-budget` | the percentage derives cadence from the effective clamped budget with an 8,192-token floor; equality sends; lower usage repairs a stale mark; unusable usage does not send; force works without usage; override, scalar, Anthropic default, global default and clamp branches reach the real hook |
-| `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, pause state and the one-send round slot close independently; false ignored writing keys cannot close delivery; force does not bypass surviving policy gates; no UI gate exists |
-| `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-rearm` / `writing-reminder-mode-force` | claim queues a pending mark without consuming force; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; only assistant `message_end` re-arms the next round |
-| `writing-reminder-send-retry` / `writing-reminder-cleared-retry` | a synchronous `sendMessage` throw releases the claim for retry; an assistant response that arrives before delivery also clears the pending claim without consuming cadence or force |
-| `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | reminder cadence state never enters snapshots; the real handoff adoption handler sets force before mode reset; reset preserves that force while clearing mark, round and pending state |
+| `writing-reminder-counter` / `writing-reminder-cadence` / `writing-reminder-delivery-mode` / `writing-reminder-budget` | completed turns advance the cadence; the 1-to-20 interval sends at equality; finding triggers send when enabled; the counter restarts after delivery; aborted turns count, provider retries do not; delivery selects steer or next-turn mode; and force works without a turn count |
+| `writing-reminder-gates` / `writing-reminder-mode-gates` | orchestrator mode, trust, pause state, and the one-send response-round slot close independently; false ignored writing keys cannot close delivery; force does not bypass surviving policy gates; no UI gate exists |
+| `writing-reminder-state-machine` / `writing-reminder-mode-send` / `writing-reminder-mode-delivery` / `writing-reminder-trigger` / `writing-reminder-trigger-switch` / `writing-reminder-trigger-reset` | claim resets the turn counter and finding trigger; the matching custom `message_start` commits it; unrelated custom messages cannot commit it; assistant turn completion re-arms the next response round; delivery follows tool-result shape; and the trigger switches and resets work |
+| `writing-reminder-retry-boundary` / `writing-reminder-completed-shapes` / `writing-reminder-abort-round` / `writing-reminder-summary-staleness` | provider retries do not count; final errors count once; aborted and text-free turns count; an abort after a tool turn does not reopen the response round; and the latest measured summary is always quoted |
+| `writing-reminder-session-reset` / `writing-reminder-local-reset` / `writing-reminder-round-gate` / `writing-reminder-gate-claim-order` / `writing-reminder-claim-delivery` / `writing-reminder-correlation` / `writing-reminder-runtime-only` / `writing-reminder-handoff-order` | session-local state resets; the response-round gate, gate-before-claim order, claim semantics when sending throws, exact delivery correlation, snapshot exclusion, and handoff force ordering remain correct |
+
+The round-one code fix added or corrected `writing-reminder-trigger-reset`, `writing-reminder-mode-gates`, `writing-reminder-delivery-failure-independent`, `writing-reminder-checker-failure-independent`, `writing-reminder-findings-off`, `writing-reminder-retry-boundary`, `writing-reminder-abort-round`, `writing-reminder-summary-staleness`, `writing-reminder-local-reset`, and `writing-reminder-round-gate`. These checks cover the trigger reset, the two closed gates, three independence properties, final-error delivery, the abort case, unconditional latest-summary quotation, and both session-start resets.
 
 The family uses the real `registerSlateMode` handlers with fabricated contexts.
-It remains a pure harness with no pi session. The live hook and persistence path
-has its own integration check below.
+It remains a pure harness with no pi session. The live hook, delivery-mode and persistence paths have their own integration check below.
 
 Track 4 added these resolver identifiers: `writing-config-status-window`,
 `writing-config-findings`, `writing-reminder-model-visible-rules`,
@@ -1995,26 +1998,26 @@ proxy variables and the canary evidence paths. The controller waits for the RPC
 offline. The fake provider performs no network operation. This is **not** a
 network sandbox because reviewed extension code can still open raw sockets.
 
-The primary project config enables orchestrator mode and sets `writing.findings: true`.
-The auxiliary project sets `writing.findings: false`. The two sessions prove that
-the findings section appears when enabled and disappears when disabled. Measurement
-continues in the disabled case. The fake model
-advertises a 1,000,000-token window. The first response reports 25,000 input
-tokens. The correct effective interval is 25,000 and fires. A broken path using
-the model window would derive 125,000 and stay silent. This makes budget
-selection and the clamp load-bearing.
+The harness runs three trusted projects. The main project enables
+`writing.findings` and `remindOnFinding`. The trigger-off project disables
+`remindOnFinding`. The findings-off project disables `writing.findings`. All
+projects set `remindTurns: 4`. The main session proves the finding trigger and
+the later cadence reminder. The two switch sessions prove that cadence remains
+active. The findings-off session proves that the findings section disappears when
+disabled. Measurement continues in the disabled case. The fake model advertises a 1,000,000-token
+window. The canary completes a finding-heavy first turn. The controller records the event position before each command. It waits only for events after that position, including `agent_settled` between prompts.
 
-The canary registers an in-process fake provider and one real tool. The first
-provider response emits two parallel calls to that tool. Both executions append a
-marker. Each persisted tool result must contain exactly one text block, no extra
-block or key, and the text `CANARY_TOOL_RESULT_ONLY`. Slate's real `tool_result`
-hook sends one hidden custom steer despite the parallel results.
+The canary registers an in-process fake provider and one real tool. The main
+provider response emits two parallel calls to that tool. Both executions append
+a marker. Each persisted tool result must contain exactly one text block, no
+extra block or key, and the text `CANARY_TOOL_RESULT_ONLY`. Slate's real
+turn-end path selects steer delivery for the tool-result turn and next-turn
+delivery for the later tool-free turn.
 
-The primary session runs a finding-heavy turn, a tool turn, and a clean turn.
-The auxiliary session runs the finding-heavy turn with findings disabled. The
-primary session persists two enabled reminders. The auxiliary session persists
-one findings-off reminder. Each provider call writes a unique response after
-observing the expected reminder shape.
+The main session runs six provider calls and persists two reminders. The
+trigger-off and findings-off sessions run five calls and persist one cadence
+reminder each. Each provider call writes a unique response after observing the
+expected reminder shape.
 
 Pi normalizes custom messages into user messages before the provider call. The
 canary therefore checks two points. Its `message_start` hook sees
@@ -2034,11 +2037,11 @@ The checks assert all of these facts:
 - Each tool result equals the complete one-block content shape.
 - The provider runs the expected calls and emits its success markers.
 - The next model calls receive the expected exact reminders.
-- Session JSONL persists two enabled reminders and one findings-off reminder with `display: false`.
+- The main session persists two reminders and each switch session persists one reminder with `display: false`.
 - No tool result carries extra content, keys or reminder text.
-- The primary and auxiliary sessions report the expected checks.
-- The fixed roster has 22 expected identifiers plus the roster audit, for 23 result lines.
-- The checks cover findings order, classes, quotations, clean turns, disabled configuration, persistence, hidden delivery, and the message bound.
+- The three sessions report the expected checks.
+- The fixed roster has 27 expected identifiers plus the roster audit, for 28 result lines. The identifiers are `pi-exit`, `rpc-json`, `hook-errors`, `working-tree`, `trusted-config`, `tool-executed`, `provider-calls`, `trigger-position`, `cadence-position`, `delivery-modes`, `counter-restart`, `trigger-switch`, `findings-grammar`, `requirements-complete`, `findings-classes`, `quotation-cap`, `findings-next-call`, `reminder-persisted`, `reminder-counts`, `display-false`, `no-findings-clean`, `findings-off`, `findings-off-measurement`, `advisory-hidden`, `message-bound`, `delivery-details-hidden`, and `tool-result-clean`.
+- The checks cover finding-trigger timing, four-turn cadence, delivery modes, switch behavior, findings order, classes, quotations, persistence, hidden delivery, and the message bound.
 
 A clean run removes its physical scratch directory. A failure keeps the
 directory, prints its path, and inlines pi stderr and stdout. The directory also
@@ -2050,7 +2053,7 @@ parsed analysis.
 This is an integration net, but it is not part of CI. It is also separate
 from the extension-load check and the ladder. The load check proves registration
 without executing a tool. The ladder covers model-default restoration and worker
-settings isolation. This harness covers two reminder sessions through real pi.
+settings isolation. This harness covers three reminder sessions through real pi.
 No current workflow invokes it automatically.
 
 The harness structurally proves `display: false`. It does not prove that the TUI
@@ -2063,10 +2066,10 @@ Re-run the harness after changes to:
 - `extension/writing-reminder.ts`, including requirement text, rendering, cadence,
   or gates.
 - Reminder config sanitization in `extension/writing.ts`.
-- The `message_end` or `tool_result` reminder hooks in `extension/mode.ts`.
+- The `message_end`, `turn_end` or `agent_settled` reminder hooks in `extension/mode.ts`.
 - The handoff `forceNext` assignment or session-start ordering in
   `extension/handoff.ts` and `extension/mode.ts`.
-- Custom message options, custom type, or steer delivery.
+- Custom message options, custom type, steer delivery or next-turn delivery.
 - `verification/writing-reminder-canary.mjs` or the harness itself.
 - The pinned pi version or any asserted RPC and JSONL shape.
 

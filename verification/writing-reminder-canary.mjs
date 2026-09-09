@@ -31,8 +31,8 @@ const REQUIREMENT_FRAGMENTS = [
 	"Assume the user knows software but not this project.",
 	"Exclude research logs, worker task text, and the project's own agent instruction file.",
 ];
-const SUCCESS = "SLATE_REMINDER_REACHED_NEXT_MODEL_CALL_7f31c2";
 const FINDING_TEXT = `${"界".repeat(42)}; ${"界".repeat(42)}. One. Two. Three. Four. Five. Six. Seven.\n\nThe report was accepted.`;
+const CLEAN_TEXT = "The report is ready.";
 
 function textOf(content) {
 	if (typeof content === "string") return content;
@@ -40,7 +40,7 @@ function textOf(content) {
 	return content.filter((part) => part?.type === "text").map((part) => part.text).join("\n");
 }
 
-function message(model, content, stopReason, usage) {
+function message(model, content, stopReason, call) {
 	return {
 		role: "assistant",
 		content,
@@ -48,11 +48,11 @@ function message(model, content, stopReason, usage) {
 		provider: model.provider,
 		model: model.id,
 		usage: {
-			input: usage.input,
-			output: usage.output,
+			input: 25_000 + call,
+			output: 1,
 			cacheRead: 0,
 			cacheWrite: 0,
-			totalTokens: usage.input + usage.output,
+			totalTokens: 25_001 + call,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		},
 		stopReason,
@@ -70,11 +70,12 @@ function completedStream(output) {
 	return stream;
 }
 
-function toolCalls(model, call) {
+function findingToolCalls(model, call) {
 	return message(model, [
+		{ type: "text", text: FINDING_TEXT },
 		{ type: "toolCall", id: `writing-reminder-${call}-1`, name: TOOL_NAME, arguments: {} },
 		{ type: "toolCall", id: `writing-reminder-${call}-2`, name: TOOL_NAME, arguments: {} },
-	], "toolUse", { input: call === 5 ? 60_000 : 25_000 + call, output: 1 });
+	], "toolUse", call);
 }
 
 function reminderInputs(context) {
@@ -91,6 +92,7 @@ export default function reminderCanary(pi) {
 	let calls = 0;
 	let sessionMeta = {};
 	const customMessages = [];
+	const providerCalls = [];
 
 	pi.on("session_start", (_event, ctx) => {
 		sessionMeta = { trusted: ctx.isProjectTrusted(), cwd: ctx.cwd };
@@ -134,34 +136,25 @@ export default function reminderCanary(pi) {
 		}],
 		streamSimple(model, context) {
 			calls += 1;
-			if (calls === 1) return completedStream(message(model, [{ type: "text", text: FINDING_TEXT }], "stop", { input: 25_000, output: 1 }));
-			if (calls === 2) return completedStream(toolCalls(model, calls));
-
 			const inputs = reminderInputs(context);
-			const newest = inputs.at(-1);
-			const detailsAbsent = inputs.every((item) => !Object.prototype.hasOwnProperty.call(item, "details"));
-			if (SCENARIO === "off" || calls === 6) {
-				const observed = {
-					...sessionMeta,
-					scenario: SCENARIO,
-					calls,
-					findingText: FINDING_TEXT,
-					providerReminderContents: inputs.map((item) => textOf(item.content)),
-					providerNewestReminder: textOf(newest?.content),
-					providerRequirementStructures: inputs.map((item) => completeRequirementStructure(textOf(item.content))),
-					providerReminderDetailsAbsent: detailsAbsent,
-					customMessages,
-				};
-				writeFileSync(EVIDENCE, JSON.stringify(observed, null, 2));
-				const expectedCount = SCENARIO === "off" ? 1 : 2;
-				const valid = inputs.length === expectedCount && customMessages.length === expectedCount && detailsAbsent;
-				return completedStream(message(model, [{ type: "text", text: valid ? SUCCESS : "SLATE_REMINDER_MISSING_FROM_NEXT_MODEL_CALL" }], "stop", { input: 25_100 + calls, output: 1 }));
-			}
+			providerCalls.push({
+				call: calls,
+				reminderContents: inputs.map((item) => textOf(item.content)),
+				reminderDetailsAbsent: inputs.every((item) => !Object.prototype.hasOwnProperty.call(item, "details")),
+				requirementStructures: inputs.map((item) => completeRequirementStructure(textOf(item.content))),
+			});
+			writeFileSync(EVIDENCE, JSON.stringify({
+				...sessionMeta,
+				scenario: SCENARIO,
+				calls,
+				findingText: FINDING_TEXT,
+				providerCalls,
+				customMessages,
+			}, null, 2));
 
-			if (calls === 3) return completedStream(message(model, [{ type: "text", text: SUCCESS }], "stop", { input: 25_100, output: 1 }));
-			if (calls === 4) return completedStream(message(model, [{ type: "text", text: "The report is ready." }], "stop", { input: 25_200, output: 1 }));
-			if (calls === 5) return completedStream(toolCalls(model, calls));
-			return completedStream(message(model, [{ type: "text", text: "UNEXPECTED_PROVIDER_CALL" }], "stop", { input: 25_300, output: 1 }));
+			if (SCENARIO === "main" && calls === 1) return completedStream(findingToolCalls(model, calls));
+			if (SCENARIO !== "main" && calls === 1) return completedStream(message(model, [{ type: "text", text: FINDING_TEXT }], "stop", calls));
+			return completedStream(message(model, [{ type: "text", text: CLEAN_TEXT }], "stop", calls));
 		},
 	});
 }

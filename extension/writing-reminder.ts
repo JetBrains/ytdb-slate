@@ -51,13 +51,12 @@ export interface WritingReminderDeliveryDetails {
 
 export interface PendingWritingReminder {
 	deliveryId: number;
-	nextMarkTokens: number;
-	consumeForce: boolean;
 	expectedContent: string;
 }
 
 export interface WritingReminderRuntime {
-	markTokens: number;
+	turnsSinceDelivery: number;
+	findingPending: boolean;
 	sentThisRound: boolean;
 	forceNext: boolean;
 	deliverySequence: number;
@@ -73,12 +72,14 @@ export interface WritingReminderGate {
 
 export interface WritingReminderDecision {
 	send: boolean;
-	nextMarkTokens: number;
 }
+
+export type WritingReminderDeliveryMode = "steer" | "nextTurn";
 
 export function createWritingReminderRuntime(): WritingReminderRuntime {
 	return {
-		markTokens: 0,
+		turnsSinceDelivery: 0,
+		findingPending: false,
 		sentThisRound: false,
 		forceNext: false,
 		deliverySequence: 0,
@@ -86,9 +87,21 @@ export function createWritingReminderRuntime(): WritingReminderRuntime {
 	};
 }
 
-/** Convert a configured percentage of the effective budget to a token cadence. */
-export function writingReminderInterval(effectiveBudgetTokens: number, remindPercent: number): number {
-	return Math.max(8_192, Math.floor((effectiveBudgetTokens * remindPercent) / 100));
+/** Count one genuine completed turn even while delivery gates are closed. */
+export function advanceWritingReminderTurn(
+	runtime: WritingReminderRuntime,
+	hasFinding: boolean,
+): WritingReminderRuntime {
+	return {
+		...runtime,
+		turnsSinceDelivery: runtime.turnsSinceDelivery + 1,
+		findingPending: runtime.findingPending || hasFinding,
+	};
+}
+
+/** Select the delivery method from the completed turn shape. */
+export function writingReminderDeliveryMode(hasToolResult: boolean): WritingReminderDeliveryMode {
+	return hasToolResult ? "steer" : "nextTurn";
 }
 
 /** Decide whether policy gates permit a reminder before checking its cadence. */
@@ -96,40 +109,33 @@ export function writingReminderGateOpen(gate: WritingReminderGate, sentThisRound
 	return gate.orchestratorMode && gate.trusted && !gate.paused && !sentThisRound;
 }
 
-/**
- * Decide one cadence step. A smaller trustworthy usage lowers the mark.
- * Force sends without usage and leaves the mark unchanged.
- */
+/** Decide one cadence step after the genuine completed turn was counted. */
 export function decideWritingReminder(
-	markTokens: number,
-	usageTokens: number | null | undefined,
-	intervalTokens: number | undefined,
+	turnsSinceDelivery: number,
+	intervalTurns: number,
+	findingPending: boolean,
+	remindOnFinding: boolean,
 	forceNext: boolean,
 ): WritingReminderDecision {
-	const trustworthyUsage =
-		typeof usageTokens === "number" && Number.isFinite(usageTokens) && usageTokens >= 0 ? usageTokens : undefined;
-	const loweredMark = trustworthyUsage === undefined ? markTokens : Math.min(markTokens, trustworthyUsage);
-	if (forceNext) return { send: true, nextMarkTokens: trustworthyUsage ?? loweredMark };
-	if (trustworthyUsage === undefined || intervalTokens === undefined) {
-		return { send: false, nextMarkTokens: loweredMark };
-	}
-	const send = trustworthyUsage >= loweredMark + intervalTokens;
-	return { send, nextMarkTokens: send ? trustworthyUsage : loweredMark };
+	return { send: forceNext || turnsSinceDelivery >= intervalTurns || (remindOnFinding && findingPending) };
 }
 
-/** Claim a round before queueing. Cadence and force remain uncommitted. */
+/** Claim a round before queueing. The claim completes cadence delivery. */
 export function claimWritingReminder(
 	runtime: WritingReminderRuntime,
 	decision: WritingReminderDecision,
 	expectedContent: string,
 ): WritingReminderRuntime {
-	if (!decision.send) return { ...runtime, markTokens: decision.nextMarkTokens };
+	if (!decision.send) return runtime;
 	const deliveryId = runtime.deliverySequence + 1;
 	return {
 		...runtime,
+		turnsSinceDelivery: 0,
+		findingPending: false,
 		sentThisRound: true,
+		forceNext: false,
 		deliverySequence: deliveryId,
-		pending: { deliveryId, nextMarkTokens: decision.nextMarkTokens, consumeForce: runtime.forceNext, expectedContent },
+		pending: { deliveryId, expectedContent },
 	};
 }
 
@@ -154,19 +160,14 @@ export function writingReminderDeliveryMatches(
 	}
 }
 
-/** Commit cadence and force when pi starts the matching custom message. */
+/** Clear correlation state when pi starts the matching custom message. */
 export function commitWritingReminder(
 	runtime: WritingReminderRuntime,
 	details: unknown,
 	content: unknown,
 ): WritingReminderRuntime {
 	if (!writingReminderDeliveryMatches(runtime, details, content)) return runtime;
-	return {
-		...runtime,
-		markTokens: runtime.pending?.nextMarkTokens ?? runtime.markTokens,
-		forceNext: runtime.pending?.consumeForce ? false : runtime.forceNext,
-		pending: undefined,
-	};
+	return { ...runtime, pending: undefined };
 }
 
 /** Open the next round and discard any queue claim that never started delivery. */
@@ -177,7 +178,8 @@ export function rearmWritingReminder(runtime: WritingReminderRuntime): WritingRe
 /** Reset session cadence and preserve force only for this cycle's adoption. */
 export function resetWritingReminderSession(runtime: WritingReminderRuntime): WritingReminderRuntime {
 	return {
-		markTokens: 0,
+		turnsSinceDelivery: 0,
+		findingPending: false,
 		sentThisRound: false,
 		forceNext: runtime.adoptedThisSessionStart && runtime.forceNext,
 		deliverySequence: runtime.deliverySequence,

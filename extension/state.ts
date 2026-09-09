@@ -815,6 +815,8 @@ export interface WritingConfig {
 	check?: boolean;
 	remind?: boolean;
 	remindPercent?: number;
+	remindTurns?: number;
+	remindOnFinding?: boolean;
 	sentenceWordLimit?: number | false;
 	statusWindowTurns?: number;
 	findings?: boolean;

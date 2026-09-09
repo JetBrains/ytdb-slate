@@ -3,6 +3,10 @@ import { sanitizeForNotify } from "./notify.ts";
 import { WRITING_CHECKER_URL } from "./paths.ts";
 import type { WritingConfig } from "./state.ts";
 
+export const DEFAULT_REMIND_TURNS = 4;
+export const MIN_REMIND_TURNS = 1;
+export const MAX_REMIND_TURNS = 20;
+export const DEFAULT_REMIND_ON_FINDING = true;
 export const DEFAULT_SENTENCE_WORD_LIMIT = 25;
 export const MIN_SENTENCE_WORD_LIMIT = 10;
 export const MAX_SENTENCE_WORD_LIMIT = 200;
@@ -188,22 +192,23 @@ export function measureWritingTurn(
 }
 
 /** The known `writing` keys. Report anything else as a likely typo. */
-const WRITING_KEYS = ["check", "remind", "remindPercent", "sentenceWordLimit", "statusWindowTurns", "findings"];
+const WRITING_KEYS = ["check", "remind", "remindPercent", "remindTurns", "remindOnFinding", "sentenceWordLimit", "statusWindowTurns", "findings"];
 
 /** Validate the raw `writing` config and retain its configurable limits. */
 export function sanitizeWritingConfig(
 	raw: unknown,
 	warn: (msg: string) => void,
-): Pick<Required<WritingConfig>, "remindPercent" | "sentenceWordLimit" | "statusWindowTurns" | "findings"> {
+): Pick<Required<WritingConfig>, "remindTurns" | "remindOnFinding" | "sentenceWordLimit" | "statusWindowTurns" | "findings"> {
 	const defaults = {
-		remindPercent: 5,
+		remindTurns: DEFAULT_REMIND_TURNS,
+		remindOnFinding: DEFAULT_REMIND_ON_FINDING,
 		sentenceWordLimit: DEFAULT_SENTENCE_WORD_LIMIT as SentenceWordLimit,
 		statusWindowTurns: DEFAULT_STATUS_WINDOW_TURNS,
 		findings: true,
 	};
 	if (raw === undefined) return defaults;
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-		warn('slate: ignoring writing — expected an object like { "sentenceWordLimit": 25, "statusWindowTurns": 10, "findings": true }');
+		warn('slate: ignoring writing — expected an object like { "remindTurns": 4, "remindOnFinding": true, "sentenceWordLimit": 25, "statusWindowTurns": 10, "findings": true }');
 		return defaults;
 	}
 	const value = raw as Record<string, unknown>;
@@ -227,11 +232,22 @@ export function sanitizeWritingConfig(
 		}
 	};
 
-	let remindPercent = defaults.remindPercent;
-	const rawPercent = read("remindPercent", 5);
-	if (rawPercent !== undefined) {
-		if (typeof rawPercent === "number" && Number.isFinite(rawPercent) && rawPercent > 0 && rawPercent <= 100) remindPercent = rawPercent;
-		else warn("slate: ignoring writing.remindPercent — expected a finite number in (0, 100] (defaulting to 5)");
+	if (hasOwn("remindPercent")) {
+		warn("slate: writing.remindPercent is ignored. Remove it from slate.json. The reminder cadence changed from a token share to a turn count.");
+	}
+
+	let remindTurns = defaults.remindTurns;
+	const rawRemindTurns = read("remindTurns", DEFAULT_REMIND_TURNS);
+	if (rawRemindTurns !== undefined) {
+		if (Number.isSafeInteger(rawRemindTurns) && (rawRemindTurns as number) >= MIN_REMIND_TURNS && (rawRemindTurns as number) <= MAX_REMIND_TURNS) remindTurns = rawRemindTurns as number;
+		else warn("slate: ignoring writing.remindTurns — expected a whole number from 1 to 20 (defaulting to 4)");
+	}
+
+	let remindOnFinding = defaults.remindOnFinding;
+	const rawRemindOnFinding = read("remindOnFinding", DEFAULT_REMIND_ON_FINDING);
+	if (rawRemindOnFinding !== undefined) {
+		if (typeof rawRemindOnFinding === "boolean") remindOnFinding = rawRemindOnFinding;
+		else warn("slate: ignoring writing.remindOnFinding — expected true or false (defaulting to true)");
 	}
 
 	let sentenceWordLimit = defaults.sentenceWordLimit;
@@ -256,5 +272,9 @@ export function sanitizeWritingConfig(
 		else warn("slate: ignoring writing.findings — expected true or false (defaulting to true)");
 	}
 
-	return { remindPercent, sentenceWordLimit, statusWindowTurns, findings };
+	if (!findings && hasOwn("remindOnFinding")) {
+		warn("slate: writing.remindOnFinding has no effect while writing.findings is false.");
+	}
+
+	return { remindTurns, remindOnFinding, sentenceWordLimit, statusWindowTurns, findings };
 }
