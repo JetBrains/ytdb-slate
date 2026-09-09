@@ -2,14 +2,15 @@
 
 These rules govern machine review of worker-produced changes. Review threads
 are created dynamically. The orchestrator composes them from the confirmed size
-grade and validated focus declaration.
+grade and proved focus areas.
 
 Every review uses a fresh thread with type `reviewer` or `adversarial`. A
 reviewer is read-only. It receives repository state, the review range, its
-charter, the output contract, and the track intention block. It receives no
-implementer episode, implementer reasoning, or focus declaration. The stuck-fix
-consultation in § Stuck-fix consultation is the only episode exception.
-Independent reviewers run in parallel.
+charter, the output contract, and the track intention block. An implementation
+reviewer receives no implementer episode, implementer reasoning, risk record,
+or area proof. A design-stage adversarial reviewer receives the risk record.
+The stuck-fix consultation in § Stuck-fix consultation is the only episode
+exception. Independent reviewers run in parallel.
 
 Before applying its specific charter, every reviewer runs:
 
@@ -33,31 +34,39 @@ another severity. Reviewer judgment remains authoritative.
 
 **Reviewer I** is the general implementation reviewer. Reviewer I checks
 correctness, defects, maintainability, error handling, changed behavior,
-contract consistency, and effective evidence.
+contract consistency, and effective evidence. Reviewer I also checks exactly
+these three clauses:
+
+- each in-scope failure mode and the exact signal that detects it. Missing
+  detection is a finding.
+- consumer-reachable semantics, defaults, command behavior, compatibility, and
+  persisted formats.
+- agreement between rule documents.
 
 | size grade | required track set |
 | --- | --- |
-| SMALL | Reviewer I when the validated declaration names no per-track area, plus one reviewer for every engaged area whose canonical gate runs per track |
-| MEDIUM | Reviewer I plus one reviewer for every engaged area whose canonical gate runs per track |
-| LARGE | Reviewer I plus one reviewer for every engaged area whose canonical gate runs per track |
+| SMALL | Reviewer I plus one reviewer for every proved area whose canonical gate runs per track |
+| MEDIUM | Reviewer I plus one reviewer for every proved area whose canonical gate runs per track |
+| LARGE | Reviewer I plus one reviewer for every proved area whose canonical gate runs per track |
 
-Verification or gate machinery is carved out of the SMALL fast path. That work
-receives Reviewer I even at SMALL. A SMALL track also receives Reviewer I when
-its validated declaration names no per-track area. Every engaged area whose
-canonical gate runs per track adds its reviewer at every grade.
+Reviewer I runs on every track at every grade. Every proved area adds its
+reviewer at every grade.
 
 Reviewer I never counts against the production area-reviewer cap. The cap is
 four production area reviewers per review action. Split the action when more
-are required. The test-quality and structure reviewer and the prose and
-licensing reviewer are additional.
+are required. The test-quality and structure reviewer, prose reviewer, and
+licensing reviewer are additional and never count against that cap.
 
 Merge two general or production area perspectives only when both the code scope
 and required evidence are the same. Record the reason. Similar topics do not
 satisfy this rule. The test-quality and structure reviewer never merges with
-Reviewer I, a production area reviewer, or prose and licensing. The old
-separately dispatched test-structure specialist is retired for project test artifacts. The fixed composite role below absorbs its
-duties.
+Reviewer I, a production area reviewer, the prose reviewer, or the licensing
+reviewer.
 
+Each changed file in a documentation-only track has the `documentation`
+classification from the shipped size command. A track with any `source` file is
+not documentation only. On a documentation-only track, Reviewer I may carry the
+prose charter and the licensing charter. Record the reason for this merge.
 
 A model may cover more than one merge-eligible charter only under the merge
 rule. Different reviewers remain separate actions and fresh contexts. Do not
@@ -72,25 +81,19 @@ Project charters supplement the required reviewers and never replace them.
 
 - **concurrency:** interleavings, shared state, atomicity, cancellation,
   ordering, lifecycle, and deadlock.
-- **durability and recovery:** persistence, migration, corruption, retry,
+- **data loss and recovery:** persistence, migration, corruption, retry,
   recovery, and transactional guarantees.
 - **security:** trust boundaries, authentication, authorization, secrets,
   untrusted input, sandboxing, and user-data exposure.
-- **behavioural correctness:** product invariants, algorithms, state machines,
-  edge cases, and failure behavior.
 - **performance:** asymptotic growth, hot paths, input/output, allocation,
   synchronization, caching, batching, and benchmark evidence.
-- **contract:** consumer-reachable semantics, compatibility, defaults,
-  persisted formats, command behavior, and cross-document agreement.
-- **silent failure:** each failure mode and the exact signal that detects it.
-  Missing detection is a finding.
 
 ### Test-quality and structure reviewer
 
-Every project test artifact receives one separate `test-quality and structure
-reviewer`. The reviewer receives the changed artifacts, production paths, and
-review range. It receives no implementer episode or focus declaration. It is
-read-only.
+Every proved test-quality defect area receives one separate `test-quality and
+structure reviewer`. The reviewer receives the changed artifacts, production
+paths, and review range. It receives no implementer episode or area proof. It
+is read-only.
 
 The final response must contain both sections below, even when it ends with
 `No findings.`. A section may say not applicable only with an artifact-specific
@@ -128,13 +131,17 @@ State all of these items:
 - test-to-production integration.
 - coverage gaps.
 
-### Prose and licensing reviewer
+### Prose reviewer
 
-Start with licensing and provenance. Identify copied, adapted, generated, or
-third-party material and its permission basis. Then check accuracy, audience,
-reader tasks, terminology, structure, cross-references, prompt safety, context
-cost, and the project writing convention. User-facing strings in code remain
-in scope. Code reviewers own claims about code they already inspect.
+Check accuracy, audience, reader tasks, terminology, structure,
+cross-references, prompt safety, context cost, and the project writing
+convention. User-facing strings in code remain in scope. Code reviewers own
+claims about code they already inspect.
+
+### Licensing reviewer
+
+Identify copied, adapted, generated, or third-party material. Check its
+provenance, permission basis, and compliance with every applicable condition.
 
 Apply the reviewed project's writing scope before grading checker output. A
 clean result cannot establish accuracy, completeness, or conformance.
@@ -158,10 +165,11 @@ phases. An implementation-stage review does not record `level`.
 | owner triage | accept, amend, merge, dispute, or escalate |
 | disposition | fix, waive, moot, reject, or ignored |
 
-Prefixes are stable by perspective. Built-in prefixes include `RI`, `CN`, `DU`,
-`SE`, `BC`, `PF`, `CT`, `SF`, `TQ`, `PL`, and `RG`. Project-supplied
-prefixes must not collide. The orchestrator assigns and records a replacement
-when they do. Identifiers remain cumulative and never renumber.
+Prefixes are stable by perspective. Active built-in prefixes are `RI`, `CN`,
+`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, and `RG`. Project-supplied prefixes must
+not collide. The orchestrator assigns and records a replacement when they do.
+Identifiers remain cumulative and never renumber. Historical identifiers keep
+their recorded meaning.
 
 Severity means:
 

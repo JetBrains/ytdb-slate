@@ -138,7 +138,12 @@ test("single-action doctrine requires new threads and episode references", { tim
 test("doctrine reads workflow only for changes and enforces size confirmation", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
   assert.ok(doctrine.includes("Scale change gates by size grade: SMALL, MEDIUM, or LARGE."));
-  assert.ok(doctrine.includes("The implementer declares focus after implementation, and you validate that declaration."));
+  assert.ok(doctrine.includes("You own focus-area planning."));
+  assert.ok(doctrine.includes("Write a seven-line risk record and give a concrete three-part proof for each named area."));
+  assert.ok(doctrine.includes("No rule mechanically decides whether a proof holds."));
+  assert.ok(doctrine.includes("Obtain user approval of the record at every confirmation gate."));
+  assert.doesNotMatch(doctrine, /The implementer declares focus|validated declaration/);
+  assert.doesNotMatch(doctrine, /Concurrency defect|Data loss|Security weakness|Licensing exposure/);
   assert.ok(doctrine.includes(`For repository changes, read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).`));
   assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the predicted grade and every required pre-implementation gate ran."));
 });
@@ -153,8 +158,8 @@ test("doctrine states research-log, packet, acceptance, and reviewer rules", { t
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
   assert.ok(doctrine.includes("MEDIUM and LARGE always keep a research log; SMALL opens one on a listed trigger."));
   assert.ok(doctrine.includes("Track packets are non-blocking, but final change acceptance is blocking."));
-  assert.ok(doctrine.includes("Review every track with the set required by its grade and engaged focus areas."));
-  assert.ok(doctrine.includes("Verification or gate machinery receives the general implementation reviewer even at SMALL."));
+  assert.ok(doctrine.includes("Review every track with Reviewer I and one area reviewer for each proved focus area."));
+  assert.doesNotMatch(doctrine, /Verification or gate machinery receives the general implementation reviewer|engaged focus areas/);
   assert.ok(doctrine.includes(`Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow it. Skip the read when that file is already in your context.`));
 });
 

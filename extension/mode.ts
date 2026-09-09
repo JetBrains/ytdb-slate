@@ -500,20 +500,20 @@ threads execute. Rules:
    responses into failed episodes. A failure without a worker response uses a fixed
    episode. Episodes marked STATUS: FAILED require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.
-8. Scale change gates by size grade: SMALL, MEDIUM, or LARGE. The implementer
-   declares focus after implementation, and you validate that declaration. The orchestrator owns the track split. For repository changes,
-   read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).
-   MEDIUM and LARGE always keep a research log; SMALL opens one on a listed trigger.
-   Track packets are non-blocking, but final change acceptance is blocking. Before the first file-modifying dispatch, confirm the user confirmed the
-   predicted grade and every required pre-implementation gate ran. Validate each
-   required design before adversarial design review, then obtain final user approval.
-   ${rule8Tail}
-9. Review every track with the set required by its grade and engaged focus areas.
-   Verification or gate machinery receives the general implementation reviewer even
-   at SMALL. A SMALL track whose validated declaration names no per-track area also
-   receives that reviewer. Before dispatching review threads, read
-   ${REVIEW_RULES_DOC} and follow it. Skip the read when that file is already
-   in your context.${rule9Tail}${followUpTail}
+8. Scale change gates by size grade: SMALL, MEDIUM, or LARGE. You own focus-area
+   planning. Write a seven-line risk record and give a concrete three-part proof
+   for each named area. No rule mechanically decides whether a proof holds.
+   Obtain user approval of the record at every confirmation gate. You own the
+   track split. For repository changes, read ${TRACK_WORKFLOW_DOC} (skip the read
+   if it is already in your context). MEDIUM and LARGE always keep a research log;
+   SMALL opens one on a listed trigger. Track packets are non-blocking, but final
+   change acceptance is blocking. Before the first file-modifying dispatch,
+   confirm the user confirmed the predicted grade and every required
+   pre-implementation gate ran. Validate each required design before adversarial
+   design review, then obtain final user approval. ${rule8Tail}
+9. Review every track with Reviewer I and one area reviewer for each proved focus
+   area. Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow
+   it. Skip the read when that file is already in your context.${rule9Tail}${followUpTail}
 10. The design principles behind this architecture are documented in
    ${DESIGN_PRINCIPLES_DOC}.
    Read that file only when you must reason about slate itself.

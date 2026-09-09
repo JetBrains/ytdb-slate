@@ -6,7 +6,7 @@ Slate is a thread-weaving orchestration extension for the [pi coding agent](http
 
 The orchestrator is your main pi session. It dispatches each **bounded action** to a new **worker thread**. Each thread runs one action. A large language model compresses successful work and failed partial work into one **episode**. A failure without a worker response uses a fixed episode and no compression call. The episode retains intent, actions, findings, artifacts, open issues, and handoff notes.
 
-The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use a confirmed size grade and a validated focus declaration. Optional umbrella **draft-PR publishing** covers tracks.
+The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use a confirmed size grade and focus areas backed by judged proofs. Optional umbrella **draft-PR publishing** covers tracks.
 
 An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative. A second opt-in, **action-level model routing**, gives each dispatched action a model and an effort level chosen to be up to the task and no more, so cost is bounded per action instead of per session.
 
@@ -46,23 +46,26 @@ Slate uses three workload grades. SMALL covers up to 50 predicted changed
 production-logic lines. MEDIUM covers 51 through 1,000. LARGE covers more than
 1,000. More than 25 changed files raises SMALL or MEDIUM by one grade.
 
-Focus is separate from size. Nine focus areas add review gates. They cover
-concurrency, durability, security, core behavior, performance, contracts, silent
-failures, project test artifacts, and user-facing or licensing-adjacent prose. Every project test artifact gets a
-separate test-quality and structure reviewer. That reviewer checks behavioral
-effectiveness and test isolation.
+Focus is separate from size. Seven focus areas name specific risks. They cover
+concurrency defects, data loss, security weaknesses, performance degradation,
+test-quality defects, unreadable user-facing prose, and licensing exposure.
+During planning, the orchestrator writes a risk record with one line for each
+focus area and a proof for each engaged area. A focus area with a proof that
+holds is a proved area. The user approves the risk record. Reviewer I is the
+general implementation reviewer and reviews every track. Each proved area adds its
+reviewer.
 
 The workflow follows these steps:
 
 1. **Predict and confirm** — the orchestrator predicts the size grade before implementation. The user confirms that grade.
 2. **Design** — MEDIUM and LARGE need a high-level design. The orchestrator adds adversarial review when the design needs it. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
-3. **Implement tracks** — each track declares its files and focus areas. Track reviews are non-blocking. Final change acceptance remains blocking.
+3. **Implement tracks** — each track declares its files. The orchestrator plans and proves its focus areas before implementation. Track reviews are non-blocking. Final change acceptance remains blocking.
 4. **Measure** — the size command shipped with Slate checks the committed range at the first track boundary.
 5. **Review and deliver** — grade and focus select fresh machine reviewers. The user gives final acceptance and performs any squash merge.
 
-SMALL has a mechanical fast path. A project test artifact or verification
-machinery voids it. Umbrella draft-PR publishing activates only
-when `workflow.draftPRs` is `true`.
+SMALL has a mechanical fast path. A change that can create a test-quality
+defect, or that changes verification machinery, voids it. Umbrella draft-PR
+publishing activates only when `workflow.draftPRs` is `true`.
 
 This summary provides orientation only. The shipped docs listed below are normative.
 
