@@ -14,10 +14,11 @@ initial grade. The prediction states its basis and uncertainty. The script
 verifies the real committed range at the first track boundary. It never claims
 to measure absent work.
 
-**Focus is declared and validated.** The implementer declares every focus area
-that each changed file engages. The orchestrator validates the declaration
-against the committed difference before review. It also checks the high-level
-design and implementer report when they exist. No script decides focus.
+**Focus is planned and proved.** The orchestrator judges engagement for the
+whole planned track. It records all seven areas and gives a concrete proof for
+each named area. The user approves this risk record. Before review, the
+orchestrator compares the proved set with the committed difference. No script
+or rule decides whether a proof holds.
 
 The axes never substitute for each other. Size carries no risk meaning. A
 focus area never changes a measured count.
@@ -26,8 +27,9 @@ Resolve size uncertainty by taking the higher grade. The user may confirm a
 lower grade only before implementation starts. The confirmation record states
 the reason.
 
-The grade may not shrink after implementation starts. Focus validation may add
-or remove an area when the evidence supports that.
+The grade may not shrink after implementation starts. The committed-difference
+comparison may add a proved area with its reviewer. It may drop a proved area
+that no longer engages.
 
 ## Size measurement and the exclusion list
 
@@ -191,24 +193,22 @@ escalation threshold, not a hard track cap.
 
 ## Focus areas and their gates
 
-A focus area is one named area of risk that a changed file engages. Each area
-adds its reviewer to every track that engages it.
+A focus area is one named risk. An area adds its reviewer only when the track
+record contains a judged proof that holds.
 
 <!-- focus-area-table:begin -->
 | # | focus area | the gate it adds | where the gate runs |
 | --- | --- | --- | --- |
-| 1 | concurrency | one area reviewer for concurrency | every track that engages the area |
-| 2 | durability | one area reviewer for durability and recovery | every track that engages the area |
-| 3 | security | one area reviewer for security | every track that engages the area |
-| 4 | core behaviour or algorithms | one area reviewer for behavioural correctness | every track that engages the area |
-| 5 | performance | one area reviewer for performance | every track that engages the area |
-| 6 | public interface or contract | one contract reviewer | every track that engages the area |
-| 7 | silent failure mode | one area reviewer that must state how each failure would be detected | every track that engages the area |
-| 8 | project test artifact | one test-quality and structure reviewer | every track that engages the area |
-| 9 | user-facing or licensing-adjacent prose | one prose and licensing reviewer | every track that engages the area |
+| 1 | concurrency defect | one area reviewer for concurrency | every track that proves the area |
+| 2 | data loss | one area reviewer for data loss and recovery | every track that proves the area |
+| 3 | security weakness | one area reviewer for security | every track that proves the area |
+| 4 | performance degradation | one area reviewer for performance | every track that proves the area |
+| 5 | test-quality defect | one test-quality and structure reviewer | every track that proves the area |
+| 6 | unreadable user-facing prose | one prose reviewer | every track that proves the area |
+| 7 | licensing exposure | one licensing reviewer | every track that proves the area |
 <!-- focus-area-table:end -->
 
-The marked table is the canonical copy of the duplicated nine-area table. Its
+The marked table is the canonical copy of the duplicated seven-area table. Its
 second copy is in [track-workflow.md](track-workflow.md). The two marked blocks
 must remain equal.
 
@@ -217,132 +217,130 @@ HTML begin comment immediately precedes each block. Its matching end comment
 immediately follows it. This table uses the block name `focus-area-table` in
 both documents.
 
-### 1. Concurrency
+### Concurrency defect
 
-Concurrency covers locks, atomics, shared mutable state, asynchronous
-lifecycles and ordering guarantees. Any defect that requires reasoning about
-thread or task interleavings engages this area.
+**Outcome:** a result that the specification forbids, or a stop of required
+progress, produced by an allowed overlap or order of two or more executions.
+**Trigger:** the area engages when the change can cause that outcome. A change
+does not engage the area only because it runs inside a concurrent program.
+Slower execution that still makes progress belongs to performance degradation.
 
-### 2. Durability
+### Data loss
 
-Durability covers persistence formats, migrations, write-ahead and recovery
-paths, and at-least-once or exactly-once semantics. It includes data that can
-be lost, corrupted or irreversibly transformed. A lossy migration engages
-this area even when nothing crashes and recovery works.
+**Outcome:** data that the project keeps for a user, a consumer or a later
+session, and that cannot be recovered, or recovered data that differs from the
+state the project kept. **Trigger:** the area engages when the change can cause
+that outcome. Loss that the published contract permits does not engage the
+area. A change that widens the permitted loss does engage it. Data that the
+project may rebuild or discard without a consumer noticing does not engage the
+area.
 
-### 3. Security
+### Security weakness
 
-Security covers authentication, authorization, cryptography, parsing of
-untrusted input, sandbox or permission boundaries, and secrets handling. It
-also covers user data that can be exposed.
+**Outcome:** a condition that an actor can exploit or trigger to break
+confidentiality, integrity, availability, authentication, authorization or
+accountability for the project or its consumers. **Trigger:** the area engages
+when the change can introduce or expose that condition and a credible actor can
+reach it. Exploitation need not happen. A change to a control whose purpose is
+to protect one of those six properties engages the area, whether or not an
+actor can reach the condition today. A configuration key engages the area only
+when the key controls the run-time security posture of a consumer of the
+published package.
 
-Sensitive configuration engages security when the changed key controls a
-consumer's run-time security posture. Decide sensitivity from what the key
-controls at run time for a consumer of the published package. A key read only
-by development tooling is not sensitive configuration.
+### Performance degradation
 
-### 4. Core behaviour or algorithms
+**Outcome:** latency, throughput or resource use that misses a stated
+requirement, or a growth of work with input size or data size that moves to a
+worse class than the current code has. **Trigger:** the area engages when the
+change can cause that outcome. A stated requirement is a limit that project
+rules, the approved design, a benchmark threshold, a timeout, a budget or a
+pinned size figure states for the touched path. It includes a path that project
+rules mark as hot or as running on every turn. A change that alters no work per
+unit of input engages the area on such a path only through a stated size budget.
 
-Core behaviour or algorithms covers every change to production behaviour,
-branch meaning, state transition, error path or algorithm that is not purely
-mechanical and behaviour-preserving. A change engages this area even when the
-changed behaviour is small or has no substantial state machine. A formatting,
-renaming or other mechanical edit engages it only when the edit changes
-production behaviour.
+### Test-quality defect
 
-### 5. Performance
+<!-- test-quality-definition:begin -->
+**Outcome:** a project test or check that gives an unreliable signal, or that
+fails to detect a fault inside the behaviour it claims to protect. **Trigger:**
+the area engages when the change can cause that outcome. A changed coverage
+number or coverage denominator alone is not engagement. A product artifact
+does not engage the area only because a test calls it.
+<!-- test-quality-definition:end -->
 
-Performance engages when any one of these signals exists:
+### Unreadable user-facing prose
 
-1. The diff changes asymptotic complexity over an input-scaled or data-scaled
-   collection.
-2. The diff adds input-scaled or data-scaled input/output, allocation or
-   synchronization inside a per-item path.
-3. The diff changes caching, batching, pooling or eviction policy.
-4. A touched symbol has an existing benchmark, performance assertion,
-   hot-path annotation or profiling marker.
-5. The approved design or project rules state a performance constraint on the
-   touched code.
+**Outcome:** text that leaves its intended reader unable to make the decision
+or complete the task that the text supports, where that text is readable by a
+consumer of the published package or governed by the project writing
+convention. **Trigger:** the area engages when the change can cause that
+outcome. A short internal comment, a test name, a mechanical label, and text
+that the project excludes from its writing convention do not engage the area.
+A readability score alone neither engages nor clears the area.
 
-A general concern that a change might affect performance does not establish a
-signal. When no repository artifact exists, the orchestrator still judges the
-area from the design and diff.
+### Licensing exposure
 
-### 6. Public interface or contract
+**Outcome:** published material that the project has no permission to publish
+under its own licence. **Trigger:** the area engages when the change can cause
+that outcome through copied or adapted material from an identifiable external
+work, a dependency or notice, or a trademark. Copying or adapting such
+external material always engages the area. A dependency with a clear
+permission basis and satisfied conditions does not engage the area. Material
+that an author or a worker wrote for this project without an external source
+does not engage the area. Unknown provenance alone does not engage it.
 
-This area covers an externally depended-on surface that changes the meaning of
-a rule or contract. An internal method does not engage the area merely because
-its language-level visibility is public. A typographical, formatting or
-wording correction that changes no rule does not engage it.
+### Judged proof and risk record
 
-The contract reviewer always runs on a track that engages this area.
+The orchestrator records one line for every area. A named line gives a concrete
+three-part proof. The proof states the defect class, the place in the planned
+change where it can occur, and the consequence. A non-engagement line states
+which part of the trigger answers no.
 
-### 7. Silent failure mode
+The proof basis is the approved track design. When the track has no design, the
+basis is the track intention block and planned file list. The risk record is
+orchestrator material, not high-level design. It may cite concrete paths,
+symbols, and checks.
 
-A silent failure mode is a failure that produces no signal by which a later
-check or operator can detect it. Its reviewer must state how every in-scope
-failure would be detected.
+A proof must show a material consequence of omitting the area reviewer. A
+consequence is material when a reasonable reviewer would file it at major
+severity or above. Project tooling counts. A protective-control change is
+material when loss of that control would be material. A cosmetic consequence
+is not material. A proof is not convincing when its words would also fit a
+change that does not engage the area.
 
-### 8. Project test artifact
-
-<!-- project-test-artifact-definition:begin -->
-A project test artifact is an artifact whose purpose is to exercise, configure,
-feed, isolate, or assert project behavior under a project test or check. The
-area includes test logic, assertions, fixtures, snapshots, golden data, mocks,
-stubs, harnesses, test-specific configuration, and test support.
-
-Decide purpose from content, imports, callers, project test commands, and
-optional declarations. Filenames and directories are evidence, not
-definitions.
-
-For a dual-purpose artifact, inspect the changed responsibility. A product
-artifact does not engage area 8 merely because tests call it. Engage area 8
-when the changed responsibility serves test execution, isolation, inputs, or
-evidence.
-<!-- project-test-artifact-definition:end -->
-
-Area 8 always adds one `test-quality and structure reviewer` at every size
-grade. No tests-alone or weakening condition limits this rule. Reviewer
-composition belongs to [review-rules.md](review-rules.md) § Reviewer sets,
-merge rule and charters.
-
-### 9. User-facing or licensing-adjacent prose
-
-This area covers text that a consumer of the package can read. It includes
-user documentation, command help, release notes, prompt strings and
-public-facing messages. It adds a prose and licensing reviewer whose first
-charter item is licensing and provenance exposure.
-
-A short internal comment, a test name or a mechanical label does not engage
-this area.
+No rule mechanically decides whether a proof holds. The adversarial design
+review judges the whole record when that review runs. The user judges the whole
+record at every confirmation gate. An area whose proof convinces neither reader
+is skipped. A skipped area gets no reviewer. The skip is recorded and is not an
+escalation. A track with no proved area still gets Reviewer I and every gate its
+grade requires.
 
 Reviewer composition and merging belong to
-[review-rules.md](review-rules.md), in § Reviewer sets, merge rule and
-charters. This document does not duplicate those rules.
+[review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters.
 
 ## Optional path declarations
 
-A project may declare paths for a focus area as prose in its contributor
-guide. No configuration key or parser is required. A declaration is optional
-and supplies evidence for validation.
+A project may declare paths for a focus area as prose in its contributor guide.
+No configuration key or parser is required. A declaration is optional evidence
+for the risk record.
 
-1. Touching a declared path engages that focus area for certain.
+1. A touched declared path is evidence that its area may engage.
 2. A change outside all declared paths still receives orchestrator judgement.
-3. A declaration may support adding or removing an area during validation.
-4. A narrow or stale declaration does not decide the validated result.
+3. A declaration may support a proof or a non-engagement line.
+4. A narrow or stale declaration does not decide engagement or proof.
 
-A path is evidence, not a definition. Paths cannot decide core behaviour or algorithms, or a silent failure mode.
+A path is evidence, not a definition or a decision.
 
 ## Lifecycle rules owned by the spine
 
-[track-workflow.md](track-workflow.md) § Focus touchpoints owns declaration and
-validation. Its § Fast path owns fast
+[track-workflow.md](track-workflow.md) § Risk planning and reconciliation owns
+planning, approval, and the committed-difference comparison. Its § Fast path owns fast
 path eligibility, the omitted gates, retained sequence, mechanical checklist,
-every voiding condition and the verification-machinery carve-out. This document
+every voiding condition and the verification-machinery exclusion. This document
 does not duplicate those rules.
 
 [review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters owns
-Reviewer I on a SMALL track.
+Reviewer I and all area-reviewer composition.
 
 ## Halt, re-derivation and grade correction
 
@@ -366,8 +364,9 @@ A halt may never lower the grade after implementation has started.
 
 ## Review coverage and the coverage register
 
-Every part of a track range must reach the perspectives that the engaged areas
-of that track require. User review never replaces machine review.
+Every part of a track range must reach Reviewer I and the perspectives that the
+proved areas of that track require. User review never replaces machine review.
+This requirement is the coverage invariant.
 
 Create a coverage register when a user-review fix commit exists. Record each
 contiguous user-review fix range and its gate verdict. The register remains the

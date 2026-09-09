@@ -1,14 +1,14 @@
 # Track-based development workflow
 
 This document is the lifecycle spine for every repository change. Size is a
-workload grade. Focus identifies the review gates that the change engages.
-Neither axis substitutes for the other.
+workload grade. Focus identifies risk-based review gates. A proved focus area
+adds its reviewer. Neither axis substitutes for the other.
 
 | actor | grade or shape | document | exact section |
 | --- | --- | --- | --- |
 | orchestrator | every change | this document | § Lifecycle and phases |
-| orchestrator | size and focus assessment | [blast-radius.md](blast-radius.md) | § Two independent axes |
-| implementer | every track | this document | § Track intention block and focus declaration |
+| orchestrator | size and focus planning | [blast-radius.md](blast-radius.md) | § Two independent axes |
+| implementer | every track | this document | § Track intention block and implementer response |
 | reviewer | every review | [review-rules.md](review-rules.md) | § Reviewer sets, merge rule and charters |
 | user | completed track | [user-notes.md](user-notes.md) | § Track packets |
 | publisher | draft pull request enabled | [pr-publishing.md](pr-publishing.md) | § Creation |
@@ -29,8 +29,9 @@ The mandatory phases run in this order:
 
 The cumulative implementation commit is the original implementation and all
 agentic-review fixes squashed into one commit before user review. The track loop
-is present the approved high-level design when required, implement, validate,
-declare focus, measure the first real committed boundary, review, and fix. Then
+is present the approved high-level design when required, plan and approve the
+risk record, implement, validate, compare the committed difference with the
+proved areas, measure the first real committed boundary, review, and fix. Then
 present any changed high-level design when required, create the cumulative
 implementation commit, deliver the track packet, and apply and commit any
 user-review fixes. Verify their range when one exists, and mark the boundary.
@@ -109,8 +110,8 @@ never falls after implementation starts.
 | pre-implementation | final design approval | after required design work | required after validation and any adversarial review | required after validation and any adversarial review |
 | lifecycle | research log | when any trigger fires | always | always |
 | per-track | implementer report | optional | required | required |
-| per-track | Reviewer I | for carved-out verification work, or when the validated declaration names no per-track area | every track | every track |
-| per-track | engaged-area reviewers | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track |
+| per-track | Reviewer I | every track | every track | every track |
+| per-track | proved-area reviewers | every proved area whose canonical gate runs per track | every proved area whose canonical gate runs per track | every proved area whose canonical gate runs per track |
 | final | final change acceptance | blocking | blocking | blocking |
 
 The package-resolved command does not measure absent work. At the first track
@@ -132,15 +133,13 @@ counting and exclusion list lives only in [blast-radius.md](blast-radius.md)
 <!-- focus-area-table:begin -->
 | # | focus area | the gate it adds | where the gate runs |
 | --- | --- | --- | --- |
-| 1 | concurrency | one area reviewer for concurrency | every track that engages the area |
-| 2 | durability | one area reviewer for durability and recovery | every track that engages the area |
-| 3 | security | one area reviewer for security | every track that engages the area |
-| 4 | core behaviour or algorithms | one area reviewer for behavioural correctness | every track that engages the area |
-| 5 | performance | one area reviewer for performance | every track that engages the area |
-| 6 | public interface or contract | one contract reviewer | every track that engages the area |
-| 7 | silent failure mode | one area reviewer that must state how each failure would be detected | every track that engages the area |
-| 8 | project test artifact | one test-quality and structure reviewer | every track that engages the area |
-| 9 | user-facing or licensing-adjacent prose | one prose and licensing reviewer | every track that engages the area |
+| 1 | concurrency defect | one area reviewer for concurrency | every track that proves the area |
+| 2 | data loss | one area reviewer for data loss and recovery | every track that proves the area |
+| 3 | security weakness | one area reviewer for security | every track that proves the area |
+| 4 | performance degradation | one area reviewer for performance | every track that proves the area |
+| 5 | test-quality defect | one test-quality and structure reviewer | every track that proves the area |
+| 6 | unreadable user-facing prose | one prose reviewer | every track that proves the area |
+| 7 | licensing exposure | one licensing reviewer | every track that proves the area |
 <!-- focus-area-table:end -->
 
 [blast-radius.md](blast-radius.md) defines each area and owns the canonical
@@ -149,9 +148,10 @@ copy of this table.
 ## Confirmation gate
 
 The orchestrator presents one proposal before implementation. It states the
-predicted grade, expected counts, basis, uncertainty, split, and required
-pre-implementation gates. The user confirms the grade. No file-modifying
-dispatch starts before confirmation and every required pre-implementation gate.
+predicted grade, expected counts, basis, uncertainty, split, required
+pre-implementation gates, and the seven-line risk record. The user confirms the
+grade and approves the risk record. No file-modifying dispatch starts before
+confirmation and every required pre-implementation gate.
 
 When an approved high-level design exists, a **scope exception** is a design
 proposal, reviewer finding, or implemented change that covers something the
@@ -195,28 +195,32 @@ workflow phase. Their position beside re-confirmation does not limit them to
 pre-implementation work.
 
 New evidence can raise the grade. That change halts work and requires user
-re-confirmation. The validated focus declaration may add or remove an area when
-the evidence supports that. A newly declared area adds its reviewer before the
-review of that track starts. It does not halt the work.
+re-confirmation. A new track created after the original confirmation gate needs
+user approval of its risk record before implementation starts.
 
-## Focus touchpoints
+## Risk planning and reconciliation
 
-Focus has two mandatory touchpoints.
+The orchestrator names engaged focus areas during track planning. Engagement is
+judged for the whole track and its planned change, not for each file. The
+orchestrator writes all seven risk-record lines. Each named area gets the
+three-part proof defined in [blast-radius.md](blast-radius.md) § Judged proof
+and risk record. Each non-engagement line states which trigger part answers no.
 
-1. **DECLARE.** The implementer declares every area actually engaged by each
-   changed file. Use one line per area and file:
+The proof basis is the approved track design. When the track has no design, the
+basis is the track intention block and planned file list. The user approves the
+record at every confirmation gate. The adversarial design review checks the
+whole record when that review runs. The design stage is the only stage where an
+adversarial thread receives the record. A stuck-fix consultation receives none.
 
-   `focus: <area name> | file: <path> | reason: <one short clause>`
+A track design change that newly engages an area needs a proof and user
+approval before review of that track. Before review, the orchestrator compares
+the committed difference with the proved set. It may add a missed proved area
+and its reviewer without a blocking user gate. It may drop a proved area that
+no longer engages. The track packet reports either change.
 
-2. **VALIDATE.** The orchestrator validates the declaration against the
-   committed difference before review. It also checks the high-level design
-   and implementer report when they exist. It may add or remove an area when
-   the evidence supports that. A newly declared area adds its reviewer before
-   review starts and does not halt the work.
-
-A missing declaration blocks the track. Retry the implementer once. Escalate
-a second failure under [user-notes.md](user-notes.md) § Mandatory escalation
-set.
+The implementer reports any risk that the plan did not name. The orchestrator
+writes its proof, adds its reviewer, and reports both in the track packet. An
+implementation reviewer receives no proof.
 
 ## Fast path
 
@@ -225,28 +229,27 @@ A SMALL single-track change may use the fast path only when every item passes.
 1. The outcome is mechanical and has one clear implementation.
 2. The change intends no edit to an existing consumer-reachable rule.
 3. No sensitive configuration changes.
-4. The change intends no edit that needs new silent-failure detection reasoning.
-5. The change intends no edit to a project test artifact.
-6. No verification, gate, coverage, packaging, release, or workflow machinery changes.
-7. The change remains within the declared file list.
-8. One mechanical validation can establish the result.
-9. The orchestrator judges that the change needs no adversarial design review.
+4. The change cannot cause a test-quality defect.
+5. No verification, gate, coverage, packaging, release, or workflow machinery changes.
+6. The change remains within the declared file list.
+7. One mechanical validation can establish the result.
+8. The orchestrator judges that the change needs no adversarial design review.
 
-When all nine conditions pass, the fast path omits the high-level design,
+When all eight conditions pass, the fast path omits the high-level design,
 adversarial design review, research log, and implementer report. Another rule
 can still require any omitted gate or artifact.
 
-The fast-path sequence is size prediction → confirmation → implementation →
-mechanical validation → focus declaration → committed-boundary size measurement
-→ mechanical checklist → track packet → blocking final acceptance → delivery.
-After boundary measurement, run all nine checklist items against the committed
-range and actual declaration.
-If any item fails, return to the ordinary SMALL workflow before packet delivery.
+The fast-path sequence is size prediction → risk-record planning → confirmation
+and risk-record approval → implementation → mechanical validation →
+committed-difference comparison → committed-boundary size measurement →
+mechanical checklist → track packet → blocking final acceptance → delivery.
+After boundary measurement, run all eight checklist items against the committed
+range and actual risk record. If any item fails, return to the ordinary SMALL
+workflow before packet delivery.
 
-Any project test artifact voids the fast path. Any verification or gate
-machinery also voids it. Carved-out SMALL verification work receives Reviewer I.
-Other SMALL work receives one reviewer for every engaged area whose canonical focus-area
-gate runs per track, and Reviewer I when the validated declaration names no per-track area.
+A test-quality defect voids the fast path. Any verification or gate machinery
+also voids it. Reviewer I reviews every SMALL track. Each proved focus area adds
+its reviewer.
 
 ## Track packet shape
 
@@ -255,16 +258,15 @@ in [user-notes.md](user-notes.md) § Track packets:
 
 1. confirmed grade and its rationale.
 2. commit range.
-3. focus declaration and any focus change.
+3. risk-record outcomes and any proved-area change.
 4. machine review outcome, with finding counts by type, severity, and
-   disposition. When the fast path omits machine review, state that this field
-   does not apply.
+   disposition.
 
 For a single-track SMALL change, the track packet asks for final change
 acceptance. For a multi-track SMALL change, it reports the track without adding
 a blocking acceptance gate.
 
-## Track intention block and focus declaration
+## Track intention block and implementer response
 
 Every implementation and review dispatch carries these fields:
 
@@ -274,8 +276,11 @@ Every implementation and review dispatch carries these fields:
 - acceptance condition.
 - declared file list.
 
-The implementer returns the fixed focus declaration lines from § Focus
-touchpoints. Implementation commit titles use `Track <n>: <intent title>`.
+Every implementation dispatch either carries each focus-area trigger with its
+boundary sentences or directs the implementer to the risk definitions in
+[blast-radius.md](blast-radius.md) § Focus areas and their gates. The implementer
+ends its response with `unplanned risk: none` or one line that names a risk the
+plan did not name. Implementation commit titles use `Track <n>: <intent title>`.
 An agentic-review fix commit inside a track uses
 `Track <n> fix round <r>: <intent title>`. The original implementation commit
 uses the Intent and Deviation-delta discipline in
@@ -316,10 +321,11 @@ track creates its implementer report at track start, beside the research log.
 | unresolved question needed later | opens the log | already open |
 
 Open these sections: Initial request, Decision Log, Surprises and Discoveries,
-and Open Questions. Add Planned changes, Track table, coverage register, override log, and
-escalation records when needed. Do not use
-an observations section. Worker observation files are review evidence, not
-user feedback.
+and Open Questions. Add Planned changes, Track table, risk record, coverage
+register, override log, and escalation records when needed. Do not use an
+observations section. Worker observation files are review evidence, not user
+feedback. Engagement opens the log even when the area's proof is not convincing.
+A track with no engaged area needs no log for focus alone.
 
 At MEDIUM and LARGE, every retained entry is typed as `decision`, `evidence`,
 `ruling`, `risk`, `question`, `focus`, `verification`, or `handoff`. Append an
@@ -336,8 +342,9 @@ Do not add either name to an ignore file. Never overwrite either from a stale
 in-memory copy. An implementer report never enters a pull request.
 
 Before a session handoff, append a state summary. It names the confirmed grade,
-validated focus declarations, current track, current implementer report location, last boundary
-marker, live registers, open findings, checks run, and next action. A
+proved focus areas and risk-record location, current track, current implementer
+report location, last boundary marker, live registers, open findings, checks
+run, and next action. A
 context-budget handoff, user-requested handoff, or session end with unfinished
 work triggers this summary.
 
@@ -350,8 +357,8 @@ Resume in this fixed order:
    summary. When the state summary names an existing current implementer
    report, read it at that location.
 3. Inspect marker commits and the current branch state.
-4. Reconcile the declared file list, track table, coverage register, validated focus declarations,
-   and live diff.
+4. Reconcile the declared file list, track table, coverage register, proved
+   focus areas, risk record, and live diff.
 5. Re-run any stale precondition check.
 6. Continue only after answering: **What changed since the last state summary,
    and does it change grade, focus, scope, or required gates?**
@@ -361,8 +368,9 @@ history as boundary authority. The track table is display-only.
 
 ## Review coverage
 
-Every part of a track range must reach the perspectives that the engaged areas
-of that track require. User review never replaces machine review.
+Every part of a track range must reach Reviewer I and the perspectives that the
+proved areas of that track require. User review never replaces machine review.
+This requirement is the coverage invariant.
 
 The coverage register records each contiguous range of user-review fix commits
 together with the gate verdict for that range. It is the review-accounting
@@ -482,6 +490,6 @@ review and user acceptance. It never replaces either. Complete or obtain a user
 waiver for every pending layered review before a draft pull request becomes
 ready for review.
 
-Added rules may not replace confirmation, design and validation gates, focus
-coverage, fresh machine review, marker authority, blocking final acceptance,
-or draft-pull-request safeguards.
+Added rules may not replace confirmation, design and validation gates,
+proved-focus coverage, fresh machine review, marker authority, blocking final
+acceptance, or draft-pull-request safeguards.

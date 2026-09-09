@@ -370,10 +370,11 @@ const WORKER_IDS = [
 const DOCTRINE_CONTRACT_IDS = [
 	"contract-safety-floor-absent",
 	"contract-focus-table-sync",
-	"contract-area8-artifact",
+	"contract-risk-definitions",
+	"contract-risk-lifecycle",
 	"contract-fast-path-artifact",
 	"contract-test-composite",
-	"contract-no-test-structure",
+	"contract-review-charters",
 	"contract-section-targets",
 ];
 /**
@@ -2323,11 +2324,11 @@ try {
 			// the identity and the bounds go back to being install-dependent.
 			const pathOccurrences = (text) => DOCS_DIR === "" ? 0 : text.split(DOCS_DIR).length - 1;
 			const docPaths = pathOccurrences(on);
-			// 2026-09-09: 7,044 × 1.05 = 7,396.2; ceil 7,397, then round the bound up to 7,400.
+			// 2026-09-09: 6,995 × 1.05 = 7,344.75; ceil 7,345, so the 7,400 bound remains.
 			const WRITING_ROUTER_BOUND = 7400;
-			// 2026-09-09: 7,299 × 1.05 = 7,663.95; ceil 7,664, then round the bound up to 7,700.
+			// 2026-09-09: 7,250 × 1.05 = 7,612.5; ceil 7,613, so the 7,700 bound remains.
 			const ALL_TAILS_BOUND = 7700;
-			// 2026-09-09: the 8,484 deferred-issue maximum is largest. 8,484 × 1.05 = 8,908.2; ceil 8,909, then round the bound up to 9,000.
+			// 2026-09-09: the 8,435 deferred-issue maximum is largest. 8,435 × 1.05 = 8,856.75; ceil 8,857, so the 9,000 bound remains.
 			const MAXIMAL_BOUND = 9000;
 			checkAll(
 				"doctrine-budget",
@@ -2344,29 +2345,29 @@ try {
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the configured-model fixture is the exact fixed six-model list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
 					["the fabricated dogfood fixture resolves its exact five-model list through the real router and uses pi registry context windows", dogfoodCandidates.length === dogfoodSpecs.length && dogfoodCandidates.every((candidate) => dogfoodSpecs.includes(candidate.spec)) && dogfoodCandidates.every((candidate) => candidate.contextWindow === (candidate.provider === "anthropic" ? 1_000_000 : 272_000)), { configured: dogfoodSpecs, candidates: dogfoodCandidates.map((candidate) => [candidate.spec, candidate.contextWindow]) }],
-					["the dogfood fixture is the measured 7266 portable chars and 99 lines", dogfoodPortable === 7266 && dogfood.split("\n").length === 99, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
+					["the dogfood fixture is the measured 7217 portable chars and 99 lines", dogfoodPortable === 7217 && dogfood.split("\n").length === 99, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
-					["the untrusted doctrine is the measured 2757 portable chars, 43 lines, and three embedded paths", portable(untrusted).length === 2757 && untrusted.split("\n").length === 43 && pathOccurrences(untrusted) === 3, { portable: portable(untrusted).length, lines: untrusted.split("\n").length, paths: pathOccurrences(untrusted) }],
-					["the router-off trusted doctrine is the measured 4459 portable chars and 69 lines", portable(off).length === 4459 && off.split("\n").length === 69, { portable: portable(off).length, lines: off.split("\n").length }],
-					["...and the whole router-on doctrine is the measured 7044 portable chars and 93 lines, and stays under 7400 with five percent reserve", portable(on).length === 7044 && on.split("\n").length === 93 && portable(on).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(on).length, WRITING_ROUTER_BOUND), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
-					["writing and design doctrine is the measured 4459 portable chars and 69 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 4459 && writingOn.split("\n").length === 69 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
-					["draft-enabled router-off doctrine is 4478 portable chars and 69 lines", portable(offDraft).length === 4478 && offDraft.split("\n").length === 69, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
-					["draft-enabled router-off writing doctrine is 4478 portable chars and 69 lines", portable(offDraftWriting).length === 4478 && offDraftWriting.split("\n").length === 69, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
-					["the six-model fixture is 6489 portable chars and 90 lines without draft publishing", portable(configuredOffDraft).length === 6489 && configuredOffDraft.split("\n").length === 90, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
-					["the six-model fixture is 6489 portable chars and 90 lines with writing", portable(configuredOffDraftWriting).length === 6489 && configuredOffDraftWriting.split("\n").length === 90, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
-					["the six-model draft fixture is 6508 portable chars and 90 lines", portable(configuredDraft).length === 6508 && configuredDraft.split("\n").length === 90, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
-					["the six-model draft and writing fixture is 6508 portable chars and 90 lines", portable(configuredDraftWriting).length === 6508 && configuredDraftWriting.split("\n").length === 90, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
-					[`writing plus router is the measured 7044 portable chars and 93 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 7044 && writingRouterOn.split("\n").length === 93 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
-					["writing plus extensions is the measured 4714 portable chars and 75 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 4714 && writingExtensionsOn.split("\n").length === 75 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
-					[`all three tail features are the measured 7299 portable chars and 99 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 7299 && writingAllOn.split("\n").length === 99 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
-					["the all-nine draft fixture is 7063 portable chars and 93 lines", portable(allDraft).length === 7063 && allDraft.split("\n").length === 93, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
-					["the all-nine draft and writing fixture is 7063 portable chars and 93 lines", portable(allDraftWriting).length === 7063 && allDraftWriting.split("\n").length === 93, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
+					["the untrusted doctrine is the measured 2708 portable chars, 43 lines, and three embedded paths", portable(untrusted).length === 2708 && untrusted.split("\n").length === 43 && pathOccurrences(untrusted) === 3, { portable: portable(untrusted).length, lines: untrusted.split("\n").length, paths: pathOccurrences(untrusted) }],
+					["the router-off trusted doctrine is the measured 4410 portable chars and 69 lines", portable(off).length === 4410 && off.split("\n").length === 69, { portable: portable(off).length, lines: off.split("\n").length }],
+					["...and the whole router-on doctrine is the measured 6995 portable chars and 93 lines, and stays under 7400 with five percent reserve", portable(on).length === 6995 && on.split("\n").length === 93 && portable(on).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(on).length, WRITING_ROUTER_BOUND), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
+					["writing and design doctrine is the measured 4410 portable chars and 69 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 4410 && writingOn.split("\n").length === 69 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
+					["draft-enabled router-off doctrine is 4429 portable chars and 69 lines", portable(offDraft).length === 4429 && offDraft.split("\n").length === 69, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
+					["draft-enabled router-off writing doctrine is 4429 portable chars and 69 lines", portable(offDraftWriting).length === 4429 && offDraftWriting.split("\n").length === 69, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
+					["the six-model fixture is 6440 portable chars and 90 lines without draft publishing", portable(configuredOffDraft).length === 6440 && configuredOffDraft.split("\n").length === 90, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
+					["the six-model fixture is 6440 portable chars and 90 lines with writing", portable(configuredOffDraftWriting).length === 6440 && configuredOffDraftWriting.split("\n").length === 90, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
+					["the six-model draft fixture is 6459 portable chars and 90 lines", portable(configuredDraft).length === 6459 && configuredDraft.split("\n").length === 90, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
+					["the six-model draft and writing fixture is 6459 portable chars and 90 lines", portable(configuredDraftWriting).length === 6459 && configuredDraftWriting.split("\n").length === 90, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
+					[`writing plus router is the measured 6995 portable chars and 93 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 6995 && writingRouterOn.split("\n").length === 93 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
+					["writing plus extensions is the measured 4665 portable chars and 75 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 4665 && writingExtensionsOn.split("\n").length === 75 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
+					[`all three tail features are the measured 7250 portable chars and 99 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 7250 && writingAllOn.split("\n").length === 99 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
+					["the all-nine draft fixture is 7014 portable chars and 93 lines", portable(allDraft).length === 7014 && allDraft.split("\n").length === 93, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
+					["the all-nine draft and writing fixture is 7014 portable chars and 93 lines", portable(allDraftWriting).length === 7014 && allDraftWriting.split("\n").length === 93, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
 					// Update exact measurements with production wording in the same commit.
-					[`the maximum all-feature fixture is the measured 8410 portable chars and 103 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 8410 && maximal.split("\n").length === 103 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					[`the draft-PR-disabled maximum fixture is pinned independently at 8391 portable chars and 103 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 8391 && maximalNoDraft.split("\n").length === 103 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the maximum all-feature fixture is the measured 8361 portable chars and 103 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 8361 && maximal.split("\n").length === 103 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the draft-PR-disabled maximum fixture is pinned independently at 8342 portable chars and 103 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 8342 && maximalNoDraft.split("\n").length === 103 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and 11 split lines, and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					[`the positive control is the measured 9726 portable chars and 110 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9726 && overBudget.split("\n").length === 110 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
+					[`the positive control is the measured 9677 portable chars and 110 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9677 && overBudget.split("\n").length === 110 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
@@ -2382,7 +2383,7 @@ try {
 				"doctrine-budget-deferred",
 				"the trusted deferred-issue configuration has its own pinned maximum fixture and preserves the existing maximum bound",
 				[
-					[`the maximal deferred-issue fixture is the measured 8484 portable chars and 104 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8484 && maximalFollowUp.split("\n").length === 104 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
+					[`the maximal deferred-issue fixture is the measured 8435 portable chars and 104 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8435 && maximalFollowUp.split("\n").length === 104 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
 				],
 			);
 		});
@@ -3720,6 +3721,9 @@ try {
 			const workflow = readFileSync(join(REPO, "docs", "track-workflow.md"), "utf8");
 			const blast = readFileSync(join(REPO, "docs", "blast-radius.md"), "utf8");
 			const reviews = readFileSync(join(REPO, "docs", "review-rules.md"), "utf8");
+			const userNotes = readFileSync(join(REPO, "docs", "user-notes.md"), "utf8");
+			const publishing = readFileSync(join(REPO, "docs", "pr-publishing.md"), "utf8");
+			const workflowDocs = [workflow, reviews, blast, userNotes, publishing].join("\n");
 			const block = (source, name) => {
 				const begin = `<!-- ${name}:begin -->`;
 				const end = `<!-- ${name}:end -->`;
@@ -3752,47 +3756,151 @@ try {
 			const focusBlast = block(blast, "focus-area-table");
 			const expectedFocus = `| # | focus area | the gate it adds | where the gate runs |
 | --- | --- | --- | --- |
-| 1 | concurrency | one area reviewer for concurrency | every track that engages the area |
-| 2 | durability | one area reviewer for durability and recovery | every track that engages the area |
-| 3 | security | one area reviewer for security | every track that engages the area |
-| 4 | core behaviour or algorithms | one area reviewer for behavioural correctness | every track that engages the area |
-| 5 | performance | one area reviewer for performance | every track that engages the area |
-| 6 | public interface or contract | one contract reviewer | every track that engages the area |
-| 7 | silent failure mode | one area reviewer that must state how each failure would be detected | every track that engages the area |
-| 8 | project test artifact | one test-quality and structure reviewer | every track that engages the area |
-| 9 | user-facing or licensing-adjacent prose | one prose and licensing reviewer | every track that engages the area |`;
+| 1 | concurrency defect | one area reviewer for concurrency | every track that proves the area |
+| 2 | data loss | one area reviewer for data loss and recovery | every track that proves the area |
+| 3 | security weakness | one area reviewer for security | every track that proves the area |
+| 4 | performance degradation | one area reviewer for performance | every track that proves the area |
+| 5 | test-quality defect | one test-quality and structure reviewer | every track that proves the area |
+| 6 | unreadable user-facing prose | one prose reviewer | every track that proves the area |
+| 7 | licensing exposure | one licensing reviewer | every track that proves the area |`;
 			const parseRows = (text) => text.split("\n").filter((line) => /^\| \d+ \|/.test(line)).map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()));
 			const workflowRows = parseRows(focusWorkflow.text);
 			const blastRows = parseRows(focusBlast.text);
-			checkAll("contract-focus-table-sync", "the marked nine-area tables are unique, exactly equal, and equal to the fixed canonical table", [
+			checkAll("contract-focus-table-sync", "the marked seven-area tables are unique, exactly equal, and equal to the fixed canonical table", [
 				["workflow table marked once", focusWorkflow.count === 1 && focusWorkflow.endCount === 1, focusWorkflow],
 				["blast table marked once", focusBlast.count === 1 && focusBlast.endCount === 1, focusBlast],
-				["nine ordered rows", workflowRows.map((row) => row[0]).join() === "1,2,3,4,5,6,7,8,9", workflowRows.map((row) => row[0])],
+				["seven contiguous ordered rows", workflowRows.map((row) => row[0]).join() === "1,2,3,4,5,6,7", workflowRows.map((row) => row[0])],
 				["blocks equal", normalize(focusWorkflow.text) === normalize(focusBlast.text), { workflowRows, blastRows }],
 				["content is the fixed canonical table", normalize(focusWorkflow.text) === expectedFocus, focusWorkflow.text],
 			]);
 
-			const area8Definition = block(blast, "project-test-artifact-definition");
-			const expectedArea8Definition = normalizeText(`A project test artifact is an artifact whose purpose is to exercise, configure,
-feed, isolate, or assert project behavior under a project test or check. The
-area includes test logic, assertions, fixtures, snapshots, golden data, mocks,
-stubs, harnesses, test-specific configuration, and test support.
+			const sectionText = (source, heading, next) => source.match(new RegExp(`^### ${heading}\\n([\\s\\S]*?)(?=^### ${next})`, "m"))?.[1]?.trim() ?? "";
+			const expectedDefinitions = new Map([
+				["Concurrency defect", normalizeText(`**Outcome:** a result that the specification forbids, or a stop of required
+progress, produced by an allowed overlap or order of two or more executions.
+**Trigger:** the area engages when the change can cause that outcome. A change
+does not engage the area only because it runs inside a concurrent program.
+Slower execution that still makes progress belongs to performance degradation.`)],
+				["Data loss", normalizeText(`**Outcome:** data that the project keeps for a user, a consumer or a later
+session, and that cannot be recovered, or recovered data that differs from the
+state the project kept. **Trigger:** the area engages when the change can cause
+that outcome. Loss that the published contract permits does not engage the
+area. A change that widens the permitted loss does engage it. Data that the
+project may rebuild or discard without a consumer noticing does not engage the
+area.`)],
+				["Security weakness", normalizeText(`**Outcome:** a condition that an actor can exploit or trigger to break
+confidentiality, integrity, availability, authentication, authorization or
+accountability for the project or its consumers. **Trigger:** the area engages
+when the change can introduce or expose that condition and a credible actor can
+reach it. Exploitation need not happen. A change to a control whose purpose is
+to protect one of those six properties engages the area, whether or not an
+actor can reach the condition today. A configuration key engages the area only
+when the key controls the run-time security posture of a consumer of the
+published package.`)],
+				["Performance degradation", normalizeText(`**Outcome:** latency, throughput or resource use that misses a stated
+requirement, or a growth of work with input size or data size that moves to a
+worse class than the current code has. **Trigger:** the area engages when the
+change can cause that outcome. A stated requirement is a limit that project
+rules, the approved design, a benchmark threshold, a timeout, a budget or a
+pinned size figure states for the touched path. It includes a path that project
+rules mark as hot or as running on every turn. A change that alters no work per
+unit of input engages the area on such a path only through a stated size budget.`)],
+				["Test-quality defect", normalizeText(`<!-- test-quality-definition:begin -->
+**Outcome:** a project test or check that gives an unreliable signal, or that
+fails to detect a fault inside the behaviour it claims to protect. **Trigger:**
+the area engages when the change can cause that outcome. A changed coverage
+number or coverage denominator alone is not engagement. A product artifact
+does not engage the area only because a test calls it.
+<!-- test-quality-definition:end -->`)],
+				["Unreadable user-facing prose", normalizeText(`**Outcome:** text that leaves its intended reader unable to make the decision or
+complete the task that the text supports, where that text is readable by a
+consumer of the published package or governed by the project writing
+convention. **Trigger:** the area engages when the change can cause that outcome. A short
+internal comment, a test name, a mechanical label, and text that the project
+excludes from its writing convention do not engage the area. A readability score
+alone neither engages nor clears the area.`)],
+				["Licensing exposure", normalizeText(`**Outcome:** published material that the project has no permission to publish
+under its own licence. **Trigger:** the area engages when the change can cause
+that outcome through copied or adapted material from an identifiable external
+work, a dependency or notice, or a trademark. Copying or adapting such external
+material always engages the area. A dependency with a clear permission basis
+and satisfied conditions does not engage the area. Material that an author or a
+worker wrote for this project without an external source does not engage the
+area. Unknown provenance alone does not engage it.`)],
+			]);
+			const definitionOrder = [...expectedDefinitions.keys()];
+			const actualDefinitions = new Map(definitionOrder.map((name, index) => [name, sectionText(blast, name, index + 1 < definitionOrder.length ? definitionOrder[index + 1] : "Judged proof and risk record")]));
+			const testDefinition = block(blast, "test-quality-definition");
+			const negatedTestDefinition = normalizeText(testDefinition.text.replace("gives an unreliable signal", "gives a reliable signal"));
+			const oldDefinitionMarkers = ["project-test-artifact-definition", "core-behaviour-definition"];
+			checkAll("contract-risk-definitions", "all seven risk definitions are exact, independent of row numbers, and the marked test-quality definition rejects a negated mutation", [
+				["seven exact definitions", definitionOrder.every((name) => normalizeText(actualDefinitions.get(name) ?? "") === expectedDefinitions.get(name)), Object.fromEntries([...actualDefinitions].map(([name, text]) => [name, normalizeText(text)]))],
+				["definitions carry no area-number coupling", [...actualDefinitions.values()].every((text) => !/\barea \d+\b/i.test(text)), [...actualDefinitions].filter(([, text]) => /\barea \d+\b/i.test(text))],
+				["test-quality definition marked once", testDefinition.count === 1 && testDefinition.endCount === 1, testDefinition],
+				["test-quality marker content is exact", normalizeText(`<!-- test-quality-definition:begin -->\n${testDefinition.text}\n<!-- test-quality-definition:end -->`) === expectedDefinitions.get("Test-quality defect"), normalizeText(testDefinition.text)],
+				["negated test-quality mutation fails exact comparison", negatedTestDefinition !== normalizeText(testDefinition.text), negatedTestDefinition],
+				["retired definition markers are absent", oldDefinitionMarkers.every((name) => block(blast, name).count === 0 && block(blast, name).endCount === 0), oldDefinitionMarkers.filter((name) => block(blast, name).count !== 0 || block(blast, name).endCount !== 0)],
+			]);
 
-Decide purpose from content, imports, callers, project test commands, and
-optional declarations. Filenames and directories are evidence, not
-definitions.
+			const riskLifecycle = normalizeText(workflow.match(/^## Risk planning and reconciliation\n([\s\S]*?)(?=^## Fast path)/m)?.[1] ?? "");
+			const proofSection = normalizeText(blast.match(/^### Judged proof and risk record\n([\s\S]*?)(?=^## Optional path declarations)/m)?.[1] ?? "");
+			const expectedRiskLifecycle = normalizeText(`The orchestrator names engaged focus areas during track planning. Engagement is
+judged for the whole track and its planned change, not for each file. The
+orchestrator writes all seven risk-record lines. Each named area gets the
+three-part proof defined in [blast-radius.md](blast-radius.md) § Judged proof
+and risk record. Each non-engagement line states which trigger part answers no.
 
-For a dual-purpose artifact, inspect the changed responsibility. A product
-artifact does not engage area 8 merely because tests call it. Engage area 8
-when the changed responsibility serves test execution, isolation, inputs, or
-evidence.`);
-			const negatedArea8 = normalizeText(area8Definition.text.replace("is an artifact whose purpose", "is not an artifact whose purpose"));
-			const area8Row = blastRows.find((row) => row[0] === "8") ?? [];
-			checkAll("contract-area8-artifact", "the unique marked project-test-artifact definition and tie-break equal the canonical text, so a negation or weakening fails", [
-				["definition marked once", area8Definition.count === 1 && area8Definition.endCount === 1, area8Definition],
-				["canonical row names the area and composite", area8Row[1] === "project test artifact" && area8Row[2] === "one test-quality and structure reviewer", area8Row],
-				["definition and tie-break are exact", normalizeText(area8Definition.text) === expectedArea8Definition, normalizeText(area8Definition.text)],
-				["negated counterfactual fails exact comparison", negatedArea8 !== expectedArea8Definition, negatedArea8],
+The proof basis is the approved track design. When the track has no design, the
+basis is the track intention block and planned file list. The user approves the
+record at every confirmation gate. The adversarial design review checks the
+whole record when that review runs. The design stage is the only stage where an
+adversarial thread receives the record. A stuck-fix consultation receives none.
+
+A track design change that newly engages an area needs a proof and user
+approval before review of that track. Before review, the orchestrator compares
+the committed difference with the proved set. It may add a missed proved area
+and its reviewer without a blocking user gate. It may drop a proved area that
+no longer engages. The track packet reports either change.
+
+The implementer reports any risk that the plan did not name. The orchestrator
+writes its proof, adds its reviewer, and reports both in the track packet. An
+implementation reviewer receives no proof.`);
+			const expectedProofSection = normalizeText(`The orchestrator records one line for every area. A named line gives a concrete
+three-part proof. The proof states the defect class, the place in the planned
+change where it can occur, and the consequence. A non-engagement line states
+which part of the trigger answers no.
+
+The proof basis is the approved track design. When the track has no design, the
+basis is the track intention block and planned file list. The risk record is
+orchestrator material, not high-level design. It may cite concrete paths,
+symbols, and checks.
+
+A proof must show a material consequence of omitting the area reviewer. A
+consequence is material when a reasonable reviewer would file it at major
+severity or above. Project tooling counts. A protective-control change is
+material when loss of that control would be material. A cosmetic consequence
+is not material. A proof is not convincing when its words would also fit a
+change that does not engage the area.
+
+No rule mechanically decides whether a proof holds. The adversarial design
+review judges the whole record when that review runs. The user judges the whole
+record at every confirmation gate. An area whose proof convinces neither reader
+is skipped. A skipped area gets no reviewer. The skip is recorded and is not an
+escalation. A track with no proved area still gets Reviewer I and every gate its
+grade requires.
+
+Reviewer composition and merging belong to
+[review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters.`);
+			const ownerMutation = riskLifecycle.replace("The orchestrator names", "The implementer names");
+			const proofMutation = proofSection.replace("Project tooling counts.", "Project tooling does not count.");
+			checkAll("contract-risk-lifecycle", "orchestrator ownership, judged proof, approval, reconciliation, and implementer reporting stay complete while the retired declaration protocol stays absent", [
+				["risk lifecycle is exact", riskLifecycle === expectedRiskLifecycle, riskLifecycle],
+				["judged proof section is exact", proofSection === expectedProofSection, proofSection],
+				["ownership mutation fails exact comparison", ownerMutation !== riskLifecycle && ownerMutation !== expectedRiskLifecycle, ownerMutation],
+				["materiality mutation fails exact comparison", proofMutation !== proofSection && proofMutation !== expectedProofSection, proofMutation],
+				["new-track approval is explicit", /new track created after the original confirmation gate needs\nuser approval of its risk record before implementation starts/.test(workflow), workflow.slice(0, 1200)],
+				["implementer reports one unplanned-risk line", /ends its response with `unplanned risk: none` or one line/.test(workflow), workflow.match(/.{0,100}unplanned risk.{0,140}/s)?.[0]],
+				["retired declaration protocol is absent from all workflow documents", !/focus declaration|focus: <area name>|missing declaration|retry the implementer once/i.test(workflowDocs), workflowDocs.match(/.{0,80}(?:focus declaration|focus: <area name>|missing declaration|retry the implementer once).{0,100}/is)?.[0]],
 			]);
 
 			const fastPath = workflow.match(/^## Fast path\n([\s\S]*?)(?=^## Track packet shape)/m)?.[1] ?? "";
@@ -3802,59 +3910,47 @@ evidence.`);
 1. The outcome is mechanical and has one clear implementation.
 2. The change intends no edit to an existing consumer-reachable rule.
 3. No sensitive configuration changes.
-4. The change intends no edit that needs new silent-failure detection reasoning.
-5. The change intends no edit to a project test artifact.
-6. No verification, gate, coverage, packaging, release, or workflow machinery changes.
-7. The change remains within the declared file list.
-8. One mechanical validation can establish the result.
-9. The orchestrator judges that the change needs no adversarial design review.
+4. The change cannot cause a test-quality defect.
+5. No verification, gate, coverage, packaging, release, or workflow machinery changes.
+6. The change remains within the declared file list.
+7. One mechanical validation can establish the result.
+8. The orchestrator judges that the change needs no adversarial design review.
 
-When all nine conditions pass, the fast path omits the high-level design,
+When all eight conditions pass, the fast path omits the high-level design,
 adversarial design review, research log, and implementer report. Another rule
 can still require any omitted gate or artifact.
 
-The fast-path sequence is size prediction → confirmation → implementation →
-mechanical validation → focus declaration → committed-boundary size measurement
-→ mechanical checklist → track packet → blocking final acceptance → delivery.
-After boundary measurement, run all nine checklist items against the committed
-range and actual declaration.
-If any item fails, return to the ordinary SMALL workflow before packet delivery.
+The fast-path sequence is size prediction → risk-record planning → confirmation
+and risk-record approval → implementation → mechanical validation →
+committed-difference comparison → committed-boundary size measurement →
+mechanical checklist → track packet → blocking final acceptance → delivery.
+After boundary measurement, run all eight checklist items against the committed
+range and actual risk record. If any item fails, return to the ordinary SMALL
+workflow before packet delivery.
 
-Any project test artifact voids the fast path. Any verification or gate
-machinery also voids it. Carved-out SMALL verification work receives Reviewer I.
-Other SMALL work receives one reviewer for every engaged area whose canonical focus-area
-gate runs per track, and Reviewer I when the validated declaration names no per-track area.`);
-			const widenedFastGrant = fastPath.replace("artifact.\n\nThe fast-path sequence", "artifact. A widened fast path may also omit the track reviewer.\n\nThe fast-path sequence");
+A test-quality defect voids the fast path. Any verification or gate machinery
+also voids it. Reviewer I reviews every SMALL track. Each proved focus area adds
+its reviewer.`);
+			const widenedFastGrant = fastPath.replace("implementer report. Another", "implementer report and Reviewer I. Another");
 			const widenedFastSequence = fastPath.replace("→ delivery.", "→ delivery → undocumented shortcut.");
 			const grantMutationApplied = widenedFastGrant !== fastPath;
 			const sequenceMutationApplied = widenedFastSequence !== fastPath;
-			const coreDefinitionMatch = blast.match(/^### 4\. Core behaviour or algorithms\n([\s\S]*?)(?=^### 5\.)/m);
-			const coreDefinition = { count: coreDefinitionMatch ? 1 : 0, text: coreDefinitionMatch?.[1]?.trim() ?? "" };
-			const expectedCoreDefinition = normalizeText(`Core behaviour or algorithms covers every change to production behaviour,
-branch meaning, state transition, error path or algorithm that is not purely
-mechanical and behaviour-preserving. A change engages this area even when the
-changed behaviour is small or has no substantial state machine. A formatting,
-renaming or other mechanical edit engages it only when the edit changes
-production behaviour.`);
-			const weakenedCoreDefinition = coreDefinition.text.replace("every change to production behaviour", "logic central to the product function");
-			const coreMutationApplied = weakenedCoreDefinition !== coreDefinition.text;
 			const reviewerRow = workflow.match(/^\| per-track \| Reviewer I \|.*$/m)?.[0] ?? "";
-			const engagedAreaRow = workflow.match(/^\| per-track \| engaged-area reviewers \|.*$/m)?.[0] ?? "";
-			const expectedReviewerRow = "| per-track | Reviewer I | for carved-out verification work, or when the validated declaration names no per-track area | every track | every track |";
-			const expectedEngagedAreaRow = "| per-track | engaged-area reviewers | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track | every engaged area whose canonical gate runs per track |";
+			const provedAreaRow = workflow.match(/^\| per-track \| proved-area reviewers \|.*$/m)?.[0] ?? "";
+			const expectedReviewerRow = "| per-track | Reviewer I | every track | every track | every track |";
+			const expectedProvedAreaRow = "| per-track | proved-area reviewers | every proved area whose canonical gate runs per track | every proved area whose canonical gate runs per track | every proved area whose canonical gate runs per track |";
 			checkAll("contract-fast-path-artifact", "the SMALL fast path is a complete canonical artifact and widened grant or sequence mutations fail", [
 				["complete fast path is exact", normalizeText(fastPath) === expectedFastPath, normalizeText(fastPath)],
 				["widened grant mutation applied", grantMutationApplied, widenedFastGrant],
 				["widened grant fails canonical comparison", grantMutationApplied && normalizeText(widenedFastGrant) !== expectedFastPath, normalizeText(widenedFastGrant)],
 				["widened sequence mutation applied", sequenceMutationApplied, widenedFastSequence],
 				["widened sequence fails canonical comparison", sequenceMutationApplied && normalizeText(widenedFastSequence) !== expectedFastPath, normalizeText(widenedFastSequence)],
-				["grade table reviewer qualifier is exact", reviewerRow === expectedReviewerRow, reviewerRow],
-				["grade table engaged-area reviewer row is exact", engagedAreaRow === expectedEngagedAreaRow, engagedAreaRow],
-				["core definition is exact", coreDefinition.count === 1 && normalizeText(coreDefinition.text) === expectedCoreDefinition, normalizeText(coreDefinition.text)],
-				["weakened core definition fails canonical comparison", coreMutationApplied && normalizeText(weakenedCoreDefinition) !== expectedCoreDefinition, normalizeText(weakenedCoreDefinition)],
+				["eight numbered conditions", checklist.length === 8, checklist],
+				["grade table Reviewer I row is exact", reviewerRow === expectedReviewerRow, reviewerRow],
+				["grade table proved-area reviewer row is exact", provedAreaRow === expectedProvedAreaRow, provedAreaRow],
 			]);
 
-			const composite = reviews.match(/^### Test-quality and structure reviewer\n([\s\S]*?)(?=^### Prose and licensing reviewer)/m)?.[1] ?? "";
+			const composite = reviews.match(/^### Test-quality and structure reviewer\n([\s\S]*?)(?=^### Prose reviewer)/m)?.[1] ?? "";
 			const behavioral = composite.match(/^#### Behavioral effectiveness\n([\s\S]*?)(?=^#### Structure and isolation)/m)?.[1] ?? "";
 			const structural = composite.match(/^#### Structure and isolation\n([\s\S]*)/m)?.[1] ?? "";
 			const behaviorTerms = ["test locations", "behavior or regression", "minimum production path", "branches and failure paths", "assertion and observable outcome", "mock or stub", "behavior-breaking counterfactual", "tests run and results", "coverage gaps", "absent, constant, tautological, or unrelated assertions", "Coverage is not evidence by itself"];
@@ -3864,21 +3960,47 @@ production behaviour.`);
 				["structure section complete", structural !== "" && structureTerms.every((term) => structural.includes(term)), structureTerms.filter((term) => !structural.includes(term))],
 				["not-applicable requires artifact reason", /not applicable only with an artifact-specific\s+reason/.test(composite), composite.slice(0, 500)],
 				["missing either is incomplete even with No findings", /Missing either section makes the review incomplete/.test(composite) && /No findings\./.test(composite), composite.slice(0, 500)],
-				["read-only with no episode or declaration", /receives no implementer episode or focus declaration[\s\S]*?read-only/.test(composite), composite.slice(0, 500)],
+				["read-only with no episode or proof", /receives no implementer episode or area proof[\s\S]*?read-only/.test(composite), composite.slice(0, 500)],
 			]);
 
-			checkAll("contract-no-test-structure", "project test artifacts use one fixed composite reviewer and no separately dispatched test-structure specialist remains", [
-				["retirement explicit", /old\s+separately dispatched test-structure specialist is\s+retired/.test(reviews), reviews.match(/.{0,80}test-structure.{0,120}/s)?.[0]],
-				["no standalone test-structure charter", !/^### .*test structure|\*\*test structure\*\*/im.test(reviews), reviews.match(/^### .*test structure|\*\*test structure\*\*/im)?.[0]],
-				["composite cannot merge with other roles", /never merges with\s+Reviewer I, a production area reviewer, or prose and licensing/.test(reviews), reviews.slice(0, 2500)],
+			const reviewerIClauses = reviews.match(/Reviewer I also checks exactly\nthese three clauses:\n\n([\s\S]*?)\n\n\| size grade/m)?.[1] ?? "";
+			const expectedReviewerIClauses = `- each in-scope failure mode and the exact signal that detects it. Missing
+  detection is a finding.
+- consumer-reachable semantics, defaults, command behavior, compatibility, and
+  persisted formats.
+- agreement between rule documents.`;
+			const reviewRows = [...reviews.matchAll(/^\| (SMALL|MEDIUM|LARGE) \| (.+) \|$/gm)].map((match) => [match[1], match[2]]);
+			const productionCharters = reviews.match(/^### Production area charters\n([\s\S]*?)(?=^### Test-quality and structure reviewer)/m)?.[1]?.trim() ?? "";
+			const expectedProductionCharters = `- **concurrency:** interleavings, shared state, atomicity, cancellation,
+  ordering, lifecycle, and deadlock.
+- **data loss and recovery:** persistence, migration, corruption, retry,
+  recovery, and transactional guarantees.
+- **security:** trust boundaries, authentication, authorization, secrets,
+  untrusted input, sandboxing, and user-data exposure.
+- **performance:** asymptotic growth, hot paths, input/output, allocation,
+  synchronization, caching, batching, and benchmark evidence.`;
+			const retiredCharters = ["behavioural correctness", "contract", "silent failure"];
+			const retiredPrefixes = ["BC", "CT", "SF"];
+			const standaloneTestStructureRole = /\btest[- ]structure specialist\b/i;
+			const activePrefixPhrase = "Active built-in prefixes are `RI`, `CN`,\n`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, and `RG`.";
+			checkAll("contract-review-charters", "Reviewer I is the sole general floor, its three added clauses are exact, the composite test role stays separate, and retired roles and prefixes stay absent", [
+				["Reviewer I clauses are exact", normalize(reviewerIClauses) === expectedReviewerIClauses, reviewerIClauses],
+				["all grade rows use Reviewer I plus proved areas", reviewRows.length === 3 && reviewRows.every(([, text]) => text === "Reviewer I plus one reviewer for every proved area whose canonical gate runs per track"), reviewRows],
+				["test, prose, and licensing are outside the production cap", /test-quality and structure reviewer, prose reviewer, and\nlicensing reviewer are additional and never count against that cap/.test(reviews), reviews.slice(0, 2500)],
+				["composite test role never merges with another built-in role", /test-quality and structure reviewer never merges with\nReviewer I, a production area reviewer, the prose reviewer, or the licensing\nreviewer\./.test(reviews), reviews.slice(0, 2500)],
+				["documentation-only merge exception is exact", /Each changed file in a documentation-only track has the `documentation`\nclassification from the shipped size command\. A track with any `source` file is\nnot documentation only\. On a documentation-only track, Reviewer I may carry the\nprose charter and the licensing charter\. Record the reason for this merge\./.test(reviews), reviews.slice(0, 2500)],
+				["no standalone test-structure specialist role", !standaloneTestStructureRole.test(reviews), reviews.match(standaloneTestStructureRole)?.[0]],
+				["prose and licensing charters are separate", /^### Prose reviewer$/m.test(reviews) && /^### Licensing reviewer$/m.test(reviews) && !/^### Prose and licensing reviewer$/m.test(reviews), reviews.match(/^### (?:Prose|Licensing).*$/gm)],
+				["production charter block is exact", productionCharters === expectedProductionCharters, productionCharters],
+				["retired production charters are absent", retiredCharters.every((name) => !new RegExp(`^- \\*\\*${name}:`, "m").test(reviews)), retiredCharters.filter((name) => new RegExp(`^- \\*\\*${name}:`, "m").test(reviews))],
+				["active prefix list is unique and exact", reviews.split(activePrefixPhrase).length - 1 === 1 && (reviews.match(/Active built-in prefixes/g) ?? []).length === 1, reviews.match(/Active built-in prefixes[^.]*\./gs)],
+				["retired prefixes are absent from the active list", retiredPrefixes.every((prefix) => !new RegExp(`Active built-in prefixes[^.]*\\b${prefix}\\b`, "s").test(reviews)), retiredPrefixes],
 			]);
 
-			const userNotes = readFileSync(join(REPO, "docs", "user-notes.md"), "utf8");
-			const publishing = readFileSync(join(REPO, "docs", "pr-publishing.md"), "utf8");
 			const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 			const headingCount = (source, name) => (source.match(new RegExp(`^## ${escapeRegex(name)}$`, "gm")) ?? []).length;
 			const targetDocs = [
-				["track-workflow.md", workflow, ["Lifecycle and phases", "Size script", "Confirmation gate", "Focus touchpoints", "Fast path", "Track packet shape", "Track intention block and focus declaration", "Session handoff and the research log", "Resume order and reconciliation", "Review coverage", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
+				["track-workflow.md", workflow, ["Lifecycle and phases", "Size script", "Confirmation gate", "Risk planning and reconciliation", "Fast path", "Track packet shape", "Track intention block and implementer response", "Session handoff and the research log", "Resume order and reconciliation", "Review coverage", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
 				["review-rules.md", reviews, ["Reviewer sets, merge rule and charters", "Findings and output", "Reviewer evidence standards", "Observation files and evidence recovery", "Fix loop and gate verdicts", "Stuck-fix consultation", "Termination and deferred-work routing"]],
 				["blast-radius.md", blast, ["Two independent axes", "Size measurement and the exclusion list", "Track function and track constraints", "Focus areas and their gates", "Optional path declarations", "Lifecycle rules owned by the spine", "Halt, re-derivation and grade correction", "Review coverage and the coverage register", "Commit discipline for drift and boundaries"]],
 				["user-notes.md", userNotes, ["Track packets", "Receiving and routing a user note", "Note queue and drain", "Override log", "Register entry shape", "Mandatory escalation set", "User note accounting", "Final report"]],

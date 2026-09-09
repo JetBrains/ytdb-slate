@@ -27,8 +27,9 @@ these eight fields:
 6. the places where the user's judgment matters. For each requested decision,
    state every option and its consequence. State that no decision is requested
    when none exists.
-7. the validated focus declaration, including every area that validation added
-   or removed.
+7. the proved-area summary. Give one line for every focus area. Each line states
+   the area, the proof outcome, and a short risk phrase. Include every area that
+   the committed-difference comparison added or dropped.
 8. every finding recorded with the ignored disposition.
 
 The track packet references the diff and never inlines it. It states where to
@@ -173,7 +174,6 @@ and the user's disposition.
 | A user note conflict is undecidable. | During the drain that finds it. | Choose one note, defer one to a tracked issue, ask for a rewrite. |
 | A second repeated drain cycle occurs. | At the second repeat. | Continue, defer the rest to tracked issues, stop. |
 | Finished tracks depend on a track affected by a blocking user note. | With the report of those tracks. | Keep them, re-run them, revert them. |
-| A focus declaration is still missing after two attempts. | At the second failed attempt. | Use a fresh implementer thread, re-run the track, accept a user-supplied declaration. |
 
 No silence supplies a disposition. Every escalation remains open until the user
 selects an option. The final accounting includes every escalation and its
@@ -208,8 +208,8 @@ The final report provides full accounting for:
 The delivery record carries a one-line index of every ignored finding. Each
 entry carries the identifier, location and one-line summary.
 
-The report includes one line that concludes whether the coverage invariant was
-met.
+The report includes one line that concludes whether Reviewer I and every
+proved-area perspective covered the full required range.
 
 The coverage register stays in the research log. Neither its entries nor its
 size enter a packet or the final report. The detailed register never leaves the

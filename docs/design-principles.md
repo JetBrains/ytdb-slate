@@ -152,12 +152,12 @@ or two problems for the others:
   in the Dumb Zone.
 
 - **P11 — Proportional process.** *(Repo-local note, not from the report.)*
-  Required gates and artifacts follow the confirmed size grade and the validated
-  focus declaration. The scope paragraph below states which rules add cost. No rule that
-  adds cost is unconditional. A rule that adds cost names the condition that
-  engages it. The condition is the size grade, the validated focus declaration, an artifact
-  whose own existence those two decide, or specific evidence that does not
-  appear in every track.
+  Required gates and artifacts follow the confirmed size grade and the proved
+  focus areas. Reviewer I on every track is the one permitted unconditional
+  review floor. No future rule may add a second unconditional cost. Every other
+  rule that adds cost names the condition that engages it. The condition is the
+  size grade, a proved focus area, an artifact whose own existence those two
+  decide, or specific evidence that does not appear in every track.
 
 Repo-local note (not from the report): Principle P11 governs the count of
 required gates, required artifacts and required review actions. A rule that
