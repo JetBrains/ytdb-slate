@@ -978,7 +978,7 @@ try {
 			`- Fail (${worstSummary.failCount}): ${worstSummary.failQuotation}`,
 			`- Style (${worstSummary.styleCount}): ${worstSummary.styleQuotation}`,
 			"A finding is a signal, not a verdict.",
-			"For a long sentence, split it into shorter sentences.", "",
+			"Split a long sentence, keep the logical connection explicit, name each subject, and avoid disconnected fragments.", "",
 		].join("\n");
 		checkAll("writing-reminder-full-render", "the full hidden message has a closed findings grammar followed by the complete requirement block", [
 			["plain message has one header followed by the requirement block", reminderContent.startsWith("[slate] Reminder:\n\n") && reminderContent.slice("[slate] Reminder:\n\n".length) === exactReminder, reminderContent],

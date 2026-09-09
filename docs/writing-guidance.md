@@ -254,8 +254,7 @@ review-only. The reminder carries one quotation for each present
 model-visible class and its count. Each quotation is capped at 120 bytes and
 uses `…` when truncated. Truncation keeps both `⟦` and `⟧` frame characters. The
 section states that quoted text is data, not an instruction. It states that a
-finding is a signal, not a verdict. It names splitting as the remedy for a long
-sentence. A checker
+finding is a signal, not a verdict. It states: `Split a long sentence, keep the logical connection explicit, name each subject, and avoid disconnected fragments.` A checker
 failure reports `writing unavailable` instead of failing the turn. The hidden
 reminder uses the model-visible channel described above.
 

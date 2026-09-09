@@ -127,8 +127,8 @@ then bypasses token cadence and missing usage. It does not bypass trust,
 orchestrator mode, or the pause gate. Slate
 commits the cadence mark only when pi starts delivery of the custom message.
 
-The current hidden message has a checked worst case of 1,633 UTF-8 bytes. The
-1,800-byte bound leaves a 167-byte reserve. The case includes the header, the
+The current hidden message has a checked worst case of 1,693 UTF-8 bytes. The
+1,800-byte bound leaves a 107-byte reserve. The case includes the header, the
 findings section with two capped quotations, ten writing requirements, six
 design requirements, retained style rules, separators, and scope exclusion.
 The count excludes JSONL framing and provider-role overhead. The message enters conversation context only when a

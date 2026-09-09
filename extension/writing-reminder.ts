@@ -237,7 +237,7 @@ function renderFindingsSection(summary: WritingFindingSummary | undefined): stri
 		...(summary.failQuotation ? [`- Fail (${summary.failCount}): ${summary.failQuotation}`] : []),
 		...(summary.styleQuotation ? [`- Style (${summary.styleCount}): ${summary.styleQuotation}`] : []),
 		"A finding is a signal, not a verdict.",
-		"For a long sentence, split it into shorter sentences.",
+		"Split a long sentence, keep the logical connection explicit, name each subject, and avoid disconnected fragments.",
 		"",
 	];
 }
