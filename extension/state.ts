@@ -747,9 +747,10 @@ export interface ContextBudgetObject {
 /**
  * Action-level model router (D4/D53). `models` is the CLOSED list of models the
  * router may route an action to, in canonical "provider/id" form; empty or
- * absent means the router is OFF, so no candidate list or router-owned base,
- * window, billing or substitution mechanism applies. Per-action arguments and
- * pre-existing failover remain outside that feature-off statement.
+ * absent means the router is OFF, so no candidate list or router-owned base
+ * applies. Context-size substitution and long-context billing notices are not
+ * part of action routing in either state. Per-action arguments and pre-existing
+ * failover remain outside that feature-off statement.
  * `allowUnmeasuredEffort` (default TRUE) decides what the dispatch path does
  * with an effort level that is ladder-valid but has no capability evidence —
  * an evidence gap is advisory, not a prohibition. `showWarnings` (default
