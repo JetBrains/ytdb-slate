@@ -128,9 +128,9 @@ round. The counter restarts after delivery. A trusted handoff sets `forceNext`,
 which bypasses the turn cadence on the next eligible turn. It does not bypass
 trust, orchestrator mode, or the pause gate.
 
-The current hidden message has a checked worst case of 1,693 UTF-8 bytes. The
-1,800-byte bound leaves a 107-byte reserve. The case includes the header, the
-findings section with two capped quotations, ten writing requirements, six
+The current hidden message has a checked worst case of 1,845 UTF-8 bytes. The
+2,000-byte bound leaves a 155-byte reserve. The case includes the header, the
+findings section with two capped quotations, ten writing requirements, seven
 design requirements, retained style rules, separators, and scope exclusion.
 The count excludes JSONL framing and provider-role overhead. The message enters conversation context only when a
 reminder fires. Later requests resend it with the rest of the conversation.
@@ -207,18 +207,18 @@ must agree with `verification/README.md`:
 
 | router | models | `draftPRs` | writing keys | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | absent | 4 | 4,410 | 69 |
-| off | — | off | set | 4 | 4,410 | 69 |
-| off | — | on | absent | 5 | 4,429 | 69 |
-| off | — | on | set | 5 | 4,429 | 69 |
-| on | fixed six-model fixture | off | absent | 5 | 6,440 | 90 |
-| on | fixed six-model fixture | off | set | 5 | 6,440 | 90 |
-| on | fixed six-model fixture | on | absent | 6 | 6,459 | 90 |
-| on | fixed six-model fixture | on | set | 6 | 6,459 | 90 |
-| on | all 9 shipped | off | absent | 5 | 6,995 | 93 |
-| on | all 9 shipped | off | set | 5 | 6,995 | 93 |
-| on | all 9 shipped | on | absent | 6 | 7,014 | 93 |
-| on | all 9 shipped | on | set | 6 | 7,014 | 93 |
+| off | — | off | absent | 4 | 4,617 | 72 |
+| off | — | off | set | 4 | 4,617 | 72 |
+| off | — | on | absent | 5 | 4,636 | 72 |
+| off | — | on | set | 5 | 4,636 | 72 |
+| on | fixed six-model fixture | off | absent | 5 | 6,647 | 93 |
+| on | fixed six-model fixture | off | set | 5 | 6,647 | 93 |
+| on | fixed six-model fixture | on | absent | 6 | 6,666 | 93 |
+| on | fixed six-model fixture | on | set | 6 | 6,666 | 93 |
+| on | all 9 shipped | off | absent | 5 | 7,202 | 96 |
+| on | all 9 shipped | off | set | 5 | 7,202 | 96 |
+| on | all 9 shipped | on | absent | 6 | 7,221 | 96 |
+| on | all 9 shipped | on | set | 6 | 7,221 | 96 |
 
 An untrusted project receives no writing or routing tail whatever its
 `slate.json` says. Its fixed doctrine remains 2,708 portable characters, 43
@@ -249,9 +249,9 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| fixture mirroring current `.pi/slate.json`: draft PRs + writing, pi-registry windows | 5 resolved | pinned-package 2 units / 4 tools | 6 | 7,217 | 99 | ≈1,804 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,361 | 103 | ≈2,090 |
-| deferred-issue maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,435 | 104 | ≈2,109 |
+| fixture mirroring current `.pi/slate.json`: draft PRs + writing, pi-registry windows | 5 resolved | pinned-package 2 units / 4 tools | 6 | 7,424 | 102 | ≈1,856 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,568 | 106 | ≈2,142 |
+| deferred-issue maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,642 | 107 | ≈2,161 |
 
 The dogfood fixture mirrors `workflow.draftPRs: true`, both ignored writing keys,
 and the five models in this repository's `.pi/slate.json`. A change to that
@@ -299,37 +299,38 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | routing rule lines | 25 | 34 | 9 |
 | routing fixed prose | 1,110 | 1,500 | 390 |
 | largest model row | 183 | 300 | 117 |
-| trusted router-on doctrine | 6,995 | 7,400 | 405 |
-| writing and design doctrine | 4,410 | 5,600 | 1,190 |
-| writing plus router | 6,995 | 7,400 | 405 |
-| writing plus extensions | 4,665 | 6,000 | 1,335 |
-| writing plus router and extensions | 7,250 | 7,700 | 450 |
-| maximal doctrine, draft PRs enabled | 8,361 | 9,000 | 639 |
-| maximal doctrine, draft PRs disabled | 8,342 | 9,000 | 658 |
-| maximal doctrine, deferred-issue prompt enabled | 8,435 | 9,000 | 565 |
+| trusted router-on doctrine | 7,202 | 7,600 | 398 |
+| writing and design doctrine | 4,617 | 5,600 | 983 |
+| writing plus router | 7,202 | 7,600 | 398 |
+| writing plus extensions | 4,872 | 6,000 | 1,128 |
+| writing plus router and extensions | 7,457 | 7,900 | 443 |
+| maximal doctrine, draft PRs enabled | 8,568 | 9,100 | 532 |
+| maximal doctrine, draft PRs disabled | 8,549 | 9,100 | 551 |
+| maximal doctrine, deferred-issue prompt enabled | 8,642 | 9,100 | 458 |
 | capped worker rule | 1,347 | 1,600 | 253 |
 | writing rule characters | 1,338 | 1,500 | 162 |
 | writing rule lines | 22 | 25 | 3 |
-| design rule characters | 364 | 450 | 86 |
+| design rule characters | 571 | 600 | 29 |
 
 On a cumulative component basis, the rendered ten-entry writing roster and the
-design rule contribute 976 portable characters and 15 lines. On a fixture-growth
-basis against the predecessor render, this change removes 49 portable characters
-from every base doctrine render and changes no line count. The trusted router-on
-fixture requires
-`6,995 × 1.05 = 7,344.75`. Ceiling gives 7,345. The 7,400 bound remains larger.
-The all-tail fixture requires `7,250 × 1.05 = 7,612.5`. Ceiling gives 7,613.
-The trusted router-on reserve is `7,400 − 6,995 = 405` characters. The all-tail
-reserve is `7,700 − 7,250 = 450` characters.
-The 7,700 bound remains larger.
+design rule contribute 1,183 portable characters and 18 lines. On a
+fixture-growth basis against the predecessor render, this change adds 207
+portable characters and three lines to every base doctrine render. The trusted
+router-on fixture requires `7,202 × 1.05 = 7,562.1`. Ceiling gives 7,563. The
+7,600 bound is larger.
 
-The deferred-issue fixture requires `8,435 × 1.05 = 8,856.75`. Ceiling gives
-8,857. The shared 9,000 bound keeps the required reserve for every maximal
+The all-tail fixture requires
+`7,457 × 1.05 = 7,829.85`. Ceiling gives 7,830. The trusted router-on reserve is
+`7,600 − 7,202 = 398` characters. The all-tail reserve is
+`7,900 − 7,457 = 443` characters. The 7,900 bound is larger.
+
+The deferred-issue fixture requires `8,642 × 1.05 = 9,074.1`. Ceiling gives
+9,075. The shared 9,100 bound keeps the required reserve for every maximal
 fixture.
 
 The positive control adds one capped tool and six copies of the largest
-measured model row. It measures 9,677 portable characters. It exceeds the
-9,000-character maximal bound by 677. That margin remains larger than the
+measured model row. It measures 9,884 portable characters. It exceeds the
+9,100-character maximal bound by 784. That margin remains larger than the
 184-character maximum model-row growth and the 212-character capped tool growth.
 The raised bound does not blunt the positive control.
 
@@ -339,10 +340,10 @@ unless the fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. The rough
 estimate divides each measured portable-character render by four and rounds to
-the nearest whole token. The shipped-rule table ranges from about 1,103 tokens
-to about 1,754 tokens. The current dogfood basis is about 1,804 tokens. The
-stable representative maximum is about 2,090 tokens. The deferred-issue
-maximum is about 2,109 tokens, or 0.82 percent of the default budget.
+the nearest whole token. The shipped-rule table ranges from about 1,154 tokens
+to about 1,805 tokens. The current dogfood basis is about 1,856 tokens. The
+stable representative maximum is about 2,142 tokens. The deferred-issue
+maximum is about 2,161 tokens, or 0.84 percent of the default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
 much headroom Slate consumes before conversation content.

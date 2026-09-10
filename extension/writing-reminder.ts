@@ -31,6 +31,7 @@ export const WRITING_REQUIREMENTS: readonly WritingRequirement[] = Object.freeze
 
 /** The ordered source of truth for design reminders. */
 export const DESIGN_REQUIREMENTS: readonly WritingRequirement[] = Object.freeze([
+	Object.freeze({ text: "Choose the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate." }),
 	Object.freeze({ text: "Keep a design statement only if a different reasonable implementation keeps it true." }),
 	Object.freeze({ text: "Present to the user any item the approved goals do not list." }),
 	Object.freeze({ text: "Never add or remove an approved goal yourself." }),
@@ -199,19 +200,16 @@ export function renderWritingDoctrineStyleRules(indent = ""): string {
 	return `${openingRules}\n${indent}${finalRule.text}`;
 }
 
+function renderDoctrineRequirements(requirements: readonly WritingRequirement[], indent: string): string {
+	return requirements.map((requirement) => `${indent}- ${requirement.text}`).join("\n");
+}
+
 export function renderWritingDoctrineRequirements(indent = ""): string {
-	return WRITING_REQUIREMENTS.map((requirement) => `${indent}- ${requirement.text}`).join("\n");
+	return renderDoctrineRequirements(WRITING_REQUIREMENTS, indent);
 }
 
 export function renderDesignDoctrineRequirements(indent = ""): string {
-	const words = DESIGN_REQUIREMENTS.map((requirement) => requirement.text).join(" ").split(" ");
-	const lines: string[] = [];
-	for (const word of words) {
-		const current = lines.at(-1);
-		if (current === undefined || `${current} ${word}`.length > 75) lines.push(word);
-		else lines[lines.length - 1] = `${current} ${word}`;
-	}
-	return lines.join(`\n${indent}`);
+	return renderDoctrineRequirements(DESIGN_REQUIREMENTS, indent);
 }
 
 export function renderWritingScopeExclusion(indent = ""): string {

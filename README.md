@@ -97,7 +97,7 @@ The guidance has prompt cost. Each orchestrator system prompt contains both doct
 
 The shipped CLI checks plain files, JSONL records, and unified diffs. See [`docs/writing-guidance.md`](docs/writing-guidance.md) for its rules, limits, output, and command examples.
 
-Slate sends hidden reminders after completed turns. The default cadence is four completed turns. A model-visible finding can trigger an immediate reminder when that option is enabled. The reminder carries the writing and conversation title, three retained style rules, ten writing requirements, and six design requirements. A findings section appears only when the latest measured turn carries a model-visible finding. The requirements exclude research logs, worker task text, and this project's agent instruction file.
+Slate sends hidden reminders after completed turns. The default cadence is four completed turns. A model-visible finding can trigger an immediate reminder when that option is enabled. The reminder carries the writing and conversation title, three retained style rules, ten writing requirements, and seven design requirements. A findings section appears only when the latest measured turn carries a model-visible finding. The requirements exclude research logs, worker task text, and this project's agent instruction file.
 
 ## Install
 

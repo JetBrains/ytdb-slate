@@ -12,6 +12,8 @@ or area proof. A design-stage adversarial reviewer receives the risk record.
 The stuck-fix consultation in § Stuck-fix consultation is the only episode
 exception. Independent reviewers run in parallel.
 
+A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
+
 Before applying its specific charter, every reviewer runs:
 
 ```bash

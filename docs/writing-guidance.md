@@ -88,8 +88,9 @@ Trusted orchestrator sessions receive four writing and design surfaces:
 
 1. **The writing doctrine rule.** One numbered rule states the writing
    convention and cites this file by absolute path.
-2. **The design doctrine rule.** A final numbered rule requires outcome-focused,
-   user-approved scope and self-contained design updates.
+2. **The design doctrine rule.** A final numbered rule requires the
+   simplest-solution requirement, outcome-focused user-approved scope, and
+   self-contained design updates.
 3. **The worker preamble sentence.** Every trusted worker thread receives one
    extra sentence of writing guidance in its preamble.
 4. **The turn status line.** In an interactive session, the Slate status line
@@ -127,8 +128,9 @@ When the latest measured turn has a model-visible finding, the reminder starts w
 The next line carries these three retained style rules: `Use short, active
 language.` `Keep exact technical terms.` `Do not use semicolons or
 contractions.` The reminder then repeats all ten writing requirements. It also
-carries this six-line design requirement block:
+carries this seven-line design requirement block:
 
+- Choose the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate.
 - Keep a design statement only if a different reasonable implementation keeps it true.
 - Present to the user any item the approved goals do not list.
 - Never add or remove an approved goal yourself.
@@ -209,7 +211,7 @@ ten-line writing roster has six manual copies: this guide, the writing
 convention in `AGENTS.md` near line 372, and the `writingLines` and
 `doctrineRequirements` copies in
 `verification/resolver-checks.mjs`, `verification/writing-reminder-canary.mjs`,
-and the clause list in `test/doctrine-contract.test.ts`. The six-line design
+and the clause list in `test/doctrine-contract.test.ts`. The seven-line design
 roster has four manual copies: this guide, the `designLines` copy in
 `verification/resolver-checks.mjs`, `verification/writing-reminder-canary.mjs`,
 and the clause list in `test/doctrine-contract.test.ts`.
