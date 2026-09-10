@@ -23,6 +23,7 @@ const REQUIREMENT_FRAGMENTS = [
 	"Use one term for each concept.",
 	"Do not explain an idea with a metaphor.",
 	"Do not invent a term when the project already has one.",
+	"Choose the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate.",
 	"Keep a design statement only if a different reasonable implementation keeps it true.",
 	"Present to the user any item the approved goals do not list.",
 	"Never add or remove an approved goal yourself.",

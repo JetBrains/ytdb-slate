@@ -166,6 +166,10 @@ The user chooses exactly one outcome:
    has no issue tracker, record the deferral in the delivery record.
 5. approve the removal of a goal, with the reason recorded.
 
+The orchestrator also proposes the simplest solution. This duty applies when an approved high-level design exists, because the approved goals live in that design. When a planned or implemented solution reaches something the approved goals do not list, the orchestrator proposes one of two repairs. The first repair simplifies the solution until it fits the approved goals. The second repair adds the missing goals.
+
+The orchestrator presents that proposal together with the scope exception. The first repair leads to the second outcome above. The second repair leads to the first outcome above. The five outcomes above remain the user decision set.
+
 Repeated regressions on one item make the orchestrator propose that item as a
 non-goal candidate. The orchestrator marks nothing automatically. Every
 non-goal needs user approval. The fourth outcome appears as a tracked issue, or as a delivery-record entry

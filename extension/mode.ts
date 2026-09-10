@@ -450,7 +450,8 @@ ${renderWritingScopeExclusion("   ")}
 /** Render the final trusted doctrine rule for design discipline. */
 function buildDesignRule(n: number): string {
 	return `
-${n}. ${renderDesignDoctrineRequirements("   ")}`;
+${n}. Follow these design requirements:
+${renderDesignDoctrineRequirements("   ")}`;
 }
 
 function buildDoctrine(

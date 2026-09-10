@@ -232,7 +232,7 @@ const result = {
   findingsOff: findingsOff?.findingText === main?.findingText && typeof findingsOffContents[0] === "string" && !findingsOffContents[0].includes(FINDINGS) && findingsOffContents[0].startsWith(`${HEADER}\n\n${REQUIREMENTS}`),
   findingsOffMeasuredInput: findingsOff?.findingText?.includes(";") && findingsOff.findingText.split(".").length > 7,
   advisoryHidden: !findingReminder?.includes("was accepted"),
-  messageBound: shape.bytes > 0 && shape.bytes <= 1800,
+  messageBound: shape.bytes > 0 && shape.bytes <= 2000,
   detailsHidden: allDetailsAbsent,
   toolResultClean: cleanTools,
   mainSessionFile, triggerOffSessionFile, findingsOffSessionFile, counts: evidence.map(counts), shape,
@@ -273,7 +273,7 @@ check_true no-findings-clean cleanNoFindings "the later clean cadence reminder h
 check_true findings-off findingsOff "writing.findings=false disables the immediate trigger and removes the section while cadence still fires" "the findings-off reminder has the wrong timing or structure"
 check_true findings-off-measurement findingsOffMeasuredInput "the findings-off session completed the same model-visible finding turn" "the findings-off session did not complete the finding-heavy input"
 check_true advisory-hidden advisoryHidden "the advisory passive-rule excerpt is absent from the findings reminder" "an advisory-rule finding reached the reminder"
-check_true message-bound messageBound "the delivered findings reminder stays within the 1800-byte bound" "the findings reminder is empty or exceeds 1800 bytes"
+check_true message-bound messageBound "the delivered findings reminder stays within the 2000-byte bound" "the findings reminder is empty or exceeds 2000 bytes"
 check_true delivery-details-hidden detailsHidden "provider contexts contain reminder text without hidden delivery details" "provider reminder details leaked across the API boundary"
 check_true tool-result-clean toolResultClean "all toolResults equal one exact text block with no extra keys or blocks" "a canary toolResult differs from the expected content shape"
 

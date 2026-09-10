@@ -216,6 +216,8 @@ test("writing doctrine is active for trusted projects regardless of ignored writ
     "Use one term for each concept.",
     "Do not explain an idea with a metaphor.",
     "Do not invent a term when the project already has one.",
+    "Follow these design requirements:",
+    "Choose the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate.",
     "Keep a design statement only if a different reasonable implementation keeps it true.",
     "Present to the user any item the approved goals do not list.",
     "Never add or remove an approved goal yourself.",
@@ -230,7 +232,7 @@ test("writing doctrine is active for trusted projects regardless of ignored writ
   ];
   for (const clause of requiredClauses) assert.ok(normalized.includes(clause), `missing doctrine clause: ${clause}`);
   assert.ok(
-    normalized.includes(DESIGN_REQUIREMENTS.map((entry) => entry.text).join(" ")),
+    normalized.includes(DESIGN_REQUIREMENTS.map((entry) => `- ${entry.text}`).join(" ")),
     "design doctrine must match the reminder roster word for word",
   );
   assert.ok(normalized.includes(`Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}.`));
@@ -257,7 +259,7 @@ test("writing guide rosters match the frozen production rosters", () => {
     "writing roster changed; update docs/writing-guidance.md in the same commit",
   );
   assert.deepEqual(
-    bullets("six-line design requirement block:", "The reminder then includes this exact scope guard:"),
+    bullets("seven-line design requirement block:", "The reminder then includes this exact scope guard:"),
     DESIGN_REQUIREMENTS.map((entry) => entry.text),
     "design roster changed; update docs/writing-guidance.md in the same commit",
   );
