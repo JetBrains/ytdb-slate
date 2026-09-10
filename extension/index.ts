@@ -23,7 +23,7 @@
  *                 failover fallbacks (what a new worker thread defaults to)
  *   model-profiles.ts / model-router.ts — the static routing data and the
  *                 resolver that turns `router.models` into routable candidates
- *   route.ts    — PURE per-action route planning + the seven dispatch guards
+ *   route.ts    — PURE per-action route planning + guards 0–4 and 7
  *
  * Optional config, including the deferred-issue prompt, lives at
  * <config dir>/slate.json (config dir = CONFIG_DIR_NAME,

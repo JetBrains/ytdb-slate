@@ -338,9 +338,12 @@ boundary of what a refresh can break unnoticed.
   really is the resolver's default (it takes an id *from* the table, so
   a refresh cannot stale it), and the `profiles-*` block below, whose
   subject **is** the table.
-- **Structural checks over the shipped table** (`profiles-*`) assert
-  shape and internal consistency, and nothing else. They are the
-  refresh-relevant ones, so what they cover is worth knowing precisely:
+- **Checks over the shipped table** (`profiles-*`) assert shape and
+  internal consistency. Four checks also pin selected research values.
+  `profiles-price-values` pins exact price values. `profiles-price-dates`
+  pins exact price dates. `profiles-price-identity` pins a price identity.
+  `profiles-price-long-context` pins a long-context derivation. These checks
+  are refresh-relevant, so their coverage is worth knowing precisely:
   every id is a canonical, unique, lower-case `provider/id`; every id
   and alias resolves to its own profile, with no alias shared, shadowing
   an id, or empty; every ladder is a duplicate-free subset of pi's
@@ -373,9 +376,10 @@ export a clean one (`git archive HEAD`) rather than copying the working
 tree — a copy taken while another change is in flight produces failures
 that have nothing to do with the mutation.
 
-So: structure yes, research numbers no. **No check in this repository
-can tell you that a figure in the shipped table is what the source
-says.** Only step 3's independent re-trace can, and that is a judgement
+So: structure and selected price facts yes, source verification no.
+**No check in this repository can tell you that a figure in the shipped
+table is what the source says.** Only step 3's independent re-trace can,
+and that is a judgement
 made by a human or a fresh context, not a test. Treat the checks as
 protection against slips in step 4, and step 3 as the only protection
 against a wrong or invented number.

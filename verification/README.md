@@ -559,9 +559,10 @@ A net much smaller than the ladder, for these subjects:
 - the **orchestrator base-model tracker** in `extension/base-model.ts` (`base-*`)
   — the reducer that decides which model switches move the base model new worker
   threads inherit;
-- **structural invariants of the shipped profile table** in
-  `extension/model-profiles.ts` (`profiles-*`) — shape and internal consistency
-  only, never a research number;
+- **the shipped profile table** in `extension/model-profiles.ts` (`profiles-*`)
+  — shape and internal consistency, plus exact checks for selected price values,
+  dates, schedule identity and long-context derivation. Other research data
+  remain a review concern;
 - the **writing checker** `extension/writing-check.mjs` (`writing-checker-*`) and
   the **writing status line** it feeds through `extension/writing.ts` and
   `extension/mode.ts` (`writing-status-*`), plus the **writing config sanitizer**
@@ -1160,8 +1161,8 @@ listed so a reader never has to infer it:
 
 - **What `threads.ts` does with a verdict**: applying the switch to a worker
   session, turning an early rejection into a tool error and an apply-time one into
-  an episode-less abort, and recording guard 6's once-per-pair memory. The ladder's
-  `WK1` rung covers the settings-isolation half of applying a switch; the rest
+  an episode-less abort. The ladder's `WK1` rung covers the settings-isolation
+  half of applying a switch; the rest
   needs a live session.
 - **pi's real compaction settings** behind `wouldCompact` / `reserveTokens`. The
   checks inject a fabricated predicate, which is the point — but it means the
@@ -1187,8 +1188,8 @@ listed so a reader never has to infer it:
 - **The two-call protocol.** `threads.ts` calls `planRoute` twice per dispatch —
   early, before any state mutation, and again at apply time once the context size
   is knowable — and the early caller must discard the warnings so nothing
-  double-reports and guard 6's once-per-pair notice is not consumed twice. The
-  checks exercise one call at a time; the protocol itself is the caller's.
+  double-reports. The checks exercise one call at a time; the protocol itself is
+  the caller's.
 - **How a verdict SURFACES to a user.** That a rejection becomes a tool error the
   orchestrator can correct, and that a re-seed warning reaches the tool result and
   the progress lines rather than only a log, is end-to-end behaviour. The module
@@ -1313,7 +1314,7 @@ the protocol (declare / observe / settle) rather than advancing time:
 | `base-two-in-flight` | two slate switches in flight are both recognised — chained (`A⇒B` then `B⇒C`) and out of order, in **any settle order** — with no report; beyond `MAX_PENDING` **live** declarations the oldest is dropped with exactly one warning, so its switch moves the base while the retained ones still do not; and the eviction is **settle-aware**: a settled entry waiting out its one-event grace is dropped first and silently, so a queue full of finished switches cannot cost a live declaration |
 | `base-throwing-switch` | a slate switch whose setter **throws** (pi's `setModel` does, despite its `Promise<boolean>` contract) leaves the base correct and no armed state behind: `ownSwitch` re-throws the error **unchanged** and retires the declaration in its `finally`, the throw itself is silent, only the documented one-event grace on that target remains, an unrelated user switch moves the base immediately, three throwing switches in a row accumulate nothing, and the bare `expectOwnSwitch` + `finally` path behaves identically |
 
-Shipped profile table (`extension/model-profiles.ts`) — **structural only**:
+Shipped profile table (`extension/model-profiles.ts`) — **structure and selected exact prices**:
 
 | id | what it proves |
 | --- | --- |
@@ -1321,15 +1322,16 @@ Shipped profile table (`extension/model-profiles.ts`) — **structural only**:
 | `profiles-aliases` | `findProfile` resolves every id (case-insensitively) and every alias to its own profile; no alias is shared between profiles, shadows a canonical id, or is empty/padded; an unknown spec resolves to `undefined` |
 | `profiles-ladder` | each ladder is a non-empty, duplicate-free subset of pi's effort vocabulary, and `capabilityMeasuredAt` / `evidenceGapAt` are disjoint and exactly cover it. This is the canary for a **mistyped ladder key**: a wrong key silently falls back to the widest ladder, which then contains levels the profile's own lists never mention |
 | `profiles-price` | every schedule is a non-empty, ascending, non-overlapping sequence of rows with `null`-or-ISO bounds, positive prices and output ≥ input; `tier` is an integer 1–4; `nonPreferred` is `null` or a non-empty reason; and tiers do not **price-invert** (no tier is dearer at its cheapest than the next tier up) |
+| `profiles-price-values` | Luna and Terra historical and current rows pin exact input, output, cache-read, cache-write and date values |
+| `profiles-price-dates` | the exact 2026-07-30 boundary selects the historical row before it and the current row on and after it |
+| `profiles-price-identity` | Luna and Terra pin distinct historical and current schedules with exact input and output values |
+| `profiles-price-long-context` | current Luna and Terra rows and multipliers derive the exact confirmed long-context input and output prices |
 | `profiles-meta` | `PROFILES_AS_OF` is an ISO date, every profile carries it, the table is deep-frozen, and the free-text fields are of the declared shape |
 
-What the `profiles-*` checks deliberately do **not** do: assert any research
-number. A price, a context window or a benchmark value may legitimately change on
-the next refresh, so only relative and structural facts are asserted. One
-consequence is worth stating plainly — **scaling every price by the same factor
-would pass**; the price-inversion invariant only catches a value that moves
-relative to its neighbours. Numeric fidelity to the research is a review
-concern, not something a structural check can own.
+The `profiles-*` checks pin selected price research. They do not pin every
+research value. A tier move that causes no price inversion can pass. An invented
+hazard clause or evidence clause can pass. Other numeric and evidential fidelity
+to the research remains a review concern.
 
 ### Teeth
 
@@ -1929,9 +1931,8 @@ per-dispatch worker switch depends on, in rung `WK1` above.
 The router and `route-*` checks stop at the **pure** boundary: they prove what the
 resolution reports and what the planner *decides*, not what `threads.ts` then does
 with a verdict — applying the switch to a worker session, raising an early
-rejection as a tool error, aborting an apply-time one without an episode, or
-remembering guard 6's once-per-pair notice. Those are separate mechanisms; `WK1`
-above covers one slice of the first. **The doctrine's routing rule used to be listed
+rejection as a tool error or aborting an apply-time one without an episode. Those
+are separate mechanisms; `WK1` above covers one slice of the first. **The doctrine's routing rule used to be listed
 here too and no longer belongs**: the `doctrine-*` checks cover it — feature-off
 byte-identity, positional numbering, injection safety, the two content exclusions and
 the size budget — by rendering it through `registerSlateMode`'s own handler.

@@ -526,19 +526,20 @@ on:
   geographic uplift are NOT carried, so a dispatch on any of those
   surfaces bills above these numbers.
 
-**Standing limitation: the automated checks are provably blind to
-wrong research data.** Slate's automated checks (a development
-harness in the source repository — it is not part of the published
-package) assert **structure only** for this table — ids and aliases
-resolve, ladders are
-duplicate-free subsets of pi's vocabulary, the measured and gap
-lists are disjoint and cover the ladder, price rows are well formed
-and tiers do not price-invert, the table is frozen. It asserts no
-research number, and cannot: scaling every price by the same factor
-passes green, a tier moved so that it does not invert prices passes
-green, and an invented hazard clause or evidence sentence passes
-green. Numeric and evidential fidelity to the research is a review
-concern; a green suite says nothing about it.
+**Standing limitation: the automated checks cover only part of the
+research data.** Slate's automated checks are a development harness
+in the source repository. The harness is not part of the published
+package. The checks assert table structure. They verify that ids and
+aliases resolve. They verify that ladders are duplicate-free subsets
+of pi's vocabulary. They verify that the measured and gap lists are
+disjoint and cover the ladder. They also verify that price rows are
+well formed, tiers do not price-invert, and the table is frozen. Exact
+checks pin selected price values, price dates, schedule identity, and
+a long-context price derivation. A tier move that causes no price
+inversion can pass. An invented hazard clause or evidence clause can
+also pass. Other numeric and evidential fidelity to the research
+remains a review concern. A green suite covers only the fields that
+the checks assert.
 
 ## Accepted limitations
 
@@ -548,4 +549,4 @@ concern; a green suite says nothing about it.
   disabled. Explicit model and effort values still apply.
 - **No context-size routing.** Slate does not substitute a wider model before an
   action. Pi owns compaction and context overflow behavior.
-- **No long-prompt notice.** Slate does not print a long-context price notice.
+- **No long-context billing notice.** Slate does not print a long-context billing notice.

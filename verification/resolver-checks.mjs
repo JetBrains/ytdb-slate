@@ -66,8 +66,8 @@ const workerReminderLoad = await tryImport("extension/worker-reminder.ts");
 // module header says so), so it belongs here rather than in the ladder: it
 // touches no pi, no filesystem and no clock other than the injected one.
 const baseLoad = await tryImport("extension/base-model.ts");
-// The route planner: the seven dispatch guards, extracted from threads.ts into a
-// PURE module for exactly this harness (threads.ts transitively imports
+// The route planner: guards 0–4 and 7, extracted from threads.ts into a PURE
+// module for exactly this harness (threads.ts transitively imports
 // @earendil-works/pi-ai, which this repo does not install).
 const routeLoad = await tryImport("extension/route.ts");
 const router = routerLoad.module;
@@ -2412,8 +2412,8 @@ try {
 		price: o.price ?? [{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
 		contextWindow: o.contextWindow ?? null,
 		maxOutput: null,
-		// Default null (untraced), overridable: the route planner's long-context
-		// billing guard reads both, and no other check needs them set.
+		// Default null (untraced), overridable: the router's model data note reads
+		// both, and no other check needs them set.
 		longContextThreshold: o.longContextThreshold ?? null,
 		longContextMultipliers: o.longContextMultipliers ?? null,
 		tier: o.tier ?? 1,
@@ -4230,14 +4230,12 @@ its reviewer.`);
 	// =========================================================================
 	// Dispatch guards — the route planner (extension/route.ts)
 	// =========================================================================
-	// The SAFETY CORE of action-level routing: the seven guards that decide whether
-	// one dispatched action may run at all, and on which (model, effort) pair. It was
-	// extracted from threads.ts into a pure module precisely so this harness can load
-	// it, and it needs permanent coverage more than anything else here — a guard that
-	// stops guarding still "works": the dispatch runs, an episode is written, and the
-	// damage (an action believed to have run at a level the model never offered, a
-	// long-context bill nobody was warned about, a failover the router vetoed) is
-	// invisible in the result.
+	// The SAFETY CORE of action-level routing: guard 0, guards 1 to 4, and guard 7
+	// decide whether one dispatched action may run at all, and on which (model, effort)
+	// pair. The planner was extracted from threads.ts into a pure module precisely so
+	// this harness can load it, and it needs permanent coverage more than anything else
+	// here. A guard that stops guarding still "works": the dispatch runs, an episode is
+	// written, and the damage is invisible in the result.
 	//
 	// Every input is fabricated, INCLUDING pi's compaction predicate. The resolutions
 	// are built by the REAL router from fabricated registries and profiles, so the
@@ -4626,7 +4624,7 @@ its reviewer.`);
 				wouldCompact: compactAt(20_000),
 				reserveTokens: 20_000,
 			});
-			checkAll("route-list-off", "with the router OFF the candidate-list and window guards are inert: an unlisted model and a ladder-less valid-vocabulary effort pass through unwarned, the `model` argument is preserved byte-for-byte for pi to resolve, the thread's PRE-ROUTER PIN is the planner's only model-field fall-through and is open-only, a stored baseModel resolves nothing, and no effort is derived; this check stops at planner output", [
+			checkAll("route-list-off", "with the router OFF no candidate-list policy applies, and this fixture supplies no profile source for an effort ladder: an unlisted model and a ladder-less valid-vocabulary effort pass through unwarned, the `model` argument is preserved byte-for-byte for pi to resolve, the thread's PRE-ROUTER PIN is the planner's only model-field fall-through and is open-only, a stored baseModel resolves nothing, and no effort is derived; this check stops at planner output", [
 				["unlisted model proceeds", verdict(off) === "proceed:p/other@undefined", verdict(off)],
 				["silently", off.warnings.length === 0, off.warnings],
 				["a valid-vocabulary effort survives with no ladder data", verdict(offEffort) === "proceed:p/other@max", verdict(offEffort)],
@@ -4636,7 +4634,7 @@ its reviewer.`);
 				["an EXPLICIT model is not open-only — it is a per-action switch", off.openOnly === undefined, off.openOnly],
 				["a stored baseModel resolves nothing on this path", verdict(offStoredBase) === "proceed:undefined@undefined", verdict(offStoredBase)],
 				["the argument is passed through byte-for-byte, padding included", verdict(offPadded) === "proceed:  p/other  @undefined", verdict(offPadded)],
-				["the window guard does not run at all", offWindow.kind === "proceed" && offWindow.warnings.length === 0 && offWindow.substitutedFrom === undefined, [verdict(offWindow), offWindow.warnings]],
+				["no context-window substitution occurs", offWindow.kind === "proceed" && offWindow.warnings.length === 0 && offWindow.substitutedFrom === undefined, [verdict(offWindow), offWindow.warnings]],
 			]);
 		});
 
@@ -4883,10 +4881,11 @@ its reviewer.`);
 			// than assumed from the field's absence.
 			const withTrackerKey = plan({ resolution: off, thread, orchestratorBaseModel: "p/tracked" });
 			const same = JSON.stringify(bare) === JSON.stringify(withTrackerKey);
-			// The guards that belong to the ROUTER are silent here: the list guard (there is
-			// no list), the window guard and the long-context billing notice (both need
-			// candidates). The EFFORT guards are a deliberate exception and NOT part of this
-			// claim: threads.ts injects a registry-and-auth-vetted profile source on this path
+			// The guard that belongs only to the ROUTER is silent here: guard 1 has no list.
+			// Context-size substitution and long-context billing notices are not part of
+			// action routing in either router state. The EFFORT guards are a deliberate
+			// exception and NOT part of this claim: threads.ts injects a
+			// registry-and-auth-vetted profile source on this path
 			// precisely so an explicit level the model does not have is still refused —
 			// route-off-ladder-source is that property's own check. So the fixture below asks
 			// for a level the injected ladder HAS, and the next one asks for one it does not.
@@ -4902,15 +4901,11 @@ its reviewer.`);
 				profiles: vetted,
 			});
 			const offLadder = plan({ resolution: off, thread, requestedEffort: "max", profiles: vetted });
-			// CQ17 (the caller now ELIDES pi's compaction-settings read on this path, so
-			// `wouldCompact` and `reserveTokens` arrive undefined) needs NO term here, and a
-			// comment is the honest place to say why: with the router off the window guard is
-			// structurally unreachable — it needs a CANDIDATE, and an off resolution has none —
-			// so "the verdict does not depend on those inputs" cannot be falsified by any
-			// plausible mutation. What the elision actually risks is reaching the ON path,
-			// where a missing predicate makes the guard inert; that is pinned by
-			// route-window-skip, and the conditionality itself lives in threads.ts (see
-			// README § coverage boundary).
+			// CQ17 records a retired input path. The caller elides pi's compaction-settings
+			// read on this path, so `wouldCompact` and `reserveTokens` arrive undefined.
+			// Context-size substitution is not part of action routing in either router state.
+			// The retained fabricated keys below prove that retired inputs do not affect the
+			// verdict. The historical check identifiers remain unchanged.
 			//
 			// A malformed argument is pi's error to raise, not the router's opinion.
 			const malformed = plan({ resolution: off, thread, requestedModel: "not a spec at all" });
@@ -5346,7 +5341,7 @@ its reviewer.`);
 		await section("route-switch-decision", async () => {
 			// WHICH MODEL a live worker session must be on for this action — extracted from
 			// threads.ts into a pure helper precisely so it could be pinned here, the same
-			// move that made the seven dispatch guards checkable. Its precedence, in order:
+			// move that made guards 0–4 and 7 checkable. Its precedence, in order:
 			// a plan target unless it is `openOnly` → no baseline ⇒ keep → a failover holds
 			// the session ⇒ keep → revert to the baseline → already there ⇒ keep.
 			// TQ7: `baseline` is a BRANDED OBJECT carrying both axes, produced only by
@@ -7126,11 +7121,11 @@ its reviewer.`);
 	}
 
 	// =========================================================================
-	// Shipped profile table (extension/model-profiles.ts) — STRUCTURAL only
+	// Shipped profile table (extension/model-profiles.ts) — STRUCTURE + SELECTED PRICES
 	// =========================================================================
-	// TQ11. These assert SHAPE and internal consistency, never a research
-	// number: a price, a window or a benchmark value may legitimately change on
-	// the next research refresh, while every invariant below must survive it.
+	// TQ11. These assert shape and internal consistency. Four checks also pin
+	// selected price values, dates, schedule identity and long-context derivation.
+	// Other research values may legitimately change on the next refresh.
 	if (!table || !state) {
 		for (const id of PROFILE_IDS) skip(id, `${!table ? "extension/model-profiles.ts" : "extension/state.ts"} could not be loaded`);
 	} else {
