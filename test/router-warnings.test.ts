@@ -200,7 +200,7 @@ test("showWarnings reveals every model data note without a discoverability notic
     await harness.consult();
 
     assert.equal(harness.notifications.filter((message) => message.includes("research table shipped inside slate")).length, 1);
-    assert.equal(harness.notifications.filter((message) => message.includes("model facts that slate could not trace")).length, 1);
+    assert.equal(harness.notifications.filter((message) => message.includes("model fact that slate could not trace")).length, 1);
     assert.deepEqual(discoverability(harness.notifications), []);
   });
 });
