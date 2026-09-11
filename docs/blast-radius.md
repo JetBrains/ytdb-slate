@@ -15,7 +15,7 @@ verifies the real committed range at the first track boundary. It never claims
 to measure absent work.
 
 **Focus is planned and proved.** The orchestrator judges engagement for the
-whole planned track. It records all seven areas and gives a concrete proof for
+whole planned track. It records all eight areas and gives a concrete proof for
 each named area. The user approves this risk record. Before review, the
 orchestrator compares the proved set with the committed difference. No script
 or rule decides whether a proof holds.
@@ -206,9 +206,10 @@ record contains a judged proof that holds.
 | 5 | test-quality defect | one test-quality and structure reviewer | every track that proves the area |
 | 6 | unreadable user-facing prose | one prose reviewer | every track that proves the area |
 | 7 | licensing exposure | one licensing reviewer | every track that proves the area |
+| 8 | non-local logic defect | one area reviewer for non-local logic defects | every track that proves the area |
 <!-- focus-area-table:end -->
 
-The marked table is the canonical copy of the duplicated seven-area table. Its
+The marked table is the canonical copy of the duplicated eight-area table. Its
 second copy is in [track-workflow.md](track-workflow.md). The two marked blocks
 must remain equal.
 
@@ -288,6 +289,100 @@ external material always engages the area. A dependency with a clear
 permission basis and satisfied conditions does not engage the area. Material
 that an author or a worker wrote for this project without an external source
 does not engage the area. Unknown provenance alone does not engage it.
+
+### Non-local logic defect
+
+**Outcome:** a result that the specification forbids, or a required result that
+never appears, because two or more places do not satisfy one shared relation. A
+place is one application of that relation: a rule check, state transition,
+condition interpretation, or representation read or write. The application and
+the facts it holds define its boundary. A fact held by another application stays
+outside that boundary, even when the first application reads or needs that fact.
+Reading an external fact does not make the consuming application independently
+checkable.
+
+Moving equivalent applications next to each other, into one module,
+or into separate files does not merge or split them. The reviewed change is a
+separate boundary. Omitting a required matching edit from that change can alter
+the area decision. An agreement is the shared relation that each place must
+preserve. **Trigger:** the area engages when the change can cause
+that outcome. The reader must be unable to
+settle whether the relation remains satisfied by reading each changed place on
+its own. The evidence for that risk must include at least one of these four
+kinds:
+
+1. A rule that two or more places must apply in the same way.
+2. A state or a history that an earlier execution left behind.
+3. Two or more conditions that must hold at the same time, where at least one
+   condition takes its value or its meaning from a place the change does not
+   show.
+4. A matching edit that is required in a place the change does not touch.
+
+One added condition whose two outcomes a reader checks separately leaves every
+place independent and does not engage the area. Two conditions joined in one
+expression do not engage the area when the same place shows the value and the
+meaning of each condition. The number of branches, the number of changed lines,
+the number of changed files and any complexity score neither engage nor clear
+the area. A repeated edit that keeps behaviour the same does not engage the
+area when every edited site appears in the change and a reader checks one site
+at a time. A change confined to text that no execution reads does not engage
+the area. Evidence that one lookup settles does not engage the area, because
+the area needs two or more facts that a reader must compare.
+
+A persisted-state write and its later read are separate applications in every
+layout. A co-located representation write and read are also separate when both
+must preserve one relation. An enforced constraint and a published copy held by
+another application remain separate, even when one reads the other. A local
+guard remains one independent application when it shows its value, meaning and
+both outcomes. A complete mechanical rename remains excluded when every site is
+shown and can be checked alone. An incomplete rename can engage when the missing
+site owes a matching edit.
+
+A proof for this area keeps the standard three parts. The defect class is the
+shared relation that can fail. The standard place field lists the changed place
+and every other place that must satisfy that relation. The consequence is the
+forbidden or missing result.
+
+- **Concurrency defect.** An unsatisfied agreement that appears only because two
+  or more executions may overlap or may run in another order belongs to
+  concurrency defect. Non-local logic defect covers an unsatisfied agreement
+  inside one execution. Both areas engage only when the change can leave that
+  agreement unsatisfied and the overlap or order can independently produce the
+  concurrency outcome.
+- **Data loss.** A forbidden result that destroys kept data, or that returns
+  kept data in a changed form, belongs to data loss. Non-local logic defect
+  covers an unsatisfied agreement whose result may be wrong without any data
+  being lost. Both areas engage only when the change can leave that agreement
+  unsatisfied and can independently destroy or alter kept data.
+- **Security weakness.** A condition that a credible actor can reach and
+  exploit against confidentiality, integrity, availability, authentication,
+  authorization or accountability belongs to security weakness. Non-local
+  logic defect covers a wrong result that needs no actor. Both areas engage
+  only when the non-local logic trigger holds and the security trigger also
+  holds for a protective control or a condition a credible actor can reach.
+- **Performance degradation.** A correct result that misses a stated latency,
+  throughput, resource or growth requirement belongs to performance
+  degradation. Non-local logic defect requires a wrong or an absent result.
+  Both areas engage only when the change can leave an agreement unsatisfied and
+  can independently miss the stated performance requirement or worsen the
+  growth class.
+- **Test-quality defect.** A check that gives an unreliable signal, or that
+  cannot detect a fault inside the behaviour it claims to protect, belongs to
+  test-quality defect. Non-local logic defect covers the product behaviour and
+  never engages because a test is missing. Both areas engage only when the
+  change can leave an agreement unsatisfied. The test-quality trigger must also
+  hold because the change makes a check unreliable or unable to detect the
+  fault it claims to protect against.
+- **Unreadable user-facing prose.** Text that leaves its reader unable to decide
+  or to act belongs to unreadable user-facing prose. Non-local logic defect
+  covers behaviour that an execution produces. Both areas engage only when the
+  change can leave an agreement unsatisfied and can independently leave the
+  reader unable to decide or act.
+- **Licensing exposure.** Published material that the project has no permission
+  to publish belongs to licensing exposure. Non-local logic defect never
+  engages because material came from outside. Both areas engage only when the
+  change can leave an agreement unsatisfied and also copies or adapts material
+  from an identifiable external work.
 
 ### Judged proof and risk record
 

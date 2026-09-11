@@ -140,6 +140,7 @@ counting and exclusion list lives only in [blast-radius.md](blast-radius.md)
 | 5 | test-quality defect | one test-quality and structure reviewer | every track that proves the area |
 | 6 | unreadable user-facing prose | one prose reviewer | every track that proves the area |
 | 7 | licensing exposure | one licensing reviewer | every track that proves the area |
+| 8 | non-local logic defect | one area reviewer for non-local logic defects | every track that proves the area |
 <!-- focus-area-table:end -->
 
 [blast-radius.md](blast-radius.md) defines each area and owns the canonical
@@ -149,7 +150,7 @@ copy of this table.
 
 The orchestrator presents one proposal before implementation. It states the
 predicted grade, expected counts, basis, uncertainty, split, required
-pre-implementation gates, and the seven-line risk record. The user confirms the
+pre-implementation gates, and the eight-line risk record. The user confirms the
 grade and approves the risk record. No file-modifying dispatch starts before
 confirmation and every required pre-implementation gate.
 
@@ -206,7 +207,7 @@ user approval of its risk record before implementation starts.
 
 The orchestrator names engaged focus areas during track planning. Engagement is
 judged for the whole track and its planned change, not for each file. The
-orchestrator writes all seven risk-record lines. Each named area gets the
+orchestrator writes all eight risk-record lines. Each named area gets the
 three-part proof defined in [blast-radius.md](blast-radius.md) § Judged proof
 and risk record. Each non-engagement line states which trigger part answers no.
 

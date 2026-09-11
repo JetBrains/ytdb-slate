@@ -56,8 +56,10 @@ reviewer at every grade.
 
 Reviewer I never counts against the production area-reviewer cap. The cap is
 four production area reviewers per review action. Split the action when more
-are required. The test-quality and structure reviewer, prose reviewer, and
-licensing reviewer are additional and never count against that cap.
+are required. The non-local logic defect reviewer is a production area reviewer
+and counts against this cap. The test-quality and structure reviewer, prose
+reviewer, and licensing reviewer are additional and never count against that
+cap.
 
 Merge two general or production area perspectives only when both the code scope
 and required evidence are the same. Record the reason. Similar topics do not
@@ -89,6 +91,29 @@ Project charters supplement the required reviewers and never replace them.
   untrusted input, sandboxing, and user-data exposure.
 - **performance:** asymptotic growth, hot paths, input/output, allocation,
   synchronization, caching, batching, and benchmark evidence.
+
+#### Non-local logic defect reviewer
+
+The code reviewer is read-only and reports inside this area only. Prefix `NL`.
+
+The non-local logic defect area owns an agreement between places that an
+execution reads.
+
+1. List every fact outside the changed lines that the correctness verdict
+   depends on. For each fact, state where it lives and how you checked it.
+2. Name each rule that two or more places must apply in the same way. List every
+   place that must apply it. Check each place against the rule.
+3. Name each state or history that an earlier execution can leave. Cover a
+   first run, a repeat run, an interrupted run and a restart.
+4. Name each pair or group of conditions that must hold at the same time to
+   reach the forbidden result. Check that each combination is intended.
+5. Name each matching edit that the change owes to a place it does not touch.
+   Report a missing matching edit as a defect.
+6. Check the order of effects inside one execution when a place outside the
+   change can observe that order.
+7. Check that the implemented decisions agree with the stated intent of the
+   track.
+8. Check error and failure paths that cross the agreements above.
 
 ### Test-quality and structure reviewer
 
@@ -168,8 +193,9 @@ phases. An implementation-stage review does not record `level`.
 | disposition | fix, waive, moot, reject, or ignored |
 
 Prefixes are stable by perspective. Active built-in prefixes are `RI`, `CN`,
-`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, and `RG`. Project-supplied prefixes must
-not collide. The orchestrator assigns and records a replacement when they do.
+`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, `NL`, and `RG`.
+Project-supplied prefixes must not collide. The orchestrator assigns and records
+a replacement when they do.
 Identifiers remain cumulative and never renumber. Historical identifiers keep
 their recorded meaning.
 

@@ -139,7 +139,7 @@ test("doctrine reads workflow only for changes and enforces size confirmation", 
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
   assert.ok(doctrine.includes("Scale change gates by size grade: SMALL, MEDIUM, or LARGE."));
   assert.ok(doctrine.includes("You own focus-area planning."));
-  assert.ok(doctrine.includes("Write a seven-line risk record and give a concrete three-part proof for each named area."));
+  assert.ok(doctrine.includes("Write an eight-line risk record and give a concrete three-part proof for each named area."));
   assert.ok(doctrine.includes("No rule mechanically decides whether a proof holds."));
   assert.ok(doctrine.includes("Obtain user approval of the record at every confirmation gate."));
   assert.doesNotMatch(doctrine, /The implementer declares focus|validated declaration/);

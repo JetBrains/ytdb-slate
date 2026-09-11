@@ -36,6 +36,25 @@ if (!REPO || !JITI || !WORK) {
 }
 const STRICT = STRICT_ARG === "strict";
 
+// One value feeds each doctrine-budget assertion and each maintained published
+// statement. The independent JSON pin below protects the approved ceilings from
+// a synchronized enforcement-and-publication increase.
+const DOCTRINE_LIMITS = Object.freeze({
+	routingRuleChars: 4000,
+	routingRuleLines: 34,
+	routingFixedProseChars: 1500,
+	largestModelRowChars: 300,
+	trustedRouterOnChars: 7600,
+	writingAndDesignChars: 5600,
+	writingPlusExtensionsChars: 6000,
+	allTailsChars: 7900,
+	maximalChars: 9100,
+	cappedWorkerRuleChars: 1600,
+	writingRuleChars: 1500,
+	writingRuleLines: 25,
+	designRuleChars: 600,
+});
+
 // jiti is pi's own TypeScript loader: node's strip-only mode cannot load the
 // modules (state.ts, pulled in by mode.ts, uses a constructor parameter
 // property), so we transpile through the same loader pi uses.
@@ -2085,10 +2104,9 @@ try {
 			]);
 
 			const designRule = ruleOfDesign(combos.writing);
-			const DESIGN_RULE_BOUND = 600;
 			checkAll("design-doctrine-size", "the design doctrine rule keeps its exact measured size and five percent reserve", [
 				["the two-digit design rule is exactly 571 characters and 9 split lines", designRule.length === 571 && designRule.split("\n").length === 9, { chars: designRule.length, lines: designRule.split("\n").length }],
-				[`the design rule stays within ${DESIGN_RULE_BOUND} characters with five percent reserve`, designRule.length <= DESIGN_RULE_BOUND && DESIGN_RULE_BOUND >= Math.ceil(designRule.length * 1.05), { chars: designRule.length, bound: DESIGN_RULE_BOUND, reserveRequired: Math.ceil(designRule.length * 1.05) }],
+				[`the design rule stays within ${DOCTRINE_LIMITS.designRuleChars} characters with five percent reserve`, designRule.length <= DOCTRINE_LIMITS.designRuleChars && DOCTRINE_LIMITS.designRuleChars >= Math.ceil(designRule.length * 1.05), { chars: designRule.length, bound: DOCTRINE_LIMITS.designRuleChars, reserveRequired: Math.ceil(designRule.length * 1.05) }],
 			]);
 			const sentenceShape = (rule) => {
 				const prose = rule.replace(/^\n\d+\.\s*/, "").replace(/\n\s+/g, " ");
@@ -2331,12 +2349,111 @@ try {
 			// the identity and the bounds go back to being install-dependent.
 			const pathOccurrences = (text) => DOCS_DIR === "" ? 0 : text.split(DOCS_DIR).length - 1;
 			const docPaths = pathOccurrences(on);
-			// 2026-09-10: 7,202 × 1.05 = 7,562.1; ceil 7,563, so the bound is 7,600.
-			const WRITING_ROUTER_BOUND = 7600;
-			// 2026-09-10: 7,457 × 1.05 = 7,829.85; ceil 7,830, so the bound is 7,900.
-			const ALL_TAILS_BOUND = 7900;
-			// 2026-09-10: the 8,642 deferred-issue maximum is largest. 8,642 × 1.05 = 9,074.1; ceil 9,075, so the bound is 9,100.
-			const MAXIMAL_BOUND = 9100;
+			const WRITING_ROUTER_BOUND = DOCTRINE_LIMITS.trustedRouterOnChars;
+			const ALL_TAILS_BOUND = DOCTRINE_LIMITS.allTailsChars;
+			const MAXIMAL_BOUND = DOCTRINE_LIMITS.maximalChars;
+			const contextBudgetDoc = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
+			const verificationReadme = readFileSync(join(REPO, "verification", "README.md"), "utf8");
+			const comma = (value) => String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+			const lineCount = (text) => text.split("\n").length;
+			const designRule = ruleOfDesign(off);
+			const contextFixtureTable = [
+				"| router | models | `draftPRs` | writing keys | paths | portable | lines |",
+				"| --- | --- | --- | --- | --- | --- | --- |",
+				`| off | — | off | absent | ${pathOccurrences(off)} | ${comma(portable(off).length)} | ${lineCount(off)} |`,
+				`| off | — | off | set | ${pathOccurrences(writingOn)} | ${comma(portable(writingOn).length)} | ${lineCount(writingOn)} |`,
+				`| off | — | on | absent | ${pathOccurrences(offDraft)} | ${comma(portable(offDraft).length)} | ${lineCount(offDraft)} |`,
+				`| off | — | on | set | ${pathOccurrences(offDraftWriting)} | ${comma(portable(offDraftWriting).length)} | ${lineCount(offDraftWriting)} |`,
+				`| on | fixed six-model fixture | off | absent | ${pathOccurrences(configuredOffDraft)} | ${comma(portable(configuredOffDraft).length)} | ${lineCount(configuredOffDraft)} |`,
+				`| on | fixed six-model fixture | off | set | ${pathOccurrences(configuredOffDraftWriting)} | ${comma(portable(configuredOffDraftWriting).length)} | ${lineCount(configuredOffDraftWriting)} |`,
+				`| on | fixed six-model fixture | on | absent | ${pathOccurrences(configuredDraft)} | ${comma(portable(configuredDraft).length)} | ${lineCount(configuredDraft)} |`,
+				`| on | fixed six-model fixture | on | set | ${pathOccurrences(configuredDraftWriting)} | ${comma(portable(configuredDraftWriting).length)} | ${lineCount(configuredDraftWriting)} |`,
+				`| on | all 9 shipped | off | absent | ${pathOccurrences(on)} | ${comma(portable(on).length)} | ${lineCount(on)} |`,
+				`| on | all 9 shipped | off | set | ${pathOccurrences(writingRouterOn)} | ${comma(portable(writingRouterOn).length)} | ${lineCount(writingRouterOn)} |`,
+				`| on | all 9 shipped | on | absent | ${pathOccurrences(allDraft)} | ${comma(portable(allDraft).length)} | ${lineCount(allDraft)} |`,
+				`| on | all 9 shipped | on | set | ${pathOccurrences(allDraftWriting)} | ${comma(portable(allDraftWriting).length)} | ${lineCount(allDraftWriting)} |`,
+			].join("\n");
+			const contextRepresentativeTable = [
+				"| basis | models | worker extensions | paths | portable | lines | rough tokens |",
+				"| --- | ---: | --- | ---: | ---: | ---: | ---: |",
+				`| fixture mirroring current \`.pi/slate.json\`: draft PRs + writing, pi-registry windows | ${dogfoodCandidates.length} resolved | pinned-package 2 units / 4 tools | ${pathOccurrences(dogfood)} | ${comma(dogfoodPortable)} | ${lineCount(dogfood)} | ≈${comma(Math.round(dogfoodPortable / 4))} |`,
+				`| stable maximal fixture | ${realCandidates.length} | synthetic 2 units / 4 tools, every rendered field at its cap | ${pathOccurrences(maximal)} | ${comma(maximalPortable)} | ${lineCount(maximal)} | ≈${comma(Math.round(maximalPortable / 4))} |`,
+				`| deferred-issue maximal fixture | ${realCandidates.length} | synthetic 2 units / 4 tools, every rendered field at its cap | ${pathOccurrences(maximalFollowUp)} | ${comma(maximalFollowUpPortable)} | ${lineCount(maximalFollowUp)} | ≈${comma(Math.round(maximalFollowUpPortable / 4))} |`,
+			].join("\n");
+			const contextBudgetTable = [
+				"| budget term | current | enforced bound | current reserve |",
+				"| --- | ---: | ---: | ---: |",
+				["routing rule characters", ruleChars, DOCTRINE_LIMITS.routingRuleChars],
+				["routing rule lines", lineCount(rule), DOCTRINE_LIMITS.routingRuleLines],
+				["routing fixed prose", prose, DOCTRINE_LIMITS.routingFixedProseChars],
+				["largest model row", longest, DOCTRINE_LIMITS.largestModelRowChars],
+				["trusted router-on doctrine", portable(on).length, DOCTRINE_LIMITS.trustedRouterOnChars],
+				["writing and design doctrine", portable(writingOn).length, DOCTRINE_LIMITS.writingAndDesignChars],
+				["writing plus router", portable(writingRouterOn).length, DOCTRINE_LIMITS.trustedRouterOnChars],
+				["writing plus extensions", portable(writingExtensionsOn).length, DOCTRINE_LIMITS.writingPlusExtensionsChars],
+				["writing plus router and extensions", portable(writingAllOn).length, DOCTRINE_LIMITS.allTailsChars],
+				["maximal doctrine, draft PRs enabled", maximalPortable, DOCTRINE_LIMITS.maximalChars],
+				["maximal doctrine, draft PRs disabled", maximalNoDraftPortable, DOCTRINE_LIMITS.maximalChars],
+				["maximal doctrine, deferred-issue prompt enabled", maximalFollowUpPortable, DOCTRINE_LIMITS.maximalChars],
+				["capped worker rule", workerRule.length, DOCTRINE_LIMITS.cappedWorkerRuleChars],
+				["writing rule characters", writingPortable, DOCTRINE_LIMITS.writingRuleChars],
+				["writing rule lines", lineCount(ruleOfWriting(writingOn)), DOCTRINE_LIMITS.writingRuleLines],
+				["design rule characters", designRule.length, DOCTRINE_LIMITS.designRuleChars],
+			].map((row) => typeof row === "string" ? row : `| ${row[0]} | ${comma(row[1])} | ${comma(row[2])} | ${comma(row[2] - row[1])} |`).join("\n");
+			const verificationFixtureTable = [
+				"| fixture | paths | portable | lines | bound |",
+				"| --- | ---: | ---: | ---: | ---: |",
+				["routing rule, 9 profiles", pathOccurrences(rule), ruleChars, lineCount(rule), comma(DOCTRINE_LIMITS.routingRuleChars)],
+				["writing rule", pathOccurrences(ruleOfWriting(writingOn)), writingPortable, lineCount(ruleOfWriting(writingOn)), comma(DOCTRINE_LIMITS.writingRuleChars)],
+				["design rule", pathOccurrences(designRule), designRule.length, lineCount(designRule), comma(DOCTRINE_LIMITS.designRuleChars)],
+				["capped worker rule, 2 units / 4 tools", pathOccurrences(workerRule), workerRule.length, lineCount(workerRule), comma(DOCTRINE_LIMITS.cappedWorkerRuleChars)],
+				["trusted router-off doctrine", pathOccurrences(off), portable(off).length, lineCount(off), "—"],
+				["trusted router-on doctrine", pathOccurrences(on), portable(on).length, lineCount(on), comma(WRITING_ROUTER_BOUND)],
+				["fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows", pathOccurrences(dogfood), dogfoodPortable, lineCount(dogfood), "—"],
+				["writing and design doctrine", pathOccurrences(writingOn), portable(writingOn).length, lineCount(writingOn), comma(DOCTRINE_LIMITS.writingAndDesignChars)],
+				["writing plus router", pathOccurrences(writingRouterOn), portable(writingRouterOn).length, lineCount(writingRouterOn), comma(WRITING_ROUTER_BOUND)],
+				["writing plus extensions", pathOccurrences(writingExtensionsOn), portable(writingExtensionsOn).length, lineCount(writingExtensionsOn), comma(DOCTRINE_LIMITS.writingPlusExtensionsChars)],
+				["writing plus router and extensions", pathOccurrences(writingAllOn), portable(writingAllOn).length, lineCount(writingAllOn), comma(ALL_TAILS_BOUND)],
+				["maximal doctrine with draft PRs enabled", pathOccurrences(maximal), maximalPortable, lineCount(maximal), comma(MAXIMAL_BOUND)],
+				["maximal doctrine with draft PRs disabled", pathOccurrences(maximalNoDraft), maximalNoDraftPortable, lineCount(maximalNoDraft), comma(MAXIMAL_BOUND)],
+				["maximal doctrine with deferred-issue prompt enabled", pathOccurrences(maximalFollowUp), maximalFollowUpPortable, lineCount(maximalFollowUp), comma(MAXIMAL_BOUND)],
+				["positive control, one extra capped tool plus six maximum-growth model rows", pathOccurrences(overBudget), overBudgetPortable, lineCount(overBudget), `must exceed ${comma(MAXIMAL_BOUND)}`],
+			].map((row) => typeof row === "string" ? row : `| ${row[0]} | ${row[1]} | **${comma(row[2])}** | ${row[3]} | ${row[4]} |`).join("\n");
+			const contextDerivedFigures = [
+				`Its fixed doctrine remains ${comma(portable(untrusted).length)} portable characters, ${lineCount(untrusted)}`,
+				`Enabling \`draftPRs\` costs ${comma(portable(offDraft).length - portable(off).length)} portable characters plus one embedded path.`,
+				`router-on fixture requires \`${comma(portable(on).length)} × 1.05 = ${comma((portable(on).length * 1.05).toFixed(2))}\`. Ceiling gives ${comma(Math.ceil(portable(on).length * 1.05))}.`,
+				`\`${comma(portable(writingAllOn).length)} × 1.05 = ${comma((portable(writingAllOn).length * 1.05).toFixed(1))}\`. Ceiling gives ${comma(Math.ceil(portable(writingAllOn).length * 1.05))}.`,
+				`\`${comma(maximalFollowUpPortable)} × 1.05 = ${comma((maximalFollowUpPortable * 1.05).toFixed(2))}\`. Ceiling gives\n${comma(Math.ceil(maximalFollowUpPortable * 1.05))}.`,
+				`It measures ${comma(overBudgetPortable)} portable characters. It exceeds the\n${comma(MAXIMAL_BOUND)}-character maximal bound by ${comma(overBudgetPortable - MAXIMAL_BOUND)}.`,
+				`The shipped-rule table ranges from about ${comma(Math.round(portable(off).length / 4))} tokens\nto about ${comma(Math.round(portable(allDraftWriting).length / 4))} tokens.`,
+			];
+			const verificationDerivedFigures = [
+				`\`${comma(portable(writingRouterOn).length)} × 1.05 = ${comma((portable(writingRouterOn).length * 1.05).toFixed(2))}\`. Ceiling gives ${comma(Math.ceil(portable(writingRouterOn).length * 1.05))}.`,
+				`\`${comma(portable(writingAllOn).length)} × 1.05 = ${comma((portable(writingAllOn).length * 1.05).toFixed(1))}\`. Ceiling gives ${comma(Math.ceil(portable(writingAllOn).length * 1.05))}.`,
+				`uses \`${comma(maximalFollowUpPortable)} × 1.05 = ${comma((maximalFollowUpPortable * 1.05).toFixed(2))}\`.\nCeiling gives ${comma(Math.ceil(maximalFollowUpPortable * 1.05))}.`,
+				`maximal reserves are ${comma(MAXIMAL_BOUND - maximalPortable)}, ${comma(MAXIMAL_BOUND - maximalNoDraftPortable)}, and ${comma(MAXIMAL_BOUND - maximalFollowUpPortable)}.`,
+				`The positive control exceeds the maximal bound by ${comma(overBudgetPortable - MAXIMAL_BOUND)}.`,
+			];
+			const contextPublishedLimits = [
+				`The worker rule measures ${comma(workerRule.length)} characters against its ${comma(DOCTRINE_LIMITS.cappedWorkerRuleChars)}-character\nverification budget.`,
+				`The\n${comma(DOCTRINE_LIMITS.trustedRouterOnChars)} bound is larger.`,
+				`The trusted router-on reserve is\n\`${comma(DOCTRINE_LIMITS.trustedRouterOnChars)} − ${comma(portable(on).length)} = ${comma(DOCTRINE_LIMITS.trustedRouterOnChars - portable(on).length)}\` characters. The all-tail reserve is\n\`${comma(DOCTRINE_LIMITS.allTailsChars)} − ${comma(portable(writingAllOn).length)} = ${comma(DOCTRINE_LIMITS.allTailsChars - portable(writingAllOn).length)}\` characters. The ${comma(DOCTRINE_LIMITS.allTailsChars)} bound is larger.`,
+				`The shared ${comma(DOCTRINE_LIMITS.maximalChars)} bound keeps the required reserve for every maximal\nfixture.`,
+				`It exceeds the\n${comma(DOCTRINE_LIMITS.maximalChars)}-character maximal bound by ${comma(overBudgetPortable - DOCTRINE_LIMITS.maximalChars)}.`,
+			];
+			const verificationPublishedLimits = [
+				`The draft-enabled maximum is **${comma(maximalPortable)} of ${comma(DOCTRINE_LIMITS.maximalChars)}** portable characters.`,
+				`Writing plus routing is **${comma(portable(writingRouterOn).length)} of ${comma(DOCTRINE_LIMITS.trustedRouterOnChars)}**.`,
+				`All tails are **${comma(portable(writingAllOn).length)} of ${comma(DOCTRINE_LIMITS.allTailsChars)}**.`,
+				`The capped worker rule is **${comma(workerRule.length)} of ${comma(DOCTRINE_LIMITS.cappedWorkerRuleChars)}**.`,
+				`the trusted maximal fixture with \`workflow.followUpIssues: true\` is **${comma(maximalFollowUpPortable)} of ${comma(DOCTRINE_LIMITS.maximalChars)}** portable characters`,
+				`Its ${comma(DOCTRINE_LIMITS.designRuleChars)}-character bound retains at least five percent reserve`,
+				`The ${comma(DOCTRINE_LIMITS.trustedRouterOnChars)} bound is larger.`,
+				`The ${comma(DOCTRINE_LIMITS.allTailsChars)} bound\nis larger.`,
+				`Ceiling gives ${comma(Math.ceil(maximalFollowUpPortable * 1.05))}. The ${comma(DOCTRINE_LIMITS.maximalChars)} bound is larger.`,
+			];
+			const occursOnce = (document, fragment) => document.split(fragment).length - 1 === 1;
 			checkAll(
 				"doctrine-budget",
 				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and six copies of the largest model row, so budget growth cannot pass vacuously",
@@ -2345,42 +2462,49 @@ try {
 					["every fixture has the exact embedded-path occurrence count", pathOccurrences(untrusted) === 3 && pathOccurrences(off) === 4 && pathOccurrences(on) === 5 && pathOccurrences(writingOn) === 4 && pathOccurrences(writingRouterOn) === 5 && pathOccurrences(writingExtensionsOn) === 4 && pathOccurrences(writingAllOn) === 5 && pathOccurrences(maximal) === 6 && pathOccurrences(maximalNoDraft) === 5 && pathOccurrences(maximalFollowUp) === 6 && pathOccurrences(dogfood) === 6 && pathOccurrences(overBudget) === 6, { untrusted: pathOccurrences(untrusted), off: pathOccurrences(off), on: pathOccurrences(on), writing: pathOccurrences(writingOn), writingRouter: pathOccurrences(writingRouterOn), writingExtensions: pathOccurrences(writingExtensionsOn), all: pathOccurrences(writingAllOn), maximal: pathOccurrences(maximal), maximalNoDraft: pathOccurrences(maximalNoDraft), followUp: pathOccurrences(maximalFollowUp), dogfood: pathOccurrences(dogfood), positive: pathOccurrences(overBudget) }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
 					["space-bearing docs directories normalize without parsing rendered text", spacedPortable === "read /track-workflow.md", spacedPortable],
-					["the whole rule stays under 4000 portable chars with five percent reserve", ruleChars <= 4000 && hasDoctrineReserve(ruleChars, 4000), { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
-					["...and under 34 lines with five percent reserve", rule.split("\n").length <= 34 && hasDoctrineReserve(rule.split("\n").length, 34), rule.split("\n").length],
-					["its FIXED prose — the part that does not scale with the table — stays under 1500 portable chars with five percent reserve", prose <= 1500 && hasDoctrineReserve(prose, 1500), prose],
-					["no single model row exceeds 300 chars or consumes its five percent reserve", longest <= 300 && hasDoctrineReserve(longest, 300), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
+					["the context-budget fixture tables are derived from every rendered basis and current bound", occursOnce(contextBudgetDoc, contextFixtureTable) && occursOnce(contextBudgetDoc, contextRepresentativeTable) && occursOnce(contextBudgetDoc, contextBudgetTable), { fixture: occursOnce(contextBudgetDoc, contextFixtureTable), representative: occursOnce(contextBudgetDoc, contextRepresentativeTable), budgets: occursOnce(contextBudgetDoc, contextBudgetTable) }],
+					["the context-budget arithmetic, positive control, and token estimates are derived from rendered values", contextDerivedFigures.every((fragment) => contextBudgetDoc.includes(fragment)), contextDerivedFigures.filter((fragment) => !contextBudgetDoc.includes(fragment))],
+					["the verification reference fixture table is derived from every rendered basis and current bound", occursOnce(verificationReadme, verificationFixtureTable), verificationFixtureTable],
+					["the verification reference arithmetic and reserves are derived from rendered values", verificationDerivedFigures.every((fragment) => verificationReadme.includes(fragment)), verificationDerivedFigures.filter((fragment) => !verificationReadme.includes(fragment))],
+					["each current context-budget prose statement of an enforced limit occurs once and uses its enforcing value", contextPublishedLimits.every((fragment) => occursOnce(contextBudgetDoc, fragment)), contextPublishedLimits.filter((fragment) => !occursOnce(contextBudgetDoc, fragment))],
+					["each current verification-reference prose statement of an enforced limit occurs once and uses its enforcing value", verificationPublishedLimits.every((fragment) => occursOnce(verificationReadme, fragment)), verificationPublishedLimits.filter((fragment) => !occursOnce(verificationReadme, fragment))],
+					["approved doctrine limits retain their independently pinned values", JSON.stringify(DOCTRINE_LIMITS) === '{"routingRuleChars":4000,"routingRuleLines":34,"routingFixedProseChars":1500,"largestModelRowChars":300,"trustedRouterOnChars":7600,"writingAndDesignChars":5600,"writingPlusExtensionsChars":6000,"allTailsChars":7900,"maximalChars":9100,"cappedWorkerRuleChars":1600,"writingRuleChars":1500,"writingRuleLines":25,"designRuleChars":600}', DOCTRINE_LIMITS],
+					[`the whole rule stays under ${DOCTRINE_LIMITS.routingRuleChars} portable chars with five percent reserve`, ruleChars <= DOCTRINE_LIMITS.routingRuleChars && hasDoctrineReserve(ruleChars, DOCTRINE_LIMITS.routingRuleChars), { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
+					[`...and under ${DOCTRINE_LIMITS.routingRuleLines} lines with five percent reserve`, rule.split("\n").length <= DOCTRINE_LIMITS.routingRuleLines && hasDoctrineReserve(rule.split("\n").length, DOCTRINE_LIMITS.routingRuleLines), rule.split("\n").length],
+					[`its FIXED prose — the part that does not scale with the table — stays under ${DOCTRINE_LIMITS.routingFixedProseChars} portable chars with five percent reserve`, prose <= DOCTRINE_LIMITS.routingFixedProseChars && hasDoctrineReserve(prose, DOCTRINE_LIMITS.routingFixedProseChars), prose],
+					[`no single model row exceeds ${DOCTRINE_LIMITS.largestModelRowChars} chars or consumes its five percent reserve`, longest <= DOCTRINE_LIMITS.largestModelRowChars && hasDoctrineReserve(longest, DOCTRINE_LIMITS.largestModelRowChars), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the configured-model fixture is the exact fixed six-model list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
 					["the fabricated dogfood fixture resolves its exact five-model list through the real router and uses pi registry context windows", dogfoodCandidates.length === dogfoodSpecs.length && dogfoodCandidates.every((candidate) => dogfoodSpecs.includes(candidate.spec)) && dogfoodCandidates.every((candidate) => candidate.contextWindow === (candidate.provider === "anthropic" ? 1_000_000 : 272_000)), { configured: dogfoodSpecs, candidates: dogfoodCandidates.map((candidate) => [candidate.spec, candidate.contextWindow]) }],
-					["the dogfood fixture is the measured 7424 portable chars and 102 lines", dogfoodPortable === 7424 && dogfood.split("\n").length === 102, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
+					["the dogfood fixture is the measured 7425 portable chars and 102 lines", dogfoodPortable === 7425 && dogfood.split("\n").length === 102, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
-					["the untrusted doctrine is the measured 2708 portable chars, 43 lines, and three embedded paths", portable(untrusted).length === 2708 && untrusted.split("\n").length === 43 && pathOccurrences(untrusted) === 3, { portable: portable(untrusted).length, lines: untrusted.split("\n").length, paths: pathOccurrences(untrusted) }],
-					["the router-off trusted doctrine is the measured 4617 portable chars and 72 lines", portable(off).length === 4617 && off.split("\n").length === 72, { portable: portable(off).length, lines: off.split("\n").length }],
-					[`...and the whole router-on doctrine is the measured 7202 portable chars and 96 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(on).length === 7202 && on.split("\n").length === 96 && portable(on).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(on).length, WRITING_ROUTER_BOUND), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
-					["writing and design doctrine is the measured 4617 portable chars and 72 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 4617 && writingOn.split("\n").length === 72 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
-					["draft-enabled router-off doctrine is 4636 portable chars and 72 lines", portable(offDraft).length === 4636 && offDraft.split("\n").length === 72, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
-					["draft-enabled router-off writing doctrine is 4636 portable chars and 72 lines", portable(offDraftWriting).length === 4636 && offDraftWriting.split("\n").length === 72, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
-					["the six-model fixture is 6647 portable chars and 93 lines without draft publishing", portable(configuredOffDraft).length === 6647 && configuredOffDraft.split("\n").length === 93, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
-					["the six-model fixture is 6647 portable chars and 93 lines with writing", portable(configuredOffDraftWriting).length === 6647 && configuredOffDraftWriting.split("\n").length === 93, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
-					["the six-model draft fixture is 6666 portable chars and 93 lines", portable(configuredDraft).length === 6666 && configuredDraft.split("\n").length === 93, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
-					["the six-model draft and writing fixture is 6666 portable chars and 93 lines", portable(configuredDraftWriting).length === 6666 && configuredDraftWriting.split("\n").length === 93, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
-					[`writing plus router is the measured 7202 portable chars and 96 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 7202 && writingRouterOn.split("\n").length === 96 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
-					["writing plus extensions is the measured 4872 portable chars and 78 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 4872 && writingExtensionsOn.split("\n").length === 78 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
-					[`all three tail features are the measured 7457 portable chars and 102 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 7457 && writingAllOn.split("\n").length === 102 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
-					["the all-nine draft fixture is 7221 portable chars and 96 lines", portable(allDraft).length === 7221 && allDraft.split("\n").length === 96, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
-					["the all-nine draft and writing fixture is 7221 portable chars and 96 lines", portable(allDraftWriting).length === 7221 && allDraftWriting.split("\n").length === 96, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
+					["the untrusted doctrine is the measured 2709 portable chars, 43 lines, and three embedded paths", portable(untrusted).length === 2709 && untrusted.split("\n").length === 43 && pathOccurrences(untrusted) === 3, { portable: portable(untrusted).length, lines: untrusted.split("\n").length, paths: pathOccurrences(untrusted) }],
+					["the router-off trusted doctrine is the measured 4618 portable chars and 72 lines", portable(off).length === 4618 && off.split("\n").length === 72, { portable: portable(off).length, lines: off.split("\n").length }],
+					[`...and the whole router-on doctrine is the measured 7203 portable chars and 96 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(on).length === 7203 && on.split("\n").length === 96 && portable(on).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(on).length, WRITING_ROUTER_BOUND), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
+					[`writing and design doctrine is the measured 4618 portable chars and 72 lines, and stays under ${DOCTRINE_LIMITS.writingAndDesignChars} with five percent reserve`, portable(writingOn).length === 4618 && writingOn.split("\n").length === 72 && portable(writingOn).length <= DOCTRINE_LIMITS.writingAndDesignChars && hasDoctrineReserve(portable(writingOn).length, DOCTRINE_LIMITS.writingAndDesignChars), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
+					["draft-enabled router-off doctrine is 4637 portable chars and 72 lines", portable(offDraft).length === 4637 && offDraft.split("\n").length === 72, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
+					["draft-enabled router-off writing doctrine is 4637 portable chars and 72 lines", portable(offDraftWriting).length === 4637 && offDraftWriting.split("\n").length === 72, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
+					["the six-model fixture is 6648 portable chars and 93 lines without draft publishing", portable(configuredOffDraft).length === 6648 && configuredOffDraft.split("\n").length === 93, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
+					["the six-model fixture is 6648 portable chars and 93 lines with writing", portable(configuredOffDraftWriting).length === 6648 && configuredOffDraftWriting.split("\n").length === 93, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
+					["the six-model draft fixture is 6667 portable chars and 93 lines", portable(configuredDraft).length === 6667 && configuredDraft.split("\n").length === 93, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
+					["the six-model draft and writing fixture is 6667 portable chars and 93 lines", portable(configuredDraftWriting).length === 6667 && configuredDraftWriting.split("\n").length === 93, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
+					[`writing plus router is the measured 7203 portable chars and 96 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 7203 && writingRouterOn.split("\n").length === 96 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
+					[`writing plus extensions is the measured 4873 portable chars and 78 lines, and stays under ${DOCTRINE_LIMITS.writingPlusExtensionsChars} with five percent reserve`, portable(writingExtensionsOn).length === 4873 && writingExtensionsOn.split("\n").length === 78 && portable(writingExtensionsOn).length <= DOCTRINE_LIMITS.writingPlusExtensionsChars && hasDoctrineReserve(portable(writingExtensionsOn).length, DOCTRINE_LIMITS.writingPlusExtensionsChars), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
+					[`all three tail features are the measured 7458 portable chars and 102 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 7458 && writingAllOn.split("\n").length === 102 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
+					["the all-nine draft fixture is 7222 portable chars and 96 lines", portable(allDraft).length === 7222 && allDraft.split("\n").length === 96, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
+					["the all-nine draft and writing fixture is 7222 portable chars and 96 lines", portable(allDraftWriting).length === 7222 && allDraftWriting.split("\n").length === 96, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
 					// Update exact measurements with production wording in the same commit.
-					[`the maximum all-feature fixture is the measured 8568 portable chars and 106 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 8568 && maximal.split("\n").length === 106 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					[`the draft-PR-disabled maximum fixture is pinned independently at 8549 portable chars and 106 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 8549 && maximalNoDraft.split("\n").length === 106 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					["the capped worker rule is the measured 1347 chars and 11 split lines, and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
+					[`the maximum all-feature fixture is the measured 8569 portable chars and 106 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 8569 && maximal.split("\n").length === 106 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the draft-PR-disabled maximum fixture is pinned independently at 8550 portable chars and 106 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 8550 && maximalNoDraft.split("\n").length === 106 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the capped worker rule is the measured 1347 chars and 11 split lines, and stays within ${DOCTRINE_LIMITS.cappedWorkerRuleChars} with five percent reserve`, workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= DOCTRINE_LIMITS.cappedWorkerRuleChars && hasDoctrineReserve(workerRule.length, DOCTRINE_LIMITS.cappedWorkerRuleChars), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					[`the positive control is the measured 9884 portable chars and 113 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9884 && overBudget.split("\n").length === 113 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
+					[`the positive control is the measured 9885 portable chars and 113 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9885 && overBudget.split("\n").length === 113 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
 					// The writing rule has its own bound because its absolute citation changes raw size.
-					["the writing rule is the measured 1338 portable chars and stays under 1500 with five percent reserve", writingPortable === 1338 && writingPortable <= 1500 && hasDoctrineReserve(writingPortable, 1500), { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length }],
-					["...and is 22 split lines while ignored writing keys add no lines, under the 25-line bound with five percent reserve", ruleOfWriting(writingOn).split("\n").length === 22 && writingOn.split("\n").length - off.split("\n").length === 0 && hasDoctrineReserve(ruleOfWriting(writingOn).split("\n").length, 25), ruleOfWriting(writingOn).split("\n").length],
+					[`the writing rule is the measured 1338 portable chars and stays under ${DOCTRINE_LIMITS.writingRuleChars} with five percent reserve`, writingPortable === 1338 && writingPortable <= DOCTRINE_LIMITS.writingRuleChars && hasDoctrineReserve(writingPortable, DOCTRINE_LIMITS.writingRuleChars), { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length }],
+					[`...and is 22 split lines while ignored writing keys add no lines, under the ${DOCTRINE_LIMITS.writingRuleLines}-line bound with five percent reserve`, ruleOfWriting(writingOn).split("\n").length === 22 && writingOn.split("\n").length - off.split("\n").length === 0 && hasDoctrineReserve(ruleOfWriting(writingOn).split("\n").length, DOCTRINE_LIMITS.writingRuleLines), ruleOfWriting(writingOn).split("\n").length],
 					["...and embeds exactly ONE doc path, so the citation is charged once per turn, not once per mention", DOCS_DIR !== "" && ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 === 1, { paths: DOCS_DIR === "" ? "no docs dir found" : ruleOfWriting(writingOn).split(DOCS_DIR).length - 1 }],
 					["ignored writing keys produce byte-identical trusted doctrine", writingOn === off, { off: off.length, writing: writingOn.length }],
 					["writing-on with extensions is larger than writing-on without them", writingAllOn.length > writingRouterOn.length, { router: writingRouterOn.length, all: writingAllOn.length }],
@@ -2390,7 +2514,7 @@ try {
 				"doctrine-budget-deferred",
 				"the trusted deferred-issue configuration has its own pinned maximum fixture and preserves the existing maximum bound",
 				[
-					[`the maximal deferred-issue fixture is the measured 8642 portable chars and 107 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8642 && maximalFollowUp.split("\n").length === 107 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
+					[`the maximal deferred-issue fixture is the measured 8643 portable chars and 107 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8643 && maximalFollowUp.split("\n").length === 107 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
 				],
 			);
 		});
@@ -3730,6 +3854,7 @@ try {
 			const reviews = readFileSync(join(REPO, "docs", "review-rules.md"), "utf8");
 			const userNotes = readFileSync(join(REPO, "docs", "user-notes.md"), "utf8");
 			const publishing = readFileSync(join(REPO, "docs", "pr-publishing.md"), "utf8");
+			const projectReadme = readFileSync(join(REPO, "README.md"), "utf8");
 			const workflowDocs = [workflow, reviews, blast, userNotes, publishing].join("\n");
 			const block = (source, name) => {
 				const begin = `<!-- ${name}:begin -->`;
@@ -3769,16 +3894,18 @@ try {
 | 4 | performance degradation | one area reviewer for performance | every track that proves the area |
 | 5 | test-quality defect | one test-quality and structure reviewer | every track that proves the area |
 | 6 | unreadable user-facing prose | one prose reviewer | every track that proves the area |
-| 7 | licensing exposure | one licensing reviewer | every track that proves the area |`;
+| 7 | licensing exposure | one licensing reviewer | every track that proves the area |
+| 8 | non-local logic defect | one area reviewer for non-local logic defects | every track that proves the area |`;
 			const parseRows = (text) => text.split("\n").filter((line) => /^\| \d+ \|/.test(line)).map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()));
 			const workflowRows = parseRows(focusWorkflow.text);
 			const blastRows = parseRows(focusBlast.text);
-			checkAll("contract-focus-table-sync", "the marked seven-area tables are unique, exactly equal, and equal to the fixed canonical table", [
+			checkAll("contract-focus-table-sync", "the marked eight-area tables and project README roster are unique and exact", [
 				["workflow table marked once", focusWorkflow.count === 1 && focusWorkflow.endCount === 1, focusWorkflow],
 				["blast table marked once", focusBlast.count === 1 && focusBlast.endCount === 1, focusBlast],
-				["seven contiguous ordered rows", workflowRows.map((row) => row[0]).join() === "1,2,3,4,5,6,7", workflowRows.map((row) => row[0])],
+				["eight contiguous ordered rows", workflowRows.map((row) => row[0]).join() === "1,2,3,4,5,6,7,8", workflowRows.map((row) => row[0])],
 				["blocks equal", normalize(focusWorkflow.text) === normalize(focusBlast.text), { workflowRows, blastRows }],
 				["content is the fixed canonical table", normalize(focusWorkflow.text) === expectedFocus, focusWorkflow.text],
+				["project README names the current eight areas once", projectReadme.split("Eight focus areas name specific risks.").length - 1 === 1 && /They cover\nconcurrency defects, data loss, security weaknesses, performance degradation,\ntest-quality defects, unreadable user-facing prose, licensing exposure, and\nnon-local logic defects\./.test(projectReadme), projectReadme.match(/Focus is separate from size\.[\s\S]{0,300}/)?.[0]],
 			]);
 
 			const sectionText = (source, heading, next) => source.match(new RegExp(`^### ${heading}\\n([\\s\\S]*?)(?=^### ${next})`, "m"))?.[1]?.trim() ?? "";
@@ -3834,14 +3961,103 @@ material always engages the area. A dependency with a clear permission basis
 and satisfied conditions does not engage the area. Material that an author or a
 worker wrote for this project without an external source does not engage the
 area. Unknown provenance alone does not engage it.`)],
+				["Non-local logic defect", normalizeText(`**Outcome:** a result that the specification forbids, or a required result that
+never appears, because two or more places do not satisfy one shared relation. A
+place is one application of that relation: a rule check, state transition,
+condition interpretation, or representation read or write. The application and
+the facts it holds define its boundary. A fact held by another application stays
+outside that boundary, even when the first application reads or needs that fact.
+Reading an external fact does not make the consuming application independently
+checkable. Moving equivalent applications next to each other, into one module,
+or into separate files does not merge or split them. The reviewed change is a
+separate boundary. Omitting a required matching edit from that change can alter
+the area decision. An agreement is the shared relation that each place must
+preserve. **Trigger:** the area engages when the change can cause
+that outcome. The reader must be unable to
+settle whether the relation remains satisfied by reading each changed place on
+its own. The evidence for that risk must include at least one of these four
+kinds:
+
+1. A rule that two or more places must apply in the same way.
+2. A state or a history that an earlier execution left behind.
+3. Two or more conditions that must hold at the same time, where at least one
+   condition takes its value or its meaning from a place the change does not
+   show.
+4. A matching edit that is required in a place the change does not touch.
+
+One added condition whose two outcomes a reader checks separately leaves every
+place independent and does not engage the area. Two conditions joined in one
+expression do not engage the area when the same place shows the value and the
+meaning of each condition. The number of branches, the number of changed lines,
+the number of changed files and any complexity score neither engage nor clear
+the area. A repeated edit that keeps behaviour the same does not engage the
+area when every edited site appears in the change and a reader checks one site
+at a time. A change confined to text that no execution reads does not engage
+the area. Evidence that one lookup settles does not engage the area, because
+the area needs two or more facts that a reader must compare.
+
+A persisted-state write and its later read are separate applications in every
+layout. A co-located representation write and read are also separate when both
+must preserve one relation. An enforced constraint and a published copy held by
+another application remain separate, even when one reads the other. A local
+guard remains one independent application when it shows its value, meaning and
+both outcomes. A complete mechanical rename remains excluded when every site is
+shown and can be checked alone. An incomplete rename can engage when the missing
+site owes a matching edit.
+
+A proof for this area keeps the standard three parts. The defect class is the
+shared relation that can fail. The standard place field lists the changed place
+and every other place that must satisfy that relation. The consequence is the
+forbidden or missing result.
+
+- **Concurrency defect.** An unsatisfied agreement that appears only because two
+  or more executions may overlap or may run in another order belongs to
+  concurrency defect. Non-local logic defect covers an unsatisfied agreement
+  inside one execution. Both areas engage only when the change can leave that
+  agreement unsatisfied and the overlap or order can independently produce the
+  concurrency outcome.
+- **Data loss.** A forbidden result that destroys kept data, or that returns
+  kept data in a changed form, belongs to data loss. Non-local logic defect
+  covers an unsatisfied agreement whose result may be wrong without any data
+  being lost. Both areas engage only when the change can leave that agreement
+  unsatisfied and can independently destroy or alter kept data.
+- **Security weakness.** A condition that a credible actor can reach and
+  exploit against confidentiality, integrity, availability, authentication,
+  authorization or accountability belongs to security weakness. Non-local
+  logic defect covers a wrong result that needs no actor. Both areas engage
+  only when the non-local logic trigger holds and the security trigger also
+  holds for a protective control or a condition a credible actor can reach.
+- **Performance degradation.** A correct result that misses a stated latency,
+  throughput, resource or growth requirement belongs to performance
+  degradation. Non-local logic defect requires a wrong or an absent result.
+  Both areas engage only when the change can leave an agreement unsatisfied and
+  can independently miss the stated performance requirement or worsen the
+  growth class.
+- **Test-quality defect.** A check that gives an unreliable signal, or that
+  cannot detect a fault inside the behaviour it claims to protect, belongs to
+  test-quality defect. Non-local logic defect covers the product behaviour and
+  never engages because a test is missing. Both areas engage only when the
+  change can leave an agreement unsatisfied. The test-quality trigger must also
+  hold because the change makes a check unreliable or unable to detect the
+  fault it claims to protect against.
+- **Unreadable user-facing prose.** Text that leaves its reader unable to decide
+  or to act belongs to unreadable user-facing prose. Non-local logic defect
+  covers behaviour that an execution produces. Both areas engage only when the
+  change can leave an agreement unsatisfied and can independently leave the
+  reader unable to decide or act.
+- **Licensing exposure.** Published material that the project has no permission
+  to publish belongs to licensing exposure. Non-local logic defect never
+  engages because material came from outside. Both areas engage only when the
+  change can leave an agreement unsatisfied and also copies or adapts material
+  from an identifiable external work.`)],
 			]);
 			const definitionOrder = [...expectedDefinitions.keys()];
 			const actualDefinitions = new Map(definitionOrder.map((name, index) => [name, sectionText(blast, name, index + 1 < definitionOrder.length ? definitionOrder[index + 1] : "Judged proof and risk record")]));
 			const testDefinition = block(blast, "test-quality-definition");
 			const negatedTestDefinition = normalizeText(testDefinition.text.replace("gives an unreliable signal", "gives a reliable signal"));
 			const oldDefinitionMarkers = ["project-test-artifact-definition", "core-behaviour-definition"];
-			checkAll("contract-risk-definitions", "all seven risk definitions are exact, independent of row numbers, and the marked test-quality definition rejects a negated mutation", [
-				["seven exact definitions", definitionOrder.every((name) => normalizeText(actualDefinitions.get(name) ?? "") === expectedDefinitions.get(name)), Object.fromEntries([...actualDefinitions].map(([name, text]) => [name, normalizeText(text)]))],
+			checkAll("contract-risk-definitions", "all eight risk definitions are exact, independent of row numbers, and the marked test-quality definition rejects a negated mutation", [
+				["eight exact definitions", definitionOrder.every((name) => normalizeText(actualDefinitions.get(name) ?? "") === expectedDefinitions.get(name)), Object.fromEntries([...actualDefinitions].map(([name, text]) => [name, normalizeText(text)]))],
 				["definitions carry no area-number coupling", [...actualDefinitions.values()].every((text) => !/\barea \d+\b/i.test(text)), [...actualDefinitions].filter(([, text]) => /\barea \d+\b/i.test(text))],
 				["test-quality definition marked once", testDefinition.count === 1 && testDefinition.endCount === 1, testDefinition],
 				["test-quality marker content is exact", normalizeText(`<!-- test-quality-definition:begin -->\n${testDefinition.text}\n<!-- test-quality-definition:end -->`) === expectedDefinitions.get("Test-quality defect"), normalizeText(testDefinition.text)],
@@ -3853,7 +4069,7 @@ area. Unknown provenance alone does not engage it.`)],
 			const proofSection = normalizeText(blast.match(/^### Judged proof and risk record\n([\s\S]*?)(?=^## Optional path declarations)/m)?.[1] ?? "");
 			const expectedRiskLifecycle = normalizeText(`The orchestrator names engaged focus areas during track planning. Engagement is
 judged for the whole track and its planned change, not for each file. The
-orchestrator writes all seven risk-record lines. Each named area gets the
+orchestrator writes all eight risk-record lines. Each named area gets the
 three-part proof defined in [blast-radius.md](blast-radius.md) § Judged proof
 and risk record. Each non-engagement line states which trigger part answers no.
 
@@ -3985,20 +4201,45 @@ its reviewer.`);
 - **security:** trust boundaries, authentication, authorization, secrets,
   untrusted input, sandboxing, and user-data exposure.
 - **performance:** asymptotic growth, hot paths, input/output, allocation,
-  synchronization, caching, batching, and benchmark evidence.`;
+  synchronization, caching, batching, and benchmark evidence.
+
+#### Non-local logic defect reviewer
+
+The code reviewer is read-only and reports inside this area only. Prefix \`NL\`.
+
+The non-local logic defect area owns an agreement between places that an
+execution reads.
+
+1. List every fact outside the changed lines that the correctness verdict
+   depends on. For each fact, state where it lives and how you checked it.
+2. Name each rule that two or more places must apply in the same way. List every
+   place that must apply it. Check each place against the rule.
+3. Name each state or history that an earlier execution can leave. Cover a
+   first run, a repeat run, an interrupted run and a restart.
+4. Name each pair or group of conditions that must hold at the same time to
+   reach the forbidden result. Check that each combination is intended.
+5. Name each matching edit that the change owes to a place it does not touch.
+   Report a missing matching edit as a defect.
+6. Check the order of effects inside one execution when a place outside the
+   change can observe that order.
+7. Check that the implemented decisions agree with the stated intent of the
+   track.
+8. Check error and failure paths that cross the agreements above.`;
 			const retiredCharters = ["behavioural correctness", "contract", "silent failure"];
 			const retiredPrefixes = ["BC", "CT", "SF"];
 			const standaloneTestStructureRole = /\btest[- ]structure specialist\b/i;
-			const activePrefixPhrase = "Active built-in prefixes are `RI`, `CN`,\n`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, and `RG`.";
-			checkAll("contract-review-charters", "Reviewer I is the sole general floor, its three added clauses are exact, the composite test role stays separate, and retired roles and prefixes stay absent", [
+			const activePrefixPhrase = "Active built-in prefixes are `RI`, `CN`,\n`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, `NL`, and `RG`.";
+			checkAll("contract-review-charters", "Reviewer I is the sole general floor, the current non-local logic charter and cap class are exact and name no unavailable area, the composite test role stays separate, and retired roles and prefixes stay absent", [
 				["Reviewer I clauses are exact", normalize(reviewerIClauses) === expectedReviewerIClauses, reviewerIClauses],
 				["all grade rows use Reviewer I plus proved areas", reviewRows.length === 3 && reviewRows.every(([, text]) => text === "Reviewer I plus one reviewer for every proved area whose canonical gate runs per track"), reviewRows],
-				["test, prose, and licensing are outside the production cap", /test-quality and structure reviewer, prose reviewer, and\nlicensing reviewer are additional and never count against that cap/.test(reviews), reviews.slice(0, 2500)],
+				["non-local logic is inside the production cap", /The non-local logic defect reviewer is a production area reviewer\nand counts against this cap\./.test(reviews), reviews.slice(0, 2500)],
+				["test, prose, and licensing are outside the production cap", /test-quality and structure reviewer, prose\nreviewer, and licensing reviewer are additional and never count against that\ncap/.test(reviews), reviews.slice(0, 2500)],
 				["composite test role never merges with another built-in role", /test-quality and structure reviewer never merges with\nReviewer I, a production area reviewer, the prose reviewer, or the licensing\nreviewer\./.test(reviews), reviews.slice(0, 2500)],
 				["documentation-only merge exception is exact", /Each changed file in a documentation-only track has the `documentation`\nclassification from the shipped size command\. A track with any `source` file is\nnot documentation only\. On a documentation-only track, Reviewer I may carry the\nprose charter and the licensing charter\. Record the reason for this merge\./.test(reviews), reviews.slice(0, 2500)],
 				["no standalone test-structure specialist role", !standaloneTestStructureRole.test(reviews), reviews.match(standaloneTestStructureRole)?.[0]],
 				["prose and licensing charters are separate", /^### Prose reviewer$/m.test(reviews) && /^### Licensing reviewer$/m.test(reviews) && !/^### Prose and licensing reviewer$/m.test(reviews), reviews.match(/^### (?:Prose|Licensing).*$/gm)],
 				["production charter block is exact", productionCharters === expectedProductionCharters, productionCharters],
+				["the current charter names no area outside the current eight-area roster", !/governing-rule defect area/.test(productionCharters), productionCharters],
 				["retired production charters are absent", retiredCharters.every((name) => !new RegExp(`^- \\*\\*${name}:`, "m").test(reviews)), retiredCharters.filter((name) => new RegExp(`^- \\*\\*${name}:`, "m").test(reviews))],
 				["active prefix list is unique and exact", reviews.split(activePrefixPhrase).length - 1 === 1 && (reviews.match(/Active built-in prefixes/g) ?? []).length === 1, reviews.match(/Active built-in prefixes[^.]*\./gs)],
 				["retired prefixes are absent from the active list", retiredPrefixes.every((prefix) => !new RegExp(`Active built-in prefixes[^.]*\\b${prefix}\\b`, "s").test(reviews)), retiredPrefixes],
