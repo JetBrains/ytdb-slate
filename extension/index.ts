@@ -194,7 +194,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				warn(
 					`slate: there ${plural} in the model router. Set "router.showWarnings" to true in ` +
-						`${CONFIG_DIR_NAME}/slate.json to read them. A hidden warning can affect which model runs an action.`,
+						`${CONFIG_DIR_NAME}/slate.json to read them. The notes may inform your explicit model and effort choice.`,
 				);
 			} catch {
 				/* BG3: a throwing sink costs the notice, never the resolution */

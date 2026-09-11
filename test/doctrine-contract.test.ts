@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import slateExtension from "../extension/index.ts";
-import { PROFILES_AS_OF, MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
-import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
+import { MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
+import { ROUTER_OFF, resolveModelRouter, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
 import { registerSlateMode } from "../extension/mode.ts";
 import { PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
@@ -67,29 +67,22 @@ function extensionContext(cwd: string, warnings: string[] = [], trusted = true):
 function routedResolution(): ModelRouterResolution {
   const profile = MODEL_PROFILES[0];
   assert.ok(profile);
-  const price = profile.price.at(-1);
-  assert.ok(price);
   const candidate: RouterCandidate = {
     spec: profile.id,
     provider: profile.id.split("/")[0] ?? "",
     id: profile.id.split("/")[1] ?? "",
     profile,
     tier: profile.tier,
-    inUsdPerMTok: price.inUsdPerMTok,
-    outUsdPerMTok: price.outUsdPerMTok,
-    registryCost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    registryCost: { input: 0, output: 1.25, cacheRead: 99, cacheWrite: 88 },
     contextWindow: profile.contextWindow ?? undefined,
     ladder: ladderFor(profile),
     hasFailover: true,
-    nonPreferred: profile.nonPreferred,
     tierUnsourced: profile.tierUnsourced === true,
     ladderAssumed: profile.ladderAssumed === true,
   };
   return {
     on: true,
     candidates: [candidate],
-    cheapest: candidate.spec,
-    cheapestNonPreferred: false,
     warnings: [],
   };
 }
@@ -118,14 +111,40 @@ async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfi
   return result.systemPrompt.slice("BASE".length);
 }
 
-test("routing doctrine renders dated prices and truthful candidate ordering", { timeout: 5000 }, async () => {
+test("routing doctrine renders registry prices, configured order, and full tier words", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine(routedResolution());
-  const priceDate = /Prices include dated updates after (\d{4}-\d{2}-\d{2}) research\./.exec(doctrine)?.[1];
-  assert.equal(priceDate, PROFILES_AS_OF);
-  assert.match(doctrine, /Candidates\s+follow preference, tier sourcing, tier, price, then specification\./);
-  assert.doesNotMatch(doctrine, /Route every action to the cheapest model and effort that clears it\./);
-  assert.doesNotMatch(doctrine, /Prices as of \d{4}-\d{2}-\d{2} are base rates:/);
-  assert.match(doctrine, /A model or effort change empties the prompt cache\. Rewrites cost 12\.5 times cache reads\./);
+  assert.match(doctrine, /Candidate rows preserve\s+configured order after validation\./);
+  assert.match(doctrine, /openai\/gpt-5\.6-luna\|0\/1\.25\|/);
+  assert.match(doctrine, /\|tier 1\|/);
+  assert.match(doctrine, /Prices are base input\/output rates from each exact pi registry entry\./);
+  assert.doesNotMatch(doctrine, /cheapest|preference, tier sourcing|dated updates|never a default pick/);
+  assert.match(doctrine, /A model or effort change empties the prompt cache\./);
+  assert.doesNotMatch(doctrine, /12\.5 times|cache reads/);
+});
+
+test("registry rates flow through production resolution into doctrine rows", { timeout: 5000 }, async () => {
+  const specs = MODEL_PROFILES.slice(0, 3).map((profile) => profile.id);
+  assert.equal(specs.length, 3);
+  const registry = new Map([
+    [specs[0], { cost: { input: 7, output: 8 } }],
+    [specs[1], { cost: { input: 0 } }],
+    [specs[2], { cost: { output: 9 } }],
+  ]);
+  const resolution = resolveModelRouter({
+    models: specs,
+    registry: {
+      find: (provider, id) => registry.get(`${provider}/${id}`),
+      hasConfiguredAuth: () => true,
+    },
+    failover: Object.fromEntries(specs.map((spec) => [spec, spec])),
+  });
+  assert.equal(resolution.on, true);
+  assert.deepEqual(resolution.candidates.map((candidate) => candidate.spec), specs);
+
+  const doctrine = await renderDoctrine(resolution);
+  assert.match(doctrine, new RegExp(`   ${specs[0]?.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\|7/8\\|`));
+  assert.match(doctrine, new RegExp(`   ${specs[1]?.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\|0/unknown\\|`));
+  assert.match(doctrine, new RegExp(`   ${specs[2]?.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\|unknown/9\\|`));
 });
 
 test("single-action doctrine requires new threads and episode references", { timeout: 5000 }, async () => {

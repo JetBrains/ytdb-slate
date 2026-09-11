@@ -66,15 +66,15 @@ test("every accepted action creates a distinct single-action thread", async () =
       routedStore,
       {},
       undefined,
-      () => ({ on: true, candidates: [{ spec: "p/base" }], cheapest: "p/base", warnings: [] } as any),
+      () => ({ on: true, candidates: [{ spec: "p/base" }], warnings: [] } as any),
     );
     const routedThread = (routedManager as any).createThread(
       { type: "general", task: "routed", model: "p/requested" },
-      { kind: "proceed", baseModel: "p/base", baseEffort: "low" },
+      { kind: "proceed", effortUnmeasured: false, warnings: [] },
     ) as ThreadRecord;
     assert.equal(routedThread.model, undefined);
-    assert.equal(routedThread.baseModel, "p/base");
-    assert.equal(routedThread.baseEffort, "low");
+    assert.equal("baseModel" in routedThread, false);
+    assert.equal("baseEffort" in routedThread, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -209,12 +209,12 @@ test("explicit dispatch fields reject before thread allocation", async () => {
     const routed = new ThreadManager(store, {}, undefined, () => ({
       on: true,
       candidates: [{ spec: "test/worker", ladder: ["low"], profile: { capabilityMeasuredAt: ["low"], evidenceGapAt: [] } }],
-      cheapest: "test/worker", warnings: [],
+      warnings: [],
     } as any));
     const view = routed as unknown as { runDispatch(thread: ThreadRecord): Promise<ThreadRecord> };
     view.runDispatch = async (thread) => thread;
     const created = await routed.dispatch({ ...TEST_ROUTE, task: "router on", type: "general" }, ctx, undefined) as unknown as ThreadRecord;
-    assert.equal(created.baseModel, "test/worker");
+    assert.equal("baseModel" in created, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -363,7 +363,11 @@ test("the current thread record sanitizer covers every terminal shape", () => {
     baseModel: "p/base", baseEffort: "medium", cacheKeyShard: 1, tools: ["read"],
     episodeId: "t1.e1", outcomeReason: "done", createdAt: 1, updatedAt: 2,
   };
-  assert.deepEqual(sanitizeThreadRecord(valid, []), valid);
+  const restored = sanitizeThreadRecord(valid, []);
+  const { baseModel: _legacyBaseModel, baseEffort: _legacyBaseEffort, ...retained } = valid;
+  assert.deepEqual(restored, retained);
+  assert.equal("baseModel" in restored!, false);
+  assert.equal("baseEffort" in restored!, false);
   const missingEpisodeRepairs: string[] = [];
   const missingEpisode = sanitizeThreadRecord({ ...valid, episodeId: undefined }, missingEpisodeRepairs);
   assert.equal(missingEpisode?.status, "failed");

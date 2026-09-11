@@ -316,21 +316,11 @@ export class ThreadManager {
 		const early = planRoute(this.routeInputs(ctx, undefined, accepted));
 		if (early.kind === "reject") throw new Error(early.reason);
 		this.validateRequestedModel(ctx, accepted.model);
-		const thread = this.createThread(accepted, early);
+		const thread = this.createThread(accepted);
 		return this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress);
 	}
 
-	/**
-	 * Create and persist a new thread record. The FIRST state mutation of a
-	 * dispatch, and deliberately after the early route validation: a rejected
-	 * pick must not leave an empty thread behind.
-	 *
-	 * `model` (the pre-router pin) is recorded ONLY when the router is off, which
-	 * is exactly what it meant before per-action routing existed. With the router
-	 * on, the creating dispatch's `model` argument routes that one action, and the
-	 * thread's own default is `baseModel` — recording the routed model as a pin
-	 * would make one action's route the thread's permanent base.
-	 */
+	/** Create a thread only after explicit route validation succeeds. */
 	private validateRequestedModel(ctx: ExtensionContext, spec: string | undefined): void {
 		if (spec === undefined) return;
 		const parts = splitModelSpec(spec);
@@ -345,7 +335,7 @@ export class ThreadManager {
 		}
 	}
 
-	private createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord {
+	private createThread(opts: DispatchOptions): ThreadRecord {
 		const id = this.store.claimNextThreadId();
 		const type = parseThreadType(opts.type, true)!
 		const ordinal = Number(id.slice(1));
@@ -360,9 +350,6 @@ export class ThreadManager {
 			name: opts.name?.trim() || id,
 			status: "queued",
 			type,
-			...(this.routerResolution().on ? {} : { model: opts.model }),
-			...(plan.baseModel ? { baseModel: plan.baseModel } : {}),
-			...(plan.baseEffort ? { baseEffort: plan.baseEffort } : {}),
 			...(cacheKeyShard === undefined ? {} : { cacheKeyShard }),
 			tools,
 			createdAt: now,
@@ -495,27 +482,6 @@ export class ThreadManager {
 	}
 
 
-	/**
-	 * Persist a base the planner had to SEED because the thread's own was not a
-	 * listed candidate — off-list, or absent altogether (route.ts, THE ONE RULE).
-	 * Without this the seed would be recomputed — and re-warned — on every dispatch,
-	 * and the record would keep pointing outside the list (or nowhere).
-	 *
-	 * `baseEffort` is DELETED when the seeded base has no measured level: leaving the
-	 * previous model's level behind would attach it to a model whose ladder was never
-	 * consulted (absence reads as unknown, the record's contract).
-	 */
-	private persistReseededBase(thread: ThreadRecord, plan: RoutePlanProceed): void {
-		if (plan.baseReseeded !== true || plan.baseModel === undefined) return;
-		thread.baseModel = plan.baseModel;
-		if (plan.baseEffort !== undefined) thread.baseEffort = plan.baseEffort;
-		else delete thread.baseEffort;
-		// The PRE-ROUTER pin (`model`) is deliberately LEFT ALONE: it is a historical
-		// record of what the thread was created with, and `baseModel` — which is what
-		// route.ts reads first — now supersedes it, so it can no longer strand anything.
-		thread.updatedAt = Date.now();
-		this.store.save();
-	}
 
 	/**
 	 * Put the resolved model/effort onto the worker session — the LAST unbilled
@@ -876,9 +842,6 @@ export class ThreadManager {
 			// actually be delivered.
 			await this.applyRoute(session, plan, thread, ctx, signal, routeWarn, baseline);
 			for (const message of applied.warnings) routeWarn(message);
-			// Same division of labour for a SEEDED base: the planner decided it (purely),
-			// this side writes it down — after the apply, for the same reason as above.
-			this.persistReseededBase(thread, applied);
 
 			if (applied.warnings.length > 0) emit(false);
 

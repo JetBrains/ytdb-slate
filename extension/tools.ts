@@ -203,7 +203,6 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		description:
 			"List worker threads, their status, episodes, activity, and models. " +
 			"type=<type> marks a non-general thread. " +
-			"base=<model>@<effort>? is stored routing state. The ? marks provisional effort. " +
 			"requested=<model>@<effort> and reason= show the last dispatch request. " +
 			"last=<model>@<effort> records what ran. live=<model> (failover) shows a held fallback.",
 		promptSnippet: "List worker threads and their episodes",
@@ -217,17 +216,6 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const episode = t.episodeId ?? "(none)";
 				const typeMarker = threadTypeMarker(displayThreadType(t.type));
 				const marks: string[] = [];
-				// Stored router state remains visible for old snapshots and configuration changes.
-				// `t.model` is the older pre-router pin. A live marker below is separate.
-				// A `live=` marker below reports an in-action failover switch.
-				const base = t.baseModel ?? t.model;
-				// CQ19: the MODEL half is authoritative stored planning state, but the
-				// LEVEL half is only a STORED default: every dispatch re-checks it against the
-				// model's current capability data and silently derives a fresh one if the table has moved
-				// under it (BG23). Reporting it bare would present a value that may not survive
-				// contact with the next action as fact — the `?` says so, and the tool description
-				// says what it means. `last=` below carries no such caveat: that one is what ran.
-				if (base) marks.push(`base=${base}${t.baseEffort ? `@${t.baseEffort}?` : ""}`);
 				// The action's model may differ from the base after an explicit route or failover.
 				const lastEpisode = t.episodeId === undefined ? undefined : store.episodes.get(t.episodeId);
 				const requestedModel = isModelSpec(lastEpisode?.requestedModel) ? lastEpisode.requestedModel : undefined;

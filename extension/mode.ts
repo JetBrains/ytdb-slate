@@ -19,7 +19,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
-import { PROFILES_AS_OF } from "./model-profiles.ts";
 import { checkEffort, ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "./model-router.ts";
 import {
 	DESIGN_PRINCIPLES_DOC,
@@ -240,9 +239,9 @@ function cell(value: unknown): string {
 	return typeof value === "string" ? value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}|]+/gu, " ").trim() : "";
 }
 
-/** A price, or "?" when the profile has no usable figure (the router warns about that separately). */
+/** A registry base rate, or "unknown" when that component is absent or invalid. */
 function money(value: unknown): string {
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? String(value) : "?";
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? String(value) : "unknown";
 }
 
 /** A token count, compactly: 1050000 → "1.05M", 272000 → "272K". "?" when the registry reports none. */
@@ -253,17 +252,11 @@ function tokens(value: unknown): string {
 	return String(Math.round(value));
 }
 
-/**
- * The tier cell: the tier, plus the two markers a reader must not be denied.
- * An UNSOURCED tier renders as "t?" rather than its number — the profile table
- * records such a tier as a cost class, never a ranking, so printing the ordinal
- * would present it as evidence it is not. "!" marks a non-preferred model; its
- * REASON is deliberately not rendered (see buildRoutingRule).
- */
+/** Render the retained tier value and name an unsourced tier plainly. */
 function tierCell(candidate: RouterCandidate): string {
 	const tier = candidate.tier;
-	const sourced = candidate.tierUnsourced !== true && typeof tier === "number" && Number.isFinite(tier);
-	return `${sourced ? `t${tier}` : "t?"}${candidate.nonPreferred ? "!" : ""}`;
+	if (typeof tier !== "number" || !Number.isFinite(tier)) return "tier unknown";
+	return `tier ${tier}${candidate.tierUnsourced === true ? " (unsourced)" : ""}`;
 }
 
 /**
@@ -345,11 +338,7 @@ function measuredCell(router: ModelRouterResolution, candidate: RouterCandidate)
  * (The invisible-character gap that used to sit in this list is closed — `cell()`
  * strips Cc/Cf/Zl/Zp/Cs by category.)
  *
- * TWO things are never rendered. A profile's `nonPreferred` REASON string and
- * anything else carrying a research trace tag ("[O2]", "[G1a]", …) point at a
- * `research/` directory this package does not publish, so a non-preferred model
- * is marked "!" and explained by its own guidance columns instead. `routeFor`
- * and `avoidFor` were audited clean and are the source of those columns.
+ * Research trace tags are never rendered because the package does not ship the research corpus.
  */
 function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: boolean, n: number, sessionBaseModel?: string): string {
 	const candidates = (Array.isArray(router?.candidates) ? router.candidates : []).filter(
@@ -367,14 +356,12 @@ function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: 
 		// pathological and unroutable today, and a forged column in a prompt loaded on
 		// every turn is by far the worse of the two.
 		(c) =>
-			`   ${cell(c.spec)}|${money(c.inUsdPerMTok)}/${money(c.outUsdPerMTok)}|${tokens(c.contextWindow)}|${tierCell(c)}|` +
+			`   ${cell(c.spec)}|${money(c.registryCost?.input)}/${money(c.registryCost?.output)}|${tokens(c.contextWindow)}|${tierCell(c)}|` +
 			`${measuredCell(router, c)}|${cell(c.profile?.routeFor)}|${cell(c.profile?.avoidFor)}`,
 	);
 	// Only the markers that actually appear are explained — an unused legend
 	// clause is pure cost in a block loaded on every turn.
 	const legend = [
-		candidates.some((c) => c.nonPreferred) ? "! = never a default pick" : "",
-		candidates.some((c) => c.tierUnsourced === true) ? "t? = cost class, not a rank" : "",
 		candidates.some((c) => c.ladderAssumed === true) ? "~ = assumed ladder" : "",
 		// With no measured level there is nothing to display as a supported choice.
 		candidates.some((c) => measuredLevels(router, c).length === 0) ? "none = pi's own level applies" : "",
@@ -385,16 +372,16 @@ function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: 
 	// so it is stated as it is configured rather than as both possibilities.
 	const gap = allowUnmeasuredEffort ? "runs, marked unmeasured" : "is refused too (router.allowUnmeasuredEffort is false)";
 	return `
-${n}. Pick the first candidate and lowest effort that clear each action. Candidates
-   follow preference, tier sourcing, tier, price, then specification. Routable
+${n}. Choose a listed model and effort that fit each action. Candidate rows preserve
+   configured order after validation. Routable
    this session (spec|$in/$out per Mtok|ctx|tier|measured|route for|avoid):
 ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    Every call must name \`model\`, \`effort\`, and a short \`reason\`. The model
-   and effort route THAT action only. Pick the FIRST measured level that clears
+   and effort route THAT action only. Pick a measured level that clears
    the work. Off-ladder and provider-rejected
    levels are tool errors; an unmeasured one ${gap}.
-   Prices include dated updates after ${PROFILES_AS_OF} research.
-   A model or effort change empties the prompt cache. Rewrites cost 12.5 times cache reads.
+   Prices are base input/output rates from each exact pi registry entry. \`unknown\` means that component is absent or invalid.
+   A model or effort change empties the prompt cache.
    DOCTRINE ONLY, not code-enforced: keep review and gate actions on measured
    levels, and honour a REFUSE in an avoid cell. Mechanics and config:
    ${MODEL_ROUTING_DOC}
