@@ -15,7 +15,7 @@ verifies the real committed range at the first track boundary. It never claims
 to measure absent work.
 
 **Focus is planned and proved.** The orchestrator judges engagement for the
-whole planned track. It records all eight areas and gives a concrete proof for
+whole planned track. It records all eleven areas and gives a concrete proof for
 each named area. The user approves this risk record. Before review, the
 orchestrator compares the proved set with the committed difference. No script
 or rule decides whether a proof holds.
@@ -207,9 +207,12 @@ record contains a judged proof that holds.
 | 6 | unreadable user-facing prose | one prose reviewer | every track that proves the area |
 | 7 | licensing exposure | one licensing reviewer | every track that proves the area |
 | 8 | non-local logic defect | one area reviewer for non-local logic defects | every track that proves the area |
+| 9 | consumer contract break | one area reviewer for consumer contract breaks | every track that proves the area |
+| 10 | governing-rule defect | one area reviewer for governing-rule defects | every track that proves the area |
+| 11 | unreported failure | one area reviewer for unreported failures | every track that proves the area |
 <!-- focus-area-table:end -->
 
-The marked table is the canonical copy of the duplicated eight-area table. Its
+The marked table is the canonical copy of the duplicated eleven-area table. Its
 second copy is in [track-workflow.md](track-workflow.md). The two marked blocks
 must remain equal.
 
@@ -383,6 +386,79 @@ forbidden or missing result.
   engages because material came from outside. Both areas engage only when the
   change can leave an agreement unsatisfied and also copies or adapts material
   from an identifiable external work.
+
+### Consumer contract break
+
+
+A consumer contract break changes a surface that an unchanged consumer reaches.
+
+1. Does the change alter a consumer-reachable surface?
+2. Would a consumer that does not change, using that surface in a way the review base permits, get a different result, a different exit status, a different output shape, an error, or data that it cannot read in the candidate?
+3. Does the change show no route that keeps the base use working?
+4. Does the change publish a new consumer-reachable surface without stating which parts of it a consumer may rely on?
+
+The first three answers must all be yes, or the fourth answer can be yes on its own. The review base is the base endpoint of the declared review range. The candidate is the candidate endpoint of that range. Compare those two snapshots, including unreleased code. A version number, release label, changelog or publication state does not override the declared endpoints. A consumer-reachable surface is a name that a published entry point exports, an argument or option of a shipped command, an exit status of a shipped command, the machine-readable output of a shipped command, a configuration key together with the value used when it is absent, a record or file that the project writes and later reads, or a shipped statement about what the project accepts or produces. An internal name, a moved file or a helper that no published entry point exposes does not trigger the area. An addition that leaves every permitted base use unchanged does not trigger it. Human-readable wording, layout and log text do not trigger it. A file that the project may discard or rebuild without a consumer noticing does not trigger it. Version numbers, release labels, changelogs and counts neither trigger nor clear it. A defect correction triggers it when an unchanged consumer's result changes, even when the base result contradicted the published document. A surface introduced in the candidate, which no consumer can reach from the review base, triggers it only through the fourth question.
+
+A proof for this area keeps the standard three parts. The defect class is the kind of break: a withdrawn name, a changed default, a changed exit status, a changed output shape, a narrowed input, or a format that the base reader cannot read in the candidate. The place names the consumer-reachable surface and the compared revisions in the declared review range, together with the concrete export, option, key, exit status or record. The consequence is what the unchanged consumer experiences in the candidate: a failed run, a silently different result, or data that it can no longer read.
+
+#### Boundaries
+
+Each pairing below engages both areas only when each area independently meets its own trigger.
+
+- **Concurrency defect.** A forbidden result that appears only because two or more executions may overlap or may run in another order belongs to concurrency defect. Consumer contract break covers a result that changes for an unchanged consumer in a single ordinary execution. Both areas engage when the change alters a consumer-reachable surface and also allows a new overlap.
+- **Data loss.** Kept data that cannot be recovered, or that comes back different, belongs to data loss. Consumer contract break covers a format, a default or a name that an outside party can no longer use as before, even when every byte survives. Both areas engage when a format change both withdraws the old reader and destroys the only copy.
+- **Security weakness.** A condition that a credible actor can reach and exploit against confidentiality, integrity, availability, authentication, authorization or accountability belongs to security weakness. Consumer contract break needs no actor and no exploit, only an unchanged consumer. Both areas engage when the changed default or key controls the run-time security posture of a consumer.
+- **Performance degradation.** A correct result that misses a stated latency, throughput, resource or growth requirement belongs to performance degradation. Consumer contract break needs a different result, a different status, a different shape or unreadable data, and speed alone never engages it. Both areas engage when a changed default also moves the work per unit of input on a path with a stated requirement.
+- **Test-quality defect.** A check that gives an unreliable signal, or that cannot detect a fault inside the behaviour it claims to protect, belongs to test-quality defect. Consumer contract break covers only surfaces that a consumer reaches, and test material is not one of them. Both areas engage when the change alters a shipped command that a consumer runs and also alters the check that would catch the break.
+- **Unreadable user-facing prose.** Text that leaves its reader unable to decide or to act belongs to unreadable user-facing prose. Consumer contract break covers a shipped document only when the document states what the project accepts or produces, and it never engages on wording, layout or log text. Both areas engage when the change alters an accepted input and also rewrites the sentence that states it.
+- **Licensing exposure.** Published material that the project has no permission to publish belongs to licensing exposure. Consumer contract break never engages because material came from outside. Both areas engage when adapted external material arrives together with a changed consumer-reachable surface.
+- **Non-local logic defect.** A wrong or missing result that follows from a broken agreement between two or more places inside the system belongs to non-local logic defect. Consumer contract break covers a result that a party outside the change observes as different, and it engages even when every place inside the change agrees. Both areas engage when a broken internal agreement is what produces the changed external result.
+
+### Governing-rule defect
+
+
+A governing-rule defect makes a rule for project work unusable or inconsistent.
+
+1. Does another rule document, or another copy of the same rule, now state something different for one case?
+2. Can a reader reach the end of the governed work without performing a required step and without recording a decision to skip it?
+3. Does the rule now require a term, a threshold or a name that the change leaves undefined for the reader who must apply it?
+4. Does an automated check, a gate or a script now permit work that the rule forbids, or forbid work that the rule permits?
+5. Can a required step become unreachable, or run after the work is declared complete?
+
+The change must add, alter or remove a rule for people or agents who produce, review, verify, publish or release work, or alter the machinery that enforces it. A product contract is outside this trigger. A change that only obeys an existing rule does not trigger the area. Counts and readability or coverage scores neither trigger nor clear it. A wording change that leaves every obligation the same does not trigger it. A record of a past rule that no reader must follow today does not trigger it.
+
+A proof for this area keeps the standard three parts. The defect class is which of the five questions answers yes. The place is the changed rule together with the other rule, copy or enforcing check that must agree with it. The consequence is the work that then proceeds without its check, or the two conflicting ways in which two readers act.
+
+---
+
+#### Boundaries
+
+Each pairing below engages both areas only when each area independently meets its own trigger.
+
+- **Concurrency defect.** A forbidden result or a stop of progress that appears because two or more executions may overlap belongs to concurrency defect. Governing-rule defect covers a rule that people and agents follow, and it never engages because an interleaving exists. Both areas engage when a changed rule states how a program must serialise work and the change also alters that serialisation in code.
+- **Data loss.** Unrecoverable or altered kept data belongs to data loss. Governing-rule defect covers work that proceeded without its check, even when no byte was lost. Both areas engage when the skipped step is the step that protects kept data.
+- **Security weakness.** A condition that a credible actor can reach and exploit against one of the six named properties belongs to security weakness. Governing-rule defect needs no actor, because the harm is that the project itself does the work wrongly. Both areas engage when the weakened gate is a protective control, for example a rule that keeps a credential out of a child process.
+- **Performance degradation.** Latency, throughput, resource use or growth that misses a stated requirement belongs to performance degradation. Governing-rule defect covers the rule that STATES such a requirement, and not the measured behaviour. Both areas engage when a change alters a size budget or a hot-path rule and also changes the work on that path.
+- **Test-quality defect, sentence one.** A project test or check that gives an unreliable signal, or that fails to detect a fault inside the behaviour it claims to protect, belongs to test-quality defect, and that area judges the check against the PRODUCT behaviour under it. **Sentence two.** Governing-rule defect judges the same check against the RULE above it, so it engages when the check and the rule now permit different work, and when a required gate becomes passable with no decision, even though the check still detects every fault it ever detected. Both areas engage when one change edits a gate that both enforces a project rule and detects a product fault, and each reviewer then files a different finding about it.
+- **Unreadable user-facing prose, sentence one.** Text that leaves its intended reader unable to make a decision or complete a task belongs to unreadable user-facing prose, and that area owns comprehension, audience, terminology, structure and the writing convention. **Sentence two.** Governing-rule defect covers a rule that a reader understands perfectly and still cannot apply, cannot satisfy, can satisfy in two conflicting ways, or can pass without a decision, so a rewording that changes only how easily a rule reads engages prose alone, while a rewording that changes what a reader must do engages this area. Both areas engage when a rule document is rewritten and its obligations change, and the prose code reviewer then judges the reading while this code reviewer judges the obligation.
+- **Licensing exposure.** Published material that the project has no permission to publish belongs to licensing exposure. Governing-rule defect never engages because material came from outside. Both areas engage when a change adapts an external standard, a checklist or a policy template into a project rule.
+- **Non-local logic defect.** A wrong or an absent result that no single changed place settles, because two or more places must agree, belongs to non-local logic defect, and its places are locations that an execution reads. Governing-rule defect covers a rule that a person or an agent must obey, and its consequence is work done wrongly rather than a wrong result. Both areas engage on a change that edits a rule, its duplicated copy and the check that pins the text.
+
+### Unreported failure
+
+
+An unreported failure leaves a product failure with no signal.
+
+1. Does the change introduce, move or widen a place where the product can fail, refuse, drop, skip, partly complete or fall back?
+2. Does the change leave at least one such failure with no signal that the change itself shows?
+
+A signal is one observable event, for example a non-zero exit status, a message on the error stream, a rejected input with a stated reason, a failing check, a recorded event or an error handed to a caller. A dropped entry with no report, an error that is caught and discarded, a return status that no caller reads, a write that nothing verifies and a fallback that replaces a failure with a normal-looking result each trigger the area. A change that adds no new way to fail does not trigger it. A failure that reaches a reporter the change keeps and shows does not trigger it. A wrong value from an execution that met no failure does not trigger it. A change whose only affected artifact is a project test or check belongs to test-quality defect and does not trigger this area. A removed signal triggers the area unless the change shows that the failure it reported can no longer happen. Counts do not decide the result.
+
+A proof for this area keeps the standard three parts. The defect class is the failure mode that carries no signal. The place is the failure site together with the boundary that owes the report. The consequence is what proceeds, spreads or completes as an apparent success while the failure stays unknown.
+
+#### Boundaries
+
+Areas may engage together when each area meets its own trigger. The unreported failure reviewer judges whether a product failure has a signal. That reviewer does not judge the outcome owned by another area. A silently swallowed write failure that changes a shipped command's exit status can engage both unreported failure and consumer contract break when both triggers hold. Unreported failure never grades a project test, which belongs to test-quality defect. It never grades the wording of a message, which belongs to unreadable user-facing prose. A wrong value from an execution that met no failure does not engage unreported failure. It engages non-local logic defect only when that area's cross-application relation trigger holds. A purely local wrong value can therefore engage neither area.
 
 ### Judged proof and risk record
 

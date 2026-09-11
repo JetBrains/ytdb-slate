@@ -2423,14 +2423,14 @@ try {
 				`Its fixed doctrine remains ${comma(portable(untrusted).length)} portable characters, ${lineCount(untrusted)}`,
 				`Enabling \`draftPRs\` costs ${comma(portable(offDraft).length - portable(off).length)} portable characters plus one embedded path.`,
 				`router-on fixture requires \`${comma(portable(on).length)} × 1.05 = ${comma((portable(on).length * 1.05).toFixed(2))}\`. Ceiling gives ${comma(Math.ceil(portable(on).length * 1.05))}.`,
-				`\`${comma(portable(writingAllOn).length)} × 1.05 = ${comma((portable(writingAllOn).length * 1.05).toFixed(1))}\`. Ceiling gives ${comma(Math.ceil(portable(writingAllOn).length * 1.05))}.`,
+				`\`${comma(portable(writingAllOn).length)} × 1.05 = ${comma((portable(writingAllOn).length * 1.05).toFixed(2))}\`. Ceiling gives ${comma(Math.ceil(portable(writingAllOn).length * 1.05))}.`,
 				`\`${comma(maximalFollowUpPortable)} × 1.05 = ${comma((maximalFollowUpPortable * 1.05).toFixed(2))}\`. Ceiling gives\n${comma(Math.ceil(maximalFollowUpPortable * 1.05))}.`,
 				`It measures ${comma(overBudgetPortable)} portable characters. It exceeds the\n${comma(MAXIMAL_BOUND)}-character maximal bound by ${comma(overBudgetPortable - MAXIMAL_BOUND)}.`,
 				`The shipped-rule table ranges from about ${comma(Math.round(portable(off).length / 4))} tokens\nto about ${comma(Math.round(portable(allDraftWriting).length / 4))} tokens.`,
 			];
 			const verificationDerivedFigures = [
 				`\`${comma(portable(writingRouterOn).length)} × 1.05 = ${comma((portable(writingRouterOn).length * 1.05).toFixed(2))}\`. Ceiling gives ${comma(Math.ceil(portable(writingRouterOn).length * 1.05))}.`,
-				`\`${comma(portable(writingAllOn).length)} × 1.05 = ${comma((portable(writingAllOn).length * 1.05).toFixed(1))}\`. Ceiling gives ${comma(Math.ceil(portable(writingAllOn).length * 1.05))}.`,
+				`\`${comma(portable(writingAllOn).length)} × 1.05 = ${comma((portable(writingAllOn).length * 1.05).toFixed(2))}\`. Ceiling gives ${comma(Math.ceil(portable(writingAllOn).length * 1.05))}.`,
 				`uses \`${comma(maximalFollowUpPortable)} × 1.05 = ${comma((maximalFollowUpPortable * 1.05).toFixed(2))}\`.\nCeiling gives ${comma(Math.ceil(maximalFollowUpPortable * 1.05))}.`,
 				`maximal reserves are ${comma(MAXIMAL_BOUND - maximalPortable)}, ${comma(MAXIMAL_BOUND - maximalNoDraftPortable)}, and ${comma(MAXIMAL_BOUND - maximalFollowUpPortable)}.`,
 				`The positive control exceeds the maximal bound by ${comma(overBudgetPortable - MAXIMAL_BOUND)}.`,
@@ -2476,29 +2476,29 @@ try {
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the configured-model fixture is the exact fixed six-model list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
 					["the fabricated dogfood fixture resolves its exact five-model list through the real router and uses pi registry context windows", dogfoodCandidates.length === dogfoodSpecs.length && dogfoodCandidates.every((candidate) => dogfoodSpecs.includes(candidate.spec)) && dogfoodCandidates.every((candidate) => candidate.contextWindow === (candidate.provider === "anthropic" ? 1_000_000 : 272_000)), { configured: dogfoodSpecs, candidates: dogfoodCandidates.map((candidate) => [candidate.spec, candidate.contextWindow]) }],
-					["the dogfood fixture is the measured 7425 portable chars and 102 lines", dogfoodPortable === 7425 && dogfood.split("\n").length === 102, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
+					["the dogfood fixture is the measured 7426 portable chars and 102 lines", dogfoodPortable === 7426 && dogfood.split("\n").length === 102, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length, { on: on.length, off: off.length, rule: rule.length }],
-					["the untrusted doctrine is the measured 2709 portable chars, 43 lines, and three embedded paths", portable(untrusted).length === 2709 && untrusted.split("\n").length === 43 && pathOccurrences(untrusted) === 3, { portable: portable(untrusted).length, lines: untrusted.split("\n").length, paths: pathOccurrences(untrusted) }],
-					["the router-off trusted doctrine is the measured 4618 portable chars and 72 lines", portable(off).length === 4618 && off.split("\n").length === 72, { portable: portable(off).length, lines: off.split("\n").length }],
-					[`...and the whole router-on doctrine is the measured 7203 portable chars and 96 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(on).length === 7203 && on.split("\n").length === 96 && portable(on).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(on).length, WRITING_ROUTER_BOUND), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
-					[`writing and design doctrine is the measured 4618 portable chars and 72 lines, and stays under ${DOCTRINE_LIMITS.writingAndDesignChars} with five percent reserve`, portable(writingOn).length === 4618 && writingOn.split("\n").length === 72 && portable(writingOn).length <= DOCTRINE_LIMITS.writingAndDesignChars && hasDoctrineReserve(portable(writingOn).length, DOCTRINE_LIMITS.writingAndDesignChars), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
-					["draft-enabled router-off doctrine is 4637 portable chars and 72 lines", portable(offDraft).length === 4637 && offDraft.split("\n").length === 72, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
-					["draft-enabled router-off writing doctrine is 4637 portable chars and 72 lines", portable(offDraftWriting).length === 4637 && offDraftWriting.split("\n").length === 72, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
-					["the six-model fixture is 6648 portable chars and 93 lines without draft publishing", portable(configuredOffDraft).length === 6648 && configuredOffDraft.split("\n").length === 93, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
-					["the six-model fixture is 6648 portable chars and 93 lines with writing", portable(configuredOffDraftWriting).length === 6648 && configuredOffDraftWriting.split("\n").length === 93, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
-					["the six-model draft fixture is 6667 portable chars and 93 lines", portable(configuredDraft).length === 6667 && configuredDraft.split("\n").length === 93, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
-					["the six-model draft and writing fixture is 6667 portable chars and 93 lines", portable(configuredDraftWriting).length === 6667 && configuredDraftWriting.split("\n").length === 93, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
-					[`writing plus router is the measured 7203 portable chars and 96 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 7203 && writingRouterOn.split("\n").length === 96 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
-					[`writing plus extensions is the measured 4873 portable chars and 78 lines, and stays under ${DOCTRINE_LIMITS.writingPlusExtensionsChars} with five percent reserve`, portable(writingExtensionsOn).length === 4873 && writingExtensionsOn.split("\n").length === 78 && portable(writingExtensionsOn).length <= DOCTRINE_LIMITS.writingPlusExtensionsChars && hasDoctrineReserve(portable(writingExtensionsOn).length, DOCTRINE_LIMITS.writingPlusExtensionsChars), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
-					[`all three tail features are the measured 7458 portable chars and 102 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 7458 && writingAllOn.split("\n").length === 102 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
-					["the all-nine draft fixture is 7222 portable chars and 96 lines", portable(allDraft).length === 7222 && allDraft.split("\n").length === 96, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
-					["the all-nine draft and writing fixture is 7222 portable chars and 96 lines", portable(allDraftWriting).length === 7222 && allDraftWriting.split("\n").length === 96, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
+					["the untrusted doctrine is the measured 2710 portable chars, 43 lines, and three embedded paths", portable(untrusted).length === 2710 && untrusted.split("\n").length === 43 && pathOccurrences(untrusted) === 3, { portable: portable(untrusted).length, lines: untrusted.split("\n").length, paths: pathOccurrences(untrusted) }],
+					["the router-off trusted doctrine is the measured 4619 portable chars and 72 lines", portable(off).length === 4619 && off.split("\n").length === 72, { portable: portable(off).length, lines: off.split("\n").length }],
+					[`...and the whole router-on doctrine is the measured 7204 portable chars and 96 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(on).length === 7204 && on.split("\n").length === 96 && portable(on).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(on).length, WRITING_ROUTER_BOUND), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
+					[`writing and design doctrine is the measured 4619 portable chars and 72 lines, and stays under ${DOCTRINE_LIMITS.writingAndDesignChars} with five percent reserve`, portable(writingOn).length === 4619 && writingOn.split("\n").length === 72 && portable(writingOn).length <= DOCTRINE_LIMITS.writingAndDesignChars && hasDoctrineReserve(portable(writingOn).length, DOCTRINE_LIMITS.writingAndDesignChars), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
+					["draft-enabled router-off doctrine is 4638 portable chars and 72 lines", portable(offDraft).length === 4638 && offDraft.split("\n").length === 72, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
+					["draft-enabled router-off writing doctrine is 4638 portable chars and 72 lines", portable(offDraftWriting).length === 4638 && offDraftWriting.split("\n").length === 72, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
+					["the six-model fixture is 6649 portable chars and 93 lines without draft publishing", portable(configuredOffDraft).length === 6649 && configuredOffDraft.split("\n").length === 93, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
+					["the six-model fixture is 6649 portable chars and 93 lines with writing", portable(configuredOffDraftWriting).length === 6649 && configuredOffDraftWriting.split("\n").length === 93, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
+					["the six-model draft fixture is 6668 portable chars and 93 lines", portable(configuredDraft).length === 6668 && configuredDraft.split("\n").length === 93, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
+					["the six-model draft and writing fixture is 6668 portable chars and 93 lines", portable(configuredDraftWriting).length === 6668 && configuredDraftWriting.split("\n").length === 93, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
+					[`writing plus router is the measured 7204 portable chars and 96 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 7204 && writingRouterOn.split("\n").length === 96 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
+					[`writing plus extensions is the measured 4874 portable chars and 78 lines, and stays under ${DOCTRINE_LIMITS.writingPlusExtensionsChars} with five percent reserve`, portable(writingExtensionsOn).length === 4874 && writingExtensionsOn.split("\n").length === 78 && portable(writingExtensionsOn).length <= DOCTRINE_LIMITS.writingPlusExtensionsChars && hasDoctrineReserve(portable(writingExtensionsOn).length, DOCTRINE_LIMITS.writingPlusExtensionsChars), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
+					[`all three tail features are the measured 7459 portable chars and 102 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 7459 && writingAllOn.split("\n").length === 102 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
+					["the all-nine draft fixture is 7223 portable chars and 96 lines", portable(allDraft).length === 7223 && allDraft.split("\n").length === 96, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
+					["the all-nine draft and writing fixture is 7223 portable chars and 96 lines", portable(allDraftWriting).length === 7223 && allDraftWriting.split("\n").length === 96, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
 					// Update exact measurements with production wording in the same commit.
-					[`the maximum all-feature fixture is the measured 8569 portable chars and 106 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 8569 && maximal.split("\n").length === 106 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					[`the draft-PR-disabled maximum fixture is pinned independently at 8550 portable chars and 106 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 8550 && maximalNoDraft.split("\n").length === 106 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the maximum all-feature fixture is the measured 8570 portable chars and 106 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 8570 && maximal.split("\n").length === 106 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the draft-PR-disabled maximum fixture is pinned independently at 8551 portable chars and 106 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 8551 && maximalNoDraft.split("\n").length === 106 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					[`the capped worker rule is the measured 1347 chars and 11 split lines, and stays within ${DOCTRINE_LIMITS.cappedWorkerRuleChars} with five percent reserve`, workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= DOCTRINE_LIMITS.cappedWorkerRuleChars && hasDoctrineReserve(workerRule.length, DOCTRINE_LIMITS.cappedWorkerRuleChars), { chars: workerRule.length, lines: workerRule.split("\n").length }],
 					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 184 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					[`the positive control is the measured 9885 portable chars and 113 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9885 && overBudget.split("\n").length === 113 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
+					[`the positive control is the measured 9886 portable chars and 113 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9886 && overBudget.split("\n").length === 113 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
@@ -2514,7 +2514,7 @@ try {
 				"doctrine-budget-deferred",
 				"the trusted deferred-issue configuration has its own pinned maximum fixture and preserves the existing maximum bound",
 				[
-					[`the maximal deferred-issue fixture is the measured 8643 portable chars and 107 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8643 && maximalFollowUp.split("\n").length === 107 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
+					[`the maximal deferred-issue fixture is the measured 8644 portable chars and 107 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8644 && maximalFollowUp.split("\n").length === 107 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
 				],
 			);
 		});
@@ -3895,17 +3895,20 @@ try {
 | 5 | test-quality defect | one test-quality and structure reviewer | every track that proves the area |
 | 6 | unreadable user-facing prose | one prose reviewer | every track that proves the area |
 | 7 | licensing exposure | one licensing reviewer | every track that proves the area |
-| 8 | non-local logic defect | one area reviewer for non-local logic defects | every track that proves the area |`;
+| 8 | non-local logic defect | one area reviewer for non-local logic defects | every track that proves the area |
+| 9 | consumer contract break | one area reviewer for consumer contract breaks | every track that proves the area |
+| 10 | governing-rule defect | one area reviewer for governing-rule defects | every track that proves the area |
+| 11 | unreported failure | one area reviewer for unreported failures | every track that proves the area |`;
 			const parseRows = (text) => text.split("\n").filter((line) => /^\| \d+ \|/.test(line)).map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()));
 			const workflowRows = parseRows(focusWorkflow.text);
 			const blastRows = parseRows(focusBlast.text);
-			checkAll("contract-focus-table-sync", "the marked eight-area tables and project README roster are unique and exact", [
+			checkAll("contract-focus-table-sync", "the marked eleven-area tables and project README roster are unique and exact", [
 				["workflow table marked once", focusWorkflow.count === 1 && focusWorkflow.endCount === 1, focusWorkflow],
 				["blast table marked once", focusBlast.count === 1 && focusBlast.endCount === 1, focusBlast],
-				["eight contiguous ordered rows", workflowRows.map((row) => row[0]).join() === "1,2,3,4,5,6,7,8", workflowRows.map((row) => row[0])],
+				["eleven contiguous ordered rows", workflowRows.map((row) => row[0]).join() === "1,2,3,4,5,6,7,8,9,10,11", workflowRows.map((row) => row[0])],
 				["blocks equal", normalize(focusWorkflow.text) === normalize(focusBlast.text), { workflowRows, blastRows }],
 				["content is the fixed canonical table", normalize(focusWorkflow.text) === expectedFocus, focusWorkflow.text],
-				["project README names the current eight areas once", projectReadme.split("Eight focus areas name specific risks.").length - 1 === 1 && /They cover\nconcurrency defects, data loss, security weaknesses, performance degradation,\ntest-quality defects, unreadable user-facing prose, licensing exposure, and\nnon-local logic defects\./.test(projectReadme), projectReadme.match(/Focus is separate from size\.[\s\S]{0,300}/)?.[0]],
+				["project README names the current eleven areas once", projectReadme.split("Eleven focus areas name specific risks.").length - 1 === 1 && /They cover\nconcurrency defects, data loss, security weaknesses, performance degradation,\ntest-quality defects, unreadable user-facing prose, licensing exposure,\nnon-local logic defects, consumer contract breaks, governing-rule defects, and\nunreported failures\./.test(projectReadme), projectReadme.match(/Focus is separate from size\.[\s\S]{0,400}/)?.[0]],
 			]);
 
 			const sectionText = (source, heading, next) => source.match(new RegExp(`^### ${heading}\\n([\\s\\S]*?)(?=^### ${next})`, "m"))?.[1]?.trim() ?? "";
@@ -4051,13 +4054,74 @@ forbidden or missing result.
   change can leave an agreement unsatisfied and also copies or adapts material
   from an identifiable external work.`)],
 			]);
+			expectedDefinitions.set("Consumer contract break", normalizeText(`A consumer contract break changes a surface that an unchanged consumer reaches.
+
+1. Does the change alter a consumer-reachable surface?
+2. Would a consumer that does not change, using that surface in a way the review base permits, get a different result, a different exit status, a different output shape, an error, or data that it cannot read in the candidate?
+3. Does the change show no route that keeps the base use working?
+4. Does the change publish a new consumer-reachable surface without stating which parts of it a consumer may rely on?
+
+The first three answers must all be yes, or the fourth answer can be yes on its own. The review base is the base endpoint of the declared review range. The candidate is the candidate endpoint of that range. Compare those two snapshots, including unreleased code. A version number, release label, changelog or publication state does not override the declared endpoints. A consumer-reachable surface is a name that a published entry point exports, an argument or option of a shipped command, an exit status of a shipped command, the machine-readable output of a shipped command, a configuration key together with the value used when it is absent, a record or file that the project writes and later reads, or a shipped statement about what the project accepts or produces. An internal name, a moved file or a helper that no published entry point exposes does not trigger the area. An addition that leaves every permitted base use unchanged does not trigger it. Human-readable wording, layout and log text do not trigger it. A file that the project may discard or rebuild without a consumer noticing does not trigger it. Version numbers, release labels, changelogs and counts neither trigger nor clear it. A defect correction triggers it when an unchanged consumer's result changes, even when the base result contradicted the published document. A surface introduced in the candidate, which no consumer can reach from the review base, triggers it only through the fourth question.
+
+A proof for this area keeps the standard three parts. The defect class is the kind of break: a withdrawn name, a changed default, a changed exit status, a changed output shape, a narrowed input, or a format that the base reader cannot read in the candidate. The place names the consumer-reachable surface and the compared revisions in the declared review range, together with the concrete export, option, key, exit status or record. The consequence is what the unchanged consumer experiences in the candidate: a failed run, a silently different result, or data that it can no longer read.
+
+#### Boundaries
+
+Each pairing below engages both areas only when each area independently meets its own trigger.
+
+- **Concurrency defect.** A forbidden result that appears only because two or more executions may overlap or may run in another order belongs to concurrency defect. Consumer contract break covers a result that changes for an unchanged consumer in a single ordinary execution. Both areas engage when the change alters a consumer-reachable surface and also allows a new overlap.
+- **Data loss.** Kept data that cannot be recovered, or that comes back different, belongs to data loss. Consumer contract break covers a format, a default or a name that an outside party can no longer use as before, even when every byte survives. Both areas engage when a format change both withdraws the old reader and destroys the only copy.
+- **Security weakness.** A condition that a credible actor can reach and exploit against confidentiality, integrity, availability, authentication, authorization or accountability belongs to security weakness. Consumer contract break needs no actor and no exploit, only an unchanged consumer. Both areas engage when the changed default or key controls the run-time security posture of a consumer.
+- **Performance degradation.** A correct result that misses a stated latency, throughput, resource or growth requirement belongs to performance degradation. Consumer contract break needs a different result, a different status, a different shape or unreadable data, and speed alone never engages it. Both areas engage when a changed default also moves the work per unit of input on a path with a stated requirement.
+- **Test-quality defect.** A check that gives an unreliable signal, or that cannot detect a fault inside the behaviour it claims to protect, belongs to test-quality defect. Consumer contract break covers only surfaces that a consumer reaches, and test material is not one of them. Both areas engage when the change alters a shipped command that a consumer runs and also alters the check that would catch the break.
+- **Unreadable user-facing prose.** Text that leaves its reader unable to decide or to act belongs to unreadable user-facing prose. Consumer contract break covers a shipped document only when the document states what the project accepts or produces, and it never engages on wording, layout or log text. Both areas engage when the change alters an accepted input and also rewrites the sentence that states it.
+- **Licensing exposure.** Published material that the project has no permission to publish belongs to licensing exposure. Consumer contract break never engages because material came from outside. Both areas engage when adapted external material arrives together with a changed consumer-reachable surface.
+- **Non-local logic defect.** A wrong or missing result that follows from a broken agreement between two or more places inside the system belongs to non-local logic defect. Consumer contract break covers a result that a party outside the change observes as different, and it engages even when every place inside the change agrees. Both areas engage when a broken internal agreement is what produces the changed external result.`));
+			expectedDefinitions.set("Governing-rule defect", normalizeText(`A governing-rule defect makes a rule for project work unusable or inconsistent.
+
+1. Does another rule document, or another copy of the same rule, now state something different for one case?
+2. Can a reader reach the end of the governed work without performing a required step and without recording a decision to skip it?
+3. Does the rule now require a term, a threshold or a name that the change leaves undefined for the reader who must apply it?
+4. Does an automated check, a gate or a script now permit work that the rule forbids, or forbid work that the rule permits?
+5. Can a required step become unreachable, or run after the work is declared complete?
+
+The change must add, alter or remove a rule for people or agents who produce, review, verify, publish or release work, or alter the machinery that enforces it. A product contract is outside this trigger. A change that only obeys an existing rule does not trigger the area. Counts and readability or coverage scores neither trigger nor clear it. A wording change that leaves every obligation the same does not trigger it. A record of a past rule that no reader must follow today does not trigger it.
+
+A proof for this area keeps the standard three parts. The defect class is which of the five questions answers yes. The place is the changed rule together with the other rule, copy or enforcing check that must agree with it. The consequence is the work that then proceeds without its check, or the two conflicting ways in which two readers act.
+
+---
+
+#### Boundaries
+
+Each pairing below engages both areas only when each area independently meets its own trigger.
+
+- **Concurrency defect.** A forbidden result or a stop of progress that appears because two or more executions may overlap belongs to concurrency defect. Governing-rule defect covers a rule that people and agents follow, and it never engages because an interleaving exists. Both areas engage when a changed rule states how a program must serialise work and the change also alters that serialisation in code.
+- **Data loss.** Unrecoverable or altered kept data belongs to data loss. Governing-rule defect covers work that proceeded without its check, even when no byte was lost. Both areas engage when the skipped step is the step that protects kept data.
+- **Security weakness.** A condition that a credible actor can reach and exploit against one of the six named properties belongs to security weakness. Governing-rule defect needs no actor, because the harm is that the project itself does the work wrongly. Both areas engage when the weakened gate is a protective control, for example a rule that keeps a credential out of a child process.
+- **Performance degradation.** Latency, throughput, resource use or growth that misses a stated requirement belongs to performance degradation. Governing-rule defect covers the rule that STATES such a requirement, and not the measured behaviour. Both areas engage when a change alters a size budget or a hot-path rule and also changes the work on that path.
+- **Test-quality defect, sentence one.** A project test or check that gives an unreliable signal, or that fails to detect a fault inside the behaviour it claims to protect, belongs to test-quality defect, and that area judges the check against the PRODUCT behaviour under it. **Sentence two.** Governing-rule defect judges the same check against the RULE above it, so it engages when the check and the rule now permit different work, and when a required gate becomes passable with no decision, even though the check still detects every fault it ever detected. Both areas engage when one change edits a gate that both enforces a project rule and detects a product fault, and each reviewer then files a different finding about it.
+- **Unreadable user-facing prose, sentence one.** Text that leaves its intended reader unable to make a decision or complete a task belongs to unreadable user-facing prose, and that area owns comprehension, audience, terminology, structure and the writing convention. **Sentence two.** Governing-rule defect covers a rule that a reader understands perfectly and still cannot apply, cannot satisfy, can satisfy in two conflicting ways, or can pass without a decision, so a rewording that changes only how easily a rule reads engages prose alone, while a rewording that changes what a reader must do engages this area. Both areas engage when a rule document is rewritten and its obligations change, and the prose code reviewer then judges the reading while this code reviewer judges the obligation.
+- **Licensing exposure.** Published material that the project has no permission to publish belongs to licensing exposure. Governing-rule defect never engages because material came from outside. Both areas engage when a change adapts an external standard, a checklist or a policy template into a project rule.
+- **Non-local logic defect.** A wrong or an absent result that no single changed place settles, because two or more places must agree, belongs to non-local logic defect, and its places are locations that an execution reads. Governing-rule defect covers a rule that a person or an agent must obey, and its consequence is work done wrongly rather than a wrong result. Both areas engage on a change that edits a rule, its duplicated copy and the check that pins the text.`));
+			expectedDefinitions.set("Unreported failure", normalizeText(`An unreported failure leaves a product failure with no signal.
+
+1. Does the change introduce, move or widen a place where the product can fail, refuse, drop, skip, partly complete or fall back?
+2. Does the change leave at least one such failure with no signal that the change itself shows?
+
+A signal is one observable event, for example a non-zero exit status, a message on the error stream, a rejected input with a stated reason, a failing check, a recorded event or an error handed to a caller. A dropped entry with no report, an error that is caught and discarded, a return status that no caller reads, a write that nothing verifies and a fallback that replaces a failure with a normal-looking result each trigger the area. A change that adds no new way to fail does not trigger it. A failure that reaches a reporter the change keeps and shows does not trigger it. A wrong value from an execution that met no failure does not trigger it. A change whose only affected artifact is a project test or check belongs to test-quality defect and does not trigger this area. A removed signal triggers the area unless the change shows that the failure it reported can no longer happen. Counts do not decide the result.
+
+A proof for this area keeps the standard three parts. The defect class is the failure mode that carries no signal. The place is the failure site together with the boundary that owes the report. The consequence is what proceeds, spreads or completes as an apparent success while the failure stays unknown.
+
+#### Boundaries
+
+Areas may engage together when each area meets its own trigger. The unreported failure reviewer judges whether a product failure has a signal. That reviewer does not judge the outcome owned by another area. A silently swallowed write failure that changes a shipped command's exit status can engage both unreported failure and consumer contract break when both triggers hold. Unreported failure never grades a project test, which belongs to test-quality defect. It never grades the wording of a message, which belongs to unreadable user-facing prose. A wrong value from an execution that met no failure does not engage unreported failure. It engages non-local logic defect only when that area's cross-application relation trigger holds. A purely local wrong value can therefore engage neither area.`));
 			const definitionOrder = [...expectedDefinitions.keys()];
 			const actualDefinitions = new Map(definitionOrder.map((name, index) => [name, sectionText(blast, name, index + 1 < definitionOrder.length ? definitionOrder[index + 1] : "Judged proof and risk record")]));
 			const testDefinition = block(blast, "test-quality-definition");
 			const negatedTestDefinition = normalizeText(testDefinition.text.replace("gives an unreliable signal", "gives a reliable signal"));
 			const oldDefinitionMarkers = ["project-test-artifact-definition", "core-behaviour-definition"];
-			checkAll("contract-risk-definitions", "all eight risk definitions are exact, independent of row numbers, and the marked test-quality definition rejects a negated mutation", [
-				["eight exact definitions", definitionOrder.every((name) => normalizeText(actualDefinitions.get(name) ?? "") === expectedDefinitions.get(name)), Object.fromEntries([...actualDefinitions].map(([name, text]) => [name, normalizeText(text)]))],
+			checkAll("contract-risk-definitions", "all eleven risk definitions are exact, independent of row numbers, and the marked test-quality definition rejects a negated mutation", [
+				["eleven exact definitions", definitionOrder.every((name) => normalizeText(actualDefinitions.get(name) ?? "") === expectedDefinitions.get(name)), Object.fromEntries([...actualDefinitions].map(([name, text]) => [name, normalizeText(text)]))],
 				["definitions carry no area-number coupling", [...actualDefinitions.values()].every((text) => !/\barea \d+\b/i.test(text)), [...actualDefinitions].filter(([, text]) => /\barea \d+\b/i.test(text))],
 				["test-quality definition marked once", testDefinition.count === 1 && testDefinition.endCount === 1, testDefinition],
 				["test-quality marker content is exact", normalizeText(`<!-- test-quality-definition:begin -->\n${testDefinition.text}\n<!-- test-quality-definition:end -->`) === expectedDefinitions.get("Test-quality defect"), normalizeText(testDefinition.text)],
@@ -4069,7 +4133,7 @@ forbidden or missing result.
 			const proofSection = normalizeText(blast.match(/^### Judged proof and risk record\n([\s\S]*?)(?=^## Optional path declarations)/m)?.[1] ?? "");
 			const expectedRiskLifecycle = normalizeText(`The orchestrator names engaged focus areas during track planning. Engagement is
 judged for the whole track and its planned change, not for each file. The
-orchestrator writes all eight risk-record lines. Each named area gets the
+orchestrator writes all eleven risk-record lines. Each named area gets the
 three-part proof defined in [blast-radius.md](blast-radius.md) § Judged proof
 and risk record. Each non-engagement line states which trigger part answers no.
 
@@ -4208,7 +4272,8 @@ its reviewer.`);
 The code reviewer is read-only and reports inside this area only. Prefix \`NL\`.
 
 The non-local logic defect area owns an agreement between places that an
-execution reads.
+execution reads. The governing-rule defect area owns agreement between rule
+documents.
 
 1. List every fact outside the changed lines that the correctness verdict
    depends on. For each fact, state where it lives and how you checked it.
@@ -4224,22 +4289,56 @@ execution reads.
    change can observe that order.
 7. Check that the implemented decisions agree with the stated intent of the
    track.
-8. Check error and failure paths that cross the agreements above.`;
+8. Check error and failure paths that cross the agreements above.
+
+
+#### Consumer contract break reviewer
+
+The code reviewer is read-only and reports inside this area only. Prefix \`CB\`.
+
+1. List every consumer-reachable surface the change touches: an exported name, a command argument or option, an exit status, a machine-readable output shape, a configuration key together with the value used when that key is absent, a written or read record, and a shipped statement about accepted input or produced output.
+2. For each listed surface, state what an unchanged consumer gets from the review base and what it gets from the candidate. Name the concrete invocation, configuration file or stored record that you used as the example.
+3. Check every default that the change adds, moves or withdraws. Report a default whose candidate value changes the result for a consumer that set nothing in the review base.
+4. Check the records the change writes or reads in both directions: a record written by the review base and read by the candidate, and a record written by the candidate and read by the review base.
+5. Report every withdrawal, rename or narrowing that ships no route for the base use. State which route exists, from an accepted base form, a default, an alias, a reserved identifier, a reader for the base format or a warning window, and state whether the change shows that the route works.
+6. Check that shipped documents state the same accepted input, produced output, exit statuses and defaults as the code. Report a newly published surface that ships with no statement of which parts a consumer may rely on.
+
+#### Governing-rule defect reviewer
+
+The code reviewer is read-only and reports inside this area only. Prefix \`GR\`. The governing-rule defect area owns agreement between rule documents. The non-local logic defect area owns an agreement between places that an execution reads.
+
+1. List every rule that the change adds, alters or removes. For each rule, state where it lives, who must obey it, and what the reader must now do differently.
+2. Check agreement between rule documents. Compare each changed rule against every other rule document, every marked duplicate block and every shipped copy that states the same rule. Report each case where two of them tell one reader two different things.
+3. Apply each changed rule as a first-time reader with only the change in front of you. Report each term, threshold, name or path that leaves the rule impossible to apply, and say which decision the reader cannot reach.
+4. Trace each changed rule to the check, the gate or the script that enforces it. Report each place where the rule and its enforcer now permit different work, and report a rule whose stated enforcement no longer exists.
+5. Walk the governed sequence from its start to its declared completion. Report a required step that a reader can pass with no recorded decision, a required step that no route reaches, and a step that can run after completion.
+6. Check every list that tells a reader when to act, for example a re-run trigger list, a required-check table, a phase order or a gate table. Report each entry that the change makes stale, missing or wrong.
+
+#### Unreported failure reviewer
+
+The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
+
+1. Enumerate every in-scope failure mode of the changed behaviour, and name the exact signal that detects each one. Record a mode with no signal as a defect. This duty is the clause the retired general reviewer carried.
+2. For each failure mode, name the place that owes the report and the observable form of that report, for example the exit status, the stream, the stated rejection reason, the failing check or the recorded event.
+3. Check every caught error, every discarded error, every ignored return status and every empty handler on the changed paths. Report a discarded failure that produces no other signal.
+4. Check every effect the change performs and does not verify, for example a write, a delete, a send or a settings update. State what proceeds when the effect fails.
+5. Check every fallback, default, retry and partial result the change adds. Report a case where the substitute result is indistinguishable from success.
+6. Check every report the change removes, narrows, hides or downgrades. Require evidence that the failure it reported can no longer happen.`;
 			const retiredCharters = ["behavioural correctness", "contract", "silent failure"];
 			const retiredPrefixes = ["BC", "CT", "SF"];
 			const standaloneTestStructureRole = /\btest[- ]structure specialist\b/i;
-			const activePrefixPhrase = "Active built-in prefixes are `RI`, `CN`,\n`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, `NL`, and `RG`.";
-			checkAll("contract-review-charters", "Reviewer I is the sole general floor, the current non-local logic charter and cap class are exact and name no unavailable area, the composite test role stays separate, and retired roles and prefixes stay absent", [
+			const activePrefixPhrase = "Active built-in prefixes are `RI`, `CN`,\n`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, `NL`, `CB`, `GR`, `UF`, and `RG`.";
+			checkAll("contract-review-charters", "Reviewer I is the sole general floor, all four production defect charters and cap classes are exact and name no unavailable area, the composite test role stays separate, and retired roles and prefixes stay absent", [
 				["Reviewer I clauses are exact", normalize(reviewerIClauses) === expectedReviewerIClauses, reviewerIClauses],
 				["all grade rows use Reviewer I plus proved areas", reviewRows.length === 3 && reviewRows.every(([, text]) => text === "Reviewer I plus one reviewer for every proved area whose canonical gate runs per track"), reviewRows],
-				["non-local logic is inside the production cap", /The non-local logic defect reviewer is a production area reviewer\nand counts against this cap\./.test(reviews), reviews.slice(0, 2500)],
-				["test, prose, and licensing are outside the production cap", /test-quality and structure reviewer, prose\nreviewer, and licensing reviewer are additional and never count against that\ncap/.test(reviews), reviews.slice(0, 2500)],
+				["all four production defect reviewers are inside the production cap", /The non-local logic defect, consumer contract break, governing-rule defect and\nunreported failure reviewers are production area reviewers and count against\nthis cap\./.test(reviews), reviews.slice(0, 3000)],
+				["test, prose, and licensing are outside the production cap", /test-quality and structure reviewer, prose reviewer, and licensing\nreviewer are additional and never count against that cap/.test(reviews), reviews.slice(0, 2500)],
 				["composite test role never merges with another built-in role", /test-quality and structure reviewer never merges with\nReviewer I, a production area reviewer, the prose reviewer, or the licensing\nreviewer\./.test(reviews), reviews.slice(0, 2500)],
 				["documentation-only merge exception is exact", /Each changed file in a documentation-only track has the `documentation`\nclassification from the shipped size command\. A track with any `source` file is\nnot documentation only\. On a documentation-only track, Reviewer I may carry the\nprose charter and the licensing charter\. Record the reason for this merge\./.test(reviews), reviews.slice(0, 2500)],
 				["no standalone test-structure specialist role", !standaloneTestStructureRole.test(reviews), reviews.match(standaloneTestStructureRole)?.[0]],
 				["prose and licensing charters are separate", /^### Prose reviewer$/m.test(reviews) && /^### Licensing reviewer$/m.test(reviews) && !/^### Prose and licensing reviewer$/m.test(reviews), reviews.match(/^### (?:Prose|Licensing).*$/gm)],
 				["production charter block is exact", productionCharters === expectedProductionCharters, productionCharters],
-				["the current charter names no area outside the current eight-area roster", !/governing-rule defect area/.test(productionCharters), productionCharters],
+				["the current charters name only areas in the current eleven-area roster", /#### Consumer contract break reviewer/.test(productionCharters) && /#### Governing-rule defect reviewer/.test(productionCharters) && /#### Unreported failure reviewer/.test(productionCharters), productionCharters],
 				["retired production charters are absent", retiredCharters.every((name) => !new RegExp(`^- \\*\\*${name}:`, "m").test(reviews)), retiredCharters.filter((name) => new RegExp(`^- \\*\\*${name}:`, "m").test(reviews))],
 				["active prefix list is unique and exact", reviews.split(activePrefixPhrase).length - 1 === 1 && (reviews.match(/Active built-in prefixes/g) ?? []).length === 1, reviews.match(/Active built-in prefixes[^.]*\./gs)],
 				["retired prefixes are absent from the active list", retiredPrefixes.every((prefix) => !new RegExp(`Active built-in prefixes[^.]*\\b${prefix}\\b`, "s").test(reviews)), retiredPrefixes],

@@ -502,7 +502,7 @@ threads execute. Rules:
    episode. Episodes marked STATUS: FAILED require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.
 8. Scale change gates by size grade: SMALL, MEDIUM, or LARGE. You own focus-area
-   planning. Write an eight-line risk record and give a concrete three-part proof
+   planning. Write an eleven-line risk record and give a concrete three-part proof
    for each named area. No rule mechanically decides whether a proof holds.
    Obtain user approval of the record at every confirmation gate. You own the
    track split. For repository changes, read ${TRACK_WORKFLOW_DOC} (skip the read
