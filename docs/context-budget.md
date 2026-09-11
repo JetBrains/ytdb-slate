@@ -142,11 +142,12 @@ request while that tool is available. Parameter descriptions sit inside the
 schema. A tool description and a parameter description are therefore both
 always loaded.
 
-The current `thread` tool description is 1,062 UTF-8 bytes. Its serialized
-parameter schema is 1,246 bytes, measured as `JSON.stringify(parameters)`.
-The schema includes the bounded `context` argument.
+The current `thread` tool description is 1,032 UTF-8 bytes. Its serialized
+parameter schema is 1,386 bytes, measured as `JSON.stringify(parameters)`.
+The schema requires `model`, `effort`, and `reason`. It includes the bounded
+`context` argument and the 200-character `reason` limit.
 
-The description and schema total 2,308 bytes before provider framing.
+The description and schema total 2,418 bytes before provider framing.
 The `context` entry accepts at most 32 episode identifiers.
 
 The figure excludes the prompt snippet, prompt guidelines, tool name,
@@ -237,7 +238,6 @@ must agree with `verification/README.md`:
 | on | all 9 shipped | off | set | 6 | 7,211 | 97 |
 | on | all 9 shipped | on | absent | 7 | 7,230 | 97 |
 | on | all 9 shipped | on | set | 7 | 7,230 | 97 |
-
 An untrusted project receives no writing or routing tail whatever its
 `slate.json` says. Its fixed doctrine remains 2,717 portable characters, 44
 lines, and four embedded paths. Line counts do not vary with the install path.
@@ -251,9 +251,9 @@ path:
 
 - The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
   so what renders is the models you CONFIGURE — not the nine Slate
-  ships profiles for. In this snapshot it is 2,030 portable
-  characters and adds 21 doctrine lines for six configured models;
-  for all nine it is 2,585 characters and adds 24 lines. The six
+  ships profiles for. In this snapshot it is 1,917 portable
+  characters and has 21 doctrine lines for six configured models.
+  For all nine it is 2,472 characters and has 24 lines. The six
   model rows are 146–181 characters; all nine are 146–183. The
   legend adds a one-off clause per marker it has to explain, so
   growth is not only the sum of new rows.
@@ -270,7 +270,6 @@ worker extensions and support verification decisions:
 | fixture mirroring current `.pi/slate.json`: draft PRs + writing, pi-registry windows | 5 resolved | pinned-package 2 units / 4 tools | 7 | 7,433 | 103 | ≈1,858 |
 | stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,577 | 107 | ≈2,144 |
 | deferred-issue maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 7 | 8,651 | 108 | ≈2,163 |
-
 The dogfood fixture mirrors `workflow.draftPRs: true`, both ignored writing keys,
 and the five models in this repository's `.pi/slate.json`. A change to that
 configuration requires re-measuring this row. The fabricated context-window
@@ -313,9 +312,9 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 
 | budget term | current | enforced bound | current reserve |
 | --- | ---: | ---: | ---: |
-| routing rule characters | 2,585 | 4,000 | 1,415 |
-| routing rule lines | 25 | 34 | 9 |
-| routing fixed prose | 1,110 | 1,500 | 390 |
+| routing rule characters | 2,472 | 4,000 | 1,528 |
+| routing rule lines | 24 | 34 | 10 |
+| routing fixed prose | 997 | 1,500 | 503 |
 | largest model row | 183 | 300 | 117 |
 | trusted router-on doctrine | 7,211 | 7,600 | 389 |
 | writing and design doctrine | 4,626 | 5,600 | 974 |
@@ -324,8 +323,7 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 | writing plus router and extensions | 7,466 | 7,900 | 434 |
 | maximal doctrine, draft PRs enabled | 8,577 | 9,100 | 523 |
 | maximal doctrine, draft PRs disabled | 8,558 | 9,100 | 542 |
-| maximal doctrine, deferred-issue prompt enabled | 8,651 | 9,100 | 449 |
-| capped worker rule | 1,347 | 1,600 | 253 |
+| maximal doctrine, deferred-issue prompt enabled | 8,651 | 9,100 | 449 || capped worker rule | 1,347 | 1,600 | 253 |
 | writing rule characters | 1,338 | 1,500 | 162 |
 | writing rule lines | 22 | 25 | 3 |
 | design rule characters | 571 | 600 | 29 |
@@ -348,8 +346,7 @@ fixture.
 
 The positive control adds one capped tool and six copies of the largest
 measured model row. It measures 9,893 portable characters. It exceeds the
-9,100-character maximal bound by 793. That margin remains larger than the
-184-character maximum model-row growth and the 212-character capped tool growth.
+9,100-character maximal bound by 793. That margin remains larger than the184-character maximum model-row growth and the 212-character capped tool growth.
 The raised bound does not blunt the positive control.
 
 These figures are verification budgets, never runtime limits. Arbitrary user
@@ -362,7 +359,6 @@ the nearest whole token. The shipped-rule table ranges from about 1,157 tokens
 to about 1,808 tokens. The current dogfood basis is about 1,858 tokens. The
 stable representative maximum is about 2,144 tokens. The deferred-issue
 maximum is about 2,163 tokens, or 0.85 percent of the default budget.
-
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
 much headroom Slate consumes before conversation content.
 
