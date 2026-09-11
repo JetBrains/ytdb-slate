@@ -118,8 +118,29 @@ test("routing doctrine renders registry prices, configured order, and full tier 
   assert.match(doctrine, /\|tier 1\|/);
   assert.match(doctrine, /Prices are base input\/output rates from each exact pi registry entry\./);
   assert.doesNotMatch(doctrine, /cheapest|preference, tier sourcing|dated updates|never a default pick/);
-  assert.match(doctrine, /A model or effort change empties the prompt cache\./);
+  assert.match(doctrine, /Slate's model switch or top-level effort switch starts a cold prompt-cache path\./);
   assert.doesNotMatch(doctrine, /12\.5 times|cache reads/);
+});
+
+test("Fable authorization exception survives production doctrine rendering", { timeout: 5000 }, async () => {
+  const profile = MODEL_PROFILES.find((entry) => entry.id === "anthropic/claude-fable-5");
+  assert.ok(profile);
+  const resolution = resolveModelRouter({
+    models: [profile.id],
+    registry: {
+      find: () => ({ cost: { input: 1, output: 5 }, contextWindow: profile.contextWindow ?? undefined }),
+      hasConfiguredAuth: () => true,
+    },
+    failover: { [profile.id]: profile.id },
+  });
+  assert.equal(resolution.on, true);
+
+  const doctrine = await renderDoctrine(resolution);
+  const row = doctrine.split("\n").find((line) => line.includes(profile.id));
+  assert.ok(row, "the production renderer must include the Fable row");
+  assert.ok(row.length <= 300, "the Fable row must remain within the enforced model-row bound");
+  assert.match(row, /ZDR-required without confirmed express authorization and configuration \(REFUSE\)/);
+  assert.doesNotMatch(row, /ZDR-obligated actions \(REFUSE\)/);
 });
 
 test("registry rates flow through production resolution into doctrine rows", { timeout: 5000 }, async () => {

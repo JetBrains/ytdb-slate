@@ -10,10 +10,11 @@
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-// TYPE-ONLY: the effort vocabulary is defined once, in the profile table
-// (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
-// union. The import is erased at load time. State restoration therefore keeps
-// no runtime dependency on model-profiles.ts (see the model-spec note below).
+// TYPE-ONLY: the effort vocabulary is defined once in model-profiles.ts and
+// traced under `research/digest-v6.md` Existing profile transcription. It is
+// identical to pi's own ThinkingLevel union. The import is erased at load time.
+// State restoration therefore keeps no runtime dependency on model-profiles.ts
+// (see the model-spec note below).
 import type { ThinkingLevel } from "./model-profiles.ts";
 import type { ObservationRecord } from "./observations.ts";
 import { sanitizeForNotify } from "./notify.ts";

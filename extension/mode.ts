@@ -378,10 +378,10 @@ ${n}. Choose a listed model and effort that fit each action. Candidate rows pres
 ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    Every call must name \`model\`, \`effort\`, and a short \`reason\`. The model
    and effort route THAT action only. Pick a measured level that clears
-   the work. Off-ladder and provider-rejected
+   the work. Off-ladder and unsupported-input
    levels are tool errors; an unmeasured one ${gap}.
    Prices are base input/output rates from each exact pi registry entry. \`unknown\` means that component is absent or invalid.
-   A model or effort change empties the prompt cache.
+   Slate's model switch or top-level effort switch starts a cold prompt-cache path.
    DOCTRINE ONLY, not code-enforced: keep review and gate actions on measured
    levels, and honour a REFUSE in an avoid cell. Mechanics and config:
    ${MODEL_ROUTING_DOC}

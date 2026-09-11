@@ -171,7 +171,7 @@ registry prices and model specification text never reorder the survivors.
 The router selects no model and derives no default effort. Every normal dispatch
 must provide its model and effort. An off-list model is refused before the thread
 is created. A failover target keeps the existing narrow list-membership carve-out
-and still receives the provider-rejected effort check.
+and still receives the unsupported-request control check.
 
 The injected table shows base input and output rates from the exact
 provider-qualified pi registry entry used to resolve each row. It does not use a
@@ -209,10 +209,7 @@ refusal is:
   known, outside E2. pi would otherwise clamp the level silently and
   the orchestrator would believe the action ran at a level the model
   never offered;
-- **rejected outright by the provider** — refused, always. Such a
-  level is still on pi's ladder for the model (the table records the
-  hard rejection separately), so dispatching it would be a
-  guaranteed API failure rather than an evidence gap.
+- **provider-unsupported requested control** — refused, always. Slate records this separately so pi cannot omit or silently substitute the requested control. It is a hard refusal rather than an evidence gap.
   `allowUnmeasuredEffort` does NOT cover it;
 - **no ladder data at all** — nothing is refused and nothing is
   marked. A failure to read evidence is not evidence of a problem;
@@ -228,7 +225,7 @@ model and effort rules.
 | --- | --- |
 | effort vocabulary | an unknown or non-string effort value |
 | list membership | an explicit model outside the configured list |
-| provider rejection | an effort level that the provider rejects |
+| unsupported request | a requested control Slate must preserve instead of letting pi omit or substitute it |
 | ladder validity | an effort level outside the model's known ladder |
 | evidence gap | an unmeasured capability claim when project policy rejects it |
 | failover carve-out | a routing rule blocking an in-action rescue |
@@ -280,14 +277,14 @@ overflow behavior. Slate also does not emit a prompt-size billing notice.
 - **In the orchestrator's own system prompt, every turn:** the
   doctrine gains a routing rule — a table with one row per routable
   model, plus the rules for reading it. This is the surface you do
-  not see, and it is the router's standing cost: 1,879 characters /
-  21 doctrine lines for six configured models, 2,504 / 24 for all
-  nine. In the current snapshot the six model rows cost 146–181
-  characters each. Across all nine, the range is 146–193 characters.
+  not see, and it is the router's standing cost: 1,990 portable characters /
+  20 split lines for six configured models, 2,467 / 23 for all
+  nine. In the current snapshot the six model rows cost 134–209
+  characters each. Across all nine, the range is 134–209 characters.
   A one-off legend clause appears for each marker the rows introduce.
-  The complete six-model routing rule is 1,879 portable characters and
-  21 lines. The complete nine-model routing rule is 2,504 portable
-  characters and 24 lines.
+  The complete six-model routing rule is 1,990 portable characters and
+  20 split lines. The complete nine-model routing rule is 2,467 portable
+  characters and 23 split lines.
   The fixed fabricated roster does not read project config. Those are PORTABLE characters — the
   doctrine with each occurrence of the installed `docs/` directory
   removed, filenames kept — because the doctrine embeds absolute doc
@@ -371,14 +368,16 @@ guards**. Both are PREVENTIVE — they decide what may be dispatched,
 not what must be checked afterwards — and nothing in the dispatch
 path implements either. A warning must not be read as an interlock:
 
-- **The compliance refusal.** `anthropic/claude-fable-5` has no
-  zero-data-retention option (mandatory 30-day retention, first-
-  and third-party), and its profile says a ZDR-obligated action
-  must be REFUSED there at every effort level. Slate's dispatch
-  path has no concept of a ZDR-obligated action: list that model
-  and an action routed to it will run. The refusal is the
-  orchestrator's to make, under the doctrine and under your own
-  compliance rules.
+- **The compliance refusal.** `anthropic/claude-fable-5` normally
+  requires at least 30-day retention. REFUSE a zero-data-retention
+  action unless the operator confirms both express Anthropic
+  authorization for Fable and the required configuration. Unknown
+  authorization counts as no authorization. Model availability, a
+  successful request, or a general zero-data-retention agreement does
+  not establish the exception. Slate's dispatch path has no concept of
+  the obligation or authorization. A listed action routed to Fable will
+  run. The orchestrator must apply the refusal and the operator's exact
+  agreement and platform policy.
 - **The measured-level rule for review and gate actions.** Keep
   review and gate actions ON MEASURED LEVELS — dispatch them at a
   level the target model has a capability measurement at. This is a
@@ -416,14 +415,14 @@ exactly — a spec that differs is dropped as unprofiled:
 
 | canonical spec | measured levels | notes |
 | --- | --- | --- |
-| `openai/gpt-5.6-luna` | medium, max | |
-| `openai/gpt-5.6-terra` | xhigh, max | configured-only guidance |
-| `openai/gpt-5.6-sol` | medium, high, xhigh, max | |
-| `anthropic/claude-sonnet-5` | high, xhigh, max | |
+| `openai/gpt-5.6-luna` | low, medium, high, xhigh, max | |
+| `openai/gpt-5.6-terra` | low, medium, high, xhigh, max | configured-only guidance |
+| `openai/gpt-5.6-sol` | low, medium, high, xhigh, max | |
+| `anthropic/claude-sonnet-5` | low, medium, high, xhigh, max | |
 | `anthropic/claude-opus-5` | low, medium, high, xhigh, max | |
-| `anthropic/claude-fable-5` | high, xhigh, max | no zero-data-retention option (see [What the router does NOT enforce](#what-the-router-does-not-enforce)) |
-| `openai/gpt-5.4-nano` | none | cheap tier, out of scope (below) |
-| `openai/gpt-5.4-mini` | none | cheap tier, out of scope |
+| `anthropic/claude-fable-5` | low, medium, high, xhigh, max | refuse zero-data-retention work unless express Anthropic authorization and required configuration are confirmed (see [What the router does NOT enforce](#what-the-router-does-not-enforce)) |
+| `openai/gpt-5.4-nano` | xhigh | cheap tier, out of scope (below) |
+| `openai/gpt-5.4-mini` | xhigh | cheap tier, out of scope |
 | `anthropic/claude-haiku-4-5` | none | cheap tier, out of scope |
 
 "Measured levels" are the levels Slate has capability evidence for.
@@ -443,12 +442,10 @@ column above.
 
 The last three are profiled but OUT OF SCOPE for routing — they are
 there so that naming one gets you data instead of a spurious "no
-profile" warning, and all three carry
-assumed rather than traced effort ladders, and have no
-effort-labelled capability results at all. Routing to them is a
+profile" warning, and all three carry traced pi 0.83 ladders. Mini and nano have xhigh evidence. Haiku has no exact-effort capability result. Routing to them is a
 deliberate scope decision, not a default.
 
-`PROFILES_AS_OF` is **2026-07-29** — the date of the research behind
+`PROFILES_AS_OF` is **2026-09-11** — the date of the research behind
 the table — and every profile carries the same date in its own
 `asOf`. The registry supplies runtime prices separately.
 
@@ -459,7 +456,7 @@ on:
   otherwise.
 - Pi's registry decides identifier spelling.
 - An unsourced tier carries an explicit marker and is not an ordering key.
-- An assumed ladder is a provider-family shape rather than a traced fact.
+- Every current ladder is traced to pinned pi 0.83 mapping and current provider documentation.
 - Aliases are resolution spellings rather than profile data.
 - A figure that cannot be traced is not carried. The field is `null`, and its
   name appears in the profile's unknown-routing-critical list.

@@ -524,7 +524,7 @@ function planFailoverSwitch(input: RoutePlanInput, resolution: ModelRouterResolu
 	if (requestedEffort !== undefined && checkEffortFor(input, resolution, target, requestedEffort).apiRejected) {
 		return {
 			kind: "reject",
-			reason: `slate: effort "${requestedEffort}" is rejected outright by the provider for failover model ${sanitizeForNotify(target, 80)}.`,
+			reason: `slate: effort "${requestedEffort}" is rejected outright as a provider-unsupported requested control for failover model ${sanitizeForNotify(target, 80)}. Slate refuses it before pi can omit or silently substitute it.`,
 			warnings,
 		};
 	}
@@ -576,7 +576,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 		const check = checkEffortFor(input, resolution, judgedModel, effort);
 		const ladderKnown = Array.isArray(check.ladder) && check.ladder.length > 0;
 		const ladder = ladderKnown ? check.ladder.join(", ") : "(none recorded)";
-		if (check.apiRejected) return { kind: "reject", reason: `slate: effort "${effort}" is rejected outright by the provider for ${sanitizeForNotify(judgedModel, 80)} — dispatching it would be a guaranteed API failure, not an evidence gap. That model's ladder: ${ladder}.`, warnings };
+		if (check.apiRejected) return { kind: "reject", reason: `slate: effort "${effort}" is rejected outright as a provider-unsupported requested control for ${sanitizeForNotify(judgedModel, 80)}. Slate refuses it before pi can omit or silently substitute it. This is not an evidence gap. That model's ladder: ${ladder}.`, warnings };
 		if (ladderKnown && check.verdict === "off-ladder") return { kind: "reject", reason: `slate: effort "${effort}" is not on ${sanitizeForNotify(judgedModel, 80)}'s effort ladder (${ladder}).`, warnings };
 		if (check.verdict === "evidence-gap") {
 			if (input.allowUnmeasuredEffort === false) return { kind: "reject", reason: `slate: effort "${effort}" on ${sanitizeForNotify(judgedModel, 80)} has no capability measurement in slate's model profiles, and router.allowUnmeasuredEffort is false. That model's ladder: ${ladder}.`, warnings };
