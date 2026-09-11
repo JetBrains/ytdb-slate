@@ -1,3 +1,5 @@
+const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -83,7 +85,7 @@ async function renderedCostLine(
   assert.ok(registered, "the thread tool must be registered");
   const result = await registered.execute(
     "call-1",
-    { task: "measure cost", type: "general", model: requestedModel },
+    { ...TEST_ROUTE, task: "measure cost", type: "general", model: requestedModel },
     undefined,
     undefined,
     {} as ExtensionContext,

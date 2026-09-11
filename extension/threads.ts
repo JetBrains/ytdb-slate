@@ -42,6 +42,7 @@ import {
 	effectiveThreadType,
 	isModelSpec,
 	parseThreadType,
+	sanitizeDispatchReason,
 	resolveEpisodeFile,
 	splitModelSpec,
 	type EpisodeRecord,
@@ -86,8 +87,9 @@ export interface DispatchOptions {
 	contextEpisodeIds?: unknown;
 	/** Removed public field. Kept only so direct callers receive the migration error. */
 	freshContext?: unknown;
-	model?: string; // "provider/id" for THIS action (see the header): the thread's base model when omitted
-	effort?: string; // pi thinking level for THIS action; validated against the target model's ladder
+	model?: string; // required at the public runtime boundary
+	effort?: string; // required at the public runtime boundary
+	reason?: string; // sanitized dispatch rationale, required and at most 200 characters
 	tools?: string[];
 }
 
@@ -305,9 +307,11 @@ export class ThreadManager {
 		if (typeof opts.task !== "string" || opts.task.trim() === "") {
 			throw new Error("task must be a non-empty string.");
 		}
+		const reason = sanitizeDispatchReason(opts.reason);
+		if (reason === undefined) throw new Error("reason must be a non-empty string of at most 200 characters after invisible and control characters are removed.");
 		const type = parseThreadType(opts.type, true)!
 		const contextEpisodeIds = normalizeContextEpisodeIds(opts.contextEpisodeIds);
-		const accepted: DispatchOptions = { ...opts, type, contextEpisodeIds };
+		const accepted: DispatchOptions = { ...opts, reason, type, contextEpisodeIds };
 		const prompt = this.buildPrompt(accepted, ctx.cwd);
 		const early = planRoute(this.routeInputs(ctx, undefined, accepted));
 		if (early.kind === "reject") throw new Error(early.reason);
@@ -464,9 +468,10 @@ export class ThreadManager {
 	 * Assemble the PURE planner's inputs from this session's impure surroundings.
 	 *
 	 * `failover` switches it into guard 7's carve-out mode: the target replaces the
-	 * requested model, no effort is requested, and the planner bypasses the list and
-	 * effort guards. A failover target need not be a routing candidate, so its
-	 * window is passed explicitly — there is no candidate to read it from.
+	 * requested model, the original requested effort is preserved, and the planner
+	 * bypasses list membership and the normal effort guards. A failover target need
+	 * not be a routing candidate, so its profile is consulted through the injected
+	 * source for provider-rejected effort protection.
 	 */
 	private routeInputs(
 		ctx: ExtensionContext,
@@ -478,11 +483,12 @@ export class ThreadManager {
 		return {
 			thread,
 			requestedModel: failover ? failover.target : opts.model,
-			requestedEffort: failover ? undefined : opts.effort,
+			requestedEffort: opts.effort,
 			resolution: this.routerResolution(),
 			allowUnmeasuredEffort: this.config.router?.allowUnmeasuredEffort,
 			hostModel: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
 			profiles: this.routerOffProfiles(ctx),
+			requireExplicit: failover === undefined,
 			failoverSwitch: failover !== undefined,
 			failoverFrom: failover?.from,
 		};
@@ -1004,6 +1010,7 @@ export class ThreadManager {
 						/* keep the original failure */
 					}
 					if (switched) {
+						if (failoverPlan?.kind === "proceed" && failoverPlan.effort !== undefined) session.setThinkingLevel(failoverPlan.effort);
 						// Record the mapped model for this live action. Disposal removes the marker.
 						this.failoverLive.set(thread.id, `${mapped.provider}/${mapped.id}`);
 					}
@@ -1142,7 +1149,9 @@ export class ThreadManager {
 			}
 			const episode: EpisodeRecord = {
 				id: episodeId, threadId: thread.id, task: opts.task, status: "failed", file: failed.file,
-				...(actualModel ? { model: actualModel } : {}), ...episodeUsage,
+				reason: opts.reason!, requestedModel: opts.model!, requestedEffort: opts.effort as ThinkingLevel,
+				...(actualModel ? { model: actualModel } : {}),
+				...(actualEffort ? { effort: actualEffort } : {}), ...episodeUsage,
 				...(reportedContextTokens !== undefined ? { contextTokens: reportedContextTokens } : {}),
 				...(workerCostUsd !== undefined ? { workerCostUsd } : {}),
 				...(Object.keys(compactionUsage).length > 0 ? { compactionUsage } : {}),
@@ -1348,6 +1357,9 @@ export class ThreadManager {
 			task: opts.task,
 			status,
 			file: compressed.file,
+			reason: opts.reason!,
+			requestedModel: opts.model!,
+			requestedEffort: opts.effort as ThinkingLevel,
 			...(actualModel ? { model: actualModel } : {}),
 			...(actualEffort ? { effort: actualEffort } : {}),
 			...(actualEffortUnmeasured ? { effortUnmeasured: true as const } : {}),

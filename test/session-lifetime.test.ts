@@ -1,3 +1,5 @@
+const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,13 +60,13 @@ test("each completed action opens and disposes a distinct real worker session", 
     model: undefined,
     hasUI: false,
     isProjectTrusted: () => true,
-    modelRegistry: { find() { return undefined; }, hasConfiguredAuth() { return false; }, async getAvailable() { return []; } },
+    modelRegistry: { find(provider: string, id: string) { return provider === "test" && id === "worker" ? { provider, id } : undefined; }, hasConfiguredAuth() { return true; }, async getAvailable() { return []; } },
   } as unknown as ExtensionContext;
   try {
     for (const type of THREAD_TYPES) {
       const before = opened.length;
-      await manager.dispatch({ type, task: `${type} first` }, ctx, undefined);
-      await manager.dispatch({ type, task: `${type} second` }, ctx, undefined);
+      await manager.dispatch({ ...TEST_ROUTE, type, task: `${type} first` }, ctx, undefined);
+      await manager.dispatch({ ...TEST_ROUTE, type, task: `${type} second` }, ctx, undefined);
       assert.notStrictEqual(opened[before], opened[before + 1], `${type} actions must not reuse a session`);
     }
     assert.equal(opened.length, THREAD_TYPES.length * 2);

@@ -1,3 +1,5 @@
+const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import { existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -47,10 +49,11 @@ const messages: unknown[] = [];
 const subscribers = new Set<(event: unknown) => void>();
 const session = {
   messages,
-  model: undefined,
+  model: { provider: "test", id: "worker" },
   thinkingLevel: undefined,
   sessionFile,
   getContextUsage: () => undefined,
+    setThinkingLevel() {},
   subscribe: (listener: (event: unknown) => void) => {
     subscribers.add(listener);
     return () => subscribers.delete(listener);
@@ -93,7 +96,8 @@ const ctx = {
   cwd: root,
   hasUI: false,
   modelRegistry: {
-    find: (provider: string, id: string) => provider === model.provider && id === model.id ? model : undefined,
+    find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : provider === model.provider && id === model.id ? model : undefined,
+    hasConfiguredAuth: () => true,
     getAvailable: async () => [model],
     getApiKeyAndHeaders: async () => ({ ok: true }),
   },
@@ -101,7 +105,7 @@ const ctx = {
 
 await assert.rejects(
   manager.dispatch(
-    { name: "review", type: "reviewer", task: "review" },
+    { ...TEST_ROUTE, name: "review", type: "reviewer", task: "review" },
     ctx,
     undefined,
     (update) => progress.push(update),
@@ -132,6 +136,7 @@ assert.equal(
   observationRetained
     ? "the observation remains after episode persistence fails"
     : "the external-removal fixture removes the observation",
+
 );
 const observationsParent = lstatSync(join(root, ".pi", "slate", "observations"));
 assert.equal(observationsParent.isDirectory(), observationRetained, "the selected observation fixture has the expected final shape");

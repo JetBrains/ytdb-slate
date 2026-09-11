@@ -20,6 +20,7 @@ import {
 	type RouterProfileSource,
 } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
+import { THINKING_LEVELS as STATE_THINKING_LEVELS } from "./state.ts";
 
 /**
  * pi's thinking-level vocabulary, ASCENDING — the same union as
@@ -29,7 +30,7 @@ import { sanitizeForNotify } from "./notify.ts";
  * against. Ascending order is taken from HERE rather than from a profile's ladder
  * so the answer never depends on the table's authoring order.
  */
-export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+export const THINKING_LEVELS: readonly ThinkingLevel[] = STATE_THINKING_LEVELS;
 
 /**
  * The slice of a thread record this module reads — state.ts's ThreadRecord
@@ -69,6 +70,8 @@ export interface RoutePlanInput {
 	 * level, which is the pre-router behaviour: pi clamps it.
 	 */
 	profiles?: RouterProfileSource;
+	/** Require the public dispatch's explicit model and effort arguments. */
+	requireExplicit?: boolean;
 	/** true = this call is the in-dispatch failover switch (guard 7). */
 	failoverSwitch?: boolean;
 	/** In failover mode: the model that just failed, which the mapping may never resolve to. */
@@ -381,7 +384,7 @@ export interface SessionOpenDecision {
  * has already made routable.
  */
 export function planSessionOpen(input: RoutePlanInput): SessionOpenDecision {
-	const verdict = planRoute({ ...input, requestedModel: undefined, requestedEffort: undefined });
+	const verdict = planRoute({ ...input, requestedModel: undefined, requestedEffort: undefined, requireExplicit: false });
 	if (verdict.kind === "reject") return { unplanned: verdict.reason };
 	return { model: verdict.model as OpenModel | undefined };
 }
@@ -405,7 +408,9 @@ export type RoutePlanVerdict = RoutePlanProceed | RoutePlanReject;
  */
 export function usableResolution(value: unknown): ModelRouterResolution {
 	const resolution = value as ModelRouterResolution | undefined;
-	if (!resolution || typeof resolution !== "object" || resolution.on !== true) return ROUTER_OFF;
+	if (!resolution || typeof resolution !== "object") return ROUTER_OFF;
+	if (typeof resolution.fault === "string" && resolution.fault !== "") return resolution;
+	if (resolution.on !== true) return ROUTER_OFF;
 	if (!Array.isArray(resolution.candidates) || resolution.candidates.length === 0) return ROUTER_OFF;
 	return resolution;
 }
@@ -505,15 +510,15 @@ function candidateFor(resolution: ModelRouterResolution, spec: string | undefine
  * The model/effort verdict for ONE pair — model-router's predicate on both paths,
  * never a second implementation of the ladder rules.
  *
- * With the router ON that is the session's frozen resolution. With the router OFF
- * the same predicate is fed a SYNTHESISED one-candidate resolution built from the
- * injected profile lookup, so the ladder answer stays PER MODEL instead of
- * degenerating into a union over models. A model the lookup does not profile
- * yields an OFF resolution, which makes checkEffort inert (verdict "ok") — the
- * pre-router behaviour, where pi's own clamp decides.
+ * A listed model uses the session's frozen resolution. An off-list failover target,
+ * or any model while the router is off, uses a SYNTHESISED one-candidate resolution
+ * built from the injected profile lookup. The ladder answer therefore stays PER
+ * MODEL instead of degenerating into a union over models. A model the lookup does
+ * not profile yields an OFF resolution, which makes checkEffort inert (verdict
+ * "ok") — the pre-router behaviour, where pi's own clamp decides.
  */
 function checkEffortFor(input: RoutePlanInput, resolution: ModelRouterResolution, spec: string, effort: ThinkingLevel): EffortCheck {
-	if (resolution.on) return checkEffort(resolution, spec, effort);
+	if (resolution.on && isListed(resolution, spec)) return checkEffort(resolution, spec, effort);
 	const profiles = input.profiles;
 	if (!profiles) return checkEffort(ROUTER_OFF, spec, effort);
 	let profile: ReturnType<RouterProfileSource["findProfile"]>;
@@ -675,9 +680,19 @@ function planFailoverSwitch(input: RoutePlanInput, resolution: ModelRouterResolu
 			warnings,
 		};
 	}
+	const requestedEffort = typeof input.requestedEffort === "string" && THINKING_LEVELS.includes(input.requestedEffort as ThinkingLevel)
+		? input.requestedEffort as ThinkingLevel
+		: undefined;
+	if (requestedEffort !== undefined && checkEffortFor(input, resolution, target, requestedEffort).apiRejected) {
+		return {
+			kind: "reject",
+			reason: `slate: effort "${requestedEffort}" is rejected outright by the provider for failover model ${sanitizeForNotify(target, 80)}.`,
+			warnings,
+		};
+	}
 	const priceWarning = priceDivergenceWarning(input, resolution, target);
 	if (priceWarning) warnings.push(priceWarning);
-	return { kind: "proceed", model: target, effortUnmeasured: false, warnings };
+	return { kind: "proceed", model: target, effort: requestedEffort, effortUnmeasured: false, warnings };
 }
 
 /**
@@ -688,10 +703,20 @@ function planFailoverSwitch(input: RoutePlanInput, resolution: ModelRouterResolu
  * changes before billed work.
  */
 export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
-	const resolution = usableResolution(input.resolution);
+	const rawResolution = input.resolution;
+	const resolution = usableResolution(rawResolution);
 	const thread = input.thread;
 	const explicit = argModel(input.requestedModel);
 	const warnings: string[] = [];
+	if (typeof rawResolution?.fault === "string" && rawResolution.fault !== "") {
+		return { kind: "reject", reason: rawResolution.fault, warnings };
+	}
+	if (input.requireExplicit === true && (typeof input.requestedModel !== "string" || input.requestedModel.trim() === "")) {
+		return { kind: "reject", reason: 'slate: every dispatch requires a non-empty "model" provider/id string.', warnings };
+	}
+	if (input.requireExplicit === true && (typeof input.requestedEffort !== "string" || input.requestedEffort.trim() === "")) {
+		return { kind: "reject", reason: `slate: every dispatch requires "effort" (${THINKING_LEVELS.join(", ")}).`, warnings };
+	}
 	const warn = (message: string) => {
 		warnings.push(message);
 	};
@@ -817,13 +842,10 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 				const level = baseEffort ? ` @${baseEffort}` : "";
 				warn(
 					baseReseededFrom === undefined
-						? `slate: thread ${thread.id} has no base model — it predates the router's model list ` +
-								`(${list}), so actions that omit "model" would have run outside it. Seeding the thread's ` +
-								`base to ${seeded}${level}; pass "model" explicitly to route an action elsewhere.`
-						: `slate: thread ${thread.id}'s base model ${sanitizeForNotify(baseReseededFrom, 80)} is not in the ` +
-								`router's effective model list (${list}) — it was set before this list applied, or the list ` +
-								`changed since. Re-seeding the thread's base to ${seeded}${level} so actions that omit "model" ` +
-								'keep working; pass "model" explicitly to route this action elsewhere.',
+						? `slate: thread ${thread.id} has no base model from an earlier router state. ` +
+								`Seeding stored routing state to ${seeded}${level} from the effective list (${list}).`
+						: `slate: thread ${thread.id}'s stored base model ${sanitizeForNotify(baseReseededFrom, 80)} is not in the ` +
+								`router's effective model list (${list}). Re-seeding stored routing state to ${seeded}${level}.`,
 				);
 			} else {
 				// A resolution that is ON but carries no usable spec (only malformed
@@ -866,7 +888,7 @@ export function planRoute(input: RoutePlanInput): RoutePlanVerdict {
 			kind: "reject",
 			reason:
 				`slate: model "${sanitizeForNotify(model, 80)}" is not routable — the router's effective model list is: ${list}. ` +
-				`Pass one of those as "model"${baseModel ? `, or omit it to use ${thread ? `thread ${thread.id}'s` : "the new thread's"} base model (${baseModel})` : ""}.`,
+				'Pass one of those values as the required "model" argument.',
 			warnings,
 		};
 	}

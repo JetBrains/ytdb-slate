@@ -3,7 +3,8 @@
 Opt-in model and effort selection for each worker action. `router` in the
 project's `slate.json` names a closed model list. Every `thread` call creates a
 new worker session for one action. The list is empty by default. With no entries,
-the router is off. Per-action `model` and `effort` arguments still apply.
+the router is off. Every call still requires `model`, `effort`, and a non-empty
+`reason` of at most 200 characters.
 
 This document is reference documentation, not workflow doctrine.
 
@@ -18,12 +19,12 @@ from](#where-the-numbers-come-from-and-how-stale-they-can-be).
 
 ## What routing decides, per action
 
-Each new action resolves two values:
+Each new action validates three explicit values:
 
-- **model** — the explicit `model`, else the router's selected base model, else
-  the host model when routing is off.
-- **effort level** — the explicit `effort`, else a measured level derived for
-  the routed model, else the worker session's opening level.
+- **model** — the required `provider/id` model for this action.
+- **effort level** — the required pi thinking level for this action.
+- **reason** — the required, sanitized rationale for the pair. Slate stores it
+  with the request but does not add it to worker or compressor prompts.
 
 The action opens one worker session. Slate may switch that session before the
 prompt. Failover may switch and re-prompt the same session once. The action then
@@ -118,11 +119,12 @@ warning, but removal is not the ADD remedy in condition 2. Condition
 | --- | --- | --- | --- |
 | entry is not a canonical `provider/id` | dropped | "It is not a canonical \"provider/id\" model spec. Reason:" | configuration fault |
 | no profile in Slate's model profile table | dropped | "has no entry in slate's model profile table" | configuration fault |
-| two entries resolve to the same profile (an alias or a case variant) | first kept, second dropped | "name the same profiled model" | configuration fault |
-| the same spec is listed twice | first kept | none (silent) | — |
+| two entries resolve to the same profile (an alias or a case variant) | first spelling claims the profile, second is dropped | "name the same profiled model" | configuration fault |
+| the same spec is listed twice | first kept; later copy appears as `[warn]` only if the whole list is dropped | none outside the all-dropped summary | — |
 | pi's model registry does not know it | dropped | "is not in pi's model registry. Slate drops it from routing." | configuration fault |
 | pi has no usable credentials configured for it | dropped | "has no usable credentials configured in pi. Slate drops it from routing." | configuration fault |
-| every entry is dropped | router turns OFF | "survived validation. The warnings above name each dropped entry" | configuration fault |
+| every entry is dropped, with at least one malformed spec, missing profile, or profile-alias duplicate | dispatch blocked by a retained fault | "survived validation" with each cause marked `[fault]` or `[warn]` | configuration fault |
+| every entry is dropped for registry, credential, or exact-duplicate causes only | router turns OFF; explicit dispatch remains available | "survived validation" with each cause marked `[warn]` | configuration fault |
 | no usable input price exists for today's date | kept, ordered last | "Slate cannot compare its cost with the other models." | model data note |
 | a profile price is negative or non-finite | kept, ordered last or unavailable | "has invalid input price data" or "has invalid output price data" | model data note |
 | no usable effort ladder exists in the profile | kept | "Such a level passes through to pi, which clamps it" | model data note |
@@ -158,9 +160,10 @@ as resolution warnings. A hidden dispatch-time note can trigger the one-time
 discoverability line only when resolution did not already trigger it.
 
 Half a list is still a routing policy, so partial drops leave the
-router ON. Nothing surviving is not a policy: the router turns OFF
-rather than silently routing to whatever the session happens to be
-on, which would hide the real problem.
+router ON. Nothing surviving is not a policy. A malformed specification, missing shipped
+profile, or profile-alias duplicate makes that all-dropped state a dispatch
+fault. Other causes turn the router off with a loud warning and allow explicit
+dispatch. A mixed all-dropped list faults when any fault-class cause appears.
 
 The registry and credential reads are a snapshot taken at that first
 consultation. Adding an API key later in the session does not revive
@@ -185,9 +188,10 @@ Candidates are ordered by five keys, in this order:
 4. **current effective input price**, ascending;
 5. **spec**, only so the order is total and reproducible.
 
-The **base model of a new thread is the cheapest preferred
-candidate**. That guarantees a dispatch which omits `model` can
-never be rejected by the list guard. If every configured model is
+The router still computes the **base model of a new thread as the cheapest
+preferred candidate**. Track 3 removes this automatic selection data. Track 2
+does not use that value as an implicit dispatch argument because every call
+must name `model`. If every configured model is
 marked non-preferred, the cheapest one is used anyway — the base
 model has to exist — and that fallback is warned about.
 
@@ -208,8 +212,8 @@ The vocabulary is pi's ladder and nothing else: `off`, `minimal`,
 actually offers is per model — the shipped table records a ladder
 per model id, not a family rule.
 
-**An omitted `effort` never resolves to a fixed default.** With the
-router ON, in order:
+Every dispatch must name `effort`. The stored and derived effort rules below
+remain internal routing state until Track 3 removes automatic selection:
 
 1. the thread's stored base effort — but only when the action runs
    on the thread's base model, and only while that stored level
@@ -224,11 +228,8 @@ router ON, in order:
 3. and if that model has no measured level at all, nothing is set.
    The new worker session then uses pi's settings default.
 
-With the router OFF Slate resolves no level at all, so that same
-opening level applies to every action that omits `effort`.
-
-So a higher level is only ever reached by naming it: pass `effort`
-explicitly on the dispatch. A derived level is measured by
+With the router OFF Slate derives no level. The required explicit value is
+checked against profile data when that data is available. A derived level is measured by
 construction and therefore cannot trip the effort guards; only an
 explicit one can.
 
@@ -285,8 +286,8 @@ overflow behavior. Slate also does not emit a prompt-size billing notice.
   cannot distinguish a stored `general` value from an absent or
   unrecognised value.
 - **On the call line (TUI):** what the action asked for, e.g.
-  `thread t1 type=reviewer [openai/gpt-5.6-sol @medium]`, or just
-  `[@medium]` when only the level was named.
+  `thread t1 type=reviewer [openai/gpt-5.6-sol @medium]`. Public
+  dispatch always supplies both values. A legacy renderer input may omit one.
 - **On the collapsed result line (TUI):** what it actually ran on,
   labelled so it cannot be read as the request:
   `[ran openai/gpt-5.6-sol @medium]`, with a trailing `unmeasured`
@@ -308,8 +309,10 @@ overflow behavior. Slate also does not emit a prompt-size billing notice.
   `details.ranEffortUnmeasured` / `details.warnings` for a renderer.
 - **In the `threads` listing:** `type=<type>` precedes the model markers
   for a non-general thread. `base=<model>@<level>?` is the nominal plan
-  target when a dispatch omits `model`. The trailing `?` marks
-  the level, not the model, as provisional: it is a stored default,
+  stored routing state. The trailing `?` marks the level, not the model,
+  as provisional. `requested=<model>@<level>` and `reason=` show the last
+  sanitized request. A marker says when `last=` differs from the requested model.
+  The base level is a stored default,
   re-validated against the model's current capability data on every
   dispatch and silently re-derived if it no longer holds. `last=` is
   the model and level that the last action actually ran on, with
@@ -322,15 +325,14 @@ overflow behavior. Slate also does not emit a prompt-size billing notice.
 - **In the orchestrator's own system prompt, every turn:** the
   doctrine gains a routing rule — a table with one row per routable
   model, plus the rules for reading it. This is the surface you do
-  not see, and it is the router's standing cost: 2,030 characters /
-  21 added doctrine lines for six configured models, 2,585 / 24 for
-  all nine. In the current snapshot a model row costs 146–183
+  not see, and it is the router's standing cost: 1,917 characters /
+  21 doctrine lines for six configured models, 2,472 / 24 for all
+  nine. In the current snapshot a model row costs 146–183
   characters, plus a one-off legend clause for each marker it
-  introduces. With the unconditional writing rule subtracted, the router grows
-  Slate's block from 3,084 portable characters and 48 lines to 5,114 portable
-  characters and 69 lines for the fixed fabricated six-model fixture. That
-  roster currently matches this repository's list but does not read project
-  config. Those are PORTABLE characters — the
+  introduces. The complete six-model routing rule is 1,917 portable characters
+  and 21 lines. The complete nine-model routing rule is 2,472 portable
+  characters and 24 lines.
+  The fixed fabricated roster does not read project config. Those are PORTABLE characters — the
   doctrine with each occurrence of the installed `docs/` directory
   removed, filenames kept — because the doctrine embeds absolute doc
   paths and its raw size therefore depends on where the package is
@@ -475,9 +477,9 @@ exactly — a spec that differs is dropped as unprofiled:
 | `openai/gpt-5.4-mini` | none | cheap tier, out of scope |
 | `anthropic/claude-haiku-4-5` | none | cheap tier, out of scope |
 
-"Measured levels" are the levels an omitted `effort` can resolve to
-and the levels an explicit one passes the evidence-gap guard at; the
-first of each list is what a thread based on that model starts at.
+"Measured levels" are the levels Slate has capability evidence for.
+An explicit level passes the evidence-gap guard at these levels. The first
+level remains stored router state until Track 3 removes automatic selection.
 
 **Use the canonical spelling.** The table also carries alias
 spellings — the research corpus's dated snapshot ids, and
@@ -545,8 +547,8 @@ the checks assert.
 
 - **Frozen per session.** Candidate and credential resolution is cached. A
   configuration or credential change needs a new pi session.
-- **Router off keeps action arguments.** The candidate list and derived base are
-  disabled. Explicit model and effort values still apply.
+- **Router off requires action arguments.** The candidate list and derived base
+  are disabled. Every dispatch still names model, effort, and reason.
 - **No context-size routing.** Slate does not substitute a wider model before an
   action. Pi owns compaction and context overflow behavior.
 - **No long-context billing notice.** Slate does not print a long-context billing notice.

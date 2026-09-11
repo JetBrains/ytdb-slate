@@ -142,11 +142,12 @@ request while that tool is available. Parameter descriptions sit inside the
 schema. A tool description and a parameter description are therefore both
 always loaded.
 
-The current `thread` tool description is 1,062 UTF-8 bytes. Its serialized
-parameter schema is 1,246 bytes, measured as `JSON.stringify(parameters)`.
-The schema includes the bounded `context` argument.
+The current `thread` tool description is 1,032 UTF-8 bytes. Its serialized
+parameter schema is 1,386 bytes, measured as `JSON.stringify(parameters)`.
+The schema requires `model`, `effort`, and `reason`. It includes the bounded
+`context` argument and the 200-character `reason` limit.
 
-The description and schema total 2,308 bytes before provider framing.
+The description and schema total 2,418 bytes before provider framing.
 The `context` entry accepts at most 32 episode identifiers.
 
 The figure excludes the prompt snippet, prompt guidelines, tool name,
@@ -207,18 +208,18 @@ must agree with `verification/README.md`:
 
 | router | models | `draftPRs` | writing keys | paths | portable | lines |
 | --- | --- | --- | --- | --- | --- | --- |
-| off | — | off | absent | 4 | 4,617 | 72 |
-| off | — | off | set | 4 | 4,617 | 72 |
-| off | — | on | absent | 5 | 4,636 | 72 |
-| off | — | on | set | 5 | 4,636 | 72 |
-| on | fixed six-model fixture | off | absent | 5 | 6,647 | 93 |
-| on | fixed six-model fixture | off | set | 5 | 6,647 | 93 |
-| on | fixed six-model fixture | on | absent | 6 | 6,666 | 93 |
-| on | fixed six-model fixture | on | set | 6 | 6,666 | 93 |
-| on | all 9 shipped | off | absent | 5 | 7,202 | 96 |
-| on | all 9 shipped | off | set | 5 | 7,202 | 96 |
-| on | all 9 shipped | on | absent | 6 | 7,221 | 96 |
-| on | all 9 shipped | on | set | 6 | 7,221 | 96 |
+| off | — | off | absent | 4 | 4,762 | 73 |
+| off | — | off | set | 4 | 4,762 | 73 |
+| off | — | on | absent | 5 | 4,781 | 73 |
+| off | — | on | set | 5 | 4,781 | 73 |
+| on | fixed six-model fixture | off | absent | 5 | 6,534 | 92 |
+| on | fixed six-model fixture | off | set | 5 | 6,534 | 92 |
+| on | fixed six-model fixture | on | absent | 6 | 6,553 | 92 |
+| on | fixed six-model fixture | on | set | 6 | 6,553 | 92 |
+| on | all 9 shipped | off | absent | 5 | 7,089 | 95 |
+| on | all 9 shipped | off | set | 5 | 7,089 | 95 |
+| on | all 9 shipped | on | absent | 6 | 7,108 | 95 |
+| on | all 9 shipped | on | set | 6 | 7,108 | 95 |
 
 An untrusted project receives no writing or routing tail whatever its
 `slate.json` says. Its fixed doctrine remains 2,708 portable characters, 43
@@ -233,9 +234,9 @@ path:
 
 - The routing rule is a live table with ONE ROW PER ROUTABLE MODEL,
   so what renders is the models you CONFIGURE — not the nine Slate
-  ships profiles for. In this snapshot it is 2,030 portable
-  characters and adds 21 doctrine lines for six configured models;
-  for all nine it is 2,585 characters and adds 24 lines. The six
+  ships profiles for. In this snapshot it is 1,917 portable
+  characters and has 21 doctrine lines for six configured models.
+  For all nine it is 2,472 characters and has 24 lines. The six
   model rows are 146–181 characters; all nine are 146–183. The
   legend adds a one-off clause per marker it has to explain, so
   growth is not only the sum of new rows.
@@ -249,9 +250,9 @@ worker extensions and support verification decisions:
 
 | basis | models | worker extensions | paths | portable | lines | rough tokens |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| fixture mirroring current `.pi/slate.json`: draft PRs + writing, pi-registry windows | 5 resolved | pinned-package 2 units / 4 tools | 6 | 7,424 | 102 | ≈1,856 |
-| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,568 | 106 | ≈2,142 |
-| deferred-issue maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,642 | 107 | ≈2,161 |
+| fixture mirroring current `.pi/slate.json`: draft PRs + writing, pi-registry windows | 5 resolved | pinned-package 2 units / 4 tools | 6 | 7,311 | 101 | ≈1,828 |
+| stable maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,455 | 105 | ≈2,114 |
+| deferred-issue maximal fixture | 9 | synthetic 2 units / 4 tools, every rendered field at its cap | 6 | 8,529 | 106 | ≈2,132 |
 
 The dogfood fixture mirrors `workflow.draftPRs: true`, both ignored writing keys,
 and the five models in this repository's `.pi/slate.json`. A change to that
@@ -295,18 +296,18 @@ applies the five-percent rule to every upper bound, so this decision is auditabl
 
 | budget term | current | enforced bound | current reserve |
 | --- | ---: | ---: | ---: |
-| routing rule characters | 2,585 | 4,000 | 1,415 |
-| routing rule lines | 25 | 34 | 9 |
-| routing fixed prose | 1,110 | 1,500 | 390 |
+| routing rule characters | 2,472 | 4,000 | 1,528 |
+| routing rule lines | 24 | 34 | 10 |
+| routing fixed prose | 997 | 1,500 | 503 |
 | largest model row | 183 | 300 | 117 |
-| trusted router-on doctrine | 7,202 | 7,600 | 398 |
-| writing and design doctrine | 4,617 | 5,600 | 983 |
-| writing plus router | 7,202 | 7,600 | 398 |
-| writing plus extensions | 4,872 | 6,000 | 1,128 |
-| writing plus router and extensions | 7,457 | 7,900 | 443 |
-| maximal doctrine, draft PRs enabled | 8,568 | 9,100 | 532 |
-| maximal doctrine, draft PRs disabled | 8,549 | 9,100 | 551 |
-| maximal doctrine, deferred-issue prompt enabled | 8,642 | 9,100 | 458 |
+| trusted router-on doctrine | 7,089 | 7,600 | 511 |
+| writing and design doctrine | 4,762 | 5,600 | 838 |
+| writing plus router | 7,089 | 7,600 | 511 |
+| writing plus extensions | 5,017 | 6,000 | 983 |
+| writing plus router and extensions | 7,344 | 7,900 | 556 |
+| maximal doctrine, draft PRs enabled | 8,455 | 9,100 | 645 |
+| maximal doctrine, draft PRs disabled | 8,436 | 9,100 | 664 |
+| maximal doctrine, deferred-issue prompt enabled | 8,529 | 9,100 | 571 |
 | capped worker rule | 1,347 | 1,600 | 253 |
 | writing rule characters | 1,338 | 1,500 | 162 |
 | writing rule lines | 22 | 25 | 3 |
@@ -316,21 +317,21 @@ On a cumulative component basis, the rendered ten-entry writing roster and the
 design rule contribute 1,183 portable characters and 18 lines. On a
 fixture-growth basis against the predecessor render, this change adds 207
 portable characters and three lines to every base doctrine render. The trusted
-router-on fixture requires `7,202 × 1.05 = 7,562.1`. Ceiling gives 7,563. The
+router-on fixture requires `7,089 × 1.05 = 7,443.45`. Ceiling gives 7,444. The
 7,600 bound is larger.
 
 The all-tail fixture requires
-`7,457 × 1.05 = 7,829.85`. Ceiling gives 7,830. The trusted router-on reserve is
-`7,600 − 7,202 = 398` characters. The all-tail reserve is
-`7,900 − 7,457 = 443` characters. The 7,900 bound is larger.
+`7,344 × 1.05 = 7,711.2`. Ceiling gives 7,712. The trusted router-on reserve is
+`7,600 − 7,089 = 511` characters. The all-tail reserve is
+`7,900 − 7,344 = 556` characters. The 7,900 bound is larger.
 
-The deferred-issue fixture requires `8,642 × 1.05 = 9,074.1`. Ceiling gives
-9,075. The shared 9,100 bound keeps the required reserve for every maximal
+The deferred-issue fixture requires `8,529 × 1.05 = 8,955.45`. Ceiling gives
+8,956. The shared 9,100 bound keeps the required reserve for every maximal
 fixture.
 
 The positive control adds one capped tool and six copies of the largest
-measured model row. It measures 9,884 portable characters. It exceeds the
-9,100-character maximal bound by 784. That margin remains larger than the
+measured model row. It measures 9,771 portable characters. It exceeds the
+9,100-character maximal bound by 671. That margin remains larger than the
 184-character maximum model-row growth and the 212-character capped tool growth.
 The raised bound does not blunt the positive control.
 
@@ -340,10 +341,10 @@ unless the fixture design itself changes.
 
 Against a 256,000-token context budget, these blocks remain small. The rough
 estimate divides each measured portable-character render by four and rounds to
-the nearest whole token. The shipped-rule table ranges from about 1,154 tokens
-to about 1,805 tokens. The current dogfood basis is about 1,856 tokens. The
-stable representative maximum is about 2,142 tokens. The deferred-issue
-maximum is about 2,161 tokens, or 0.84 percent of the default budget.
+the nearest whole token. The shipped-rule table ranges from about 1,191 tokens
+to about 1,777 tokens. The current dogfood basis is about 1,828 tokens. The
+stable representative maximum is about 2,114 tokens. The deferred-issue
+maximum is about 2,132 tokens, or 0.83 percent of the default budget.
 
 No tokenizer was run, and tables are denser than prose. The block is re-sent on every request rather than paid once. These figures show how
 much headroom Slate consumes before conversation content.

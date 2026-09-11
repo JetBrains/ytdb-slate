@@ -783,13 +783,13 @@ rather than tidy. The group is voided by `profiles-load`, because
 
 | id | what it proves |
 | --- | --- |
-| `doctrine-router-off` | **I2** — with the router off the routing rule contributes NOTHING. Every off-shaped resolution renders byte-identically to the default call. The trusted baseline still contains writing in slot 11 and design in slot 12. The same helper must render routing before both when the router is on |
+| `doctrine-router-off` | **I2** — with the router off one short explicit-dispatch instruction renders. Every off-shaped resolution renders byte-identically to the default call. The trusted baseline contains that instruction in slot 11, writing in slot 12, and design in slot 13. The same helper must render routing before both when the router is on |
 | `doctrine-untrusted` | **SE3** — an untrusted project gets no routing, writing, or design rule even with full configuration. The same resolution under trust renders all three. The worker-extension rule remains independently visible to untrusted projects and keeps slot 11 |
-| `doctrine-numbering` | tail rules are numbered by **position**, not identity. Trusted design is always last. Writing is rule 11 alone, rule 12 after extensions or routing, and rule 13 when both precede it. Every combination stays contiguous, and the routing body remains identical when its number moves |
+| `doctrine-numbering` | tail rules are numbered by **position**, not identity. Trusted design is always last. The router-off instruction is rule 11 without a live list. Writing is rule 12 after that instruction or live routing, rule 13 after extensions plus either routing state. Every combination stays contiguous, and the routing body remains identical when its number moves |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,708 portable characters, 43 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **8,568 of 9,100** portable characters. The draft-disabled pin is **8,549**. Writing plus routing is **7,202 of 7,600**. All tails are **7,457 of 7,900**. The capped worker rule is **1,347 of 1,600**. A **9,884-character** positive control exceeds the maximal bound by 784. These are verification budgets, not runtime limits. |
-| `doctrine-budget-deferred` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,642 of 9,100** portable characters and 107 lines and keeps 458 characters of reserve. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,708 portable characters, 43 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **8,455 of 9,100** portable characters. The draft-disabled pin is **8,436**. Writing plus routing is **7,089 of 7,600**. All tails are **7,344 of 7,900**. The capped worker rule is **1,347 of 1,600**. A **9,771-character** positive control exceeds the maximal bound by 671. These are verification budgets, not runtime limits. |
+| `doctrine-budget-deferred` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,529 of 9,100** portable characters and 106 lines and keeps 571 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
@@ -1008,21 +1008,21 @@ owns these stable verification fixtures:
 
 | fixture | paths | portable | lines | bound |
 | --- | ---: | ---: | ---: | ---: |
-| routing rule, 9 profiles | 1 | **2,585** | 25 | 4,000 |
+| routing rule, 9 profiles | 1 | **2,472** | 24 | 4,000 |
 | writing rule | 1 | **1,338** | 22 | 1,500 |
 | design rule | 0 | **571** | 9 | 600 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| trusted router-off doctrine | 4 | **4,617** | 72 | — |
-| trusted router-on doctrine | 5 | **7,202** | 96 | 7,600 |
-| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **7,424** | 102 | — |
-| writing and design doctrine | 4 | **4,617** | 72 | 5,600 |
-| writing plus router | 5 | **7,202** | 96 | 7,600 |
-| writing plus extensions | 4 | **4,872** | 78 | 6,000 |
-| writing plus router and extensions | 5 | **7,457** | 102 | 7,900 |
-| maximal doctrine with draft PRs enabled | 6 | **8,568** | 106 | 9,100 |
-| maximal doctrine with draft PRs disabled | 5 | **8,549** | 106 | 9,100 |
-| maximal doctrine with deferred-issue prompt enabled | 6 | **8,642** | 107 | 9,100 |
-| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,884** | 113 | must exceed 9,100 |
+| trusted router-off doctrine | 4 | **4,762** | 73 | — |
+| trusted router-on doctrine | 5 | **7,089** | 95 | 7,600 |
+| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **7,311** | 101 | — |
+| writing and design doctrine | 4 | **4,762** | 73 | 5,600 |
+| writing plus router | 5 | **7,089** | 95 | 7,600 |
+| writing plus extensions | 4 | **5,017** | 79 | 6,000 |
+| writing plus router and extensions | 5 | **7,344** | 101 | 7,900 |
+| maximal doctrine with draft PRs enabled | 6 | **8,455** | 105 | 9,100 |
+| maximal doctrine with draft PRs disabled | 5 | **8,436** | 105 | 9,100 |
+| maximal doctrine with deferred-issue prompt enabled | 6 | **8,529** | 106 | 9,100 |
+| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,771** | 112 | must exceed 9,100 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
 fabricated dogfood fixture mirrors the five configured models and resolves them
@@ -1037,17 +1037,17 @@ the next whole line.
 
 A doctrine change updates its exact literal. A bound changes only when this
 reserve policy requires it. Writing plus routing uses
-`7,202 × 1.05 = 7,562.1`. Ceiling gives 7,563. The 7,600 bound is larger.
+`7,089 × 1.05 = 7,443.45`. Ceiling gives 7,444. The 7,600 bound is larger.
 
-All tails use `7,457 × 1.05 = 7,829.85`. Ceiling gives 7,830. The 7,900 bound
+All tails use `7,344 × 1.05 = 7,711.2`. Ceiling gives 7,712. The 7,900 bound
 is larger.
 
-The largest maximal fixture uses `8,642 × 1.05 = 9,074.1`.
-Ceiling gives 9,075. The 9,100 bound is larger. The enabled, disabled, and
-deferred-issue maximal reserves are 532, 551, and 458.
+The largest maximal fixture uses `8,529 × 1.05 = 8,955.45`.
+Ceiling gives 8,956. The 9,100 bound is larger. The enabled, disabled, and
+deferred-issue maximal reserves are 645, 664, and 571.
 
 The largest model-row growth is 184 characters. The capped tool-line growth is
-212 characters. The positive control exceeds the maximal bound by 784.
+212 characters. The positive control exceeds the maximal bound by 671.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension
@@ -1076,8 +1076,8 @@ Model router (`extension/model-router.ts`):
 | `router-unprofiled` | a model with no profile is warned about **by name** (no benchmark data ⇒ dropped) and kept out of the candidates |
 | `router-malformed` | a spec that is not canonical `provider/id` is dropped with a warning that names the **reason** — including "control characters" and "leading or trailing whitespace", which the display sanitizer would otherwise strip, leaving a warning that reads like a valid name (BG2) |
 | `router-unroutable` | a model pi's registry does not know, and one with no configured credentials, are each warned about and dropped — routing there could only produce billed failures |
-| `router-alias-duplicate` | two specs resolving to the same profile (canonical id + alias) yield **one** candidate, the later one warned about and dropped |
-| `router-all-dropped` | when every entry is dropped the router is OFF with **exactly one** summary warning on top of the per-entry ones |
+| `router-alias-duplicate` | profile identity is claimed before registry and authentication checks. Two specs resolving to one profile yield one candidate when the first survives. An all-dropped pair retains an alias fault. A distinct surviving candidate suppresses that all-dropped fault |
+| `router-all-dropped` | when every entry is dropped the router is OFF with **exactly one** summary warning on top of the per-entry ones. Fault-class causes leave a dispatch-blocking fault. Warning-only causes do not |
 | `router-order` / `router-order-ties` | ordering is tier ascending then effective input price ascending; a tier+price tie is broken by spec; a candidate with no usable price row sorts **last**, is warned about, and stays routable; a non-numeric tier sorts last instead of poisoning the comparator with `NaN` |
 | `router-cheapest` | the default base model (D48) is the cheapest **preferred** candidate: a profile carrying a `nonPreferred` reason is skipped even when it is the cheapest thing on the list, while remaining a routable candidate (BG1). The **ordering** honours the same markers (DF4): non-preferred candidates, and candidates whose tier is not a sourced ordinal, sort after their comparable siblings, so a consumer walking the list cannot meet an evidentially-thin model first |
 | `router-cheapest-fallback` | when *every* candidate is non-preferred a base model is still chosen (D48 requires one), the result flags it, and exactly one warning names that base and explains it with the profile's own reason |
@@ -1293,7 +1293,7 @@ Model-spec vocabulary and snapshot sanitizers (`extension/state.ts`):
 | `spec-invisible` | every zero-width or direction-changing character is **rejected** by the shared predicate — controls, bidi, soft hyphen, BOM, **variation selectors** (BMP *and* astral), **tag characters** and **Hangul fillers**, the three classes the first BG2 fix missed — each named by code point in the reason; a non-breaking space reports as whitespace; a *visible* non-ASCII spec (homoglyph, emoji) is accepted and merely annotated; a valid spec still splits on the first slash |
 | `spec-config-key` | an unusable `episodeModel` is dropped **with** a warning naming the key, the reason and the fallback (RG20), while absent and valid values stay silent and the returned value is unchanged from the old silent behaviour; an unstringifiable value warns instead of throwing |
 | `state-thread-record` | **BG26** — `sanitizeThreadRecord` re-validates the whole restored thread record. A well-formed record round-trips byte-identically; absent fields receive documented defaults silently; wrong types are refused by name and type; unsafe ids are dropped; live status normalizes to idle; counters and mixed episode-id arrays are repaired; thread type is preserved only as a string for later legacy resolution; model, pin and effort strings remain byte-identical for their owning validators; and the CQ22 adoption checklist proves every owned field returns without reporting a deliberate refusal twice |
-| `state-episode-record` | the episode half of BG26, same restore path and same obligations. A well-formed record round-trips byte-identically, and so does an **all-fields** one (`wellFormed` omits the optional unmeasured marker, so the checklist walk needs its own fixture); a record with no id, no thread or no file is dropped, silently. `failed` is the only value that survives as a failure — `"FAILED"` reads as `ok` and is noted. The unmeasured marker needs the boolean: a truthy string is refused, and so is `false`, which is not a legal value of a `true`-only field. Model and effort are type-checked only, exactly as above. Since CQ22 this sanitizer has the thread sanitizer's **refuse-by-name** discipline — it used to take a repairs sink and never write to it, so an episode's dropped fields vanished while a thread's were reported — and every refusable axis is checked, while an accepted value, a bare record and a well-formed one report nothing at all |
+| `state-episode-record` | the episode half of BG26, same restore path and same obligations. A well-formed record round-trips byte-identically, and so does an **all-fields** one (`wellFormed` omits the optional unmeasured marker, so the checklist walk needs its own fixture); a record with no id, no thread or no file is dropped, silently. `failed` is the only value that survives as a failure — `"FAILED"` reads as `ok` and is noted. The unmeasured marker needs the boolean: a truthy string is refused, and so is `false`, which is not a legal value of a `true`-only field. Requested model uses the canonical specification grammar. Requested effort uses pi's vocabulary. Reason uses the explicit-dispatch sanitation and length rules. Actual model and effort retain their older type-only adoption rule. Since CQ22 this sanitizer has the thread sanitizer's **refuse-by-name** discipline — it used to take a repairs sink and never write to it, so an episode's dropped fields vanished while a thread's were reported — and every refusable axis is checked, while an accepted value, a bare record and a well-formed one report nothing at all |
 
 Orchestrator base-model tracker (`extension/base-model.ts`) — driven with
 fabricated `model_select` events and fabricated declarations. There is **no clock

@@ -1,3 +1,5 @@
+const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,6 +32,7 @@ function managerHarness(root: string) {
       task: opts.task,
       status: "ok",
       file: join(root, ".pi", "slate", "episodes", `${id}.md`),
+      ...(opts.reason === undefined ? {} : { reason: opts.reason }),
       createdAt: 1,
     };
     thread.episodeId = id;
@@ -49,9 +52,9 @@ test("every accepted action creates a distinct single-action thread", async () =
   const root = mkdtempSync(join(tmpdir(), "slate-single-action-"));
   try {
     const { manager, store } = managerHarness(root);
-    const ctx = { cwd: root } as ExtensionContext;
-    const first = await manager.dispatch({ name: "first", type: "general", task: "one" }, ctx, undefined);
-    const second = await manager.dispatch({ name: "second", type: "reviewer", task: "two" }, ctx, undefined);
+    const ctx = { cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
+    const first = await manager.dispatch({ ...TEST_ROUTE, name: "first", type: "general", task: "one" }, ctx, undefined);
+    const second = await manager.dispatch({ ...TEST_ROUTE, name: "second", type: "reviewer", task: "two" }, ctx, undefined);
     assert.equal(first.thread.id, "t1");
     assert.equal(second.thread.id, "t2");
     assert.equal(store.threads.size, 2);
@@ -85,7 +88,7 @@ test("an action cancelled before its worker call leaves no record", async () => 
     const controller = new AbortController();
     controller.abort();
     await assert.rejects(
-      manager.dispatch({ type: "general", task: "cancel me" }, { cwd: root } as ExtensionContext, controller.signal),
+      manager.dispatch({ ...TEST_ROUTE, type: "general", task: "cancel me" }, { cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext, controller.signal),
       /cancelled before the action started/,
     );
     assert.equal(store.threads.size, 0);
@@ -106,26 +109,26 @@ test("episode references are bounded, deduplicated, ordered, and loaded before c
       writeFileSync(file, text);
       store.episodes.set(id, { id, threadId: id.split(".")[0]!, task: text, status: "ok", file, createdAt: 1 });
     }
-    const ctx = { cwd: root } as ExtensionContext;
-    await manager.dispatch({ type: "researcher", task: "follow up", contextEpisodeIds: ["t9.e1", "t8.e1", "t9.e1"] }, ctx, undefined);
+    const ctx = { cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
+    await manager.dispatch({ ...TEST_ROUTE, type: "researcher", task: "follow up", contextEpisodeIds: ["t9.e1", "t8.e1", "t9.e1"] }, ctx, undefined);
     assert.ok(prompts[0]!.indexOf("SECOND") < prompts[0]!.indexOf("FIRST"));
     assert.equal(prompts[0]!.match(/SECOND/g)?.length, 1);
 
     const before = store.threads.size;
     await assert.rejects(
-      manager.dispatch({ type: "general", task: "bad", contextEpisodeIds: Array(MAX_CONTEXT_EPISODES + 1).fill("t8.e1") }, ctx, undefined),
+      manager.dispatch({ ...TEST_ROUTE, type: "general", task: "bad", contextEpisodeIds: Array(MAX_CONTEXT_EPISODES + 1).fill("t8.e1") }, ctx, undefined),
       /at most 32/,
     );
     await assert.rejects(
-      manager.dispatch({ type: "general", task: "bad", contextEpisodeIds: "t8.e1" }, ctx, undefined),
+      manager.dispatch({ ...TEST_ROUTE, type: "general", task: "bad", contextEpisodeIds: "t8.e1" }, ctx, undefined),
       /context must be a list/,
     );
     await assert.rejects(
-      manager.dispatch({ type: "general", task: "bad", contextEpisodeIds: [7] }, ctx, undefined),
+      manager.dispatch({ ...TEST_ROUTE, type: "general", task: "bad", contextEpisodeIds: [7] }, ctx, undefined),
       /context must be a list/,
     );
     await assert.rejects(
-      manager.dispatch({ type: "general", task: "bad", contextEpisodeIds: ["missing.e1"] }, ctx, undefined),
+      manager.dispatch({ ...TEST_ROUTE, type: "general", task: "bad", contextEpisodeIds: ["missing.e1"] }, ctx, undefined),
       /Unknown context episode/,
     );
     assert.equal(store.threads.size, before);
@@ -146,7 +149,7 @@ test("an unusable requested model is rejected before thread creation", async () 
       },
     } as unknown as ExtensionContext;
     await assert.rejects(
-      manager.dispatch({ type: "general", task: "must not persist", model: "missing/model" }, ctx, undefined),
+      manager.dispatch({ ...TEST_ROUTE, type: "general", task: "must not persist", model: "missing/model" }, ctx, undefined),
       /unavailable|credentials/,
     );
     assert.equal(store.threads.size, 0);
@@ -160,12 +163,58 @@ test("task and pause validation run before thread creation", async () => {
   const root = mkdtempSync(join(tmpdir(), "slate-action-validation-"));
   try {
     const { manager, store } = managerHarness(root);
-    const ctx = { cwd: root } as ExtensionContext;
-    await assert.rejects(manager.dispatch({ type: "general", task: "" }, ctx, undefined), /non-empty/);
-    await assert.rejects(manager.dispatch({ type: "general", task: 7 as unknown as string }, ctx, undefined), /non-empty/);
+    const ctx = { cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
+    await assert.rejects(manager.dispatch({ ...TEST_ROUTE, type: "general", task: "" }, ctx, undefined), /non-empty/);
+    await assert.rejects(manager.dispatch({ ...TEST_ROUTE, type: "general", task: 7 as unknown as string }, ctx, undefined), /non-empty/);
     store.paused = true;
-    await assert.rejects(manager.dispatch({ type: "general", task: "blocked" }, ctx, undefined), /paused/);
+    await assert.rejects(manager.dispatch({ ...TEST_ROUTE, type: "general", task: "blocked" }, ctx, undefined), /paused/);
     assert.equal(store.threads.size, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit dispatch fields reject before thread allocation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-required-route-"));
+  try {
+    const { manager, store } = managerHarness(root);
+    const ctx = { cwd: root, modelRegistry: { find: () => ({ provider: "test", id: "worker" }), hasConfiguredAuth: () => true } } as unknown as ExtensionContext;
+    for (const opts of [
+      { task: "x", type: "general", effort: "low", reason: "why" },
+      { task: "x", type: "general", model: 7, effort: "low", reason: "why" },
+      { task: "x", type: "general", model: "   ", effort: "low", reason: "why" },
+      { task: "x", type: "general", model: "test/worker", reason: "why" },
+      { task: "x", type: "general", model: "test/worker", effort: 7, reason: "why" },
+      { task: "x", type: "general", model: "test/worker", effort: "   ", reason: "why" },
+      { task: "x", type: "general", model: "test/worker", effort: "low" },
+      { task: "x", type: "general", model: "test/worker", effort: "low", reason: "" },
+      { task: "x", type: "general", model: "test/worker", effort: "low", reason: "   " },
+      { task: "x", type: "general", model: "test/worker", effort: "low", reason: "\u0000\u001f" },
+      { task: "x", type: "general", model: "test/worker", effort: "low", reason: "\u200b\u2060" },
+      { task: "x", type: "general", model: "test/worker", effort: "low", reason: "x".repeat(201) },
+    ]) await assert.rejects(manager.dispatch(opts as DispatchOptions, ctx, undefined), /requires|reason must/);
+    assert.equal(store.threads.size, 0);
+
+    const boundary = await manager.dispatch({ ...TEST_ROUTE, type: "general", task: "boundary", reason: "x".repeat(200) }, ctx, undefined);
+    assert.equal(boundary.episode.reason, "x".repeat(200));
+    const cleaned = await manager.dispatch({ ...TEST_ROUTE, type: "general", task: "cleaned", reason: " visible\u2028text\u2029\u200b " }, ctx, undefined);
+    assert.equal(cleaned.episode.reason, "visible text");
+
+    const faulted = new ThreadManager(store, {}, undefined, () => ({
+      on: false, candidates: [], warnings: [], fault: "slate: retained router fault",
+    } as any));
+    await assert.rejects(faulted.dispatch({ ...TEST_ROUTE, task: "fault", type: "general" }, ctx, undefined), /retained router fault/);
+    assert.equal(store.threads.size, 2);
+
+    const routed = new ThreadManager(store, {}, undefined, () => ({
+      on: true,
+      candidates: [{ spec: "test/worker", ladder: ["low"], profile: { capabilityMeasuredAt: ["low"], evidenceGapAt: [] } }],
+      cheapest: "test/worker", warnings: [],
+    } as any));
+    const view = routed as unknown as { runDispatch(thread: ThreadRecord): Promise<ThreadRecord> };
+    view.runDispatch = async (thread) => thread;
+    const created = await routed.dispatch({ ...TEST_ROUTE, task: "router on", type: "general" }, ctx, undefined) as unknown as ThreadRecord;
+    assert.equal(created.baseModel, "test/worker");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -181,10 +230,10 @@ test("removed fields are absent from the schema and rejected before creation", a
   assert.equal(Object.hasOwn(threadTool.parameters.properties, "thread"), false);
   assert.equal(Object.hasOwn(threadTool.parameters.properties, "freshContext"), false);
   const ctx = { cwd: process.cwd() } as ExtensionContext;
-  await assert.rejects(threadTool.execute("x", { type: "general", task: "x", thread: "t1" }, undefined, undefined, ctx), /field was removed/);
-  await assert.rejects(threadTool.execute("x", { type: "general", task: "x", freshContext: [] }, undefined, undefined, ctx), /field was removed/);
-  await assert.rejects(manager.dispatch({ threadId: "t1", type: "general", task: "x" }, ctx, undefined), /field was removed/);
-  await assert.rejects(manager.dispatch({ freshContext: [], type: "general", task: "x" }, ctx, undefined), /field was removed/);
+  await assert.rejects(threadTool.execute("x", { ...TEST_ROUTE, type: "general", task: "x", thread: "t1" }, undefined, undefined, ctx), /field was removed/);
+  await assert.rejects(threadTool.execute("x", { ...TEST_ROUTE, type: "general", task: "x", freshContext: [] }, undefined, undefined, ctx), /field was removed/);
+  await assert.rejects(manager.dispatch({ ...TEST_ROUTE, threadId: "t1", type: "general", task: "x" }, ctx, undefined), /field was removed/);
+  await assert.rejects(manager.dispatch({ ...TEST_ROUTE, freshContext: [], type: "general", task: "x" }, ctx, undefined), /field was removed/);
   assert.equal(store.threads.size, 0);
 });
 
@@ -253,14 +302,14 @@ async function dispatchWithUnpairedToolResult(
       return { session, baseline: NO_SESSION_BASELINE };
     };
     return await manager.dispatch(
-      { type: "general", task: "complete despite the missing reminder" },
+      { ...TEST_ROUTE, type: "general", task: "complete despite the missing reminder" },
       {
         cwd: root,
         hasUI: false,
         modelRegistry: {
-          find() { return undefined; },
+          find(provider: string, id: string) { return provider === "test" && id === "worker" ? { provider, id } : undefined; },
           async getAvailable() { return []; },
-          hasConfiguredAuth() { return false; },
+          hasConfiguredAuth() { return true; },
         },
       } as unknown as ExtensionContext,
       undefined,
@@ -351,7 +400,7 @@ test("a save failure before worker startup rolls back the new thread", async () 
   } as unknown as ExtensionAPI);
   const manager = new ThreadManager(store, {});
   await assert.rejects(
-    manager.dispatch({ task: "must not start", type: "general" }, {} as ExtensionContext, undefined),
+    manager.dispatch({ ...TEST_ROUTE, task: "must not start", type: "general" }, { modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext, undefined),
     /Nothing ran and no episode was recorded/,
   );
   assert.equal(store.threads.size, 0);

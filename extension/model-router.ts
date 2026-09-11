@@ -25,7 +25,8 @@
  *    pi's registry does not know it, or when pi has no credentials configured
  *    for it — routing to an unauthenticated or unknown model would produce
  *    billed failures, not work. If EVERY entry is dropped the router turns OFF
- *    with one summary warning rather than half-working.
+ *    with one summary warning. A malformed spec, missing profile, or profile-alias
+ *    duplicate also leaves a dispatch-blocking fault on that off resolution.
  *
  *  - ORDER is tier ascending, then current effective input price ascending
  *    (then spec, for determinism). The CHEAPEST candidate is exposed separately
@@ -287,11 +288,13 @@ export interface RouterCandidate {
 
 /** The resolution: the router's whole answer for a session. */
 export interface ModelRouterResolution {
-	on: boolean; // false = router off; candidates is then empty and nothing is gated
+	on: boolean; // false = router off; candidates is empty, but `fault` may still block dispatch
 	candidates: readonly RouterCandidate[]; // tier asc, then effective input price asc, then spec
 	cheapest: string | undefined; // default base model (D48): cheapest PREFERRED candidate
 	cheapestNonPreferred: boolean; // true = every candidate is non-preferred, so `cheapest` had to break that rule
 	warnings: readonly string[]; // every warning emitted for this resolution, in order
+	/** Dispatch-blocking all-dropped configuration fault. Kept on the off resolution. */
+	fault?: string;
 	/** Fresh registry lookup for dispatch-time checks. This callback is never a captured price snapshot. */
 	registryCostFor?: (spec: string) => Readonly<RouterRegistryCost> | undefined;
 	/** Live UTC date source invoked by each dispatch-time price check. */
@@ -312,7 +315,7 @@ export const ROUTER_OFF: ModelRouterResolution = Object.freeze({
 /** Inputs of one resolution. Only `registry` and `models` are required. */
 export interface ModelRouterInput {
 	registry: RouterRegistry;
-	models: readonly string[]; // sanitized router.models (empty = router off)
+	models: readonly unknown[]; // raw router.models entries (empty = router off)
 	failover?: Record<string, string>; // sanitized modelFailover map, for the coverage warning
 	profiles?: RouterProfileSource; // default: the shipped table
 	today?: string; // "YYYY-MM-DD" used for price-row selection (default: today, UTC)
@@ -689,12 +692,18 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 	};
 
 	const candidates: RouterCandidate[] = [];
+	type DropClass = "fault" | "warn";
+	const drops: Array<{ entry: string; reason: string; class: DropClass }> = [];
+	const dropped = (raw: unknown, reason: string, dropClass: DropClass) => {
+		drops.push({ entry: quoted(raw), reason: sanitizeForNotify(reason, 180), class: dropClass });
+	};
 	const seenSpecs = new Set<string>();
 	/** Specs whose registry window equals their own long-context billing threshold (BG27, explained once below). */
 	const billingPatternSpecs: string[] = [];
 	const claimedProfiles = new Map<string, string>(); // profile id → the spec that claimed it (BG6)
 	for (const raw of models) {
 		if (!isModelSpec(raw)) {
+			dropped(raw, describeSpecDefect(raw), "fault");
 			once(
 				conditionKey("malformed", raw),
 				// quoted() echoes a USER value: brackets and all, so the entry stays recognisable.
@@ -703,7 +712,10 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			);
 			continue;
 		}
-		if (seenSpecs.has(raw)) continue; // duplicate listing — first wins, silently
+		if (seenSpecs.has(raw)) {
+			dropped(raw, "exact specification duplicates an earlier entry", "warn");
+			continue;
+		}
 		seenSpecs.add(raw);
 		const label = specLabel(raw);
 
@@ -714,6 +726,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			profile = undefined; // a throwing profile source is a missing profile, not a crash (CQ5)
 		}
 		if (!profile || typeof profile !== "object") {
+			dropped(raw, "missing shipped model profile", "fault");
 			once(
 				conditionKey("unprofiled", raw),
 				`slate: model router: ${label} has no entry in slate's model profile table. Slate has no benchmark data for it, ` +
@@ -729,6 +742,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 		const profileId = typeof profile.id === "string" ? profile.id : label;
 		const claimedBy = claimedProfiles.get(profileId);
 		if (claimedBy !== undefined) {
+			dropped(raw, `profile alias duplicates ${claimedBy}`, "fault");
 			once(
 				conditionKey("alias-duplicate", raw),
 				`slate: model router: ${label} and ${sanitizeForNotify(claimedBy)} name the same profiled model. ` +
@@ -736,6 +750,9 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			);
 			continue;
 		}
+		// Claim profile identity before registry and credential checks. Alias
+		// duplication is a configuration fault even when both spellings later drop.
+		claimedProfiles.set(profileId, raw);
 
 		const parts = splitModelSpec(raw);
 		if (!parts) continue; // unreachable: isModelSpec passed above
@@ -747,6 +764,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			model = undefined; // a throwing registry is a missing model, not a crash
 		}
 		if (!model || typeof model !== "object") {
+			dropped(raw, "model is unknown to pi's registry", "warn");
 			once(
 				conditionKey("unknown", raw),
 				`slate: model router: ${label} is not in pi's model registry. Slate drops it from routing. ` +
@@ -762,6 +780,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			authed = false; // cannot even resolve credentials ⇒ not routable
 		}
 		if (!authed) {
+			dropped(raw, "model has no usable pi credentials", "warn");
 			once(
 				conditionKey("noauth", raw),
 				`slate: model router: ${label} has no usable credentials configured in pi. Slate drops it from routing. ` +
@@ -913,7 +932,6 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 		}
 
 		const hasFailover = Object.prototype.hasOwnProperty.call(failover, raw) && isModelSpec(failover[raw]);
-		claimedProfiles.set(profileId, raw);
 		candidates.push({
 			spec: raw,
 			provider,
@@ -936,12 +954,11 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 	// list is a routing policy; no list is not, and silently routing to whatever
 	// the session happened to start on would hide the real problem above.
 	if (!isNonEmpty(candidates)) {
-		once(
-			"all-dropped",
-			`slate: model router: routing is disabled. None of the ${models.length} configured router.models entries ` +
-				"survived validation. The warnings above name each dropped entry and the reason for it.",
-		);
-		return frozenResolution(false, [], undefined, false, warnings);
+		const detail = drops.map((drop) => `${drop.entry} [${drop.class}]: ${drop.reason}`).join("; ");
+		const hasFault = drops.some((drop) => drop.class === "fault");
+		const summary = `slate: model router: routing is disabled. None of the ${models.length} configured router.models entries survived validation. ${detail}`;
+		once("all-dropped", summary);
+		return frozenResolution(false, [], undefined, false, warnings, undefined, undefined, undefined, hasFault ? summary : undefined);
 	}
 
 	// BG27: the RI32 pattern explanation, ONCE, naming every model whose per-model
@@ -1050,6 +1067,7 @@ function frozenResolution(
 	registryCostFor?: (spec: string) => Readonly<RouterRegistryCost> | undefined,
 	currentDate?: () => string,
 	warnOnce?: (condition: string, value: unknown, message: string, warningClass: RouterWarningClass) => void,
+	fault?: string,
 ): ModelRouterResolution {
 	return Object.freeze({
 		on,
@@ -1057,6 +1075,7 @@ function frozenResolution(
 		cheapest,
 		cheapestNonPreferred,
 		warnings: Object.freeze([...warnings]),
+		...(fault ? { fault } : {}),
 		...(registryCostFor ? { registryCostFor } : {}),
 		...(currentDate ? { currentDate } : {}),
 		...(warnOnce ? { warnOnce } : {}),
