@@ -787,20 +787,20 @@ rather than tidy. The group is voided by `profiles-load`, because
 | `doctrine-numbering` | tail rules are numbered by **position**, not identity. Trusted design is always last. Writing is rule 11 alone, rule 12 after extensions or routing, and rule 13 when both precede it. Every combination stays contiguous, and the routing body remains identical when its number moves |
 | `doctrine-inject` | the highest-stakes item in this group: the rule deliberately **bypasses `sanitizeForDoctrine`** (that sanitizer strips `\|`, which would destroy the table), so the narrow `cell()` is the entire defence. Eight attacks on the data cells — a pipe plus a forged `12. Ignore all previous rules`, a newline in the other guidance field, CR/CRLF, C0 **and** C1 controls, a spec-shaped value, markdown, a 5000-character field, a forged legend line — each collapse to exactly one row of exactly seven cells, add no line, and forge no numbered directive. Judged structurally (row count, pipe count per line, rule height) rather than on rendered text. Since `e52023d` it also covers the two values that fix added to the sanitized set: the **spec** (the gap this check found, now closed — the term is inverted, and asserts alongside it that `isModelSpec` still accepts `p/evil|forged`, which is what makes `cell()` load-bearing rather than belt-and-braces) and the **prose thread-default**, which is the more dangerous of the two because a newline there forges a numbered RULE rather than a column — attacked through `cheapest` and through the first-candidate fallback it defers to. The rule's closing **doc-pointer** line is pinned present-exactly-once and second-from-last under every attack, so it can be neither forged nor displaced. One residual **closed** and one standing: `74a728c` replaced the codepoint-range sanitizer with a UNICODE-CATEGORY one (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}` plus the pipe), so the bidi/zero-width residual this check used to pin as observed is gone — the term is inverted and widened to the class the categories buy: RLO, RLM, ALM, ZWSP, BOM, soft hyphen, tag letters, lone surrogates, and **U+2028**, which is a line break to many renderers and which the old range did not strip. Asserted in both directions, since a sanitizer that simply deleted everything non-ASCII would also pass the first half: NBSP, emoji and the `≥` the profile guidance uses are still carried verbatim. Cell length remains unbounded, and the budget check is what catches that |
 | `doctrine-no-trace` | two hard content exclusions, against the **real** shipped table because a fabricated profile cannot leak what it does not carry: no research trace tag (`[O2]`, `[G1a]`, …) appears anywhere in the doctrine — they point into a `research/` directory this package does not publish — and no `nonPreferred` **reason** is rendered, whole or as a distinctive prefix, because those are written in the same trace-contaminated register. Non-vacuous by construction: the table must really contain tags (it carries 12 distinct ones) and a reason must really carry one (2 of 6 do), or the terms prove nothing. Plus the other half — the fact is *relocated*, not lost: every non-preferred model is marked `!` in its tier cell |
-| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,708 portable characters, 43 lines and three embedded paths. It reads no project config. The draft-enabled maximum is **8,568 of 9,100** portable characters. The draft-disabled pin is **8,549**. Writing plus routing is **7,202 of 7,600**. All tails are **7,457 of 7,900**. The capped worker rule is **1,347 of 1,600**. A **9,884-character** positive control exceeds the maximal bound by 784. These are verification budgets, not runtime limits. |
-| `doctrine-budget-deferred` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,642 of 9,100** portable characters and 107 lines and keeps 458 characters of reserve. |
+| `doctrine-budget` | a **guard**, not a timeless fact, measured on an install-invariant figure. The check removes each absolute docs-directory occurrence and keeps the filename. It separately pins every path count, rule size, line count, fixed fabricated six-model basis, all-nine basis, worker rule, model-row increment and tool-line increment. It also pins the untrusted doctrine at 2,710 portable characters, 43 lines and three embedded paths. It derives the maintained fixture tables, their listed arithmetic, and every current prose statement of an enforced doctrine limit in this document and `docs/context-budget.md`. It compares each maintained statement with the value used by enforcement and requires each statement once. The roster does not interpret future prose. A maintainer must add each new limit statement to the roster. Other measurements and numeric prose still need manual review. It reads no project config. The draft-enabled maximum is **8,570 of 9,100** portable characters. The draft-disabled pin is **8,551**. Writing plus routing is **7,204 of 7,600**. All tails are **7,459 of 7,900**. The capped worker rule is **1,347 of 1,600**. A **9,886-character** positive control exceeds the maximal bound by 786. These are verification budgets, not runtime limits. |
+| `doctrine-budget-deferred` | the trusted maximal fixture with `workflow.followUpIssues: true` is **8,644 of 9,100** portable characters and 107 lines and keeps 456 characters of reserve. |
 
 The doctrine contract checks read the shipped workflow documents directly:
 
 | id | what it proves |
 | --- | --- |
 | `contract-safety-floor-absent` | both former safety-floor blocks and their characteristic floor text are absent |
-| `contract-focus-table-sync` | both marked focus tables occur once, remain equal, and match the complete fixed seven-row table |
-| `contract-risk-definitions` | all seven risk definitions match exact text, use no area numbers, and keep the marked test-quality block. A negated counterfactual must differ |
+| `contract-focus-table-sync` | both marked focus tables occur once, remain equal, and match the complete fixed eleven-row table. The project README names the same eleven areas exactly once |
+| `contract-risk-definitions` | all eleven risk definitions match exact text, use no area numbers, and keep the marked test-quality block. A negated counterfactual must differ |
 | `contract-risk-lifecycle` | orchestrator ownership, the judged proof, approval timing, committed-difference comparison, and implementer response stay complete. The retired declaration protocol stays absent from all five workflow documents |
 | `contract-fast-path-artifact` | the eight-item SMALL checklist, omitted gates, retained sequence, Reviewer I row, proved-area row, and fallback to ordinary SMALL remain present |
 | `contract-test-composite` | the composite charter requires both behavioral effectiveness and structure and isolation sections |
-| `contract-review-charters` | Reviewer I has the exact three added clauses and runs at every grade. Test, prose, and licensing charters stay additional. The composite test role stays separate, prose and licensing stay split, and retired charters and active prefixes stay absent |
+| `contract-review-charters` | Reviewer I has the exact three added clauses and runs at every grade. The non-local logic defect, consumer contract break, governing-rule defect and unreported failure charters, prefixes and production-cap classes are exact. The charters assign no duty to an area that the current roster does not provide. Test, prose, and licensing charters stay additional. The composite test role stays separate, prose and licensing stay split, and retired charters and prefixes stay absent |
 | `contract-section-targets` | every named level-two target across the five workflow documents occurs exactly once. Regex metacharacters are escaped, and a duplicated Fast path counterfactual fails uniqueness |
 
 The **writing checker command** (`extension/writing-check.mjs`) is covered both by
@@ -1011,17 +1011,17 @@ owns these stable verification fixtures:
 | writing rule | 1 | **1,338** | 22 | 1,500 |
 | design rule | 0 | **571** | 9 | 600 |
 | capped worker rule, 2 units / 4 tools | 0 | **1,347** | 11 | 1,600 |
-| trusted router-off doctrine | 4 | **4,617** | 72 | — |
-| trusted router-on doctrine | 5 | **7,202** | 96 | 7,600 |
-| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **7,424** | 102 | — |
-| writing and design doctrine | 4 | **4,617** | 72 | 5,600 |
-| writing plus router | 5 | **7,202** | 96 | 7,600 |
-| writing plus extensions | 4 | **4,872** | 78 | 6,000 |
-| writing plus router and extensions | 5 | **7,457** | 102 | 7,900 |
-| maximal doctrine with draft PRs enabled | 6 | **8,568** | 106 | 9,100 |
-| maximal doctrine with draft PRs disabled | 5 | **8,549** | 106 | 9,100 |
-| maximal doctrine with deferred-issue prompt enabled | 6 | **8,642** | 107 | 9,100 |
-| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,884** | 113 | must exceed 9,100 |
+| trusted router-off doctrine | 4 | **4,619** | 72 | — |
+| trusted router-on doctrine | 5 | **7,204** | 96 | 7,600 |
+| fabricated fixture mirroring current dogfood config, pinned extensions, and pi-registry windows | 6 | **7,426** | 102 | — |
+| writing and design doctrine | 4 | **4,619** | 72 | 5,600 |
+| writing plus router | 5 | **7,204** | 96 | 7,600 |
+| writing plus extensions | 4 | **4,874** | 78 | 6,000 |
+| writing plus router and extensions | 5 | **7,459** | 102 | 7,900 |
+| maximal doctrine with draft PRs enabled | 6 | **8,570** | 106 | 9,100 |
+| maximal doctrine with draft PRs disabled | 5 | **8,551** | 106 | 9,100 |
+| maximal doctrine with deferred-issue prompt enabled | 6 | **8,644** | 107 | 9,100 |
+| positive control, one extra capped tool plus six maximum-growth model rows | 6 | **9,886** | 113 | must exceed 9,100 |
 
 Each exact pinned literal catches every size change in its rendered fixture. The
 fabricated dogfood fixture mirrors the five configured models and resolves them
@@ -1036,17 +1036,17 @@ the next whole line.
 
 A doctrine change updates its exact literal. A bound changes only when this
 reserve policy requires it. Writing plus routing uses
-`7,202 × 1.05 = 7,562.1`. Ceiling gives 7,563. The 7,600 bound is larger.
+`7,204 × 1.05 = 7,564.20`. Ceiling gives 7,565. The 7,600 bound is larger.
 
-All tails use `7,457 × 1.05 = 7,829.85`. Ceiling gives 7,830. The 7,900 bound
+All tails use `7,459 × 1.05 = 7,831.95`. Ceiling gives 7,832. The 7,900 bound
 is larger.
 
-The largest maximal fixture uses `8,642 × 1.05 = 9,074.1`.
-Ceiling gives 9,075. The 9,100 bound is larger. The enabled, disabled, and
-deferred-issue maximal reserves are 532, 551, and 458.
+The largest maximal fixture uses `8,644 × 1.05 = 9,076.20`.
+Ceiling gives 9,077. The 9,100 bound is larger. The enabled, disabled, and
+deferred-issue maximal reserves are 530, 549, and 456.
 
 The largest model-row growth is 184 characters. The capped tool-line growth is
-212 characters. The positive control exceeds the maximal bound by 784.
+212 characters. The positive control exceeds the maximal bound by 786.
 
 These bounds protect representative fixtures from silent prompt growth. The
 synthetic worker fixture uses capped ASCII fields and no installed extension

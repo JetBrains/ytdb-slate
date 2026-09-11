@@ -56,8 +56,10 @@ reviewer at every grade.
 
 Reviewer I never counts against the production area-reviewer cap. The cap is
 four production area reviewers per review action. Split the action when more
-are required. The test-quality and structure reviewer, prose reviewer, and
-licensing reviewer are additional and never count against that cap.
+are required. The non-local logic defect, consumer contract break, governing-rule defect and
+unreported failure reviewers are production area reviewers and count against
+this cap. The test-quality and structure reviewer, prose reviewer, and licensing
+reviewer are additional and never count against that cap.
 
 Merge two general or production area perspectives only when both the code scope
 and required evidence are the same. Record the reason. Similar topics do not
@@ -89,6 +91,64 @@ Project charters supplement the required reviewers and never replace them.
   untrusted input, sandboxing, and user-data exposure.
 - **performance:** asymptotic growth, hot paths, input/output, allocation,
   synchronization, caching, batching, and benchmark evidence.
+
+#### Non-local logic defect reviewer
+
+The code reviewer is read-only and reports inside this area only. Prefix `NL`.
+
+The non-local logic defect area owns an agreement between places that an
+execution reads. The governing-rule defect area owns agreement between rule
+documents.
+
+1. List every fact outside the changed lines that the correctness verdict
+   depends on. For each fact, state where it lives and how you checked it.
+2. Name each rule that two or more places must apply in the same way. List every
+   place that must apply it. Check each place against the rule.
+3. Name each state or history that an earlier execution can leave. Cover a
+   first run, a repeat run, an interrupted run and a restart.
+4. Name each pair or group of conditions that must hold at the same time to
+   reach the forbidden result. Check that each combination is intended.
+5. Name each matching edit that the change owes to a place it does not touch.
+   Report a missing matching edit as a defect.
+6. Check the order of effects inside one execution when a place outside the
+   change can observe that order.
+7. Check that the implemented decisions agree with the stated intent of the
+   track.
+8. Check error and failure paths that cross the agreements above.
+
+
+#### Consumer contract break reviewer
+
+The code reviewer is read-only and reports inside this area only. Prefix `CB`.
+
+1. List every consumer-reachable surface the change touches: an exported name, a command argument or option, an exit status, a machine-readable output shape, a configuration key together with the value used when that key is absent, a written or read record, and a shipped statement about accepted input or produced output.
+2. For each listed surface, state what an unchanged consumer gets from the review base and what it gets from the candidate. Name the concrete invocation, configuration file or stored record that you used as the example.
+3. Check every default that the change adds, moves or withdraws. Report a default whose candidate value changes the result for a consumer that set nothing in the review base.
+4. Check the records the change writes or reads in both directions: a record written by the review base and read by the candidate, and a record written by the candidate and read by the review base.
+5. Report every withdrawal, rename or narrowing that ships no route for the base use. State which route exists, from an accepted base form, a default, an alias, a reserved identifier, a reader for the base format or a warning window, and state whether the change shows that the route works.
+6. Check that shipped documents state the same accepted input, produced output, exit statuses and defaults as the code. Report a newly published surface that ships with no statement of which parts a consumer may rely on.
+
+#### Governing-rule defect reviewer
+
+The code reviewer is read-only and reports inside this area only. Prefix `GR`. The governing-rule defect area owns agreement between rule documents. The non-local logic defect area owns an agreement between places that an execution reads.
+
+1. List every rule that the change adds, alters or removes. For each rule, state where it lives, who must obey it, and what the reader must now do differently.
+2. Check agreement between rule documents. Compare each changed rule against every other rule document, every marked duplicate block and every shipped copy that states the same rule. Report each case where two of them tell one reader two different things.
+3. Apply each changed rule as a first-time reader with only the change in front of you. Report each term, threshold, name or path that leaves the rule impossible to apply, and say which decision the reader cannot reach.
+4. Trace each changed rule to the check, the gate or the script that enforces it. Report each place where the rule and its enforcer now permit different work, and report a rule whose stated enforcement no longer exists.
+5. Walk the governed sequence from its start to its declared completion. Report a required step that a reader can pass with no recorded decision, a required step that no route reaches, and a step that can run after completion.
+6. Check every list that tells a reader when to act, for example a re-run trigger list, a required-check table, a phase order or a gate table. Report each entry that the change makes stale, missing or wrong.
+
+#### Unreported failure reviewer
+
+The code reviewer is read-only. It reports inside this area only. Prefix `UF`.
+
+1. Enumerate every in-scope failure mode of the changed behaviour, and name the exact signal that detects each one. Record a mode with no signal as a defect. This duty is the clause the retired general reviewer carried.
+2. For each failure mode, name the place that owes the report and the observable form of that report, for example the exit status, the stream, the stated rejection reason, the failing check or the recorded event.
+3. Check every caught error, every discarded error, every ignored return status and every empty handler on the changed paths. Report a discarded failure that produces no other signal.
+4. Check every effect the change performs and does not verify, for example a write, a delete, a send or a settings update. State what proceeds when the effect fails.
+5. Check every fallback, default, retry and partial result the change adds. Report a case where the substitute result is indistinguishable from success.
+6. Check every report the change removes, narrows, hides or downgrades. Require evidence that the failure it reported can no longer happen.
 
 ### Test-quality and structure reviewer
 
@@ -168,8 +228,9 @@ phases. An implementation-stage review does not record `level`.
 | disposition | fix, waive, moot, reject, or ignored |
 
 Prefixes are stable by perspective. Active built-in prefixes are `RI`, `CN`,
-`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, and `RG`. Project-supplied prefixes must
-not collide. The orchestrator assigns and records a replacement when they do.
+`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, `NL`, `CB`, `GR`, `UF`, and `RG`.
+Project-supplied prefixes must not collide. The orchestrator assigns and records
+a replacement when they do.
 Identifiers remain cumulative and never renumber. Historical identifiers keep
 their recorded meaning.
 

@@ -46,9 +46,11 @@ Slate uses three workload grades. SMALL covers up to 50 predicted changed
 production-logic lines. MEDIUM covers 51 through 1,000. LARGE covers more than
 1,000. More than 25 changed files raises SMALL or MEDIUM by one grade.
 
-Focus is separate from size. Seven focus areas name specific risks. They cover
+Focus is separate from size. Eleven focus areas name specific risks. They cover
 concurrency defects, data loss, security weaknesses, performance degradation,
-test-quality defects, unreadable user-facing prose, and licensing exposure.
+test-quality defects, unreadable user-facing prose, licensing exposure,
+non-local logic defects, consumer contract breaks, governing-rule defects, and
+unreported failures.
 During planning, the orchestrator writes a risk record with one line for each
 focus area and a proof for each engaged area. A focus area with a proof that
 holds is a proved area. The user approves the risk record. Reviewer I is the
