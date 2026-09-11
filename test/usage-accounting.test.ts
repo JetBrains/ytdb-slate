@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { register } from "node:module";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ModelProfile } from "../extension/model-profiles.ts";
+import type { RouterProfileSource } from "../extension/model-router.ts";
 
 register("../verification/test-resolve-hooks.mjs", import.meta.url);
 
@@ -705,32 +707,74 @@ test("snapshot sanitizer loads old records without accounting fields", () => {
   assert.equal(current?.requestedEffort, "high");
 });
 
-test("worker failover refuses an off-list provider-rejected effort before retry", { timeout: 1000 }, async (t) => {
+test("worker failover refuses a provider-unsupported requested control before retry", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const primary = model("test", "primary");
-  const fallback = model("anthropic", "claude-sonnet-5");
+  const fallback = model("fixture", "rejected-fallback");
+  const fallbackProfile: ModelProfile = {
+    id: "fixture/rejected-fallback",
+    aliases: [],
+    cacheRetention: null,
+    contextWindow: 200_000,
+    maxOutput: 8192,
+    tier: 1,
+    routeFor: "failover guard fixture",
+    avoidFor: "all production use",
+    hazards: [],
+    capabilityMeasuredAt: [],
+    evidenceGapAt: ["off"],
+    apiRejectedLevels: ["off"],
+    unknownRoutingCriticalFields: [],
+    evidence: "Test-only profile for a provider-unsupported requested control.",
+    asOf: "2026-09-11",
+  };
+  const profileLookups: string[] = [];
+  let fallbackLadderReads = 0;
+  const profiles: RouterProfileSource = {
+    findProfile: (spec) => {
+      profileLookups.push(spec);
+      return spec === fallbackProfile.id ? fallbackProfile : undefined;
+    },
+    ladderFor: (profile) => {
+      if (profile === fallbackProfile) fallbackLadderReads++;
+      return profile === fallbackProfile ? ["off"] : [];
+    },
+  };
   let prompts = 0;
   let switches = 0;
   const session = fakeSession((current) => {
     prompts++;
-    const message = { role: "assistant", stopReason: "error", errorMessage: "model unavailable", content: [], usage: {} };
+    const message = {
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "model unavailable",
+      content: [],
+      usage: { input: 3, output: 1, cost: { total: 0.02 } },
+    };
     current.messages.push(message);
     current.emit({ type: "message_end", message });
   }, primary);
   session.setModel = async (next) => { switches++; session.model = next; };
-  const manager = managerWithSessions([session], { modelFailover: { "test/primary": "anthropic/claude-sonnet-5" } });
+  const manager = managerWithSessions([session], { modelFailover: { "test/primary": fallbackProfile.id } });
+  const internals = manager as unknown as { routerOffProfiles(ctx: ExtensionContext): RouterProfileSource };
+  internals.routerOffProfiles = () => profiles;
   const result = await manager.dispatch(
     { model: "test/primary", effort: "off", reason: "rejected failover canary", task: "do not retry", type: "general" },
     context(cwd, [primary, fallback]),
     undefined,
   );
-  assert.equal(prompts, 1);
-  assert.equal(switches, 0);
+  assert.equal(prompts, 1, "the failed primary attempt must not be retried");
+  assert.equal(switches, 0, "the provider-unsupported fallback must not be opened");
+  assert.equal(profileLookups.includes(fallbackProfile.id), true, "the failover guard must inspect the fabricated fallback profile");
+  assert.equal(fallbackLadderReads, 1, "the failover guard must judge the requested control against the fabricated ladder");
   assert.equal(result.episode.status, "failed");
   assert.equal(result.episode.requestedModel, "test/primary");
   assert.equal(result.episode.requestedEffort, "off");
   assert.equal(result.episode.reason, "rejected failover canary");
   assert.equal(result.episode.model, "test/primary");
+  assert.equal(result.episode.input, 3);
+  assert.equal(result.episode.output, 1);
+  assert.equal(result.episode.workerCostUsd, 0.02);
 });
 
 test("worker failover preserves requested metadata when the fallback succeeds or fails", { timeout: 1000 }, async (t) => {

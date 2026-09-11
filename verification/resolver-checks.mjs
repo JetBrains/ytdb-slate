@@ -363,7 +363,7 @@ const ROUTER_IDS = [
 	"router-config-invalid",
 	"router-shipped-default",
 ];
-const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-tier", "profiles-meta"];
+const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-refresh", "profiles-tier", "profiles-meta"];
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
@@ -2220,6 +2220,8 @@ try {
 			const DOCS_DIR = dirname(paths.TRACK_WORKFLOW_DOC);
 			const portableFrom = (text, docsDir) => text.split(docsDir).join("");
 			const portable = (text) => portableFrom(text, DOCS_DIR);
+			const configuredRule = ruleOf(configuredOffDraft);
+			const configuredRulePortable = portable(configuredRule);
 			const spacedDocsDir = "/tmp/package path/with spaces/docs";
 			const spacedPortable = portableFrom(`read ${spacedDocsDir}/track-workflow.md`, spacedDocsDir);
 			const rule = ruleOf(on);
@@ -2258,7 +2260,7 @@ try {
 			// the identity and the bounds go back to being install-dependent.
 			const pathOccurrences = (text) => DOCS_DIR === "" ? 0 : text.split(DOCS_DIR).length - 1;
 			const docPaths = pathOccurrences(on);
-			const WRITING_ROUTER_BOUND = DOCTRINE_LIMITS.trustedRouterOnChars;
+	const WRITING_ROUTER_BOUND = DOCTRINE_LIMITS.trustedRouterOnChars;
 			const ALL_TAILS_BOUND = DOCTRINE_LIMITS.allTailsChars;
 			const MAXIMAL_BOUND = DOCTRINE_LIMITS.maximalChars;
 			const contextBudgetDoc = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
@@ -2362,8 +2364,8 @@ try {
 				`The ${comma(DOCTRINE_LIMITS.allTailsChars)} bound\nis larger.`,
 				`Ceiling gives ${comma(Math.ceil(maximalFollowUpPortable * 1.05))}. The ${comma(DOCTRINE_LIMITS.maximalChars)} bound is larger.`,
 			];
-			const occursOnce = (document, fragment) => document.split(fragment).length - 1 === 1;			checkAll(
-				"doctrine-budget",
+			const occursOnce = (document, fragment) => document.split(fragment).length - 1 === 1;
+			checkAll(				"doctrine-budget",
 				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and six copies of the largest model row, so budget growth cannot pass vacuously",
 				[
 					["the normalisation bites: the doctrine really does embed the authoritative docs directory", docPaths === 6 && DOCS_DIR === dirname(paths.WRITING_GUIDANCE_DOC), { docPaths, DOCS_DIR }],
@@ -2383,32 +2385,33 @@ try {
 					[`no single model row exceeds ${DOCTRINE_LIMITS.largestModelRowChars} chars or consumes its five percent reserve`, longest <= DOCTRINE_LIMITS.largestModelRowChars && hasDoctrineReserve(longest, DOCTRINE_LIMITS.largestModelRowChars), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the configured-model fixture is the exact fixed six-model list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
+					["the production-rendered fixed six-model routing rule is exactly 1990 portable characters and 20 split lines", configuredRulePortable.length === 1990 && configuredRule.split("\n").length === 20, { portable: configuredRulePortable.length, lines: configuredRule.split("\n").length }],
 					["the fabricated dogfood fixture resolves its exact five-model list through the real router and uses pi registry context windows", dogfoodCandidates.length === dogfoodSpecs.length && dogfoodCandidates.every((candidate) => dogfoodSpecs.includes(candidate.spec)) && dogfoodCandidates.every((candidate) => candidate.contextWindow === (candidate.provider === "anthropic" ? 1_000_000 : 272_000)), { configured: dogfoodSpecs, candidates: dogfoodCandidates.map((candidate) => [candidate.spec, candidate.contextWindow]) }],
-					["the dogfood fixture is the measured 7298 portable chars and 100 lines", dogfoodPortable === 7298 && dogfood.split("\n").length === 100, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
+					["the dogfood fixture is the measured 7328 portable chars and 100 lines", dogfoodPortable === 7328 && dogfood.split("\n").length === 100, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length - 145, { on: on.length, off: off.length, rule: rule.length }],
 					["the untrusted doctrine is the measured 2708 portable chars, 43 lines, and three embedded paths", portable(untrusted).length === 2708 && untrusted.split("\n").length === 43 && pathOccurrences(untrusted) === 3, { portable: portable(untrusted).length, lines: untrusted.split("\n").length, paths: pathOccurrences(untrusted) }],
 					["the router-off trusted doctrine is the measured 4762 portable chars and 73 lines", portable(off).length === 4762 && off.split("\n").length === 73, { portable: portable(off).length, lines: off.split("\n").length }],
-					[`...and the whole router-on doctrine is the measured 7121 portable chars and 95 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(on).length === 7121 && on.split("\n").length === 95 && portable(on).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(on).length, WRITING_ROUTER_BOUND), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
+					[`...and the whole router-on doctrine is the measured 7084 portable chars and 95 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(on).length === 7084 && on.split("\n").length === 95 && portable(on).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(on).length, WRITING_ROUTER_BOUND), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
 					["writing and design doctrine is the measured 4762 portable chars and 73 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 4762 && writingOn.split("\n").length === 73 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
 					["draft-enabled router-off doctrine is 4781 portable chars and 73 lines", portable(offDraft).length === 4781 && offDraft.split("\n").length === 73, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
 					["draft-enabled router-off writing doctrine is 4781 portable chars and 73 lines", portable(offDraftWriting).length === 4781 && offDraftWriting.split("\n").length === 73, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
-					["the six-model fixture is 6528 portable chars and 91 lines without draft publishing", portable(configuredOffDraft).length === 6528 && configuredOffDraft.split("\n").length === 91, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
-					["the six-model fixture is 6528 portable chars and 91 lines with writing", portable(configuredOffDraftWriting).length === 6528 && configuredOffDraftWriting.split("\n").length === 91, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
-					["the six-model draft fixture is 6547 portable chars and 91 lines", portable(configuredDraft).length === 6547 && configuredDraft.split("\n").length === 91, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
-					["the six-model draft and writing fixture is 6547 portable chars and 91 lines", portable(configuredDraftWriting).length === 6547 && configuredDraftWriting.split("\n").length === 91, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
-					[`writing plus router is the measured 7121 portable chars and 95 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 7121 && writingRouterOn.split("\n").length === 95 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
+					["the six-model fixture is 6607 portable chars and 91 lines without draft publishing", portable(configuredOffDraft).length === 6607 && configuredOffDraft.split("\n").length === 91, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
+					["the six-model fixture is 6607 portable chars and 91 lines with writing", portable(configuredOffDraftWriting).length === 6607 && configuredOffDraftWriting.split("\n").length === 91, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
+					["the six-model draft fixture is 6626 portable chars and 91 lines", portable(configuredDraft).length === 6626 && configuredDraft.split("\n").length === 91, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
+					["the six-model draft and writing fixture is 6626 portable chars and 91 lines", portable(configuredDraftWriting).length === 6626 && configuredDraftWriting.split("\n").length === 91, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
+					[`writing plus router is the measured 7084 portable chars and 95 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 7084 && writingRouterOn.split("\n").length === 95 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
 					["writing plus extensions is the measured 5017 portable chars and 79 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 5017 && writingExtensionsOn.split("\n").length === 79 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
-					[`all three tail features are the measured 7376 portable chars and 101 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 7376 && writingAllOn.split("\n").length === 101 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
-					["the all-nine draft fixture is 7140 portable chars and 95 lines", portable(allDraft).length === 7140 && allDraft.split("\n").length === 95, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
-					["the all-nine draft and writing fixture is 7140 portable chars and 95 lines", portable(allDraftWriting).length === 7140 && allDraftWriting.split("\n").length === 95, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
+					[`all three tail features are the measured 7339 portable chars and 101 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 7339 && writingAllOn.split("\n").length === 101 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
+					["the all-nine draft fixture is 7103 portable chars and 95 lines", portable(allDraft).length === 7103 && allDraft.split("\n").length === 95, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
+					["the all-nine draft and writing fixture is 7103 portable chars and 95 lines", portable(allDraftWriting).length === 7103 && allDraftWriting.split("\n").length === 95, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
 					// Update exact measurements with production wording in the same commit.
-					[`the maximum all-feature fixture is the measured 8487 portable chars and 105 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 8487 && maximal.split("\n").length === 105 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					[`the draft-PR-disabled maximum fixture is pinned independently at 8468 portable chars and 105 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 8468 && maximalNoDraft.split("\n").length === 105 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the maximum all-feature fixture is the measured 8450 portable chars and 105 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 8450 && maximal.split("\n").length === 105 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the draft-PR-disabled maximum fixture is pinned independently at 8431 portable chars and 105 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 8431 && maximalNoDraft.split("\n").length === 105 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and 11 split lines, and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
-					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 194 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					[`the positive control is the measured 9863 portable chars and 112 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9863 && overBudget.split("\n").length === 112 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
-					// Exact measurements are maintenance tripwires, not timeless facts. Update them					// with the wording change in the same commit. Remeasure through this doctrine-budget
-					// check, which renders the production before_agent_start hook and normalizes paths.
+					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 210 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
+					[`the positive control is the measured 9922 portable chars and 112 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9922 && overBudget.split("\n").length === 112 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
+					// Exact measurements are maintenance tripwires, not timeless facts. Update them
+					// with the wording change in the same commit. Remeasure through this doctrine-budget					// check, which renders the production before_agent_start hook and normalizes paths.
 					// The writing rule has its own bound because its absolute citation changes raw size.
 					[`the writing rule is the measured 1338 portable chars and stays under ${DOCTRINE_LIMITS.writingRuleChars} with five percent reserve`, writingPortable === 1338 && writingPortable <= DOCTRINE_LIMITS.writingRuleChars && hasDoctrineReserve(writingPortable, DOCTRINE_LIMITS.writingRuleChars), { portableChars: writingPortable, rawChars: ruleOfWriting(writingOn).length }],
 					[`...and is 22 split lines while ignored writing keys add no lines, under the ${DOCTRINE_LIMITS.writingRuleLines}-line bound with five percent reserve`, ruleOfWriting(writingOn).split("\n").length === 22 && writingOn.split("\n").length - off.split("\n").length === 0 && hasDoctrineReserve(ruleOfWriting(writingOn).split("\n").length, DOCTRINE_LIMITS.writingRuleLines), ruleOfWriting(writingOn).split("\n").length],
@@ -2421,9 +2424,9 @@ try {
 				"doctrine-budget-deferred",
 				"the trusted deferred-issue configuration has its own pinned maximum fixture and preserves the existing maximum bound",
 				[
-					[`the maximal deferred-issue fixture is the measured 8561 portable chars and 106 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8561 && maximalFollowUp.split("\n").length === 106 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
-				],			);
-		});
+					[`the maximal deferred-issue fixture is the measured 8524 portable chars and 106 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8524 && maximalFollowUp.split("\n").length === 106 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
+				],
+			);		});
 	}
 
 	// =========================================================================
@@ -4811,7 +4814,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				["...with no unmeasured marker and no warning", inert.effortUnmeasured === false && inert.warnings.length === 0, [inert.effortUnmeasured, inert.warnings]],
 				["...for a measured level too", verdict(inertMeasured) === "proceed:p/nol@medium" && inertMeasured.warnings.length === 0, [verdict(inertMeasured), inertMeasured.warnings]],
 				["a malformed candidate is inert as well, and never throws", verdict(malformed) === "proceed:p/x@max" && malformed.warnings.length === 0, [verdict(malformed), malformed.warnings]],
-				["an API-rejected level STILL refuses with an unreadable ladder", stillRefused.kind === "reject" && /rejected outright by the provider/.test(why(stillRefused)), verdict(stillRefused)],
+				["a provider-unsupported requested control STILL refuses with an unreadable ladder", stillRefused.kind === "reject" && /provider-unsupported requested control/.test(why(stillRefused)), verdict(stillRefused)],
 				["...saying the ladder was not recorded, rather than inventing one", /ladder: \(none recorded\)/.test(why(stillRefused)), why(stillRefused)],
 				["...while another level on that same model stays inert", verdict(otherLevel) === "proceed:p/hard@high", verdict(otherLevel)],
 				["a KNOWN ladder still refuses an off-ladder level (negative control)", stillGuards.kind === "reject" && /effort ladder \(low, medium\)/.test(why(stillGuards)), verdict(stillGuards)],
@@ -4901,8 +4904,8 @@ The ordinary budget permits one consultation. A second requires an explicit user
 		});
 
 		await section("route-api-rejected", async () => {
-			// GUARD 4: a level the provider refuses outright is a guaranteed API failure,
-			// NOT an evidence gap — so it is refused whatever allowUnmeasuredEffort says,
+			// GUARD 4: a provider-unsupported requested control must be rejected before pi
+			// can omit or substitute it. It is NOT an evidence gap, so it is refused whatever allowUnmeasuredEffort says,
 			// and it must not be reported as a mere gap. It is checked BEFORE the ladder
 			// guard because such a level IS on the model's pi ladder.
 			const res = routeResolution([
@@ -4911,13 +4914,13 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const refused = plan({ resolution: res, requestedModel: "p/hard", requestedEffort: "off" });
 			const stillRefused = plan({ resolution: res, requestedModel: "p/hard", requestedEffort: "off", allowUnmeasuredEffort: true });
 			const normal = plan({ resolution: res, requestedModel: "p/hard", requestedEffort: "medium" });
-			checkAll("route-api-rejected", "a level in the profile's apiRejectedLevels is refused OUTRIGHT — named as a guaranteed provider failure rather than an evidence gap, not rescued by allowUnmeasuredEffort, and never dispatched with the unmeasured marker — while a normal level on the same model still proceeds", [
+			checkAll("route-api-rejected", "a level in the profile's apiRejectedLevels is refused as a provider-unsupported requested control before pi can transform it, rather than treated as an evidence gap, rescued by allowUnmeasuredEffort, or dispatched with the unmeasured marker — while a normal level on the same model still proceeds", [
 				["refused", refused.kind === "reject", verdict(refused)],
-				["named as a provider rejection", /rejected outright by the provider/.test(why(refused)), why(refused)],
+				["named as a provider-unsupported requested control", /provider-unsupported requested control/.test(why(refused)) && /before pi can omit or silently substitute/.test(why(refused)), why(refused)],
 				["explicitly NOT an evidence gap", /not an evidence gap/.test(why(refused)) && !/allowUnmeasuredEffort/.test(why(refused)), why(refused)],
 				["names the model and its ladder", /p\/hard/.test(why(refused)) && /ladder: off, low, medium/.test(why(refused)), why(refused)],
 				["no gap warning was emitted", refused.warnings.length === 0, refused.warnings],
-				["allowUnmeasuredEffort:true does not rescue it", stillRefused.kind === "reject" && /rejected outright/.test(why(stillRefused)), verdict(stillRefused)],
+				["allowUnmeasuredEffort:true does not rescue it", stillRefused.kind === "reject" && /provider-unsupported requested control/.test(why(stillRefused)), verdict(stillRefused)],
 				["a normal level on the same model proceeds", verdict(normal) === "proceed:p/hard@medium", verdict(normal)],
 			]);
 		});
@@ -6991,6 +6994,29 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			]);
 		});
 
+		await section("profiles-refresh", async () => {
+			const actual = Object.fromEntries(all.map((p) => [p.id, {
+				ladder: table.ladderFor(p),
+				measured: p.capabilityMeasuredAt,
+				gaps: p.evidenceGapAt,
+				context: p.contextWindow,
+				output: p.maxOutput,
+				rejected: p.apiRejectedLevels ?? [],
+			}]));
+			const expected = {
+				"openai/gpt-5.6-luna": { ladder: ["off", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["off"], context: 1050000, output: 128000, rejected: [] },
+				"anthropic/claude-sonnet-5": { ladder: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["off", "minimal"], context: 1000000, output: 128000, rejected: [] },
+				"openai/gpt-5.6-terra": { ladder: ["off", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["off"], context: 1050000, output: 128000, rejected: [] },
+				"openai/gpt-5.6-sol": { ladder: ["off", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["off"], context: 1050000, output: 128000, rejected: [] },
+				"anthropic/claude-opus-5": { ladder: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["off", "minimal"], context: 1000000, output: 128000, rejected: [] },
+				"anthropic/claude-fable-5": { ladder: ["minimal", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["minimal"], context: 1000000, output: 128000, rejected: [] },
+				"openai/gpt-5.4-nano": { ladder: ["off", "low", "medium", "high", "xhigh"], measured: ["xhigh"], gaps: ["off", "low", "medium", "high"], context: 400000, output: 128000, rejected: [] },
+				"openai/gpt-5.4-mini": { ladder: ["off", "low", "medium", "high", "xhigh"], measured: ["xhigh"], gaps: ["off", "low", "medium", "high"], context: 400000, output: 128000, rejected: [] },
+				"anthropic/claude-haiku-4-5": { ladder: ["off", "minimal", "low", "medium", "high"], measured: [], gaps: ["off", "minimal", "low", "medium", "high"], context: 200000, output: 64000, rejected: [] },
+			};
+			check("profiles-refresh", JSON.stringify(actual) === JSON.stringify(expected), "the refreshed nine-profile ladder, evidence, limit, and requested-control fields match the independently transcribed generation", actual);
+		});
+
 		await section("profiles-tier", async () => {
 			checkAll("profiles-tier", "every retained tier is an integer from 1 through 4 and the unsourced marker is boolean when present", [
 				["tier range", all.every((p) => Number.isInteger(p.tier) && p.tier >= 1 && p.tier <= 4), all.map((p) => [p.id, p.tier])],
@@ -7057,7 +7083,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
 		"episode-load", "episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header",
-		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-tier", "profiles-meta",
+		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-refresh", "profiles-tier", "profiles-meta",
 	];
 	const seen = new Set(reported);
 	const missing = EXPECTED.filter((id) => !seen.has(id));

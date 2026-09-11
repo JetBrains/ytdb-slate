@@ -233,7 +233,7 @@ export interface EffortCheck {
 	ladder: readonly ThinkingLevel[]; // [] when not-listed
 	measured: boolean; // the level appears in the profile's capabilityMeasuredAt
 	listedGap: boolean; // the level appears in the profile's evidenceGapAt (false = an UNLISTED gap, i.e. a table hole)
-	apiRejected: boolean; // the PROVIDER rejects this level outright (a hard 400, not an evidence gap)
+	apiRejected: boolean; // the requested control is provider-unsupported and must be rejected before pi transforms it
 }
 
 /**
@@ -790,10 +790,10 @@ export function checkEffort(resolution: ModelRouterResolution, spec: string, eff
 	const profile = (candidate.profile ?? {}) as ModelProfile;
 	const measured = listHas(profile.capabilityMeasuredAt, effort);
 	const listedGap = listHas(profile.evidenceGapAt, effort);
-	// A level the PROVIDER rejects outright is unusable, whatever the ladder says
-	// (the table keeps such a level ON the ladder — pi's vocabulary is fixed — and
-	// records the hard rejection separately). Reporting it as off-ladder is the
-	// only answer that does not send the dispatch into a guaranteed HTTP 400.
+	// A provider-unsupported requested control is unusable, whatever the ladder says.
+	// The table keeps the control on the ladder because pi's vocabulary is fixed,
+	// then records the unsupported request separately. Slate rejects it before pi
+	// can omit the control or silently substitute another value.
 	const apiRejected = listHas(optional(profile).apiRejectedLevels, effort);
 	if (apiRejected || !listHas(ladder, effort)) {
 		return { verdict: "off-ladder", spec, effort, ladder, measured, listedGap, apiRejected };
