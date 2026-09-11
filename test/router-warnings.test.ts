@@ -188,7 +188,7 @@ test("router notes stay hidden and produce one plural discoverability notice acr
     await harness.consult();
 
     assert.deepEqual(discoverability(harness.notifications), [
-      'slate: there are 2 hidden warnings in the model router. Set "router.showWarnings" to true in .pi/slate.json to read them. A hidden warning can affect which model runs an action.',
+      'slate: there are 2 hidden warnings in the model router. Set "router.showWarnings" to true in .pi/slate.json to read them. The notes may inform your explicit model and effort choice.',
     ]);
     assert.equal(harness.notifications.some((message) => message.includes("research table shipped inside slate")), false);
     assert.equal(harness.notifications.some((message) => message.includes("model facts that slate could not trace")), false);
@@ -255,13 +255,9 @@ test("a throwing discoverability notifier does not abort the session", { timeout
 const BASE_PROFILE: ModelProfile = {
   id: "fixture/model",
   aliases: [],
-  price: [{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
   contextWindow: 100_000,
   maxOutput: 10_000,
-  longContextThreshold: null,
-  longContextMultipliers: null,
   tier: 1,
-  nonPreferred: null,
   routeFor: "fixture work",
   avoidFor: "nothing",
   hazards: [],
@@ -290,7 +286,6 @@ function resolveFixture(profile: ModelProfile): Array<{ message: string; warning
     models: [profile.id],
     profiles,
     failover: { [profile.id]: profile.id },
-    today: "2026-08-06",
   }, (message, warningClass) => warnings.push({ message, warningClass }));
   return warnings;
 }
@@ -322,16 +317,6 @@ test("whole router warnings are capped after several individually capped fields"
   assert.equal(detail.message.includes("field-6"), false);
 });
 
-test("an omitted warning class defaults to configuration fault", () => {
-  const warnings = resolveFixture(profileFixture({
-    nonPreferred: "NEVER AUTO-SELECT [arb] fixture reason",
-  }));
-  const fallback = warnings.find(({ message }) => message.includes("default base model"));
-
-  assert.ok(fallback);
-  assert.equal(fallback.warningClass, "configuration-fault");
-  assert.doesNotMatch(fallback.message, /\[arb\]/);
-});
 
 test("router entry faults explain malformed, unprofiled, unknown, and unauthenticated models", () => {
   const profile = profileFixture({ unknownRoutingCriticalFields: [] });
@@ -412,7 +397,6 @@ test("failover keeps list carve-out but rejects a provider-blocked requested eff
   const resolution = {
     on: true,
     candidates: [{ spec: listed.id, profile: listed, ladder: ["low"] }],
-    cheapest: listed.id,
     warnings: [],
   } as any;
   const rejected = planRoute({
@@ -496,25 +480,15 @@ test("resolver catch-all renders non-Error throws and survives a second throwing
   assert.equal(delivered.length, 1);
 });
 
-test("router data notes explain missing prices and a billing-threshold window mismatch", () => {
-  const profile = profileFixture({
-    contextWindow: 100_000,
-    longContextThreshold: 200_000,
-    price: [],
-    unknownRoutingCriticalFields: [],
-  });
+test("context-window divergence remains a model data note", () => {
+  const profile = profileFixture({ contextWindow: 100_000, unknownRoutingCriticalFields: [] });
   const profiles: RouterProfileSource = { findProfile: () => profile, ladderFor: () => ["low"] };
   const warnings: Array<{ message: string; warningClass: RouterWarningClass }> = [];
   resolveModelRouter({
     registry: { find: () => ({ contextWindow: 200_000 }), hasConfiguredAuth: () => true },
-    models: [profile.id],
-    profiles,
-    failover: { [profile.id]: profile.id },
+    models: [profile.id], profiles, failover: { [profile.id]: profile.id },
   }, (message, warningClass) => warnings.push({ message, warningClass }));
-
-  assert.equal(warnings.some(({ message }) => message.includes("has no usable input price")), true);
   assert.equal(warnings.some(({ message }) => message.includes("differs between two sources")), true);
-  assert.equal(warnings.some(({ message }) => message.includes("separate note below names that pattern")), true);
   assert.equal(warnings.every(({ warningClass }) => warningClass === "model-data-note"), true);
 });
 

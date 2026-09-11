@@ -1,115 +1,17 @@
 /**
- * Model router: resolving WHICH models an action may be dispatched to, and at
- * which effort levels.
+ * Resolve the configured closed model list and the effort evidence for each
+ * surviving candidate.
  *
- * The router is OFF by default: with no `router.models` configured this resolver
- * returns no candidates and emits no router warning. When a project DOES list
- * models, this module maps that list plus pi's model registry
- * plus the benchmark profiles in model-profiles.ts onto a small, ordered set of
- * routable candidates — and the warnings that make the gaps in that data
- * visible instead of silent.
+ * Resolution validates model specifications, profile presence, exact pi registry
+ * entries, configured authentication, aliases, effort ladders, context-window
+ * cross-checks, and failover coverage. Survivors keep configured order. Tier and
+ * registry rates never rank, filter, or select a candidate. Registry input and
+ * output base rates are captured independently. Invalid or absent components stay
+ * undefined so doctrine renders `unknown`, while a valid zero remains zero.
  *
- * The mechanism, and the decisions it implements:
- *
- *  - PURE, INJECTED (mirrors worker-extensions.ts): every dependency arrives as
- *    a parameter — the registry slice (`find` + `hasConfiguredAuth`), the
- *    profile table (`findProfile` + `ladderFor`), the failover map, today's
- *    date, and the `warn` sink. Nothing is read from a live pi session here, so
- *    the whole pipeline is exercisable against fabricated in-memory inputs
- *    (verification/resolver-checks.mjs). The shipped profile table is only the
- *    DEFAULT of the injected `profiles` parameter.
- *
- *  - EXCLUSION IS THE POINT (D53). A configured model is dropped, with a
- *    warning naming it, when it has no profile (no benchmark data ⇒ no basis for
- *    a routing decision), when its spec is not canonical "provider/id", when
- *    pi's registry does not know it, or when pi has no credentials configured
- *    for it — routing to an unauthenticated or unknown model would produce
- *    billed failures, not work. If EVERY entry is dropped the router turns OFF
- *    with one summary warning. A malformed spec, missing profile, or profile-alias
- *    duplicate also leaves a dispatch-blocking fault on that off resolution.
- *
- *  - ORDER is tier ascending, then current effective input price ascending
- *    (then spec, for determinism). The CHEAPEST candidate is exposed separately
- *    because it is the default base model of a new thread (D48): a thread's base
- *    model must itself be a listed model, so a dispatch that omits a model can
- *    never be rejected by the list guard. That pick SKIPS profiles carrying a
- *    `nonPreferred` reason — the table states that marker as absolute ("never a
- *    default pick, whatever the tier says"), and the base model is the most
- *    default pick there is (BG1). If every candidate is non-preferred the
- *    cheapest one is still chosen — D48 needs *a* base model — and that fallback
- *    is warned about and flagged on the result. The ORDERED LIST honours the same
- *    markers (DF4), and does so ABSOLUTELY rather than within a tier: EVERY
- *    preferred candidate precedes every non-preferred one whatever their tiers or
- *    prices, and within one preference class every sourced-tier candidate precedes
- *    every unsourced-tier one — so a consumer that walks the list rather than
- *    reading `cheapest` cannot meet an evidentially-thin model first just because
- *    it is cheap. Tier and price only order candidates that are equal on both
- *    markers.
- *
- *  - THE REGISTRY IS THE AUTHORITY for what routing USES. A profile's
- *    `contextWindow` is documentation-only; W1 (D55) cross-checks it against the
- *    registry and warns on divergence, naming both numbers and the profile's asOf
- *    date, and the candidate always carries the REGISTRY value. The warning
- *    REPORTS the divergence and does not diagnose it: authority over the value
- *    routing uses is not evidence about which figure is factually right, and a
- *    stock pi install has a registry entry that looks like a billing row restated
- *    as a capacity — so when the registry's window equals that model's own
- *    long-context threshold, the per-model line says so and points at ONE further
- *    warning that names the pattern (RI32) and every model it applies to, instead
- *    of blaming either side or repeating the explanation per model (BG27).
- *    `longContextThreshold` / `longContextMultipliers` are BILLING facts and are
- *    deliberately NOT applied to the ordering price — they describe what happens
- *    above a token threshold, not the base rate a router compares models on.
- *
- *  - W3 (D57): a candidate with `unknownRoutingCriticalFields` is routable but
- *    warned about once, naming the fields — the routing decision for it is
- *    provisional.
- *
- *  - THE PROFILE TABLE GROWS. Only the fields this module actually needs are
- *    read, so a research refresh that adds columns cannot break resolution, and
- *    the OPTIONAL ones are read through the `optional()` view rather than the
- *    declared type. Three of them carry obligations the router honours:
- *    `contextWindowKnownDivergence` (a registry reporting that second published
- *    figure is NOT a stale profile, so W1 stays quiet), `apiRejectedLevels` (a
- *    level the provider rejects outright reports as off-ladder, since dispatching
- *    it would be a guaranteed HTTP 400), and `tierUnsourced`/`ladderAssumed`,
- *    which ride onto the candidate so a consumer never presents an unsourced
- *    tier position or an assumed ladder as a traced fact.
- *
- *  - EVIDENCE GAPS ARE ADVISORY. `checkEffort` reports a level with no traced
- *    capability measurement as `evidence-gap`; it is the caller (the dispatch
- *    path, Track 02, gated by `router.allowUnmeasuredEffort`, default true) that
- *    decides what to do with that. This module never refuses anything.
- *
- *  - EVERY WARNING CARRIES A CLASS (see RouterWarningClass): a CONFIGURATION
- *    FAULT the user can act on, or a MODEL DATA NOTE about shipped research the
- *    user cannot change. This module never hides anything: it tags each warning
- *    and sends every one of them to the sink it was handed. The extension entry
- *    point (index.ts) is what filters notes when `router.showWarnings` is off,
- *    and what reports how many it hid.
- *
- *  - EVERY RESOLUTION WARNING AT MOST ONCE PER SESSION (D58), sanitized through
- *    the shared sanitizeForNotify before display, exactly like the other
- *    sanitizers: config values and profile fields are user-editable text that
- *    reaches ctx.ui.notify. A dispatch-time divergence stays fresh per action.
- *    Its exact-rate companion deduplicates identical live evidence through the
- *    same condition-key set, while a changed registry rate forms a new condition.
- *    Each assembled message is capped as a WHOLE (ROUTER_MESSAGE_MAX), so the
- *    control-byte guard covers the finished string and not only its parts.
- *    Warnings are BOTH pushed to the sink and collected on the result, and the
- *    sink is called defensively — a throwing UI must not cost a resolution
- *    (BG3). Per-candidate notices that would otherwise scale with the list
- *    length (failover coverage) are AGGREGATED into one line (CQ3).
- *
- *  - FROZEN AT FIRST USE: createModelRouterResolver memoizes the first
- *    resolution for the session, the way createWorkerExtensionResolver does — a
- *    dispatch guard and a doctrine section built from two different resolutions
- *    of the same session would be a bug, and repeated consultation must not
- *    re-emit warnings. Candidate and auth reads are therefore a SNAPSHOT:
- *    credentials or providers added later in the session are not picked up until
- *    the next session_start (CQ7), which is the same freeze the worker-extension
- *    resolver deliberately takes. Registry prices are the exception. The frozen
- *    resolution carries a callback that performs a fresh lookup for each dispatch.
+ * Resolution is pure and injected for checks. The session wrapper memoizes its
+ * first result. Configuration faults stay visible. Model-data notes follow the
+ * existing display option. The dispatch planner owns membership and effort guards.
  */
 
 import {
@@ -117,7 +19,6 @@ import {
 	ladderFor as shippedLadderFor,
 	type ModelProfile,
 	type ModelTier,
-	type PriceRow,
 	type ThinkingLevel,
 } from "./model-profiles.ts";
 import { sanitizeForNotify } from "./notify.ts";
@@ -176,9 +77,8 @@ export const SHIPPED_PROFILE_SOURCE: RouterProfileSource = {
  * silence its warning, but removal is not the ADD remedy in part (b). Part (a)
  * catches every silently ignored or dropped config value first.
  *
- * A `model-data-note` reports the shipped research table itself: a figure that
- * has no traced source, two sources that disagree, a price row that does not
- * cover today. No project config and no credential closes that gap, so these are
+ * A `model-data-note` reports the shipped research table itself, such as a figure
+ * that has no traced source or two context-window sources that disagree. No project config and no credential closes that gap, so these are
  * hidden unless `router.showWarnings` is true.
  */
 export type RouterWarningClass = "configuration-fault" | "model-data-note";
@@ -193,8 +93,7 @@ export type RouterWarningClass = "configuration-fault" | "model-data-note";
 export type RouterWarnSink = (message: string, warningClass: RouterWarningClass) => void;
 
 /**
- * Per-field cap for PROFILE-SOURCED text (the unknown-field entries and the
- * non-preferred reason). BOTH bounds matter:
+ * Per-field cap for profile-sourced warning text. BOTH bounds matter:
  *  - the longest entry in the shipped table measures 177 characters today (the
  *    design text quoted 167, measured before the last profile refresh), so 180
  *    keeps every real entry whole instead of cutting it mid-word;
@@ -275,13 +174,10 @@ export interface RouterCandidate {
 	id: string;
 	profile: ModelProfile;
 	tier: ModelTier; // the profile's declared tier, verbatim (see tierOf for the sort key)
-	inUsdPerMTok: number | undefined; // current effective input price (undefined = no covering price row)
-	outUsdPerMTok: number | undefined; // current effective output price
 	registryCost: Readonly<RouterRegistryCost>;
 	contextWindow: number | undefined; // REGISTRY value — never the profile's (D55)
 	ladder: readonly ThinkingLevel[]; // ladderFor(profile), validated, captured so checkEffort needs no injection
 	hasFailover: boolean; // present as a key in the configured modelFailover map
-	nonPreferred: string | null; // the profile's absolute "never a default pick" reason, or null
 	tierUnsourced: boolean; // the profile's tier is NOT a sourced ordinal (cost class only) — do not render it as a ranking
 	ladderAssumed: boolean; // the ladder is an assumed provider-family shape, not a traced fact
 }
@@ -289,26 +185,16 @@ export interface RouterCandidate {
 /** The resolution: the router's whole answer for a session. */
 export interface ModelRouterResolution {
 	on: boolean; // false = router off; candidates is empty, but `fault` may still block dispatch
-	candidates: readonly RouterCandidate[]; // tier asc, then effective input price asc, then spec
-	cheapest: string | undefined; // default base model (D48): cheapest PREFERRED candidate
-	cheapestNonPreferred: boolean; // true = every candidate is non-preferred, so `cheapest` had to break that rule
+	candidates: readonly RouterCandidate[]; // surviving configured order
 	warnings: readonly string[]; // every warning emitted for this resolution, in order
 	/** Dispatch-blocking all-dropped configuration fault. Kept on the off resolution. */
 	fault?: string;
-	/** Fresh registry lookup for dispatch-time checks. This callback is never a captured price snapshot. */
-	registryCostFor?: (spec: string) => Readonly<RouterRegistryCost> | undefined;
-	/** Live UTC date source invoked by each dispatch-time price check. */
-	currentDate?: () => string;
-	/** Main router warning path for exact dispatch-time data. Its output never enters a dispatch result or prompt. */
-	warnOnce?: (condition: string, value: unknown, message: string, warningClass: RouterWarningClass) => void;
 }
 
 /** The off state with no warnings — the default, shared and deep-frozen (CQ22). */
 export const ROUTER_OFF: ModelRouterResolution = Object.freeze({
 	on: false,
 	candidates: Object.freeze([]),
-	cheapest: undefined,
-	cheapestNonPreferred: false,
 	warnings: Object.freeze([]),
 }) as unknown as ModelRouterResolution;
 
@@ -318,7 +204,6 @@ export interface ModelRouterInput {
 	models: readonly unknown[]; // raw router.models entries (empty = router off)
 	failover?: Record<string, string>; // sanitized modelFailover map, for the coverage warning
 	profiles?: RouterProfileSource; // default: the shipped table
-	today?: string; // "YYYY-MM-DD" used for price-row selection (default: today, UTC)
 }
 
 /**
@@ -373,21 +258,6 @@ function optional(profile: ModelProfile): OptionalProfileFields {
 /** pi's effort ladder, as a validation set for whatever the profile table hands back (CQ6). */
 const THINKING_LEVELS: readonly string[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
-/** Today as "YYYY-MM-DD" (UTC) — only used as the default of the injected date. */
-function utcToday(): string {
-	return new Date().toISOString().slice(0, 10);
-}
-
-/**
- * An ISO calendar date, exactly "YYYY-MM-DD" (BG8). The date comparisons below
- * are plain string `<=`, which is chronological ONLY for this fixed-width form —
- * so anything else ("2026-9-1", a timestamp, a Date) is treated as an absent
- * bound rather than compared and silently mis-ordered.
- */
-function isIsoDate(value: unknown): value is string {
-	return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
-}
-
 /** Defensive read of a numeric profile/registry field: a finite number, or undefined. */
 function finite(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -417,17 +287,6 @@ function registryCosts(model: RouterRegistryModel): Readonly<RouterRegistryCost>
 		cacheRead: registryCost(model, "cacheRead"),
 		cacheWrite: registryCost(model, "cacheWrite"),
 	});
-}
-
-function findRegistryCosts(registry: RouterRegistry, spec: string): Readonly<RouterRegistryCost> | undefined {
-	const parts = splitModelSpec(spec);
-	if (!parts) return undefined;
-	try {
-		const model = registry.find(parts.provider, parts.id);
-		return model && typeof model === "object" ? registryCosts(model) : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 /** Defensive membership test over a profile's effort-level list (a malformed table may hold a non-array). */
@@ -495,50 +354,6 @@ function conditionKey(condition: string, value: unknown): string {
 			return "[unstringifiable]";
 		}
 	})()}`;
-}
-
-/**
- * The price row in force on `today`.
- *
- * A row applies when `from` is absent/invalid or ≤ today AND `until` is
- * absent/invalid or ≥ today. Among applicable rows the one with the greatest
- * `from` wins (the most recently effective schedule); ties — including the
- * common all-null case — resolve to the FIRST such row in authoring order, so
- * the table's own ordering decides and the result is stable. With no applicable
- * row at all (an expired schedule, or one that starts in the future) the most
- * recent PAST row is used as the best available figure, and failing that the
- * first row; an empty/garbage schedule yields undefined, which the ordering
- * treats as "unknown, sort last" and warns about.
- *
- * Only `from`/`until`/`inUsdPerMTok`/`outUsdPerMTok` are read, so optional
- * additions to PriceRow (cache-read/-write rates and the like) are ignored here
- * rather than breaking selection.
- */
-export function effectivePriceRow(profile: ModelProfile, today: string): PriceRow | undefined {
-	const raw = (profile as { price?: unknown }).price;
-	const rows = Array.isArray(raw) ? (raw.filter((r) => !!r && typeof r === "object") as PriceRow[]) : [];
-	if (rows.length === 0) return undefined;
-	const day = isIsoDate(today) ? today : utcToday();
-	const from = (r: PriceRow) => (isIsoDate(r.from) ? r.from : "");
-	const applicable = rows.filter((r) => {
-		const lo = isIsoDate(r.from) ? r.from : null;
-		const hi = isIsoDate(r.until) ? r.until : null;
-		return (lo === null || lo <= day) && (hi === null || hi >= day);
-	});
-	const pick = (pool: NonEmptyArray<PriceRow>) => pool.reduce((best, r) => (from(r) > from(best) ? r : best), pool[0]);
-	if (isNonEmpty(applicable)) return pick(applicable);
-	const past = rows.filter((r) => from(r) <= day);
-	return isNonEmpty(past) ? pick(past) : rows[0];
-}
-
-/** The effective row only when it actually covers the requested date. */
-export function coveringPriceRow(profile: ModelProfile, today: string): PriceRow | undefined {
-	if (!isIsoDate(today)) return undefined;
-	const row = effectivePriceRow(profile, today);
-	if (!row) return undefined;
-	const from = isIsoDate(row.from) ? row.from : null;
-	const until = isIsoDate(row.until) ? row.until : null;
-	return (from === null || from <= today) && (until === null || until >= today) ? row : undefined;
 }
 
 /** The known `router` keys — anything else is a typo worth surfacing (CQ1). */
@@ -637,11 +452,6 @@ export function sanitizeRouterConfig(raw: unknown, warn: RouterWarnSink): Requir
 	return { models, allowUnmeasuredEffort, showWarnings };
 }
 
-/** Sort key for a tier: a malformed/absent tier sorts LAST instead of poisoning the comparator with NaN (CQ5). */
-function tierOf(profile: ModelProfile): number {
-	return finite(profile.tier) ?? Number.POSITIVE_INFINITY;
-}
-
 /**
  * Resolve the routable candidate set.
  *
@@ -663,7 +473,6 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 
 	const profiles = input.profiles ?? SHIPPED_PROFILE_SOURCE;
 	const failover = input.failover ?? {};
-	const today = isIsoDate(input.today) ? input.today : utcToday();
 
 	// D58: one warning per condition per resolution. The key, not the text, is
 	// what identifies a condition, so a reworded message cannot start repeating.
@@ -698,8 +507,6 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 		drops.push({ entry: quoted(raw), reason: sanitizeForNotify(reason, 180), class: dropClass });
 	};
 	const seenSpecs = new Set<string>();
-	/** Specs whose registry window equals their own long-context billing threshold (BG27, explained once below). */
-	const billingPatternSpecs: string[] = [];
 	const claimedProfiles = new Map<string, string>(); // profile id → the spec that claimed it (BG6)
 	for (const raw of models) {
 		if (!isModelSpec(raw)) {
@@ -737,8 +544,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 
 		// BG6: two different specs can resolve to the SAME profile (an alias, or a
 		// case variant — findProfile is alias-aware and case-insensitive). Routing
-		// would then carry two candidates for one model, each with its own price
-		// row and ladder, and the cheapest-pick would compare a model with itself.
+		// would then carry two candidates for one model and duplicate its ladder.
 		const profileId = typeof profile.id === "string" ? profile.id : label;
 		const claimedBy = claimedProfiles.get(profileId);
 		if (claimedBy !== undefined) {
@@ -789,31 +595,6 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			continue;
 		}
 
-		const row = effectivePriceRow(profile, today);
-		const rawInUsdPerMTok: unknown = row?.inUsdPerMTok;
-		const rawOutUsdPerMTok: unknown = row?.outUsdPerMTok;
-		const inUsdPerMTok = isValidPrice(rawInUsdPerMTok) ? rawInUsdPerMTok : undefined;
-		const outUsdPerMTok = isValidPrice(rawOutUsdPerMTok) ? rawOutUsdPerMTok : undefined;
-		const invalidPriceFields = [
-			...(rawInUsdPerMTok !== undefined && !isValidPrice(rawInUsdPerMTok) ? ["input"] : []),
-			...(rawOutUsdPerMTok !== undefined && !isValidPrice(rawOutUsdPerMTok) ? ["output"] : []),
-		];
-		if (invalidPriceFields.length > 0) {
-			once(
-				conditionKey("invalid-price", raw),
-				`slate: model router: ${label} has invalid ${invalidPriceFields.join(" and ")} price data for ${today} in its profile — ` +
-					"prices must be finite numbers zero or greater. Invalid values are treated as unavailable.",
-				"model-data-note",
-			);
-		}
-		if (inUsdPerMTok === undefined) {
-			once(
-				conditionKey("price", raw),
-				`slate: model router: ${label} has no usable input price for ${today} in its model profile. ` +
-					"Slate keeps the model and orders it last. Slate cannot compare its cost with the other models.",
-				"model-data-note",
-			);
-		}
 
 		// W1 context-window canary (D55). It REPORTS a divergence; it does not
 		// diagnose one. The earlier wording closed with "the registry wins; the
@@ -839,24 +620,6 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			registryWindow !== profileWindow &&
 			registryWindow !== knownDivergence
 		) {
-			// DIAGNOSTIC COINCIDENCE (WC6 — hedged to what the arithmetic supports): a
-			// reported window identical to that model's own long-context BILLING
-			// threshold reads as a billing figure rather than a capacity, because a
-			// window equal to its own threshold would leave the long-context price tier
-			// unreachable. That is the shape RI32 named (a figure appearing in a source
-			// only inside a pricing row is a billing figure and must not be restated as
-			// a capacity) — suggestive, not proof, so the warning points at it and lets
-			// the reader judge. The threshold is read from the profile the candidate
-			// already carries: no number and no model id is written into this module.
-			//
-			// BG27: the per-model line keeps only the per-model FACTS plus a pointer.
-			// The ~270-character pattern explanation is the same text for every affected
-			// model, and on a stock pi install three profiles trip it at once, so it is
-			// emitted ONCE after the loop (below) — naming every affected model there, so
-			// nothing loses its attribution.
-			const billingThreshold = finite(profile.longContextThreshold ?? undefined);
-			const matchesBillingThreshold = billingThreshold !== undefined && registryWindow === billingThreshold;
-			if (matchesBillingThreshold) billingPatternSpecs.push(sanitizeForNotify(raw, 60));
 			once(
 				conditionKey("w1", raw),
 				// WC5: "profile" and "profile asOf", never "research" — the asOf is whatever
@@ -869,8 +632,7 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 				`slate: model router: the context window for ${label} differs between two sources. The model profile records ` +
 					`${profileWindow} tokens, and that profile was recorded as of ${routerProfileText(quoted(profile.asOf ?? "unknown"))}. ` +
 					`The pi model registry reports ${registryWindow} tokens. Routing uses the registry figure. ` +
-					"Slate does not establish here which source is correct." +
-					`${matchesBillingThreshold ? " That registry figure is also this model's long-context billing threshold. A separate note below names that pattern." : ""}`,
+					"Slate does not establish here which source is correct.",
 				"model-data-note",
 			);
 		}
@@ -887,9 +649,9 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			// argument, applied to an explanation rather than to a set of models).
 			once(
 				"w3-explainer",
-				"slate: model router: slate picks models from a research table shipped inside slate. Some figures in that " +
+				"slate: model router: slate advises model choices from a research table shipped inside slate. Some figures in that " +
 					"table have no traced source. Slate records the absence instead of a guess. Routing still works. " +
-					"The ranking of such a model rests on less evidence. You cannot close this gap from your configuration.",
+					"Guidance for such a model rests on less evidence. You cannot close this gap from your configuration.",
 				"model-data-note",
 			);
 			const factNoun = renderedUnknownFields.length === 1 ? "fact" : "facts";
@@ -938,13 +700,10 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 			id,
 			profile,
 			tier: profile.tier,
-			inUsdPerMTok,
-			outUsdPerMTok,
 			registryCost: resolvedRegistryCosts,
 			contextWindow: registryWindow,
 			ladder: Object.freeze(ladder),
 			hasFailover,
-			nonPreferred: typeof profile.nonPreferred === "string" && profile.nonPreferred !== "" ? profile.nonPreferred : null,
 			tierUnsourced: optional(profile).tierUnsourced === true,
 			ladderAssumed: optional(profile).ladderAssumed === true,
 		});
@@ -958,28 +717,11 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 		const hasFault = drops.some((drop) => drop.class === "fault");
 		const summary = `slate: model router: routing is disabled. None of the ${models.length} configured router.models entries survived validation. ${detail}`;
 		once("all-dropped", summary);
-		return frozenResolution(false, [], undefined, false, warnings, undefined, undefined, undefined, hasFault ? summary : undefined);
+		return frozenResolution(false, [], warnings, hasFault ? summary : undefined);
 	}
 
-	// BG27: the RI32 pattern explanation, ONCE, naming every model whose per-model
-	// line pointed here. Same reasoning as the failover aggregate below: the
-	// explanation is identical for every affected model, so repeating it verbatim
-	// per model (three times on a stock pi install) is noise, while the SET of
-	// affected models is the part a reader needs.
-	if (billingPatternSpecs.length > 0) {
-		once(
-			"w1-billing-pattern",
-			"slate: model router: for these models the pi model registry reports a context window equal to the model's own " +
-				`long-context billing threshold: ${billingPatternSpecs.join(", ")}. A window equal to its own threshold would ` +
-				"leave the long-context price tier unreachable. That shape suggests a billing figure restated as a capacity " +
-				"figure. Slate reports the pattern and does not decide which figure is right.",
-			"model-data-note",
-		);
-	}
-
-	// CQ3: ONE aggregate line for failover coverage. Per-candidate notices here
-	// scaled with the list length (a nine-model list produced nine of them), and
-	// the actionable fact is the set, not each member.
+	// Preserve the configured order. Validation and de-duplication remove entries,
+	// but tier and registry rates never reorder survivors.
 	const uncovered = candidates.filter((c) => !c.hasFailover).map((c) => sanitizeForNotify(c.spec, 60));
 	if (uncovered.length > 0) {
 		once(
@@ -989,96 +731,22 @@ export function resolveModelRouter(input: ModelRouterInput, warn: RouterWarnSink
 				"Add a modelFailover entry for each of them to cover that case.",
 		);
 	}
+	return frozenResolution(true, candidates, warnings);
 
-	// ORDER (DF4). Five keys, in this order:
-	//   1. preference   — a profile carrying a `nonPreferred` reason sorts after
-	//                     every preferred candidate. The marker is absolute, and a
-	//                     consumer reading the ORDERED LIST (not just `cheapest`)
-	//                     must not meet an evidentially-thin model first just
-	//                     because it is cheap.
-	//   2. tier sourcing — a `tierUnsourced` tier is a COST class read off the
-	//                     price, not a ranking, so within one preference class the
-	//                     candidates whose tier IS sourced come first; the flag also
-	//                     rides on the candidate so a consumer can say so.
-	//   3. tier asc, 4. current effective input price asc,
-	//   5. spec — only so the order is total and reproducible.
-	const price = (c: RouterCandidate) =>
-		isValidPrice(c.inUsdPerMTok) ? c.inUsdPerMTok : Number.POSITIVE_INFINITY;
-	const preferenceRank = (c: RouterCandidate) => (c.nonPreferred === null ? 0 : 1);
-	const sourcingRank = (c: RouterCandidate) => (c.tierUnsourced ? 1 : 0);
-	candidates.sort(
-		(a, b) =>
-			preferenceRank(a) - preferenceRank(b) ||
-			sourcingRank(a) - sourcingRank(b) ||
-			tierOf(a.profile) - tierOf(b.profile) ||
-			price(a) - price(b) ||
-			(a.spec < b.spec ? -1 : a.spec > b.spec ? 1 : 0),
-	);
-
-	// D48 + BG1: the default base model is the cheapest PREFERRED candidate.
-	// Scanned over the ALREADY-SORTED pool with a strict <, so the sort's own keys
-	// break a price tie: the earlier of the tied candidates wins, which after the
-	// sort above means sourced tier first, then lower tier, then earlier spec. An
-	// all-unpriced pool still yields a defined base model (every price compares
-	// equal, so the first stands). If nothing is preferred, D48 still needs a base
-	// model (a dispatch that omits a model must never be rejected by the list
-	// guard), so the cheapest overall is taken — loudly.
-	const preferred = candidates.filter((c) => c.nonPreferred === null);
-	// Non-empty either way, and the compiler can see it: `preferred` is tested right
-	// here, and `candidates` was narrowed by the all-dropped early return above.
-	const pool = isNonEmpty(preferred) ? preferred : candidates;
-	let cheapest = pool[0];
-	for (const c of pool) if (price(c) < price(cheapest)) cheapest = c;
-	const cheapestNonPreferred = cheapest.nonPreferred !== null;
-	if (cheapestNonPreferred) {
-		// Always visible (a configuration fault by part (b) of the class test: adding
-		// one preferred model to router.models stops it), so the text is
-		// project-authored and the interpolated reason is stripped of its source tags.
-		once(
-			"nonpreferred-base",
-			"slate: model router: slate's model profiles mark every configured model as one it must never pick by " +
-				`itself. Slate still needs a default base model, so ${sanitizeForNotify(cheapest.spec, 60)} is the base ` +
-				`model for new threads. The recorded reason for that mark is: ${routerProfileText(cheapest.nonPreferred ?? "")}. ` +
-				"Add a model without that mark to router.models to change the base model.",
-		);
-	}
-
-	return frozenResolution(
-		true,
-		candidates,
-		cheapest.spec,
-		cheapestNonPreferred,
-		warnings,
-		(spec) => findRegistryCosts(input.registry, spec),
-		utcToday,
-		(condition, value, message, warningClass) => {
-			emitOnce(conditionKey(condition, value), message, warningClass);
-		},
-	);
 }
 
 /** Build the frozen result object — one place, so every return path is shaped and frozen identically. */
 function frozenResolution(
 	on: boolean,
 	candidates: RouterCandidate[],
-	cheapest: string | undefined,
-	cheapestNonPreferred: boolean,
 	warnings: string[],
-	registryCostFor?: (spec: string) => Readonly<RouterRegistryCost> | undefined,
-	currentDate?: () => string,
-	warnOnce?: (condition: string, value: unknown, message: string, warningClass: RouterWarningClass) => void,
 	fault?: string,
 ): ModelRouterResolution {
 	return Object.freeze({
 		on,
 		candidates: Object.freeze([...candidates]),
-		cheapest,
-		cheapestNonPreferred,
 		warnings: Object.freeze([...warnings]),
 		...(fault ? { fault } : {}),
-		...(registryCostFor ? { registryCostFor } : {}),
-		...(currentDate ? { currentDate } : {}),
-		...(warnOnce ? { warnOnce } : {}),
 	}) as unknown as ModelRouterResolution;
 }
 
@@ -1179,7 +847,7 @@ export function createModelRouterResolver(
 				} catch {
 					/* see BG3 above */
 				}
-				cached = frozenResolution(false, [], undefined, false, [message]);
+				cached = frozenResolution(false, [], [message]);
 			}
 		}
 		return cached;
