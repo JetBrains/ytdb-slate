@@ -6,6 +6,7 @@ import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import slateExtension from "../extension/index.ts";
 import type { ModelProfile } from "../extension/model-profiles.ts";
+import { planRoute } from "../extension/route.ts";
 import {
   createModelRouterResolver,
   resolveModelRouter,
@@ -23,6 +24,7 @@ interface SlateHarness {
   notifications: string[];
   start(): Promise<void>;
   consult(): Promise<void>;
+  dispatch(params: Record<string, unknown>): Promise<unknown>;
   close(): void;
 }
 
@@ -43,7 +45,7 @@ function makeHarness(router: unknown, options: HarnessOptions = {}): SlateHarnes
     const notifications: string[] = [];
     const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => Promise<unknown>>>();
     const commands = new Map<string, RegisteredCommand>();
-    const tools: Array<{ name: string }> = [];
+    const tools: Array<{ name: string; execute?: (...args: any[]) => Promise<unknown> }> = [];
     let activeTools: string[] = [];
     const registry = {
       find(provider: string, id: string) {
@@ -64,7 +66,7 @@ function makeHarness(router: unknown, options: HarnessOptions = {}): SlateHarnes
       registerCommand(name: string, command: RegisteredCommand) {
         commands.set(name, command);
       },
-      registerTool(tool: { name: string }) {
+      registerTool(tool: { name: string; execute?: (...args: any[]) => Promise<unknown> }) {
         tools.push(tool);
         activeTools.push(tool.name);
       },
@@ -143,6 +145,11 @@ function makeHarness(router: unknown, options: HarnessOptions = {}): SlateHarnes
         for (const handler of startHandlers) {
           await handler({ systemPrompt: "base" }, ctx);
         }
+      },
+      async dispatch(params) {
+        const thread = tools.find((tool) => tool.name === "thread");
+        assert.ok(thread?.execute);
+        return thread.execute("test-call", params, undefined, undefined, ctx);
       },
       close() {
         rmSync(cwd, { recursive: true, force: true });
@@ -357,6 +364,86 @@ test("router entry faults explain malformed, unprofiled, unknown, and unauthenti
   assert.equal(messages.some((message) => message.includes("is not in pi's model registry")), true);
   assert.equal(messages.some((message) => message.includes("has no usable credentials configured in pi")), true);
   assert.equal(classes.every((warningClass) => warningClass === "configuration-fault"), true);
+});
+
+test("all-dropped faults use the narrow cause class and mixed precedence", () => {
+  const profile = profileFixture({ unknownRoutingCriticalFields: [] });
+  const profiles: RouterProfileSource = { findProfile: () => profile, ladderFor: () => ["low"] };
+  const registry = { find: () => undefined, hasConfiguredAuth: () => true };
+  const malformed = resolveModelRouter({ registry, models: [7], profiles });
+  const warnOnly = resolveModelRouter({ registry, models: [profile.id], profiles });
+  const mixed = resolveModelRouter({ registry, models: ["bad", profile.id, profile.id], profiles });
+  const aliases = resolveModelRouter({ registry, models: [profile.id, "fixture/alias"], profiles });
+  const survivorProfile = profileFixture({ id: "fixture/survivor", unknownRoutingCriticalFields: [] });
+  const aliasSurvivorProfiles: RouterProfileSource = {
+    findProfile: (spec) => spec === survivorProfile.id ? survivorProfile : profile,
+    ladderFor: () => ["low"],
+  };
+  const aliasSurvivor = resolveModelRouter({
+    registry: { find: (provider, id) => `${provider}/${id}` === survivorProfile.id ? { contextWindow: 100_000 } : undefined, hasConfiguredAuth: () => true },
+    models: [profile.id, "fixture/alias", survivorProfile.id],
+    profiles: aliasSurvivorProfiles,
+  });
+  const survivor = resolveModelRouter({
+    registry: { find: () => ({ contextWindow: 100_000 }), hasConfiguredAuth: () => true },
+    models: ["bad", profile.id],
+    profiles,
+  });
+
+  assert.match(malformed.fault ?? "", /7 \[fault\]/);
+  assert.equal(warnOnly.fault, undefined);
+  assert.match(mixed.fault ?? "", /"bad" \[fault\].*fixture\/model.*\[warn\].*exact specification duplicates/);
+  assert.match(aliases.fault ?? "", /"fixture\/model" \[warn\].*"fixture\/alias" \[fault\].*profile alias duplicates/);
+  assert.equal(aliasSurvivor.on, true);
+  assert.equal(aliasSurvivor.fault, undefined);
+  assert.deepEqual(aliasSurvivor.candidates.map((candidate) => candidate.spec), [survivorProfile.id]);
+  assert.equal(survivor.on, true);
+  assert.equal(survivor.fault, undefined);
+});
+
+test("failover keeps list carve-out but rejects a provider-blocked requested effort", () => {
+  const listed = profileFixture({ id: "fixture/listed", capabilityMeasuredAt: ["low"] });
+  const blocked = profileFixture({ id: "fixture/blocked", capabilityMeasuredAt: ["low"], apiRejectedLevels: ["low"] });
+  const allowed = profileFixture({ id: "fixture/allowed", capabilityMeasuredAt: ["low"], apiRejectedLevels: [] });
+  const profiles: RouterProfileSource = {
+    findProfile: (spec) => spec === blocked.id ? blocked : spec === allowed.id ? allowed : undefined,
+    ladderFor: () => ["low"],
+  };
+  const resolution = {
+    on: true,
+    candidates: [{ spec: listed.id, profile: listed, ladder: ["low"] }],
+    cheapest: listed.id,
+    warnings: [],
+  } as any;
+  const rejected = planRoute({
+    resolution, profiles, failoverSwitch: true, requestedModel: blocked.id,
+    requestedEffort: "low", failoverFrom: "other/model",
+  });
+  const allowedVerdict = planRoute({
+    resolution, profiles, failoverSwitch: true, requestedModel: allowed.id,
+    requestedEffort: "low", failoverFrom: "other/model",
+  });
+  const unknown = planRoute({
+    resolution, profiles, failoverSwitch: true, requestedModel: "fixture/unknown",
+    requestedEffort: "low", failoverFrom: "other/model",
+  });
+  const same = planRoute({ resolution, failoverSwitch: true, requestedModel: listed.id, failoverFrom: listed.id });
+  const absent = planRoute({ resolution, failoverSwitch: true });
+  assert.equal(rejected.kind, "reject");
+  assert.match(rejected.kind === "reject" ? rejected.reason : "", /failover model/);
+  assert.equal(allowedVerdict.kind, "proceed");
+  assert.equal(unknown.kind, "proceed");
+  assert.equal(same.kind, "reject");
+  assert.equal(absent.kind, "reject");
+});
+
+test("raw malformed router configuration reaches the real dispatch fault", { timeout: 1000 }, async () => {
+  await withHarness({ models: [7] }, async (harness) => {
+    await assert.rejects(
+      harness.dispatch({ type: "general", task: "must stop", model: "openai/gpt-5.6-luna", effort: "low", reason: "integration canary" }),
+      /routing is disabled.*7 \[fault\]/,
+    );
+  });
 });
 
 test("a throwing warning sink cannot abort model resolution", () => {

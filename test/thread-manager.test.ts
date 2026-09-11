@@ -1,3 +1,5 @@
+const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -63,8 +65,8 @@ test("ThreadManager preserves explicit constructor arguments and resolver defaul
   // away from the worker path, and it reads no store field.
   await assert.rejects(
     manager.dispatch(
-      { task: "" },
-      {} as ExtensionContext,
+      { ...TEST_ROUTE, task: "" },
+      { modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext,
       undefined,
     ),
     /task must be a non-empty string/,
@@ -163,10 +165,11 @@ test("public dispatch enforces maxConcurrent across different threads", { timeou
       const subscribers = new Set<(event: unknown) => void>();
       const session = {
         messages,
-        model: undefined,
+        model: { provider: "test", id: "worker" },
         thinkingLevel: undefined,
         sessionFile: undefined,
         getContextUsage: () => undefined,
+        setThinkingLevel() {},
         subscribe: (listener: (event: unknown) => void) => {
           subscribers.add(listener);
           return () => subscribers.delete(listener);
@@ -192,10 +195,10 @@ test("public dispatch enforces maxConcurrent across different threads", { timeou
       return { session, baseline: {} };
     };
 
-    const ctx = { cwd: root } as ExtensionContext;
-    const first = manager.dispatch({ name: "first", task: "first", type: "researcher" }, ctx, undefined);
+    const ctx = { cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
+    const first = manager.dispatch({ ...TEST_ROUTE, name: "first", task: "first", type: "researcher" }, ctx, undefined);
     await firstEntered;
-    const second = manager.dispatch({ name: "second", task: "second", type: "general" }, ctx, undefined);
+    const second = manager.dispatch({ ...TEST_ROUTE, name: "second", task: "second", type: "general" }, ctx, undefined);
     const beforeRelease = await Promise.race([
       secondEntered.then(() => "entered" as const),
       new Promise<"turn">((resolve) => setImmediate(() => resolve("turn"))),

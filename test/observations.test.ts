@@ -1,3 +1,5 @@
+const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -224,10 +226,11 @@ async function dispatchOnce(opts: {
   const subscribers = new Set<(event: unknown) => void>();
   const session = {
     messages,
-    model: undefined,
+    model: { provider: "test", id: "worker" },
     thinkingLevel: undefined,
     sessionFile: opts.sessionFile,
     getContextUsage: () => undefined,
+    setThinkingLevel() {},
     subscribe: (listener: (event: unknown) => void) => {
       subscribers.add(listener);
       return () => subscribers.delete(listener);
@@ -256,13 +259,13 @@ async function dispatchOnce(opts: {
   // Built with defineProperty rather than a spread: spreading an object with a
   // throwing getter would fire it here, in the harness, instead of inside the
   // dispatch step under test.
-  const ctxFields: Record<string, unknown> = { cwd: opts.root };
+  const ctxFields: Record<string, unknown> = { cwd: opts.root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true } };
   opts.defineCtx?.(ctxFields);
   const ctx = ctxFields as unknown as ExtensionContext;
   // Use the public dispatch boundary. The harness overrides only the existing
   // private worker opener to avoid a real pi session.
   return await manager.dispatch(
-    { task: "review", type: "reviewer", name: "review", ...opts.dispatch },
+    { ...TEST_ROUTE, task: "review", type: "reviewer", name: "review", ...opts.dispatch },
     ctx,
     undefined,
     opts.onProgress,

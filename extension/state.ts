@@ -33,6 +33,13 @@ import { createWritingReminderRuntime, type WritingReminderRuntime } from "./wri
 export const THREAD_TYPES = ["researcher", "reviewer", "adversarial", "implementer", "general"] as const;
 export type ThreadType = (typeof THREAD_TYPES)[number];
 
+/** Pi's complete thinking-level vocabulary, shared by dispatch and snapshot validation. */
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+export function isThinkingLevel(value: unknown): value is ThinkingLevel {
+	return typeof value === "string" && THINKING_LEVELS.includes(value as ThinkingLevel);
+}
+
 /** Intent-only labels for explaining the closed thread-type vocabulary. */
 export const THREAD_TYPE_GLOSSES = {
 	researcher: "investigates",
@@ -168,6 +175,12 @@ export interface EpisodeRecord {
 	task: string;
 	status: "ok" | "failed";
 	file: string; // absolute path to episode .md
+	/** Sanitized caller rationale. Absent on episodes written before explicit dispatch metadata. */
+	reason?: string;
+	/** The model requested for this action, before failover. */
+	requestedModel?: string;
+	/** The effort requested for this action, before failover or provider clamping. */
+	requestedEffort?: ThinkingLevel;
 	/** "provider/id" the action ACTUALLY ran on (post-failover). Absent = unknown. */
 	model?: string;
 	/** Effort level the action ACTUALLY ran at (post-clamp). Absent = unknown. */
@@ -291,6 +304,16 @@ export function splitModelSpec(value: unknown): { provider: string; id: string }
 	if (!isModelSpec(value)) return undefined;
 	const slash = value.indexOf("/");
 	return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
+}
+
+const REASON_LINE_SEPARATORS = /[\p{Zl}\p{Zp}]/gu;
+const REASON_INVISIBLE_CHARS = /[\p{Cc}\p{Cf}\p{Cs}\u115f\u1160\u3164\ufe00-\ufe0f\uffa0]|[\u{e0100}-\u{e01ef}]/gu;
+
+/** Sanitize explicit-dispatch metadata without changing unrelated notification text. */
+export function sanitizeDispatchReason(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const clean = value.replace(REASON_LINE_SEPARATORS, " ").replace(REASON_INVISIBLE_CHARS, "").trim();
+	return clean !== "" && clean.length <= 200 ? clean : undefined;
 }
 
 /**
@@ -529,6 +552,9 @@ export const ADOPTED_EPISODE_FIELDS = {
 	task: true,
 	status: true,
 	file: true,
+	reason: true,
+	requestedModel: true,
+	requestedEffort: true,
 	model: true,
 	effort: true,
 	effortUnmeasured: true,
@@ -695,6 +721,9 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 	};
 	const compressorUsage = keep("compressorUsage", e.compressorUsage, nestedUsage("compressorUsage", e.compressorUsage));
 	const compactionUsage = keep("compactionUsage", e.compactionUsage, nestedUsage("compactionUsage", e.compactionUsage));
+	const reason = keep("reason", e.reason, sanitizeDispatchReason(e.reason));
+	const requestedModel = keep("requestedModel", e.requestedModel, isModelSpec(e.requestedModel) ? e.requestedModel : undefined);
+	const requestedEffort = keep("requestedEffort", e.requestedEffort, isThinkingLevel(e.requestedEffort) ? e.requestedEffort : undefined);
 	const built: EpisodeRecord = {
 		id,
 		threadId,
@@ -703,6 +732,9 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 		// something ran, and inventing a failure would be worse than ignoring the value.
 		status: keep("status", e.status, e.status === "failed" || e.status === "ok" ? e.status : undefined) ?? "ok",
 		file,
+		...(reason !== undefined ? { reason } : {}),
+		...(requestedModel !== undefined ? { requestedModel } : {}),
+		...(requestedEffort !== undefined ? { requestedEffort } : {}),
 		...(keep("model", e.model, str(e.model)) !== undefined ? { model: str(e.model) } : {}),
 		...(keep("effort", e.effort, str(e.effort)) !== undefined ? { effort: str(e.effort) as ThinkingLevel } : {}),
 		...(keep("effortUnmeasured", e.effortUnmeasured, e.effortUnmeasured === true ? (true as const) : undefined) !== undefined

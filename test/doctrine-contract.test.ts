@@ -94,7 +94,7 @@ function routedResolution(): ModelRouterResolution {
   };
 }
 
-async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}, trusted = true, paused = false): Promise<string> {
+async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}, trusted = true, paused = false, model?: { provider: string; id: string }): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
@@ -112,7 +112,9 @@ async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfi
   );
   const handler = api.handlers.get("before_agent_start")?.[0];
   assert.ok(handler);
-  const result = await handler({ systemPrompt: "BASE" }, extensionContext(scratch, [], trusted)) as { systemPrompt: string };
+  const context = extensionContext(scratch, [], trusted);
+  context.model = model as never;
+  const result = await handler({ systemPrompt: "BASE" }, context) as { systemPrompt: string };
   assert.ok(result.systemPrompt.startsWith("BASE"));
   return result.systemPrompt.slice("BASE".length);
 }
@@ -339,13 +341,16 @@ test("the paused doctrine states worker availability and the one-writer save con
   assert.ok(writer > 0 && writer < verify && verify < brief);
 });
 
-test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {
+test("routing off gives the explicit dispatch vocabulary without a candidate table", { timeout: 5000 }, async () => {
   const defaultOff = await renderDoctrine();
   const explicitOff = await renderDoctrine(ROUTER_OFF);
   assert.equal(explicitOff, defaultOff);
+  assert.match(explicitOff, /Every `thread` call must name `model`, `effort` .* and `reason`\. Session base model: unknown\./);
   assert.doesNotMatch(explicitOff, /Routable this session/);
   assert.doesNotMatch(explicitOff, /Prices include dated updates/);
-  assert.doesNotMatch(explicitOff, /Prices as of/);
+
+  const withBase = await renderDoctrine(ROUTER_OFF, {}, true, false, { provider: "p", id: "base" });
+  assert.match(withBase, /Session base model: p\/base\./);
 });
 
 test("entry configuration reports either ignored writing key through the shared warning sink", { timeout: 5000 }, async () => {

@@ -156,6 +156,14 @@ export default function (pi: ExtensionAPI) {
 		// Trust gate: project config steers prompts, models, and tool lists, so
 		// it is honored only for trusted projects; untrusted → built-in defaults.
 		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
+		const rawRouterModels = (() => {
+			try {
+				const raw = (config.router as { models?: unknown } | undefined)?.models;
+				return Array.isArray(raw) ? [...raw] : [];
+			} catch {
+				return [];
+			}
+		})();
 		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
 		// modelFailover, contextBudget and workerExtensions are validated eagerly:
 		// a malformed value would otherwise fail silently mid-dispatch / exactly
@@ -232,7 +240,7 @@ export default function (pi: ExtensionAPI) {
 		const memoizedRouterResolution = createModelRouterResolver(
 			() => ({
 				registry: ctx.modelRegistry,
-				models: config.router?.models ?? [],
+				models: rawRouterModels,
 				failover: config.modelFailover ?? {},
 			}),
 			routerWarn,
