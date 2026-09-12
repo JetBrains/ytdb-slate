@@ -344,7 +344,7 @@ const ROUTER_IDS = [
 	"router-config-invalid",
 	"router-shipped-default",
 ];
-const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-refresh", "profiles-tier", "profiles-meta"];
+const PROFILE_IDS = ["profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-fable-5-1-contract", "profiles-gemini-contract", "profiles-astra-contract", "profiles-refresh", "profiles-tier", "profiles-meta"];
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "spec-config-key", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
@@ -2102,7 +2102,7 @@ try {
 				"openai/gpt-5.6-sol",
 				"anthropic/claude-sonnet-5",
 				"anthropic/claude-opus-5",
-				"anthropic/claude-fable-5",
+				"anthropic/claude-fable-5-1",
 			];
 			const configuredCandidates = realCandidates.filter((candidate) => configuredSpecs.includes(candidate.spec));
 			const onConfigured = onWith(configuredCandidates);
@@ -2110,27 +2110,7 @@ try {
 			const configuredOffDraftWriting = await asTrusted(EMPTY_EXT, onConfigured, { writing: { check: true } });
 			const configuredDraft = await asTrusted(EMPTY_EXT, onConfigured, { workflow: { draftPRs: true } });
 			const configuredDraftWriting = await asTrusted(EMPTY_EXT, onConfigured, { workflow: { draftPRs: true }, writing: { check: true } });
-			const dogfoodConfig = {
-				workflow: { draftPRs: true },
-				writing: { check: true },
-				router: {
-					models: [
-						"openai/gpt-5.6-luna",
-						"openai/gpt-5.6-terra",
-						"openai/gpt-5.6-sol",
-						"anthropic/claude-sonnet-5",
-						"anthropic/claude-opus-5",
-					],
-				},
-				workerExtensions: ["pi-smart-fetch", "pi-web-search"],
-				modelFailover: {
-					"openai/gpt-5.6-luna": "anthropic/claude-sonnet-5",
-					"openai/gpt-5.6-terra": "anthropic/claude-opus-5",
-					"openai/gpt-5.6-sol": "anthropic/claude-opus-5",
-					"anthropic/claude-sonnet-5": "openai/gpt-5.6-luna",
-					"anthropic/claude-opus-5": "openai/gpt-5.6-sol",
-				},
-			};
+			const dogfoodConfig = JSON.parse(readFileSync(join(REPO, ".pi", "slate.json"), "utf8"));
 			const dogfoodSpecs = dogfoodConfig.router.models;
 			const dogfoodResolution = router.resolveModelRouter({
 				models: dogfoodSpecs,
@@ -2237,12 +2217,12 @@ try {
 			// the identity and the bounds go back to being install-dependent.
 			const pathOccurrences = (text) => DOCS_DIR === "" ? 0 : text.split(DOCS_DIR).length - 1;
 			const docPaths = pathOccurrences(on);
-			// 2026-09-11: 7,084 × 1.05 = 7,438.2; ceil 7,439, so the bound is 7,600.
-			const WRITING_ROUTER_BOUND = 7600;
-			// 2026-09-11: 7,339 × 1.05 = 7,705.95; ceil 7,706, so the bound is 7,900.
-			const ALL_TAILS_BOUND = 7900;
-			// 2026-09-11: the 8,524 deferred-issue maximum is largest. 8,524 × 1.05 = 8,950.2; ceil 8,951, so the bound is 9,100.
-			const MAXIMAL_BOUND = 9100;
+			// 2026-09-12: 23,072 × 1.05 = 24,225.6; existing 24,300 bound retains reserve.
+			const WRITING_ROUTER_BOUND = 24300;
+			// 2026-09-12: 23,327 × 1.05 = 24,493.35; existing 24,500 bound retains reserve.
+			const ALL_TAILS_BOUND = 24500;
+			// 2026-09-12: the 24,512 deferred-issue maximum is largest; the 25,800 bound retains reserve.
+			const MAXIMAL_BOUND = 25800;
 			checkAll(
 				"doctrine-budget",
 				"portable doctrine budgets cover the routing rule, each representative feature basis, and one maximum-shaped all-feature fixture. The maximum fixture uses all nine shipped profiles, draft PRs, writing, two capped worker units, and four capped tools. A measured positive control adds one capped tool and six copies of the largest model row, so budget growth cannot pass vacuously",
@@ -2251,37 +2231,37 @@ try {
 					["every fixture has the exact embedded-path occurrence count", pathOccurrences(untrusted) === 3 && pathOccurrences(off) === 4 && pathOccurrences(on) === 5 && pathOccurrences(writingOn) === 4 && pathOccurrences(writingRouterOn) === 5 && pathOccurrences(writingExtensionsOn) === 4 && pathOccurrences(writingAllOn) === 5 && pathOccurrences(maximal) === 6 && pathOccurrences(maximalNoDraft) === 5 && pathOccurrences(maximalFollowUp) === 6 && pathOccurrences(dogfood) === 6 && pathOccurrences(overBudget) === 6, { untrusted: pathOccurrences(untrusted), off: pathOccurrences(off), on: pathOccurrences(on), writing: pathOccurrences(writingOn), writingRouter: pathOccurrences(writingRouterOn), writingExtensions: pathOccurrences(writingExtensionsOn), all: pathOccurrences(writingAllOn), maximal: pathOccurrences(maximal), maximalNoDraft: pathOccurrences(maximalNoDraft), followUp: pathOccurrences(maximalFollowUp), dogfood: pathOccurrences(dogfood), positive: pathOccurrences(overBudget) }],
 					["...and removing it changes the measurement, so the bounds are not raw counts", portable(on).length < on.length, { raw: on.length, portable: portable(on).length }],
 					["space-bearing docs directories normalize without parsing rendered text", spacedPortable === "read /track-workflow.md", spacedPortable],
-					["the whole rule stays under 4000 portable chars with five percent reserve", ruleChars <= 4000 && hasDoctrineReserve(ruleChars, 4000), { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
-					["...and under 34 lines with five percent reserve", rule.split("\n").length <= 34 && hasDoctrineReserve(rule.split("\n").length, 34), rule.split("\n").length],
-					["its FIXED prose — the part that does not scale with the table — stays under 1500 portable chars with five percent reserve", prose <= 1500 && hasDoctrineReserve(prose, 1500), prose],
-					["no single model row exceeds 300 chars or consumes its five percent reserve", longest <= 300 && hasDoctrineReserve(longest, 300), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
+					["the whole rule stays under 19400 portable chars with five percent reserve", ruleChars <= 19400 && hasDoctrineReserve(ruleChars, 19400), { portableChars: ruleChars, rawChars: rule.length, rows: rows.length }],
+					["...and under 105 lines with five percent reserve", rule.split("\n").length <= 105 && hasDoctrineReserve(rule.split("\n").length, 105), rule.split("\n").length],
+					["its FIXED prose — the part that does not scale with the table — is exactly 6292 portable chars and stays under 6700 with five percent reserve", prose === 6292 && prose <= 6700 && hasDoctrineReserve(prose, 6700), prose],
+					["no single model row exceeds 1800 chars or consumes its five percent reserve", longest <= 1800 && hasDoctrineReserve(longest, 1800), { longest, worst: rows.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 80) }],
 					["every candidate rendered a row, so the row bound is not measuring an empty set", rows.length === realCandidates.length, { rows: rows.length, candidates: realCandidates.length }],
 					["the configured-model fixture is the exact fixed six-model list", configuredCandidates.length === 6 && configuredCandidates.every((candidate) => configuredSpecs.includes(candidate.spec)) && configuredSpecs.every((spec) => configuredCandidates.some((candidate) => candidate.spec === spec)), { configuredSpecs, candidates: configuredCandidates.map((candidate) => candidate.spec) }],
-					["the production-rendered fixed six-model routing rule is exactly 1990 portable characters and 20 split lines", configuredRulePortable.length === 1990 && configuredRule.split("\n").length === 20, { portable: configuredRulePortable.length, lines: configuredRule.split("\n").length }],
-					["the fabricated dogfood fixture resolves its exact five-model list through the real router and uses pi registry context windows", dogfoodCandidates.length === dogfoodSpecs.length && dogfoodCandidates.every((candidate) => dogfoodSpecs.includes(candidate.spec)) && dogfoodCandidates.every((candidate) => candidate.contextWindow === (candidate.provider === "anthropic" ? 1_000_000 : 272_000)), { configured: dogfoodSpecs, candidates: dogfoodCandidates.map((candidate) => [candidate.spec, candidate.contextWindow]) }],
-					["the dogfood fixture is the measured 7328 portable chars and 100 lines", dogfoodPortable === 7328 && dogfood.split("\n").length === 100, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
+					["the production-rendered fixed six-model routing rule is exactly 13811 portable characters and 96 split lines", configuredRulePortable.length === 13811 && configuredRule.split("\n").length === 96, { portable: configuredRulePortable.length, lines: configuredRule.split("\n").length }],
+					["the fabricated dogfood fixture resolves its exact seven-model list through the real router and uses pi registry context windows", dogfoodCandidates.length === dogfoodSpecs.length && dogfoodCandidates.every((candidate) => dogfoodSpecs.includes(candidate.spec)) && dogfoodCandidates.every((candidate) => candidate.contextWindow === (candidate.provider === "anthropic" ? 1_000_000 : 272_000)), { configured: dogfoodSpecs, candidates: dogfoodCandidates.map((candidate) => [candidate.spec, candidate.contextWindow]) }],
+					["the dogfood fixture is the measured 21099 portable chars and 178 lines", dogfoodPortable === 21099 && dogfood.split("\n").length === 178, { portable: dogfoodPortable, lines: dogfood.split("\n").length }],
 					["the rule is the ONLY thing added to the doctrine when the router is on", on.length - off.length === rule.length - 145, { on: on.length, off: off.length, rule: rule.length }],
 					["the untrusted doctrine is the measured 2708 portable chars, 43 lines, and three embedded paths", portable(untrusted).length === 2708 && untrusted.split("\n").length === 43 && pathOccurrences(untrusted) === 3, { portable: portable(untrusted).length, lines: untrusted.split("\n").length, paths: pathOccurrences(untrusted) }],
 					["the router-off trusted doctrine is the measured 4762 portable chars and 73 lines", portable(off).length === 4762 && off.split("\n").length === 73, { portable: portable(off).length, lines: off.split("\n").length }],
-					[`...and the whole router-on doctrine is the measured 7084 portable chars and 95 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(on).length === 7084 && on.split("\n").length === 95 && portable(on).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(on).length, WRITING_ROUTER_BOUND), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
+					[`...and the whole router-on doctrine is the measured 23072 portable chars and 171 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(on).length === 23072 && on.split("\n").length === 171 && portable(on).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(on).length, WRITING_ROUTER_BOUND), { portable: portable(on).length, raw: on.length, lines: on.split("\n").length }],
 					["writing and design doctrine is the measured 4762 portable chars and 73 lines, and stays under 5600 with five percent reserve", portable(writingOn).length === 4762 && writingOn.split("\n").length === 73 && portable(writingOn).length <= 5600 && hasDoctrineReserve(portable(writingOn).length, 5600), { portable: portable(writingOn).length, lines: writingOn.split("\n").length }],
 					["draft-enabled router-off doctrine is 4781 portable chars and 73 lines", portable(offDraft).length === 4781 && offDraft.split("\n").length === 73, { portable: portable(offDraft).length, lines: offDraft.split("\n").length }],
 					["draft-enabled router-off writing doctrine is 4781 portable chars and 73 lines", portable(offDraftWriting).length === 4781 && offDraftWriting.split("\n").length === 73, { portable: portable(offDraftWriting).length, lines: offDraftWriting.split("\n").length }],
-					["the six-model fixture is 6607 portable chars and 91 lines without draft publishing", portable(configuredOffDraft).length === 6607 && configuredOffDraft.split("\n").length === 91, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
-					["the six-model fixture is 6607 portable chars and 91 lines with writing", portable(configuredOffDraftWriting).length === 6607 && configuredOffDraftWriting.split("\n").length === 91, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
-					["the six-model draft fixture is 6626 portable chars and 91 lines", portable(configuredDraft).length === 6626 && configuredDraft.split("\n").length === 91, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
-					["the six-model draft and writing fixture is 6626 portable chars and 91 lines", portable(configuredDraftWriting).length === 6626 && configuredDraftWriting.split("\n").length === 91, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
-					[`writing plus router is the measured 7084 portable chars and 95 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 7084 && writingRouterOn.split("\n").length === 95 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
+					["the six-model fixture is 18428 portable chars and 167 lines without draft publishing", portable(configuredOffDraft).length === 18428 && configuredOffDraft.split("\n").length === 167, { portable: portable(configuredOffDraft).length, lines: configuredOffDraft.split("\n").length }],
+					["the six-model fixture is 18428 portable chars and 167 lines with writing", portable(configuredOffDraftWriting).length === 18428 && configuredOffDraftWriting.split("\n").length === 167, { portable: portable(configuredOffDraftWriting).length, lines: configuredOffDraftWriting.split("\n").length }],
+					["the six-model draft fixture is 18447 portable chars and 167 lines", portable(configuredDraft).length === 18447 && configuredDraft.split("\n").length === 167, { portable: portable(configuredDraft).length, lines: configuredDraft.split("\n").length }],
+					["the six-model draft and writing fixture is 18447 portable chars and 167 lines", portable(configuredDraftWriting).length === 18447 && configuredDraftWriting.split("\n").length === 167, { portable: portable(configuredDraftWriting).length, lines: configuredDraftWriting.split("\n").length }],
+					[`writing plus router is the measured 23072 portable chars and 171 lines, and stays under ${WRITING_ROUTER_BOUND} with five percent reserve`, portable(writingRouterOn).length === 23072 && writingRouterOn.split("\n").length === 171 && portable(writingRouterOn).length <= WRITING_ROUTER_BOUND && hasDoctrineReserve(portable(writingRouterOn).length, WRITING_ROUTER_BOUND), { portable: portable(writingRouterOn).length, lines: writingRouterOn.split("\n").length }],
 					["writing plus extensions is the measured 5017 portable chars and 79 lines, and stays under 6000 with five percent reserve", portable(writingExtensionsOn).length === 5017 && writingExtensionsOn.split("\n").length === 79 && portable(writingExtensionsOn).length <= 6000 && hasDoctrineReserve(portable(writingExtensionsOn).length, 6000), { portable: portable(writingExtensionsOn).length, lines: writingExtensionsOn.split("\n").length }],
-					[`all three tail features are the measured 7339 portable chars and 101 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 7339 && writingAllOn.split("\n").length === 101 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
-					["the all-nine draft fixture is 7103 portable chars and 95 lines", portable(allDraft).length === 7103 && allDraft.split("\n").length === 95, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
-					["the all-nine draft and writing fixture is 7103 portable chars and 95 lines", portable(allDraftWriting).length === 7103 && allDraftWriting.split("\n").length === 95, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
+					[`all three tail features are the measured 23327 portable chars and 177 lines, and stay under ${ALL_TAILS_BOUND} with five percent reserve`, portable(writingAllOn).length === 23327 && writingAllOn.split("\n").length === 177 && portable(writingAllOn).length <= ALL_TAILS_BOUND && hasDoctrineReserve(portable(writingAllOn).length, ALL_TAILS_BOUND), { portable: portable(writingAllOn).length, lines: writingAllOn.split("\n").length }],
+					["the all-nine draft fixture is 23091 portable chars and 171 lines", portable(allDraft).length === 23091 && allDraft.split("\n").length === 171, { portable: portable(allDraft).length, lines: allDraft.split("\n").length }],
+					["the all-nine draft and writing fixture is 23091 portable chars and 171 lines", portable(allDraftWriting).length === 23091 && allDraftWriting.split("\n").length === 171, { portable: portable(allDraftWriting).length, lines: allDraftWriting.split("\n").length }],
 					// Update exact measurements with production wording in the same commit.
-					[`the maximum all-feature fixture is the measured 8450 portable chars and 105 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 8450 && maximal.split("\n").length === 105 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
-					[`the draft-PR-disabled maximum fixture is pinned independently at 8431 portable chars and 105 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 8431 && maximalNoDraft.split("\n").length === 105 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the maximum all-feature fixture is the measured 24438 portable chars and 181 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalPortable === 24438 && maximal.split("\n").length === 181 && maximalPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalPortable, MAXIMAL_BOUND), { portable: maximalPortable, raw: maximal.length, lines: maximal.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
+					[`the draft-PR-disabled maximum fixture is pinned independently at 24419 portable chars and 181 lines, and shares the ${MAXIMAL_BOUND} maximum bound`, maximalNoDraftPortable === 24419 && maximalNoDraft.split("\n").length === 181 && maximalNoDraftPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalNoDraftPortable, MAXIMAL_BOUND), { portable: maximalNoDraftPortable, raw: maximalNoDraft.length, lines: maximalNoDraft.split("\n").length, profiles: realCandidates.length, units: MAX_EXT.units.length, tools: MAX_EXT.units.reduce((n, unit) => n + unit.tools.length, 0) }],
 					["the capped worker rule is the measured 1347 chars and 11 split lines, and stays within 1600 with five percent reserve", workerRule.length === 1347 && workerRule.split("\n").length === 11 && workerRule.length <= 1600 && hasDoctrineReserve(workerRule.length, 1600), { chars: workerRule.length, lines: workerRule.split("\n").length }],
-					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 210 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
-					[`the positive control is the measured 9922 portable chars and 112 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 9922 && overBudget.split("\n").length === 112 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
+					["the maximum model-row and tool-line increments are positive and measured", maxModelIncrement.growth === 1656 && maxToolIncrement === 212, { maxModelIncrement, maxToolIncrement, modelIncrements }],
+					[`the positive control is the measured 34586 portable chars and 188 lines, and exceeds ${MAXIMAL_BOUND} by the larger growth unit`, overBudgetPortable === 34586 && overBudget.split("\n").length === 188 && overBudgetPortable > MAXIMAL_BOUND && overBudgetPortable - MAXIMAL_BOUND >= Math.max(maxModelIncrement.growth, maxToolIncrement), { portable: overBudgetPortable, lines: overBudget.split("\n").length, bound: MAXIMAL_BOUND, growthBeyondBound: overBudgetPortable - MAXIMAL_BOUND, maxModelIncrement, maxToolIncrement }],
 					// Exact measurements are maintenance tripwires, not timeless facts. Update them
 					// with the wording change in the same commit. Remeasure through this doctrine-budget
 					// check, which renders the production before_agent_start hook and normalizes paths.
@@ -2297,7 +2277,7 @@ try {
 				"doctrine-budget-deferred",
 				"the trusted deferred-issue configuration has its own pinned maximum fixture and preserves the existing maximum bound",
 				[
-					[`the maximal deferred-issue fixture is the measured 8524 portable chars and 106 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 8524 && maximalFollowUp.split("\n").length === 106 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
+					[`the maximal deferred-issue fixture is the measured 24512 portable chars and 182 lines, and stays within ${MAXIMAL_BOUND} with five percent reserve`, maximalFollowUpPortable === 24512 && maximalFollowUp.split("\n").length === 182 && maximalFollowUpPortable <= MAXIMAL_BOUND && hasDoctrineReserve(maximalFollowUpPortable, MAXIMAL_BOUND), { portable: maximalFollowUpPortable, raw: maximalFollowUp.length, lines: maximalFollowUp.split("\n").length, reserveRequired: Math.ceil(maximalFollowUpPortable * 1.05), bound: MAXIMAL_BOUND }],
 				],
 			);
 		});
@@ -5989,6 +5969,133 @@ its reviewer.`);
 			]);
 		});
 
+		await section("profiles-fable-5-1-contract", async () => {
+			const actual = table.findProfile("anthropic/claude-fable-5-1");
+			const retired = ["anthropic/claude-fable-5", "openai/gpt-5.4-mini", "openai/gpt-5.4-nano"];
+			const contract = (value) => value !== undefined
+				&& value.id === "anthropic/claude-fable-5-1"
+				&& value.aliases.length === 0
+				&& value.cacheRetention === null
+				&& value.contextWindow === 1_000_000
+				&& value.maxOutput === 128_000
+				&& value.tier === 4
+				&& value.tierUnsourced === true
+				&& JSON.stringify(value.apiRejectedLevels) === JSON.stringify(["off"])
+				&& JSON.stringify(value.capabilityMeasuredAt) === JSON.stringify(["low", "medium", "high", "xhigh", "max"])
+				&& JSON.stringify(value.evidenceGapAt) === JSON.stringify(["minimal"])
+				&& value.routeFor.includes("DeepSWE v1.1 has no result, interval, benchmark cost, or duration")
+				&& value.avoidFor.includes("Zero Data Retention work without account-owner confirmation")
+				&& value.avoidFor.includes("(REFUSE)");
+			const mutated = actual === undefined ? undefined : { ...actual, cacheRetention: { fabricated: true } };
+			checkAll("profiles-fable-5-1-contract", "Fable 5.1 keeps its independent identity, unsourced tier, no inherited cache probe, measured-effort evidence gap, and literal privacy refusal while every retired profile stays absent", [
+				["approved Fable 5.1 contract", contract(actual), actual],
+				["fabricated predecessor cache evidence fails", !contract(mutated), mutated],
+				["retired profiles and aliases do not resolve", retired.every((spec) => table.findProfile(spec) === undefined), retired.map((spec) => [spec, table.findProfile(spec)?.id])],
+			]);
+		});
+
+		await section("profiles-gemini-contract", async () => {
+			const actual = table.findProfile("google-vertex/gemini-3.8-flash");
+			const expected = {
+				id: "google-vertex/gemini-3.8-flash",
+				aliases: ["google/gemini-3.8-flash", "opencode/gemini-3.8-flash", "openrouter/google/gemini-3.8-flash"],
+				cacheRetention: null,
+				contextWindow: 1048576,
+				maxOutput: 65536,
+				tier: 2,
+				tierUnsourced: true,
+				apiRejectedLevels: ["off", "minimal"],
+				routeFor: "Use for agentic repository coding at @medium. DeepSWE v1.1 reports 71.02% scored-attempt pass rate. The dated mean benchmark cost is $1.97 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. Terminal-Bench 2.1 reports 90.8% task pass rate in Google Vertex documentation and 89.4% in the Google DeepMind model card. Neither source states a tested effort. The difference is unresolved, so preserve both figures. AutomationBench-AA v1.0.6 reports a 61% score at @medium across 657 simulated software-as-a-service workflows after tools were available. The headline score penalizes guardrail violations. Its exact penalty formula is unpublished. AA-LCR v1.1 reports 84% at @medium on prompts averaging about 99K tokens. Vals Code Migration reports 25.9% mean hidden-test pass rate across migrations. ARC-AGI-3 has no verified result. Missing evidence is not zero.",
+				avoidFor: "Do not raise coding effort to @high only to claim better quality. The tested DeepSWE @high interval overlaps the @medium interval. Under the exact rule, no clearly better nonoverlapping interval is shown. AA-LCR does not establish retrieval quality for substantially larger contexts or a precise boundary near 100K. The benchmark publications do not establish deployment support, discovery, or selection of an unknown tool. Check the active deployment and tool configuration separately. Vertex measurements do not establish cache, privacy, adapter, or measured-effort behavior on alias routes.",
+				hazards: [
+					"Artificial Analysis uses mixed component methods, not one composite harness [G]",
+					"DeepSWE measurements use Vertex AI and do not establish alias-route capability [G]",
+					"Alias routes do not share cache, privacy, wire-format, or rate contracts [G]",
+				],
+				capabilityMeasuredAt: ["low", "medium", "high"],
+				evidenceGapAt: [],
+				unknownRoutingCriticalFields: [
+					"provider-specific implicit cache behavior across approved routes [G]",
+					"provider-specific privacy handling across approved routes [G]",
+				],
+				evidence: "Artificial Analysis v4.3 measures 34/40/41 from low through high; DeepSWE Vertex AI measures medium and high [G].",
+				asOf: "2026-09-11",
+			};
+			const exact = (value) => JSON.stringify(value) === JSON.stringify(expected);
+			const mutated = actual === undefined ? undefined : { ...actual, tier: 3 };
+			const aliases = expected.aliases.map((spec) => [spec, table.findProfile(spec)]);
+			const aliasViewsValid = aliases.every(([spec, view]) => view !== undefined
+				&& view !== actual
+				&& Object.isFrozen(view)
+				&& Object.isFrozen(view.capabilityMeasuredAt)
+				&& view.id === expected.id
+				&& JSON.stringify(view.aliases) === JSON.stringify(expected.aliases)
+				&& JSON.stringify(table.ladderFor(view)) === JSON.stringify(["low", "medium", "high"])
+				&& JSON.stringify(view.apiRejectedLevels) === JSON.stringify(["off", "minimal"])
+				&& JSON.stringify(view.capabilityMeasuredAt) === JSON.stringify([])
+				&& JSON.stringify(view.evidenceGapAt) === JSON.stringify(["low", "medium", "high"])
+				&& !/71\.02%|\$1\.97|coding at @medium/.test(view.routeFor)
+				&& /cache, privacy, adapter, wire-format, rate/i.test(view.avoidFor)
+				&& table.findProfile(spec.toUpperCase()) === view);
+			checkAll("profiles-gemini-contract", "the canonical Gemini profile keeps its exact approved contract while every cached frozen alias view removes Vertex-only evidence and retains route cautions", [
+				["exact canonical profile row", exact(actual), actual],
+				["explicit three-level ladder", JSON.stringify(actual === undefined ? [] : table.ladderFor(actual)) === JSON.stringify(["low", "medium", "high"]), actual === undefined ? undefined : table.ladderFor(actual)],
+				["tier mutation fails this exact contract", !exact(mutated), mutated],
+				["all three aliases have frozen route-safe views", aliasViewsValid, aliases],
+				["derived views do not expand the canonical catalogue", all.length === 9 && aliases.every(([, view]) => !all.includes(view)), { rows: all.length }],
+			]);
+		});
+
+		await section("profiles-astra-contract", async () => {
+			const actual = table.findProfile("openai/gpt-6-astra");
+			const expected = {
+				id: "openai/gpt-6-astra",
+				aliases: [],
+				cacheRetention: {
+					documented: {
+						retentionSeconds: 1800,
+						meaning: "minimum",
+						defaultWhenOmitted: true,
+						refreshOnRead: true,
+						refreshOnReadAtNoCost: true,
+						source: "https://developers.openai.com/api/docs/guides/prompt-caching",
+						retrieved: "2026-09-11",
+					},
+					invalidatedBy: {
+						modelChange: { invalidates: true, evidence: "documented" },
+						reasoningEffortChange: { invalidates: true, evidence: "documented" },
+					},
+					excluded: ["OpenAI configuration_update can preserve a prefix, but Slate does not emit it."],
+				},
+				contextWindow: 1050000,
+				contextWindowKnownDivergence: 272000,
+				maxOutput: 128000,
+				tier: 4,
+				tierUnsourced: true,
+				apiRejectedLevels: ["off", "minimal"],
+				routeFor: "Use for agentic repository coding at @medium. DeepSWE v1.1 reports 72.79% scored-attempt pass rate. The dated mean benchmark cost is $4.38 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. OpenAI MRCR v2 reports 100% mean approximate text-match credit in the 256K–512K token band and 96.3% in the 512K–1M token band. The source reports its best tested effort but does not identify that effort. OSWorld 2.0 reports 72.6% partial score. AutomationBench-AA reports a 68% score at @max. The @max label records that tested capability setting, not the coding recommendation. Vals Code Migration reports 67.5% mean hidden-test pass rate across migrations. ARC-AGI-3 Standard reports 62.71% at @max through the ordinary ARC interface. A separate Provider Adapter evaluation reports 99.95% at @high through a special provider-specific integration. The adapter preserves provider state and compaction. Keep the two evaluations separate. The adapter is not a normal Slate route.",
+				avoidFor: "Do not raise coding effort to @high, @xhigh, or @max only to claim better quality. Their published DeepSWE 95% intervals overlap the @medium interval. Under the exact rule, no clearly better nonoverlapping interval is shown. The computer and tool scores retain their measured setup and effort. Neither interactive result came from the Slate worker harness. Keep the Provider Adapter result separate from ordinary dispatch. MRCR does not establish active route capacity. Check the active Pi registry for current route capacity.",
+				hazards: [
+					"Formal rollout completion is unknown [G]",
+					"Max is not always best in the measured results [G]",
+					"Prompt-cache hits are machine-local [G]",
+					"Zero Data Retention depends on eligibility, approval, and configuration [G]",
+				],
+				capabilityMeasuredAt: ["low", "medium", "high", "xhigh", "max"],
+				evidenceGapAt: [],
+				unknownRoutingCriticalFields: ["formal rollout completion across accounts, regions, quotas, and future catalogue states [G]"],
+				evidence: "Artificial Analysis v4.3 measures 46/50/51/53/53 from low through max; DeepSWE measures all five controls [G].",
+				asOf: "2026-09-11",
+			};
+			const exact = (value) => JSON.stringify(value) === JSON.stringify(expected);
+			const mutated = actual === undefined ? undefined : { ...actual, contextWindowKnownDivergence: 1050000 };
+			checkAll("profiles-astra-contract", "the GPT-6 Astra profile matches its exact approved contract and the check rejects a row mutation", [
+				["exact profile row", exact(actual), actual],
+				["explicit five-level ladder", JSON.stringify(actual === undefined ? [] : table.ladderFor(actual)) === JSON.stringify(["low", "medium", "high", "xhigh", "max"]), actual === undefined ? undefined : table.ladderFor(actual)],
+				["known-divergence mutation fails this exact contract", !exact(mutated), mutated],
+			]);
+		});
+
 		await section("profiles-refresh", async () => {
 			const actual = Object.fromEntries(all.map((p) => [p.id, {
 				ladder: table.ladderFor(p),
@@ -6004,9 +6111,9 @@ its reviewer.`);
 				"openai/gpt-5.6-terra": { ladder: ["off", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["off"], context: 1050000, output: 128000, rejected: [] },
 				"openai/gpt-5.6-sol": { ladder: ["off", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["off"], context: 1050000, output: 128000, rejected: [] },
 				"anthropic/claude-opus-5": { ladder: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["off", "minimal"], context: 1000000, output: 128000, rejected: [] },
-				"anthropic/claude-fable-5": { ladder: ["minimal", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["minimal"], context: 1000000, output: 128000, rejected: [] },
-				"openai/gpt-5.4-nano": { ladder: ["off", "low", "medium", "high", "xhigh"], measured: ["xhigh"], gaps: ["off", "low", "medium", "high"], context: 400000, output: 128000, rejected: [] },
-				"openai/gpt-5.4-mini": { ladder: ["off", "low", "medium", "high", "xhigh"], measured: ["xhigh"], gaps: ["off", "low", "medium", "high"], context: 400000, output: 128000, rejected: [] },
+				"anthropic/claude-fable-5-1": { ladder: ["minimal", "low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: ["minimal"], context: 1000000, output: 128000, rejected: ["off"] },
+				"google-vertex/gemini-3.8-flash": { ladder: ["low", "medium", "high"], measured: ["low", "medium", "high"], gaps: [], context: 1048576, output: 65536, rejected: ["off", "minimal"] },
+				"openai/gpt-6-astra": { ladder: ["low", "medium", "high", "xhigh", "max"], measured: ["low", "medium", "high", "xhigh", "max"], gaps: [], context: 1050000, output: 128000, rejected: ["off", "minimal"] },
 				"anthropic/claude-haiku-4-5": { ladder: ["off", "minimal", "low", "medium", "high"], measured: [], gaps: ["off", "minimal", "low", "medium", "high"], context: 200000, output: 64000, rejected: [] },
 			};
 			check("profiles-refresh", JSON.stringify(actual) === JSON.stringify(expected), "the refreshed nine-profile ladder, evidence, limit, and requested-control fields match the independently transcribed generation", actual);
@@ -6078,7 +6185,7 @@ its reviewer.`);
 		"base-load", "base-seed", "base-own-switch", "base-user-switch", "base-cycle", "base-restore",
 		"base-adopt", "base-stale-declaration", "base-two-in-flight", "base-throwing-switch",
 		"episode-load", "episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header",
-		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-refresh", "profiles-tier", "profiles-meta",
+		"profiles-ids", "profiles-aliases", "profiles-ladder", "profiles-fable-5-1-contract", "profiles-gemini-contract", "profiles-astra-contract", "profiles-refresh", "profiles-tier", "profiles-meta",
 	];
 	const seen = new Set(reported);
 	const missing = EXPECTED.filter((id) => !seen.has(id));

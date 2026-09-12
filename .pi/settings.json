@@ -1,4 +1,7 @@
 {
+  "defaultProvider": "openai",
+  "defaultModel": "gpt-6-astra",
+  "defaultThinkingLevel": "medium",
   "packages": [
     "../../main",
     "npm:pi-smart-fetch@0.3.12",

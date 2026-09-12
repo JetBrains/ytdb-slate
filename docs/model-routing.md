@@ -17,6 +17,21 @@ rather than a config entry. The nine specs Slate profiles today are
 listed under [Where the numbers come
 from](#where-the-numbers-come-from-and-how-stale-they-can-be).
 
+## Project startup default and action routing
+
+This repository's `.pi/settings.json` prefers `openai/gpt-6-astra` at medium
+for a fresh trusted Pi session. When a scoped model set is active, Pi selects
+Astra if Astra appears anywhere in that set. Astra keeps the project default
+effort unless its scope entry or an explicit thinking option supplies another
+effort. If Astra is absent, the scope excludes it. Explicit command-line and
+restored-session choices keep their existing precedence.
+
+The project setting can also initialize a new worker session when no opening
+model was supplied. Initialization is not action routing. Every worker action
+still names a model and effort. Slate applies that explicit route before the
+first billed worker call. The setting does not rewrite global settings, change
+a current or restored session, or add a routing or failover rule.
+
 ## What routing decides, per action
 
 Each new action validates three explicit values:
@@ -57,7 +72,10 @@ keys:
       "openai/gpt-5.6-terra",
       "openai/gpt-5.6-sol",
       "anthropic/claude-opus-5",
-      "anthropic/claude-fable-5"
+      "anthropic/claude-fable-5-1",
+      "google-vertex/gemini-3.8-flash",
+      "openai/gpt-6-astra",
+      "anthropic/claude-haiku-4-5"
     ],
     "allowUnmeasuredEffort": true,
     "showWarnings": false
@@ -192,6 +210,8 @@ selected model. A valid request stays unchanged.
 
 With the router OFF Slate derives no level. The required explicit value is
 checked against profile data when that data is available. No derived route level exists.
+A retired Mini, Nano, or Fable 5 model has no profile. Slate therefore does not
+apply its former model-specific effort refusal, and Pi may clamp the request.
 
 An explicit level is judged against the model the action routes to,
 which `effortJudgedFor` names. [Known cases where the model or level
@@ -275,16 +295,13 @@ overflow behavior. Slate also does not emit a prompt-size billing notice.
   `router.showWarnings`, as UI notifications or console output. The default
   instead shows one discoverability line when it hides notes.
 - **In the orchestrator's own system prompt, every turn:** the
-  doctrine gains a routing rule — a table with one row per routable
-  model, plus the rules for reading it. This is the surface you do
-  not see, and it is the router's standing cost: 1,990 portable characters /
-  20 split lines for six configured models, 2,467 / 23 for all
-  nine. In the current snapshot the six model rows cost 134–209
-  characters each. Across all nine, the range is 134–209 characters.
-  A one-off legend clause appears for each marker the rows introduce.
-  The complete six-model routing rule is 1,990 portable characters and
-  20 split lines. The complete nine-model routing rule is 2,467 portable
-  characters and 23 split lines.
+  doctrine gains a benchmark guide and a routing table with one row per
+  routable model. This is the surface you do not see, and it is the router's
+  standing cost: 13,811 portable characters / 96 split lines for the fixed
+  six-model fixture and 18,455 / 100 for all nine. The nine model rows cost
+  953–1,655 characters each. The static guide and fixed routing prose cost
+  6,292 characters. A one-off legend clause appears for each marker the rows
+  introduce.
   The fixed fabricated roster does not read project config. Those are PORTABLE characters — the
   doctrine with each occurrence of the installed `docs/` directory
   removed, filenames kept — because the doctrine embeds absolute doc
@@ -295,37 +312,31 @@ overflow behavior. Slate also does not emit a prompt-size billing notice.
 
 ## Expected first-session warnings
 
-The stock count below comes from executing `resolveModelRouter` with this
-repository's sanitized `.pi/slate.json`, the shipped profile table, and a real
-`ModelRuntime` from the pinned pi 0.83.0 package. The runtime used
-`modelsPath: null` and `allowModelNetwork: false`, so no local registry override
-or network refresh could affect it. Dummy OpenAI and Anthropic credentials made
-the configured-auth premise explicit. The packaged OpenAI data at
-`@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/data/openai.json`
-reports a **272,000-token** context window for
-`openai/gpt-5.6-luna`, `openai/gpt-5.6-terra` and
-`openai/gpt-5.6-sol`. The packaged Anthropic data reports 1,000,000
-for each configured Anthropic model. The render treated all six as
-authenticated, matching this repository's configured-auth state.
+The count below comes from executing `resolveModelRouter` with this repository's
+seven-model `.pi/slate.json` and shipped profiles. A deterministic registry
+fixture marks every candidate authenticated. It uses 272,000 tokens for the
+three GPT-5.6 entries, matching the pinned pi package's provider data. It uses
+the documented profile window for Gemini, Astra, and both Anthropic entries.
+This isolates the stock GPT window from this machine's local overrides.
 
 The shipped profiles record 1,050,000 tokens for those three OpenAI
 models. Each stock registry value therefore produces a context-window
 divergence note.
 
-Resolution emits **10 warnings: 0 configuration faults and 10 model
+Resolution emits **11 warnings: 0 configuration faults and 11 model
 data notes**. The default `router.showWarnings: false` therefore
 shows **0 of those warnings** and one discoverability line. That line
-begins `slate: there are 10 hidden warnings in the model router.`
-Enabling the option shows all 10 warnings and no discoverability
+begins `slate: there are 11 hidden warnings in the model router.`
+Enabling the option shows all 11 warnings and no discoverability
 line. Each resolution warning fires at most once per session, and the
 resolution is frozen after the first consultation.
 
 | warnings | class | condition keys | why | shown by default |
 | --- | --- | --- | --- | --- |
 | 1 | model data note | `w3-explainer` | explains the shipped research table before the first unknown-data warning | 0 |
-| 6 | model data note | one `w3:string:<JSON spec>` for each configured model | each profile names model facts with no traced source, or conflicting figures with no adjudication | 0 |
-| 3 | model data note | one `w1:string:<JSON spec>` for each configured OpenAI model | each stock registry window differs from its profile window | 0 |
-| **10** | **all model data notes** | — | stock measured total | **0 warnings; 1 discoverability line** |
+| 7 | model data note | one `w3:string:<JSON spec>` for each configured model | each profile names model facts with no traced source, or conflicting figures with no adjudication | 0 |
+| 3 | model data note | one `w1:string:<JSON spec>` for each configured GPT-5.6 model | each stock registry window differs from its profile window | 0 |
+| **11** | **all model data notes** | — | stock measured total | **0 warnings; 1 discoverability line** |
 
 The stock emission order is:
 
@@ -338,15 +349,16 @@ The stock emission order is:
 7. `w3:string:"openai/gpt-5.6-sol"`
 8. `w3:string:"anthropic/claude-sonnet-5"`
 9. `w3:string:"anthropic/claude-opus-5"`
-10. `w3:string:"anthropic/claude-fable-5"`
+10. `w3:string:"google-vertex/gemini-3.8-flash"`
+11. `w3:string:"openai/gpt-6-astra"`
 
 This count depends on pi's registry data and any local registry
 override. This machine's `~/.pi/agent/models.json` overrides the
 three OpenAI windows to 1,050,000 tokens. A live render here therefore
-suppresses the three divergence notes, leaving **7 model data notes**.
-That seven-note result describes this machine, not a stock install.
+suppresses the three divergence notes, leaving **8 model data notes**.
+That eight-note result describes this machine, not a stock install.
 
-The configured failover map covers all six candidates, so the
+The configured failover map covers all seven candidates, so the
 failover-coverage condition does not fire in either render.
 
 In orchestrator mode the first consultation is the DOCTRINE BUILD,
@@ -368,7 +380,7 @@ guards**. Both are PREVENTIVE — they decide what may be dispatched,
 not what must be checked afterwards — and nothing in the dispatch
 path implements either. A warning must not be read as an interlock:
 
-- **The compliance refusal.** `anthropic/claude-fable-5` normally
+- **The compliance refusal.** `anthropic/claude-fable-5-1` normally
   requires at least 30-day retention. REFUSE a zero-data-retention
   action unless the operator confirms both express Anthropic
   authorization for Fable and the required configuration. Unknown
@@ -420,34 +432,81 @@ exactly — a spec that differs is dropped as unprofiled:
 | `openai/gpt-5.6-sol` | low, medium, high, xhigh, max | |
 | `anthropic/claude-sonnet-5` | low, medium, high, xhigh, max | |
 | `anthropic/claude-opus-5` | low, medium, high, xhigh, max | |
-| `anthropic/claude-fable-5` | low, medium, high, xhigh, max | refuse zero-data-retention work unless express Anthropic authorization and required configuration are confirmed (see [What the router does NOT enforce](#what-the-router-does-not-enforce)) |
-| `openai/gpt-5.4-nano` | xhigh | cheap tier, out of scope (below) |
-| `openai/gpt-5.4-mini` | xhigh | cheap tier, out of scope |
-| `anthropic/claude-haiku-4-5` | none | cheap tier, out of scope |
+| `anthropic/claude-fable-5-1` | low, medium, high, xhigh, max | tier 4 is unsourced; no DeepSWE result; refuse zero-data-retention work unless express model-specific authorization and required provider and account configuration are confirmed |
+| `google-vertex/gemini-3.8-flash` | low, medium, high | aliases use distinct provider contracts |
+| `openai/gpt-6-astra` | low, medium, high, xhigh, max | tier 4 is unsourced; registry capacity can differ from documentation |
+| `anthropic/claude-haiku-4-5` | none | no evidence-based coding default |
 
 "Measured levels" are the levels Slate has capability evidence for.
 An explicit level passes the evidence-gap guard at these levels. Slate does not select the first level automatically.
 
-**Use the canonical spelling.** The table also carries alias
-spellings — the research corpus's dated snapshot ids, and
-`openai/gpt-5.6` for sol — but an alias is only a lookup key for the
-profile, not a routable spec. Checked against a stock pi install:
-`openai/gpt-5.6`, `openai/gpt-5.4-nano-2026-03-17` and
-`openai/gpt-5.4-mini-2026-03-17` are NOT in pi's registry, so listing
-one of them drops it with the "not in pi's model registry" warning
-even though the profile was found. `anthropic/claude-haiku-4-5-20251001`
-happens to be a real registry id and does route. Registry contents
-change, so treat that as a dated observation and prefer the canonical
-column above.
+**Use the canonical spelling.** The table also carries approved aliases,
+including `openai/gpt-5.6` for Sol, a dated Haiku spelling, and three Gemini
+provider routes. An alias is a profile lookup key. It becomes routable only
+when that exact provider-qualified entry exists in Pi's registry and has
+configured credentials. Alias routes can have different cache, privacy, wire,
+adapter, and rate contracts. Vertex measurements do not establish measured
+effort behavior on another Gemini route. Slate therefore treats low, medium,
+and high as evidence gaps for those aliases during normal dispatch. Strict
+projects refuse the gap. Permissive projects run it with an unmeasured marker.
+The live failover exception still permits a working alias at those levels. It
+continues to reject provider-unsupported controls. Registry contents change, so
+prefer the canonical column above unless the project has verified another route.
 
-The last three are profiled but OUT OF SCOPE for routing — they are
-there so that naming one gets you data instead of a spurious "no
-profile" warning, and all three carry traced pi 0.83 ladders. Mini and nano have xhigh evidence. Haiku has no exact-effort capability result. Routing to them is a
-deliberate scope decision, not a default.
+Mini, Nano, and Fable 5 are retired from the profile catalogue. Their canonical
+ids and aliases no longer resolve. A configured list made only of retired names
+becomes an all-dropped fault and blocks dispatch until the project config is
+corrected. Slate performs no config rewrite or history migration. Stored thread
+and episode history remains readable because replay does not require a live
+profile. With routing off, these models are unprofiled and lose their former
+model-specific effort checks. Pi may clamp the requested effort.
 
 `PROFILES_AS_OF` is **2026-09-11** — the date of the research behind
 the table — and every profile carries the same date in its own
 `asOf`. The registry supplies runtime prices separately.
+
+### Benchmark and model-result sources
+
+Slate summarizes model-specific results from the linked publisher and evaluator
+pages. The summaries are original project text. They copy no benchmark prompt,
+dataset, marketing table, or publisher table arrangement. The project approved
+this bounded factual use. A link does not imply publisher endorsement or
+permission beyond the publisher's applicable terms. Scores and costs were
+retrieved on 2026-09-11. Method definitions were checked on 2026-09-12.
+
+Shared method and result sources:
+
+- DeepSWE v1.1 results and costs: <https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json>, <https://deepswe.datacurve.ai/>, and <https://deepswe.datacurve.ai/changelog>.
+- Vals Code Migration and Terminal-Bench 2.1 results: <https://www.vals.ai/benchmarks/code-migration> and <https://www.vals.ai/benchmarks/terminal-bench-2-1>.
+- OpenAI MRCR v2 method: <https://github.com/google-deepmind/eval_hub/blob/master/eval_hub/mrcr_v2/README.md>.
+- OSWorld 2.0 method: <https://arxiv.org/html/2606.29537v2>.
+- AutomationBench-AA, AA-LCR v1.1, and AA-Omniscience methods: <https://artificialanalysis.ai/evaluations/automationbench-aa>, <https://artificialanalysis.ai/evaluations/artificial-analysis-long-context-reasoning>, and <https://artificialanalysis.ai/evaluations/omniscience>.
+- ARC-AGI-3 method and result data: <https://docs.arcprize.org/methodology> and <https://arcprize.org/media/data/leaderboard/v3.json>.
+
+Model-specific result and vendor sources:
+
+- Luna: <https://openai.com/index/advancing-the-price-performance-frontier-with-gpt-5-6/>, <https://www.vals.ai/models/openai_gpt-5.6-luna>, <https://arcprize.org/results/openai-gpt-5-6>, and <https://openai.com/index/gpt-5-6/>.
+- Sonnet 5: <https://www.vals.ai/models/anthropic_claude-sonnet-5>.
+- Terra: <https://www.vals.ai/models/openai_gpt-5.6-terra>, <https://arcprize.org/results/openai-gpt-5-6-terra>, and <https://openai.com/index/gpt-5-6/>.
+- Sol: <https://developers.openai.com/api/docs/models/gpt-5.6-sol>, <https://www.vals.ai/models/openai_gpt-5.6-sol>, <https://arcprize.org/results/openai-gpt-5-6-sol>, <https://openai.com/index/gpt-5-6/>, <https://deploymentsafety.openai.com/gpt-5-6>, and <https://metr.org/blog/2026-06-26-gpt-5-6-sol/>.
+- Opus 5: <https://www.vals.ai/models/anthropic_claude-opus-5>, <https://arcprize.org/results/anthropic-claude-opus-5>, <https://www.anthropic.com/claude-opus-5-system-card>, and <https://artificialanalysis.ai/articles/opus-5>. The dated 50% hallucination result has no published denominator. Fallback-assisted Code Migration share is also unknown.
+- Fable 5.1: <https://platform.claude.com/docs/en/models/fable-5-1/overview>, <https://platform.claude.com/docs/en/build-with-claude/effort>, <https://www.vals.ai/models/anthropic_claude-fable-5-1>, <https://www.anthropic.com/claude/fable>, <https://artificialanalysis.ai/models/comparisons/claude-fable-5-1-vs-claude-fable-5-1-medium>, <https://artificialanalysis.ai/models/comparisons/claude-fable-5-1-low-vs-claude-fable-5-1-xhigh>, and <https://artificialanalysis.ai/articles/claude-fable-5-1>. Fallback-assisted shares remain unknown.
+- Gemini 3.8 Flash: <https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-8-flash>, <https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-3-8-flash>, <https://deepmind.google/models/model-cards/gemini-3-8-flash/>, <https://artificialanalysis.ai/models/releases/gemini-3-8-flash>, and <https://artificialanalysis.ai/models/gemini-3-8-flash>. The Vals benchmark page above contains the named Gemini row.
+- Astra: <https://developers.openai.com/api/docs/models/gpt-6-astra>, <https://openai.com/index/gpt-6-astra/>, <https://artificialanalysis.ai/models/comparisons/gpt-6-astra-low-vs-gpt-6-astra>, <https://www.vals.ai/models/openai_gpt-6-astra>, <https://arcprize.org/results/openai-gpt-6-astra>, <https://arcprize.org/blog/astra>, and <https://openai.com/index/how-two-settings-tripled-our-arc-agi-3-scores/>.
+- Haiku 4.5: <https://platform.claude.com/docs/en/models/haiku-4-5/overview> and <https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence>. The Vals benchmark pages above contain the named Haiku rows.
+
+Cache policy sources are <https://developers.openai.com/api/docs/guides/prompt-caching>
+and <https://platform.claude.com/docs/en/build-with-claude/prompt-caching>.
+Local cache probes are internal project measurements dated 2026-08-06. Fable
+5.1 has no local cache probe. Covered Model retention sources are
+<https://support.claude.com/en/articles/15425695-covered-models> and
+<https://privacy.claude.com/en/articles/15425996-data-retention-practices-for-covered-models>.
+OpenAI data controls are documented at
+<https://developers.openai.com/api/docs/guides/your-data>. A public page cannot
+prove account-specific Zero Data Retention authorization. The operator must use
+the project's authorization record. Tier assignments and routing
+recommendations are project judgments derived from the recorded evidence. They
+are not publisher recommendations.
 
 The table's own provenance rules, which the warnings above depend
 on:

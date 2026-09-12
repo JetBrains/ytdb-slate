@@ -286,6 +286,89 @@ function measuredCell(router: ModelRouterResolution, candidate: RouterCandidate)
 }
 
 /**
+ * Static method notes for the benchmark claims in the live profile rows. This
+ * text is repository-owned and contains no project, registry, or profile data.
+ * It appears only when the trusted routing table appears.
+ */
+const ROUTING_BENCHMARK_GUIDE = `
+   Benchmark score guide:
+   - DeepSWE v1.1: scored-attempt pass rate. Context-window failures and agent
+     timeouts are failures. Provider, verifier, and network errors are excluded.
+     Its published 95% run interval is 1.96 * std(runs) / sqrt(4) across four
+     whole-benchmark runs. The standard-deviation divisor is not published.
+   - Vals Code Migration: mean hidden-test pass rate across migrations, with
+     equal source-repository weight after target-language averaging. It is not
+     the percentage of whole migrations completed. Anti-cheat checks can zero
+     wrappers, copied artifacts, and wrong-language submissions.
+   - Terminal-Bench 2.1: binary task pass@1. Every test must pass. There is no
+     partial credit.
+   - OpenAI MRCR v2, eight needles: mean approximate text-match credit. The
+     required 12-character hash must precede the retrieved text or the example
+     scores zero. This is fractional credit, not binary correctness. Tool access
+     is a separate setup condition.
+   - OSWorld 2.0: partial is weighted checkpoint credit. Strict is the share of
+     fully completed workflows. Keep the two results separate. Release, tasks,
+     evaluator, interface, and action limit affect comparability.
+   - AutomationBench-AA: objectives completed after guardrail violations are
+     penalized. Raw objectives completed is separate. The accessible method does
+     not publish the exact penalty and aggregation formula.
+   - AA-LCR v1.1: percentage of 100 answers accepted by an equality-checker
+     judge. Its roughly 99K mean completed-prompt tokens describe the evidence
+     window, not route capacity. Version 1.0.0 is not comparable with v1.1.
+   - AA-Omniscience: current hallucination rate is Incorrect / (Incorrect +
+     Partial + Not Attempted), and lower is better. Accuracy and attempt rate are
+     separate. The current method does not prove that this denominator applied
+     to the dated Opus 5 result.
+   - ARC-AGI-3: Relative Human Action Efficiency (RHAE) combines level completion with
+     action efficiency against a human reference. Uncompleted levels score zero.
+     It is not a task-solve percentage. Standard and Provider Adapter harnesses
+     are separate. Adapter state retention and compaction are not normal Slate
+     capabilities. Published cost is total evaluation cost.
+   Use this guide:
+   - Pi's complete effort vocabulary is off < minimal < low < medium < high <
+     xhigh < max. A model can offer only a subset. The five provider effort
+     labels used by several benchmark series are low through max.
+   - For DeepSWE-shaped repository coding, choose the lowest measured effort for
+     which no higher measured effort has a clearly better nonoverlapping
+     published 95% interval. A higher effort clearly beats it only when the
+     higher lower bound exceeds the candidate upper bound. Do not recompute
+     unpublished bounds.
+   - Interval overlap only means this heuristic does not select the higher
+     effort. It does not prove equality, equivalence, non-inferiority, or no gain.
+   - Do not transfer the coding rule to computer use, retrieval, tool use,
+     factual recall, long-context work, or other tasks.
+   - Keep each effort attached to its result. An unreported setting validates no
+     setting. A model-level signal can guide a choice with judgment and an
+     explicit valid setting, but it proves no capability at that setting.
+   - Fable 5.1 and Haiku 4.5 have no evidence-based coding default. This is an
+     evidence gap, not a prohibition. Provisional use needs an explicit valid
+     effort and normal result verification. Do not invent a recommended coding
+     effort, coding optimality, or DeepSWE price.
+   - Terra is nonpreferred. Do not pick it by default. State a work-specific
+     reason in the task text. Do not add a tool argument or report field.
+   - Unknown capabilities are not prohibited. An explicit avoid cell is the
+     exception.
+   - Many short tasks means separate independent actions with directly checkable
+     results, not one long loop that repeatedly plans, uses tools, reads feedback,
+     and adapts. No numeric boundary is supported.
+   - Treat a near-zero ARC-AGI-3 result as evidence against benchmark-shaped
+     interactive work. Do not create a universal numerical threshold.
+   - Benchmarks are proxies, not Slate execution. Harness adaptation is not a
+     supported routing feature.
+   - Use the active Pi registry for route capacity and prices. DeepSWE costs are
+     dated cost-per-attempt figures generated on 2026-09-03 and retrieved on
+     2026-09-11. They are not future quotes. Context bands are not route limits.
+   - Keep partial, strict, fallback-assisted, and special-harness results
+     separate. Do not turn limited evidence into a positive recommendation.
+   - Respect provider, tool, credential, account, and privacy constraints.
+     Benchmark availability does not establish eligibility.
+   - The Fable 5.1 72.6% label is "among questions not answered correctly".
+     Do not derive another denominator from it.
+   - Zero Data Retention needs account-owner confirmation of model-specific
+     authorization and the required provider and account configuration under the
+     governing agreement. Use the project's established authorization record.`;
+
+/**
  * The action-level routing rule — the SECOND tail rule, so 12 when worker
  * extensions render above it and 11 when they do not. A trusted router-off
  * session receives only the explicit dispatch vocabulary and session base model.
@@ -322,11 +405,10 @@ function measuredCell(router: ModelRouterResolution, candidate: RouterCandidate)
  *   1. NO MARKDOWN STRIP. Backticks, "*", "#", ">" render verbatim, where rule
  *      11's sanitizeForDoctrine drops them from third-party text.
  *   2. NO LENGTH CAP, where rule 11 caps every field it interpolates. Deliberate
- *      while the columns are frozen repo data reviewed at each research refresh
- *      (the longest ships at ~73 characters): a cap would silently truncate a
- *      legitimately grown research field, which is a correctness defect traded
- *      for a cosmetic one, and an over-long row fails the size budget in
- *      verification/ loudly instead.
+ *      while the columns are frozen repo data reviewed at each research refresh:
+ *      a cap would silently truncate legitimate guidance. Exact production-render
+ *      fixtures detect every changed character. Coarse row and doctrine bounds
+ *      retain reserve for reviewed growth.
  *   3. NOT A SANITIZER PROBLEM AT ALL, and the one no sanitizer can fix: the
  *      rule's closing sentence tells the orchestrator to honour a REFUSE in an
  *      avoid cell, which delegates DIRECTIVE AUTHORITY to a data cell. Harmless
@@ -364,7 +446,7 @@ function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: 
 	const legend = [
 		candidates.some((c) => c.ladderAssumed === true) ? "~ = assumed ladder" : "",
 		// With no measured level there is nothing to display as a supported choice.
-		candidates.some((c) => measuredLevels(router, c).length === 0) ? "none = pi's own level applies" : "",
+		candidates.some((c) => measuredLevels(router, c).length === 0) ? "none = no measured effort in Slate's profile" : "",
 	]
 		.filter((clause) => clause !== "")
 		.join("; ");
@@ -373,8 +455,8 @@ function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: 
 	const gap = allowUnmeasuredEffort ? "runs, marked unmeasured" : "is refused too (router.allowUnmeasuredEffort is false)";
 	return `
 ${n}. Choose a listed model and effort that fit each action. Candidate rows preserve
-   configured order after validation. Routable
-   this session (spec|$in/$out per Mtok|ctx|tier|measured|route for|avoid):
+   configured order after validation.${ROUTING_BENCHMARK_GUIDE}
+   Routable this session (spec|$in/$out per Mtok|ctx|tier|measured|route for|avoid):
 ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
    Every call must name \`model\`, \`effort\`, and a short \`reason\`. The model
    and effort route THAT action only. Pick a measured level that clears
