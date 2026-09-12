@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ModelProfile } from "../extension/model-profiles.ts";
-import { ROUTER_OFF, resolveModelRouter, type RouterProfileSource, type RouterRegistryModel } from "../extension/model-router.ts";
-import { planRoute } from "../extension/route.ts";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { findProfile, MODEL_PROFILES, type ModelProfile } from "../extension/model-profiles.ts";
+import { ROUTER_OFF, resolveModelRouter, SHIPPED_PROFILE_SOURCE, type RouterProfileSource, type RouterRegistryModel } from "../extension/model-router.ts";
+import { planRoute, type RoutePlanInput } from "../extension/route.ts";
+import { SlateStore } from "../extension/state.ts";
+import { ThreadManager } from "../extension/threads.ts";
 
 function profile(id: string, tier: 1 | 2 | 3 | 4 = 1, tierUnsourced = false, aliases: string[] = []): ModelProfile {
   return {
@@ -87,6 +90,133 @@ test("registry prices have no dispatch warning or routing effect", () => {
   assert.equal(verdict.kind === "proceed" ? verdict.model : undefined, "p/selected");
   assert.deepEqual(verdict.warnings, []);
   assert.equal(JSON.stringify(verdict).includes("price"), false);
+});
+
+test("removed profiles are unprofiled through the real ThreadManager router-off composition", () => {
+  const manager = new ThreadManager(new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI), {});
+  const internals = manager as unknown as {
+    routeInputs(ctx: ExtensionContext, thread: undefined, opts: { model: string; effort: "off" | "max" }): RoutePlanInput;
+  };
+  const models = new Set(["openai/gpt-5.4-mini", "openai/gpt-5.4-nano", "anthropic/claude-fable-5"]);
+  const ctx = {
+    modelRegistry: {
+      find: (provider: string, id: string) => models.has(`${provider}/${id}`) ? { provider, id } : undefined,
+      hasConfiguredAuth: () => true,
+    },
+  } as unknown as ExtensionContext;
+  for (const [spec, effort] of [
+    ["openai/gpt-5.4-mini", "max"],
+    ["openai/gpt-5.4-nano", "max"],
+    ["anthropic/claude-fable-5", "off"],
+  ] as const) {
+    assert.equal(findProfile(spec), undefined);
+    assert.equal(planRoute(internals.routeInputs(ctx, undefined, { model: spec, effort })).kind, "proceed", spec);
+  }
+});
+
+test("current Fable profile guards normal router-off source composition", () => {
+  const manager = new ThreadManager(new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI), {});
+  const internals = manager as unknown as {
+    routeInputs(ctx: ExtensionContext, thread: undefined, opts: { model: string; effort: "off" }): RoutePlanInput;
+  };
+  const spec = "anthropic/claude-fable-5-1";
+  assert.ok(findProfile(spec));
+  const ctx = {
+    modelRegistry: {
+      find: (provider: string, id: string) => `${provider}/${id}` === spec ? { provider, id } : undefined,
+      hasConfiguredAuth: () => true,
+    },
+  } as unknown as ExtensionContext;
+  const verdict = planRoute(internals.routeInputs(ctx, undefined, { model: spec, effort: "off" }));
+  assert.equal(verdict.kind, "reject");
+  assert.match(verdict.kind === "reject" ? verdict.reason : "", /rejected outright as a provider-unsupported requested control/);
+});
+
+test("Gemini aliases use cached frozen evidence-gap views in normal router ON and OFF", () => {
+  const canonicalSpec = "google-vertex/gemini-3.8-flash";
+  const aliases = [
+    "google/gemini-3.8-flash",
+    "opencode/gemini-3.8-flash",
+    "openrouter/google/gemini-3.8-flash",
+  ];
+  const canonical = findProfile(canonicalSpec);
+  assert.ok(canonical);
+  assert.deepEqual(canonical.capabilityMeasuredAt, ["low", "medium", "high"]);
+  assert.match(canonical.routeFor, /71\.02%/);
+  assert.equal(MODEL_PROFILES.length, 9);
+  const canonicalResolution = resolveModelRouter({
+    models: [canonicalSpec],
+    registry: { find: () => ({ contextWindow: 1_048_576 }), hasConfiguredAuth: () => true },
+    failover: { [canonicalSpec]: "anthropic/claude-opus-5" },
+  });
+  for (const effort of ["low", "medium", "high"] as const) {
+    const on = planRoute({ resolution: canonicalResolution, requestedModel: canonicalSpec, requestedEffort: effort, requireExplicit: true, allowUnmeasuredEffort: false });
+    assert.equal(on.kind, "proceed");
+    if (on.kind === "proceed") assert.equal(on.effortUnmeasured, false);
+    const off = planRoute({ resolution: ROUTER_OFF, profiles: SHIPPED_PROFILE_SOURCE, requestedModel: canonicalSpec, requestedEffort: effort, requireExplicit: true, allowUnmeasuredEffort: false });
+    assert.equal(off.kind, "proceed");
+    if (off.kind === "proceed") assert.equal(off.effortUnmeasured, false);
+  }
+
+  for (const alias of aliases) {
+    const view = findProfile(alias);
+    assert.ok(view);
+    assert.strictEqual(findProfile(alias.toUpperCase()), view);
+    assert.notStrictEqual(view, canonical);
+    assert.equal(Object.isFrozen(view), true);
+    assert.equal(Object.isFrozen(view.capabilityMeasuredAt), true);
+    assert.equal(view.id, canonicalSpec);
+    assert.deepEqual(view.aliases, aliases);
+    assert.deepEqual(SHIPPED_PROFILE_SOURCE.ladderFor(view), ["low", "medium", "high"]);
+    assert.deepEqual(view.apiRejectedLevels, ["off", "minimal"]);
+    assert.deepEqual(view.capabilityMeasuredAt, []);
+    assert.deepEqual(view.evidenceGapAt, ["low", "medium", "high"]);
+    assert.doesNotMatch(view.routeFor, /71\.02%|\$1\.97|@medium/);
+    assert.match(view.avoidFor, /cache, privacy, adapter, wire-format, rate/i);
+
+    const registryModel = { cost: { input: 9, output: 10 }, contextWindow: 777_000 };
+    const resolution = resolveModelRouter({
+      models: [alias, canonicalSpec],
+      registry: {
+        find: (provider, id) => `${provider}/${id}` === alias ? registryModel : { cost: { input: 1, output: 2 }, contextWindow: 1_048_576 },
+        hasConfiguredAuth: () => true,
+      },
+      failover: { [alias]: canonicalSpec, [canonicalSpec]: alias },
+    });
+    assert.deepEqual(resolution.candidates.map((candidate) => candidate.spec), [alias]);
+    assert.deepEqual(resolution.candidates[0]?.registryCost.input, 9);
+    assert.equal(resolution.candidates[0]?.contextWindow, 777_000);
+    for (const effort of ["low", "medium", "high"] as const) {
+      for (const allowUnmeasuredEffort of [true, false]) {
+        const on = planRoute({ resolution, requestedModel: alias, requestedEffort: effort, requireExplicit: true, allowUnmeasuredEffort });
+        assert.equal(on.kind, allowUnmeasuredEffort ? "proceed" : "reject", `${alias} ${effort} ON ${allowUnmeasuredEffort}`);
+        if (on.kind === "proceed") assert.equal(on.effortUnmeasured, true);
+        const off = planRoute({ resolution: ROUTER_OFF, profiles: SHIPPED_PROFILE_SOURCE, requestedModel: alias, requestedEffort: effort, requireExplicit: true, allowUnmeasuredEffort });
+        assert.equal(off.kind, allowUnmeasuredEffort ? "proceed" : "reject", `${alias} ${effort} OFF ${allowUnmeasuredEffort}`);
+        if (off.kind === "proceed") assert.equal(off.effortUnmeasured, true);
+      }
+    }
+    for (const effort of ["off", "minimal"] as const) {
+      assert.equal(planRoute({ resolution, requestedModel: alias, requestedEffort: effort, requireExplicit: true }).kind, "reject");
+      assert.equal(planRoute({ resolution: ROUTER_OFF, profiles: SHIPPED_PROFILE_SOURCE, requestedModel: alias, requestedEffort: effort, requireExplicit: true }).kind, "reject");
+    }
+    const failover = planRoute({ resolution, profiles: SHIPPED_PROFILE_SOURCE, failoverSwitch: true, failoverFrom: "other/model", requestedModel: alias, requestedEffort: "medium", allowUnmeasuredEffort: false });
+    assert.equal(failover.kind, "proceed");
+    if (failover.kind === "proceed") assert.equal(failover.effortUnmeasured, false);
+    const blockedFailover = planRoute({ resolution, profiles: SHIPPED_PROFILE_SOURCE, failoverSwitch: true, failoverFrom: "other/model", requestedModel: alias, requestedEffort: "off", allowUnmeasuredEffort: true });
+    assert.equal(blockedFailover.kind, "reject");
+  }
+});
+
+test("an unlisted Gemini alias fails membership before evidence policy", () => {
+  const resolution = resolveModelRouter({
+    models: ["google-vertex/gemini-3.8-flash"],
+    registry: { find: () => ({ contextWindow: 1_048_576 }), hasConfiguredAuth: () => true },
+    failover: { "google-vertex/gemini-3.8-flash": "anthropic/claude-opus-5" },
+  });
+  const verdict = planRoute({ resolution, requestedModel: "google/gemini-3.8-flash", requestedEffort: "medium", requireExplicit: true, allowUnmeasuredEffort: true });
+  assert.equal(verdict.kind, "reject");
+  assert.match(verdict.kind === "reject" ? verdict.reason : "", /not routable/);
 });
 
 test("explicit effort guards remain fail-soft on unreadable profiles and hard on readable facts", () => {

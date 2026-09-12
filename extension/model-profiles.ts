@@ -87,9 +87,9 @@ export interface ModelProfile {
 	ladderAssumed?: true;
 	/** requested controls Slate must reject before pi can omit or silently substitute them; hard, unlike `evidenceGapAt` */
 	apiRejectedLevels?: ThinkingLevel[];
-	/** short task classes to route here for */
+	/** reviewed routing evidence and task guidance shown in the live table */
 	routeFor: string;
-	/** short task classes to avoid here */
+	/** reviewed cautions and refusal conditions shown in the live table */
 	avoidFor: string;
 	/** routing-relevant hazards, each a short clause */
 	hazards: string[];
@@ -144,6 +144,23 @@ const OPENAI_GPT_5_6_CACHE_RETENTION = {
 	excluded: ["OpenAI configuration_update can preserve cache, but Slate does not emit it or keep top-level effort unchanged."],
 } satisfies CacheRetention;
 
+const OPENAI_GPT_6_ASTRA_CACHE_RETENTION = {
+	documented: {
+		retentionSeconds: 1800,
+		meaning: "minimum",
+		defaultWhenOmitted: true,
+		refreshOnRead: true,
+		refreshOnReadAtNoCost: true,
+		source: "https://developers.openai.com/api/docs/guides/prompt-caching",
+		retrieved: "2026-09-11",
+	},
+	invalidatedBy: {
+		modelChange: { invalidates: true, evidence: "documented" },
+		reasoningEffortChange: { invalidates: true, evidence: "documented" },
+	},
+	excluded: ["OpenAI configuration_update can preserve a prefix, but Slate does not emit it."],
+} satisfies CacheRetention;
+
 const ANTHROPIC_CACHE_RETENTION = {
 	documented: {
 		retentionSeconds: 300,
@@ -195,8 +212,8 @@ const PROFILES: ModelProfile[] = [
 		contextWindowKnownDivergence: 1000000,
 		maxOutput: 128000,
 		tier: 1,
-		routeFor: "high-volume work; DeepSWE evidence is strongest @max",
-		avoidFor: "deep retrieval and interactive work @max",
+		routeFor: "Use for agentic repository coding at @max. DeepSWE v1.1 reports 67.19% scored-attempt pass rate. The dated mean benchmark cost is $0.61 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. Vendor guidance supports well-specified changes with explicit tests. Vals Code Migration reports 36.1% mean hidden-test pass rate across migrations. This result does not measure architecture or design quality. ARC-AGI-3 Standard reports 0.18% at @max under the RHAE method. This near-zero result is evidence against routing novel interactive reasoning for benchmark-shaped work.",
+		avoidFor: "For DeepSWE-shaped repository coding, avoid lower efforts. The interval rule in the guide selected @max from the measured series. The mean DeepSWE duration was 1,123 seconds per complete benchmark task. It includes the benchmark harness, tools, host, and provider load. It is not response latency and does not establish ordinary interactive speed. Capabilities not listed are unknown, not prohibited.",
 		hazards: [
 			"DeepSWE pass@1 rises from 1.55% @low to 67.19% @max [O7]",
 			"MRCR v2 8-needle is 41.3% in both 256K–512K and 512K–1M bands [O10]",
@@ -222,8 +239,8 @@ const PROFILES: ModelProfile[] = [
 		contextWindow: 1000000,
 		maxOutput: 128000,
 		tier: 2,
-		routeFor: "use @high when its measured strengths fit",
-		avoidFor: "work a configured cheaper model can clear",
+		routeFor: "Use for agentic repository coding at @high. DeepSWE v1.1 reports 48.23% scored-attempt pass rate. The dated mean benchmark cost is $7.43 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. Terminal-Bench 2.1 reports 74.53% task pass rate at @high over three runs in the Vals deployment. Every task needs all tests to pass. Vals Code Migration reports 36.3% mean hidden-test pass rate across migrations. ARC-AGI-3 has no verified result. Missing evidence is not zero or a routing prohibition.",
+		avoidFor: "Do not raise coding effort to @xhigh or @max only to claim better quality. Their published DeepSWE 95% intervals overlap the @high interval. Under the exact rule, no clearly better nonoverlapping interval is shown. Overlap does not prove equal performance. This advice applies only to DeepSWE-shaped coding.",
 		hazards: [
 			"pi off sends disabled thinking and is accepted; enabled manual thinking remains unsupported [A2]",
 			"DeepSWE now measures low through max, with 30.51% @low and 53.85% @max [A6]",
@@ -244,8 +261,8 @@ const PROFILES: ModelProfile[] = [
 		maxOutput: 128000,
 		tier: 2,
 		tierUnsourced: true,
-		routeFor: "configured-only; justify the model and effort directly",
-		avoidFor: "default use; no refreshed source establishes a unique niche",
+		routeFor: "Use for agentic repository coding at @max. DeepSWE v1.1 reports 69.62% scored-attempt pass rate. The dated mean benchmark cost is $3.96 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. OpenAI MRCR v2 reports 89.6% mean approximate text-match credit in the 256K–512K token band and 72.5% in the 512K–1M token band. The source reports its best tested effort but does not identify that effort. Vals Code Migration reports 40.4% mean hidden-test pass rate across migrations. ARC-AGI-3 Standard reports 0.80% at @max under the RHAE method. This near-zero result is evidence against routing novel interactive reasoning for benchmark-shaped work. This is a nonpreferred route. Do not pick it by default. If a task uses it, state the work-specific reason in the task text under the existing doctrine rule. Do not add a tool argument or report field.",
+		avoidFor: "For coding, lower efforts are not the selected setting under the interval rule. This coding rule does not establish the best effort for another task type. MRCR context bands do not establish active route capacity or uniform retrieval quality across every size in either band. Check the active Pi registry for current route capacity. Capabilities not listed are unknown, not prohibited.",
 		hazards: [
 			"DeepSWE pass@1 rises from 24.05% @low to 69.62% @max [O7]",
 			"No refreshed common method supports an ordinal tier [O7, O8]",
@@ -273,8 +290,8 @@ const PROFILES: ModelProfile[] = [
 		contextWindowKnownDivergence: 1000000,
 		maxOutput: 128000,
 		tier: 3,
-		routeFor: "agentic coding @high; high overlaps max on DeepSWE",
-		avoidFor: "highest-effort work without supervision and output checks",
+		routeFor: "Use for agentic repository coding at @high. DeepSWE v1.1 reports 69.40% scored-attempt pass rate. The dated mean benchmark cost is $2.66 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. OpenAI MRCR v2 reports 91.5% mean approximate text-match credit in the 256K–512K token band and 73.8% in the 512K–1M token band. The source reports its best tested effort but does not identify that effort. Vendor Terminal-Bench 2.1 reports 88.8% task pass rate. Vals Code Migration reports 47.2% mean hidden-test pass rate across migrations. ARC-AGI-3 Standard reports 7.78% at @max under the RHAE method. The low score and effort mismatch make it weak evidence for novel interactive reasoning.",
+		avoidFor: "Do not raise coding effort to @xhigh or @max only to claim better quality. Their published DeepSWE 95% intervals overlap the @high interval. Under the exact rule, no clearly better nonoverlapping interval is shown. The interactive result uses @max under its own harness. It does not support the proposed @high coding setting or establish ordinary worker performance. MRCR does not establish active route capacity. Check the active Pi registry for current route capacity. Capabilities not listed are unknown, not prohibited.",
 		hazards: [
 			"Sol exceeded user intent more often at the highest efforts in vendor coding simulations [O6]",
 			"METR reports its highest detected cheating rate but no robust exact rate [O9]",
@@ -293,8 +310,8 @@ const PROFILES: ModelProfile[] = [
 		contextWindow: 1000000,
 		maxOutput: 128000,
 		tier: 3,
-		routeFor: "architecture and difficult repository work @high",
-		avoidFor: "@max when overlapping lower-effort evidence is enough",
+		routeFor: "Use for agentic repository coding at @high. DeepSWE v1.1 reports 72.83% scored-attempt pass rate. The dated mean benchmark cost is $6.08 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. Vals Code Migration reports 53.3% mean hidden-test pass rate across migrations with server-side fallback permitted. The fallback-assisted share is unknown. ARC-AGI-3 Standard reports 30.16% at @high under the RHAE method. OSWorld 2.0 reports 70.57% first-attempt success over five runs in a live 1080p Ubuntu environment with a 500-action limit. Keep that source unit and setup. This supports computer-interface work only within the stated setup.",
+		avoidFor: "Do not raise coding effort to @xhigh or @max only to claim better quality. Their published DeepSWE 95% intervals overlap the @high interval. Under the exact rule, no clearly better nonoverlapping interval is shown. Use caution for factual recall at @max. AA-Omniscience reported a 50% hallucination rate on 2026-07-24. The dated source does not state its denominator. Do not impute the current denominator to that historical result.",
 		hazards: [
 			"DeepSWE used Vertex AI rather than the direct Anthropic deployment [A6]",
 			"Vals results include an Opus 4.8 refusal fallback [A9]",
@@ -307,65 +324,77 @@ const PROFILES: ModelProfile[] = [
 		asOf: PROFILES_AS_OF,
 	},
 	{
-		id: "anthropic/claude-fable-5",
+		id: "anthropic/claude-fable-5-1",
 		aliases: [],
-		cacheRetention: { ...ANTHROPIC_CACHE_RETENTION },
+		cacheRetention: null,
 		contextWindow: 1000000,
 		maxOutput: 128000,
 		tier: 4,
-		routeFor: "use only after a directly justified comparison",
-		avoidFor: "ZDR-required without confirmed express authorization and configuration (REFUSE); default use",
+		tierUnsourced: true,
+		apiRejectedLevels: ["off"],
+		routeFor: "This row has no established agentic-coding effort. DeepSWE v1.1 has no result, interval, benchmark cost, or duration for this row. Provisional use is allowed with an explicit valid measured effort where policy requires one, normal result verification, and no claim of coding optimality or DeepSWE price. Vals Code Migration reports 57.10% mean hidden-test pass rate at @max with server-side fallback enabled. The fallback-assisted share is unknown. OSWorld 2.0 reports 77.9% partial score and 41.7% strict score on the August 2026 release. AA-LCR v1.1 reports 85% at @medium, 84% at @high, 83% at @xhigh, and 85% at @max on completed prompts averaging about 99K tokens. Fallback contribution is unknown. ARC-AGI-3 has no verified result. Missing evidence is not zero.",
+		avoidFor: "Do not claim an evidence-based coding effort or DeepSWE cost. Do not treat @max on Code Migration or the AA-LCR effort labels as a general recommendation. AA-Omniscience at @max reports 67.2% accuracy, a 93.4% attempt rate, and a 72.6% hallucination rate among questions not answered correctly. Preserve that exact denominator label. Zero Data Retention work without account-owner confirmation of express model-specific authorization and the required provider and account configuration under the governing agreement (REFUSE). Use the project's established authorization record. A general agreement, model availability, or successful request does not provide automatic approval.",
 		hazards: [
 			"Covered Model status requires at least 30-day retention unless expressly authorized [A4]",
-			"The model is active legacy and has a named successor [A1]",
-			"DeepSWE used Vertex AI; Vals and AA results include an Opus 4.8 fallback [A6, A9, A10]",
+			"DeepSWE has no Fable 5.1 result, cost, interval, or duration [A6]",
+			"Vals and Artificial Analysis results include server-side fallback [A9, A10]",
 		],
 		capabilityMeasuredAt: ["low", "medium", "high", "xhigh", "max"],
 		evidenceGapAt: ["minimal"],
-		unknownRoutingCriticalFields: ["capability at minimal and the fallback share in the named Vals and AA results [A9, A10]"],
-		evidence: "Vertex DeepSWE measures 59.58/65.37/68.60/69.91/69.72% from low through max; Fable remains a Covered Model [A4, A6].",
+		unknownRoutingCriticalFields: [
+			"capability at minimal and the fallback share in named Vals and Artificial Analysis results [A9, A10]",
+			"model-specific cache retention and invalidation under Slate top-level effort switches [A3]",
+		],
+		evidence: "AA-LCR v1.1 and AutomationBench-AA measure low through max with fallback enabled; DeepSWE has no Fable 5.1 row [A6, A10].",
 		asOf: PROFILES_AS_OF,
 	},
 	{
-		id: "openai/gpt-5.4-nano",
-		aliases: ["openai/gpt-5.4-nano-2026-03-17", "gpt-5.4-nano-2026-03-17", "gpt-5.4-nano"],
+		id: "google-vertex/gemini-3.8-flash",
+		aliases: ["google/gemini-3.8-flash", "opencode/gemini-3.8-flash", "openrouter/google/gemini-3.8-flash"],
 		cacheRetention: null,
-		contextWindow: 400000,
-		maxOutput: 128000,
-		tier: 1,
+		contextWindow: 1048576,
+		maxOutput: 65536,
+		tier: 2,
 		tierUnsourced: true,
-		routeFor: "explicit-scope-only work @xhigh",
-		avoidFor: "deep retrieval, computer use, and tool search",
+		apiRejectedLevels: ["off", "minimal"],
+		routeFor: "Use for agentic repository coding at @medium. DeepSWE v1.1 reports 71.02% scored-attempt pass rate. The dated mean benchmark cost is $1.97 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. Terminal-Bench 2.1 reports 90.8% task pass rate in Google Vertex documentation and 89.4% in the Google DeepMind model card. Neither source states a tested effort. The difference is unresolved, so preserve both figures. AutomationBench-AA v1.0.6 reports a 61% score at @medium across 657 simulated software-as-a-service workflows after tools were available. The headline score penalizes guardrail violations. Its exact penalty formula is unpublished. AA-LCR v1.1 reports 84% at @medium on prompts averaging about 99K tokens. Vals Code Migration reports 25.9% mean hidden-test pass rate across migrations. ARC-AGI-3 has no verified result. Missing evidence is not zero.",
+		avoidFor: "Do not raise coding effort to @high only to claim better quality. The tested DeepSWE @high interval overlaps the @medium interval. Under the exact rule, no clearly better nonoverlapping interval is shown. AA-LCR does not establish retrieval quality for substantially larger contexts or a precise boundary near 100K. The benchmark publications do not establish deployment support, discovery, or selection of an unknown tool. Check the active deployment and tool configuration separately. Vertex measurements do not establish cache, privacy, adapter, or measured-effort behavior on alias routes.",
 		hazards: [
-			"Vendor MRCR falls to 33.1% in the 128K–256K band even @xhigh [O5]",
-			"Pi 0.83 clamps minimal to low and max to xhigh [G]",
-			"DeepSWE has no exact row for this model [G]",
+			"Artificial Analysis uses mixed component methods, not one composite harness [G]",
+			"DeepSWE measurements use Vertex AI and do not establish alias-route capability [G]",
+			"Alias routes do not share cache, privacy, wire-format, or rate contracts [G]",
 		],
-		capabilityMeasuredAt: ["xhigh"],
-		evidenceGapAt: ["off", "low", "medium", "high"],
-		unknownRoutingCriticalFields: ["model-specific cache lifetime and capability below xhigh [O3, O8]"],
-		evidence: "OpenAI reports 52.4% SWE-Bench Pro @xhigh. Lower AA rows are labelled estimates, and DeepSWE has no row [O5, O8, G].",
+		capabilityMeasuredAt: ["low", "medium", "high"],
+		evidenceGapAt: [],
+		unknownRoutingCriticalFields: [
+			"provider-specific implicit cache behavior across approved routes [G]",
+			"provider-specific privacy handling across approved routes [G]",
+		],
+		evidence: "Artificial Analysis v4.3 measures 34/40/41 from low through high; DeepSWE Vertex AI measures medium and high [G].",
 		asOf: PROFILES_AS_OF,
 	},
 	{
-		id: "openai/gpt-5.4-mini",
-		aliases: ["openai/gpt-5.4-mini-2026-03-17", "gpt-5.4-mini-2026-03-17", "gpt-5.4-mini"],
-		cacheRetention: null,
-		contextWindow: 400000,
+		id: "openai/gpt-6-astra",
+		aliases: [],
+		cacheRetention: { ...OPENAI_GPT_6_ASTRA_CACHE_RETENTION },
+		contextWindow: 1050000,
+		contextWindowKnownDivergence: 272000,
 		maxOutput: 128000,
-		tier: 1,
+		tier: 4,
 		tierUnsourced: true,
-		routeFor: "explicit-scope-only work @xhigh",
-		avoidFor: "deep retrieval and unevidenced lower controls",
+		apiRejectedLevels: ["off", "minimal"],
+		routeFor: "Use for agentic repository coding at @medium. DeepSWE v1.1 reports 72.79% scored-attempt pass rate. The dated mean benchmark cost is $4.38 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. OpenAI MRCR v2 reports 100% mean approximate text-match credit in the 256K–512K token band and 96.3% in the 512K–1M token band. The source reports its best tested effort but does not identify that effort. OSWorld 2.0 reports 72.6% partial score. AutomationBench-AA reports a 68% score at @max. The @max label records that tested capability setting, not the coding recommendation. Vals Code Migration reports 67.5% mean hidden-test pass rate across migrations. ARC-AGI-3 Standard reports 62.71% at @max through the ordinary ARC interface. A separate Provider Adapter evaluation reports 99.95% at @high through a special provider-specific integration. The adapter preserves provider state and compaction. Keep the two evaluations separate. The adapter is not a normal Slate route.",
+		avoidFor: "Do not raise coding effort to @high, @xhigh, or @max only to claim better quality. Their published DeepSWE 95% intervals overlap the @medium interval. Under the exact rule, no clearly better nonoverlapping interval is shown. The computer and tool scores retain their measured setup and effort. Neither interactive result came from the Slate worker harness. Keep the Provider Adapter result separate from ordinary dispatch. MRCR does not establish active route capacity. Check the active Pi registry for current route capacity.",
 		hazards: [
-			"Vendor MRCR falls to 33.6% in the 128K–256K band even @xhigh [O5]",
-			"Pi 0.83 clamps minimal to low and max to xhigh [G]",
-			"DeepSWE has no exact row for this model [G]",
+			"Formal rollout completion is unknown [G]",
+			"Max is not always best in the measured results [G]",
+			"Prompt-cache hits are machine-local [G]",
+			"Zero Data Retention depends on eligibility, approval, and configuration [G]",
 		],
-		capabilityMeasuredAt: ["xhigh"],
-		evidenceGapAt: ["off", "low", "medium", "high"],
-		unknownRoutingCriticalFields: ["model-specific cache lifetime and capability below xhigh [O3, O8]"],
-		evidence: "OpenAI reports 54.4% SWE-Bench Pro @xhigh. Lower AA rows are labelled estimates, and DeepSWE has no row [O5, O8, G].",
+		capabilityMeasuredAt: ["low", "medium", "high", "xhigh", "max"],
+		evidenceGapAt: [],
+		unknownRoutingCriticalFields: ["formal rollout completion across accounts, regions, quotas, and future catalogue states [G]"],
+		evidence: "Artificial Analysis v4.3 measures 46/50/51/53/53 from low through max; DeepSWE measures all five controls [G].",
 		asOf: PROFILES_AS_OF,
 	},
 	{
@@ -376,8 +405,8 @@ const PROFILES: ModelProfile[] = [
 		maxOutput: 64000,
 		tier: 1,
 		tierUnsourced: true,
-		routeFor: "explicit-scope-only work with an acknowledged evidence gap",
-		avoidFor: "long threads and any claim of exact-effort quality",
+		routeFor: "Use for many separate, independent, short tasks when each result can be checked directly. Bulk describes the number of independent tasks. It does not mean one long action with repeated planning and adaptation. Vendor guidance describes high-volume work and a fastest-model use case with checkable outputs. No project benchmark establishes a preferred effort. Terminal-Bench 2.1 reports 43.8% task pass rate. Vals Code Migration reports 10.1% mean hidden-test pass rate across migrations on a separately labelled Thinking deployment. That label does not map to a verified Pi effort. ARC-AGI-3 has no verified result. Missing evidence is not zero.",
+		avoidFor: "Avoid one long action that depends on repeated autonomous planning, tool use, feedback, and adaptation. No numeric turn, token, or duration threshold is supported. Split suitable bulk work into independent short tasks. Do not make an exact-effort quality claim because no project effort was measured. A supported explicit effort may be chosen with judgment, but this row provides no evidence-based coding default. No DeepSWE result or comparable DeepSWE cost exists. A context-window snapshot does not establish permanent route capacity or retrieval quality. Check the active Pi registry for current route capacity.",
 		hazards: [
 			"Pi 0.83 maps minimal through high to distinct manual thinking budgets [G]",
 			"xhigh and max clamp to high and are not distinct controls [G]",
@@ -404,6 +433,24 @@ export const MODEL_PROFILES: readonly ModelProfile[] = deepFreeze(PROFILES);
  */
 let bySpec: Map<string, ModelProfile> | undefined;
 
+const GEMINI_ALIAS_ROUTE_FOR = "No capability or effort measurement is established for this alias route. Use only an explicit valid effort with normal result verification. The canonical Vertex results do not establish coding quality, cost, duration, tool use, retrieval, or interactive capability on this route.";
+const GEMINI_ALIAS_AVOID_FOR = "Do not transfer the canonical Vertex recommendation, benchmark scores, effort choice, or dated benchmark cost to this alias. Cache, privacy, adapter, wire-format, rate, deployment, and tool contracts can differ by provider route. Check the exact active deployment, registry rate, credentials, tool configuration, account eligibility, and privacy configuration. Vertex evidence does not establish alias-route behavior.";
+
+function aliasView(profile: ModelProfile, alias: string): ModelProfile {
+	if (profile.id !== "google-vertex/gemini-3.8-flash") return profile;
+	return deepFreeze({
+		...profile,
+		routeFor: GEMINI_ALIAS_ROUTE_FOR,
+		avoidFor: GEMINI_ALIAS_AVOID_FOR,
+		capabilityMeasuredAt: [],
+		evidenceGapAt: ["low", "medium", "high"],
+		unknownRoutingCriticalFields: [
+			...profile.unknownRoutingCriticalFields,
+			`capability and effort behavior on exact alias route ${alias} [G]`,
+		],
+	});
+}
+
 /** Case-insensitive lookup by canonical id or alias; undefined when unprofiled. */
 export function findProfile(spec: string): ModelProfile | undefined {
 	// The declared type is a runtime lie: specs come from user-edited config and
@@ -417,7 +464,7 @@ export function findProfile(spec: string): ModelProfile | undefined {
 			bySpec.set(profile.id.toLowerCase(), profile);
 			for (const alias of profile.aliases) {
 				const aliasKey = alias.trim().toLowerCase();
-				if (aliasKey && !bySpec.has(aliasKey)) bySpec.set(aliasKey, profile);
+				if (aliasKey && !bySpec.has(aliasKey)) bySpec.set(aliasKey, aliasView(profile, alias));
 			}
 		}
 	}
@@ -429,7 +476,8 @@ export function findProfile(spec: string): ModelProfile | undefined {
 // labels. No source measures either for any model.
 // NO minimal [contract, O2]
 const OPENAI_GPT_5_6_LADDER: readonly ThinkingLevel[] = Object.freeze(["off", "low", "medium", "high", "xhigh", "max"] as const);
-const OPENAI_GPT_5_4_SMALL_LADDER: readonly ThinkingLevel[] = Object.freeze(["off", "low", "medium", "high", "xhigh"] as const);
+const GEMINI_3_8_FLASH_LADDER: readonly ThinkingLevel[] = Object.freeze(["low", "medium", "high"] as const);
+const OPENAI_GPT_6_ASTRA_LADDER: readonly ThinkingLevel[] = Object.freeze(["low", "medium", "high", "xhigh", "max"] as const);
 // all seven [contract, A2]
 const ANTHROPIC_FULL_LADDER: readonly ThinkingLevel[] = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const);
 // NO off — thinking always on [contract, A2]
@@ -453,9 +501,9 @@ const LADDER_BY_ID: ReadonlyMap<string, readonly ThinkingLevel[]> = new Map<stri
 	["openai/gpt-5.6-luna", OPENAI_GPT_5_6_LADDER],
 	["anthropic/claude-sonnet-5", ANTHROPIC_FULL_LADDER],
 	["anthropic/claude-opus-5", ANTHROPIC_FULL_LADDER],
-	["anthropic/claude-fable-5", ANTHROPIC_THINKING_ALWAYS_ON_LADDER],
-	["openai/gpt-5.4-nano", OPENAI_GPT_5_4_SMALL_LADDER],
-	["openai/gpt-5.4-mini", OPENAI_GPT_5_4_SMALL_LADDER],
+	["anthropic/claude-fable-5-1", ANTHROPIC_THINKING_ALWAYS_ON_LADDER],
+	["google-vertex/gemini-3.8-flash", GEMINI_3_8_FLASH_LADDER],
+	["openai/gpt-6-astra", OPENAI_GPT_6_ASTRA_LADDER],
 	["anthropic/claude-haiku-4-5", HAIKU_BUDGET_LADDER],
 ]);
 
