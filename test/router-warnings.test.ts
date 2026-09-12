@@ -351,6 +351,16 @@ test("router entry faults explain malformed, unprofiled, unknown, and unauthenti
   assert.equal(classes.every((warningClass) => warningClass === "configuration-fault"), true);
 });
 
+test("a configured retired profile name produces an all-dropped dispatch fault", () => {
+  const resolution = resolveModelRouter({
+    registry: { find: () => ({ contextWindow: 100_000 }), hasConfiguredAuth: () => true },
+    models: ["anthropic/claude-fable-5"],
+  });
+  assert.equal(resolution.on, false);
+  assert.match(resolution.fault ?? "", /claude-fable-5.*\[fault\]/);
+  assert.match(resolution.fault ?? "", /missing shipped model profile/);
+});
+
 test("all-dropped faults use the narrow cause class and mixed precedence", () => {
   const profile = profileFixture({ unknownRoutingCriticalFields: [] });
   const profiles: RouterProfileSource = { findProfile: () => profile, ladderFor: () => ["low"] };

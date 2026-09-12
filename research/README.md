@@ -11,7 +11,7 @@ Exactly five files form the active generation:
 | `digest-v6.md` | canonical reduction and profile transcription |
 | `openai.md` | refreshed OpenAI source report |
 | `anthropic.md` | refreshed Anthropic source report |
-| `gaps.md` | cross-source reconciliation and future Gemini/Astra basis |
+| `gaps.md` | cross-source reconciliation and the Gemini, Astra, and Fable 5.1 profile basis |
 | `README.md` | lifecycle and refresh procedure |
 
 Read `digest-v6.md` first. It supersedes v1 through v5. Git history is the archive. A superseded digest is deleted when its successor is added. The `SUPERSEDES` header and retained finding summary preserve the chain of custody.
@@ -63,7 +63,7 @@ The implementation has seven work units, not a seventh procedure step. OpenAI re
 
 Resolver checks prove structure, lookup, ladder coverage, freezing, rendering, and selected exact values. They do not prove that a source says what the corpus claims. The independent retrace in step 3 is the only source-fidelity gate.
 
-A wrong tier, hazard, evidence sentence, or consistently moved date can remain structurally valid. Review those fields against the digest. Do not add an automatic corpus-to-profile comparison. Track 5 must manually compare Gemini and Astra profiles after all Track 5 edits.
+A wrong tier, hazard, evidence sentence, or consistently moved date can remain structurally valid. Review those fields against the digest. Do not add an automatic corpus-to-profile comparison. The Track 5 field comparison covers Gemini, Astra, and Fable 5.1.
 
 ## Publication boundary
 

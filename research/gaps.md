@@ -1,6 +1,6 @@
 # Verification and gap reconciliation
 
-**Pass date: 2026-09-11 UTC.** This pass reconciles the refreshed OpenAI and Anthropic reports and prepares the future Gemini and Astra digest basis. It does not ship either future profile.
+**Pass date: 2026-09-11 UTC.** This pass reconciles the refreshed OpenAI and Anthropic reports. Track 5 uses it for the shipped Gemini and Astra profiles. The Fable 5.1 profile also uses the separately checked Anthropic evidence summarized below.
 
 ## Evidence policy
 
@@ -24,9 +24,9 @@ Provider identity from an exact cached public-trial join is OpenAI for GPT-5.6 a
 - Fable: `minimal, low, medium, high, xhigh, max`.
 - Haiku: `off, minimal, low, medium, high` through disabled or manual budget thinking. xhigh and max clamp to high.
 
-The future Gemini and Astra records work on pi 0.83 through the remote catalogue overlay and generic adapters. No SDK upgrade is required. Their approved ladders are narrower than pi's permissive clamp behavior because Slate must preserve the requested control rather than silently substitute another.
+The Gemini and Astra records work on pi 0.83 through the remote catalogue overlay and generic adapters. No SDK upgrade is required. Their approved ladders are narrower than pi's permissive clamp behavior because Slate must preserve the requested control rather than silently substitute another.
 
-## Future Track 5 digest basis
+## Track 5 profile basis
 
 ### Gemini 3.8 Flash
 
@@ -34,7 +34,7 @@ Canonical spec is `google-vertex/gemini-3.8-flash`. Approved aliases are `google
 
 Vendor sources retrieved 2026-09-11 establish the ladder `low, medium, high`, context 1,048,576, output 65,536, and that requested `off` and `minimal` are unsupported. Artificial Analysis independently measures low 34, medium 40, and high 41 on Artificial Analysis Intelligence Index v4.3. The index is a weighted composite of ten evaluations: Agents 30%, Coding 20%, General 30%, and Scientific Reasoning 20%. The v4.3 announcement was published 2026-09-07. Component harnesses and scoring methods differ. The public pages do not publish one composite harness, an exact per-model execution date, or complete endpoint configuration. DeepSWE Vertex AI measures medium 71.02% and high 73.83%. Its intervals are 68.74–73.30 and 72.41–75.24. Keep all three levels measured and no valid-ladder gaps.
 
-Use `cacheRetention: null` in the future shared profile. Vertex explicit-cache and governance facts do not establish one reusable cache contract for Google, OpenCode, and OpenRouter. Record provider-specific privacy and implicit-cache behavior as unknown.
+Use `cacheRetention: null` in the shared profile. Vertex explicit-cache and governance facts do not establish one reusable cache contract for Google, OpenCode, and OpenRouter. Record provider-specific privacy and implicit-cache behavior as unknown.
 
 Tier 2 is only a practical display candidate. Mark it unsourced unless a later common method proves an ordinal boundary.
 
@@ -57,6 +57,14 @@ Sources: <https://developers.openai.com/api/docs/models/gpt-6-astra>, <https://d
 ## Adjudications carried from earlier generations
 
 Git history preserves every v1–v5 finding. The v6 `SUPERSEDES` header is the chain of custody. The standing corrections remain active: do not invent a benchmark rank, do not turn a billing threshold into capacity, do not compare benchmark generations as one scale, do not call missing rows zero, do not assign significance without compatible uncertainty, and do not transfer a deployment result to another provider.
+
+### Claude Fable 5.1
+
+The canonical spec is `anthropic/claude-fable-5-1`. It was released on 2026-09-01 with a 1,000,000-token context window and 128,000-token output limit. Anthropic documents five provider effort controls from low through max with always-on adaptive thinking. Pi `minimal` maps to provider low. DeepSWE v1.1 publishes no Fable 5.1 row. AA-LCR v1.1 and AutomationBench-AA provide exact-effort numerical evidence from low through max with server-side fallback enabled. The profile therefore marks low through max measured and minimal as an evidence gap. Tier 4 is an unsourced cost-class judgment.
+
+Do not transfer the 2026-08-06 Fable 5 cache probes. No Fable 5.1 local retention or invalidation probe exists. The profile uses `cacheRetention: null`. Fable 5.1 remains a Covered Model. Zero Data Retention work requires express model-specific authorization and the required provider and account configuration. A general agreement, registry availability, or a successful request is not authorization.
+
+Sources retrieved 2026-09-11: <https://platform.claude.com/docs/en/models/fable-5-1/overview>, <https://platform.claude.com/docs/en/build-with-claude/effort>, <https://support.claude.com/en/articles/15425695-covered-models>, <https://privacy.claude.com/en/articles/15425996-data-retention-practices-for-covered-models>, <https://www.vals.ai/models/anthropic_claude-fable-5-1>, and <https://artificialanalysis.ai/articles/claude-fable-5-1>. DeepSWE absence uses the aggregate above.
 
 ## Remaining gaps
 
