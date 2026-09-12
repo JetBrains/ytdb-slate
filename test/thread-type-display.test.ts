@@ -1,3 +1,5 @@
+const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { initTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -178,6 +180,36 @@ test("threads tool rows render every type and both fallback shapes", async () =>
   }
 });
 
+test("threads listing exposes a sanitized request and model divergence", async () => {
+  const thread = record({ id: "t1", status: "successful", episodeId: "t1.e1" });
+  const { registered, store } = toolsFixture([thread]);
+  store.episodes.set("t1.e1", {
+    id: "t1.e1", threadId: "t1", task: "x", status: "ok", file: "/tmp/e",
+    reason: "cost\ncheck", requestedModel: "p/requested", requestedEffort: "high",
+    model: "p/actual", effort: "medium", createdAt: 1,
+  });
+  const result = await registered.get("threads")!.execute("call", {}, undefined, undefined, ctx) as { content: Array<{ text: string }> };
+  assert.match(result.content[0]?.text ?? "", /requested=p\/requested@high reason="costcheck" last=p\/actual@medium \(different from requested\)/);
+  assert.equal((result.content[0]?.text ?? "").includes("\ncheck"), false);
+
+  store.episodes.set("t1.e1", {
+    id: "t1.e1", threadId: "t1", task: "x", status: "ok", file: "/tmp/e",
+    reason: "visible\u2028forged\u200b", requestedModel: "bad", requestedEffort: "high\u2028forged" as any,
+    model: "p/actual", createdAt: 1,
+  });
+  const hostile = await registered.get("threads")!.execute("call", {}, undefined, undefined, ctx) as { content: Array<{ text: string }> };
+  assert.doesNotMatch(hostile.content[0]?.text ?? "", /requested=|@high|\nforged/);
+  assert.match(hostile.content[0]?.text ?? "", /reason="visible forged"/);
+
+  store.episodes.set("t1.e1", {
+    id: "t1.e1", threadId: "t1", task: "x", status: "ok", file: "/tmp/e",
+    requestedModel: "p/same", model: "p/same", createdAt: 1,
+  });
+  const same = await registered.get("threads")!.execute("call", {}, undefined, undefined, ctx) as { content: Array<{ text: string }> };
+  assert.match(same.content[0]?.text ?? "", /requested=p\/same last=p\/same/);
+  assert.doesNotMatch(same.content[0]?.text ?? "", /different from requested|reason=/);
+});
+
 test("a new dispatch call renders its requested type", () => {
   const { registered } = toolsFixture([]);
   const threadTool = registered.get("thread");
@@ -209,7 +241,7 @@ test("thread tool populates type details for progress and completion", async () 
 
   const result = await threadTool.execute(
     "call",
-    { name: reviewer.name, type: "reviewer", task: "Inspect" },
+    { ...TEST_ROUTE, name: reviewer.name, type: "reviewer", task: "Inspect" },
     undefined,
     (update: {
       content?: Array<{ type: string; text?: string }>;

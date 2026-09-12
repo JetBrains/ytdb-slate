@@ -21,7 +21,9 @@ entry are full model specs in `provider/id` form:
   "modelFailover": {
     "anthropic/claude-sonnet-5": "openai/gpt-5.2",
     "openai/gpt-5.2": "anthropic/claude-sonnet-5",
-    "anthropic/claude-haiku-4": "google/gemini-3-flash"
+    "anthropic/claude-haiku-4": "google/gemini-3-flash",
+    "google-vertex/gemini-3.8-flash": "anthropic/claude-opus-5",
+    "openai/gpt-6-astra": "anthropic/claude-opus-5"
   }
 }
 ```
@@ -74,6 +76,10 @@ What NEVER triggers failover:
   prompt; the existing overflow handling applies unchanged.
 - **Worker task-level failures** — the model answered but the action failed.
   Slate compresses the action transcript and marks the episode as failed.
+
+The normal Gemini alias evidence-gap policy does not change this failover path.
+Failover can use a working alias at low, medium, or high even when normal strict
+routing would refuse its evidence gap. Provider-rejected controls remain errors.
 
 Before any switch, the mapped model is resolved against pi's model
 registry and auth-checked. If it is unknown or unauthenticated, no

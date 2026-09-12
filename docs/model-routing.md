@@ -3,34 +3,50 @@
 Opt-in model and effort selection for each worker action. `router` in the
 project's `slate.json` names a closed model list. Every `thread` call creates a
 new worker session for one action. The list is empty by default. With no entries,
-the router is off. Per-action `model` and `effort` arguments still apply.
+the router is off. Every call still requires `model`, `effort`, and a non-empty
+`reason` of at most 200 characters.
 
 This document is reference documentation, not workflow doctrine.
 
 A model can only be routed to if Slate ships a benchmark profile for
 it. An entry with no profile is named in a warning and excluded —
-the router will not invent a tier, a price or an effort ladder for a
+the router will not invent a tier or an effort ladder for a
 model it has no traced evidence about. Project-supplied profiles are
 not implemented, so adding a model means a new shipped profile
 rather than a config entry. The nine specs Slate profiles today are
 listed under [Where the numbers come
 from](#where-the-numbers-come-from-and-how-stale-they-can-be).
 
+## Project startup default and action routing
+
+This repository's `.pi/settings.json` prefers `openai/gpt-6-astra` at medium
+for a fresh trusted Pi session. When a scoped model set is active, Pi selects
+Astra if Astra appears anywhere in that set. Astra keeps the project default
+effort unless its scope entry or an explicit thinking option supplies another
+effort. If Astra is absent, the scope excludes it. Explicit command-line and
+restored-session choices keep their existing precedence.
+
+The project setting can also initialize a new worker session when no opening
+model was supplied. Initialization is not action routing. Every worker action
+still names a model and effort. Slate applies that explicit route before the
+first billed worker call. The setting does not rewrite global settings, change
+a current or restored session, or add a routing or failover rule.
+
 ## What routing decides, per action
 
-Each new action resolves two values:
+Each new action validates three explicit values:
 
-- **model** — the explicit `model`, else the router's selected base model, else
-  the host model when routing is off.
-- **effort level** — the explicit `effort`, else a measured level derived for
-  the routed model, else the worker session's opening level.
+- **model** — the required `provider/id` model for this action.
+- **effort level** — the required pi thinking level for this action.
+- **reason** — the required, sanitized rationale for the pair. Slate stores it
+  with the request but does not add it to worker or compressor prompts.
 
 The action opens one worker session. Slate may switch that session before the
 prompt. Failover may switch and re-prompt the same session once. The action then
 ends. No later action reopens or reuses that worker session.
 
 A rejected model or effort returns a tool error before billed work. Advisory
-notices report evidence gaps and registry price divergence. Slate does not
+notices report evidence gaps and model-data limits. Slate does not
 substitute a wider model based on context size. Slate does not emit a
 long-context billing notice.
 
@@ -56,7 +72,10 @@ keys:
       "openai/gpt-5.6-terra",
       "openai/gpt-5.6-sol",
       "anthropic/claude-opus-5",
-      "anthropic/claude-fable-5"
+      "anthropic/claude-fable-5-1",
+      "google-vertex/gemini-3.8-flash",
+      "openai/gpt-6-astra",
+      "anthropic/claude-haiku-4-5"
     ],
     "allowUnmeasuredEffort": true,
     "showWarnings": false
@@ -118,20 +137,17 @@ warning, but removal is not the ADD remedy in condition 2. Condition
 | --- | --- | --- | --- |
 | entry is not a canonical `provider/id` | dropped | "It is not a canonical \"provider/id\" model spec. Reason:" | configuration fault |
 | no profile in Slate's model profile table | dropped | "has no entry in slate's model profile table" | configuration fault |
-| two entries resolve to the same profile (an alias or a case variant) | first kept, second dropped | "name the same profiled model" | configuration fault |
-| the same spec is listed twice | first kept | none (silent) | — |
+| two entries resolve to the same profile (an alias or a case variant) | first spelling claims the profile, second is dropped | "name the same profiled model" | configuration fault |
+| the same spec is listed twice | first kept; later copy appears as `[warn]` only if the whole list is dropped | none outside the all-dropped summary | — |
 | pi's model registry does not know it | dropped | "is not in pi's model registry. Slate drops it from routing." | configuration fault |
 | pi has no usable credentials configured for it | dropped | "has no usable credentials configured in pi. Slate drops it from routing." | configuration fault |
-| every entry is dropped | router turns OFF | "survived validation. The warnings above name each dropped entry" | configuration fault |
-| no usable input price exists for today's date | kept, ordered last | "Slate cannot compare its cost with the other models." | model data note |
-| a profile price is negative or non-finite | kept, ordered last or unavailable | "has invalid input price data" or "has invalid output price data" | model data note |
+| every entry is dropped, with at least one malformed spec, missing profile, or profile-alias duplicate | dispatch blocked by a retained fault | "survived validation" with each cause marked `[fault]` or `[warn]` | configuration fault |
+| every entry is dropped for registry, credential, or exact-duplicate causes only | router turns OFF; explicit dispatch remains available | "survived validation" with each cause marked `[warn]` | configuration fault |
 | no usable effort ladder exists in the profile | kept | "Such a level passes through to pi, which clamps it" | model data note |
 | profile context window differs from the registry window | kept, registry value used | "differs between two sources" | model data note |
-| the first profile names unknown routing-critical fields | kept | "picks models from a research table shipped inside slate" | model data note |
+| the first profile names unknown routing-critical fields | kept | "advises model choices from a research table shipped inside slate" | model data note |
 | a profile names unknown routing-critical fields | kept | "model fact that slate could not trace to a source" or "model facts that slate could not trace to a source" | model data note |
-| a reportable profile/registry context-window divergence exists, the registry figure is not the profile's recorded known-divergence figure, and the registry figure equals the model's own long-context billing threshold | kept | "context window equal to the model's own long-context billing threshold" | model data note |
 | no `modelFailover` entry exists for a candidate | kept | "routable models have no modelFailover entry" | configuration fault |
-| every configured candidate is marked non-preferred | cheapest candidate becomes the base | "profiles mark every configured model as one it must never pick by itself" | configuration fault |
 | resolution throws | router turns OFF | "routing is disabled. The router could not resolve its model list" | configuration fault |
 
 Each resolution warning is deduplicated by a condition key and retained in the
@@ -141,26 +157,19 @@ channel. With the default `false`, every configuration fault remains visible
 and model data notes are hidden.
 
 When resolution hides at least one note, Slate emits one discoverability line.
-It gives the hidden warning count, names `router.showWarnings`, and says that a
-hidden warning can affect model selection. The count is warnings, not physical
-display lines. The line appears at most once per session.
+It gives the hidden warning count, names `router.showWarnings`, and says that the
+notes may inform an explicit model and effort choice. The notes do not select or
+reroute an action. The count is warnings, not physical display lines. The line
+appears at most once per session.
 
-Dispatch-time warnings are separate. Effort evidence gaps, failover notices,
-and registry-price divergence are evaluated for each action. These warnings can
-repeat across new threads. The router sanitizer caps the divergence warning.
-
-The exact-rate companion uses the class-aware router sink as a model data note.
-It is hidden by default and shown when `router.showWarnings` is true. Its
-condition key includes the model, date, and differing rates, so identical live
-evidence reports once while changed evidence reports again. It passes through
-the same control stripping, citation cleanup, field caps, and whole-message cap
-as resolution warnings. A hidden dispatch-time note can trigger the one-time
-discoverability line only when resolution did not already trigger it.
+Dispatch-time warnings are separate. Effort evidence gaps and failover notices
+are evaluated for each action. Registry prices do not produce dispatch warnings.
 
 Half a list is still a routing policy, so partial drops leave the
-router ON. Nothing surviving is not a policy: the router turns OFF
-rather than silently routing to whatever the session happens to be
-on, which would hide the real problem.
+router ON. Nothing surviving is not a policy. A malformed specification, missing shipped
+profile, or profile-alias duplicate makes that all-dropped state a dispatch
+fault. Other causes turn the router off with a loud warning and allow explicit
+dispatch. A mixed all-dropped list faults when any fault-class cause appears.
 
 The registry and credential reads are a snapshot taken at that first
 consultation. Adding an API key later in the session does not revive
@@ -171,35 +180,22 @@ live call: a key that is configured but expired or invalid survives
 resolution and fails at dispatch instead, which is failover's
 territory rather than the router's.
 
-### Ordering and the thread base model
+### Candidate order and explicit choice
 
-Candidates are ordered by five keys, in this order:
+Validation preserves the configured order of surviving `router.models` entries.
+Filtering and alias de-duplication can remove entries. Tier, tier sourcing,
+registry prices and model specification text never reorder the survivors.
 
-1. **preference** — a profile carrying a `nonPreferred` reason sorts
-   after every preferred candidate, absolutely, whatever the tier or
-   price says. The marker means "never a default pick";
-2. **tier sourcing** — within a preference class, candidates whose
-   tier is a sourced ordinal come before those whose tier is only a
-   cost class read off the price;
-3. **tier**, ascending (1 = cheapest class);
-4. **current effective input price**, ascending;
-5. **spec**, only so the order is total and reproducible.
+The router selects no model and derives no default effort. Every normal dispatch
+must provide its model and effort. An off-list model is refused before the thread
+is created. A failover target keeps the existing narrow list-membership carve-out
+and still receives the unsupported-request control check.
 
-The **base model of a new thread is the cheapest preferred
-candidate**. That guarantees a dispatch which omits `model` can
-never be rejected by the list guard. If every configured model is
-marked non-preferred, the cheapest one is used anyway — the base
-model has to exist — and that fallback is warned about.
-
-Prices come from the profile's dated schedule, and the row in force
-on today's date is the one used; a schedule with a dated step change
-therefore re-orders candidates by itself on the day it takes effect.
-Long-context multipliers are deliberately NOT folded into the
-ordering price: they describe what happens above a token threshold,
-not the base rate models are compared on.
-
-A new thread receives the current cheapest preferred candidate as its base.
-An explicit off-list `model` is refused before the thread is created.
+The injected table shows base input and output rates from the exact
+provider-qualified pi registry entry used to resolve each row. It does not use a
+canonical profile rate or a rate from another alias. Zero is a valid rate.
+A missing, negative, non-finite, malformed or unreadable component renders as
+`unknown`. Input and output are independent. Cache rates do not enter this table.
 
 ## Effort levels
 
@@ -208,29 +204,14 @@ The vocabulary is pi's ladder and nothing else: `off`, `minimal`,
 actually offers is per model — the shipped table records a ladder
 per model id, not a family rule.
 
-**An omitted `effort` never resolves to a fixed default.** With the
-router ON, in order:
+Every dispatch must name `effort`. Slate does not read a stored router effort
+or derive the lowest measured level. The requested level is checked against the
+selected model. A valid request stays unchanged.
 
-1. the thread's stored base effort — but only when the action runs
-   on the thread's base model, and only while that stored level
-   still reads as measured against today's profile table. A level
-   that no longer holds (a refreshed table moved it onto a gap, off
-   the ladder, or onto the provider's rejection list) is silently
-   re-derived; nobody asked for it, so a stale cache is Slate's
-   problem to correct rather than news to report;
-2. otherwise the **lowest measured level of the model it routes to**
-   — the lowest level on that model's ladder that carries a traced
-   capability measurement. An explicit `model` derives its own level;
-3. and if that model has no measured level at all, nothing is set.
-   The new worker session then uses pi's settings default.
-
-With the router OFF Slate resolves no level at all, so that same
-opening level applies to every action that omits `effort`.
-
-So a higher level is only ever reached by naming it: pass `effort`
-explicitly on the dispatch. A derived level is measured by
-construction and therefore cannot trip the effort guards; only an
-explicit one can.
+With the router OFF Slate derives no level. The required explicit value is
+checked against profile data when that data is available. No derived route level exists.
+A retired Mini, Nano, or Fable 5 model has no profile. Slate therefore does not
+apply its former model-specific effort refusal, and Pi may clamp the request.
 
 An explicit level is judged against the model the action routes to,
 which `effortJudgedFor` names. [Known cases where the model or level
@@ -248,10 +229,7 @@ refusal is:
   known, outside E2. pi would otherwise clamp the level silently and
   the orchestrator would believe the action ran at a level the model
   never offered;
-- **rejected outright by the provider** — refused, always. Such a
-  level is still on pi's ladder for the model (the table records the
-  hard rejection separately), so dispatching it would be a
-  guaranteed API failure rather than an evidence gap.
+- **provider-unsupported requested control** — refused, always. Slate records this separately so pi cannot omit or silently substitute the requested control. It is a hard refusal rather than an evidence gap.
   `allowUnmeasuredEffort` does NOT cover it;
 - **no ladder data at all** — nothing is refused and nothing is
   marked. A failure to read evidence is not evidence of a problem;
@@ -267,7 +245,7 @@ model and effort rules.
 | --- | --- |
 | effort vocabulary | an unknown or non-string effort value |
 | list membership | an explicit model outside the configured list |
-| provider rejection | an effort level that the provider rejects |
+| unsupported request | a requested control Slate must preserve instead of letting pi omit or substitute it |
 | ladder validity | an effort level outside the model's known ladder |
 | evidence gap | an unmeasured capability claim when project policy rejects it |
 | failover carve-out | a routing rule blocking an in-action rescue |
@@ -285,8 +263,8 @@ overflow behavior. Slate also does not emit a prompt-size billing notice.
   cannot distinguish a stored `general` value from an absent or
   unrecognised value.
 - **On the call line (TUI):** what the action asked for, e.g.
-  `thread t1 type=reviewer [openai/gpt-5.6-sol @medium]`, or just
-  `[@medium]` when only the level was named.
+  `thread t1 type=reviewer [openai/gpt-5.6-sol @medium]`. Public
+  dispatch always supplies both values. A legacy renderer input may omit one.
 - **On the collapsed result line (TUI):** what it actually ran on,
   labelled so it cannot be read as the request:
   `[ran openai/gpt-5.6-sol @medium]`, with a trailing `unmeasured`
@@ -302,35 +280,29 @@ overflow behavior. Slate also does not emit a prompt-size billing notice.
   at all. `compressor:` beside it is a different fact — the model
   that wrote the episode body.
 - **In the tool result:** ⚠ notice lines above the episode text (so
-  the orchestrator reads them — a cost cliff or an evidence gap is
-  its decision to make), the same lines in the live progress output,
+  the orchestrator reads them — for example, an unmeasured-effort or
+  evidence-gap warning), the same lines in the live progress output,
   and `details.ranModel` / `details.ranEffort` /
   `details.ranEffortUnmeasured` / `details.warnings` for a renderer.
 - **In the `threads` listing:** `type=<type>` precedes the model markers
-  for a non-general thread. `base=<model>@<level>?` is the nominal plan
-  target when a dispatch omits `model`. The trailing `?` marks
-  the level, not the model, as provisional: it is a stored default,
-  re-validated against the model's current capability data on every
-  dispatch and silently re-derived if it no longer holds. `last=` is
-  the model and level that the last action actually ran on, with
-  `(unmeasured)` where that applies. `live=<model> (failover)` means
-  a held fallback currently overrides the nominal base for the live
-  session.
+  for a non-general thread. `requested=<model>@<level>` and `reason=` show
+  the last sanitized request. A marker says when `last=` differs from the
+  requested model. `last=` is the model and level that the last action
+  actually ran on, with `(unmeasured)` where that applies.
+  `live=<model> (failover)` means the live session currently holds that
+  fallback.
 - **At the session level:** configuration faults and model data notes enabled by
   `router.showWarnings`, as UI notifications or console output. The default
   instead shows one discoverability line when it hides notes.
 - **In the orchestrator's own system prompt, every turn:** the
-  doctrine gains a routing rule — a table with one row per routable
-  model, plus the rules for reading it. This is the surface you do
-  not see, and it is the router's standing cost: 2,030 characters /
-  21 added doctrine lines for six configured models, 2,585 / 24 for
-  all nine. In the current snapshot a model row costs 146–183
-  characters, plus a one-off legend clause for each marker it
-  introduces. With the unconditional writing rule subtracted, the router grows
-  Slate's block from 3,084 portable characters and 48 lines to 5,114 portable
-  characters and 69 lines for the fixed fabricated six-model fixture. That
-  roster currently matches this repository's list but does not read project
-  config. Those are PORTABLE characters — the
+  doctrine gains a benchmark guide and a routing table with one row per
+  routable model. This is the surface you do not see, and it is the router's
+  standing cost: 13,811 portable characters / 96 split lines for the fixed
+  six-model fixture and 18,455 / 100 for all nine. The nine model rows cost
+  953–1,655 characters each. The static guide and fixed routing prose cost
+  6,292 characters. A one-off legend clause appears for each marker the rows
+  introduce.
+  The fixed fabricated roster does not read project config. Those are PORTABLE characters — the
   doctrine with each occurrence of the installed `docs/` directory
   removed, filenames kept — because the doctrine embeds absolute doc
   paths and its raw size therefore depends on where the package is
@@ -340,24 +312,16 @@ overflow behavior. Slate also does not emit a prompt-size billing notice.
 
 ## Expected first-session warnings
 
-The stock count below comes from executing `resolveModelRouter` with this
-repository's sanitized `.pi/slate.json`, the shipped profile table, and a real
-`ModelRuntime` from the pinned pi 0.83.0 package. The runtime used
-`modelsPath: null` and `allowModelNetwork: false`, so no local registry override
-or network refresh could affect it. Dummy OpenAI and Anthropic credentials made
-the configured-auth premise explicit. The packaged OpenAI data at
-`@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/data/openai.json`
-reports a **272,000-token** context window for
-`openai/gpt-5.6-luna`, `openai/gpt-5.6-terra` and
-`openai/gpt-5.6-sol`. The packaged Anthropic data reports 1,000,000
-for each configured Anthropic model. The render treated all six as
-authenticated, matching this repository's configured-auth state.
+The count below comes from executing `resolveModelRouter` with this repository's
+seven-model `.pi/slate.json` and shipped profiles. A deterministic registry
+fixture marks every candidate authenticated. It uses 272,000 tokens for the
+three GPT-5.6 entries, matching the pinned pi package's provider data. It uses
+the documented profile window for Gemini, Astra, and both Anthropic entries.
+This isolates the stock GPT window from this machine's local overrides.
 
 The shipped profiles record 1,050,000 tokens for those three OpenAI
 models. Each stock registry value therefore produces a context-window
-divergence note. The same 272,000-token value equals each model's
-long-context billing threshold, so one aggregate billing-pattern note
-also fires.
+divergence note.
 
 Resolution emits **11 warnings: 0 configuration faults and 11 model
 data notes**. The default `router.showWarnings: false` therefore
@@ -370,9 +334,8 @@ resolution is frozen after the first consultation.
 | warnings | class | condition keys | why | shown by default |
 | --- | --- | --- | --- | --- |
 | 1 | model data note | `w3-explainer` | explains the shipped research table before the first unknown-data warning | 0 |
-| 6 | model data note | one `w3:string:<JSON spec>` for each configured model | each profile names model facts with no traced source, or conflicting figures with no adjudication | 0 |
-| 3 | model data note | one `w1:string:<JSON spec>` for each configured OpenAI model | each stock registry window differs from its profile window | 0 |
-| 1 | model data note | `w1-billing-pattern` | aggregates the three registry windows that equal their models' billing thresholds | 0 |
+| 7 | model data note | one `w3:string:<JSON spec>` for each configured model | each profile names model facts with no traced source, or conflicting figures with no adjudication | 0 |
+| 3 | model data note | one `w1:string:<JSON spec>` for each configured GPT-5.6 model | each stock registry window differs from its profile window | 0 |
 | **11** | **all model data notes** | — | stock measured total | **0 warnings; 1 discoverability line** |
 
 The stock emission order is:
@@ -386,20 +349,17 @@ The stock emission order is:
 7. `w3:string:"openai/gpt-5.6-sol"`
 8. `w3:string:"anthropic/claude-sonnet-5"`
 9. `w3:string:"anthropic/claude-opus-5"`
-10. `w3:string:"anthropic/claude-fable-5"`
-11. `w1-billing-pattern`
+10. `w3:string:"google-vertex/gemini-3.8-flash"`
+11. `w3:string:"openai/gpt-6-astra"`
 
 This count depends on pi's registry data and any local registry
 override. This machine's `~/.pi/agent/models.json` overrides the
 three OpenAI windows to 1,050,000 tokens. A live render here therefore
-suppresses the three divergence notes and the billing-pattern note,
-leaving **7 model data notes**. That seven-note result describes this
-machine, not a stock install.
+suppresses the three divergence notes, leaving **8 model data notes**.
+That eight-note result describes this machine, not a stock install.
 
-The configured failover map covers all six candidates, so the
-failover-coverage condition does not fire in either render. Preferred
-candidates remain in the list, so the non-preferred-base condition
-does not fire either.
+The configured failover map covers all seven candidates, so the
+failover-coverage condition does not fire in either render.
 
 In orchestrator mode the first consultation is the DOCTRINE BUILD,
 not a dispatch: the orchestrator's system prompt carries the
@@ -420,14 +380,16 @@ guards**. Both are PREVENTIVE — they decide what may be dispatched,
 not what must be checked afterwards — and nothing in the dispatch
 path implements either. A warning must not be read as an interlock:
 
-- **The compliance refusal.** `anthropic/claude-fable-5` has no
-  zero-data-retention option (mandatory 30-day retention, first-
-  and third-party), and its profile says a ZDR-obligated action
-  must be REFUSED there at every effort level. Slate's dispatch
-  path has no concept of a ZDR-obligated action: list that model
-  and an action routed to it will run. The refusal is the
-  orchestrator's to make, under the doctrine and under your own
-  compliance rules.
+- **The compliance refusal.** `anthropic/claude-fable-5-1` normally
+  requires at least 30-day retention. REFUSE a zero-data-retention
+  action unless the operator confirms both express Anthropic
+  authorization for Fable and the required configuration. Unknown
+  authorization counts as no authorization. Model availability, a
+  successful request, or a general zero-data-retention agreement does
+  not establish the exception. Slate's dispatch path has no concept of
+  the obligation or authorization. A listed action routed to Fable will
+  run. The orchestrator must apply the refusal and the operator's exact
+  agreement and platform policy.
 - **The measured-level rule for review and gate actions.** Keep
   review and gate actions ON MEASURED LEVELS — dispatch them at a
   level the target model has a capability measurement at. This is a
@@ -465,87 +427,122 @@ exactly — a spec that differs is dropped as unprofiled:
 
 | canonical spec | measured levels | notes |
 | --- | --- | --- |
-| `openai/gpt-5.6-luna` | medium, max | |
-| `openai/gpt-5.6-terra` | xhigh, max | non-preferred: configured-only, never auto-selected |
-| `openai/gpt-5.6-sol` | medium, high, xhigh, max | |
-| `anthropic/claude-sonnet-5` | high, xhigh, max | non-preferred |
+| `openai/gpt-5.6-luna` | low, medium, high, xhigh, max | |
+| `openai/gpt-5.6-terra` | low, medium, high, xhigh, max | configured-only guidance |
+| `openai/gpt-5.6-sol` | low, medium, high, xhigh, max | |
+| `anthropic/claude-sonnet-5` | low, medium, high, xhigh, max | |
 | `anthropic/claude-opus-5` | low, medium, high, xhigh, max | |
-| `anthropic/claude-fable-5` | high, xhigh, max | non-preferred; no zero-data-retention option (see [What the router does NOT enforce](#what-the-router-does-not-enforce)) |
-| `openai/gpt-5.4-nano` | none | cheap tier, out of scope (below) |
-| `openai/gpt-5.4-mini` | none | cheap tier, out of scope |
-| `anthropic/claude-haiku-4-5` | none | cheap tier, out of scope |
+| `anthropic/claude-fable-5-1` | low, medium, high, xhigh, max | tier 4 is unsourced; no DeepSWE result; refuse zero-data-retention work unless express model-specific authorization and required provider and account configuration are confirmed |
+| `google-vertex/gemini-3.8-flash` | low, medium, high | aliases use distinct provider contracts |
+| `openai/gpt-6-astra` | low, medium, high, xhigh, max | tier 4 is unsourced; registry capacity can differ from documentation |
+| `anthropic/claude-haiku-4-5` | none | no evidence-based coding default |
 
-"Measured levels" are the levels an omitted `effort` can resolve to
-and the levels an explicit one passes the evidence-gap guard at; the
-first of each list is what a thread based on that model starts at.
+"Measured levels" are the levels Slate has capability evidence for.
+An explicit level passes the evidence-gap guard at these levels. Slate does not select the first level automatically.
 
-**Use the canonical spelling.** The table also carries alias
-spellings — the research corpus's dated snapshot ids, and
-`openai/gpt-5.6` for sol — but an alias is only a lookup key for the
-profile, not a routable spec. Checked against a stock pi install:
-`openai/gpt-5.6`, `openai/gpt-5.4-nano-2026-03-17` and
-`openai/gpt-5.4-mini-2026-03-17` are NOT in pi's registry, so listing
-one of them drops it with the "not in pi's model registry" warning
-even though the profile was found. `anthropic/claude-haiku-4-5-20251001`
-happens to be a real registry id and does route. Registry contents
-change, so treat that as a dated observation and prefer the canonical
-column above.
+**Use the canonical spelling.** The table also carries approved aliases,
+including `openai/gpt-5.6` for Sol, a dated Haiku spelling, and three Gemini
+provider routes. An alias is a profile lookup key. It becomes routable only
+when that exact provider-qualified entry exists in Pi's registry and has
+configured credentials. Alias routes can have different cache, privacy, wire,
+adapter, and rate contracts. Vertex measurements do not establish measured
+effort behavior on another Gemini route. Slate therefore treats low, medium,
+and high as evidence gaps for those aliases during normal dispatch. Strict
+projects refuse the gap. Permissive projects run it with an unmeasured marker.
+The live failover exception still permits a working alias at those levels. It
+continues to reject provider-unsupported controls. Registry contents change, so
+prefer the canonical column above unless the project has verified another route.
 
-The last three are profiled but OUT OF SCOPE for routing — they are
-there so that naming one gets you data instead of a spurious "no
-profile" warning, and all three are marked non-preferred, carry
-assumed rather than traced effort ladders, and have no
-effort-labelled capability results at all. Routing to them is a
-deliberate scope decision, not a default.
+Mini, Nano, and Fable 5 are retired from the profile catalogue. Their canonical
+ids and aliases no longer resolve. A configured list made only of retired names
+becomes an all-dropped fault and blocks dispatch until the project config is
+corrected. Slate performs no config rewrite or history migration. Stored thread
+and episode history remains readable because replay does not require a live
+profile. With routing off, these models are unprofiled and lose their former
+model-specific effort checks. Pi may clamp the requested effort.
 
-`PROFILES_AS_OF` is **2026-07-29** — the date of the research behind
+`PROFILES_AS_OF` is **2026-09-11** — the date of the research behind
 the table — and every profile carries the same date in its own
-`asOf`, which is what the divergence warning quotes. The only
-time-varying part of the data is price-row selection: a schedule
-with a dated step change switches rows by itself on that date.
+`asOf`. The registry supplies runtime prices separately.
+
+### Benchmark and model-result sources
+
+Slate summarizes model-specific results from the linked publisher and evaluator
+pages. The summaries are original project text. They copy no benchmark prompt,
+dataset, marketing table, or publisher table arrangement. The project approved
+this bounded factual use. A link does not imply publisher endorsement or
+permission beyond the publisher's applicable terms. Scores and costs were
+retrieved on 2026-09-11. Method definitions were checked on 2026-09-12.
+
+Shared method and result sources:
+
+- DeepSWE v1.1 results and costs: <https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json>, <https://deepswe.datacurve.ai/>, and <https://deepswe.datacurve.ai/changelog>.
+- Vals Code Migration and Terminal-Bench 2.1 results: <https://www.vals.ai/benchmarks/code-migration> and <https://www.vals.ai/benchmarks/terminal-bench-2-1>.
+- OpenAI MRCR v2 method: <https://github.com/google-deepmind/eval_hub/blob/master/eval_hub/mrcr_v2/README.md>.
+- OSWorld 2.0 method: <https://arxiv.org/html/2606.29537v2>.
+- AutomationBench-AA, AA-LCR v1.1, and AA-Omniscience methods: <https://artificialanalysis.ai/evaluations/automationbench-aa>, <https://artificialanalysis.ai/evaluations/artificial-analysis-long-context-reasoning>, and <https://artificialanalysis.ai/evaluations/omniscience>.
+- ARC-AGI-3 method and result data: <https://docs.arcprize.org/methodology> and <https://arcprize.org/media/data/leaderboard/v3.json>.
+
+Model-specific result and vendor sources:
+
+- Luna: <https://openai.com/index/advancing-the-price-performance-frontier-with-gpt-5-6/>, <https://www.vals.ai/models/openai_gpt-5.6-luna>, <https://arcprize.org/results/openai-gpt-5-6>, and <https://openai.com/index/gpt-5-6/>.
+- Sonnet 5: <https://www.vals.ai/models/anthropic_claude-sonnet-5>.
+- Terra: <https://www.vals.ai/models/openai_gpt-5.6-terra>, <https://arcprize.org/results/openai-gpt-5-6-terra>, and <https://openai.com/index/gpt-5-6/>.
+- Sol: <https://developers.openai.com/api/docs/models/gpt-5.6-sol>, <https://www.vals.ai/models/openai_gpt-5.6-sol>, <https://arcprize.org/results/openai-gpt-5-6-sol>, <https://openai.com/index/gpt-5-6/>, <https://deploymentsafety.openai.com/gpt-5-6>, and <https://metr.org/blog/2026-06-26-gpt-5-6-sol/>.
+- Opus 5: <https://www.vals.ai/models/anthropic_claude-opus-5>, <https://arcprize.org/results/anthropic-claude-opus-5>, <https://www.anthropic.com/claude-opus-5-system-card>, and <https://artificialanalysis.ai/articles/opus-5>. The dated 50% hallucination result has no published denominator. Fallback-assisted Code Migration share is also unknown.
+- Fable 5.1: <https://platform.claude.com/docs/en/models/fable-5-1/overview>, <https://platform.claude.com/docs/en/build-with-claude/effort>, <https://www.vals.ai/models/anthropic_claude-fable-5-1>, <https://www.anthropic.com/claude/fable>, <https://artificialanalysis.ai/models/comparisons/claude-fable-5-1-vs-claude-fable-5-1-medium>, <https://artificialanalysis.ai/models/comparisons/claude-fable-5-1-low-vs-claude-fable-5-1-xhigh>, and <https://artificialanalysis.ai/articles/claude-fable-5-1>. Fallback-assisted shares remain unknown.
+- Gemini 3.8 Flash: <https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-8-flash>, <https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-3-8-flash>, <https://deepmind.google/models/model-cards/gemini-3-8-flash/>, <https://artificialanalysis.ai/models/releases/gemini-3-8-flash>, and <https://artificialanalysis.ai/models/gemini-3-8-flash>. The Vals benchmark page above contains the named Gemini row.
+- Astra: <https://developers.openai.com/api/docs/models/gpt-6-astra>, <https://openai.com/index/gpt-6-astra/>, <https://artificialanalysis.ai/models/comparisons/gpt-6-astra-low-vs-gpt-6-astra>, <https://www.vals.ai/models/openai_gpt-6-astra>, <https://arcprize.org/results/openai-gpt-6-astra>, <https://arcprize.org/blog/astra>, and <https://openai.com/index/how-two-settings-tripled-our-arc-agi-3-scores/>.
+- Haiku 4.5: <https://platform.claude.com/docs/en/models/haiku-4-5/overview> and <https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence>. The Vals benchmark pages above contain the named Haiku rows.
+
+Cache policy sources are <https://developers.openai.com/api/docs/guides/prompt-caching>
+and <https://platform.claude.com/docs/en/build-with-claude/prompt-caching>.
+Local cache probes are internal project measurements dated 2026-08-06. Fable
+5.1 has no local cache probe. Covered Model retention sources are
+<https://support.claude.com/en/articles/15425695-covered-models> and
+<https://privacy.claude.com/en/articles/15425996-data-retention-practices-for-covered-models>.
+OpenAI data controls are documented at
+<https://developers.openai.com/api/docs/guides/your-data>. A public page cannot
+prove account-specific Zero Data Retention authorization. The operator must use
+the project's authorization record. Tier assignments and routing
+recommendations are project judgments derived from the recorded evidence. They
+are not publisher recommendations.
 
 The table's own provenance rules, which the warnings above depend
 on:
 
-- a value is transcribed from the research corpus unless the file
-  marks it otherwise at its own site (pi's registry decides the id
-  spelling; an unsourced tier is a cost class, not a ranking; an
-  assumed ladder is a provider-family shape, not a traced fact;
-  aliases are resolution spellings, not data);
-- a figure that cannot be traced is NOT carried: the field is `null`
-  and its name appears in the profile's unknown-routing-critical
-  list, which is exactly what the "routing decisions for it are
-  provisional" warning reports;
-- context window and max output are DOCUMENTATION-ONLY and
-  non-authoritative — pi's registry is the single runtime authority,
-  and the profile figures exist only so a cross-check can warn;
-- long-context threshold and multipliers are BILLING, never
-  capacity: crossing the threshold costs money, it does not fail;
-- prices are the provider's first-party standard tier only. Batch,
-  flex, priority and fast-mode tiers and every regional or
-  geographic uplift are NOT carried, so a dispatch on any of those
-  surfaces bills above these numbers.
+- A value comes from the research corpus unless its source comment says
+  otherwise.
+- Pi's registry decides identifier spelling.
+- An unsourced tier carries an explicit marker and is not an ordering key.
+- Every current ladder is traced to pinned pi 0.83 mapping and current provider documentation.
+- Aliases are resolution spellings rather than profile data.
+- A figure that cannot be traced is not carried. The field is `null`, and its
+  name appears in the profile's unknown-routing-critical list.
+- Context window and maximum output are documentation-only. Pi's registry is
+  the runtime context-window authority. Profile figures support only a
+  cross-check warning.
 
-**Standing limitation: the automated checks are provably blind to
-wrong research data.** Slate's automated checks (a development
-harness in the source repository — it is not part of the published
-package) assert **structure only** for this table — ids and aliases
-resolve, ladders are
-duplicate-free subsets of pi's vocabulary, the measured and gap
-lists are disjoint and cover the ladder, price rows are well formed
-and tiers do not price-invert, the table is frozen. It asserts no
-research number, and cannot: scaling every price by the same factor
-passes green, a tier moved so that it does not invert prices passes
-green, and an invented hazard clause or evidence sentence passes
-green. Numeric and evidential fidelity to the research is a review
-concern; a green suite says nothing about it.
+**Standing limitation: the automated checks cover only part of the
+research data.** Slate's automated checks are a development harness
+in the source repository. The harness is not part of the published
+package. The checks assert table structure. They verify that ids and
+aliases resolve. They verify that ladders are duplicate-free subsets
+of pi's vocabulary. They verify that the measured and gap lists are
+disjoint and cover the ladder. They also verify that tiers remain in range, unsourced markers have the expected
+shape, and the table is frozen. Resolver and doctrine checks verify configured
+order, exact provider-qualified registry rates, zero and unknown components, and
+the absence of automatic selection. A tier move can still pass because tier is
+advice rather than an ordering key. An invented hazard clause or evidence clause can
+also pass. Other numeric and evidential fidelity to the research
+remains a review concern. A green suite covers only the fields that
+the checks assert.
 
 ## Accepted limitations
 
 - **Frozen per session.** Candidate and credential resolution is cached. A
   configuration or credential change needs a new pi session.
-- **Router off keeps action arguments.** The candidate list and derived base are
-  disabled. Explicit model and effort values still apply.
+- **Router off requires action arguments.** The candidate list is disabled. Every dispatch still names model, effort, and reason.
 - **No context-size routing.** Slate does not substitute a wider model before an
   action. Pi owns compaction and context overflow behavior.
-- **No long-prompt notice.** Slate does not print a long-context price notice.
+- **No long-context billing notice.** Slate does not print a long-context billing notice.

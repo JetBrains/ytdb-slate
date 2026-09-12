@@ -19,7 +19,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
-import { PROFILES_AS_OF } from "./model-profiles.ts";
 import { checkEffort, ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "./model-router.ts";
 import {
 	DESIGN_PRINCIPLES_DOC,
@@ -240,9 +239,9 @@ function cell(value: unknown): string {
 	return typeof value === "string" ? value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}|]+/gu, " ").trim() : "";
 }
 
-/** A price, or "?" when the profile has no usable figure (the router warns about that separately). */
+/** A registry base rate, or "unknown" when that component is absent or invalid. */
 function money(value: unknown): string {
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? String(value) : "?";
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? String(value) : "unknown";
 }
 
 /** A token count, compactly: 1050000 → "1.05M", 272000 → "272K". "?" when the registry reports none. */
@@ -253,17 +252,11 @@ function tokens(value: unknown): string {
 	return String(Math.round(value));
 }
 
-/**
- * The tier cell: the tier, plus the two markers a reader must not be denied.
- * An UNSOURCED tier renders as "t?" rather than its number — the profile table
- * records such a tier as a cost class, never a ranking, so printing the ordinal
- * would present it as evidence it is not. "!" marks a non-preferred model; its
- * REASON is deliberately not rendered (see buildRoutingRule).
- */
+/** Render the retained tier value and name an unsourced tier plainly. */
 function tierCell(candidate: RouterCandidate): string {
 	const tier = candidate.tier;
-	const sourced = candidate.tierUnsourced !== true && typeof tier === "number" && Number.isFinite(tier);
-	return `${sourced ? `t${tier}` : "t?"}${candidate.nonPreferred ? "!" : ""}`;
+	if (typeof tier !== "number" || !Number.isFinite(tier)) return "tier unknown";
+	return `tier ${tier}${candidate.tierUnsourced === true ? " (unsourced)" : ""}`;
 }
 
 /**
@@ -274,7 +267,7 @@ function tierCell(candidate: RouterCandidate): string {
  * `capabilityMeasuredAt` its ONLY source of an "ok"): a second copy of its terms
  * here would drift silently, since a wrong column still renders. route.ts's
  * lowestMeasuredEffort walks the same vocabulary in the same order, so the FIRST
- * entry rendered is by construction the level an omitted `effort` resolves to.
+ * entry rendered is the lowest level Slate has measured for that model.
  * Cost is 7 lookups per candidate, once per agent turn.
  */
 function measuredLevels(router: ModelRouterResolution, candidate: RouterCandidate): readonly string[] {
@@ -293,12 +286,93 @@ function measuredCell(router: ModelRouterResolution, candidate: RouterCandidate)
 }
 
 /**
+ * Static method notes for the benchmark claims in the live profile rows. This
+ * text is repository-owned and contains no project, registry, or profile data.
+ * It appears only when the trusted routing table appears.
+ */
+const ROUTING_BENCHMARK_GUIDE = `
+   Benchmark score guide:
+   - DeepSWE v1.1: scored-attempt pass rate. Context-window failures and agent
+     timeouts are failures. Provider, verifier, and network errors are excluded.
+     Its published 95% run interval is 1.96 * std(runs) / sqrt(4) across four
+     whole-benchmark runs. The standard-deviation divisor is not published.
+   - Vals Code Migration: mean hidden-test pass rate across migrations, with
+     equal source-repository weight after target-language averaging. It is not
+     the percentage of whole migrations completed. Anti-cheat checks can zero
+     wrappers, copied artifacts, and wrong-language submissions.
+   - Terminal-Bench 2.1: binary task pass@1. Every test must pass. There is no
+     partial credit.
+   - OpenAI MRCR v2, eight needles: mean approximate text-match credit. The
+     required 12-character hash must precede the retrieved text or the example
+     scores zero. This is fractional credit, not binary correctness. Tool access
+     is a separate setup condition.
+   - OSWorld 2.0: partial is weighted checkpoint credit. Strict is the share of
+     fully completed workflows. Keep the two results separate. Release, tasks,
+     evaluator, interface, and action limit affect comparability.
+   - AutomationBench-AA: objectives completed after guardrail violations are
+     penalized. Raw objectives completed is separate. The accessible method does
+     not publish the exact penalty and aggregation formula.
+   - AA-LCR v1.1: percentage of 100 answers accepted by an equality-checker
+     judge. Its roughly 99K mean completed-prompt tokens describe the evidence
+     window, not route capacity. Version 1.0.0 is not comparable with v1.1.
+   - AA-Omniscience: current hallucination rate is Incorrect / (Incorrect +
+     Partial + Not Attempted), and lower is better. Accuracy and attempt rate are
+     separate. The current method does not prove that this denominator applied
+     to the dated Opus 5 result.
+   - ARC-AGI-3: Relative Human Action Efficiency (RHAE) combines level completion with
+     action efficiency against a human reference. Uncompleted levels score zero.
+     It is not a task-solve percentage. Standard and Provider Adapter harnesses
+     are separate. Adapter state retention and compaction are not normal Slate
+     capabilities. Published cost is total evaluation cost.
+   Use this guide:
+   - Pi's complete effort vocabulary is off < minimal < low < medium < high <
+     xhigh < max. A model can offer only a subset. The five provider effort
+     labels used by several benchmark series are low through max.
+   - For DeepSWE-shaped repository coding, choose the lowest measured effort for
+     which no higher measured effort has a clearly better nonoverlapping
+     published 95% interval. A higher effort clearly beats it only when the
+     higher lower bound exceeds the candidate upper bound. Do not recompute
+     unpublished bounds.
+   - Interval overlap only means this heuristic does not select the higher
+     effort. It does not prove equality, equivalence, non-inferiority, or no gain.
+   - Do not transfer the coding rule to computer use, retrieval, tool use,
+     factual recall, long-context work, or other tasks.
+   - Keep each effort attached to its result. An unreported setting validates no
+     setting. A model-level signal can guide a choice with judgment and an
+     explicit valid setting, but it proves no capability at that setting.
+   - Fable 5.1 and Haiku 4.5 have no evidence-based coding default. This is an
+     evidence gap, not a prohibition. Provisional use needs an explicit valid
+     effort and normal result verification. Do not invent a recommended coding
+     effort, coding optimality, or DeepSWE price.
+   - Terra is nonpreferred. Do not pick it by default. State a work-specific
+     reason in the task text. Do not add a tool argument or report field.
+   - Unknown capabilities are not prohibited. An explicit avoid cell is the
+     exception.
+   - Many short tasks means separate independent actions with directly checkable
+     results, not one long loop that repeatedly plans, uses tools, reads feedback,
+     and adapts. No numeric boundary is supported.
+   - Treat a near-zero ARC-AGI-3 result as evidence against benchmark-shaped
+     interactive work. Do not create a universal numerical threshold.
+   - Benchmarks are proxies, not Slate execution. Harness adaptation is not a
+     supported routing feature.
+   - Use the active Pi registry for route capacity and prices. DeepSWE costs are
+     dated cost-per-attempt figures generated on 2026-09-03 and retrieved on
+     2026-09-11. They are not future quotes. Context bands are not route limits.
+   - Keep partial, strict, fallback-assisted, and special-harness results
+     separate. Do not turn limited evidence into a positive recommendation.
+   - Respect provider, tool, credential, account, and privacy constraints.
+     Benchmark availability does not establish eligibility.
+   - The Fable 5.1 72.6% label is "among questions not answered correctly".
+     Do not derive another denominator from it.
+   - Zero Data Retention needs account-owner confirmation of model-specific
+     authorization and the required provider and account configuration under the
+     governing agreement. Use the project's established authorization record.`;
+
+/**
  * The action-level routing rule — the SECOND tail rule, so 12 when worker
- * extensions render above it and 11 when they do not. Appended ONLY when the
- * session's router resolved a candidate list. Router off — `router.models`
- * empty, every entry dropped, or a resolution that failed — returns "" and the
- * doctrine is byte-identical to the pre-router output, the same feature-off
- * guarantee the worker-extension rule makes (invariant I2).
+ * extensions render above it and 11 when they do not. A trusted router-off
+ * session receives only the explicit dispatch vocabulary and session base model.
+ * A resolved candidate list adds the live table and its routing instructions.
  *
  * RENDERED LIVE from the session's FROZEN resolution (model-router.ts), never
  * from a pasted table. The routable set is an intersection of `router.models`,
@@ -331,11 +405,10 @@ function measuredCell(router: ModelRouterResolution, candidate: RouterCandidate)
  *   1. NO MARKDOWN STRIP. Backticks, "*", "#", ">" render verbatim, where rule
  *      11's sanitizeForDoctrine drops them from third-party text.
  *   2. NO LENGTH CAP, where rule 11 caps every field it interpolates. Deliberate
- *      while the columns are frozen repo data reviewed at each research refresh
- *      (the longest ships at ~73 characters): a cap would silently truncate a
- *      legitimately grown research field, which is a correctness defect traded
- *      for a cosmetic one, and an over-long row fails the size budget in
- *      verification/ loudly instead.
+ *      while the columns are frozen repo data reviewed at each research refresh:
+ *      a cap would silently truncate legitimate guidance. Exact production-render
+ *      fixtures detect every changed character. Coarse row and doctrine bounds
+ *      retain reserve for reviewed growth.
  *   3. NOT A SANITIZER PROBLEM AT ALL, and the one no sanitizer can fix: the
  *      rule's closing sentence tells the orchestrator to honour a REFUSE in an
  *      avoid cell, which delegates DIRECTIVE AUTHORITY to a data cell. Harmless
@@ -347,18 +420,16 @@ function measuredCell(router: ModelRouterResolution, candidate: RouterCandidate)
  * (The invisible-character gap that used to sit in this list is closed — `cell()`
  * strips Cc/Cf/Zl/Zp/Cs by category.)
  *
- * TWO things are never rendered. A profile's `nonPreferred` REASON string and
- * anything else carrying a research trace tag ("[O2]", "[G1a]", …) point at a
- * `research/` directory this package does not publish, so a non-preferred model
- * is marked "!" and explained by its own guidance columns instead. `routeFor`
- * and `avoidFor` were audited clean and are the source of those columns.
+ * Research trace tags are never rendered because the package does not ship the research corpus.
  */
-function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: boolean, n: number): string {
-	if (router?.on !== true) return "";
-	const candidates = (Array.isArray(router.candidates) ? router.candidates : []).filter(
+function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: boolean, n: number, sessionBaseModel?: string): string {
+	const candidates = (Array.isArray(router?.candidates) ? router.candidates : []).filter(
 		(c): c is RouterCandidate => typeof c?.spec === "string" && c.spec !== "",
 	);
-	if (candidates.length === 0) return "";
+	if (router?.on !== true || candidates.length === 0) {
+		const base = cell(sessionBaseModel) || "unknown";
+		return `\n${n}. Every \`thread\` call must name \`model\`, \`effort\` (off, minimal, low, medium, high, xhigh, or max), and \`reason\`. Session base model: ${base}.`;
+	}
 	const rows = candidates.map(
 		// `cell(c.spec)`, not `c.spec`: the spec is data like every other cell, and
 		// the validator it passed upstream does not know this table exists. A spec
@@ -367,45 +438,32 @@ function buildRoutingRule(router: ModelRouterResolution, allowUnmeasuredEffort: 
 		// pathological and unroutable today, and a forged column in a prompt loaded on
 		// every turn is by far the worse of the two.
 		(c) =>
-			`   ${cell(c.spec)}|${money(c.inUsdPerMTok)}/${money(c.outUsdPerMTok)}|${tokens(c.contextWindow)}|${tierCell(c)}|` +
+			`   ${cell(c.spec)}|${money(c.registryCost?.input)}/${money(c.registryCost?.output)}|${tokens(c.contextWindow)}|${tierCell(c)}|` +
 			`${measuredCell(router, c)}|${cell(c.profile?.routeFor)}|${cell(c.profile?.avoidFor)}`,
 	);
 	// Only the markers that actually appear are explained — an unused legend
 	// clause is pure cost in a block loaded on every turn.
 	const legend = [
-		candidates.some((c) => c.nonPreferred) ? "! = never a default pick" : "",
-		candidates.some((c) => c.tierUnsourced === true) ? "t? = cost class, not a rank" : "",
 		candidates.some((c) => c.ladderAssumed === true) ? "~ = assumed ladder" : "",
-		// The one case the "omit `effort`" sentence below cannot answer from the
-		// table: with no measured level there is nothing to derive, so pi's own
-		// level stands (route.ts's lowestMeasuredEffort returns undefined).
-		candidates.some((c) => measuredLevels(router, c).length === 0) ? "none = pi's own level applies" : "",
+		// With no measured level there is nothing to display as a supported choice.
+		candidates.some((c) => measuredLevels(router, c).length === 0) ? "none = no measured effort in Slate's profile" : "",
 	]
 		.filter((clause) => clause !== "")
 		.join("; ");
-	// The base a NEW thread starts on (model-router D48). `cheapest` is the
-	// resolver's own answer; the first candidate is the floor for a fabricated
-	// resolution that carries candidates but no `cheapest`, and the parenthetical
-	// disappears entirely rather than naming an empty model. Through `cell()` for
-	// the same reason the row's spec is: this one lands in PROSE, where a newline
-	// would forge a numbered directive rather than merely a column.
-	const base = cell(typeof router.cheapest === "string" && router.cheapest !== "" ? router.cheapest : candidates[0]?.spec);
-	const newThreadBase = base === "" ? "" : ` (${base} for a new thread)`;
 	// The evidence-gap policy is the ONE routing behaviour a project can invert,
 	// so it is stated as it is configured rather than as both possibilities.
 	const gap = allowUnmeasuredEffort ? "runs, marked unmeasured" : "is refused too (router.allowUnmeasuredEffort is false)";
 	return `
-${n}. Pick the first candidate and lowest effort that clear each action. Candidates
-   follow preference, tier sourcing, tier, price, then specification. Routable
-   this session (spec|$in/$out per Mtok|ctx|tier|measured|route for|avoid):
+${n}. Choose a listed model and effort that fit each action. Candidate rows preserve
+   configured order after validation.${ROUTING_BENCHMARK_GUIDE}
+   Routable this session (spec|$in/$out per Mtok|ctx|tier|measured|route for|avoid):
 ${rows.join("\n")}${legend === "" ? "" : `\n   ${legend}.`}
-   \`model\` and \`effort\` route THAT action only. Omit \`model\` for the thread's
-   base${newThreadBase}; omit \`effort\` for its base
-   level, else the FIRST measured level of the model it routes to — never a higher
-   one, so name the level harder work needs. Off-ladder and provider-rejected
+   Every call must name \`model\`, \`effort\`, and a short \`reason\`. The model
+   and effort route THAT action only. Pick a measured level that clears
+   the work. Off-ladder and unsupported-input
    levels are tool errors; an unmeasured one ${gap}.
-   Prices include dated updates after ${PROFILES_AS_OF} research.
-   A model or effort change empties the prompt cache. Rewrites cost 12.5 times cache reads.
+   Prices are base input/output rates from each exact pi registry entry. \`unknown\` means that component is absent or invalid.
+   Slate's model switch or top-level effort switch starts a cold prompt-cache path.
    DOCTRINE ONLY, not code-enforced: keep review and gate actions on measured
    levels, and honour a REFUSE in an avoid cell. Mechanics and config:
    ${MODEL_ROUTING_DOC}
@@ -460,6 +518,7 @@ function buildDoctrine(
 	trusted: boolean,
 	extensions: WorkerExtensionSet,
 	router: ModelRouterResolution,
+	sessionBaseModel?: string,
 ): string {
 	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
 	// one of the gates; otherwise durable records live in the research log.
@@ -530,7 +589,7 @@ threads execute. Rules:
 		// doctrine is the one surface where an untrusted project's choices would
 		// become the orchestrator's instructions, and because a future caller of
 		// buildDoctrine must not be able to lose that property by accident.
-		(n) => (trusted ? buildRoutingRule(router, config.router?.allowUnmeasuredEffort !== false, n) : ""),
+		(n) => (trusted ? buildRoutingRule(router, config.router?.allowUnmeasuredEffort !== false, n, sessionBaseModel) : ""),
 		// Append-only conditional tail. Writing guidance is active for every trusted
 		// project in orchestrator mode, independent of the ignored writing keys.
 		(n) => (trusted ? buildWritingRule(n) : ""),
@@ -704,7 +763,7 @@ export function registerSlateMode(
 		// addendum goes LAST so the pause directive is the final word in the
 		// prompt, undiluted by the role guidelines.
 		const parts = [
-			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRouter()),
+			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRouter(), ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
 			...loadDoctrineExtra(ctx.cwd, config, trusted).map((d) => `\n\n${d}`),
 			...docs.map((d) => `\n\n${d}`),
 		];

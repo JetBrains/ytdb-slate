@@ -23,7 +23,7 @@
  *                 failover fallbacks (what a new worker thread defaults to)
  *   model-profiles.ts / model-router.ts — the static routing data and the
  *                 resolver that turns `router.models` into routable candidates
- *   route.ts    — PURE per-action route planning + the seven dispatch guards
+ *   route.ts    — PURE per-action route planning + guards 0–4 and 7
  *
  * Optional config, including the deferred-issue prompt, lives at
  * <config dir>/slate.json (config dir = CONFIG_DIR_NAME,
@@ -156,6 +156,14 @@ export default function (pi: ExtensionAPI) {
 		// Trust gate: project config steers prompts, models, and tool lists, so
 		// it is honored only for trusted projects; untrusted → built-in defaults.
 		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
+		const rawRouterModels = (() => {
+			try {
+				const raw = (config.router as { models?: unknown } | undefined)?.models;
+				return Array.isArray(raw) ? [...raw] : [];
+			} catch {
+				return [];
+			}
+		})();
 		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
 		// modelFailover, contextBudget and workerExtensions are validated eagerly:
 		// a malformed value would otherwise fail silently mid-dispatch / exactly
@@ -186,7 +194,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				warn(
 					`slate: there ${plural} in the model router. Set "router.showWarnings" to true in ` +
-						`${CONFIG_DIR_NAME}/slate.json to read them. A hidden warning can affect which model runs an action.`,
+						`${CONFIG_DIR_NAME}/slate.json to read them. The notes may inform your explicit model and effort choice.`,
 				);
 			} catch {
 				/* BG3: a throwing sink costs the notice, never the resolution */
@@ -232,7 +240,7 @@ export default function (pi: ExtensionAPI) {
 		const memoizedRouterResolution = createModelRouterResolver(
 			() => ({
 				registry: ctx.modelRegistry,
-				models: config.router?.models ?? [],
+				models: rawRouterModels,
 				failover: config.modelFailover ?? {},
 			}),
 			routerWarn,

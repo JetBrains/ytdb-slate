@@ -1,3 +1,5 @@
+const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -5,6 +7,8 @@ import { join } from "node:path";
 import { register } from "node:module";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ModelProfile } from "../extension/model-profiles.ts";
+import type { RouterProfileSource } from "../extension/model-router.ts";
 
 register("../verification/test-resolve-hooks.mjs", import.meta.url);
 
@@ -29,14 +33,14 @@ interface TokenUsage {
 interface FakeSession {
   messages: unknown[];
   model: FakeModel | undefined;
-  thinkingLevel: undefined;
+  thinkingLevel: string | undefined;
   sessionFile: undefined;
   subscribe(listener: (event: Record<string, unknown>) => void): () => void;
   prompt(text: string): Promise<void>;
   abort(): Promise<void>;
   dispose(): void;
   setModel(model: FakeModel): Promise<void>;
-  setThinkingLevel(): void;
+  setThinkingLevel(level: string): void;
   getContextUsage(): undefined;
   listenerCount(): number;
   emit(event: Record<string, unknown>): void;
@@ -50,7 +54,7 @@ interface FakeModel {
   reasoning: boolean;
 }
 
-type PromptScript = (session: FakeSession) => void | Promise<void>;
+type PromptScript = (session: FakeSession, prompt: string) => void | Promise<void>;
 
 function assistant(usage: TokenUsage, text = "worker result") {
   return {
@@ -72,15 +76,17 @@ function fakeSession(script: PromptScript, model?: FakeModel): FakeSession {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async prompt() {
-      await script(session);
+    async prompt(text) {
+      await script(session, text);
     },
     async abort() {},
     dispose() {},
     async setModel(next) {
       session.model = next;
     },
-    setThinkingLevel() {},
+    setThinkingLevel(level) {
+      session.thinkingLevel = level;
+    },
     getContextUsage() {
       return undefined;
     },
@@ -109,7 +115,8 @@ function model(provider: string, id: string): FakeModel {
 }
 
 function context(cwd: string, models: FakeModel[] = []): ExtensionContext {
-  const bySpec = new Map(models.map((entry) => [`${entry.provider}/${entry.id}`, entry]));
+  const routedWorker = model("test", "worker");
+  const bySpec = new Map([routedWorker, ...models].map((entry) => [`${entry.provider}/${entry.id}`, entry]));
   return {
     cwd,
     model: undefined,
@@ -176,7 +183,7 @@ test("model authorization failures are sanitized before thread creation", async 
   ctx.modelRegistry.hasConfiguredAuth = () => { throw new Error("auth backend\nfailed"); };
   const manager = managerWithSessions([]);
   await assert.rejects(
-    manager.dispatch({ task: "validate auth", type: "general", model: "test/worker" }, ctx, undefined),
+    manager.dispatch({ ...TEST_ROUTE, task: "validate auth", type: "general", model: "test/worker" }, ctx, undefined),
     /could not be validated: auth backendfailed/,
   );
   const internalStore = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
@@ -191,7 +198,7 @@ test("pre-start aborts leave no thread or episode record", async (t) => {
   internal.setModel = async () => { throw new Error("switch unavailable"); };
   const internalManager = managerWithSessions([internal]);
   await assert.rejects(
-    internalManager.dispatch({ task: "internal abort", type: "general", model: "test/worker" }, context(cwd, [ran]), undefined),
+    internalManager.dispatch({ ...TEST_ROUTE, task: "internal abort", type: "general", model: "test/worker" }, context(cwd, [ran]), undefined),
     /switching its worker session/,
   );
   const internalStore = (internalManager as unknown as { store: InstanceType<typeof SlateStore> }).store;
@@ -206,7 +213,7 @@ test("pre-start aborts leave no thread or episode record", async (t) => {
   };
   const cancelledManager = managerWithSessions([cancelled]);
   await assert.rejects(
-    cancelledManager.dispatch({ task: "caller abort", type: "general", model: "test/worker" }, context(cwd, [ran]), controller.signal),
+    cancelledManager.dispatch({ ...TEST_ROUTE, task: "caller abort", type: "general", model: "test/worker" }, context(cwd, [ran]), controller.signal),
     /aborted by the orchestrator/,
   );
   const cancelledStore = (cancelledManager as unknown as { store: InstanceType<typeof SlateStore> }).store;
@@ -256,7 +263,7 @@ test("failed actions compress a worker response into one failed episode", { time
   };
   const manager = managerWithSessions([session], { episodeModel: "test/compressor" });
   const result = await manager.dispatch(
-    { task: "record failed work", type: "general" },
+    { ...TEST_ROUTE, task: "record failed work", type: "general" },
     context(cwd, [ran, compressor]),
     undefined,
   );
@@ -266,6 +273,9 @@ test("failed actions compress a worker response into one failed episode", { time
   assert.equal(result.episode.id, "t1.e1");
   assert.equal(result.episodeText, readFileSync(result.episode.file, "utf8"));
   assert.equal(episode?.status, "failed");
+  assert.equal(episode?.reason, TEST_ROUTE.reason);
+  assert.equal(episode?.requestedModel, TEST_ROUTE.model);
+  assert.equal(episode?.requestedEffort, TEST_ROUTE.effort);
   assert.equal(episode?.model, "test/worker");
   assert.equal(episode?.workerCostUsd, 0.125);
   assert.equal(episode?.compressorCostUsd, 0.01);
@@ -281,7 +291,7 @@ test("a throwing initial progress callback still leaves a terminal failed action
   const cwd = temporaryProject(t);
   const manager = managerWithSessions([]);
   const result = await manager.dispatch(
-    { task: "survive progress failure", type: "general" },
+    { ...TEST_ROUTE, task: "survive progress failure", type: "general" },
     context(cwd),
     undefined,
     () => { throw new Error("progress sink failed"); },
@@ -307,7 +317,7 @@ test("failed actions without a worker response write one fixed episode without c
   };
   const manager = managerWithSessions([session], { episodeModel: "test/compressor" });
   const result = await manager.dispatch(
-    { task: "record empty failure", type: "general" },
+    { ...TEST_ROUTE, task: "record empty failure", type: "general" },
     context(cwd, [ran, compressor]),
     undefined,
   );
@@ -317,6 +327,9 @@ test("failed actions without a worker response write one fixed episode without c
   assert.equal(result.episode.status, "failed");
   assert.equal(result.episodeText, readFileSync(result.episode.file, "utf8"));
   assert.equal(episode?.status, "failed");
+  assert.equal(episode?.reason, TEST_ROUTE.reason);
+  assert.equal(episode?.requestedModel, TEST_ROUTE.model);
+  assert.equal(episode?.requestedEffort, TEST_ROUTE.effort);
   assert.equal(episode?.model, "test/worker");
   assert.equal(internalStore.episodes.size, 1);
   assert.equal(internalStore.threads.get("t1")?.episodeId, "t1.e1");
@@ -344,7 +357,7 @@ test("an empty output block does not trigger paid failure compression", { timeou
     return completeResponse({});
   };
   const result = await managerWithSessions([session], { episodeModel: "test/compressor" }).dispatch(
-    { task: "do not summarize emptiness", type: "general" },
+    { ...TEST_ROUTE, task: "do not summarize emptiness", type: "general" },
     context(cwd, [compressor]),
     undefined,
   );
@@ -370,7 +383,7 @@ test("a recorded zero cost triggers failure compression for empty output", { tim
     return completeResponse({ cost: { total: 0 } });
   };
   const result = await managerWithSessions([session], { episodeModel: "test/compressor" }).dispatch(
-    { task: "preserve zero-cost evidence", type: "general" },
+    { ...TEST_ROUTE, task: "preserve zero-cost evidence", type: "general" },
     context(cwd, [compressor]),
     undefined,
   );
@@ -401,7 +414,7 @@ test("response evidence survives a rewritten worker message list", { timeout: 10
     return completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
   };
   const result = await managerWithSessions([session], { episodeModel: "test/compressor" }).dispatch(
-    { task: "preserve rewritten response", type: "general" },
+    { ...TEST_ROUTE, task: "preserve rewritten response", type: "general" },
     context(cwd, [ran, compressor]),
     undefined,
   );
@@ -416,7 +429,7 @@ test("fixed episode write failure leaves a terminal reason and no orphan episode
   const session = fakeSession(async () => { throw new Error("provider stopped before response"); });
   const manager = managerWithSessions([session]);
   await assert.rejects(
-    manager.dispatch({ task: "fail durably", type: "general" }, context(cwd), undefined),
+    manager.dispatch({ ...TEST_ROUTE, task: "fail durably", type: "general" }, context(cwd), undefined),
     (error: Error) => {
       assert.match(error.message, /provider stopped before response/);
       assert.match(error.message, /could not store episode t1\.e1/);
@@ -446,7 +459,7 @@ test("fixed failure reports a thread-record save failure", { timeout: 1000 }, as
     originalSave();
   };
   await assert.rejects(
-    manager.dispatch({ task: "persist fixed result", type: "general" }, context(cwd), undefined),
+    manager.dispatch({ ...TEST_ROUTE, task: "persist fixed result", type: "general" }, context(cwd), undefined),
     /stored episode t1\.e1, but could not save its thread record: snapshot storage unavailable/,
   );
   assert.equal(internalStore.threads.get("t1")?.status, "failed");
@@ -459,7 +472,7 @@ test("worker episode usage preserves all quantities and accumulates several turn
     { input: 2, output: 3, cacheRead: 5, cacheWrite: 7, cost: { total: 0 } },
     { input: 11, output: 13, cacheRead: 17, cacheWrite: 19, cost: { total: 0 } },
   ]));
-  const result = await managerWithSessions([session]).dispatch({ task: "account worker usage", type: "general" }, context(cwd), undefined);
+  const result = await managerWithSessions([session]).dispatch({ ...TEST_ROUTE, reason: "test\u0000 fixture", task: "account worker usage", type: "general" }, context(cwd), undefined);
 
   assert.deepEqual(
     {
@@ -471,12 +484,16 @@ test("worker episode usage preserves all quantities and accumulates several turn
     { input: 13, output: 16, cacheRead: 22, cacheWrite: 26 },
   );
   assert.equal(result.episode.workerCostUsd, 0);
+  assert.equal(result.episode.reason, TEST_ROUTE.reason);
+  assert.equal(result.episode.requestedModel, TEST_ROUTE.model);
+  assert.equal(result.episode.requestedEffort, TEST_ROUTE.effort);
+  assert.equal(result.episodeText.includes(TEST_ROUTE.reason), false, "dispatch metadata must stay out of episode Markdown");
 });
 
 test("worker episode usage distinguishes an absent quantity from reported zero", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const session = fakeSession(successfulPrompt([{ input: 0, output: 4, cacheRead: 0, cost: { total: 0 } }]));
-  const result = await managerWithSessions([session]).dispatch({ task: "preserve absence", type: "general" }, context(cwd), undefined);
+  const result = await managerWithSessions([session]).dispatch({ ...TEST_ROUTE, task: "preserve absence", type: "general" }, context(cwd), undefined);
 
   assert.equal(result.episode.input, 0);
   assert.equal(result.episode.cacheRead, 0);
@@ -490,7 +507,7 @@ test("worker episode usage distinguishes an absent quantity from reported zero",
 test("worker episode cost stays absent when no message reports dollars", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1 }]));
-  const result = await managerWithSessions([session]).dispatch({ task: "preserve missing worker cost", type: "general" }, context(cwd), undefined);
+  const result = await managerWithSessions([session]).dispatch({ ...TEST_ROUTE, task: "preserve missing worker cost", type: "general" }, context(cwd), undefined);
 
   assert.equal(Object.hasOwn(result.episode, "workerCostUsd"), false);
   assert.equal(result.episode.workerCostUsd, undefined);
@@ -517,7 +534,7 @@ test("compressor usage persists all quantities and accumulates a billed failover
     modelFailover: { "test/primary": "test/fallback" },
   });
   const controller = new AbortController();
-  const result = await manager.dispatch({ task: "compress with failover", type: "general" }, context(cwd, [primary, fallback]), controller.signal);
+  const result = await manager.dispatch({ ...TEST_ROUTE, task: "compress with failover", type: "general" }, context(cwd, [primary, fallback]), controller.signal);
 
   assert.equal(calls.length, 2);
   assert.strictEqual(calls[0]?.model, primary);
@@ -546,7 +563,7 @@ test("compressor usage is absent when no quantity was reported", { timeout: 1000
   piAiCompatStub.complete = async () => completeResponse({ cost: { total: 0 } });
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]));
   const result = await managerWithSessions([session], { episodeModel: "test/compressor" }).dispatch(
-    { task: "compress without usage", type: "general" },
+    { ...TEST_ROUTE, task: "compress without usage", type: "general" },
     context(cwd, [compressor]),
     undefined,
   );
@@ -562,7 +579,7 @@ test("compressor cost stays absent when the call reports usage without dollars",
   piAiCompatStub.complete = async () => completeResponse({ input: 3, output: 2 });
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]));
   const result = await managerWithSessions([session], { episodeModel: "test/compressor" }).dispatch(
-    { task: "compress without reported dollars", type: "general" },
+    { ...TEST_ROUTE, task: "compress without reported dollars", type: "general" },
     context(cwd, [compressor]),
     undefined,
   );
@@ -580,13 +597,13 @@ test("compaction usage counts one event once and does not contaminate the next d
   const first = fakeSession((session) => {
     session.emit(compactionEvent);
     session.emit(compactionEvent);
-    return successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }])(session);
+    return successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }])(session, "compacted prompt");
   });
   const second = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]));
   const manager = managerWithSessions([first, second]);
 
-  const firstResult = await manager.dispatch({ task: "dispatch with compaction", type: "general" }, context(cwd), undefined);
-  const secondResult = await manager.dispatch({ task: "dispatch without compaction", type: "general" }, context(cwd), undefined);
+  const firstResult = await manager.dispatch({ ...TEST_ROUTE, task: "dispatch with compaction", type: "general" }, context(cwd), undefined);
+  const secondResult = await manager.dispatch({ ...TEST_ROUTE, task: "dispatch without compaction", type: "general" }, context(cwd), undefined);
 
   assert.deepEqual(firstResult.episode.compactionUsage, { input: 2, output: 3, cacheRead: 5, cacheWrite: 7 });
   assert.equal(firstResult.episode.compactionCostUsd, 0.25);
@@ -603,8 +620,8 @@ test("dispatch subscriptions are removed after normal completion and error", { t
   });
   const manager = managerWithSessions([normal, failed]);
 
-  await manager.dispatch({ task: "normal teardown", type: "general" }, context(cwd), undefined);
-  const failedResult = await manager.dispatch({ task: "error teardown", type: "general" }, context(cwd), undefined);
+  await manager.dispatch({ ...TEST_ROUTE, task: "normal teardown", type: "general" }, context(cwd), undefined);
+  const failedResult = await manager.dispatch({ ...TEST_ROUTE, task: "error teardown", type: "general" }, context(cwd), undefined);
   assert.equal(failedResult.episode.status, "failed");
 
   assert.equal(normal.listenerCount(), 0);
@@ -624,7 +641,7 @@ test("caller abort and manager disposal record cancellation without an episode",
   });
   const callerManager = managerWithSessions([aborted]);
   await assert.rejects(
-    callerManager.dispatch({ task: "caller cancellation", type: "general" }, context(cwd), controller.signal),
+    callerManager.dispatch({ ...TEST_ROUTE, task: "caller cancellation", type: "general" }, context(cwd), controller.signal),
     /cancelled by the caller.*No episode was recorded/,
   );
   assert.equal(aborted.listenerCount(), 0);
@@ -640,7 +657,7 @@ test("caller abort and manager disposal record cancellation without an episode",
   });
   disposalManager = managerWithSessions([disposed]);
   await assert.rejects(
-    disposalManager.dispatch({ task: "session disposal", type: "general" }, context(cwd), undefined),
+    disposalManager.dispatch({ ...TEST_ROUTE, task: "session disposal", type: "general" }, context(cwd), undefined),
     /cancelled during session teardown.*No episode was recorded/,
   );
   const disposalStore = (disposalManager as unknown as { store: InstanceType<typeof SlateStore> }).store;
@@ -666,7 +683,187 @@ test("snapshot sanitizer loads old records without accounting fields", () => {
   assert.equal(Object.hasOwn(record, "compressorCostUsd"), false);
   assert.equal(Object.hasOwn(record, "compactionUsage"), false);
   assert.equal(Object.hasOwn(record, "compactionCostUsd"), false);
+  assert.equal(record.reason, undefined);
+  assert.equal(record.requestedModel, undefined);
+  assert.equal(record.requestedEffort, undefined);
   assert.deepEqual(repairs, []);
+
+  const corruptRepairs: string[] = [];
+  const corrupt = sanitizeEpisodeRecord({
+    id: "t2.e1", threadId: "t2", task: "corrupt", status: "ok", file: "/tmp/corrupt.md",
+    reason: "\u200b", requestedModel: "bad", requestedEffort: "high\u2028forged", createdAt: 2,
+  }, corruptRepairs);
+  assert.equal(corrupt?.reason, undefined);
+  assert.equal(corrupt?.requestedModel, undefined);
+  assert.equal(corrupt?.requestedEffort, undefined);
+  assert.match(corruptRepairs.join("\n"), /reason.*requestedModel.*requestedEffort/s);
+
+  const current = sanitizeEpisodeRecord({
+    id: "t3.e1", threadId: "t3", task: "current", status: "ok", file: "/tmp/current.md",
+    reason: "cost check", requestedModel: "p/requested", requestedEffort: "high", createdAt: 3,
+  }, []);
+  assert.equal(current?.reason, "cost check");
+  assert.equal(current?.requestedModel, "p/requested");
+  assert.equal(current?.requestedEffort, "high");
+});
+
+test("worker failover refuses a provider-unsupported requested control before retry", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const primary = model("test", "primary");
+  const fallback = model("fixture", "rejected-fallback");
+  const fallbackProfile: ModelProfile = {
+    id: "fixture/rejected-fallback",
+    aliases: [],
+    cacheRetention: null,
+    contextWindow: 200_000,
+    maxOutput: 8192,
+    tier: 1,
+    routeFor: "failover guard fixture",
+    avoidFor: "all production use",
+    hazards: [],
+    capabilityMeasuredAt: [],
+    evidenceGapAt: ["off"],
+    apiRejectedLevels: ["off"],
+    unknownRoutingCriticalFields: [],
+    evidence: "Test-only profile for a provider-unsupported requested control.",
+    asOf: "2026-09-11",
+  };
+  const profileLookups: string[] = [];
+  let fallbackLadderReads = 0;
+  const profiles: RouterProfileSource = {
+    findProfile: (spec) => {
+      profileLookups.push(spec);
+      return spec === fallbackProfile.id ? fallbackProfile : undefined;
+    },
+    ladderFor: (profile) => {
+      if (profile === fallbackProfile) fallbackLadderReads++;
+      return profile === fallbackProfile ? ["off"] : [];
+    },
+  };
+  let prompts = 0;
+  let switches = 0;
+  const session = fakeSession((current) => {
+    prompts++;
+    const message = {
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "model unavailable",
+      content: [],
+      usage: { input: 3, output: 1, cost: { total: 0.02 } },
+    };
+    current.messages.push(message);
+    current.emit({ type: "message_end", message });
+  }, primary);
+  session.setModel = async (next) => { switches++; session.model = next; };
+  const manager = managerWithSessions([session], { modelFailover: { "test/primary": fallbackProfile.id } });
+  const internals = manager as unknown as { routerOffProfiles(ctx: ExtensionContext): RouterProfileSource };
+  internals.routerOffProfiles = () => profiles;
+  const result = await manager.dispatch(
+    { model: "test/primary", effort: "off", reason: "rejected failover canary", task: "do not retry", type: "general" },
+    context(cwd, [primary, fallback]),
+    undefined,
+  );
+  assert.equal(prompts, 1, "the failed primary attempt must not be retried");
+  assert.equal(switches, 0, "the provider-unsupported fallback must not be opened");
+  assert.equal(profileLookups.includes(fallbackProfile.id), true, "the failover guard must inspect the fabricated fallback profile");
+  assert.equal(fallbackLadderReads, 1, "the failover guard must judge the requested control against the fabricated ladder");
+  assert.equal(result.episode.status, "failed");
+  assert.equal(result.episode.requestedModel, "test/primary");
+  assert.equal(result.episode.requestedEffort, "off");
+  assert.equal(result.episode.reason, "rejected failover canary");
+  assert.equal(result.episode.model, "test/primary");
+  assert.equal(result.episode.input, 3);
+  assert.equal(result.episode.output, 1);
+  assert.equal(result.episode.workerCostUsd, 0.02);
+});
+
+test("worker failover preserves requested metadata when the fallback succeeds or fails", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const primary = model("test", "primary");
+  const fallback = model("anthropic", "claude-sonnet-5");
+  const compressor = model("test", "compressor");
+  piAiCompatStub.complete = async () => completeResponse({});
+  for (const secondAttempt of ["success", "failure"] as const) {
+    let prompts = 0;
+    const session = fakeSession((current) => {
+      prompts++;
+      if (prompts === 1) {
+        const message = { role: "assistant", stopReason: "error", errorMessage: "model unavailable", content: [], usage: {} };
+        current.messages.push(message);
+        current.emit({ type: "message_end", message });
+        return;
+      }
+      if (secondAttempt === "failure") throw new Error("fallback failed before response");
+      return successfulPrompt([{ input: 1, output: 1 }])(current, "retry");
+    }, primary);
+    const manager = managerWithSessions([session], {
+      episodeModel: "test/compressor",
+      modelFailover: { "test/primary": "anthropic/claude-sonnet-5" },
+    });
+    const result = await manager.dispatch(
+      { model: "test/primary", effort: "low", reason: `failover ${secondAttempt} canary`, task: `fallback ${secondAttempt}`, type: "general" },
+      context(cwd, [primary, fallback, compressor]),
+      undefined,
+    );
+    assert.equal(prompts, 2);
+    assert.equal(result.episode.requestedModel, "test/primary");
+    assert.equal(result.episode.requestedEffort, "low");
+    assert.equal(result.episode.reason, `failover ${secondAttempt} canary`);
+    assert.equal(result.episode.model, "anthropic/claude-sonnet-5");
+    assert.equal(result.episode.effort, "low");
+    assert.equal(result.episode.status, secondAttempt === "success" ? "ok" : "failed");
+  }
+});
+
+test("request metadata stays out of first, reused-context, and compressor prompts", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const requested = model("request-canary", "secret-model");
+  const actual = model("actual", "safe-model");
+  const compressor = model("test", "compressor");
+  const workerPrompts: string[] = [];
+  const compressorPrompts: string[] = [];
+  let firstCalls = 0;
+  const sessions = [
+    fakeSession((current, prompt) => {
+      workerPrompts.push(prompt);
+      firstCalls++;
+      if (firstCalls === 1) {
+        const message = { role: "assistant", stopReason: "error", errorMessage: "model unavailable", content: [], usage: {} };
+        current.messages.push(message);
+        current.emit({ type: "message_end", message });
+        return;
+      }
+      return successfulPrompt([{ input: 1, output: 1 }])(current, prompt);
+    }, requested),
+    fakeSession((current, prompt) => {
+      workerPrompts.push(prompt);
+      return successfulPrompt([{ input: 1, output: 1 }])(current, prompt);
+    }, requested),
+  ];
+  piAiCompatStub.complete = async (...args: unknown[]) => {
+    compressorPrompts.push(JSON.stringify(args[1]));
+    return completeResponse({});
+  };
+  const manager = managerWithSessions(sessions, {
+    episodeModel: "test/compressor",
+    modelFailover: { "request-canary/secret-model": "actual/safe-model" },
+  });
+  const ctx = context(cwd, [requested, actual, compressor]);
+  const first = await manager.dispatch(
+    { model: "request-canary/secret-model", effort: "low", reason: "FIRST-REASON-CANARY", task: "first safe task", type: "general" },
+    ctx,
+    undefined,
+  );
+  await manager.dispatch(
+    { model: "request-canary/secret-model", effort: "low", reason: "SECOND-REASON-CANARY", task: "second safe task", type: "general", contextEpisodeIds: [first.episode.id] },
+    ctx,
+    undefined,
+  );
+  assert.equal(workerPrompts[0], "first safe task");
+  assert.match(workerPrompts[2] ?? "", /Context from prior episodes/);
+  for (const prompt of [...workerPrompts, ...compressorPrompts]) {
+    assert.doesNotMatch(prompt, /FIRST-REASON-CANARY|SECOND-REASON-CANARY|request-canary\/secret-model/);
+  }
 });
 
 test("snapshot sanitizer rejects noncanonical and mismatched episode ids", () => {

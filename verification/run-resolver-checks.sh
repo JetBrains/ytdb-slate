@@ -10,7 +10,7 @@
 #     candidate resolution and its warnings, the effort predicate — against
 #     fabricated registries and fabricated profile tables;
 #   · structural invariants of the shipped table in extension/model-profiles.ts
-#     (shape and internal consistency only, never a research number).
+#     (identifier and alias resolution, ladder consistency, tier range and freezing).
 # Prints one
 #   CHECK <id> <PASS|FAIL|NOT RUN> — <detail>
 # line per check (a FAIL adds an `observed:` line), then a `roster` check that

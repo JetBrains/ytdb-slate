@@ -109,6 +109,8 @@ function fakeStream(model, context) {
 				type: "general",
 				task: WORKER_TASK,
 				model: `${PROVIDER}/${MODEL}`,
+				effort: "low",
+				reason: "exercise the worker reminder path",
 				tools: ["read"],
 			},
 		}], "toolUse"));

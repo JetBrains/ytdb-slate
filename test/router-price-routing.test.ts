@@ -1,424 +1,245 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ModelProfile, PriceRow } from "../extension/model-profiles.ts";
-import {
-  coveringPriceRow,
-  isValidPrice,
-  resolveModelRouter,
-  type ModelRouterResolution,
-  type RouterProfileSource,
-  type RouterRegistry,
-  type RouterRegistryModel,
-  type RouterWarningClass,
-} from "../extension/model-router.ts";
-import {
-  planRoute,
-  REGISTRY_PRICE_RELATIVE_TOLERANCE,
-  type RoutePlanVerdict,
-} from "../extension/route.ts";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { findProfile, MODEL_PROFILES, type ModelProfile } from "../extension/model-profiles.ts";
+import { ROUTER_OFF, resolveModelRouter, SHIPPED_PROFILE_SOURCE, type RouterProfileSource, type RouterRegistryModel } from "../extension/model-router.ts";
+import { planRoute, type RoutePlanInput } from "../extension/route.ts";
+import { SlateStore } from "../extension/state.ts";
+import { ThreadManager } from "../extension/threads.ts";
 
-function profile(
-  id: string,
-  price: readonly PriceRow[] = [
-    { from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 },
-  ],
-  asOf = "2026-08-06",
-): ModelProfile {
+function profile(id: string, tier: 1 | 2 | 3 | 4 = 1, tierUnsourced = false, aliases: string[] = []): ModelProfile {
   return {
-    id,
-    aliases: [],
-    tier: 1,
-    tierSource: "fabricated",
-    price,
-    contextWindow: null,
-    maxOutput: null,
-    nonPreferred: null,
-    routeFor: "tests",
-    avoidFor: "none",
-    hazards: [],
-    capabilityMeasuredAt: ["medium"],
-    evidenceGapAt: [],
-    unknownRoutingCriticalFields: [],
-    evidence: "fabricated",
-    asOf,
-  } as unknown as ModelProfile;
+    id, aliases, contextWindow: null, maxOutput: null, tier,
+    ...(tierUnsourced ? { tierUnsourced: true as const } : {}),
+    routeFor: "fixture work", avoidFor: "nothing", hazards: [],
+    capabilityMeasuredAt: ["medium"], evidenceGapAt: [],
+    unknownRoutingCriticalFields: [], evidence: "fixture evidence", asOf: "2026-08-06",
+  };
 }
 
-function profileSource(rows: readonly ModelProfile[]): RouterProfileSource {
-  return {
-    findProfile: (spec) => rows.find((row) => row.id === spec),
+function resolve(rows: ModelProfile[], models: Record<string, RouterRegistryModel>, configured = rows.map((row) => row.id)) {
+  const profiles: RouterProfileSource = {
+    findProfile: (spec) => rows.find((row) => row.id === spec || row.aliases.includes(spec)),
     ladderFor: () => ["medium"],
   };
-}
-
-interface MutableRegistry {
-  models: Record<string, RouterRegistryModel | undefined>;
-  throwFind: boolean;
-  registry: RouterRegistry;
-}
-
-function mutableRegistry(models: Record<string, RouterRegistryModel | undefined>): MutableRegistry {
-  const state: MutableRegistry = {
-    models,
-    throwFind: false,
-    registry: undefined as unknown as RouterRegistry,
-  };
-  state.registry = {
-    find(provider, id) {
-      if (state.throwFind) throw new Error("registry unavailable");
-      return state.models[`${provider}/${id}`];
+  return resolveModelRouter({
+    models: configured, profiles,
+    registry: {
+      find: (provider, id) => models[`${provider}/${id}`],
+      hasConfiguredAuth: () => true,
     },
-    hasConfiguredAuth: () => true,
-  };
-  return state;
-}
-
-function resolution(
-  rows: readonly ModelProfile[],
-  state: MutableRegistry,
-  today = "2026-08-06",
-): { resolution: ModelRouterResolution; warnings: string[]; warningClasses: RouterWarningClass[] } {
-  const warnings: string[] = [];
-  const warningClasses: RouterWarningClass[] = [];
-  const resolved = resolveModelRouter(
-    {
-      registry: state.registry,
-      models: rows.map((row) => row.id),
-      profiles: profileSource(rows),
-      today,
-    },
-    (warning, warningClass) => {
-      warnings.push(warning);
-      warningClasses.push(warningClass);
-    },
-  );
-  assert.equal(resolved.on, true);
-  return { resolution: resolved, warnings, warningClasses };
-}
-
-function plan(
-  resolved: ModelRouterResolution,
-  spec: string,
-  day = "2026-08-06",
-): RoutePlanVerdict {
-  return planRoute({
-    resolution: resolved,
-    requestedModel: spec,
-    currentDate: () => day,
+    failover: Object.fromEntries(configured.map((spec) => [spec, spec])),
   });
 }
 
-function divergenceWarnings(verdict: RoutePlanVerdict): readonly string[] {
-  return verdict.warnings.filter((warning) => warning.includes("model-visible warning"));
-}
-
-test("registry costs survive absent, malformed, non-finite, and throwing fields", () => {
-  const throwingCost = {
-    get input(): number {
-      throw new Error("hostile input getter");
-    },
-    output: 7,
-    cacheRead: 0,
-    cacheWrite: 3,
-  };
-  const state = mutableRegistry({
-    "p/no-cost": { contextWindow: 10 },
-    "p/no-input": { contextWindow: 10, cost: { output: 2 } },
-    "p/text": {
-      contextWindow: 10,
-      cost: { input: "1" } as unknown as RouterRegistryModel["cost"],
-    },
-    "p/infinite": { contextWindow: 10, cost: { input: Number.POSITIVE_INFINITY } },
-    "p/throwing": { contextWindow: 10, cost: throwingCost },
+test("configured candidate order survives tier and registry-rate differences", () => {
+  const rows = [profile("p/expensive", 4), profile("p/zero", 1, true), profile("p/unknown", 2)];
+  const result = resolve(rows, {
+    "p/expensive": { cost: { input: 100, output: 200 } },
+    "p/zero": { cost: { input: 0, output: 0 } },
+    "p/unknown": {},
   });
-  const rows = Object.keys(state.models).map((spec) => profile(spec));
-  const { resolution: resolved } = resolution(rows, state);
-  const costs = Object.fromEntries(
-    resolved.candidates.map((candidate) => [candidate.spec, candidate.registryCost]),
-  );
-
-  assert.deepEqual(costs["p/no-cost"], {
-    input: undefined,
-    output: undefined,
-    cacheRead: undefined,
-    cacheWrite: undefined,
-  });
-  assert.equal(costs["p/no-input"]?.input, undefined);
-  assert.equal(costs["p/no-input"]?.output, 2);
-  assert.equal(costs["p/text"]?.input, undefined);
-  assert.equal(costs["p/infinite"]?.input, undefined);
-  assert.deepEqual(costs["p/throwing"], {
-    input: undefined,
-    output: 7,
-    cacheRead: 0,
-    cacheWrite: 3,
-  });
-
-  assert.equal(resolved.registryCostFor?.("not-a-spec"), undefined);
-  assert.equal(resolved.registryCostFor?.("p/missing"), undefined);
-  state.throwFind = true;
-  assert.equal(resolved.registryCostFor?.("p/no-cost"), undefined);
-});
-
-test("price validity accepts zero and positive finite prices only", () => {
-  for (const value of [undefined, null, "0", Number.NaN, Number.POSITIVE_INFINITY, -1]) {
-    assert.equal(isValidPrice(value), false, `expected ${String(value)} to be invalid`);
-  }
-  assert.equal(isValidPrice(0), true);
-  assert.equal(isValidPrice(0.25), true);
-});
-
-test("invalid and absent prices sort last while zero remains cheapest", () => {
-  const rows = [
-    profile("p/negative", [{ from: null, until: null, inUsdPerMTok: -1, outUsdPerMTok: 2 }]),
-    profile("p/infinite", [{ from: null, until: null, inUsdPerMTok: Number.POSITIVE_INFINITY, outUsdPerMTok: 2 }]),
-    profile("p/absent", [{ from: null, until: null, outUsdPerMTok: 2 } as PriceRow]),
-    profile("p/positive", [{ from: null, until: null, inUsdPerMTok: 2, outUsdPerMTok: 2 }]),
-    profile("p/zero", [{ from: null, until: null, inUsdPerMTok: 0, outUsdPerMTok: 2 }]),
-  ];
-  const state = mutableRegistry(Object.fromEntries(rows.map((row) => [row.id, { contextWindow: 10 }])));
-  const { resolution: resolved, warnings, warningClasses } = resolution(rows, state);
-  const candidates = Object.fromEntries(resolved.candidates.map((candidate) => [candidate.spec, candidate]));
-
-  assert.deepEqual(resolved.candidates.map((candidate) => candidate.spec), [
-    "p/zero",
-    "p/positive",
-    "p/absent",
-    "p/infinite",
-    "p/negative",
+  assert.deepEqual(result.candidates.map((candidate) => candidate.spec), rows.map((row) => row.id));
+  assert.equal("cheapest" in result, false);
+  assert.deepEqual(result.candidates.map((candidate) => candidate.registryCost), [
+    { input: 100, output: 200, cacheRead: undefined, cacheWrite: undefined },
+    { input: 0, output: 0, cacheRead: undefined, cacheWrite: undefined },
+    { input: undefined, output: undefined, cacheRead: undefined, cacheWrite: undefined },
   ]);
-  assert.equal(resolved.cheapest, "p/zero");
-  assert.equal(candidates["p/zero"]?.inUsdPerMTok, 0);
-  assert.equal(candidates["p/absent"]?.inUsdPerMTok, undefined);
-  assert.notEqual(candidates["p/zero"]?.inUsdPerMTok, candidates["p/absent"]?.inUsdPerMTok);
-  const invalidIndexes = warnings.flatMap((warning, index) => warning.includes("invalid input price data") ? [index] : []);
-  assert.equal(invalidIndexes.length, 2);
-  assert.equal(invalidIndexes.every((index) => warningClasses[index] === "model-data-note"), true);
-  assert.equal(warnings.some((warning) => warning.includes("p/absent has invalid")), false);
 });
 
-test("fresh material registry divergence emits the exact advisory without changing the route", () => {
-  const spec = "p/priced";
-  const model = {
-    contextWindow: 10,
-    cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
-  };
-  const state = mutableRegistry({ [spec]: model });
-  const { resolution: resolved, warnings: userWarnings, warningClasses } = resolution([profile(spec)], state);
-  const equal = plan(resolved, spec);
-  model.cost.input = 2.3456789;
-  const diverged = plan(resolved, spec);
-  const expectedModelVisible =
-    "slate: model router: live registry pricing for p/priced differs materially from the shipped profile row for 2026-08-06. " +
-    "Registry input is higher by twofold to tenfold. Candidate ordering still uses shipped prices. Dispatching anyway. " +
-    "Exact rates are omitted from this model-visible warning.";
-  const expectedUserOnly =
-    "slate: model router: exact live registry pricing for p/priced differs from the shipped profile row for 2026-08-06. " +
-    "Profile asOf 2026-08-06. Input: shipped $1 and registry $2.3456789 per million tokens. " +
-    "Candidate ordering still uses shipped prices.";
-
-  assert.equal(equal.kind, "proceed");
-  assert.equal(diverged.kind, "proceed");
-  assert.equal(equal.model, spec);
-  assert.equal(diverged.model, spec);
-  assert.deepEqual(divergenceWarnings(equal), []);
-  assert.deepEqual(diverged.warnings, [expectedModelVisible]);
-  const repeated = plan(resolved, spec);
-  assert.deepEqual(repeated.warnings, [expectedModelVisible]);
-  const exactIndexes = userWarnings.flatMap((warning, index) => warning === expectedUserOnly ? [index] : []);
-  assert.equal(exactIndexes.length, 1);
-  assert.equal(exactIndexes.every((index) => warningClasses[index] === "model-data-note"), true);
-  model.cost.input = 20;
-  const refreshed = plan(resolved, spec);
-  assert.equal(divergenceWarnings(refreshed).length, 1);
-  assert.equal(userWarnings.some((warning) => warning.includes("registry $20 per million tokens")), true);
-  assert.equal(userWarnings.filter((warning) => warning.includes("exact live registry pricing")).length, 2);
-  assert.equal(expectedModelVisible.includes("2.3456789"), false);
-  assert.equal(JSON.stringify(diverged).includes("2.3456789"), false);
-});
-
-test("divergence warnings apply router field and whole-message hardening", () => {
-  const spec = `p/${"m".repeat(260)}`;
-  const hostileAsOf = `[private] ${"x".repeat(240)}\u202e\n`;
-  const model = { contextWindow: 10, cost: { input: 3, output: 2 } };
-  const state = mutableRegistry({ [spec]: model });
-  const p = profile(spec, undefined, hostileAsOf);
-  const { resolution: resolved, warnings } = resolution([p], state);
-  const verdict = plan(resolved, spec);
-  const exact = warnings.find((warning) => warning.includes("exact live registry pricing"));
-  const visible = divergenceWarnings(verdict)[0];
-
-  assert.ok(exact);
-  assert.ok(visible);
-  for (const warning of [exact, visible]) {
-    assert.ok(warning.length <= 800);
-    assert.doesNotMatch(warning, /[\u0000-\u001f\u007f\u0080-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/);
-    assert.equal(warning.includes("m".repeat(200)), false);
-  }
-  assert.doesNotMatch(exact, /\[private\]/);
-  assert.equal(exact.includes("x".repeat(200)), false);
-});
-
-test("input and output divergence honour both sides of the relative tolerance", () => {
-  const spec = "p/tolerance";
-  const model = { contextWindow: 10, cost: { input: 1, output: 2 } };
-  const state = mutableRegistry({ [spec]: model });
-  const { resolution: resolved } = resolution([profile(spec)], state);
-
-  model.cost.input = 1 + REGISTRY_PRICE_RELATIVE_TOLERANCE * 0.5;
-  model.cost.output = 2 + 2 * REGISTRY_PRICE_RELATIVE_TOLERANCE * 0.5;
-  assert.deepEqual(divergenceWarnings(plan(resolved, spec)), []);
-
-  model.cost.input = 1 + REGISTRY_PRICE_RELATIVE_TOLERANCE * 2;
-  model.cost.output = 2;
-  const inputWarning = divergenceWarnings(plan(resolved, spec));
-  assert.equal(inputWarning.length, 1);
-  assert.match(inputWarning[0] ?? "", /Registry input is higher by less than twofold/);
-  assert.doesNotMatch(inputWarning[0] ?? "", /Registry output/);
-
-  model.cost.input = 1;
-  model.cost.output = 2 + 2 * REGISTRY_PRICE_RELATIVE_TOLERANCE * 2;
-  const outputWarning = divergenceWarnings(plan(resolved, spec));
-  assert.equal(outputWarning.length, 1);
-  assert.match(outputWarning[0] ?? "", /Registry output is higher by less than twofold/);
-  assert.doesNotMatch(outputWarning[0] ?? "", /Registry input/);
-});
-
-test("absent or invalid prices on either source stay silent and advisory", () => {
-  const cases: Array<{
-    name: string;
-    row: PriceRow;
-    cost: Record<string, unknown>;
-  }> = [
-    { name: "registry input absent", row: { from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }, cost: { output: 2 } },
-    { name: "registry input invalid", row: { from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }, cost: { input: -1, output: 2 } },
-    { name: "shipped input absent", row: { from: null, until: null, outUsdPerMTok: 2 } as PriceRow, cost: { input: 1, output: 2 } },
-    { name: "shipped input invalid", row: { from: null, until: null, inUsdPerMTok: Number.NaN, outUsdPerMTok: 2 }, cost: { input: 1, output: 2 } },
-    { name: "registry output absent", row: { from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }, cost: { input: 1 } },
-    { name: "registry output invalid", row: { from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }, cost: { input: 1, output: Number.POSITIVE_INFINITY } },
-    { name: "shipped output absent", row: { from: null, until: null, inUsdPerMTok: 1 } as PriceRow, cost: { input: 1, output: 2 } },
-    { name: "shipped output invalid", row: { from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: -2 }, cost: { input: 1, output: 2 } },
+test("registry base-rate components validate independently without dropping a model", () => {
+  const throwing = { get input(): number { throw new Error("hostile getter"); }, output: 7 };
+  const cases: Array<[string, RouterRegistryModel, number | undefined, number | undefined]> = [
+    ["p/zero", { cost: { input: 0, output: 0 } }, 0, 0],
+    ["p/partial", { cost: { input: 2 } }, 2, undefined],
+    ["p/negative", { cost: { input: -1, output: -2 } }, undefined, undefined],
+    ["p/nan", { cost: { input: Number.NaN, output: Number.POSITIVE_INFINITY } }, undefined, undefined],
+    ["p/text", { cost: { input: "1", output: 3 } as never }, undefined, 3],
+    ["p/throwing", { cost: throwing }, undefined, 7],
+    ["p/throwing-parent", { get cost(): never { throw new Error("hostile parent getter"); } }, undefined, undefined],
   ];
-
-  for (const item of cases) {
-    const spec = `p/${item.name.replaceAll(" ", "-")}`;
-    const state = mutableRegistry({
-      [spec]: {
-        contextWindow: 10,
-        cost: item.cost as RouterRegistryModel["cost"],
-      },
-    });
-    const { resolution: resolved } = resolution([profile(spec, [item.row])], state);
-    const verdict = plan(resolved, spec);
-    assert.equal(verdict.kind, "proceed", item.name);
-    assert.deepEqual(divergenceWarnings(verdict), [], item.name);
+  const result = resolve(cases.map(([id]) => profile(id)), Object.fromEntries(cases.map(([id, model]) => [id, model])));
+  assert.equal(result.candidates.length, cases.length);
+  for (const [id, , input, output] of cases) {
+    const candidate = result.candidates.find((item) => item.spec === id);
+    assert.deepEqual([candidate?.registryCost.input, candidate?.registryCost.output], [input, output], id);
   }
 });
 
-test("the dispatch date selects the covering shipped schedule", () => {
-  const spec = "p/dated";
-  const rows: PriceRow[] = [
-    { from: null, until: "2026-07-29", inUsdPerMTok: 1, outUsdPerMTok: 2 },
-    { from: "2026-07-30", until: null, inUsdPerMTok: 0.2, outUsdPerMTok: 1.2 },
-  ];
-  const model = { contextWindow: 10, cost: { input: 1, output: 2 } };
-  const state = mutableRegistry({ [spec]: model });
-  const p = profile(spec, rows, "2026-07-30");
-  const { resolution: resolved } = resolution([p], state, "2026-07-29");
-
-  assert.equal(coveringPriceRow(p, "not-a-date"), undefined);
-  assert.equal(coveringPriceRow(profile("p/empty", []), "2026-07-29"), undefined);
-  assert.equal(coveringPriceRow(p, "2026-07-29")?.inUsdPerMTok, 1);
-  assert.equal(coveringPriceRow(p, "2026-07-30")?.inUsdPerMTok, 0.2);
-  assert.deepEqual(divergenceWarnings(plan(resolved, spec, "2026-07-29")), []);
-  const boundary = divergenceWarnings(plan(resolved, spec, "2026-07-30"));
-  assert.equal(boundary.length, 1);
-  assert.match(boundary[0] ?? "", /Registry input is higher by twofold to tenfold/);
-  assert.match(boundary[0] ?? "", /Registry output is higher by less than twofold/);
-
-  model.cost = { input: 0.2, output: 1.2 };
-  assert.equal(divergenceWarnings(plan(resolved, spec, "2026-07-29")).length, 1);
-  assert.deepEqual(divergenceWarnings(plan(resolved, spec, "2026-07-30")), []);
-});
-
-test("failover price divergence remains advisory for listed targets", () => {
-  const spec = "p/failover-target";
-  const model = { contextWindow: 10, cost: { input: 3, output: 2 } };
-  const state = mutableRegistry({ [spec]: model });
-  const { resolution: resolved } = resolution([profile(spec)], state);
-  const verdict = planRoute({
-    resolution: resolved,
-    requestedModel: spec,
-    failoverSwitch: true,
-    failoverFrom: "p/failed",
-    currentDate: () => "2026-08-06",
+test("provider-qualified registry lookup never borrows a canonical rate for an alias", () => {
+  const canonical = profile("direct/same-id", 1, false, ["gateway/same-id"]);
+  const result = resolve([canonical], {
+    "direct/same-id": { cost: { input: 1, output: 2 } },
+    "gateway/same-id": { cost: { input: 9, output: 10 } },
+  }, ["gateway/same-id"]);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0]?.spec, "gateway/same-id");
+  assert.deepEqual(result.candidates[0]?.registryCost, {
+    input: 9, output: 10, cacheRead: undefined, cacheWrite: undefined,
   });
+});
 
+test("registry prices have no dispatch warning or routing effect", () => {
+  const result = resolve([profile("p/selected"), profile("p/other")], {
+    "p/selected": { cost: { input: 99, output: 100 } },
+    "p/other": { cost: { input: 0, output: 0 } },
+  });
+  const verdict = planRoute({ resolution: result, requestedModel: "p/selected", requestedEffort: "medium", requireExplicit: true });
   assert.equal(verdict.kind, "proceed");
-  assert.equal(verdict.model, spec);
-  assert.equal(divergenceWarnings(verdict).length, 1);
-
-  const unlisted = planRoute({
-    resolution: resolved,
-    requestedModel: "p/unlisted-fallback",
-    failoverSwitch: true,
-    failoverFrom: "p/failed",
-    currentDate: () => "2026-08-06",
-  });
-  assert.equal(unlisted.kind, "proceed");
-  assert.deepEqual(divergenceWarnings(unlisted), []);
+  assert.equal(verdict.kind === "proceed" ? verdict.model : undefined, "p/selected");
+  assert.deepEqual(verdict.warnings, []);
+  assert.equal(JSON.stringify(verdict).includes("price"), false);
 });
 
-test("divergence evidence failures stay silent and never block dispatch", () => {
-  const spec = "p/fail-soft";
-  const model: RouterRegistryModel = { contextWindow: 10, cost: { input: 1, output: 2 } };
-  const state = mutableRegistry({ [spec]: model });
-  const p = profile(spec);
-  const { resolution: resolved } = resolution([p], state);
-
-  const assertSilentProceed = (candidate: ModelRouterResolution, currentDate?: () => string) => {
-    const verdict = planRoute({ resolution: candidate, requestedModel: spec, currentDate });
-    assert.equal(verdict.kind, "proceed");
-    assert.deepEqual(divergenceWarnings(verdict), []);
+test("removed profiles are unprofiled through the real ThreadManager router-off composition", () => {
+  const manager = new ThreadManager(new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI), {});
+  const internals = manager as unknown as {
+    routeInputs(ctx: ExtensionContext, thread: undefined, opts: { model: string; effort: "off" | "max" }): RoutePlanInput;
   };
-
-  state.models[spec] = undefined;
-  assertSilentProceed(resolved, () => "2026-08-06");
-  state.models[spec] = model;
-  state.throwFind = true;
-  assertSilentProceed(resolved, () => "2026-08-06");
-  state.throwFind = false;
-  assertSilentProceed(resolved, () => {
-    throw new Error("clock unavailable");
-  });
-  assertSilentProceed(resolved, () => "invalid-date");
-
-  const noRegistryReader = { ...resolved, registryCostFor: undefined };
-  assertSilentProceed(noRegistryReader, () => "2026-08-06");
-  const noDateReader = { ...resolved, currentDate: undefined };
-  assertSilentProceed(noDateReader);
-
-  model.cost = { input: 3, output: 2 };
-  const throwingWarningPath = {
-    ...resolved,
-    warnOnce: () => {
-      throw new Error("UI unavailable");
+  const models = new Set(["openai/gpt-5.4-mini", "openai/gpt-5.4-nano", "anthropic/claude-fable-5"]);
+  const ctx = {
+    modelRegistry: {
+      find: (provider: string, id: string) => models.has(`${provider}/${id}`) ? { provider, id } : undefined,
+      hasConfiguredAuth: () => true,
     },
+  } as unknown as ExtensionContext;
+  for (const [spec, effort] of [
+    ["openai/gpt-5.4-mini", "max"],
+    ["openai/gpt-5.4-nano", "max"],
+    ["anthropic/claude-fable-5", "off"],
+  ] as const) {
+    assert.equal(findProfile(spec), undefined);
+    assert.equal(planRoute(internals.routeInputs(ctx, undefined, { model: spec, effort })).kind, "proceed", spec);
+  }
+});
+
+test("current Fable profile guards normal router-off source composition", () => {
+  const manager = new ThreadManager(new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI), {});
+  const internals = manager as unknown as {
+    routeInputs(ctx: ExtensionContext, thread: undefined, opts: { model: string; effort: "off" }): RoutePlanInput;
   };
-  const withThrowingWarningPath = planRoute({
-    resolution: throwingWarningPath,
-    requestedModel: spec,
-    currentDate: () => "2026-08-06",
-  });
-  assert.equal(withThrowingWarningPath.kind, "proceed");
-  assert.equal(divergenceWarnings(withThrowingWarningPath).length, 1);
-  model.cost = { input: 1, output: 2 };
-
-  Object.defineProperty(p, "price", {
-    configurable: true,
-    get() {
-      throw new Error("price unavailable");
+  const spec = "anthropic/claude-fable-5-1";
+  assert.ok(findProfile(spec));
+  const ctx = {
+    modelRegistry: {
+      find: (provider: string, id: string) => `${provider}/${id}` === spec ? { provider, id } : undefined,
+      hasConfiguredAuth: () => true,
     },
+  } as unknown as ExtensionContext;
+  const verdict = planRoute(internals.routeInputs(ctx, undefined, { model: spec, effort: "off" }));
+  assert.equal(verdict.kind, "reject");
+  assert.match(verdict.kind === "reject" ? verdict.reason : "", /rejected outright as a provider-unsupported requested control/);
+});
+
+test("Gemini aliases use cached frozen evidence-gap views in normal router ON and OFF", () => {
+  const canonicalSpec = "google-vertex/gemini-3.8-flash";
+  const aliases = [
+    "google/gemini-3.8-flash",
+    "opencode/gemini-3.8-flash",
+    "openrouter/google/gemini-3.8-flash",
+  ];
+  const canonical = findProfile(canonicalSpec);
+  assert.ok(canonical);
+  assert.deepEqual(canonical.capabilityMeasuredAt, ["low", "medium", "high"]);
+  assert.match(canonical.routeFor, /71\.02%/);
+  assert.equal(MODEL_PROFILES.length, 9);
+  const canonicalResolution = resolveModelRouter({
+    models: [canonicalSpec],
+    registry: { find: () => ({ contextWindow: 1_048_576 }), hasConfiguredAuth: () => true },
+    failover: { [canonicalSpec]: "anthropic/claude-opus-5" },
   });
-  assertSilentProceed(resolved, () => "2026-08-06");
+  for (const effort of ["low", "medium", "high"] as const) {
+    const on = planRoute({ resolution: canonicalResolution, requestedModel: canonicalSpec, requestedEffort: effort, requireExplicit: true, allowUnmeasuredEffort: false });
+    assert.equal(on.kind, "proceed");
+    if (on.kind === "proceed") assert.equal(on.effortUnmeasured, false);
+    const off = planRoute({ resolution: ROUTER_OFF, profiles: SHIPPED_PROFILE_SOURCE, requestedModel: canonicalSpec, requestedEffort: effort, requireExplicit: true, allowUnmeasuredEffort: false });
+    assert.equal(off.kind, "proceed");
+    if (off.kind === "proceed") assert.equal(off.effortUnmeasured, false);
+  }
+
+  for (const alias of aliases) {
+    const view = findProfile(alias);
+    assert.ok(view);
+    assert.strictEqual(findProfile(alias.toUpperCase()), view);
+    assert.notStrictEqual(view, canonical);
+    assert.equal(Object.isFrozen(view), true);
+    assert.equal(Object.isFrozen(view.capabilityMeasuredAt), true);
+    assert.equal(view.id, canonicalSpec);
+    assert.deepEqual(view.aliases, aliases);
+    assert.deepEqual(SHIPPED_PROFILE_SOURCE.ladderFor(view), ["low", "medium", "high"]);
+    assert.deepEqual(view.apiRejectedLevels, ["off", "minimal"]);
+    assert.deepEqual(view.capabilityMeasuredAt, []);
+    assert.deepEqual(view.evidenceGapAt, ["low", "medium", "high"]);
+    assert.doesNotMatch(view.routeFor, /71\.02%|\$1\.97|@medium/);
+    assert.match(view.avoidFor, /cache, privacy, adapter, wire-format, rate/i);
+
+    const registryModel = { cost: { input: 9, output: 10 }, contextWindow: 777_000 };
+    const resolution = resolveModelRouter({
+      models: [alias, canonicalSpec],
+      registry: {
+        find: (provider, id) => `${provider}/${id}` === alias ? registryModel : { cost: { input: 1, output: 2 }, contextWindow: 1_048_576 },
+        hasConfiguredAuth: () => true,
+      },
+      failover: { [alias]: canonicalSpec, [canonicalSpec]: alias },
+    });
+    assert.deepEqual(resolution.candidates.map((candidate) => candidate.spec), [alias]);
+    assert.deepEqual(resolution.candidates[0]?.registryCost.input, 9);
+    assert.equal(resolution.candidates[0]?.contextWindow, 777_000);
+    for (const effort of ["low", "medium", "high"] as const) {
+      for (const allowUnmeasuredEffort of [true, false]) {
+        const on = planRoute({ resolution, requestedModel: alias, requestedEffort: effort, requireExplicit: true, allowUnmeasuredEffort });
+        assert.equal(on.kind, allowUnmeasuredEffort ? "proceed" : "reject", `${alias} ${effort} ON ${allowUnmeasuredEffort}`);
+        if (on.kind === "proceed") assert.equal(on.effortUnmeasured, true);
+        const off = planRoute({ resolution: ROUTER_OFF, profiles: SHIPPED_PROFILE_SOURCE, requestedModel: alias, requestedEffort: effort, requireExplicit: true, allowUnmeasuredEffort });
+        assert.equal(off.kind, allowUnmeasuredEffort ? "proceed" : "reject", `${alias} ${effort} OFF ${allowUnmeasuredEffort}`);
+        if (off.kind === "proceed") assert.equal(off.effortUnmeasured, true);
+      }
+    }
+    for (const effort of ["off", "minimal"] as const) {
+      assert.equal(planRoute({ resolution, requestedModel: alias, requestedEffort: effort, requireExplicit: true }).kind, "reject");
+      assert.equal(planRoute({ resolution: ROUTER_OFF, profiles: SHIPPED_PROFILE_SOURCE, requestedModel: alias, requestedEffort: effort, requireExplicit: true }).kind, "reject");
+    }
+    const failover = planRoute({ resolution, profiles: SHIPPED_PROFILE_SOURCE, failoverSwitch: true, failoverFrom: "other/model", requestedModel: alias, requestedEffort: "medium", allowUnmeasuredEffort: false });
+    assert.equal(failover.kind, "proceed");
+    if (failover.kind === "proceed") assert.equal(failover.effortUnmeasured, false);
+    const blockedFailover = planRoute({ resolution, profiles: SHIPPED_PROFILE_SOURCE, failoverSwitch: true, failoverFrom: "other/model", requestedModel: alias, requestedEffort: "off", allowUnmeasuredEffort: true });
+    assert.equal(blockedFailover.kind, "reject");
+  }
+});
+
+test("an unlisted Gemini alias fails membership before evidence policy", () => {
+  const resolution = resolveModelRouter({
+    models: ["google-vertex/gemini-3.8-flash"],
+    registry: { find: () => ({ contextWindow: 1_048_576 }), hasConfiguredAuth: () => true },
+    failover: { "google-vertex/gemini-3.8-flash": "anthropic/claude-opus-5" },
+  });
+  const verdict = planRoute({ resolution, requestedModel: "google/gemini-3.8-flash", requestedEffort: "medium", requireExplicit: true, allowUnmeasuredEffort: true });
+  assert.equal(verdict.kind, "reject");
+  assert.match(verdict.kind === "reject" ? verdict.reason : "", /not routable/);
+});
+
+test("explicit effort guards remain fail-soft on unreadable profiles and hard on readable facts", () => {
+  const requested = { resolution: ROUTER_OFF, requestedModel: "p/model", requestedEffort: "medium", requireExplicit: true } as const;
+  assert.equal(planRoute(requested).kind, "proceed");
+  assert.equal(planRoute({ ...requested, profiles: { findProfile: () => { throw new Error("unreadable"); }, ladderFor: () => ["medium"] } }).kind, "proceed");
+  assert.equal(planRoute({ ...requested, profiles: { findProfile: () => undefined, ladderFor: () => ["medium"] } }).kind, "proceed");
+
+  const row = profile("p/model");
+  assert.equal(planRoute({ ...requested, profiles: { findProfile: () => row, ladderFor: () => { throw new Error("unreadable"); } } }).kind, "proceed");
+  const offLadder = planRoute({ ...requested, profiles: { findProfile: () => row, ladderFor: () => ["low"] } });
+  assert.equal(offLadder.kind, "reject");
+  assert.match(offLadder.kind === "reject" ? offLadder.reason : "", /effort ladder/);
+
+  const rejected = { ...row, apiRejectedLevels: ["medium"] as const } as unknown as ModelProfile;
+  const apiRejected = planRoute({ ...requested, profiles: { findProfile: () => rejected, ladderFor: () => ["medium"] } });
+  assert.equal(apiRejected.kind, "reject");
+  assert.match(apiRejected.kind === "reject" ? apiRejected.reason : "", /rejected outright/);
+
+  const gap = { ...row, capabilityMeasuredAt: [], evidenceGapAt: ["medium"] } as ModelProfile;
+  const source = { findProfile: () => gap, ladderFor: () => ["medium"] as const };
+  const advisory = planRoute({ ...requested, profiles: source });
+  assert.equal(advisory.kind, "proceed");
+  assert.equal(advisory.kind === "proceed" ? advisory.effortUnmeasured : false, true);
+  assert.equal(planRoute({ ...requested, profiles: source, allowUnmeasuredEffort: false }).kind, "reject");
 });

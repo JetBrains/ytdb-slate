@@ -42,6 +42,7 @@ import {
 	effectiveThreadType,
 	isModelSpec,
 	parseThreadType,
+	sanitizeDispatchReason,
 	resolveEpisodeFile,
 	splitModelSpec,
 	type EpisodeRecord,
@@ -86,8 +87,9 @@ export interface DispatchOptions {
 	contextEpisodeIds?: unknown;
 	/** Removed public field. Kept only so direct callers receive the migration error. */
 	freshContext?: unknown;
-	model?: string; // "provider/id" for THIS action (see the header): the thread's base model when omitted
-	effort?: string; // pi thinking level for THIS action; validated against the target model's ladder
+	model?: string; // required at the public runtime boundary
+	effort?: string; // required at the public runtime boundary
+	reason?: string; // sanitized dispatch rationale, required and at most 200 characters
 	tools?: string[];
 }
 
@@ -305,28 +307,20 @@ export class ThreadManager {
 		if (typeof opts.task !== "string" || opts.task.trim() === "") {
 			throw new Error("task must be a non-empty string.");
 		}
+		const reason = sanitizeDispatchReason(opts.reason);
+		if (reason === undefined) throw new Error("reason must be a non-empty string of at most 200 characters after invisible and control characters are removed.");
 		const type = parseThreadType(opts.type, true)!
 		const contextEpisodeIds = normalizeContextEpisodeIds(opts.contextEpisodeIds);
-		const accepted: DispatchOptions = { ...opts, type, contextEpisodeIds };
+		const accepted: DispatchOptions = { ...opts, reason, type, contextEpisodeIds };
 		const prompt = this.buildPrompt(accepted, ctx.cwd);
 		const early = planRoute(this.routeInputs(ctx, undefined, accepted));
 		if (early.kind === "reject") throw new Error(early.reason);
 		this.validateRequestedModel(ctx, accepted.model);
-		const thread = this.createThread(accepted, early);
+		const thread = this.createThread(accepted);
 		return this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress);
 	}
 
-	/**
-	 * Create and persist a new thread record. The FIRST state mutation of a
-	 * dispatch, and deliberately after the early route validation: a rejected
-	 * pick must not leave an empty thread behind.
-	 *
-	 * `model` (the pre-router pin) is recorded ONLY when the router is off, which
-	 * is exactly what it meant before per-action routing existed. With the router
-	 * on, the creating dispatch's `model` argument routes that one action, and the
-	 * thread's own default is `baseModel` — recording the routed model as a pin
-	 * would make one action's route the thread's permanent base.
-	 */
+	/** Create a thread only after explicit route validation succeeds. */
 	private validateRequestedModel(ctx: ExtensionContext, spec: string | undefined): void {
 		if (spec === undefined) return;
 		const parts = splitModelSpec(spec);
@@ -341,7 +335,7 @@ export class ThreadManager {
 		}
 	}
 
-	private createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord {
+	private createThread(opts: DispatchOptions): ThreadRecord {
 		const id = this.store.claimNextThreadId();
 		const type = parseThreadType(opts.type, true)!
 		const ordinal = Number(id.slice(1));
@@ -356,9 +350,6 @@ export class ThreadManager {
 			name: opts.name?.trim() || id,
 			status: "queued",
 			type,
-			...(this.routerResolution().on ? {} : { model: opts.model }),
-			...(plan.baseModel ? { baseModel: plan.baseModel } : {}),
-			...(plan.baseEffort ? { baseEffort: plan.baseEffort } : {}),
 			...(cacheKeyShard === undefined ? {} : { cacheKeyShard }),
 			tools,
 			createdAt: now,
@@ -464,9 +455,10 @@ export class ThreadManager {
 	 * Assemble the PURE planner's inputs from this session's impure surroundings.
 	 *
 	 * `failover` switches it into guard 7's carve-out mode: the target replaces the
-	 * requested model, no effort is requested, and the planner bypasses the list and
-	 * effort guards. A failover target need not be a routing candidate, so its
-	 * window is passed explicitly — there is no candidate to read it from.
+	 * requested model, the original requested effort is preserved, and the planner
+	 * bypasses list membership and the normal effort guards. A failover target need
+	 * not be a routing candidate, so its profile is consulted through the injected
+	 * source for provider-rejected effort protection.
 	 */
 	private routeInputs(
 		ctx: ExtensionContext,
@@ -478,38 +470,18 @@ export class ThreadManager {
 		return {
 			thread,
 			requestedModel: failover ? failover.target : opts.model,
-			requestedEffort: failover ? undefined : opts.effort,
+			requestedEffort: opts.effort,
 			resolution: this.routerResolution(),
 			allowUnmeasuredEffort: this.config.router?.allowUnmeasuredEffort,
 			hostModel: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
 			profiles: this.routerOffProfiles(ctx),
+			requireExplicit: failover === undefined,
 			failoverSwitch: failover !== undefined,
 			failoverFrom: failover?.from,
 		};
 	}
 
 
-	/**
-	 * Persist a base the planner had to SEED because the thread's own was not a
-	 * listed candidate — off-list, or absent altogether (route.ts, THE ONE RULE).
-	 * Without this the seed would be recomputed — and re-warned — on every dispatch,
-	 * and the record would keep pointing outside the list (or nowhere).
-	 *
-	 * `baseEffort` is DELETED when the seeded base has no measured level: leaving the
-	 * previous model's level behind would attach it to a model whose ladder was never
-	 * consulted (absence reads as unknown, the record's contract).
-	 */
-	private persistReseededBase(thread: ThreadRecord, plan: RoutePlanProceed): void {
-		if (plan.baseReseeded !== true || plan.baseModel === undefined) return;
-		thread.baseModel = plan.baseModel;
-		if (plan.baseEffort !== undefined) thread.baseEffort = plan.baseEffort;
-		else delete thread.baseEffort;
-		// The PRE-ROUTER pin (`model`) is deliberately LEFT ALONE: it is a historical
-		// record of what the thread was created with, and `baseModel` — which is what
-		// route.ts reads first — now supersedes it, so it can no longer strand anything.
-		thread.updatedAt = Date.now();
-		this.store.save();
-	}
 
 	/**
 	 * Put the resolved model/effort onto the worker session — the LAST unbilled
@@ -870,9 +842,6 @@ export class ThreadManager {
 			// actually be delivered.
 			await this.applyRoute(session, plan, thread, ctx, signal, routeWarn, baseline);
 			for (const message of applied.warnings) routeWarn(message);
-			// Same division of labour for a SEEDED base: the planner decided it (purely),
-			// this side writes it down — after the apply, for the same reason as above.
-			this.persistReseededBase(thread, applied);
 
 			if (applied.warnings.length > 0) emit(false);
 
@@ -1004,6 +973,7 @@ export class ThreadManager {
 						/* keep the original failure */
 					}
 					if (switched) {
+						if (failoverPlan?.kind === "proceed" && failoverPlan.effort !== undefined) session.setThinkingLevel(failoverPlan.effort);
 						// Record the mapped model for this live action. Disposal removes the marker.
 						this.failoverLive.set(thread.id, `${mapped.provider}/${mapped.id}`);
 					}
@@ -1142,7 +1112,9 @@ export class ThreadManager {
 			}
 			const episode: EpisodeRecord = {
 				id: episodeId, threadId: thread.id, task: opts.task, status: "failed", file: failed.file,
-				...(actualModel ? { model: actualModel } : {}), ...episodeUsage,
+				reason: opts.reason!, requestedModel: opts.model!, requestedEffort: opts.effort as ThinkingLevel,
+				...(actualModel ? { model: actualModel } : {}),
+				...(actualEffort ? { effort: actualEffort } : {}), ...episodeUsage,
 				...(reportedContextTokens !== undefined ? { contextTokens: reportedContextTokens } : {}),
 				...(workerCostUsd !== undefined ? { workerCostUsd } : {}),
 				...(Object.keys(compactionUsage).length > 0 ? { compactionUsage } : {}),
@@ -1348,6 +1320,9 @@ export class ThreadManager {
 			task: opts.task,
 			status,
 			file: compressed.file,
+			reason: opts.reason!,
+			requestedModel: opts.model!,
+			requestedEffort: opts.effort as ThinkingLevel,
 			...(actualModel ? { model: actualModel } : {}),
 			...(actualEffort ? { effort: actualEffort } : {}),
 			...(actualEffortUnmeasured ? { effortUnmeasured: true as const } : {}),
