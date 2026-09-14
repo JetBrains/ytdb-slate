@@ -671,7 +671,7 @@ number of rostered ids, so the counters and the roster can never drift apart
 silently (they are written by the same three functions but are separate state).
 
 Three output rules exist because earlier versions of this suite could pass
-vacuously (findings TS1–TS3 of the Track 01 review):
+vacuously. Findings TS1–TS3 from the resolver output-contract review identified these failures:
 
 - **`roster`** asserts that every expected check id reported **exactly once**, that
   no unexpected id reported, that every module-dependent check is on a NOT RUN
@@ -880,7 +880,7 @@ The round-one code fix added or corrected `writing-reminder-trigger-reset`, `wri
 The family uses the real `registerSlateMode` handlers with fabricated contexts.
 It remains a pure harness with no pi session. The live hook, delivery-mode and persistence paths have their own integration check below.
 
-Track 4 added these resolver identifiers: `writing-config-status-window`,
+The resolver suite includes these writing status and model-visible finding identifiers: `writing-config-status-window`,
 `writing-config-findings`, `writing-reminder-model-visible-rules`,
 `writing-reminder-delivery-failure-independent`,
 `writing-reminder-checker-failure-independent`, `writing-reminder-findings-off`,
@@ -1301,7 +1301,7 @@ sanitizer separately (the episode one is the pre-CQ22 asymmetry restored);
 weakening the model/pin check from type-only to content validation (trim + spec
 shape, each sanitizer); suppressing the CQ22 adoption notice, which kills BOTH
 sections since they share the function; destroying a VALID name — the
-false-positive repair, the worst outcome in this track; noting a field that was
+false-positive repair, the most harmful false-positive repair, and noting a field that was
 ACCEPTED, i.e. a repair notice that fires spuriously; Two gaps surfaced while writing the checks: the
 round-trip term could only speak for the fields its fixture carried (hence the
 checklist walk over the exported `ADOPTED_*_FIELDS`), and only the wrong-TYPE case

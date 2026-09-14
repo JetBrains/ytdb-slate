@@ -15,7 +15,7 @@ The active generation is **v6**. It supersedes v1 through v5 and supplies the cu
 | `README.md` | this procedure and archive index | active |
 | `digest-v5.md` | labelled historical archive edition | archived and inactive |
 
-`digest-v6.md` is the only active digest. Track 6 leaves it unchanged. Generations v1 through v4 are unavailable. This project does not reconstruct them from Git history or another source. The presence of an older Git object does not make an unavailable generation available.
+`digest-v6.md` is the only active digest. The archived v5 edition does not modify it. Generations v1 through v4 are unavailable. This project does not reconstruct them from Git history or another source. The presence of an older Git object does not make an unavailable generation available.
 
 The archived v5 edition is a project-authored historical record. It is not a byte-identical copy of the original v5 blob. The exact original remains recoverable from Git for comparison only:
 
@@ -131,7 +131,7 @@ A contract check asks whether the profile shape, identifier set, effort vocabula
 
 A later refresh should add a deliberate mutation canary for every model record and each sensitive guidance rule. The canary must fail when a field is changed to an invalid value. A later refresh should render the largest supported fixtures and retain the documented character and line reserve.
 
-These canaries and render budgets are future procedure steps. Track 6 adds no checker, test, runtime machinery, or new budget gate. A procedure description must not be reported as an automated proof until the machinery exists and its own tests pass.
+These canaries and render budgets are future procedure steps. The repository contains no checker, test, runtime machinery, or new budget gate for them. A procedure description must not be reported as an automated proof until the machinery exists and its own tests pass.
 
 ### 10. Keep pull request status fixed
 
@@ -147,7 +147,7 @@ Use the pull request lifecycle state separately. `Draft` and `Ready for review` 
 
 The resolver checks prove selected profile structure, lookup, effort coverage, rendering, and frozen values. They do not prove that a source says what the corpus claims. The independent source review is the source-fidelity gate.
 
-The current generation is not refreshed by this procedure. Track 6 creates the labelled v5 archival edition and this procedure only. It does not edit v6, add a current model, transcribe a current profile, add a test or checker, change runtime behavior, alter configuration, or start Track 7.
+The current generation is not refreshed by this procedure. This document covers the labelled v5 archival edition and the refresh procedure only. It does not edit v6, add a current model, transcribe a current profile, add a test or checker, change runtime behavior, alter configuration, or begin a separate generation.
 
 ## Publication boundary
 
