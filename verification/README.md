@@ -1296,7 +1296,7 @@ sanitizer separately (the episode one is the pre-CQ22 asymmetry restored);
 weakening the model/pin check from type-only to content validation (trim + spec
 shape, each sanitizer); suppressing the CQ22 adoption notice, which kills BOTH
 sections since they share the function; destroying a VALID name — the
-false-positive repair, the most harmful false-positive repair, and noting a field that was
+false-positive repair, the worst outcome covered by these sanitizer checks. A separate mutation notes a field that was
 ACCEPTED, i.e. a repair notice that fires spuriously; Two gaps surfaced while writing the checks: the
 round-trip term could only speak for the fields its fixture carried (hence the
 checklist walk over the exported `ADOPTED_*_FIELDS`), and only the wrong-TYPE case
