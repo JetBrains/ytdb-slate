@@ -10,6 +10,13 @@ The orchestrator composes episodes into later dispatches instead of re-reading r
 
 An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative. A second opt-in, **action-level model routing**, gives each dispatched action a model and an effort level chosen to be up to the task and no more, so cost is bounded per action instead of per session.
 
+### Join our Zulip community!
+
+If you are interested in Slate, consider joining our [Zulip](https://youtrackdb.zulipchat.com/#narrow/channel/634235-slate)
+community.
+Tell us about exciting applications you are building, ask for help, or just chat with friends 😃
+
+
 ## Why Slate?
 
 Long-horizon agentic work fails on context management, not model capability. Existing architectures each solve a piece of the problem and trade away the rest. Compaction is unpredictably lossy. Naive subagents isolate context but hand back only a single response string. Markdown plans go stale and get under-executed. Rigid task trees cannot adapt to information discovered mid-task, and planner/executor stacks synchronize through compress-and-return boundaries that risk dropping critical state.
