@@ -392,6 +392,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-risk-definitions",
 	"contract-risk-lifecycle",
 	"contract-focus-gates",
+	"contract-publishing-migration",
 	"contract-acceptance-units",
 	"contract-acceptance-mutations",
 	"contract-escalation-routing",
@@ -4258,9 +4259,50 @@ Reviewer composition and merging belong to
 			const designEntry = normalizeText(workflow.match(/Before each track implementation,[\s\S]*?(?=If the planned split exceeds)/)?.[0] ?? "");
 			const wrongState = focusGates.replace("Only a proved area", "A NAMED area");
 			const skippedApproval = focusGates.replace("Only a proved area adds a focus-dependent gate or routine implementation reviewer.", "A SKIPPED area adds a routine implementation reviewer.");
+			const p11UnitPattern = /^- \*\*P11 — Proportional process\.[\s\S]*?(?=^- \*\*P\d+ —|(?![\s\S]))/gm;
+			const resolveP11 = (source) => {
+				const matches = [...source.matchAll(p11UnitPattern)];
+				return {
+					count: matches.length,
+					text: matches.length === 1 ? normalizeText(matches[0]?.[0] ?? "") : "",
+				};
+			};
+			const expectedP11Source = `- **P11 — Proportional process.** *(Repo-local note, not from the report.)*
+  The research log is the sole permitted unconditional-artifact exception for
+  authors of future rules. Every other future rule that adds process cost names
+  the condition that engages it. The condition is a proved focus area, an
+  artifact whose own existence a proved focus area decides, or specific
+  evidence that does not appear in every track.
+
+Repo-local note (not from the report): Principle P11 governs the count of
+required gates, required artifacts and required review actions. A rule that
+changes how an existing step is performed does not add cost under P11. A rule
+that fires only when specific evidence appears is conditional, unless that
+evidence appears in every track, in which case the rule is unconditional.
+Prompt text and output quality floors are not process steps, and a published
+size budget governs them instead. P11 constrains the authors of future rules.
+It does not remove or condition current required artifacts, including the
+per-track implementer report.`;
+			const expectedP11 = normalizeText(expectedP11Source);
+			const p11Resolution = resolveP11(principles);
+			const p11 = p11Resolution.text;
+			const p11Mutations = [
+				p11.replace("a proved focus area, an artifact whose own existence a proved focus area decides", "the size grade, a proved focus area, an artifact whose own existence either decides"),
+				p11.replace("The research log is the sole permitted unconditional-artifact exception", "The research log and implementer report are permitted unconditional-artifact exceptions"),
+				p11.replace("or specific evidence that does not appear in every track", "or any available evidence"),
+				p11.replace("It does not remove or condition current required artifacts", "It may condition current required artifacts"),
+			];
+			const contradictoryP11Source = `- **P11 — Proportional process.** *(Repo-local note, not from the report.)*
+  Required gates and artifacts follow the confirmed size grade. Any future rule
+  may add unconditional process cost.`;
+			const missingP11Source = principles.replace("- **P11 — Proportional process.", "- **P11 — Conditional process.");
+			const missingP11 = resolveP11(missingP11Source);
+			const duplicateP11WithP12 = resolveP11(`${principles}\n\n${contradictoryP11Source}\n\n- **P12 — Duplicate probe terminator.**`);
+			const duplicateP11AtEnd = resolveP11(`${principles}\n\n${expectedP11Source}`);
+			const duplicateP11WithP13 = resolveP11(`${principles}\n\n${expectedP11Source}\n\n- **P13 — Alternate probe terminator.**`);
+			const benignP11 = resolveP11(`${principles}\n\n<!-- resolver benign P11 control -->`);
 			const reviewerRows = [...reviews.matchAll(/^\| (one or more proved areas|no proved area) \| (.+) \|$/gm)].map((match) => [match[1], match[2]]);
 			const markerRule = normalizeText(workflow.match(/A multi-track boundary adds one empty marker commit[\s\S]*?(?=```bash)/)?.[0] ?? "");
-			const p11 = normalizeText(principles.match(/- \*\*P11 — Proportional process\.[\s\S]*?(?=\n- \*\*P12)/)?.[0] ?? "");
 			checkAll("contract-focus-gates", "effective focus states, conditional design phases, per-track design entry, approved removals, marker availability, late-area routing, conditional Reviewer I composition, and no-area model choice are explicit. The acceptance policy itself belongs to contract-acceptance-units and contract-acceptance-mutations", [
 				["both focus classes and the proved-area reviewer qualifier are present", /DESIGN-TRIGGERING areas are/.test(focusGates) && /REVIEWER-ONLY areas are/.test(focusGates) && /Only a proved area adds a focus-dependent gate or routine implementation\s+reviewer/.test(focusGates), focusGates],
 				["zero, one, and multiple proved areas map to zero or exactly one Reviewer I plus all specialists", /at least one\s+proved area also gets exactly one Reviewer I/.test(focusGates) && /no proved area gets no routine implementation reviewer/.test(focusGates) && reviewerRows.length === 2 && reviewerRows[0]?.[0] === "one or more proved areas" && reviewerRows[0]?.[1].startsWith("exactly one Reviewer I plus one specialist for every proved area") && reviewerRows[1]?.[0] === "no proved area" && reviewerRows[1]?.[1].includes("NOT REQUIRED"), { focusGates, reviewerRows }],
@@ -4274,7 +4316,11 @@ Reviewer composition and merging belong to
 				["NAMED, SKIPPED, and file type do not create routine reviewers", /`NAMED` and `SKIPPED` areas do not select reviewers/.test(reviews) && /Code, mixed, and\s+documentation-only status do not select reviewers/.test(reviews), reviews.slice(0, 4000)],
 				["no-area sourced-tier fallback, all-unknown stop, closed-list choice, and routing-off gap are explicit", /sourced tier of 2 or higher/.test(workflow) && /choose the highest sourced tier/.test(workflow) && /A rendered `t\?` is not a rank/.test(workflow) && /ask the user to choose explicitly from `router\.models`/.test(workflow) && /Routing off has no tier\s+vocabulary/.test(workflow), workflow.match(/For implementation of a track with no proved area[\s\S]*?(?=\n\n\[blast-radius)/)?.[0]],
 				["zero-area routine review and user-fix verification have separate verdicts", /empty set reports\s+routine implementation review as `NOT REQUIRED`/.test(workflow) && /including when the track has no proved area[\s\S]*?separate from routine implementation review/.test(workflow) && /routine implementation review and user-requested-fix\s+verification as separate verdicts/.test(userNotes), { workflow: workflow.match(/For a user-review fix range[\s\S]*?(?=\n\nThe correction)/)?.[0], report: userNotes.match(/The report gives routine implementation review[\s\S]*?(?=\n\nThe coverage register)/)?.[0] }],
-				["P11 permits only the research-log exception for future rules and preserves current reports", /research log is the sole permitted unconditional-artifact exception/.test(p11) && /authors of future rules/.test(p11) && /does not remove or condition current required artifacts/.test(p11) && /per-track implementer report/.test(p11) && !/Reviewer I on every track/.test(p11), p11],
+				["P11 is one exact independently specified policy unit", p11Resolution.count === 1 && p11 === expectedP11, { resolution: p11Resolution, expected: expectedP11 }],
+				["missing and duplicate P11 units fail closed across P12, end-of-file, and alternate-number boundaries", missingP11Source !== principles && missingP11.count === 0 && missingP11.text === "" && [duplicateP11WithP12, duplicateP11AtEnd, duplicateP11WithP13].every(({ count, text }) => count === 2 && text === ""), { missingP11, duplicateP11WithP12, duplicateP11AtEnd, duplicateP11WithP13 }],
+				["benign text outside P11 preserves one exact unit", benignP11.count === 1 && benignP11.text === expectedP11, benignP11],
+				["P11 permits only proved focus, focus-decided artifacts, or non-universal evidence and preserves current reports", /condition is a proved focus area, an artifact whose own existence a proved focus area decides, or specific evidence that does not appear in every track/.test(p11) && /research log is the sole permitted unconditional-artifact exception/.test(p11) && /authors of future rules/.test(p11) && /does not remove or condition current required artifacts/.test(p11) && /per-track implementer report/.test(p11) && !/size grade/.test(p11) && !/Reviewer I on every track/.test(p11), p11],
+				["restored grade, widened exception, universal evidence, and current-artifact weakening mutations all fail", p11Mutations.every((mutation) => mutation !== p11 && mutation !== expectedP11), p11Mutations],
 				["wrong proof state fails", wrongState !== focusGates && !/Only a proved area adds a focus-dependent gate or routine implementation reviewer/.test(wrongState), wrongState],
 				["SKIPPED approval mutation fails", skippedApproval !== focusGates && !/Only a proved area adds a focus-dependent gate or routine implementation reviewer/.test(skippedApproval), skippedApproval],
 			]);
@@ -4341,6 +4387,113 @@ Reviewer composition and merging belong to
 				return { count: resolved ? 1 : pairs > 1 ? pairs : 0, text: resolved ? normalizeText(found.text) : "" };
 			};
 			const focusClassesPattern = /^## Focus classes and gates\n([\s\S]*?)(?=^<!-- focus-area-table:begin -->)/gm;
+
+			// Publishing and migration are complete bounded policy units. Their
+			// expectations are authored here rather than derived from candidate text.
+			const publishingMigrationUnits = [
+				{
+					id: "publishing-creation",
+					source: publishing,
+					extract: regionUnit(/^## Creation\n\n([\s\S]*?)(?=^## Description rules)/gm),
+					expected: normalizeText(`Select the creation path when the umbrella draft pull request is first
+created.
+
+For a change with a high-level design, draft the pull request description
+before final design approval. Present the draft beside the validated design.
+When an adversarial design review is required, present both after that review.
+One final approval covers the design and description. The description has no
+separate approval gate. Create the pull request after final design approval and
+before implementation.
+
+For a change without a high-level design, create the pull request after the
+confirmation gate and before implementation. If the change later requires a
+high-level design, keep the existing draft. Follow the late-area approval route
+in track-workflow.md and synchronize the description. Do not recreate the pull
+request or apply its creation timing retrospectively.
+
+Every creation path keeps these safeguards:
+
+- Created as a DRAFT, based on the repository's default development
+  branch.
+- If the working branch has no diff against the base yet, land a
+  bootstrap empty commit so the PR can be created.
+- At creation for every change with a high-level design, the research log's
+  Planned changes content folds into the PR description. Create the pull
+  request only after final design approval, as stated above.
+
+  Key decisions, Risks, and Open questions feed the corresponding
+  Planned-changes subsections. The applicable design review verdict lines land
+  in Risks & accepted trade-offs. The adversarial review verdict line lands
+  there only when that review ran. A change without that review carries the
+  design verdict lines alone.
+- For a change without a high-level design, the initial request supplies
+  Motivation. The intended fix supplies Planned changes. If a log exists, its
+  relevant decisions and Open Questions also fold into the description.
+- The research log is retained until delivery, and its Decision Log
+  keeps appending during implementation. track-workflow.md § Session handoff
+  and the research log owns the full lifecycle.`),
+				},
+				{
+					id: "publishing-ready-no-design",
+					source: publishing,
+					extract: regionUnit(/^(- All commits landed since the last user-approved gate are presented[\s\S]*?)(?=^- Every ignored finding)/gm),
+					expected: normalizeText(`- All commits landed since the last user-approved gate are presented
+  to the user. For a change without a design gate, present the description here
+  because no design approval presented it before implementation.`),
+				},
+				{
+					id: "workflow-migration",
+					source: workflow,
+					extract: regionUnit(/^## Migration\n\n([\s\S]*?)(?=^## Layering richer workflows on top)/gm),
+					expected: normalizeText(`A change approved under an earlier workflow finishes under its recorded
+workflow. New work uses the focus-area workflow. Historical records may name
+earlier gates only to identify the governing rule set.`),
+				},
+			];
+			const publishingMigrationResults = publishingMigrationUnits.map((unit) => ({ id: unit.id, expected: unit.expected, ...unit.extract(unit.source) }));
+			const publishingMutations = [
+				publishing.replace("Create the pull request after final design approval", "Create the pull request before final design approval"),
+				publishing.replace("after the\nconfirmation gate", "after the confirmed\nsize grade"),
+				publishing.replace("The intended fix supplies Planned changes.", "The confirmed grade and intended fix supply Planned changes."),
+				publishing.replace("If a log exists, its", "Its"),
+				publishing.replace("keep the existing draft", "recreate the draft"),
+				publishing.replace("For a change without a design gate", "For a SMALL change without a design gate"),
+			];
+			const migrationMutations = [
+				workflow.replace("finishes under its recorded\nworkflow", "moves to the current\nworkflow"),
+				workflow.replace("New work uses the focus-area workflow", "New work may use an earlier workflow"),
+			];
+			const resolvePublishingMigration = (publishingSource = publishing, workflowSource = workflow) => publishingMigrationUnits.map((unit) => unit.extract(unit.source === publishing ? publishingSource : workflowSource));
+			const publishingMutationOutcomes = publishingMutations.map((source) => ({ changed: source !== publishing, accepted: resolvePublishingMigration(source, workflow).every((resolved, index) => resolved.count === 1 && resolved.text === publishingMigrationResults[index].expected) }));
+			const migrationMutationOutcomes = migrationMutations.map((source) => ({ changed: source !== workflow, accepted: resolvePublishingMigration(publishing, source).every((resolved, index) => resolved.count === 1 && resolved.text === publishingMigrationResults[index].expected) }));
+			const missingPublishingMigration = [
+				resolvePublishingMigration(publishing.replace("## Creation", "## Draft creation"), workflow)[0],
+				resolvePublishingMigration(publishing.replace("All commits landed since", "Commits landed since"), workflow)[1],
+				resolvePublishingMigration(publishing, workflow.replace("## Migration", "## Workflow migration"))[2],
+			];
+			const duplicatedPublishing = `${publishing}\n\n## Creation\n\n${publishingMigrationResults[0].text}\n\n## Description rules\n\n- All commits landed since the last user-approved gate are presented\n  to the user. For a change without a design gate, present the description here\n  because no design approval presented it before implementation.\n- Every ignored finding`;
+			const duplicatedMigration = `${workflow}\n\n## Migration\n\n${publishingMigrationResults[2].text}\n\n## Layering richer workflows on top\n`;
+			const duplicatePublishingMigration = resolvePublishingMigration(duplicatedPublishing, duplicatedMigration);
+			const appendBenignControl = (source, id) => `${source}\n\n<!-- resolver benign control: ${id} -->`;
+			const benignPublishingSources = [
+				appendBenignControl(publishing.replace("The description follows the repository's PR template", "The description follows the project's PR template"), "publishing exact prior replacement"),
+				appendBenignControl(publishing, "publishing alternative outside edit"),
+			];
+			const benignWorkflowSources = [
+				appendBenignControl(workflow.replace("The track table lists names, one-line scopes, and status.", "The track table lists names and one-line scopes."), "workflow exact prior replacement"),
+				appendBenignControl(workflow, "workflow alternative outside edit"),
+			];
+			const benignPublishingOutcomes = benignPublishingSources.map((source) => resolvePublishingMigration(source, workflow));
+			const benignWorkflowOutcomes = benignWorkflowSources.map((source) => resolvePublishingMigration(publishing, source));
+			const benignPublishingMigrationOutcomes = [...benignPublishingOutcomes, ...benignWorkflowOutcomes];
+			checkAll("contract-publishing-migration", "draft creation, no-design description inputs and final presentation, later-design handling, and both migration directions are exact independent units with fail-closed boundaries and discriminating controls", [
+				["the three owned units form the exact roster and resolve once", publishingMigrationResults.map(({ id }) => id).join() === "publishing-creation,publishing-ready-no-design,workflow-migration" && publishingMigrationResults.every(({ count }) => count === 1), publishingMigrationResults],
+				["every owned unit equals its independent expectation", publishingMigrationResults.every(({ text, expected }) => text === expected), publishingMigrationResults.filter(({ text, expected }) => text !== expected)],
+				["timing, grade-input, conditional-log, later-design, ready-presentation, and migration mutations each change input and fail", publishingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted) && migrationMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), { publishingMutationOutcomes, migrationMutationOutcomes }],
+				["missing and duplicated boundaries fail closed", missingPublishingMigration.every(({ count, text }) => count === 0 && text === "") && duplicatePublishingMigration.every(({ count }) => count === 2), { missingPublishingMigration, duplicatePublishingMigration }],
+				["exact prior replacements and alternative benign edits outside all three units leave every expectation exact", benignPublishingSources.every((source) => source !== publishing) && benignWorkflowSources.every((source) => source !== workflow) && benignPublishingMigrationOutcomes.every((outcome) => outcome.every((resolved, index) => resolved.count === 1 && resolved.text === publishingMigrationResults[index].expected)), benignPublishingMigrationOutcomes],
+			]);
+
 			// The rendered session instructions, through the production doctrine builder.
 			const sessionDoctrine = await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, {});
 			const acceptanceUnits = [
@@ -4477,7 +4630,7 @@ Reviewer composition and merging belong to
 			const staleAccepted = mutationResults.filter(({ id, stale }) => stale === (unitById.get(id)?.actual ?? "")).map(({ id }) => id);
 			const reviewsWithAppendix = `${reviews}\n\n## Appendix\n\nA later editorial note that states no acceptance policy.\n`;
 			const appendixUnit = markedUnit("track-acceptance")(reviewsWithAppendix);
-			const workflowElsewhere = workflow.replace("The track table lists names, one-line scopes, and status.", "The track table lists names and one-line scopes.");
+			const workflowElsewhere = `${workflow}\n\n<!-- resolver benign acceptance control -->`;
 			const elsewhereUnits = acceptanceUnits.filter((unit) => unit.source === workflow).map((unit) => unit.extract(workflowElsewhere));
 			const doctrineElsewhere = sessionDoctrine.replace("Never read it for routine dispatching.", "Do not read it for routine dispatching.");
 			const doctrineElsewhereUnit = acceptanceUnits[4].extract(doctrineElsewhere);
@@ -4744,7 +4897,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const duplicatedWorkflow = `${workflow}\n\nEvery implementation dispatch also carries this exact reference block:\n\n> ${dispatchReference.trim()}\n\nThe orchestrator and every implementer may read the full log. This includes a fixer, which is an implementer. Do not filter the log or prepare a role-specific implementation extract.\n\nEvery implementation dispatch either carries a trigger.\n\nCreate \`research-log.md\` at the repository root before the first implementation dispatch, without waiting for a retained trigger. Each track creates its implementer report at track start. Append a retained entry immediately when any trigger below fires.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
 			const duplicatedReviews = `${reviews}\n\n### Reviewer input contract\n\n${dispatchUnitById.get("reviewer-input-contract")?.text}\n\nA design-stage adversarial review also judges.\n\n## Stuck-fix consultation\n\n${dispatchUnitById.get("stuck-fix-policy")?.text}\n\n## Termination and deferred-work routing`;
 			const duplicateUnitOutcomes = resolveDispatchUnits(duplicatedWorkflow, duplicatedReviews);
-			const benignWorkflow = workflow.replace("The track table lists names, one-line scopes, and status.", "The track table lists names and one-line scopes.");
+			const benignWorkflow = `${workflow}\n\n<!-- resolver benign dispatch-context control -->`;
 			const benignReviews = `${reviews}\n\n## Editorial appendix\n\nThis note changes no dispatch policy.`;
 			const benignOutcomes = resolveDispatchUnits(benignWorkflow, benignReviews);
 			const duplicatedCharters = `${reviews}\n${reviews}`;

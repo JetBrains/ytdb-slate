@@ -9,37 +9,40 @@ research-log lifecycle in that mode is owned by track-workflow.md
 
 ## Creation
 
-For every change with a high-level design, draft the pull request description
+Select the creation path when the umbrella draft pull request is first
+created.
+
+For a change with a high-level design, draft the pull request description
 before final design approval. Present the draft beside the validated design.
 When an adversarial design review is required, present both after that review.
 One final approval covers the design and description. The description has no
-separate approval gate.
+separate approval gate. Create the pull request after final design approval and
+before implementation.
 
-The umbrella draft pull request is created after the gates required by the
-confirmed size grade pass. It is created before implementation.
-Validation always precedes a required adversarial design review. Final design
-approval follows that review. A SMALL change with no high-level design creates
-the pull request after the user confirms the size grade, and before
-implementation:
+For a change without a high-level design, create the pull request after the
+confirmation gate and before implementation. If the change later requires a
+high-level design, keep the existing draft. Follow the late-area approval route
+in track-workflow.md and synchronize the description. Do not recreate the pull
+request or apply its creation timing retrospectively.
+
+Every creation path keeps these safeguards:
 
 - Created as a DRAFT, based on the repository's default development
   branch.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
 - At creation for every change with a high-level design, the research log's
-  Planned changes content folds into the PR description. This includes a SMALL change for which the orchestrator required design. Create the pull request only after
-  final design approval, as stated above.
+  Planned changes content folds into the PR description. Create the pull
+  request only after final design approval, as stated above.
 
   Key decisions, Risks, and Open questions feed the corresponding
   Planned-changes subsections. The applicable design review verdict lines land
   in Risks & accepted trade-offs. The adversarial review verdict line lands
   there only when that review ran. A change without that review carries the
   design verdict lines alone.
-- For a SMALL change without a high-level design, the initial request supplies
-  Motivation. The confirmed grade and intended fix supply
-  Planned changes. If
-  a log exists, its relevant decisions and Open Questions also fold
-  into the description.
+- For a change without a high-level design, the initial request supplies
+  Motivation. The intended fix supplies Planned changes. If a log exists, its
+  relevant decisions and Open Questions also fold into the description.
 - The research log is retained until delivery, and its Decision Log
   keeps appending during implementation. track-workflow.md § Session handoff
   and the research log owns the full lifecycle.
@@ -135,8 +138,8 @@ executed in order:
   workflows on top) is completed or explicitly user-waived — flipping never
   discards a pending review.
 - All commits landed since the last user-approved gate are presented
-  to the user. For a SMALL change without a design gate, present the description
-  here because no design approval presented it before implementation.
+  to the user. For a change without a design gate, present the description here
+  because no design approval presented it before implementation.
 - Every ignored finding is reported to the user, and the Ignored findings index
   is present in the description.
 - Strip the whole Tracks section from the description, whatever its

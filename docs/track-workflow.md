@@ -490,10 +490,9 @@ project release runbook.
 
 ## Migration
 
-A change whose design was approved under an earlier workflow finishes under
-that recorded workflow. New work uses this size-grade and focus-area workflow.
-Historical records may name earlier gates only to identify the governing rule
-set.
+A change approved under an earlier workflow finishes under its recorded
+workflow. New work uses the focus-area workflow. Historical records may name
+earlier gates only to identify the governing rule set.
 
 ## Layering richer workflows on top
 
