@@ -1,11 +1,5 @@
 # Verification ladder — global model-default restore
 
-## Size-grade regression suite
-
-`node verification/size-grade-tests.mjs` checks the shipped `extension/size-grade.mjs` command. The suite covers grade boundaries, all declared source extensions, binary numstat zero-line handling, configuration safety, Git failures, and output formats. It runs first through `verification/run-tests.sh`, so `npm test` and `npm run test:coverage` include it before the TypeScript tests and coverage gate. Use `npm run test:size-grade` for the focused package script. `run-tests.sh` refuses to start with exit 2 when the suite file is absent, so CI cannot silently skip this net.
-
-Run the focused suite after any change to `extension/size-grade.mjs` or `verification/size-grade-tests.mjs`. Run `npm test -- --base <ref>` after changes to those files, `verification/run-tests.sh`, `package.json`, or any covered TypeScript source. The wrapper preserves forwarded `--base`, `--no-gate`, and threshold arguments.
-
 A manual regression net for the mechanism in `extension/model-default.ts` and its
 two callers, `extension/failover.ts` (orchestrator failover) and
 `extension/handoff.ts` (handoff adoption) — plus one rung (`WK1`) for the other
@@ -804,7 +798,7 @@ The doctrine contract checks read the shipped workflow documents directly:
 | `contract-acceptance-mutations` | every unit rejects a contradictory waiver, a removed blocking fact, an inverted blocking fact, an inverted no-acceptance fact, and a stale canonical copy. Each mutation attacks the extracted text, so an inert mutation is reported instead of agreeing. Benign controls stay clean: an appendix appended after the terminal end marker, an edit in another workflow section, and an edit in another doctrine rule |
 | `contract-escalation-routing` | mandatory escalation routing and deferred-work tracking hold as assertions of their own. Both sit after the terminal end marker, outside every unit, and both survive the removal of the whole acceptance unit. A dropped escalation target fails |
 | `contract-test-composite` | the composite charter requires both behavioral effectiveness and structure and isolation sections |
-| `contract-review-charters` | Reviewer I has the bounded local charter, concrete-harm test, and responsibility-distribution test. Conditional composition requires zero or one Reviewer I, separate from every specialist. Mutations remove or duplicate Reviewer I, merge it with a specialist, transfer specialist work, restore the size dependency, and restore an unconditional floor. Each mutation must fail. The production charters, prefixes and cap classes remain exact. Documentation-only status has no size-command dependency. Retired charters and prefixes stay absent |
+| `contract-review-charters` | Reviewer I has the bounded local charter, concrete-harm test, and responsibility-distribution test. Conditional composition requires zero or one Reviewer I, separate from every specialist. Mutations remove or duplicate Reviewer I, merge it with a specialist, transfer specialist work, and restore an unconditional floor. Each mutation must fail. The production charters, prefixes and cap classes remain exact. Documentation-only classification remains file based and adds no review trigger. Retired charters and prefixes stay absent |
 | `contract-dispatch-context` | four complete owned policy units cover the implementation-reference obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Each unit resolves exactly once and equals an independent expectation. Counterfactuals change the every-dispatch quantifier, weaken a private-source ban, reverse implementation-review inputs, add direct-read permission, add gate or reviewer episodes, and add episode screening or filtering. Each counterfactual must fail. Missing and duplicated units fail closed. Benign changes outside the units remain accepted. The reference and four charter regions keep their exact UTF-8 byte measurements and fail-closed boundaries |
 | `contract-section-targets` | every named level-two target across the five workflow documents occurs exactly once. Regex metacharacters are escaped, and a duplicated focus-gates counterfactual fails uniqueness |
 
@@ -2705,7 +2699,7 @@ consolidated. That harness derives its doctrine-doc set by scanning every
 `extension/*.ts` for a `*.md` literal joined onto the docs directory; this check
 reads the exported constants of `extension/paths.ts` instead. It also covers an
 export that no module currently imports. Its recursive shebang roster requires
-both shipped commands, while the guards only permit their `.mjs` file kind. Run
+every shipped command, while the guards only permit the `.mjs` file kind. Run
 both until one absorbs the other.
 
 The package-content self-test is separate from the packaging guard self-test.

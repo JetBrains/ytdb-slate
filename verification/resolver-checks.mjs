@@ -4754,14 +4754,13 @@ The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
 			const reviewPolicy = (source) => {
 				const flat = normalizeText(source);
 				const rows = [...source.matchAll(/^\| (?:one or more proved areas|no proved area) \| (.+) \|$/gm)].map((match) => match[1]);
-				return rows.length === 2 && rows[0].startsWith("exactly one Reviewer I plus one specialist for every proved area") && rows[1] === "none; report routine implementation review as `NOT REQUIRED`" && flat.includes("Reviewer I always runs in its own fresh thread") && flat.includes("It never merges with any specialist") && flat.includes("does not absorb an absent specialist charter") && flat.includes("The size command does not classify this status");
+				return rows.length === 2 && rows[0].startsWith("exactly one Reviewer I plus one specialist for every proved area") && rows[1] === "none; report routine implementation review as `NOT REQUIRED`" && flat.includes("Reviewer I always runs in its own fresh thread") && flat.includes("It never merges with any specialist") && flat.includes("does not absorb an absent specialist charter");
 			};
 			const reviewPolicyMutations = [
 				reviews.replace("exactly one Reviewer I", "no Reviewer I"),
 				reviews.replace("exactly one Reviewer I", "exactly two Reviewer I reviewers"),
 				reviews.replace("It never merges with any\nspecialist", "It may merge with a specialist"),
 				reviews.replace("does not absorb an absent specialist charter", "absorbs an absent specialist charter"),
-				reviews.replace("The size command does not classify this status", "The size command classifies this status"),
 				reviews.replace("none; report routine implementation review as `NOT REQUIRED`", "exactly one Reviewer I"),
 			];
 			checkAll("contract-review-charters", "Reviewer I has a bounded local charter, conditional composition and independent dispatch. All four production defect charters and cap classes remain exact, and retired roles and prefixes remain absent", [
@@ -4772,9 +4771,9 @@ The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
 				["test, prose, and licensing are outside the production cap", /test-quality and structure reviewer, prose reviewer, and licensing\nreviewer are additional and never count against that cap/.test(reviews), reviews.slice(0, 2500)],
 				["Reviewer I never merges with a specialist and every required perspective is unique", /Reviewer I always runs in its own fresh thread/.test(reviews) && /never merges with any\s+specialist/.test(reviews) && /Every required perspective\s+is dispatched exactly once/.test(reviews) && /Do not dispatch a duplicate action/.test(reviews), reviews.slice(0, 4000)],
 				["specialist-only merges remain possible under their exact scope and evidence rule", normalizeText(reviews).includes("merge rules may combine specialist duties only with other specialist duties when both the code scope and required evidence are the same"), reviews.slice(0, 4000)],
-				["documentation-only classification has no size dependency or review trigger", /changes only documents/.test(reviews) && /must\s+neither ship as code nor run/.test(reviews) && /size command does not classify this status/.test(reviews) && /Documentation-only status does not trigger Reviewer I/.test(reviews), reviews.slice(0, 4000)],
+				["documentation-only classification remains file based and adds no review trigger", /changes only documents/.test(reviews) && /must\s+neither ship as code nor run/.test(reviews) && /Documentation-only status does not trigger\s+Reviewer I/.test(reviews), reviews.slice(0, 4000)],
 				["proved prose on documentation-only work uses separate RI and prose threads", /Reviewer I and the prose specialist use\s+two separate threads/.test(reviews), reviews.slice(0, 4000)],
-				["missing RI, duplicate RI, RI-specialist merge, specialist takeover, size dependency, and unconditional RI mutations all fail", reviewPolicy(reviews) && reviewPolicyMutations.every((source) => !reviewPolicy(source)) && reviewPolicyMutations.every((source) => source !== reviews), reviewPolicyMutations.map(reviewPolicy)],
+				["missing RI, duplicate RI, RI-specialist merge, specialist takeover, and unconditional RI mutations all fail", reviewPolicy(reviews) && reviewPolicyMutations.every((source) => !reviewPolicy(source)) && reviewPolicyMutations.every((source) => source !== reviews), reviewPolicyMutations.map(reviewPolicy)],
 				["no standalone test-structure specialist role", !standaloneTestStructureRole.test(reviews), reviews.match(standaloneTestStructureRole)?.[0]],
 				["prose and licensing charters are separate", /^### Prose reviewer$/m.test(reviews) && /^### Licensing reviewer$/m.test(reviews) && !/^### Prose and licensing reviewer$/m.test(reviews), reviews.match(/^### (?:Prose|Licensing).*$/gm)],
 				["production charter block is exact", productionCharters === expectedProductionCharters, productionCharters],

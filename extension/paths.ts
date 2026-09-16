@@ -14,7 +14,6 @@ const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = join(EXTENSION_DIR, "..", "docs");
 
 export const WRITING_CHECKER = join(EXTENSION_DIR, "writing-check.mjs");
-export const SIZE_GRADE_SCRIPT = join(EXTENSION_DIR, "size-grade.mjs");
 // Dynamic import specifiers must be file URLs: raw paths break on Windows and
 // treat `#` or `?` in an install directory as URL syntax.
 export const WRITING_CHECKER_URL = pathToFileURL(WRITING_CHECKER).href;

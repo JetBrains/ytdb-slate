@@ -112,8 +112,8 @@ this cap. The test-quality and structure reviewer, prose reviewer, and licensing
 reviewer are additional and never count against that cap.
 
 A documentation-only track changes only documents. Every changed file must
-neither ship as code nor run. The size command does not classify this status.
-Documentation-only status does not trigger Reviewer I or any specialist. When
+neither ship as code nor run. Documentation-only status does not trigger
+Reviewer I or any specialist. When
 unreadable user-facing prose is proved, Reviewer I and the prose specialist use
 two separate threads. A proved licensing area adds another separate specialist
 unless a specialist-only merge rule applies.
