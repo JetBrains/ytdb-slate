@@ -400,6 +400,32 @@ of turns. Cumulative request appearances grow with the square of the number of
 turns. Provider cache reads can lower billed input without changing the number of
 logical appearances.
 
+### Implementation reference and specialist charters
+
+The implementation reference is one exact block in each implementation dispatch.
+Each charter is one bounded section in `review-rules.md`. The byte count includes
+the heading and one final line-feed byte. The extraction starts at the named
+level-four heading and ends immediately before the next named reviewer heading.
+
+| bounded block | exact UTF-8 bytes |
+| --- | ---: |
+| implementation-dispatch research-log reference | 106 |
+| non-local logic defect reviewer charter | 1,245 |
+| consumer contract break reviewer charter | 1,547 |
+| governing-rule defect reviewer charter | 1,568 |
+| unreported failure reviewer charter | 1,190 |
+
+The 106-byte figure measures one reference copy in one implementation dispatch.
+It excludes the research log and every other task input. Worker history can
+resend that reference in later model requests. The figure is not a total
+conversation-size or billing promise.
+
+The four charter rows measure separate role blocks. They do not imply that one
+reviewer receives all four charters. They exclude the generic reviewer charter,
+role inputs, review range, output contract, ordinary evidence, and provider
+framing. These rows record bounded text measurements. They add no runtime limit
+and raise no existing budget.
+
 ## Using GPT-5.6's full 1.05M window
 
 Two deliberate steps. First, raise the registry window in

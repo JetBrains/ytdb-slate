@@ -4,12 +4,45 @@ These rules govern machine review of worker-produced changes. Review threads
 are created dynamically. The orchestrator composes them from the track's proved focus areas.
 
 Every review uses a fresh thread with type `reviewer` or `adversarial`. A
-reviewer is read-only. It receives repository state, the review range, its
-charter, the output contract, and the track intention block. An implementation
-reviewer receives no implementer episode, implementer reasoning, risk record,
-or area proof. A design-stage adversarial reviewer receives the risk record.
-The stuck-fix consultation in § Stuck-fix consultation is the only episode
-exception. Independent reviewers run in parallel.
+reviewer is read-only. Independent reviewers run in parallel.
+
+### Reviewer input contract
+
+No reviewer may receive or directly read the research log, a research-log
+reference, a research-log extract, an implementer report, private orchestrator
+triage, or implementer reasoning. The reviewer must not seek those sources, even
+when repository tools can reach them. Private orchestrator triage means the
+orchestrator's private deliberation and implementation rationale. Implementer
+reasoning means private reasoning produced by an implementer. These are distinct
+sources.
+
+This restriction applies to a design-stage adversary, Reviewer I, every
+implementation specialist, an agentic fix gate, a user-review fix-range gate,
+and a stuck-fix consultation. Ordinary repository and library evidence needed
+for the assigned work remains available. This permission is not a closed
+changed-file allowlist.
+
+A design-stage adversarial reviewer receives the standalone approved design,
+approved change context, track intention, applicable approved risk record and
+area proofs, tracked source evidence, charter, and output contract. This is the
+only reviewer role that receives the approved risk record and area proofs as
+separate artifacts.
+
+Reviewer I and implementation specialists receive the approved review range,
+track intention, applicable charter, output contract, and ordinary evidence.
+They receive no risk record, area proof, implementer episode, implementer
+report, private triage, or implementer reasoning.
+
+An agentic fix gate and a user-review fix-range gate receive the compact finding
+index, fix diff, approved scope context, and ordinary evidence needed to verify
+the fix. The compact index may contain only finding identifiers, evidence,
+validated severity, and required disposition. It contains no private
+orchestrator deliberation or implementer reasoning. Both gates receive no
+implementer episode or direct private source.
+
+The stuck-fix consultation in § Stuck-fix consultation is the only reviewer
+role that can receive an implementer episode. Its whole-episode rule does not
+permit a direct private read or a separately supplied private source.
 
 A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
 
@@ -169,7 +202,8 @@ The code reviewer is read-only. It reports inside this area only. Prefix `UF`.
 Every proved test-quality defect area receives one separate `test-quality and
 structure reviewer`. The reviewer receives the changed artifacts, production
 paths, and review range. It receives no implementer episode or area proof. It
-is read-only.
+also receives no implementer report, private triage, implementer reasoning, or
+risk record. It is read-only.
 
 The final response must contain both sections below, even when it ends with
 `No findings.`. A section may say not applicable only with an artifact-specific
@@ -398,7 +432,9 @@ A gate returns one verdict for each fixed finding at major severity or above:
 
 An addressed finding at major severity or above remains open until VERIFIED or
 MOOT. A fix below major severity receives no verdict of its own. A gate thread
-uses a fresh reviewer context. It receives no fixer or implementer episode.
+uses a fresh reviewer context. It receives the compact finding index and fix
+diff under § Reviewer input contract. It receives no fixer or implementer
+episode and no direct private source.
 
 A round that lands no fix stops the ordinary loop. The two-round cap also
 stops it. A second regression on one finding escalates. No silence supplies a
@@ -411,15 +447,28 @@ a round lands no fix, one finding returns STILL OPEN twice, the implementer
 cannot locate the cause, or fixes keep regressing.
 
 Dispatch one fresh `adversarial` consultation. Its job is diagnosis, not a gate
-verdict. Pass only the smallest implementer episode subset needed for evidence.
-Name each episode and reason. This is the sole reviewer episode exception.
+verdict. Pass only the smallest set of whole implementer episodes needed for
+evidence. Name each episode and reason. Only an implementer episode is eligible.
+A design-review, implementation-review, fix-gate, or other reviewer episode is
+not eligible.
+
+Pass every selected episode whole and intact. Embedded material remains present
+regardless of its type, source, or amount. It can include a risk record, area
+proof, research-log text, private triage, or implementer reasoning. Do not
+screen content for eligibility. Do not filter, drop, rewrite, or sanitize a
+needed episode because of embedded content. This is the sole reviewer episode
+exception and the user accepts its indirect exposure risk. The exception does
+not permit a direct read or separate delivery of a log, log reference, log
+extract, risk record, area proof, implementer report, private triage, or
+implementer reasoning.
 
 The consultation returns either a concrete failed assumption and repair route,
 or `design-flawed` with evidence. It closes nothing and lowers no severity. A
-A fresh gate must verify any resulting fix at major severity or above. Every
-fix round that lands any fix still receives a regression pass. The orchestrator
-may dispute a
-`design-flawed` result only through the mandatory user escalation.
+fresh gate must verify any resulting fix at major severity or above. Every fix
+round that lands any fix still receives a regression pass. The orchestrator may
+dispute a `design-flawed` result only through the mandatory user escalation.
+The accepted whole-episode exposure is not fixed, prevented, or detected by
+this rule.
 
 The ordinary budget permits one consultation. A second requires an explicit
 user grant. Further consultation requires another grant. Record each grant in

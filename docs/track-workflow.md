@@ -223,7 +223,11 @@ that design. The orchestrator presents every addition and removal with its proof
 or failed trigger part. User approval of the reconfirmed list precedes one
 adversarial design review for each proved DESIGN-TRIGGERING area. Final design
 approval follows those reviews. The design stage is the only stage where an
-adversarial thread receives the record. A stuck-fix consultation receives none.
+adversarial reviewer receives the approved risk record and area proofs as
+separate inputs. Implementation reviewers and both repair gates receive neither.
+The stuck-fix consultation follows the whole-episode exception in
+[review-rules.md](review-rules.md) and receives no separately supplied risk
+record or area proof.
 
 Before code review, the orchestrator compares the committed difference with the
 proved set. A missed area follows the late-area route below. For an area that no
@@ -264,11 +268,24 @@ Every implementation and review dispatch carries these fields:
 - acceptance condition.
 - declared file list.
 
-Every implementation dispatch either carries each focus-area trigger with its
-boundary sentences or directs the implementer to the risk definitions in
-[blast-radius.md](blast-radius.md) § Focus areas and their gates. The implementer
-ends its response with `unplanned risk: none` or one line that names a risk the
-plan did not name. Implementation commit titles use `Track <n>: <intent title>`.
+Every implementation dispatch also carries this exact reference block:
+
+> Research log: `research-log.md` at the repository root. Read the full log. Do not use a filtered extract.
+
+The orchestrator and every implementer may read the full log. This includes a
+fixer, which is an implementer. Do not filter the log or prepare a role-specific
+implementation extract. Every implementation dispatch either carries each
+focus-area trigger with its boundary sentences or directs the implementer to the
+risk definitions in [blast-radius.md](blast-radius.md) § Focus areas and their
+gates. The implementer ends its response with `unplanned risk: none` or one line
+that names a risk the plan did not name.
+
+Review dispatches follow [review-rules.md](review-rules.md) § Reviewer input
+contract. Reviewers receive the approved inputs for their role. Ordinary
+repository and library evidence needed for the assigned work remains available.
+This permission is not a closed changed-file allowlist.
+
+Implementation commit titles use `Track <n>: <intent title>`.
 An agentic-review fix commit inside a track uses
 `Track <n> fix round <r>: <intent title>`. The original implementation commit
 uses the Intent and Deviation-delta discipline in
@@ -293,8 +310,10 @@ A later track builds on the accepted boundary before it.
 
 ## Session handoff and the research log
 
-Use `research-log.md` at the repository root when any retained trigger below
-fires. Each track creates its implementer report at track start.
+Create `research-log.md` at the repository root before the first implementation
+dispatch, without waiting for a retained trigger. Each track creates its
+implementer report at track start. Append a retained entry immediately when any
+trigger below fires.
 
 - a second non-obvious decision.
 - a surprise about repository behaviour.
