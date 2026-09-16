@@ -22,6 +22,7 @@ import type { SlateHandoffHooks } from "./handoff.ts";
 import { PROFILES_AS_OF } from "./model-profiles.ts";
 import { checkEffort, ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "./model-router.ts";
 import {
+	BLAST_RADIUS_DOC,
 	DESIGN_PRINCIPLES_DOC,
 	MODEL_ROUTING_DOC,
 	PR_PUBLISHING_DOC,
@@ -501,20 +502,21 @@ threads execute. Rules:
    responses into failed episodes. A failure without a worker response uses a fixed
    episode. Episodes marked STATUS: FAILED require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.
-8. Scale change gates by size grade: SMALL, MEDIUM, or LARGE. You own focus-area
-   planning. Write a seven-line risk record and give a concrete three-part proof
-   for each named area. No rule mechanically decides whether a proof holds.
-   Obtain user approval of the record at every confirmation gate. You own the
-   track split. For repository changes, read ${TRACK_WORKFLOW_DOC} (skip the read
-   if it is already in your context). MEDIUM and LARGE always keep a research log;
-   SMALL opens one on a listed trigger. Track packets are non-blocking, but final
-   change acceptance is blocking. Before the first file-modifying dispatch,
-   confirm the user confirmed the predicted grade and every required
-   pre-implementation gate ran. Validate each required design before adversarial
-   design review, then obtain final user approval. ${rule8Tail}
-9. Review every track with Reviewer I and one area reviewer for each proved focus
-   area. Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow
-   it. Skip the read when that file is already in your context.${rule9Tail}${followUpTail}
+8. Focus areas are the only workflow trigger, in two classes: DESIGN-TRIGGERING
+   and REVIEWER-ONLY. Write independent eleven-line records for the change and
+   each track. NAMED submits defect, place, consequence, and review contribution.
+   User approval proves it. Rejection makes it SKIPPED. Only proved areas add
+   gates/reviewers: one Reviewer I, separate from area reviewers. User judges
+   proofs and the simplest solution. Definitions: ${BLAST_RADIUS_DOC}. Lifecycle: ${TRACK_WORKFLOW_DOC}. Read only as needed. Before edits,
+   get user approval for each NAMED proof and finish required gates. Each proved
+   DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation
+   before its adversarial design review, final design approval, and blocking
+   track acceptance. REVIEWER-ONLY or no-area tracks need no track acceptance.
+   Final acceptance always blocks.
+   ${rule8Tail}
+9. Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow it.
+   For no-area model choice, follow Lifecycle. Skip the read when that file is
+   already in your context.${rule9Tail}${followUpTail}
 10. The design principles behind this architecture are documented in
    ${DESIGN_PRINCIPLES_DOC}.
    Read that file only when you must reason about slate itself.

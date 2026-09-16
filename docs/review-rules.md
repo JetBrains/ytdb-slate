@@ -1,16 +1,48 @@
 # Slate review rules
 
 These rules govern machine review of worker-produced changes. Review threads
-are created dynamically. The orchestrator composes them from the confirmed size
-grade and proved focus areas.
+are created dynamically. The orchestrator composes them from the track's proved focus areas.
 
 Every review uses a fresh thread with type `reviewer` or `adversarial`. A
-reviewer is read-only. It receives repository state, the review range, its
-charter, the output contract, and the track intention block. An implementation
-reviewer receives no implementer episode, implementer reasoning, risk record,
-or area proof. A design-stage adversarial reviewer receives the risk record.
-The stuck-fix consultation in § Stuck-fix consultation is the only episode
-exception. Independent reviewers run in parallel.
+reviewer is read-only. Independent reviewers run in parallel.
+
+### Reviewer input contract
+
+No reviewer may receive or directly read the research log, a research-log
+reference, a research-log extract, an implementer report, private orchestrator
+triage, or implementer reasoning. The reviewer must not seek those sources, even
+when repository tools can reach them. Private orchestrator triage means the
+orchestrator's private deliberation and implementation rationale. Implementer
+reasoning means private reasoning produced by an implementer. These are distinct
+sources.
+
+This restriction applies to a design-stage adversary, Reviewer I, every
+implementation specialist, an agentic fix gate, a user-review fix-range gate,
+and a stuck-fix consultation. Ordinary repository and library evidence needed
+for the assigned work remains available. This permission is not a closed
+changed-file allowlist.
+
+A design-stage adversarial reviewer receives the standalone approved design,
+approved change context, track intention, applicable approved risk record and
+area proofs, tracked source evidence, charter, and output contract. This is the
+only reviewer role that receives the approved risk record and area proofs as
+separate artifacts.
+
+Reviewer I and implementation specialists receive the approved review range,
+track intention, applicable charter, output contract, and ordinary evidence.
+They receive no risk record, area proof, implementer episode, implementer
+report, private triage, or implementer reasoning.
+
+An agentic fix gate and a user-review fix-range gate receive the compact finding
+index, fix diff, approved scope context, and ordinary evidence needed to verify
+the fix. The compact index may contain only finding identifiers, evidence,
+validated severity, and required disposition. It contains no private
+orchestrator deliberation or implementer reasoning. Both gates receive no
+implementer episode or direct private source.
+
+The stuck-fix consultation in § Stuck-fix consultation is the only reviewer
+role that can receive an implementer episode. Its whole-episode rule does not
+permit a direct private read or a separately supplied private source.
 
 A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
 
@@ -34,45 +66,62 @@ another severity. Reviewer judgment remains authoritative.
 
 ## Reviewer sets, merge rule and charters
 
-**Reviewer I** is the general implementation reviewer. Reviewer I checks
-correctness, defects, maintainability, error handling, changed behavior,
-contract consistency, and effective evidence. Reviewer I also checks exactly
-these three clauses:
+**Reviewer I**, with prefix `RI`, is the general implementation reviewer.
+Reviewer I checks maintainability, concretely harmful antipatterns,
+responsibility distribution, completeness against the approved current-track
+requirements, and ordinary local correctness. Ordinary local correctness covers
+local logic, boundaries, returned values, and local error handling when no
+specialist charter owns the check.
 
-- each in-scope failure mode and the exact signal that detects it. Missing
-  detection is a finding.
-- consumer-reachable semantics, defaults, command behavior, compatibility, and
-  persisted formats.
-- agreement between rule documents.
+An antipattern is concretely harmful only when evidence links it to an adverse
+effect on correctness, maintenance, operation, or a consumer. Responsibility
+distribution is defective when evidence shows unjustified coupling or a
+responsibility placed in a component that cannot own it coherently. A label or
+preference alone is not a finding.
 
-| size grade | required track set |
+Reviewer I does not absorb an absent specialist charter. Reviewer I does not
+judge or reject area proofs. Reviewer I does not justify an area's absence.
+Reviewer I does not search for missing focus areas. Reviewer I does not add
+gates. Reviewer I does not replace a specialist. The shared evidence standards in
+this document apply to Reviewer I and every specialist. Specialists retain
+consumer compatibility, failure reporting, rule agreement, and every other
+duty in their charters.
+
+| track | required routine implementation-review set |
 | --- | --- |
-| SMALL | Reviewer I plus one reviewer for every proved area whose canonical gate runs per track |
-| MEDIUM | Reviewer I plus one reviewer for every proved area whose canonical gate runs per track |
-| LARGE | Reviewer I plus one reviewer for every proved area whose canonical gate runs per track |
+| one or more proved areas | exactly one Reviewer I plus one specialist for every proved area whose canonical gate runs per track |
+| no proved area | none; report routine implementation review as `NOT REQUIRED` |
 
-Reviewer I runs on every track at every grade. Every proved area adds its
-reviewer at every grade.
+`NAMED` and `SKIPPED` areas do not select reviewers. Code, mixed, and
+documentation-only status do not select reviewers. Every required perspective
+is dispatched exactly once. Do not dispatch a duplicate action for the same
+required perspective.
+
+Reviewer I always runs in its own fresh thread. It never merges with any
+specialist, including on documentation-only work. Every specialist also runs in
+a fresh thread. Existing merge rules may combine specialist duties only with
+other specialist duties when both the code scope and required evidence are the
+same. Record the reason. Similar topics do not satisfy this rule. The
+test-quality and structure reviewer never merges with another built-in role.
 
 Reviewer I never counts against the production area-reviewer cap. The cap is
 four production area reviewers per review action. Split the action when more
-are required. The test-quality and structure reviewer, prose reviewer, and
-licensing reviewer are additional and never count against that cap.
+are required. The non-local logic defect, consumer contract break, governing-rule defect and
+unreported failure reviewers are production area reviewers and count against
+this cap. The test-quality and structure reviewer, prose reviewer, and licensing
+reviewer are additional and never count against that cap.
 
-Merge two general or production area perspectives only when both the code scope
-and required evidence are the same. Record the reason. Similar topics do not
-satisfy this rule. The test-quality and structure reviewer never merges with
-Reviewer I, a production area reviewer, the prose reviewer, or the licensing
-reviewer.
+A documentation-only track changes only documents. Every changed file must
+neither ship as code nor run. Documentation-only status does not trigger
+Reviewer I or any specialist. When
+unreadable user-facing prose is proved, Reviewer I and the prose specialist use
+two separate threads. A proved licensing area adds another separate specialist
+unless a specialist-only merge rule applies.
 
-Each changed file in a documentation-only track has the `documentation`
-classification from the shipped size command. A track with any `source` file is
-not documentation only. On a documentation-only track, Reviewer I may carry the
-prose charter and the licensing charter. Record the reason for this merge.
-
-A model may cover more than one merge-eligible charter only under the merge
-rule. Different reviewers remain separate actions and fresh contexts. Do not
-reduce reviewer count because earlier reviews found nothing.
+A model may cover more than one merge-eligible specialist charter only under
+the specialist-only merge rule. Different reviewers remain separate actions
+and fresh contexts. Do not reduce reviewer count because earlier reviews found
+nothing.
 
 A project may add charters through `reviewPerspectivesPath` in `slate.json`.
 Compose each applicable charter beside the built-in set. Each charter declares a
@@ -90,12 +139,71 @@ Project charters supplement the required reviewers and never replace them.
 - **performance:** asymptotic growth, hot paths, input/output, allocation,
   synchronization, caching, batching, and benchmark evidence.
 
+#### Non-local logic defect reviewer
+
+The code reviewer is read-only and reports inside this area only. Prefix `NL`.
+
+The non-local logic defect area owns an agreement between places that an
+execution reads. The governing-rule defect area owns agreement between rule
+documents.
+
+1. List every fact outside the changed lines that the correctness verdict
+   depends on. For each fact, state where it lives and how you checked it.
+2. Name each rule that two or more places must apply in the same way. List every
+   place that must apply it. Check each place against the rule.
+3. Name each state or history that an earlier execution can leave. Cover a
+   first run, a repeat run, an interrupted run and a restart.
+4. Name each pair or group of conditions that must hold at the same time to
+   reach the forbidden result. Check that each combination is intended.
+5. Name each matching edit that the change owes to a place it does not touch.
+   Report a missing matching edit as a defect.
+6. Check the order of effects inside one execution when a place outside the
+   change can observe that order.
+7. Check that the implemented decisions agree with the stated intent of the
+   track.
+8. Check error and failure paths that cross the agreements above.
+
+
+#### Consumer contract break reviewer
+
+The code reviewer is read-only and reports inside this area only. Prefix `CB`.
+
+1. List every consumer-reachable surface the change touches: an exported name, a command argument or option, an exit status, a machine-readable output shape, a configuration key together with the value used when that key is absent, a written or read record, and a shipped statement about accepted input or produced output.
+2. For each listed surface, state what an unchanged consumer gets from the review base and what it gets from the candidate. Name the concrete invocation, configuration file or stored record that you used as the example.
+3. Check every default that the change adds, moves or withdraws. Report a default whose candidate value changes the result for a consumer that set nothing in the review base.
+4. Check the records the change writes or reads in both directions: a record written by the review base and read by the candidate, and a record written by the candidate and read by the review base.
+5. Report every withdrawal, rename or narrowing that ships no route for the base use. State which route exists, from an accepted base form, a default, an alias, a reserved identifier, a reader for the base format or a warning window, and state whether the change shows that the route works.
+6. Check that shipped documents state the same accepted input, produced output, exit statuses and defaults as the code. Report a newly published surface that ships with no statement of which parts a consumer may rely on.
+
+#### Governing-rule defect reviewer
+
+The code reviewer is read-only and reports inside this area only. Prefix `GR`. The governing-rule defect area owns agreement between rule documents. The non-local logic defect area owns an agreement between places that an execution reads.
+
+1. List every rule that the change adds, alters or removes. For each rule, state where it lives, who must obey it, and what the reader must now do differently.
+2. Check agreement between rule documents. Compare each changed rule against every other rule document, every marked duplicate block and every shipped copy that states the same rule. Report each case where two of them tell one reader two different things.
+3. Apply each changed rule as a first-time reader with only the change in front of you. Report each term, threshold, name or path that leaves the rule impossible to apply, and say which decision the reader cannot reach.
+4. Trace each changed rule to the check, the gate or the script that enforces it. Report each place where the rule and its enforcer now permit different work, and report a rule whose stated enforcement no longer exists.
+5. Walk the governed sequence from its start to its declared completion. Report a required step that a reader can pass with no recorded decision, a required step that no route reaches, and a step that can run after completion.
+6. Check every list that tells a reader when to act, for example a re-run trigger list, a required-check table, a phase order or a gate table. Report each entry that the change makes stale, missing or wrong.
+
+#### Unreported failure reviewer
+
+The code reviewer is read-only. It reports inside this area only. Prefix `UF`.
+
+1. Enumerate every in-scope failure mode of the changed behaviour, and name the exact signal that detects each one. Record a mode with no signal as a defect. This duty is the clause the retired general reviewer carried.
+2. For each failure mode, name the place that owes the report and the observable form of that report, for example the exit status, the stream, the stated rejection reason, the failing check or the recorded event.
+3. Check every caught error, every discarded error, every ignored return status and every empty handler on the changed paths. Report a discarded failure that produces no other signal.
+4. Check every effect the change performs and does not verify, for example a write, a delete, a send or a settings update. State what proceeds when the effect fails.
+5. Check every fallback, default, retry and partial result the change adds. Report a case where the substitute result is indistinguishable from success.
+6. Check every report the change removes, narrows, hides or downgrades. Require evidence that the failure it reported can no longer happen.
+
 ### Test-quality and structure reviewer
 
 Every proved test-quality defect area receives one separate `test-quality and
 structure reviewer`. The reviewer receives the changed artifacts, production
 paths, and review range. It receives no implementer episode or area proof. It
-is read-only.
+also receives no implementer report, private triage, implementer reasoning, or
+risk record. It is read-only.
 
 The final response must contain both sections below, even when it ends with
 `No findings.`. A section may say not applicable only with an artifact-specific
@@ -168,8 +276,9 @@ phases. An implementation-stage review does not record `level`.
 | disposition | fix, waive, moot, reject, or ignored |
 
 Prefixes are stable by perspective. Active built-in prefixes are `RI`, `CN`,
-`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, and `RG`. Project-supplied prefixes must
-not collide. The orchestrator assigns and records a replacement when they do.
+`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, `NL`, `CB`, `GR`, `UF`, and `RG`.
+Project-supplied prefixes must not collide. The orchestrator assigns and records
+a replacement when they do.
 Identifiers remain cumulative and never renumber. Historical identifiers keep
 their recorded meaning.
 
@@ -323,7 +432,9 @@ A gate returns one verdict for each fixed finding at major severity or above:
 
 An addressed finding at major severity or above remains open until VERIFIED or
 MOOT. A fix below major severity receives no verdict of its own. A gate thread
-uses a fresh reviewer context. It receives no fixer or implementer episode.
+uses a fresh reviewer context. It receives the compact finding index and fix
+diff under § Reviewer input contract. It receives no fixer or implementer
+episode and no direct private source.
 
 A round that lands no fix stops the ordinary loop. The two-round cap also
 stops it. A second regression on one finding escalates. No silence supplies a
@@ -336,15 +447,28 @@ a round lands no fix, one finding returns STILL OPEN twice, the implementer
 cannot locate the cause, or fixes keep regressing.
 
 Dispatch one fresh `adversarial` consultation. Its job is diagnosis, not a gate
-verdict. Pass only the smallest implementer episode subset needed for evidence.
-Name each episode and reason. This is the sole reviewer episode exception.
+verdict. Pass only the smallest set of whole implementer episodes needed for
+evidence. Name each episode and reason. Only an implementer episode is eligible.
+A design-review, implementation-review, fix-gate, or other reviewer episode is
+not eligible.
+
+Pass every selected episode whole and intact. Embedded material remains present
+regardless of its type, source, or amount. It can include a risk record, area
+proof, research-log text, private triage, or implementer reasoning. Do not
+screen content for eligibility. Do not filter, drop, rewrite, or sanitize a
+needed episode because of embedded content. This is the sole reviewer episode
+exception and the user accepts its indirect exposure risk. The exception does
+not permit a direct read or separate delivery of a log, log reference, log
+extract, risk record, area proof, implementer report, private triage, or
+implementer reasoning.
 
 The consultation returns either a concrete failed assumption and repair route,
 or `design-flawed` with evidence. It closes nothing and lowers no severity. A
-A fresh gate must verify any resulting fix at major severity or above. Every
-fix round that lands any fix still receives a regression pass. The orchestrator
-may dispute a
-`design-flawed` result only through the mandatory user escalation.
+fresh gate must verify any resulting fix at major severity or above. Every fix
+round that lands any fix still receives a regression pass. The orchestrator may
+dispute a `design-flawed` result only through the mandatory user escalation.
+The accepted whole-episode exposure is not fixed, prevented, or detected by
+this rule.
 
 The ordinary budget permits one consultation. A second requires an explicit
 user grant. Further consultation requires another grant. Record each grant in
@@ -366,11 +490,23 @@ Apply this ordered test to each finding that is not waived, moot, or rejected:
 3. Fix a major finding inside this change.
 4. Record every other finding with the ignored disposition.
 
+<!-- track-acceptance:begin -->
 A track packet can follow machine-review termination. It reports every ignored
-finding. At MEDIUM and LARGE, user review of each track is blocking. At SMALL,
-a multi-track packet adds no blocking acceptance gate. In a single-track change,
-the track review is the blocking final acceptance event. Pre-existing defects,
-exhausted budgets, disputed stuck-fix results, blocker lowering, and regressions
-route through [user-notes.md](user-notes.md) § Mandatory escalation set.
-Deferred work becomes a tracked issue. A project with no issue tracker records
-the deferral in its delivery record.
+finding. User acceptance of a track is blocking when that track proves at least
+one DESIGN-TRIGGERING area. A track with only REVIEWER-ONLY areas, or no proved
+area, has no mandatory track-acceptance gate. A multi-track marker for such a
+track follows completed required machine gates and the packet, after all
+blocking user notes are resolved. In a single-track change, any blocking track
+acceptance and final change acceptance are one event. Final change acceptance is
+always blocking.
+<!-- track-acceptance:end -->
+
+The marked block above is the protected acceptance unit of this document. Its
+end marker closes the unit, so later text in this document states no acceptance
+policy. The unit follows the marker convention that
+[blast-radius.md](blast-radius.md) § Focus areas and their gates describes.
+
+Pre-existing defects, exhausted budgets, disputed stuck-fix results, blocker
+lowering, and regressions route through [user-notes.md](user-notes.md) §
+Mandatory escalation set. Deferred work becomes a tracked issue. A project with
+no issue tracker records the deferral in its delivery record.

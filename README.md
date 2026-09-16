@@ -6,7 +6,7 @@ Slate is a thread-weaving orchestration extension for the [pi coding agent](http
 
 The orchestrator is your main pi session. It dispatches each **bounded action** to a new **worker thread**. Each thread runs one action. A large language model compresses successful work and failed partial work into one **episode**. A failure without a worker response uses a fixed episode and no compression call. The episode retains intent, actions, findings, artifacts, open issues, and handoff notes.
 
-The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use a confirmed size grade and focus areas backed by judged proofs. Optional umbrella **draft-PR publishing** covers tracks.
+The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use focus areas backed by user-approved proofs. Optional umbrella **draft-PR publishing** covers tracks.
 
 An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative. A second opt-in, **action-level model routing**, gives each dispatched action a model and an effort level chosen to be up to the task and no more, so cost is bounded per action instead of per session.
 
@@ -49,30 +49,27 @@ Full rationale: [`docs/design-principles.md`](docs/design-principles.md), shippe
 
 In orchestrator mode, Slate injects a mandatory track-based development workflow. Project configuration can extend it through `doctrineExtraPath`. Configuration cannot replace it.
 
-Slate uses three workload grades. SMALL covers up to 50 predicted changed
-production-logic lines. MEDIUM covers 51 through 1,000. LARGE covers more than
-1,000. More than 25 changed files raises SMALL or MEDIUM by one grade.
-
-Focus is separate from size. Seven focus areas name specific risks. They cover
+Eleven focus areas name specific risks. They cover
 concurrency defects, data loss, security weaknesses, performance degradation,
-test-quality defects, unreadable user-facing prose, and licensing exposure.
-During planning, the orchestrator writes a risk record with one line for each
-focus area and a proof for each engaged area. A focus area with a proof that
-holds is a proved area. The user approves the risk record. Reviewer I is the
-general implementation reviewer and reviews every track. Each proved area adds its
-reviewer.
+test-quality defects, unreadable user-facing prose, licensing exposure,
+non-local logic defects, consumer contract breaks, governing-rule defects, and
+unreported failures.
+During planning, the orchestrator writes an independent risk record for the
+change and for every track. Each record has one line for every focus area. A
+NAMED line carries a four-part proof. User approval makes that area proved.
+User rejection makes it SKIPPED. Only proved areas add gates or routine
+implementation reviewers. A track with at least one proved area gets one general
+Reviewer I plus every required area specialist. A track with no proved area gets
+no routine implementation reviewer.
 
 The workflow follows these steps:
 
-1. **Predict and confirm** — the orchestrator predicts the size grade before implementation. The user confirms that grade.
-2. **Design** — MEDIUM and LARGE need a high-level design. The orchestrator adds adversarial review when the design needs it. Removing or altering an existing consumer-reachable rule also adds it. A purely additive public rule does not.
-3. **Implement tracks** — each track declares its files. The orchestrator plans and proves its focus areas before implementation. Track reviews are non-blocking. Final change acceptance remains blocking.
-4. **Measure** — the size command shipped with Slate checks the committed range at the first track boundary.
-5. **Review and deliver** — grade and focus select fresh machine reviewers. The user gives final acceptance and performs any squash merge.
+1. **Plan and confirm** — the orchestrator proposes all eleven focus lines. The user alone approves or rejects each NAMED proof.
+2. **Design** — a proved DESIGN-TRIGGERING area requires a high-level design. The user validates it before focus reconfirmation and one adversarial design review per proved DESIGN-TRIGGERING area. Final design approval follows.
+3. **Implement tracks** — each track is one coherent unit with its own focus set. The orchestrator compares the committed difference with that set before review.
+4. **Review and deliver** — when a track has a proved area, one Reviewer I and every required area specialist inspect it in separate review actions. A zero-area track reports routine implementation review as `NOT REQUIRED`. Tracks with a proved DESIGN-TRIGGERING area require blocking user acceptance. Other tracks do not. Their markers follow required machine gates, the packet, and resolution of blocking user notes. Final change acceptance is always blocking.
 
-SMALL has a mechanical fast path. A change that can create a test-quality
-defect, or that changes verification machinery, voids it. Umbrella draft-PR
-publishing activates only when `workflow.draftPRs` is `true`.
+Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
 
 This summary provides orientation only. The shipped docs listed below are normative.
 
@@ -203,14 +200,14 @@ Slate reads project configuration (`.pi/slate.json`) and injects project files (
 
 In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths make the block's character count depend on your install location. [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
 
-- `docs/track-workflow.md` — the size-grade and focus-area lifecycle for research, design, implementation, review, and delivery
+- `docs/track-workflow.md` — the focus-area lifecycle for research, design, implementation, review, and delivery
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
 - `docs/review-rules.md` — reviewer composition, the composite test-quality role, evidence standards, findings, and fix gates
 - `docs/design-principles.md` — Slate's own design rationale
 - `docs/model-failover.md` — the opt-in `modelFailover` map (**reference documentation** — unlike the entries above it is not workflow doctrine and is not cited by the doctrine)
 - `docs/context-budget.md` — the orchestrator `contextBudget`: defaults, per-model overrides, the window clamp, and the pricing rationale (also **reference documentation**, not cited by the doctrine)
 - `docs/writing-guidance.md` — the always-active writing convention, ignored writing keys, status line, and checker CLI
-- `docs/model-routing.md` — the action-level model routing reference. It covers the three `router` keys, model eligibility, omitted effort, and dispatch guards. It also covers first-session warnings. The doctrine cites this absolute path only while the routing rule renders. This path is fourth normally and fifth when `workflow.draftPRs` is on. The rule renders the live list because it depends on the session registry and credentials.
+- `docs/model-routing.md` — the action-level model routing reference. It covers the three `router` keys, model eligibility, omitted effort, and dispatch guards. It also covers first-session warnings. The doctrine cites this absolute path only while the routing rule renders. This path is fifth normally and sixth when `workflow.draftPRs` is on. The rule renders the live list because it depends on the session registry and credentials.
 
 Project-specific additions layer on top — they extend, not replace, the shipped doctrine — via two distinct mechanisms:
 

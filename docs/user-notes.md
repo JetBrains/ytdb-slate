@@ -4,22 +4,21 @@ This document governs the user surfaces after the user validates the design.
 A **user note** is one piece of user feedback on a delivered track packet.
 An **observation** is a worker evidence file and never user feedback.
 
-The orchestrator reads this document at packet time for a MEDIUM or LARGE
-track. It also reads it at the first recorded user note, at a drain with a
-non-empty note queue, and at the first owner triage.
+The orchestrator reads this document at every track-packet boundary. It also
+reads it at the first recorded user note, at a drain with a non-empty note
+queue, and at the first owner triage.
 
 ## Track packets
 
-Every completed track reaches the user in a track packet. Every grade shares
-these eight fields:
+Every completed track reaches the user in a track packet. Every packet has
+these twelve fields:
 
 1. the track intent.
 2. a file table with added and removed line counts for each changed file.
 3. when an approved high-level design exists, its differences since the last
    presentation or a statement that no difference exists. When no approved
    high-level design exists, state that this field does not apply.
-4. the verification results: the mechanical checklist outcome when the fast
-   path applies, and evidence from the required tests and checks.
+4. evidence from the required tests and checks.
 5. the cumulative implementation commit reference, as defined in
    [track-workflow.md](track-workflow.md) § Lifecycle and phases, with the
    pull-request link when draft-pull-request publishing is enabled. Otherwise,
@@ -29,35 +28,27 @@ these eight fields:
    when none exists.
 7. the proved-area summary. Give one line for every focus area. Each line states
    the area, the proof outcome, and a short risk phrase. Include every area that
-   the committed-difference comparison added or dropped.
+   the committed-difference comparison added or proposed for removal. State the
+   user's decision on each proposed removal.
 8. every finding recorded with the ignored disposition.
+9. the commit range that contains the track.
+10. the machine-review outcome, with finding counts by type, severity, and
+    disposition.
+11. override-log entries created for this track.
+12. every escalation raised for the track and its recorded disposition.
 
 The track packet references the diff and never inlines it. It states where to
 find the diff. The user may ask for any part of it.
 
-At MEDIUM and LARGE, the user must accept each track and every requested fix
-before the marker lands or the next track starts. The marker certifies that
-machine review and required user review completed. At SMALL, a multi-track
-packet reports progress without adding a blocking acceptance gate. In a
-single-track change, the track review and final change acceptance are one
-event. Final change acceptance is blocking at every size grade.
-
-The SMALL grade-specific fields belong to
-[track-workflow.md](track-workflow.md) § Track packet shape. This document does
-not duplicate that shape.
-
-### MEDIUM and LARGE packet
-
-A MEDIUM or LARGE track packet adds these five grade-specific fields to the
-eight common fields above:
-
-1. **Grade and rationale.** The confirmed size grade and the reason for it.
-2. **Commit range.** The range that contains the track.
-3. **Machine review outcome.** Finding counts by type, severity and
-   disposition.
-4. **Override log delta.** Override log entries created for this track.
-5. **Escalations.** Every escalation raised for the track and its recorded
-   disposition.
+The packet states which acceptance rule applies. User acceptance of a track is
+blocking when that track proves at least one DESIGN-TRIGGERING area. The
+orchestrator cannot add the marker or start the next track until the user accepts
+that track and every requested fix. A track with only REVIEWER-ONLY areas, or no
+proved area, has no mandatory track-acceptance gate. Its packet reports progress
+and every requested decision. A multi-track marker for such a track follows
+completed required machine gates and the packet, after all blocking user notes
+are resolved. In a single-track change, any blocking track acceptance and final
+change acceptance are one event. Final change acceptance is always blocking.
 
 
 ## Receiving and routing a user note
@@ -192,9 +183,8 @@ as accepted or resolved.
 
 ## Final report
 
-A SMALL single-track change reports through its packet plus the delivery line.
-A MEDIUM single-track change puts its report in a section of the delivery commit
-body. A larger change produces a separate final report.
+A single-track change puts its final report in the track packet and delivery
+record. A multi-track change produces a separate final report.
 
 The final report provides full accounting for:
 
@@ -208,8 +198,11 @@ The final report provides full accounting for:
 The delivery record carries a one-line index of every ignored finding. Each
 entry carries the identifier, location and one-line summary.
 
-The report includes one line that concludes whether Reviewer I and every
-proved-area perspective covered the full required range.
+The report gives routine implementation review and user-requested-fix
+verification as separate verdicts. The routine line concludes whether the full
+required reviewer set covered the range. It states `NOT REQUIRED` when the
+track has no proved area and does not claim Reviewer I coverage. When a
+user-requested-fix range exists, another line gives its dedicated gate verdict.
 
 The coverage register stays in the research log. Neither its entries nor its
 size enter a packet or the final report. The detailed register never leaves the

@@ -8,7 +8,7 @@ import slateExtension from "../extension/index.ts";
 import { PROFILES_AS_OF, MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
 import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
+import { BLAST_RADIUS_DOC, PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 import { DESIGN_REQUIREMENTS, WRITING_REQUIREMENTS } from "../extension/writing-reminder.ts";
@@ -135,32 +135,39 @@ test("single-action doctrine requires new threads and episode references", { tim
   assert.doesNotMatch(doctrine, /freshContext|threadChoice|restart/);
 });
 
-test("doctrine reads workflow only for changes and enforces size confirmation", { timeout: 5000 }, async () => {
+test("doctrine uses approved focus states, the four-part proof, and effective gates", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Scale change gates by size grade: SMALL, MEDIUM, or LARGE."));
-  assert.ok(doctrine.includes("You own focus-area planning."));
-  assert.ok(doctrine.includes("Write a seven-line risk record and give a concrete three-part proof for each named area."));
-  assert.ok(doctrine.includes("No rule mechanically decides whether a proof holds."));
-  assert.ok(doctrine.includes("Obtain user approval of the record at every confirmation gate."));
-  assert.doesNotMatch(doctrine, /The implementer declares focus|validated declaration/);
+  assert.ok(doctrine.includes("Focus areas are the only workflow trigger, in two classes: DESIGN-TRIGGERING and REVIEWER-ONLY."));
+  assert.ok(doctrine.includes("Write independent eleven-line records for the change and each track."));
+  assert.ok(doctrine.includes("NAMED submits defect, place, consequence, and review contribution. User approval proves it. Rejection makes it SKIPPED."));
+  assert.ok(doctrine.includes("Only proved areas add gates/reviewers: one Reviewer I, separate from area reviewers."));
+  assert.doesNotMatch(doctrine, /Reviewer I remains required on every track|Review every track with Reviewer I/);
+  assert.ok(doctrine.includes("User judges proofs and the simplest solution."));
+  assert.ok(doctrine.includes(`Definitions: ${BLAST_RADIUS_DOC}. Lifecycle: ${TRACK_WORKFLOW_DOC}.`));
   assert.doesNotMatch(doctrine, /Concurrency defect|Data loss|Security weakness|Licensing exposure/);
-  assert.ok(doctrine.includes(`For repository changes, read ${TRACK_WORKFLOW_DOC} (skip the read if it is already in your context).`));
-  assert.ok(doctrine.includes("Before the first file-modifying dispatch, confirm the user confirmed the predicted grade and every required pre-implementation gate ran."));
+  assert.ok(doctrine.includes(`Lifecycle: ${TRACK_WORKFLOW_DOC}. Read only as needed.`));
+  assert.ok(doctrine.includes("Before edits, get user approval for each NAMED proof and finish required gates."));
 });
 
 test("design gates state validation, adversarial review, and final approval as one ordered contract", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Validate each required design before adversarial design review, then obtain final user approval."));
-  assert.doesNotMatch(doctrine, /final user approval before adversarial design review/);
+  assert.ok(doctrine.includes("Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation before its adversarial design review, final design approval, and blocking track acceptance."));
+  assert.doesNotMatch(doctrine, /final design approval before.*adversarial design review/);
 });
 
-test("doctrine states research-log, packet, acceptance, and reviewer rules", { timeout: 5000 }, async () => {
+// Acceptance policy itself is NOT asserted here any more. The audited
+// `session-instructions` unit in verification/resolver-checks.mjs
+// (`contract-acceptance-units`) compares that whole rendered region against one
+// canonical acceptance-fact set, and `contract-acceptance-mutations` attacks it.
+// That is strictly stronger than the three substring assertions this test used
+// to carry, so the substrings retired with them. Everything below is rendering
+// and wiring, which stays here.
+test("doctrine states research-log, packet, and reviewer rules", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("MEDIUM and LARGE always keep a research log; SMALL opens one on a listed trigger."));
-  assert.ok(doctrine.includes("Track packets are non-blocking, but final change acceptance is blocking."));
-  assert.ok(doctrine.includes("Review every track with Reviewer I and one area reviewer for each proved focus area."));
-  assert.doesNotMatch(doctrine, /Verification or gate machinery receives the general implementation reviewer|engaged focus areas/);
-  assert.ok(doctrine.includes(`Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow it. Skip the read when that file is already in your context.`));
+  assert.ok(doctrine.includes(`Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow it.`));
+  assert.ok(doctrine.includes("For no-area model choice, follow Lifecycle."));
+  assert.ok(doctrine.includes("Skip the read when that file is already in your context."));
+  assert.doesNotMatch(doctrine, /Verification or gate machinery receives the general implementation reviewer|engaged focus areas|Review every track with Reviewer I/);
 });
 
 test("rule 8 renders the exact research-log and draft-publishing tails", { timeout: 5000 }, async () => {

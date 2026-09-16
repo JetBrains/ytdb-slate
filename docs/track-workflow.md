@@ -1,13 +1,12 @@
 # Track-based development workflow
 
-This document is the lifecycle spine for every repository change. Size is a
-workload grade. Focus identifies risk-based review gates. A proved focus area
-adds its reviewer. Neither axis substitutes for the other.
+This document is the lifecycle spine for every repository change. Proved focus
+areas select design, review, and track-acceptance gates.
 
-| actor | grade or shape | document | exact section |
+| actor | action | document | exact section |
 | --- | --- | --- | --- |
 | orchestrator | every change | this document | § Lifecycle and phases |
-| orchestrator | size and focus planning | [blast-radius.md](blast-radius.md) | § Two independent axes |
+| orchestrator | focus planning | [blast-radius.md](blast-radius.md) | § Focus states and track constraints |
 | implementer | every track | this document | § Track intention block and implementer response |
 | reviewer | every review | [review-rules.md](review-rules.md) | § Reviewer sets, merge rule and charters |
 | user | completed track | [user-notes.md](user-notes.md) | § Track packets |
@@ -18,32 +17,32 @@ adds its reviewer. Neither axis substitutes for the other.
 The mandatory phases run in this order:
 
 1. research.
-2. predict the size grade.
-3. obtain user confirmation of the size grade.
-4. design and validate when required.
-5. run adversarial design review when required.
-6. obtain final design approval.
+2. propose the eleven-line risk record and obtain user approval.
+3. design and validate when a proved DESIGN-TRIGGERING area requires a design.
+4. when a design exists, reconfirm the focus list against the validated design.
+5. when a design exists, run one adversarial design review for each proved
+   DESIGN-TRIGGERING area that has not reviewed the applicable design.
+6. when a design exists, obtain final design approval.
 7. run the track loop.
 8. obtain blocking final acceptance.
 9. deliver.
 
 The cumulative implementation commit is the original implementation and all
 agentic-review fixes squashed into one commit before user review. The track loop
-is present the approved high-level design when required, plan and approve the
-risk record, implement, validate, compare the committed difference with the
-proved areas, measure the first real committed boundary, review, and fix. Then
-present any changed high-level design when required, create the cumulative
-implementation commit, deliver the track packet, and apply and commit any
-user-review fixes. Verify their range when one exists, and mark the boundary.
-The implementer produces the low-level design and implements it as one
-integrated action.
+presents the approved high-level design when required, plans and approves the
+track's independent risk record, implements, validates, compares the committed
+difference with the proved areas, reviews, and fixes. It then presents any
+changed high-level design when required, creates the cumulative implementation
+commit, and delivers the track packet. It applies and commits required user-review
+fixes whenever the user requests them. It verifies their range when one exists
+and marks the boundary. The implementer produces the low-level design and
+implements it as one integrated action.
 
 Every high-level design states the intention, goals, non-goals, approach, key
-decisions, rejected alternatives, risks, scope boundary, and open questions. A
-MEDIUM or LARGE design also includes a components diagram that shows how the
-change affects components. Every grade includes a data-flow diagram when the
-change alters data flow. The design stays high level. It names no file path,
-method signature, or line number.
+decisions, rejected alternatives, risks, scope boundary, and open questions.
+The design author includes each component or data-flow diagram that helps the
+reader. Each omitted diagram gets a one-sentence reason. The design stays high
+level. It names no file path, method signature, or line number.
 
 A high-level design states what must be true and why. A low-level design states
 how the code achieves it. Apply the abstraction test: would this statement stay
@@ -65,70 +64,49 @@ design update presents what changed. It omits unchanged text that
 the reader does not need in order to act. The self-contained message test below
 governs every update. Restate the minimum context the reader needs to act.
 When no approved high-level design exists, neither presentation applies. A
-material deviation instead follows [blast-radius.md](blast-radius.md) § Halt,
-re-derivation and grade correction.
+material deviation instead follows [blast-radius.md](blast-radius.md) § Halt
+and focus re-derivation.
 
-The user validates the design before an adversarial design review. A fresh
-adversary tests the design and cited evidence. `No substantive findings.` is a
-valid result.
+<!-- design-review-policy:begin -->
+The user validates the design and judges whether it is the simplest solution.
+The orchestrator then reconfirms every focus line against that design. Each
+proved DESIGN-TRIGGERING area receives one fresh adversarial design reviewer.
+A fresh adversary tests the design and cited evidence. Every review with no
+findings, including an adversarial design review, ends with the exact standalone
+line `No findings.`
 
 The orchestrator triages each finding by strengthening a rationale, reversing
 a decision, recording an accepted risk, or routing low-level material to the
 implementer report. Hold a routed finding in the research log until its
 owning track starts. The implementer then copies it into that track's report.
-The finding requires a report for that track when the grade does not already
-require one. A reversal permits one more adversarial round. The user gives
-final design approval after adversarial review and triage. When no adversarial
-review is required, validation and final approval form one gate.
+The finding stays in that track's implementer report. Each design reversal
+permits one additional independent adversarial design-review round. This
+permission changes neither ordinary fix-round nor consultation caps. The user
+gives final design approval after adversarial review and triage. When no
+adversarial review is required, validation and final approval form one gate.
+<!-- design-review-policy:end -->
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
 [pr-publishing.md](pr-publishing.md). When disabled, the retained research log
 is the durable workflow record.
 
-## Size script
+## Focus classes and gates
 
-The orchestrator predicts the initial size grade before committed work exists.
-The prediction states the expected changed production-logic lines, files,
-grade, basis, and uncertainty. A committed candidate may inform the prediction.
-It never mechanically sets the initial grade.
+DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness,
+performance degradation, and non-local logic defect. REVIEWER-ONLY areas are
+test-quality defect, unreadable user-facing prose, licensing exposure, consumer
+contract break, governing-rule defect, and unreported failure.
 
-| size grade | predicted changed production-logic lines | file rule |
-| --- | ---: | --- |
-| SMALL | 0–50 | more than 25 files raises the grade to MEDIUM |
-| MEDIUM | 51–1,000 | more than 25 files raises the grade to LARGE |
-| LARGE | more than 1,000 | remains LARGE |
-
-Use the higher grade when uncertainty crosses a band. The user may confirm a
-lower prediction before implementation starts. Record the reason. The grade
-never falls after implementation starts.
-
-| stage | gate | SMALL | MEDIUM | LARGE |
-| --- | --- | --- | --- | --- |
-| pre-implementation | high-level design | when the orchestrator judges that design work is needed, or the change intends to alter an existing consumer-reachable contract | required | required |
-| pre-implementation | validation before adversarial review | when a design adversary is required | required | required |
-| pre-implementation | adversarial design review | when the orchestrator judges that the design needs an adversary, or the change intends to alter an existing consumer-reachable rule | when the same condition holds | when the same condition holds |
-| pre-implementation | final design approval | after required design work | required after validation and any adversarial review | required after validation and any adversarial review |
-| lifecycle | research log | when any trigger fires | always | always |
-| per-track | implementer report | optional | required | required |
-| per-track | Reviewer I | every track | every track | every track |
-| per-track | proved-area reviewers | every proved area whose canonical gate runs per track | every proved area whose canonical gate runs per track | every proved area whose canonical gate runs per track |
-| final | final change acceptance | blocking | blocking | blocking |
-
-The package-resolved command does not measure absent work. At the first track
-boundary, run it against the real committed range:
-
-```bash
-node <package>/extension/size-grade.mjs --base <ref> --head <ref>
-```
-
-`<package>` is the absolute root of the installed `ytdb-slate` package. Slate's
-doctrine supplies absolute installed document paths. The package root is the
-parent of their `docs` directory.
-
-Record both counts and the grade. A measured higher band halts work and returns
-to § Confirmation gate. A lower band does not lower the grade. The canonical
-counting and exclusion list lives only in [blast-radius.md](blast-radius.md)
-§ Canonical counting and exclusion rules.
+Only a proved area adds a focus-dependent gate or routine implementation
+reviewer. Every proved area adds its specialist. A track with at least one
+proved area also gets exactly one Reviewer I in a separate thread. A track with
+no proved area gets no routine implementation reviewer. A proved
+DESIGN-TRIGGERING area also requires a high-level design, user validation,
+focus reconfirmation, its own adversarial design reviewer, and final design
+approval. User acceptance of a track is blocking when that track proves at
+least one DESIGN-TRIGGERING area. A track with only REVIEWER-ONLY areas, or no
+proved area, has no mandatory track-acceptance gate. A track with no proved area
+also has no area reviewer. Final change acceptance is always blocking.
 
 <!-- focus-area-table:begin -->
 | # | focus area | the gate it adds | where the gate runs |
@@ -140,7 +118,22 @@ counting and exclusion list lives only in [blast-radius.md](blast-radius.md)
 | 5 | test-quality defect | one test-quality and structure reviewer | every track that proves the area |
 | 6 | unreadable user-facing prose | one prose reviewer | every track that proves the area |
 | 7 | licensing exposure | one licensing reviewer | every track that proves the area |
+| 8 | non-local logic defect | one area reviewer for non-local logic defects | every track that proves the area |
+| 9 | consumer contract break | one area reviewer for consumer contract breaks | every track that proves the area |
+| 10 | governing-rule defect | one area reviewer for governing-rule defects | every track that proves the area |
+| 11 | unreported failure | one area reviewer for unreported failures | every track that proves the area |
 <!-- focus-area-table:end -->
+
+For implementation of a track with no proved area and model routing on, choose
+a suitable candidate from `router.models` with a sourced tier of 2 or higher.
+If none exists, choose the highest sourced tier and record the fallback in the
+track packet. A rendered `t?` is not a rank. It cannot qualify for tier 2 or
+enter a rank comparison. If no candidate has a sourced tier, stop before
+implementation and ask the user to choose explicitly from `router.models`.
+Record the choice and the unknown-tier limitation. Candidate membership,
+effort, avoid, and dispatch restrictions still apply. Routing off has no tier
+vocabulary, so this policy has an accepted enforcement gap and adds no runtime
+guard.
 
 [blast-radius.md](blast-radius.md) defines each area and owns the canonical
 copy of this table.
@@ -148,10 +141,12 @@ copy of this table.
 ## Confirmation gate
 
 The orchestrator presents one proposal before implementation. It states the
-predicted grade, expected counts, basis, uncertainty, split, required
-pre-implementation gates, and the seven-line risk record. The user confirms the
-grade and approves the risk record. No file-modifying dispatch starts before
-confirmation and every required pre-implementation gate.
+track split, required pre-implementation gates, research-log location, and the
+independent eleven-line risk record for the change. Each line is NAMED with a
+four-part proof or states which trigger part answers no. The user alone approves
+or rejects each proof and judges the proposed solution. An approved proof makes
+the area proved. A rejected proof makes the area SKIPPED. No file-modifying
+dispatch starts before user approval and every required pre-implementation gate.
 
 When an approved high-level design exists, a **scope exception** is a design
 proposal, reviewer finding, or implemented change that covers something the
@@ -175,11 +170,11 @@ non-goal candidate. The orchestrator marks nothing automatically. Every
 non-goal needs user approval. The fourth outcome appears as a tracked issue, or as a delivery-record entry
 when the project has no issue tracker. A scope exception from an
 already-implemented change also follows
-[blast-radius.md](blast-radius.md) § Halt, re-derivation and grade correction.
-The scope-exception outcome composes with that route and does not replace it.
-The route still re-derives size. When no
-approved high-level design exists, the scope-exception rule does not apply. The
-same halt, re-derivation, and grade-correction route governs instead.
+[blast-radius.md](blast-radius.md) § Halt and focus re-derivation. The
+scope-exception outcome composes with that route and does not replace it. The
+route still re-derives the focus set. When no approved high-level design exists,
+the scope-exception rule does not apply. The same halt and focus re-derivation
+route governs instead.
 
 Every message to the user must be complete on its own. State the substance
 before any identifier. State each item in words, including what was found,
@@ -198,77 +193,74 @@ The scope-exception rule and the self-contained message rule govern every
 workflow phase. Their position beside re-confirmation does not limit them to
 pre-implementation work.
 
-New evidence can raise the grade. That change halts work and requires user
-re-confirmation. A new track created after the original confirmation gate needs
-user approval of its risk record before implementation starts.
+Before each track implementation, assess whether the approved design and
+completed design gates cover the track's proved areas and planned behavior. A
+new track created after the original confirmation gate needs user approval of
+its independent risk record before implementation starts. If that planning
+newly proves a DESIGN-TRIGGERING area, enter or re-enter the design sequence
+before the affected implementation. Present the necessary new, revised, or
+materially clarified high-level design, its delta, and the reason to the user.
+User validation precedes each newly required area-specific adversarial review
+and final approval. Reuse adequate unchanged approved design and completed
+applicable gates. Reusing text does not bypass a newly required area-specific
+design review. Routine low-level design choices need no user approval unless
+they change approved behavior or constraints. If an implementer discovers a
+design gap later, pause affected work and complete this route before continuing.
+
+If the planned split exceeds twelve tracks, stop and present the split to the
+user. The user chooses whether and how the change proceeds.
 
 ## Risk planning and reconciliation
 
-The orchestrator names engaged focus areas during track planning. Engagement is
-judged for the whole track and its planned change, not for each file. The
-orchestrator writes all seven risk-record lines. Each named area gets the
-three-part proof defined in [blast-radius.md](blast-radius.md) § Judged proof
-and risk record. Each non-engagement line states which trigger part answers no.
+The orchestrator judges each focus area for the whole planned track, not for
+each file. It writes all eleven risk-record lines. A NAMED line carries the
+four-part proof defined in [blast-radius.md](blast-radius.md) § Judged proof
+and risk record. Each other line states which trigger part answers no. The user
+alone judges each proof. User approval makes the area proved. User rejection
+makes it SKIPPED. A SKIPPED area adds no gate or reviewer.
 
 The proof basis is the approved track design. When the track has no design, the
-basis is the track intention block and planned file list. The user approves the
-record at every confirmation gate. The adversarial design review checks the
-whole record when that review runs. The design stage is the only stage where an
-adversarial thread receives the record. A stuck-fix consultation receives none.
+basis is the track intention block and planned file list. The user approves or
+rejects every NAMED proof at the confirmation gate. When a design exists, the
+user validates it before the orchestrator reconfirms all eleven lines against
+that design. The orchestrator presents every addition and removal with its proof
+or failed trigger part. User approval of the reconfirmed list precedes one
+adversarial design review for each proved DESIGN-TRIGGERING area. Final design
+approval follows those reviews. The design stage is the only stage where an
+adversarial reviewer receives the approved risk record and area proofs as
+separate inputs. Implementation reviewers and both repair gates receive neither.
+The stuck-fix consultation follows the whole-episode exception in
+[review-rules.md](review-rules.md) and receives no separately supplied risk
+record or area proof.
 
-A track design change that newly engages an area needs a proof and user
-approval before review of that track. Before review, the orchestrator compares
-the committed difference with the proved set. It may add a missed proved area
-and its reviewer without a blocking user gate. It may drop a proved area that
-no longer engages. The track packet reports either change.
+Before code review, the orchestrator compares the committed difference with the
+proved set. A missed area follows the late-area route below. For an area that no
+longer engages, record the failed trigger part and present a removal proposal to
+the user at once. The area remains proved, with all of its gates and reviewers,
+until the user approves removal. Rejection preserves the proved area. Keep every
+reviewer that already covered completed work. The track packet reports every
+addition, proposed or approved removal, SKIPPED state, user decision, and
+reviewer-coverage decision.
+
+When the orchestrator or implementer discovers a late area, the orchestrator
+presents its four-part proof to the user at once. Approval recomputes the
+complete required routine reviewer set. If the track had no proved area, the
+newly required perspectives are Reviewer I and the new area specialist.
+Otherwise, the existing Reviewer I remains required but is not dispatched
+again. The only newly required perspective is the new area specialist. Approval
+of a DESIGN-TRIGGERING area also enters or re-enters the design sequence for
+remaining affected work unless the user records a decision to skip that gate.
+Present any necessary new, revised, or materially clarified design before
+continuing that work. Reuse unchanged approved design and completed applicable
+gates, but run the newly required area-specific design review. Completed work
+receives no retrospective design gate. Every newly required routine reviewer
+perspective reviews the completed range, even when another perspective already
+covered it. When no work remains, record the design-gate skip, complete that
+review, and present the record at final acceptance.
 
 The implementer reports any risk that the plan did not name. The orchestrator
-writes its proof, adds its reviewer, and reports both in the track packet. An
+writes its proof and starts the same immediate user-decision route. An
 implementation reviewer receives no proof.
-
-## Fast path
-
-A SMALL single-track change may use the fast path only when every item passes.
-
-1. The outcome is mechanical and has one clear implementation.
-2. The change intends no edit to an existing consumer-reachable rule.
-3. No sensitive configuration changes.
-4. The change cannot cause a test-quality defect.
-5. No verification, gate, coverage, packaging, release, or workflow machinery changes.
-6. The change remains within the declared file list.
-7. One mechanical validation can establish the result.
-8. The orchestrator judges that the change needs no adversarial design review.
-
-When all eight conditions pass, the fast path omits the high-level design,
-adversarial design review, research log, and implementer report. Another rule
-can still require any omitted gate or artifact.
-
-The fast-path sequence is size prediction → risk-record planning → confirmation
-and risk-record approval → implementation → mechanical validation →
-committed-difference comparison → committed-boundary size measurement →
-mechanical checklist → track packet → blocking final acceptance → delivery.
-After boundary measurement, run all eight checklist items against the committed
-range and actual risk record. If any item fails, return to the ordinary SMALL
-workflow before packet delivery.
-
-A test-quality defect voids the fast path. Any verification or gate machinery
-also voids it. Reviewer I reviews every SMALL track. Each proved focus area adds
-its reviewer.
-
-## Track packet shape
-
-A SMALL track packet adds these four grade-specific fields to the common fields
-in [user-notes.md](user-notes.md) § Track packets:
-
-1. confirmed grade and its rationale.
-2. commit range.
-3. risk-record outcomes and any proved-area change.
-4. machine review outcome, with finding counts by type, severity, and
-   disposition.
-
-For a single-track SMALL change, the track packet asks for final change
-acceptance. For a multi-track SMALL change, it reports the track without adding
-a blocking acceptance gate.
 
 ## Track intention block and implementer response
 
@@ -280,11 +272,24 @@ Every implementation and review dispatch carries these fields:
 - acceptance condition.
 - declared file list.
 
-Every implementation dispatch either carries each focus-area trigger with its
-boundary sentences or directs the implementer to the risk definitions in
-[blast-radius.md](blast-radius.md) § Focus areas and their gates. The implementer
-ends its response with `unplanned risk: none` or one line that names a risk the
-plan did not name. Implementation commit titles use `Track <n>: <intent title>`.
+Every implementation dispatch also carries this exact reference block:
+
+> Research log: `research-log.md` at the repository root. Read the full log. Do not use a filtered extract.
+
+The orchestrator and every implementer may read the full log. This includes a
+fixer, which is an implementer. Do not filter the log or prepare a role-specific
+implementation extract. Every implementation dispatch either carries each
+focus-area trigger with its boundary sentences or directs the implementer to the
+risk definitions in [blast-radius.md](blast-radius.md) § Focus areas and their
+gates. The implementer ends its response with `unplanned risk: none` or one line
+that names a risk the plan did not name.
+
+Review dispatches follow [review-rules.md](review-rules.md) § Reviewer input
+contract. Reviewers receive the approved inputs for their role. Ordinary
+repository and library evidence needed for the assigned work remains available.
+This permission is not a closed changed-file allowlist.
+
+Implementation commit titles use `Track <n>: <intent title>`.
 An agentic-review fix commit inside a track uses
 `Track <n> fix round <r>: <intent title>`. The original implementation commit
 uses the Intent and Deviation-delta discipline in
@@ -296,7 +301,7 @@ For that title, `<r>` starts at 1 and increases by one for each user-review fix
 commit in the track. That section also defines the distinct cumulative
 implementation body.
 
-For each MEDIUM or LARGE track, the implementer creates
+For each track, the implementer creates
 `track-<number>-implementer-report.md` at the repository root when the track
 starts. The report is untracked working material. It has four required
 sections: changes to the high-level design with the reason for each, the
@@ -309,29 +314,26 @@ A later track builds on the accepted boundary before it.
 
 ## Session handoff and the research log
 
-MEDIUM and LARGE changes always use `research-log.md` at the repository root.
-A SMALL change opens it when any retained trigger fires. Each MEDIUM or LARGE
-track creates its implementer report at track start, beside the research log.
+Create `research-log.md` at the repository root before the first implementation
+dispatch, without waiting for a retained trigger. Each track creates its
+implementer report at track start. Append a retained entry immediately when any
+trigger below fires.
 
-| trigger | SMALL | MEDIUM and LARGE |
-| --- | --- | --- |
-| second non-obvious decision | opens the log | already open |
-| surprise about repository behaviour | opens the log | already open |
-| any focus area engages | opens the log | already open |
-| session boundary | opens the log | already open |
-| multiple tracks | opens the log | already open |
-| plan-changing ruling | opens the log | already open |
-| user request | opens the log | already open |
-| unresolved question needed later | opens the log | already open |
+- a second non-obvious decision.
+- a surprise about repository behaviour.
+- a NAMED focus area.
+- a session boundary.
+- multiple tracks.
+- a plan-changing ruling.
+- a user request.
+- an unresolved question needed later.
 
 Open these sections: Initial request, Decision Log, Surprises and Discoveries,
 and Open Questions. Add Planned changes, Track table, risk record, coverage
 register, override log, and escalation records when needed. Do not use an
 observations section. Worker observation files are review evidence, not user
-feedback. Engagement opens the log even when the area's proof is not convincing.
-A track with no engaged area needs no log for focus alone.
-
-At MEDIUM and LARGE, every retained entry is typed as `decision`, `evidence`,
+feedback. Naming an area opens the log even when the user later rejects its
+proof. Every retained entry is typed as `decision`, `evidence`,
 `ruling`, `risk`, `question`, `focus`, `verification`, or `handoff`. Append an
 entry immediately after its event. Keep each entry self-contained.
 
@@ -345,8 +347,8 @@ log and every implementer report untracked and visible in repository status.
 Do not add either name to an ignore file. Never overwrite either from a stale
 in-memory copy. An implementer report never enters a pull request.
 
-Before a session handoff, append a state summary. It names the confirmed grade,
-proved focus areas and risk-record location, current track, current implementer
+Before a session handoff, append a state summary. It names the proved focus
+areas and risk-record location, current track, current implementer
 report location, last boundary marker, live registers, open findings, checks
 run, and next action. A
 context-budget handoff, user-requested handoff, or session end with unfinished
@@ -365,16 +367,19 @@ Resume in this fixed order:
    focus areas, risk record, and live diff.
 5. Re-run any stale precondition check.
 6. Continue only after answering: **What changed since the last state summary,
-   and does it change grade, focus, scope, or required gates?**
+   and does it change focus, scope, or required gates?**
 
 A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
 history as boundary authority. The track table is display-only.
 
 ## Review coverage
 
-Every part of a track range must reach Reviewer I and the perspectives that the
-proved areas of that track require. User review never replaces machine review.
-This requirement is the coverage invariant.
+Every part of a track range must reach the complete routine implementation
+reviewer set that the proved areas require. The set is empty when the track has
+no proved area. Otherwise it contains exactly one Reviewer I and every required
+area specialist. User review never replaces required machine review. This
+requirement is the coverage invariant. A track with an empty set reports
+routine implementation review as `NOT REQUIRED`.
 
 The coverage register records each contiguous range of user-review fix commits
 together with the gate verdict for that range. It is the review-accounting
@@ -384,18 +389,20 @@ coverage conclusion required below.
 ## Delivery and termination
 
 Every completed track reaches the user through the track packet defined in
-[user-notes.md](user-notes.md) § Track packets. At MEDIUM and LARGE, user review
-of each track is blocking. The orchestrator cannot add the marker or start the
-next track until the user accepts the track and every requested fix. At SMALL,
-a track packet in a multi-track change reports progress without adding a
-blocking acceptance gate. For every single-track change, the track review and
-blocking final change acceptance are one event. Final change-level acceptance
-remains blocking at every grade.
+[user-notes.md](user-notes.md) § Track packets. User acceptance of a track is
+blocking when that track proves at least one DESIGN-TRIGGERING area. The
+orchestrator cannot add the marker or start the next track until the user accepts
+that track and every requested fix. A track with only REVIEWER-ONLY areas, or no
+proved area, has no mandatory track-acceptance gate. In a single-track change,
+any blocking track acceptance and final change acceptance are one event. Final
+change acceptance is always blocking.
 
-Done means all required reviews and gates passed. No blockers remain. Every
-addressed finding at major severity or above is verified. Every major finding
-is fixed or has a recorded user waiver. Every finding below major severity has
-a recorded disposition of fixed, ignored, moot, or rejected.
+Done means all required reviews and gates passed. For routine implementation
+review, the required set is the set in § Review coverage. An empty set reports
+`NOT REQUIRED` and requires no invented Reviewer I coverage. No blockers remain.
+Every addressed finding at major severity or above is verified. Every major
+finding is fixed or has a recorded user waiver. Every finding below major
+severity has a recorded disposition of fixed, ignored, moot, or rejected.
 
 The note queue is drained before final acceptance. Every escalation has a
 disposition. The coverage
@@ -426,7 +433,10 @@ contiguous range to the coverage register. Dispatch one fresh gate thread to
 verify that range before adding the marker, or before completing final
 acceptance for a single-track change.
 
-For a user-review fix range, one dedicated gate thread supplies machine review for that range. A **REJECTED**,
+For a user-review fix range, one dedicated gate thread supplies machine review
+for that range, including when the track has no proved area. This evidence-
+triggered verification is separate from routine implementation review. Report
+its verdict separately from a routine `NOT REQUIRED` result. A **REJECTED**,
 **STILL OPEN**, or **REGRESSION** verdict routes each correction through the
 existing agentic-review fix title and body form. Repeat this gate on the
 corrected range. This correction loop uses the ordinary two-round cap and
@@ -448,7 +458,10 @@ When draft-pull-request publishing is enabled, update its branch with a
 lease-protected force-push. The lease must prevent discarding a commit pushed
 by another party.
 
-After user acceptance, a multi-track boundary adds one empty marker commit:
+A multi-track boundary adds one empty marker commit after required machine
+gates and the track packet are complete and all blocking user notes are
+resolved. When track acceptance is mandatory, the marker also waits for that
+acceptance and every requested fix:
 
 ```bash
 git commit --allow-empty -m "Track NN complete: <short name>"
@@ -481,10 +494,9 @@ project release runbook.
 
 ## Migration
 
-A change whose design was approved under an earlier workflow finishes under
-that recorded workflow. New work uses this size-grade and focus-area workflow.
-Historical records may name earlier gates only to identify the governing rule
-set.
+A change approved under an earlier workflow finishes under its recorded
+workflow. New work uses the focus-area workflow. Historical records may name
+earlier gates only to identify the governing rule set.
 
 ## Layering richer workflows on top
 
@@ -495,5 +507,5 @@ waiver for every pending layered review before a draft pull request becomes
 ready for review.
 
 Added rules may not replace confirmation, design and validation gates,
-proved-focus coverage, fresh machine review, marker authority, blocking final
-acceptance, or draft-pull-request safeguards.
+proved-focus coverage, fresh machine review, required track acceptance, marker
+authority, blocking final acceptance, or draft-pull-request safeguards.

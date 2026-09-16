@@ -152,12 +152,11 @@ or two problems for the others:
   in the Dumb Zone.
 
 - **P11 — Proportional process.** *(Repo-local note, not from the report.)*
-  Required gates and artifacts follow the confirmed size grade and the proved
-  focus areas. Reviewer I on every track is the one permitted unconditional
-  review floor. No future rule may add a second unconditional cost. Every other
-  rule that adds cost names the condition that engages it. The condition is the
-  size grade, a proved focus area, an artifact whose own existence those two
-  decide, or specific evidence that does not appear in every track.
+  The research log is the sole permitted unconditional-artifact exception for
+  authors of future rules. Every other future rule that adds process cost names
+  the condition that engages it. The condition is a proved focus area, an
+  artifact whose own existence a proved focus area decides, or specific
+  evidence that does not appear in every track.
 
 Repo-local note (not from the report): Principle P11 governs the count of
 required gates, required artifacts and required review actions. A rule that
@@ -165,8 +164,9 @@ changes how an existing step is performed does not add cost under P11. A rule
 that fires only when specific evidence appears is conditional, unless that
 evidence appears in every track, in which case the rule is unconditional.
 Prompt text and output quality floors are not process steps, and a published
-size budget governs them instead. P11 constrains the authors of future rules
-and makes no claim about the shape of the current gate curve.
+size budget governs them instead. P11 constrains the authors of future rules.
+It does not remove or condition current required artifacts, including the
+per-track implementer report.
 
 - **P12 — Reader understanding decides the form.** *(Repo-local note, not from the report.)*
   Write so that a reader whose first language is not English, and who knows
@@ -334,7 +334,7 @@ the load-on-demand discipline the extension itself prescribes:
 
 - **Tier 1 — always loaded.** The doctrine in `mode.ts` is the operational
   distillation of P1–P10, the review discipline defined in
-  `review-rules.md`, and a pointer to the size-grade and focus-area workflow
+  `review-rules.md`, and a pointer to the focus-area workflow
   that ships with this package (`track-workflow.md` in this directory),
   appended to the system prompt every turn while orchestrator mode is on.
 
