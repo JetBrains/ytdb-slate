@@ -4259,6 +4259,54 @@ Reviewer composition and merging belong to
 			const designEntry = normalizeText(workflow.match(/Before each track implementation,[\s\S]*?(?=If the planned split exceeds)/)?.[0] ?? "");
 			const wrongState = focusGates.replace("Only a proved area", "A NAMED area");
 			const skippedApproval = focusGates.replace("Only a proved area adds a focus-dependent gate or routine implementation reviewer.", "A SKIPPED area adds a routine implementation reviewer.");
+			const designReviewPolicyBegin = "<!-- design-review-policy:begin -->";
+			const designReviewPolicyEnd = "<!-- design-review-policy:end -->";
+			const resolveDesignReviewPolicy = (source) => {
+				const resolution = block(source, "design-review-policy");
+				return {
+					count: resolution.count,
+					endCount: resolution.endCount,
+					text: resolution.count === 1 && resolution.endCount === 1 ? normalizeText(resolution.text) : "",
+				};
+			};
+			const expectedDesignReviewPolicy = normalizeText(`The user validates the design and judges whether it is the simplest solution.
+The orchestrator then reconfirms every focus line against that design. Each
+proved DESIGN-TRIGGERING area receives one fresh adversarial design reviewer.
+A fresh adversary tests the design and cited evidence. Every review with no
+findings, including an adversarial design review, ends with the exact standalone
+line \`No findings.\`
+
+The orchestrator triages each finding by strengthening a rationale, reversing
+a decision, recording an accepted risk, or routing low-level material to the
+implementer report. Hold a routed finding in the research log until its
+owning track starts. The implementer then copies it into that track's report.
+The finding stays in that track's implementer report. Each design reversal
+permits one additional independent adversarial design-review round. This
+permission changes neither ordinary fix-round nor consultation caps. The user
+gives final design approval after adversarial review and triage. When no
+adversarial review is required, validation and final approval form one gate.`);
+			const designReviewPolicy = resolveDesignReviewPolicy(workflow);
+			const designReviewMutations = [
+				workflow.replace("Each design reversal\npermits one additional independent adversarial design-review round.", "A design may receive only one additional independent adversarial design-review round in total."),
+				workflow.replace("permits one additional independent adversarial design-review round", "requires one additional independent adversarial design-review round"),
+				workflow.replace("adversarial design-review round", "implementation-review round"),
+				workflow.replace("line `No findings.`", "line `No substantive findings.`"),
+			].map(resolveDesignReviewPolicy);
+			const benignDesignReviewPolicies = [
+				workflow.replace(designReviewPolicyBegin, `<!-- resolver benign design-review before -->\n${designReviewPolicyBegin}`),
+				workflow.replace(designReviewPolicyEnd, `${designReviewPolicyEnd}\n<!-- resolver benign design-review after -->`),
+				`${workflow}\n\n<!-- resolver benign design-review EOF control -->`,
+			].map(resolveDesignReviewPolicy);
+			const malformedDesignReviewPolicy = workflow
+				.replace(designReviewPolicyBegin, "<!-- design-review-policy:temporary -->")
+				.replace(designReviewPolicyEnd, designReviewPolicyBegin)
+				.replace("<!-- design-review-policy:temporary -->", designReviewPolicyEnd);
+			const designReviewBoundaryMutations = [
+				workflow.replace(designReviewPolicyBegin, ""),
+				workflow.replace(designReviewPolicyEnd, ""),
+				`${workflow}\n\n${designReviewPolicyBegin}\n${expectedDesignReviewPolicy}\n${designReviewPolicyEnd}`,
+				malformedDesignReviewPolicy,
+			].map(resolveDesignReviewPolicy);
 			const p11UnitPattern = /^- \*\*P11 — Proportional process\.[\s\S]*?(?=^- \*\*P\d+ —|(?![\s\S]))/gm;
 			const resolveP11 = (source) => {
 				const matches = [...source.matchAll(p11UnitPattern)];
@@ -4303,7 +4351,11 @@ per-track implementer report.`;
 			const benignP11 = resolveP11(`${principles}\n\n<!-- resolver benign P11 control -->`);
 			const reviewerRows = [...reviews.matchAll(/^\| (one or more proved areas|no proved area) \| (.+) \|$/gm)].map((match) => [match[1], match[2]]);
 			const markerRule = normalizeText(workflow.match(/A multi-track boundary adds one empty marker commit[\s\S]*?(?=```bash)/)?.[0] ?? "");
-			checkAll("contract-focus-gates", "effective focus states, conditional design phases, per-track design entry, approved removals, marker availability, late-area routing, conditional Reviewer I composition, and no-area model choice are explicit. The acceptance policy itself belongs to contract-acceptance-units and contract-acceptance-mutations", [
+			checkAll("contract-focus-gates", "effective focus states, conditional design phases, per-track design entry, per-reversal design-review permission, the exact clean-review ending, approved removals, marker availability, late-area routing, conditional Reviewer I composition, and no-area model choice are explicit. The acceptance policy itself belongs to contract-acceptance-units and contract-acceptance-mutations", [
+				["design-review policy resolves once and matches its independent bounded expectation", designReviewPolicy.count === 1 && designReviewPolicy.endCount === 1 && designReviewPolicy.text === expectedDesignReviewPolicy, { designReviewPolicy, expectedDesignReviewPolicy }],
+				["one-total, mandatory-round, wrong-stage, and alternate-ending mutations fail", designReviewMutations.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text !== expectedDesignReviewPolicy), designReviewMutations],
+				["adjacent-before, adjacent-after, and EOF benign text preserve the exact design-review unit", benignDesignReviewPolicies.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text === expectedDesignReviewPolicy), benignDesignReviewPolicies],
+				["missing, duplicate, and malformed design-review boundaries fail closed", designReviewBoundaryMutations.every(({ count, endCount, text }) => count !== 1 || endCount !== 1 || text === ""), designReviewBoundaryMutations],
 				["both focus classes and the proved-area reviewer qualifier are present", /DESIGN-TRIGGERING areas are/.test(focusGates) && /REVIEWER-ONLY areas are/.test(focusGates) && /Only a proved area adds a focus-dependent gate or routine implementation\s+reviewer/.test(focusGates), focusGates],
 				["zero, one, and multiple proved areas map to zero or exactly one Reviewer I plus all specialists", /at least one\s+proved area also gets exactly one Reviewer I/.test(focusGates) && /no proved area gets no routine implementation reviewer/.test(focusGates) && reviewerRows.length === 2 && reviewerRows[0]?.[0] === "one or more proved areas" && reviewerRows[0]?.[1].startsWith("exactly one Reviewer I plus one specialist for every proved area") && reviewerRows[1]?.[0] === "no proved area" && reviewerRows[1]?.[1].includes("NOT REQUIRED"), { focusGates, reviewerRows }],
 				["no-design phases skip design-only gates while final acceptance remains mandatory", /when a design exists, reconfirm/.test(phases) && /when a design exists, run one adversarial design review/.test(phases) && /when a design exists, obtain final design approval/.test(phases) && /obtain blocking final acceptance/.test(phases), phases],

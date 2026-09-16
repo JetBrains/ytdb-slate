@@ -67,20 +67,24 @@ When no approved high-level design exists, neither presentation applies. A
 material deviation instead follows [blast-radius.md](blast-radius.md) § Halt
 and focus re-derivation.
 
+<!-- design-review-policy:begin -->
 The user validates the design and judges whether it is the simplest solution.
 The orchestrator then reconfirms every focus line against that design. Each
 proved DESIGN-TRIGGERING area receives one fresh adversarial design reviewer.
-A fresh adversary tests the design and cited evidence. `No substantive
-findings.` is a valid result.
+A fresh adversary tests the design and cited evidence. Every review with no
+findings, including an adversarial design review, ends with the exact standalone
+line `No findings.`
 
 The orchestrator triages each finding by strengthening a rationale, reversing
 a decision, recording an accepted risk, or routing low-level material to the
 implementer report. Hold a routed finding in the research log until its
 owning track starts. The implementer then copies it into that track's report.
-The finding stays in that track's implementer report. A reversal permits one
-more adversarial round. The user gives
-final design approval after adversarial review and triage. When no adversarial
-review is required, validation and final approval form one gate.
+The finding stays in that track's implementer report. Each design reversal
+permits one additional independent adversarial design-review round. This
+permission changes neither ordinary fix-round nor consultation caps. The user
+gives final design approval after adversarial review and triage. When no
+adversarial review is required, validation and final approval form one gate.
+<!-- design-review-policy:end -->
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
 [pr-publishing.md](pr-publishing.md). When disabled, the retained research log
