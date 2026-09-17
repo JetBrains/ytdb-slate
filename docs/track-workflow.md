@@ -207,6 +207,14 @@ design review. Routine low-level design choices need no user approval unless
 they change approved behavior or constraints. If an implementer discovers a
 design gap later, pause affected work and complete this route before continuing.
 
+<!-- multi-track-handoff:begin -->
+For a multi-track change, immediately before the implementation of every track, the orchestrator saves a current state summary in `research-log.md` and appends a typed `handoff` entry. The orchestrator then asks the user whether to hand off to a fresh session.
+
+The first boundary is after all required planning and pre-implementation gates for the affected track are complete, including the confirmation gate, any scope-exception decisions, and every applicable design gate. It is immediately before the first track implementation. At each later boundary, the orchestrator completes the current track packet and required acceptance before saving state and asking for handoff before the next track implementation.
+
+The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.
+<!-- multi-track-handoff:end -->
+
 If the planned split exceeds twelve tracks, stop and present the split to the
 user. The user chooses whether and how the change proceeds.
 
