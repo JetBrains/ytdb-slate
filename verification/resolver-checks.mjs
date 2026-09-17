@@ -4257,6 +4257,44 @@ Reviewer composition and merging belong to
 			const focusGates = normalizeText(workflow.match(/^## Focus classes and gates\n([\s\S]*?)(?=^<!-- focus-area-table:begin -->)/m)?.[1] ?? "");
 			const phases = normalizeText(workflow.match(/The mandatory phases run in this order:[\s\S]*?9\. deliver\./)?.[0] ?? "");
 			const designEntry = normalizeText(workflow.match(/Before each track implementation,[\s\S]*?(?=If the planned split exceeds)/)?.[0] ?? "");
+			const resolvePhaseHandoff = (source) => {
+				const resolution = block(source, "multi-track-handoff");
+				return {
+					count: resolution.count,
+					endCount: resolution.endCount,
+					text: resolution.count === 1 && resolution.endCount === 1 ? normalizeText(resolution.text) : "",
+				};
+			};
+			const phaseHandoff = resolvePhaseHandoff(workflow);
+			const expectedPhaseHandoff = normalizeText(`For a multi-track change, immediately before the implementation of every track, the orchestrator saves a current state summary in \`research-log.md\` and appends a typed \`handoff\` entry. The orchestrator then asks the user whether to hand off to a fresh session.
+
+The first boundary is after all required planning and pre-implementation gates for the affected track are complete, including the confirmation gate, any scope-exception decisions, and every applicable design gate. It is immediately before the first track implementation. At each later boundary, the orchestrator completes the current track packet and required acceptance before saving state and asking for handoff before the next track implementation.
+
+The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.`);
+			const phaseHandoffMutationSources = [
+				workflow.replace("For a multi-track change", "For every change"),
+				workflow.replace("immediately before the implementation of every track", "after implementation of every track"),
+				workflow.replace("The explicit same-session decision is recorded as a user waiver in the existing override log.", "The explicit same-session decision needs no log entry."),
+				workflow.replace("does not repeat a boundary request already recorded as completed", "repeats every boundary request"),
+				workflow.replace("Same-track fix rounds do not retrigger the request.", "Every same-track fix round retriggers the request."),
+				workflow.replace("Single-track changes are exempt.", "Single-track changes follow the same rule."),
+				workflow.replace("<!-- multi-track-handoff:end -->", "A same-session continuation needs no additional decision.\n<!-- multi-track-handoff:end -->"),
+			];
+			const phaseHandoffMutationOutcomes = phaseHandoffMutationSources.map((source) => {
+				const resolved = resolvePhaseHandoff(source);
+				return { changed: source !== workflow, accepted: resolved.count === 1 && resolved.endCount === 1 && resolved.text === expectedPhaseHandoff, resolved };
+			});
+			const phaseHandoffBoundaryMutations = [
+				workflow.replace("<!-- multi-track-handoff:begin -->", ""),
+				workflow.replace("<!-- multi-track-handoff:end -->", ""),
+				`${workflow}\n\n<!-- multi-track-handoff:begin -->\n${expectedPhaseHandoff}\n<!-- multi-track-handoff:end -->`,
+			].map(resolvePhaseHandoff);
+			const benignPhaseHandoffSources = [
+				workflow.replace("<!-- multi-track-handoff:begin -->", "<!-- resolver benign handoff before -->\n<!-- multi-track-handoff:begin -->"),
+				workflow.replace("<!-- multi-track-handoff:end -->", "<!-- multi-track-handoff:end -->\n<!-- resolver benign handoff after -->"),
+				`${workflow}\n\n<!-- resolver benign handoff EOF control -->`,
+			];
+			const benignPhaseHandoff = benignPhaseHandoffSources.map(resolvePhaseHandoff);
 			const wrongState = focusGates.replace("Only a proved area", "A NAMED area");
 			const skippedApproval = focusGates.replace("Only a proved area adds a focus-dependent gate or routine implementation reviewer.", "A SKIPPED area adds a routine implementation reviewer.");
 			const designReviewPolicyBegin = "<!-- design-review-policy:begin -->";
@@ -4361,6 +4399,10 @@ per-track implementer report.`;
 				["no-design phases skip design-only gates while final acceptance remains mandatory", /when a design exists, reconfirm/.test(phases) && /when a design exists, run one adversarial design review/.test(phases) && /when a design exists, obtain final design approval/.test(phases) && /obtain blocking final acceptance/.test(phases), phases],
 				["design validation and reconfirmation precede one area adversary and final approval", /user validation, focus reconfirmation, its own adversarial\s*design reviewer, and final design approval/.test(focusGates), focusGates],
 				["each track assesses design coverage and re-enters before affected implementation", /Before each track implementation/.test(designEntry) && /newly proves a DESIGN-TRIGGERING area[\s\S]*?enter or re-enter the design sequence[\s\S]*?before the affected implementation/.test(designEntry) && /Reuse adequate unchanged approved design and completed applicable gates/.test(designEntry) && /Reusing text does not bypass a newly required area-specific design review/.test(designEntry) && /Routine low-level design choices need no user approval unless[\s\S]*?change approved behavior or constraints/.test(designEntry), designEntry],
+				["multi-track implementation boundaries require state save, handoff request, pause, override, resume de-duplication, and single-track exemption", phaseHandoff.count === 1 && phaseHandoff.endCount === 1 && phaseHandoff.text === expectedPhaseHandoff, { phaseHandoff, expectedPhaseHandoff }],
+				["weakened scope, ordering, logging, resume, fix-round, single-track, and contradictory additions fail through the same validator", phaseHandoffMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), phaseHandoffMutationOutcomes],
+				["missing, duplicate, and malformed handoff boundaries fail closed", phaseHandoffBoundaryMutations.every(({ count, endCount, text }) => count !== 1 || endCount !== 1 || text === ""), phaseHandoffBoundaryMutations],
+				["benign text outside the handoff unit preserves its exact expectation", benignPhaseHandoff.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text === expectedPhaseHandoff), benignPhaseHandoff],
 				["proved-area removal needs user approval and rejection preserves all gates", /area remains proved, with all of its gates and reviewers,\s*until the user approves removal/.test(riskLifecycle) && /Rejection preserves the proved area/.test(riskLifecycle), riskLifecycle],
 				["user-requested track fixes are unconditional", /applies and commits required user-review\s+fixes whenever the user requests them/.test(workflow), workflow.match(/.{0,100}required user-review.{0,160}/s)?.[0]],
 				["marker exists without track acceptance after machine gates, packet, and blocking notes", /after required machine gates and the track packet are complete/.test(markerRule) && /all blocking user notes are resolved/.test(markerRule) && /When track acceptance is mandatory/.test(markerRule), markerRule],
