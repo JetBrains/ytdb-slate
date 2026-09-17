@@ -1,39 +1,113 @@
 import assert from "node:assert/strict";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import {
+  chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
+  readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const GATE = fileURLToPath(new URL("../verification/coverage-gate.mjs", import.meta.url));
 const RUNNER = fileURLToPath(new URL("../verification/run-tests.sh", import.meta.url));
+const CHECKOUT = realpathSync(join(dirname(RUNNER), ".."));
 
 interface RunResult { status: number | null; stdout: string; stderr: string }
 
-function command(cwd: string, executable: string, args: string[], env?: NodeJS.ProcessEnv): RunResult {
-  const mergedEnv = { ...process.env, ...env };
-  for (const [name, value] of Object.entries(mergedEnv)) if (value === undefined) delete mergedEnv[name];
-  const result = spawnSync(executable, args, { cwd, encoding: "utf8", env: mergedEnv, timeout: 20_000 });
+function scratchDirectory(prefix: string, root = tmpdir()): string {
+  const physicalRoot = realpathSync(root);
+  const fromCheckout = relative(CHECKOUT, physicalRoot);
+  assert.equal(fromCheckout === "" || (!fromCheckout.startsWith("..") && !isAbsolute(fromCheckout)), false,
+    `temporary root must be outside physical checkout: ${physicalRoot}`);
+  return mkdtempSync(join(physicalRoot, prefix));
+}
+
+function isolatedChildEnvironment(cwd: string, input: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const configRoot = join(cwd, ".slate-git-config-isolation");
+  return {
+    PATH: input.PATH ?? process.env.PATH ?? "",
+    HOME: configRoot,
+    XDG_CONFIG_HOME: configRoot,
+    LC_ALL: "C",
+    LANG: "C",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_COUNT: "0",
+  };
+}
+
+function command(cwd: string, executable: string, args: string[], input?: NodeJS.ProcessEnv): RunResult {
+  const result = spawnSync(executable, args, {
+    cwd,
+    encoding: "utf8",
+    env: isolatedChildEnvironment(cwd, input),
+    timeout: 20_000,
+  });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-function git(cwd: string, ...args: string[]): string {
-  const result = command(cwd, "git", args);
+function gitWithInput(cwd: string, input: NodeJS.ProcessEnv, ...args: string[]): string {
+  const result = command(cwd, "git", args, input);
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
 
-function fixture(t: { after(fn: () => void): void }, initial = "export const before = 1;\n") {
-  const repo = mkdtempSync(join(tmpdir(), "slate-gate-test-"));
+function git(cwd: string, ...args: string[]): string {
+  return gitWithInput(cwd, {}, ...args);
+}
+
+function physicalPath(path: string): string {
+  let parent = resolve(path);
+  const tail: string[] = [];
+  while (!existsSync(parent)) {
+    tail.unshift(basename(parent));
+    const next = dirname(parent);
+    assert.notEqual(next, parent, `cannot resolve an existing parent for ${path}`);
+    parent = next;
+  }
+  return resolve(realpathSync(parent), ...tail);
+}
+
+function assertInsideFixture(repo: string, label: string, path: string): void {
+  assert.equal(isAbsolute(path), true, `${label} is not absolute: ${path}`);
+  const root = realpathSync(repo);
+  const candidate = physicalPath(path);
+  const fromRoot = relative(root, candidate);
+  assert.equal(fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot)), true,
+    `${label} escapes fixture: ${candidate}`);
+}
+
+function assertGitDestinations(repo: string, input: NodeJS.ProcessEnv): void {
+  const destinations: Array<readonly [string, string]> = [
+    ["worktree", gitWithInput(repo, input, "rev-parse", "--path-format=absolute", "--show-toplevel")],
+    ["git directory", gitWithInput(repo, input, "rev-parse", "--absolute-git-dir")],
+    ["common directory", gitWithInput(repo, input, "rev-parse", "--path-format=absolute", "--git-common-dir")],
+    ...["index", "objects", "config", "hooks", "refs"].map((name) => [
+      name,
+      gitWithInput(repo, input, "rev-parse", "--path-format=absolute", "--git-path", name),
+    ] as const),
+  ];
+  for (const [label, path] of destinations) assertInsideFixture(repo, label, path);
+}
+
+function fixture(
+  t: { after(fn: () => void): void },
+  initial = "export const before = 1;\n",
+  input: NodeJS.ProcessEnv = {},
+) {
+  const repo = scratchDirectory("slate-gate-test-");
   t.after(() => rmSync(repo, { recursive: true, force: true }));
-  git(repo, "init", "-q", "-b", "main");
-  git(repo, "config", "user.email", "gate@example.invalid");
-  git(repo, "config", "user.name", "Gate Test");
+  gitWithInput(repo, input, "init", "-q", "-b", "main");
+  assertGitDestinations(repo, input);
+  gitWithInput(repo, input, "config", "user.email", "gate@example.invalid");
+  gitWithInput(repo, input, "config", "user.name", "Gate Test");
   write(repo, "extension/sample.ts", initial);
-  git(repo, "add", ".");
-  git(repo, "commit", "-qm", "base");
-  return { repo, base: git(repo, "rev-parse", "HEAD") };
+  gitWithInput(repo, input, "add", ".");
+  gitWithInput(repo, input, "commit", "-qm", "base");
+  return { repo, base: gitWithInput(repo, input, "rev-parse", "HEAD") };
 }
 
 function write(repo: string, relative: string, content: string | NodeJS.ArrayBufferView) {
@@ -51,6 +125,29 @@ function runGate(repo: string, base: string, lcov: string, extra: string[] = [],
   const lcovPath = join(repo, "gate.lcov");
   writeFileSync(lcovPath, lcov);
   return command(repo, process.execPath, [GATE, "--repo", repo, "--base", base, "--head", "HEAD", "--lcov", lcovPath, ...extra], env);
+}
+
+function snapshotTree(root: string): string {
+  const entries: string[] = [];
+  function visit(directory: string, prefix = "") {
+    for (const name of readdirSync(directory).sort()) {
+      const path = join(directory, name);
+      const entryName = prefix ? `${prefix}/${name}` : name;
+      const stat = lstatSync(path);
+      const metadata = `${entryName}\0${stat.mode}\0${stat.size}`;
+      if (stat.isDirectory()) {
+        entries.push(`d\0${metadata}`);
+        visit(path, entryName);
+      } else if (stat.isSymbolicLink()) {
+        entries.push(`l\0${metadata}\0${readlinkSync(path)}`);
+      } else {
+        const digest = createHash("sha256").update(readFileSync(path)).digest("hex");
+        entries.push(`f\0${metadata}\0${digest}`);
+      }
+    }
+  }
+  visit(root);
+  return entries.join("\n");
 }
 
 function emptyLcov() { return "TN:\n"; }
@@ -127,9 +224,12 @@ test("gate forces an internal unified diff and rejects nonempty unparseable outp
     mkdirSync(bin);
     const realGit = command(repo, "sh", ["-c", "command -v git"]).stdout.trim();
     const fakeGit = join(bin, "git");
-    writeFileSync(fakeGit, "#!/bin/sh\ncase \" $* \" in *' --unified=0 '*) printf 'malformed diff bytes\\n'; exit 0;; esac\nexec \"$REAL_GIT\" \"$@\"\n");
+    writeFileSync(fakeGit, `#!/bin/sh
+case " $* " in *' --unified=0 '*) printf 'malformed diff bytes\\n'; exit 0;; esac
+exec ${JSON.stringify(realGit)} "$@"
+`);
     chmodSync(fakeGit, 0o755);
-    const result = runGate(repo, base, emptyLcov(), [], { PATH: `${bin}:${process.env.PATH ?? ""}`, REAL_GIT: realGit });
+    const result = runGate(repo, base, emptyLcov(), [], { PATH: `${bin}:${process.env.PATH ?? ""}` });
     assert.equal(result.status, 2);
     assert.match(result.stderr, /nonempty git diff produced zero parsed files/i);
   });
@@ -387,8 +487,137 @@ test("a covered regex after a long non-braced if condition stays executable (RG3
   assert.doesNotMatch(result.stdout, /CLASSIFIER VOID|FAIL:/);
 });
 
+test("fixture Git execution ignores real redirect poison and preserves complete decoy state", { timeout: 20_000 }, (t) => {
+  const decoy = fixture(t);
+  const marker = join(decoy.repo, "HOOK_WROTE_HERE.txt");
+  const hookDir = join(decoy.repo, "poison-hooks");
+  mkdirSync(hookDir);
+  writeFileSync(join(hookDir, "pre-commit"), `#!/bin/sh\nprintf poison > ${JSON.stringify(marker)}\n`);
+  chmodSync(join(hookDir, "pre-commit"), 0o755);
+  const before = snapshotTree(decoy.repo);
+  const poison = {
+    GIT_DIR: join(decoy.repo, ".git"),
+    GIT_WORK_TREE: decoy.repo,
+    GIT_COMMON_DIR: join(decoy.repo, ".git"),
+    GIT_INDEX_FILE: join(decoy.repo, ".git/index"),
+    GIT_OBJECT_DIRECTORY: join(decoy.repo, ".git/objects"),
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: join(decoy.repo, ".git/objects"),
+    GIT_CONFIG_GLOBAL: join(decoy.repo, ".git/config"),
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "core.hooksPath",
+    GIT_CONFIG_VALUE_0: hookDir,
+  };
+
+  const protectedFixture = fixture(t, "export const isolated = true;\n", poison);
+  assert.notEqual(protectedFixture.repo, decoy.repo);
+  assert.equal(snapshotTree(decoy.repo), before, "the complete decoy changed during protected init and later Git writes");
+  assert.equal(existsSync(marker), false);
+
+  const negative = fixture(t);
+  const negativeBefore = snapshotTree(negative.repo);
+  const unsafeEnv = {
+    ...isolatedChildEnvironment(negative.repo),
+    GIT_DIR: join(negative.repo, ".git"),
+  };
+  const control = spawnSync("git", ["config", "negative.control", "poison-reached-decoy"], {
+    cwd: protectedFixture.repo,
+    encoding: "utf8",
+    env: unsafeEnv,
+    timeout: 20_000,
+  });
+  assert.equal(control.status, 0, control.stderr);
+  assert.notEqual(snapshotTree(negative.repo), negativeBefore,
+    "negative control must prove that an unsanitized redirect mutates the complete decoy");
+});
+
+test("scratch creation rejects physical checkout roots and symlink aliases before creation", (t) => {
+  const aliasRoot = scratchDirectory("slate-scratch-root-test-");
+  t.after(() => rmSync(aliasRoot, { recursive: true, force: true }));
+  const alias = join(aliasRoot, "checkout-alias");
+  symlinkSync(CHECKOUT, alias, "dir");
+  const prefix = "must-not-create-scratch-";
+  const before = readdirSync(CHECKOUT).filter((name) => name.startsWith(prefix));
+
+  assert.throws(() => scratchDirectory(prefix, CHECKOUT), /temporary root must be outside physical checkout/);
+  assert.throws(() => scratchDirectory(prefix, alias), /temporary root must be outside physical checkout/);
+  assert.deepEqual(readdirSync(CHECKOUT).filter((name) => name.startsWith(prefix)), before,
+    "rejected scratch roots must create no checkout entry");
+});
+
+test("destination proof rejects every outside path returned by real Git resolution", (t) => {
+  const harness = scratchDirectory("slate-destination-query-test-");
+  t.after(() => rmSync(harness, { recursive: true, force: true }));
+  const realGit = command(harness, "sh", ["-c", "command -v git"]).stdout.trim();
+  assert.notEqual(realGit, "", "real Git executable must resolve");
+  const cases: Array<readonly [string, readonly string[]]> = [
+    ["worktree", ["rev-parse", "--path-format=absolute", "--show-toplevel"]],
+    ["git directory", ["rev-parse", "--absolute-git-dir"]],
+    ["common directory", ["rev-parse", "--path-format=absolute", "--git-common-dir"]],
+    ...["index", "objects", "config", "hooks", "refs"].map((name) => [
+      name, ["rev-parse", "--path-format=absolute", "--git-path", name],
+    ] as const),
+  ];
+
+  for (const [label, args] of cases) {
+    const bin = join(harness, `${label.replaceAll(" ", "-")}-bin`);
+    const outside = join(harness, `${label.replaceAll(" ", "-")}-outside`);
+    const mutationMarker = join(harness, `${label.replaceAll(" ", "-")}-mutation`);
+    mkdirSync(bin);
+    mkdirSync(outside);
+    writeFileSync(join(bin, "git"), `#!/bin/sh
+if [ "$*" = ${JSON.stringify(args.join(" "))} ]; then
+  printf '%s\\n' ${JSON.stringify(outside)}
+  exit 0
+fi
+case "$1" in
+  config|add|commit) printf called > ${JSON.stringify(mutationMarker)} ;;
+esac
+exec ${JSON.stringify(realGit)} "$@"
+`);
+    chmodSync(join(bin, "git"), 0o755);
+
+    assert.throws(
+      () => fixture(t, "export const mustNotCommit = true;\n", { PATH: `${bin}:${process.env.PATH ?? ""}` }),
+      new RegExp(`${label} escapes fixture`),
+      `${label}: fixture accepted the outside path returned by its Git query`,
+    );
+    assert.equal(existsSync(mutationMarker), false, `${label}: fixture wrote after the unsafe destination resolved`);
+  }
+});
+
+test("run-tests rejects direct, nested, and aliased checkout scratch roots before real mktemp", (t) => {
+  const harness = scratchDirectory("slate-runner-scratch-test-");
+  t.after(() => rmSync(harness, { recursive: true, force: true }));
+  const repo = join(harness, "copied-checkout");
+  mkdirSync(join(repo, "verification"), { recursive: true });
+  cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
+  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  const alias = join(harness, "checkout-alias");
+  const nested = join(repo, "nested", "tmp");
+  const nestedAlias = join(harness, "nested-alias");
+  mkdirSync(nested, { recursive: true });
+  symlinkSync(repo, alias, "dir");
+  symlinkSync(nested, nestedAlias, "dir");
+  const baseEnv = isolatedChildEnvironment(harness);
+
+  for (const root of [repo, alias, nested, nestedAlias]) {
+    const before = snapshotTree(repo);
+    const result = spawnSync("bash", ["verification/run-tests.sh", "--base", "HEAD"], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...baseEnv, TMPDIR: root },
+      timeout: 20_000,
+    });
+    assert.equal(result.status, 2, `${root}: ${result.stdout}\n${result.stderr}`);
+    assert.match(result.stderr, /temporary root must be outside physical checkout/i, root);
+    assert.equal(snapshotTree(repo), before, `${root}: runner changed its checkout before scratch refusal`);
+    assert.deepEqual(readdirSync(root).filter((name) => name.startsWith("slate-node-test.")), [],
+      `${root}: runner created scratch inside its checkout`);
+  }
+});
+
 test("a missing exact-pinned TypeScript devDependency is a legible infrastructure error", { timeout: 20_000 }, (t) => {
-  const isolated = mkdtempSync(join(tmpdir(), "slate-gate-no-typescript-"));
+  const isolated = scratchDirectory("slate-gate-no-typescript-");
   t.after(() => rmSync(isolated, { recursive: true, force: true }));
   const copiedGate = join(isolated, "coverage-gate.mjs");
   cpSync(GATE, copiedGate);
@@ -403,9 +632,12 @@ test("classifier void forces zero hits and a failing verdict", { timeout: 20_000
   write(repo, "extension/sample.ts", "export const before = 1;\nexport const covered = 2;\n");
   commit(repo);
   const gateSource = readFileSync(GATE, "utf8");
-  const mutantDir = mkdtempSync(join(dirname(GATE), ".gate-void-"));
+  const mutantDir = scratchDirectory("slate-gate-void-");
   t.after(() => rmSync(mutantDir, { recursive: true, force: true }));
   const mutant = join(mutantDir, "coverage-gate-void.mjs");
+  const modules = join(mutantDir, "node_modules");
+  mkdirSync(modules);
+  symlinkSync(realpathSync(join(dirname(dirname(GATE)), "node_modules/typescript")), join(modules, "typescript"), "dir");
   const needle = "const lines = executableTokenLines(stripped, name);";
   assert.equal(gateSource.split(needle).length, 2, "classifier injection point must remain unique");
   writeFileSync(mutant, gateSource.replace(needle, "const lines = undefined;"));
@@ -509,8 +741,128 @@ test("--head controls both the diff and source classification", (t) => {
   assert.match(result.stdout, /lines 1\/1=100\.00%/);
 });
 
+test("run-tests rejects every unsafe Git setting independently before its first Git call", { timeout: 20_000 }, (t) => {
+  const repo = scratchDirectory("slate-runner-refusal-test-");
+  const decoy = scratchDirectory("slate-runner-refusal-decoy-");
+  t.after(() => rmSync(repo, { recursive: true, force: true }));
+  t.after(() => rmSync(decoy, { recursive: true, force: true }));
+  mkdirSync(join(repo, "verification"), { recursive: true });
+  cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
+  const bin = join(repo, "bin");
+  mkdirSync(bin);
+  const gitMarker = join(decoy, "git-ran");
+  writeFileSync(join(bin, "git"), `#!/bin/sh\nprintf called > ${JSON.stringify(gitMarker)}\nexit 99\n`);
+  chmodSync(join(bin, "git"), 0o755);
+  const traceTarget = join(decoy, "existing-trace.log");
+  writeFileSync(traceTarget, "unchanged trace decoy\n");
+  const baseEnv = isolatedChildEnvironment(repo, { PATH: `${bin}:${process.env.PATH ?? ""}` });
+  const rejected: Array<readonly [string, string]> = [
+    ...[
+      "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES",
+      "GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_EXEC_PATH", "GIT_TEMPLATE_DIR", "GIT_CONFIG",
+      "GIT_CONFIG_PARAMETERS",
+    ].map((name) => [name, decoy] as const),
+    ["GIT_CONFIG_GLOBAL", traceTarget], ["GIT_CONFIG_SYSTEM", traceTarget],
+    ["GIT_CONFIG_NOSYSTEM", "0"], ["GIT_CONFIG_COUNT", "1"],
+    ["GIT_CONFIG_KEY_0", "core.hooksPath"], ["GIT_CONFIG_VALUE_0", decoy],
+    ...[
+      "GIT_TRACE", "GIT_TRACE_FSMONITOR", "GIT_TRACE_PACK_ACCESS", "GIT_TRACE_PACKET",
+      "GIT_TRACE_PACKFILE", "GIT_TRACE_PERFORMANCE", "GIT_TRACE_REFS", "GIT_TRACE_SETUP",
+      "GIT_TRACE_SHALLOW", "GIT_TRACE_CURL", "GIT_TRACE2", "GIT_TRACE2_EVENT", "GIT_TRACE2_PERF",
+      "GIT_TRACE_FUTURE_OUTPUT",
+    ].map((name) => [name, traceTarget] as const),
+  ];
+
+  for (const [name, value] of rejected) {
+    rmSync(gitMarker, { force: true });
+    const before = snapshotTree(decoy);
+    const result = spawnSync("bash", ["verification/run-tests.sh", "--base", "HEAD"], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...baseEnv, [name]: value },
+      timeout: 20_000,
+    });
+    assert.equal(result.status, 2, `${name}: ${result.stderr}`);
+    assert.match(result.stderr, new RegExp(`unsafe inherited Git settings.*${name}`, "i"), name);
+    assert.match(result.stderr, /unset.*before running/i, name);
+    assert.equal(existsSync(gitMarker), false, `${name}: runner executed Git before refusal`);
+    assert.equal(snapshotTree(decoy), before, `${name}: runner changed the complete decoy`);
+  }
+
+  for (const [name, value] of [
+    ["GIT_CONFIG_GLOBAL", "/dev/null"], ["GIT_CONFIG_SYSTEM", "/dev/null"],
+    ["GIT_CONFIG_NOSYSTEM", "1"], ["GIT_CONFIG_COUNT", "0"],
+    ["GIT_PREFIX", "ordinary-prefix"], ["GIT_SEQUENCE_EDITOR", "ordinary-editor"],
+  ] as const) {
+    rmSync(gitMarker, { force: true });
+    const result = spawnSync("bash", ["verification/run-tests.sh"], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...baseEnv, [name]: value },
+      timeout: 20_000,
+    });
+    assert.doesNotMatch(result.stderr, /unsafe inherited Git settings/i, name);
+    assert.equal(existsSync(gitMarker), true, `${name}: safe value did not reach repository inspection`);
+  }
+});
+
+test("run-tests isolates global fsmonitor configuration through the real coverage gate", { timeout: 30_000 }, (t) => {
+  const { repo, base } = fixture(t);
+  mkdirSync(join(repo, "test"), { recursive: true });
+  cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
+  cpSync(GATE, join(repo, "verification/coverage-gate.mjs"));
+  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  const modules = join(repo, "node_modules");
+  mkdirSync(modules);
+  symlinkSync(realpathSync(join(CHECKOUT, "node_modules/typescript")), join(modules, "typescript"), "dir");
+  writeFileSync(join(repo, "test/smoke.test.ts"), [
+    "import assert from 'node:assert/strict';",
+    "import test from 'node:test';",
+    "import { before } from '../extension/sample.ts';",
+    "test('fixture', () => assert.equal(before, 1));",
+    "",
+  ].join("\n"));
+  commit(repo, "runner fixture");
+  write(repo, "extension/sample.ts", "export const before = 1;\nexport const isolated = 2;\n");
+  commit(repo, "coverage change");
+
+  const home = scratchDirectory("slate-runner-host-config-");
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const marker = join(home, "fsmonitor-ran");
+  const monitor = join(home, "fsmonitor.sh");
+  writeFileSync(monitor, `#!/bin/sh\nprintf called > ${JSON.stringify(marker)}\nprintf '{}\\n'\n`);
+  chmodSync(monitor, 0o755);
+  writeFileSync(join(home, ".gitconfig"), `[core]\n\tfsmonitor = ${monitor}\n`);
+  const poisonedEnv = {
+    PATH: process.env.PATH ?? "",
+    HOME: home,
+    XDG_CONFIG_HOME: home,
+    LC_ALL: "C",
+    LANG: "C",
+  };
+  const control = spawnSync("git", ["-C", repo, "status", "--porcelain"], {
+    encoding: "utf8", env: poisonedEnv, timeout: 20_000,
+  });
+  assert.equal(control.status, 0, control.stderr);
+  assert.equal(existsSync(marker), true, "global fsmonitor negative control did not execute");
+  rmSync(marker);
+  const before = snapshotTree(home);
+
+  const result = spawnSync("bash", ["verification/run-tests.sh", "--base", base], {
+    cwd: repo,
+    encoding: "utf8",
+    env: poisonedEnv,
+    timeout: 30_000,
+  });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /RUN VERDICT: WARN|RUN VERDICT: PASS/);
+  assert.equal(existsSync(marker), false, "runner or coverage gate executed global core.fsmonitor");
+  assert.equal(snapshotTree(home), before, "runner or coverage gate changed the disposable host config tree");
+});
+
 test("run-tests preserves a gate WARN as its final verdict (WH23)", (t) => {
-  const repo = mkdtempSync(join(tmpdir(), "slate-runner-test-"));
+  const repo = scratchDirectory("slate-runner-test-");
   t.after(() => rmSync(repo, { recursive: true, force: true }));
   mkdirSync(join(repo, "verification"), { recursive: true });
   mkdirSync(join(repo, "test"), { recursive: true });
@@ -554,7 +906,7 @@ test("missing LCOV is an infrastructure error and the runner labels it (WH41)", 
   assert.equal(missing.status, 2);
   assert.match(missing.stderr, /coverage-gate: infrastructure error.*LCOV/i);
 
-  const runnerRepo = mkdtempSync(join(tmpdir(), "slate-runner-error-test-"));
+  const runnerRepo = scratchDirectory("slate-runner-error-test-");
   t.after(() => rmSync(runnerRepo, { recursive: true, force: true }));
   mkdirSync(join(runnerRepo, "verification"), { recursive: true });
   mkdirSync(join(runnerRepo, "test"), { recursive: true });

@@ -3368,3 +3368,62 @@ The resolver determinism check was not dead in the current tree. It starts two
 separate commands and compares their output. Adding a random `nonce` to a
 scratch command made the outputs differ, so the check's condition becomes false.
 No repair was necessary.
+
+# Unit-test Git fixture isolation
+
+`test/coverage-gate.test.ts` routes Git, Node, Bash, and their descendants through
+one fixture command boundary. The boundary builds a new environment from the
+executable search path only. It sets an isolated home. It maps Git system and
+global configuration to `/dev/null` and sets an empty command-line configuration
+before the first Git command. A test may
+replace `PATH` to select a trusted fake executable. Other caller environment
+values cannot pass through this boundary.
+
+Each new fixture repository checks its physical worktree, Git directory, common
+directory, index, object, local configuration, hook, and refs destinations after
+`git init` and before later Git writes. The permitted environment protects the
+initial `git init`. The destination checks provide a second control for later
+writes. A fake Git proxy delegates ordinary commands to real Git. For each real
+resolution query in turn, the proxy returns an outside physical path. The test
+requires refusal before configuration, index, object, or commit writes. Deleting
+the proof call or any protected query makes that test continue into a marked
+write and fail.
+
+The poison regression passes repository redirects, index and object redirects,
+and command-line hook configuration into the command boundary. It compares the
+complete disposable decoy tree before and after the fixture run. A separate
+negative control proves that an unsanitized redirect changes a decoy. Both
+repositories live under a physically resolved system temporary directory. The
+test helper refuses a temporary root inside the physical checkout, including a
+symbolic-link alias, before it creates any fixture. The classifier-void mutant
+uses the same helper. A temporary `node_modules/typescript` link preserves
+resolution of the exact-pinned TypeScript package without creating scratch data
+under the checkout.
+
+`verification/run-tests.sh` protects its own real-checkout Git reads separately.
+Before repository inspection or scratch creation, it physically resolves the
+caller-selected temporary root. It rejects the checkout itself, any nested
+checkout path, and any symbolic-link alias to either location. A copied-runner
+regression uses real `mktemp` with direct and aliased checkout roots. It requires
+refusal with a byte-identical copied checkout and no scratch entry.
+
+The runner refuses inherited repository redirects, write-destination redirects,
+unsafe configuration injection, executable or template selection, and every
+`GIT_TRACE*` output family before its first Git call. Trace targets can append to
+an arbitrary file. The safe isolated values `/dev/null`,
+`GIT_CONFIG_NOSYSTEM=1`, and `GIT_CONFIG_COUNT=0` remain valid. After the
+preflight check, the runner replaces the Git system, global, and command-line
+configuration sources with those safe values. Every descendant, including the
+coverage gate, inherits that boundary. The refusal names every detected setting
+and tells the caller to unset it. The runner does not reject unrelated Git
+variables such as `GIT_PREFIX` or `GIT_SEQUENCE_EDITOR`, which normal Git
+workflows may export.
+
+The refusal regression checks every rejected setting independently. It includes
+the documented Trace1 and Trace2 output targets and a future trace-family name.
+A fake Git command proves refusal occurs before repository inspection. Existing
+trace decoys remain byte-identical. Separate accepted-value cases prove that the
+safe configuration values and unrelated workflow variables reach repository
+inspection. A real coverage-gate regression puts `core.fsmonitor` in a
+disposable global configuration file. Its negative control runs the monitor,
+while the complete runner and gate path leaves the same file tree unchanged.
