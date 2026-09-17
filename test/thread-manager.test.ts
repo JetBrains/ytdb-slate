@@ -19,6 +19,7 @@ interface SemaphoreView {
 }
 
 interface ThreadManagerConstructorFields {
+  store: SlateStore;
   semaphore: SemaphoreView;
   resolveExtensions: () => WorkerExtensionSet;
   resolveRouter: () => ModelRouterResolution;
@@ -30,7 +31,7 @@ function constructorFields(manager: ThreadManager): ThreadManagerConstructorFiel
 }
 
 test("ThreadManager preserves explicit constructor arguments and resolver defaults", async () => {
-  const store = { paused: true } as unknown as SlateStore;
+  const store = { orchestratorMode: true, paused: true } as unknown as SlateStore;
   const config: SlateConfig = { maxConcurrent: 2, workerTools: ["distinguishable-config"] };
   const extensions = {
     units: [],
@@ -52,19 +53,28 @@ test("ThreadManager preserves explicit constructor arguments and resolver defaul
   const fields = constructorFields(manager);
 
   assert.strictEqual(manager.getConfig(), config);
+  // TQ3: the injected store must still be the manager's own store. The paused
+  // dispatch below stops at task validation, which reads no store field, so
+  // that rejection alone no longer proves the store wiring.
+  assert.strictEqual(fields.store, store);
+  // The injected store is paused AND in orchestrator mode, and that state must
+  // not stop a dispatch: the paused orchestrator saves project state through a
+  // worker. Task validation is the early stop that keeps this constructor test
+  // away from the worker path, and it reads no store field.
   await assert.rejects(
     manager.dispatch(
-      { task: "must stop at the injected paused store" },
+      { task: "" },
       {} as ExtensionContext,
       undefined,
     ),
-    /Slate is paused for handoff/,
+    /task must be a non-empty string/,
   );
   assert.strictEqual(fields.resolveExtensions(), extensions);
   assert.strictEqual(fields.resolveRouter(), router);
   assert.strictEqual(fields.baseModelTracker, baseModelTracker);
 
   const defaults = constructorFields(new ThreadManager(store, config));
+  assert.strictEqual(defaults.store, store);
   assert.strictEqual(defaults.resolveExtensions(), EMPTY_WORKER_EXTENSION_SET);
   assert.strictEqual(defaults.resolveRouter(), ROUTER_OFF);
 });

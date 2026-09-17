@@ -286,6 +286,9 @@ test("mode measures at message end, retries loading, and advances turn cadence",
   const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>();
   const statuses: Array<string | undefined> = [];
   const sent: Array<[unknown, unknown]> = [];
+  const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => Promise<void> }>();
+  const notifications: Array<[string, string | undefined]> = [];
+  const REFUSAL = "slate: paused for handoff — input rejected. Run /slate resume or /slate handoff [focus].";
   const store = {
     orchestratorMode: true,
     paused: false,
@@ -298,7 +301,8 @@ test("mode measures at message end, retries loading, and advances turn cadence",
   };
   const pi = {
     on(event: string, handler: (event: any, ctx: ExtensionContext) => unknown) { const list = handlers.get(event) ?? []; list.push(handler); handlers.set(event, list); },
-    registerCommand() {}, getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [],
+    registerCommand(name: string, spec: { handler: (args: string, ctx: ExtensionContext) => Promise<void> }) { commands.set(name, spec); },
+    getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [],
     sendMessage(message: unknown, options: unknown) { sent.push([message, options]); },
   } as unknown as ExtensionAPI;
   let loads = 0;
@@ -319,10 +323,89 @@ test("mode measures at message end, retries loading, and advances turn cadence",
     cwd: process.cwd(), mode: "tui", hasUI: true, isProjectTrusted: () => true,
     getContextUsage: () => undefined,
     sessionManager: { getBranch: () => [], getEntries: () => [] },
-    ui: { setStatus: (_key: string, value: string | undefined) => statuses.push(value), setWidget() {}, notify() {} },
+    ui: {
+      setStatus: (_key: string, value: string | undefined) => statuses.push(value),
+      setWidget() {},
+      notify: (message: string, level?: string) => notifications.push([message, level]),
+    },
   } as unknown as ExtensionContext;
   const emit = async (event: string, payload: unknown) => { for (const handler of handlers.get(event) ?? []) await handler(payload, ctx); };
   await emit("session_start", {});
+  const input = handlers.get("input")?.[0];
+  assert.ok(input);
+  store.paused = true;
+  const reports: string[] = [];
+  const originalWarn = console.warn;
+  const collectReport = (message: string): void => { reports.push(message); };
+  console.warn = collectReport;
+  try {
+    // TQ2/RI1: with a terminal user interface the refusal is ONE visible
+    // notification with the warning level, and no standard-error line, because
+    // an unconditional line would scribble the rendered frame.
+    for (const source of ["interactive", "rpc", "extension"] as const) {
+      assert.deepEqual(await input!({ type: "input", text: "ordinary work", source }, ctx), { action: "handled" });
+    }
+    assert.deepEqual(notifications, [[REFUSAL, "warning"], [REFUSAL, "warning"], [REFUSAL, "warning"]]);
+    assert.deepEqual(reports, [], "a session with a user interface must get no duplicate console line");
+    // Without a user interface the console line is the only channel left.
+    assert.deepEqual(await input!({ type: "input", text: "headless work", source: "rpc" }, { ...ctx, hasUI: false }), { action: "handled" });
+    assert.deepEqual(reports, [REFUSAL]);
+    assert.equal(notifications.length, 3, "a headless refusal adds no notification");
+    // The report itself must start no turn and send no message.
+    assert.equal(sent.length, 0);
+    // pi runs a registered extension command BEFORE it emits the input event:
+    // AgentSession.prompt() in the pinned pi 0.83.0 calls
+    // _tryExecuteExtensionCommand(text) first and returns when a command claims
+    // the text. A real /slate resume or /slate handoff therefore never reaches
+    // this handler. Command name matching is exact and case-sensitive, and
+    // sendUserMessage() skips command handling, so a command-looking string
+    // that DOES arrive here is ordinary user input and must be refused.
+    assert.deepEqual(await input!({ type: "input", text: "/slate resume", source: "interactive" }, ctx), { action: "handled" });
+    assert.deepEqual(await input!({ type: "input", text: "/SLATE HANDOFF focus", source: "rpc" }, ctx), { action: "handled" });
+    assert.deepEqual(await input!({ type: "input", text: "/slate handoff focus", source: "extension" }, ctx), { action: "handled" });
+    assert.equal(notifications.length, 6, "each command-looking prompt is refused with one notification");
+    assert.equal(reports.length, 1, "the notified refusals add no console line");
+    // A stale context can make the UI notification throw. The refusal must still
+    // hold, and the console report must take over.
+    const staleUiCtx = {
+      ...(ctx as unknown as Record<string, unknown>),
+      hasUI: true,
+      ui: { setStatus() {}, setWidget() {}, notify() { throw new Error("stale context"); } },
+    } as unknown as ExtensionContext;
+    assert.deepEqual(await input!({ type: "input", text: "stale ui", source: "interactive" }, staleUiCtx), { action: "handled" });
+    assert.deepEqual(reports.at(-1), REFUSAL);
+    assert.equal(reports.length, 2);
+    // A stale context can also make the hasUI getter itself throw.
+    const throwingUiFlagCtx = { ...(ctx as unknown as Record<string, unknown>) } as Record<string, unknown>;
+    Object.defineProperty(throwingUiFlagCtx, "hasUI", { get() { throw new Error("stale context"); } });
+    assert.deepEqual(await input!({ type: "input", text: "stale flag", source: "rpc" }, throwingUiFlagCtx as unknown as ExtensionContext), { action: "handled" });
+    assert.equal(reports.length, 3);
+    // CN7: pi catches a throwing input handler and ADMITS the prompt, so a
+    // broken reporting channel must never throw out of the handler. With every
+    // channel broken the refusal still holds, and no visible signal remains.
+    console.warn = (..._data: unknown[]): void => { throw new Error("console replaced by another extension"); };
+    assert.deepEqual(await input!({ type: "input", text: "broken console", source: "interactive" }, staleUiCtx), { action: "handled" });
+    console.warn = collectReport;
+    assert.equal(reports.length, 3, "a failed report adds no line");
+    assert.equal(sent.length, 0, "a refusal never sends a message");
+  } finally {
+    console.warn = originalWarn;
+    store.paused = false;
+  }
+  assert.deepEqual(await input!({ type: "input", text: "normal work", source: "interactive" }, ctx), { action: "continue" });
+  store.orchestratorMode = false;
+  store.paused = true;
+  assert.deepEqual(await input!({ type: "input", text: "mode is off", source: "extension" }, ctx), { action: "continue" });
+  store.orchestratorMode = true;
+  store.paused = true;
+  // /slate resume clears the pause and reports that user prompts are accepted
+  // again. Dispatches were never blocked, so the report must not mention them.
+  const slateCommand = commands.get("slate");
+  assert.ok(slateCommand);
+  await slateCommand!.handler("resume", ctx);
+  assert.equal(store.paused, false);
+  assert.match(notifications.at(-1)?.[0] ?? "", /pause cleared — user prompts are accepted again/);
+  assert.equal(/dispatch/.test(notifications.at(-1)?.[0] ?? ""), false);
   await emit("message_end", { message: assistant("first") });
   assert.match(statuses.at(-1) ?? "", /writing unavailable/);
   await emit("message_end", { message: assistant("Open the panel; stop.") });

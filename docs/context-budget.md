@@ -165,6 +165,24 @@ paused, threshold compactions pass through as an escape valve.
 Overflow-recovery compaction and manual `/compact` are never
 touched.
 
+While paused, Slate refuses new user prompts at the pi input hook. pi runs a
+registered extension command before it emits the input event, so the
+`/slate resume` and `/slate handoff [focus]` commands never reach that hook and
+remain available. Orchestrator worker dispatches also remain available, so the
+orchestrator can save project state. The `thread` tool applies no pause rule.
+
+Slate reports each refused prompt once. A session with a terminal user
+interface gets a notice in that interface. A session without one gets a line on
+standard error. The report starts no agent turn.
+
+The orchestrator must use one state-save worker at a time. It must wait for the
+worker result and verify success. It must report incomplete preparation instead
+of a claim that the research log was saved.
+
+Direct remote steer or follow-up, compaction-buffered input, and input accepted
+before the pause can still bypass the hook. These are accepted limitations of
+the pinned pi input surface.
+
 ## What the always-loaded doctrine costs the budget
 
 The budget's denominator includes Slate's own always-loaded block.

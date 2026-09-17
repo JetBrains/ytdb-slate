@@ -150,6 +150,11 @@ or two problems for the others:
 - **P10 — Treat context as RAM.** Budget it; when the budget is exceeded,
   pause dispatching and hand off to a fresh session rather than degrading
   in the Dumb Zone.
+  *(Repo-local note, not from the report.)* Slate's pause stops new USER work:
+  the pi input hook refuses a new user prompt while Slate is paused. Worker
+  dispatches stay open, so the paused orchestrator can save the project state
+  in the research log before it writes the handoff brief. See
+  [context-budget.md](context-budget.md).
 
 - **P11 — Proportional process.** *(Repo-local note, not from the report.)*
   The research log is the sole permitted unconditional-artifact exception for

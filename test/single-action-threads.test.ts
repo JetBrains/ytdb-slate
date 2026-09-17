@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -156,19 +156,77 @@ test("an unusable requested model is rejected before thread creation", async () 
   }
 });
 
-test("task and pause validation run before thread creation", async () => {
+test("task validation runs before thread creation", async () => {
   const root = mkdtempSync(join(tmpdir(), "slate-action-validation-"));
   try {
     const { manager, store } = managerHarness(root);
     const ctx = { cwd: root } as ExtensionContext;
     await assert.rejects(manager.dispatch({ type: "general", task: "" }, ctx, undefined), /non-empty/);
     await assert.rejects(manager.dispatch({ type: "general", task: 7 as unknown as string }, ctx, undefined), /non-empty/);
-    store.paused = true;
-    await assert.rejects(manager.dispatch({ type: "general", task: "blocked" }, ctx, undefined), /paused/);
     assert.equal(store.threads.size, 0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// The paused orchestrator saves the project state through a worker, so a
+// dispatch must COMPLETE while orchestratorMode and paused are both true.
+// Restoring the removed pause guard in ThreadManager.dispatch makes this test
+// fail at the first dispatch call, which is the counterfactual for the guard.
+test("a paused orchestrator dispatch runs a worker and returns its episode", async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-paused-dispatch-"));
+  try {
+    const { manager, store, prompts } = managerHarness(root);
+    const ctx = { cwd: root } as ExtensionContext;
+    store.orchestratorMode = true;
+    store.paused = true;
+
+    const saved = await manager.dispatch(
+      { name: "state save", type: "general", task: "save the project state in the research log" },
+      ctx,
+      undefined,
+    );
+
+    assert.equal(prompts.length, 1);
+    assert.match(prompts[0] ?? "", /save the project state in the research log/);
+    assert.equal(saved.episodeText, "episode");
+    assert.equal(saved.episode.id, "t1.e1");
+    assert.equal(saved.episode.threadId, "t1");
+    assert.equal(saved.episode.status, "ok");
+    assert.equal(saved.episode.task, "save the project state in the research log");
+    assert.equal(saved.thread.id, "t1");
+    assert.equal(saved.thread.name, "state save");
+    assert.equal(saved.thread.status, "successful");
+    assert.equal(saved.thread.episodeId, "t1.e1");
+    assert.equal(store.threads.size, 1);
+    assert.equal(store.threads.get("t1")?.episodeId, "t1.e1");
+
+    // The dispatch neither clears the pause nor leaves orchestrator mode.
+    assert.equal(store.paused, true);
+    assert.equal(store.orchestratorMode, true);
+
+    // A second paused dispatch still works, and argument failures are still
+    // reported while both flags are true.
+    const second = await manager.dispatch({ type: "general", task: "verify the saved state" }, ctx, undefined);
+    assert.equal(second.thread.id, "t2");
+    assert.equal(second.episode.id, "t2.e1");
+    await assert.rejects(manager.dispatch({ type: "general", task: "   " }, ctx, undefined), /non-empty/);
+    await assert.rejects(
+      manager.dispatch({ type: "nonsense", task: "bad type" } as unknown as DispatchOptions, ctx, undefined),
+      /type/,
+    );
+    assert.equal(store.threads.size, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// Structural net for the same rule: a re-added pause rejection in threads.ts
+// fails here even if a future fixture stops setting both flags.
+test("ThreadManager carries no pause rejection", () => {
+  const source = readFileSync(new URL("../extension/threads.ts", import.meta.url), "utf8");
+  assert.equal(/this\.store\.paused/.test(source), false);
+  assert.equal(source.includes("Slate is paused for handoff"), false);
 });
 
 test("removed fields are absent from the schema and rejected before creation", async () => {

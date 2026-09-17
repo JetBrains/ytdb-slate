@@ -5,9 +5,9 @@
  * usage crosses the absolute token budget (contextBudget; built-in defaults
  * 256k tokens, 400k for anthropic/* models, clamped so the pause always
  * lands with brief-writing room below pi's own compaction point), the store
- * is paused — the thread tool then rejects NEW dispatches (in-flight ones
- * finish) — and the orchestrator is steered to produce a handoff brief for
- * the user. Threshold auto-compactions are intercepted the same way
+ * is paused — orchestrator worker dispatches remain available, while new user
+ * prompts are refused by the input hook — and the orchestrator is steered to
+ * prepare a handoff brief for the user. Threshold auto-compactions are intercepted the same way
  * (session_before_compact → pause + cancel); once paused they pass through
  * as the escape valve. The DEPRECATED pauseThresholdPercent keeps its exact
  * legacy percent behavior (compaction untouched) when set WITHOUT
@@ -349,10 +349,12 @@ export function registerSlateHandoff(
 	const pauseInstructions = (headline: string) =>
 		[
 			headline,
-			"Finish nothing new. Reply to the user with:",
-			"(1) a concise HANDOFF BRIEF — overall goal, per-thread state with episode ids, immediate next actions;",
-			"(2) instructions: run /slate handoff [optional focus] to continue in a fresh session where all threads and episodes are restored automatically;",
-			`alternatively, start a new pi session manually, run /slate on, and have the new orchestrator read the episode files under ${CONFIG_DIR_NAME}/slate/episodes/.`,
+			"Do not start other user work. Save the project state in the research log through exactly one worker at a time.",
+			"Wait for that worker result and verify that it reports success before writing the final HANDOFF BRIEF.",
+			"If preparation fails or is incomplete, report that fact instead of claiming that the state was saved.",
+			"Reply with a concise HANDOFF BRIEF — overall goal, per-thread state with episode ids, immediate next actions.",
+			"Then instruct the user to run /slate handoff [optional focus] to continue in a fresh session where all threads and episodes are restored automatically.",
+			`Alternatively, start a new pi session manually, run /slate on, and have the new orchestrator read the episode files under ${CONFIG_DIR_NAME}/slate/episodes/.`,
 		].join("\n");
 
 	const checkBudget = (ctx: ExtensionContext) => {
@@ -373,7 +375,7 @@ export function registerSlateHandoff(
 			if (percent < threshold) return;
 			const pct = Math.round(percent);
 			notifyText = `slate: context at ${pct}% (budget ${threshold}%) — paused. Run /slate handoff [focus] to continue in a fresh session.`;
-			headline = `[slate] Context is at ${pct}% — over the ${threshold}% budget. Slate auto-paused: the thread tool now REJECTS new dispatches.`;
+			headline = `[slate] Context is at ${pct}% — over the ${threshold}% budget. Slate auto-paused: user prompts are refused, and state-save workers remain available.`;
 		} else {
 			// BUDGET mode: absolute token budget resolved against the LIVE model.
 			const usage = ctx.getContextUsage();
@@ -406,7 +408,7 @@ export function registerSlateHandoff(
 					? ` (configured ${configured.toLocaleString("en-US")}, clamped for this model's context window)`
 					: "";
 			notifyText = `slate: context at ${used} tokens (budget ${cap}${clampNote}) — paused. Run /slate handoff [focus] to continue in a fresh session.`;
-			headline = `[slate] Context is at ${used} tokens — over the ${cap}-token budget${clampNote}. Slate auto-paused: the thread tool now REJECTS new dispatches.`;
+			headline = `[slate] Context is at ${used} tokens — over the ${cap}-token budget${clampNote}. Slate auto-paused: user prompts are refused, and state-save workers remain available.`;
 		}
 
 		store.paused = true;
@@ -461,7 +463,7 @@ export function registerSlateHandoff(
 			{
 				customType: "slate-pause",
 				content: `${pauseInstructions(
-					"[slate] pi hit its auto-compaction threshold; slate cancelled the compaction and auto-paused instead: the thread tool now REJECTS new dispatches. (While paused, a repeat compaction passes through as the escape valve.)",
+					"[slate] pi hit its auto-compaction threshold; slate cancelled the compaction and auto-paused instead: user prompts are refused, and state-save workers remain available. (While paused, a repeat compaction passes through as the escape valve.)",
 				)}\n(If slate has since been resumed or unpaused, disregard this message.)`,
 				display: true,
 			},
