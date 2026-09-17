@@ -293,9 +293,11 @@ export class ThreadManager {
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
-		if (this.store.paused) {
-			throw new Error("Slate is paused for handoff. New actions are rejected until handoff completes.");
-		}
+		// There is NO pause guard here, on purpose. A paused orchestrator must still
+		// dispatch workers, because it saves the project state in the research log
+		// through one worker before it writes the handoff brief (handoff.ts pause
+		// instructions, docs/context-budget.md). New USER prompts are refused at the
+		// pi input hook in mode.ts instead, so the pause still stops new user work.
 		if (opts.threadId !== undefined) {
 			throw new Error('The "thread" field was removed. Create a new thread and pass earlier episode ids through "context".');
 		}

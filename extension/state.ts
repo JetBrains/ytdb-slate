@@ -848,7 +848,7 @@ export class SlateStore {
 	episodes = new Map<string, EpisodeRecord>();
 	private threadSeq = 0;
 	orchestratorMode = false;
-	/** When true (context budget exceeded) ThreadManager rejects NEW dispatches. */
+	/** When true with orchestratorMode (context budget exceeded), the pi input hook refuses new user prompts. Worker dispatches stay open for the state save. */
 	paused = false;
 	/**
 	 * Cumulative USD spend of worker threads this session. Includes the episode

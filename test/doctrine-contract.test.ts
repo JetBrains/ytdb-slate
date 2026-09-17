@@ -94,10 +94,11 @@ function routedResolution(): ModelRouterResolution {
   };
 }
 
-async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}, trusted = true): Promise<string> {
+async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}, trusted = true, paused = false): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
+  store.paused = paused;
   registerSlateMode(
     api as unknown as ExtensionAPI,
     store,
@@ -306,6 +307,36 @@ test("mode uses the four-turn reminder fallback when writing config is absent", 
   );
   for (let index = 0; index < 4; index++) await configuredApi.emit("turn_end", turn, context);
   assert.deepEqual(configuredApi.sentMessages, [], "a configured five-turn interval must stay silent through turn four");
+});
+
+// TQ1: the paused addendum is the orchestrator's only prompt-side statement of
+// what a pause permits and requires. Reverting it to the pre-change claim that
+// dispatches are rejected left the whole suite green, so the text is pinned
+// here word for word, through the real registered before_agent_start handler.
+test("the paused doctrine states worker availability and the one-writer save contract", { timeout: 5000 }, async () => {
+  const running = await renderDoctrine();
+  const paused = await renderDoctrine(undefined, {}, true, true);
+  assert.equal(running.includes("PAUSED"), false, "an unpaused session must carry no pause text");
+  assert.ok(paused.startsWith(running), "the addendum must be appended after the ordinary doctrine");
+
+  const addendum = paused.slice(running.length).replace(/\s+/g, " ").trim();
+  assert.equal(
+    addendum,
+    "# PAUSED — context budget exceeded" +
+      " Slate is paused for handoff. Orchestrator worker dispatches remain available." +
+      " Save the project state in the research log through exactly one worker at a time." +
+      " Wait for that worker result and verify that it reports success before writing the final handoff brief." +
+      " If preparation fails or is incomplete, report that fact and do not claim that the state was saved." +
+      " Do not start other user work." +
+      " Reply with a concise handoff brief (overall goal, per-thread state with episode ids, immediate next actions)" +
+      " and direct the user to run /slate handoff [optional focus].",
+  );
+  // Order is part of the contract: one writer, then the result check, then the
+  // brief. A reordered addendum would still contain every sentence.
+  const writer = addendum.indexOf("exactly one worker at a time");
+  const verify = addendum.indexOf("verify that it reports success");
+  const brief = addendum.indexOf("Reply with a concise handoff brief");
+  assert.ok(writer > 0 && writer < verify && verify < brief);
 });
 
 test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {

@@ -565,10 +565,49 @@ const PAUSED_ADDENDUM = `
 
 # PAUSED — context budget exceeded
 
-Slate is paused for handoff: thread dispatches are REJECTED. Do not start new
-work. Reply with a concise handoff brief (overall goal, per-thread state with
-episode ids, immediate next actions) and direct the user to run
-/slate handoff [optional focus].`;
+Slate is paused for handoff. Orchestrator worker dispatches remain available.
+Save the project state in the research log through exactly one worker at a time.
+Wait for that worker result and verify that it reports success before writing the
+final handoff brief. If preparation fails or is incomplete, report that fact and
+do not claim that the state was saved. Do not start other user work. Reply with
+a concise handoff brief (overall goal, per-thread state with episode ids,
+immediate next actions) and direct the user to run /slate handoff [optional
+focus].`;
+
+const PAUSED_INPUT_REFUSAL =
+	"slate: paused for handoff — input rejected. Run /slate resume or /slate handoff [focus].";
+
+/**
+ * Report one refused prompt on exactly ONE channel, and never throw.
+ *
+ * RI1: a session with a terminal user interface gets the notification only. An
+ * unconditional stderr write would scribble pi-tui's differentially rendered
+ * frame, and this notice fires on every refused prompt, not only on a failure.
+ * The stderr line is therefore the FALLBACK: no user interface, a throwing
+ * `hasUI` getter on a stale context, or a throwing `notify`.
+ *
+ * CN7: pi's emitInput catches a throwing input handler and CONTINUES, which
+ * admits the very prompt this handler refuses. Reporting is best effort for
+ * that reason: every channel is wrapped, and a session whose console also
+ * throws still gets the refusal, only without a visible notice.
+ *
+ * It sends no message and starts no turn.
+ */
+function reportPausedInput(ctx: ExtensionContext): void {
+	try {
+		if (ctx.hasUI) {
+			ctx.ui.notify(PAUSED_INPUT_REFUSAL, "warning");
+			return;
+		}
+	} catch {
+		/* fall through to the console report */
+	}
+	try {
+		console.warn(PAUSED_INPUT_REFUSAL);
+	} catch {
+		/* every channel failed; the refusal below still holds */
+	}
+}
 
 export function renderThreadWidgetLine(thread: ThreadRecord): string {
 	const marker = threadTypeMarker(displayThreadType(thread.type));
@@ -656,6 +695,20 @@ export function registerSlateMode(
 	// Widget refresh whenever slate state changes (dispatch start/end, new threads).
 	store.onDidChange = updateWidget;
 
+	// pi runs a REGISTERED extension command before it emits the input event: in
+	// the pinned pi 0.83.0, AgentSession.prompt() calls
+	// _tryExecuteExtensionCommand(text) first and returns when a command claims
+	// the text, and it emits the input event only for text that no command
+	// claimed. /slate resume and /slate handoff therefore never reach this
+	// handler, so it needs no command exemption. Text that only LOOKS like a
+	// command — a different letter case, or a sendUserMessage() call, which skips
+	// command handling — is ordinary user input and is refused like any other.
+	pi.on("input", async (_event, ctx) => {
+		if (!store.orchestratorMode || !store.paused) return { action: "continue" };
+		reportPausedInput(ctx);
+		return { action: "handled" };
+	});
+
 	pi.registerCommand("slate", {
 		description: "Slate orchestrator mode: on | off | handoff [focus] | resume (no arg toggles)",
 		handler: async (args, ctx) => {
@@ -674,7 +727,7 @@ export function registerSlateMode(
 			if (arg === "resume") {
 				store.paused = false;
 				store.save();
-				if (ctx.hasUI) ctx.ui.notify("slate: pause cleared — dispatches allowed again.", "info");
+				if (ctx.hasUI) ctx.ui.notify("slate: pause cleared — user prompts are accepted again.", "info");
 				return;
 			}
 			const target = arg === "on" ? true : arg === "off" ? false : !store.orchestratorMode;
