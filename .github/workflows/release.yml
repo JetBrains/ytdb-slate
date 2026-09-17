@@ -1,0 +1,474 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Prepare, recover, abandon, retire, or close one release
+        type: choice
+        required: true
+        options: [prepare, recover, abandon, retire, close]
+      version:
+        description: Exact semantic version
+        type: string
+        required: true
+      notes:
+        description: Reviewed Markdown release notes for preparation
+        type: string
+        required: false
+      identity:
+        description: Exact authorization identity for recover, abandon, retire, or close
+        type: string
+        required: false
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  STATE_BRANCH: release-state
+  REGISTRY: https://registry.npmjs.org/
+
+jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'prepare' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '24.18.0' }
+      - name: Create durable owner and prepared branch
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          NOTES: ${{ github.event.inputs.notes }}
+        run: |
+          set -euo pipefail
+          test -n "$NOTES"
+          root=$(mktemp -d); printf '%s\n' "$NOTES" >"$root/notes.md"
+          current=$(node -p 'require("./package.json").version')
+          node verification/release-control.mjs make-request --version "$VERSION" --base "$(git rev-parse HEAD)" --current-version "$current" --authorization "$GITHUB_RUN_ID" --notes "$root/notes.md" --out "$root/request.json"
+          identity=$(node -p 'require(process.argv[1]).identity' "$root/request.json")
+          published=$(npm view ytdb-slate versions --json --registry "$REGISTRY")
+          node -e 'const x=JSON.parse(process.argv[1]),v=process.argv[2],a=Array.isArray(x)?x:[x];if(a.includes(v))throw Error(`${v} is already published`)' "$published" "$VERSION"
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          old=
+          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$STATE_BRANCH"; old=$(git rev-parse "origin/$STATE_BRANCH")
+            git show "origin/$STATE_BRANCH:state.json" >"$root/old-state.json"
+            status=$(node -p 'require(process.argv[1]).status' "$root/old-state.json")
+            old_identity=$(node -p 'require(process.argv[1]).identity' "$root/old-state.json")
+            if test "$old_identity" = "$identity" && test "$status" != prepared; then echo 'This authorization is terminal. Start a new prepare dispatch.' >&2; exit 2; fi
+            if test "$status" = prepared && test "$old_identity" = "$identity"; then
+              echo 'Preparation already owns this exact request. Continuing idempotently.'
+            else
+              node -e 'const s=require(process.argv[1]);if(!["complete","abandoned","retired","mismatch","closed-unpromoted"].includes(s.status))throw Error(`unfinished release ${s.version} already owns the lane`)' "$root/old-state.json"
+            fi
+          fi
+          if ! test -f "$root/old-state.json" || test "$(node -p 'require(process.argv[1]).identity' "$root/old-state.json")" != "$identity"; then
+            node verification/release-control.mjs state-init --request "$root/request.json" --out "$root/state.json"
+            state_tree=$(mktemp -d); cp "$root/state.json" "$root/request.json" "$root/notes.md" "$state_tree/"; mkdir "$state_tree/verification"; cp verification/release-control.mjs verification/release-job.mjs "$state_tree/verification/"
+            index=$(mktemp); rm "$index"; GIT_INDEX_FILE="$index" git read-tree --empty; GIT_INDEX_FILE="$index" GIT_WORK_TREE="$state_tree" git add .
+            tree=$(GIT_INDEX_FILE="$index" git write-tree); commit=$(printf 'Own release %s identity %s\n' "$VERSION" "$identity" | git commit-tree "$tree" ${old:+-p "$old"})
+            git push origin "$commit:refs/heads/$STATE_BRANCH" ${old:+--force-with-lease="refs/heads/$STATE_BRANCH:$old"}
+          fi
+          branch="release/v$VERSION-${identity:0:12}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then echo "Prepared branch already exists: $branch"; exit 0; fi
+          mkdir -p "release/requests/$VERSION"; cp "$root/notes.md" "release/requests/$VERSION/notes.md"; cp "$root/request.json" "release/requests/$VERSION/request.json"
+          node -e 'const fs=require("fs"),r=require(process.argv[1]);fs.writeFileSync(process.argv[2],JSON.stringify({schema:r.schema,parentPolicy:r.coverageDisposition.parentPolicy,allowedPaths:r.coverageDisposition.allowedPaths,verdict:"WARN"},null,2)+"\n")' "$root/request.json" "release/requests/$VERSION/coverage.json"
+          if test "$current" != "$VERSION"; then
+            node -e 'const fs=require("fs"),p="package.json",x=JSON.parse(fs.readFileSync(p));x.version=process.argv[1];fs.writeFileSync(p,JSON.stringify(x,null,2)+"\n")' "$VERSION"
+            node -e 'const fs=require("fs"),p="package-lock.json",x=JSON.parse(fs.readFileSync(p));x.version=process.argv[1];x.packages[""].version=process.argv[1];fs.writeFileSync(p,JSON.stringify(x,null,2)+"\n")' "$VERSION"
+          fi
+          git switch -c "$branch"; git add package.json package-lock.json "release/requests/$VERSION"; git commit -m "Prepare ytdb-slate $VERSION"; git push origin "$branch"
+          echo "Create the pull request: https://github.com/${GITHUB_REPOSITORY}/compare/main...$branch?expand=1"
+
+  identify:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      release_sha: ${{ steps.find.outputs.release_sha }}
+      parent_sha: ${{ steps.find.outputs.parent_sha }}
+      version: ${{ steps.find.outputs.version }}
+      request_path: ${{ steps.find.outputs.request_path }}
+      pull_request: ${{ steps.find.outputs.pull_request }}
+      identity: ${{ steps.find.outputs.identity }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0 }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, path: durable }
+      - id: find
+        env: { BEFORE: '${{ github.event.before }}', AFTER: '${{ github.sha }}', GH_TOKEN: '${{ github.token }}' }
+        run: |
+          set -euo pipefail
+          found=0
+          while read -r sha; do
+            parent=$(git rev-parse "$sha^")
+            mapfile -t requests < <(git diff-tree --no-commit-id --name-only -r "$sha" | grep '^release/requests/.*/request.json$' || true)
+            test "${#requests[@]}" -gt 0 || continue
+            test "${#requests[@]}" -eq 1
+            request=${requests[0]}; version=${request#release/requests/}; version=${version%/request.json}
+            tmp=$(mktemp -d)
+            git show "$sha:$request" >"$tmp/request.json"; git show "$sha:release/requests/$version/notes.md" >"$tmp/notes.md"; git show "$sha:release/requests/$version/coverage.json" >"$tmp/coverage.json"; git show "$sha:package.json" >"$tmp/package.json"
+            git diff-tree --no-commit-id --name-only -r "$sha" >"$tmp/paths"
+            prs=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls")
+            request_base=$(node -p 'require(process.argv[1]).baseSha' "$tmp/request.json"); git merge-base --is-ancestor "$request_base" "$parent"
+            result=$(node --input-type=module - "$tmp" "$sha" "$parent" "$prs" <<'NODE'
+          import fs from 'node:fs'; import {verifyReleaseIdentity} from './verification/release-control.mjs';
+          const [d,sha,parent,raw]=process.argv.slice(2),request=JSON.parse(fs.readFileSync(`${d}/request.json`)),durableRequest=JSON.parse(fs.readFileSync('durable/request.json')),version=request.version;
+          const associatedPullRequests=JSON.parse(raw).map(p=>({number:p.number,merged:p.merged_at!==null,mergeCommitSha:p.merge_commit_sha,baseRefName:p.base.ref}));
+          const x=verifyReleaseIdentity({request,durableRequest,coverageRecord:JSON.parse(fs.readFileSync(`${d}/coverage.json`)),notes:fs.readFileSync(`${d}/notes.md`,'utf8'),releaseSha:sha,parentSha:parent,changedPaths:fs.readFileSync(`${d}/paths`,'utf8').trim().split('\n'),manifestVersion:JSON.parse(fs.readFileSync(`${d}/package.json`)).version,associatedPullRequests});
+          process.stdout.write(JSON.stringify(x));
+          NODE
+          )
+            found=$((found+1)); test "$found" -eq 1 || { echo 'More than one exact release merge appears in this push.' >&2; exit 1; }
+            echo "release_sha=$sha" >>"$GITHUB_OUTPUT"; echo "parent_sha=$parent" >>"$GITHUB_OUTPUT"; echo "version=$version" >>"$GITHUB_OUTPUT"; echo "request_path=$request" >>"$GITHUB_OUTPUT"
+            echo "pull_request=$(node -p 'JSON.parse(process.argv[1]).pullRequest' "$result")" >>"$GITHUB_OUTPUT"; echo "identity=$(node -p 'JSON.parse(process.argv[1]).identity' "$result")" >>"$GITHUB_OUTPUT"
+          done < <(git rev-list --reverse "$BEFORE..$AFTER")
+          test "$found" -eq 1 || echo 'Push contains no exact prepared release merge.'
+
+  claim:
+    needs: identify
+    if: needs.identify.outputs.release_sha != ''
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0, path: state }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ needs.identify.outputs.release_sha }}', path: control }
+      - name: Claim exact identity idempotently
+        run: |
+          set -euo pipefail; old=$(git -C state rev-parse HEAD)
+          node control/verification/release-control.mjs claim --state state/state.json --request state/request.json --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --pr '${{ needs.identify.outputs.pull_request }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --out state/next.json
+          if cmp -s state/state.json state/next.json; then exit 0; fi
+          mv state/next.json state/state.json; git -C state config user.name github-actions[bot]; git -C state config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C state add state.json; git -C state commit -m 'Claim release identity ${{ needs.identify.outputs.identity }}'; git -C state push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+
+  checks:
+    needs: [identify, claim]
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    timeout-minutes: 20
+    strategy: { fail-fast: false, matrix: { node: ['22.23.1', '24.18.0'] } }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ needs.identify.outputs.release_sha }}', fetch-depth: 0 }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '${{ matrix.node }}', cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: bash verification/release-checks.sh --repo . --base '${{ needs.identify.outputs.parent_sha }}' --request '${{ needs.identify.outputs.request_path }}' --evidence "$RUNNER_TEMP/release-evidence"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with: { name: 'release-check-evidence-${{ matrix.node }}', path: '${{ runner.temp }}/release-evidence', if-no-files-found: error, retention-days: 90 }
+
+  pack:
+    needs: [identify, checks]
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ needs.identify.outputs.release_sha }}' }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '24.18.0' }
+      - run: |
+          set -euo pipefail; test -z "$(git status --porcelain)"; mkdir "$RUNNER_TEMP/archive"; npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/archive"
+          archive=$(find "$RUNNER_TEMP/archive" -maxdepth 1 -name '*.tgz' -type f); test "$(printf '%s\n' "$archive" | wc -l)" -eq 1
+          tar -tzf "$archive" >"$RUNNER_TEMP/archive/files.txt"; mkdir "$RUNNER_TEMP/unpacked"; tar -xzf "$archive" -C "$RUNNER_TEMP/unpacked"
+          node -e 'const fs=require("fs"),c=require("crypto"),p=process.argv[1],b=fs.readFileSync(p),m=require(process.argv[3]);if(m.version!==process.argv[4]||m.dependencies&&Object.keys(m.dependencies).length)throw Error("packed manifest disagrees with release");fs.writeFileSync(process.argv[2],JSON.stringify({file:require("path").basename(p),sha256:c.createHash("sha256").update(b).digest("hex"),integrity:"sha512-"+c.createHash("sha512").update(b).digest("base64")},null,2)+"\n")' "$archive" "$RUNNER_TEMP/archive/artifact.json" "$RUNNER_TEMP/unpacked/package/package.json" '${{ needs.identify.outputs.version }}'
+          git ls-tree -r --name-only HEAD docs | sort >"$RUNNER_TEMP/archive/expected-docs.txt"; sed -n 's#^package/\(docs/.*[^/]\)$#\1#p' "$RUNNER_TEMP/archive/files.txt" | sort >"$RUNNER_TEMP/archive/packed-docs.txt"; diff "$RUNNER_TEMP/archive/expected-docs.txt" "$RUNNER_TEMP/archive/packed-docs.txt"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with: { name: inspected-release-archive, path: '${{ runner.temp }}/archive', if-no-files-found: error, retention-days: 90 }
+
+  seal-upload:
+    needs: [identify, pack]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ needs.identify.outputs.release_sha }}', path: control }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0, path: state }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with: { name: inspected-release-archive, path: state/archive }
+      - run: |
+          set -euo pipefail; old=$(git -C state rev-parse HEAD); key="$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT"
+          test "$(node -p 'require("./state/state.json").identity')" = '${{ needs.identify.outputs.identity }}'
+          status=$(node -p 'require("./state/state.json").status'); execution=$(node -p 'require("./state/state.json").uploadExecution||""')
+          if test "$status" = upload-unknown && test "$execution" = "$key"; then exit 0; fi
+          node control/verification/release-control.mjs advance --state state/state.json --next checking --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out state/checking.json
+          node control/verification/release-control.mjs advance --state state/checking.json --next ready --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out state/ready.json
+          node control/verification/release-control.mjs begin-upload --state state/ready.json --archive "$(find state/archive -name '*.tgz')" --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --out state/next.json
+          rm state/checking.json state/ready.json; mv state/next.json state/state.json
+          git -C state config user.name github-actions[bot]; git -C state config user.email 41898282+github-actions[bot]@users.noreply.github.com; git -C state add state.json archive; git -C state commit -m 'Seal one upload authority'; git -C state push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+
+  upload:
+    needs: [identify, seal-upload]
+    runs-on: ubuntu-latest
+    environment: npm-release
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '24.18.0', registry-url: 'https://registry.npmjs.org' }
+      - name: Execute the single sealed upload
+        run: node verification/release-job.mjs upload --state state.json --archive "$(find archive -name '*.tgz')" --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --registry "$REGISTRY"
+
+  registry-proof:
+    needs: [identify, seal-upload, upload]
+    if: always() && needs.seal-upload.result == 'success'
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ needs.identify.outputs.release_sha }}', path: control }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, path: state }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '24.18.0' }
+      - run: |
+          set -euo pipefail; mkdir registry
+          for wait in 0 2 5 10; do sleep "$wait"; if npm view 'ytdb-slate@${{ needs.identify.outputs.version }}' version dist.integrity --json --registry "$REGISTRY" >registry/metadata.json && npm pack 'ytdb-slate@${{ needs.identify.outputs.version }}' --ignore-scripts --pack-destination registry --registry "$REGISTRY"; then break; fi; done
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs'; import {classifyRegistry} from './control/verification/release-control.mjs'; const state=JSON.parse(fs.readFileSync('state/state.json')); const local=fs.readFileSync(fs.readdirSync('state/archive').find(x=>x.endsWith('.tgz'))&&`state/archive/${fs.readdirSync('state/archive').find(x=>x.endsWith('.tgz'))}`); const file=fs.readdirSync('registry').find(x=>x.endsWith('.tgz')); const expected={identity:'${{ needs.identify.outputs.identity }}',version:'${{ needs.identify.outputs.version }}',releaseSha:'${{ needs.identify.outputs.release_sha }}',releaseParent:'${{ needs.identify.outputs.parent_sha }}'}; const result=classifyRegistry(state,local,file?fs.readFileSync(`registry/${file}`):Buffer.alloc(0),JSON.parse(fs.readFileSync('registry/metadata.json','utf8')),expected); fs.writeFileSync('registry/result.json',JSON.stringify(result,null,2)+'\n'); if(result.result==='inconclusive')process.exitCode=1;
+          NODE
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with: { name: registry-proof, path: registry, if-no-files-found: error, retention-days: 90 }
+
+  record-registry:
+    needs: [identify, registry-proof]
+    if: always() && needs.registry-proof.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0 }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with: { name: registry-proof, path: registry }
+      - run: |
+          set -euo pipefail; test -f registry/result.json || { echo 'Registry observation is inconclusive. Upload remains unknown.'; exit 1; }; old=$(git rev-parse HEAD)
+          test "$(node -p 'require("./state.json").identity')" = '${{ needs.identify.outputs.identity }}'; status=$(node -p 'require("./state.json").status'); if test "$status" = published || test "$status" = mismatch; then echo 'Registry result is already recorded.'; test "$status" = published; exit; fi
+          node verification/release-control.mjs registry-record --state state.json --result registry/result.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out next.json; mv next.json state.json
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json registry; git commit -m 'Record registry byte observation'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+          test "$(node -p 'require("./registry/result.json").result')" = verified
+
+  install-proof:
+    needs: [identify, record-registry]
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ needs.identify.outputs.release_sha }}' }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, path: state }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '24.18.0' }
+      - run: npm ci --ignore-scripts
+      - name: Execute empty-cache install and command proof
+        env: { PI_BIN: '${{ github.workspace }}/node_modules/.bin/pi' }
+        run: |
+          node verification/release-job.mjs install --state state/state.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --workspace "$RUNNER_TEMP/install" --out "$RUNNER_TEMP/install/proof.json" --failure-out "$RUNNER_TEMP/install/failure.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: success()
+        with: { name: install-proof, path: '${{ runner.temp }}/install/proof.json', if-no-files-found: error, retention-days: 90 }
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: failure()
+        with: { name: 'install-failure-${{ github.run_attempt }}', path: '${{ runner.temp }}/install/failure.json', if-no-files-found: error, retention-days: 90 }
+
+  record-install-failure:
+    needs: [identify, install-proof]
+    if: always() && needs.install-proof.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0 }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with: { name: 'install-failure-${{ github.run_attempt }}', path: failure }
+      - run: |
+          set -euo pipefail; old=$(git rev-parse HEAD); test "$(node -p 'require("./state.json").identity')" = '${{ needs.identify.outputs.identity }}'
+          node verification/release-control.mjs install-failure-record --state state.json --failure failure/failure.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out next.json
+          if cmp -s state.json next.json; then exit 0; fi
+          mv next.json state.json; mkdir -p install-failures; cp failure/failure.json "install-failures/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json install-failures; git commit -m 'Record failed installation proof'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+
+  record-proof:
+    needs: [identify, install-proof]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    outputs: { expected_latest: '${{ steps.latest.outputs.value }}' }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0 }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with: { name: install-proof, path: proof }
+      - id: latest
+        run: |
+          set -euo pipefail; old=$(git rev-parse HEAD); test "$(node -p 'require("./state.json").identity')" = '${{ needs.identify.outputs.identity }}'; status=$(node -p 'require("./state.json").status')
+          if test "$status" = promotion-unknown; then latest=$(node -p 'require("./state.json").promotionEvidence.expectedLatest'); echo "value=$latest" >>"$GITHUB_OUTPUT"; echo 'Install proof and promotion intent are already recorded.'; exit 0; fi
+          node verification/release-control.mjs install-record --state state.json --proof proof/proof.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out next.json; mv next.json state.json
+          latest=$(npm view ytdb-slate dist-tags.latest --registry "$REGISTRY"); echo "value=$latest" >>"$GITHUB_OUTPUT"
+          node verification/release-control.mjs promotion-intent --state state.json --latest "$latest" --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --out next.json; mv next.json state.json
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json proof; git commit -m 'Record install proof and promotion intent'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+
+  promote:
+    needs: [identify, record-proof]
+    runs-on: ubuntu-latest
+    environment: npm-release
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '24.18.0', registry-url: 'https://registry.npmjs.org' }
+      - name: Promote the exact proved version with stage-only token
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_STAGE_ONLY_TOKEN }}
+        run: node verification/release-job.mjs promote --state state.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --registry "$REGISTRY" --out "$RUNNER_TEMP/promotion.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with: { name: promotion-result, path: '${{ runner.temp }}/promotion.json', if-no-files-found: error, retention-days: 90 }
+
+  record-promotion:
+    needs: [identify, promote]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0 }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with: { name: promotion-result, path: promotion }
+      - run: |
+          set -euo pipefail; old=$(git rev-parse HEAD); test "$(node -p 'require("./state.json").identity')" = '${{ needs.identify.outputs.identity }}'; status=$(node -p 'require("./state.json").status'); if test "$status" = promoted || test "$status" = proved; then echo 'Promotion observation is already recorded.'; exit 0; fi
+          node verification/release-control.mjs promotion-record --state state.json --result promotion/promotion.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out next.json; mv next.json state.json
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json promotion; git commit -m 'Record observed latest promotion'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+
+  finalize:
+    needs: [identify, record-promotion]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0 }
+      - name: Create only missing immutable final records
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          set -euo pipefail; version='${{ needs.identify.outputs.version }}'; test "$(node -p 'require("./state.json").identity')" = '${{ needs.identify.outputs.identity }}'; status=$(node -p 'require("./state.json").status'); if test "$status" = complete; then echo 'Final records are already complete.'; exit 0; fi
+          sha='${{ needs.identify.outputs.release_sha }}'; tag="v$version"
+          remote=$(git ls-remote --refs origin "refs/tags/$tag" | awk '{print $1}'); target=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish 2>/dev/null || true)
+          node verification/release-job.mjs final-records --state state.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --notes notes.md --repo "$GITHUB_REPOSITORY" --tag-sha "$remote" --release-target "$target"
+          old=$(git rev-parse HEAD); node verification/release-control.mjs advance --state state.json --next complete --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out next.json; mv next.json state.json
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json; git commit -m "Complete release $version"; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+
+  recover:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'recover' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: { contents: write, actions: write }
+    outputs: { retry_promotion: '${{ steps.resolve.outputs.retry_promotion }}', identity: '${{ steps.resolve.outputs.identity }}', version: '${{ steps.resolve.outputs.version }}', release_sha: '${{ steps.resolve.outputs.release_sha }}', parent_sha: '${{ steps.resolve.outputs.parent_sha }}' }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0 }
+      - id: resolve
+        name: Resolve observed effects without upload or promotion writes
+        env: { GH_TOKEN: '${{ github.token }}', VERSION: '${{ github.event.inputs.version }}', IDENTITY: '${{ github.event.inputs.identity }}' }
+        run: |
+          set -euo pipefail; echo 'retry_promotion=false' >>"$GITHUB_OUTPUT"; echo "identity=$IDENTITY" >>"$GITHUB_OUTPUT"; echo "version=$VERSION" >>"$GITHUB_OUTPUT"; test "$(node -p 'require("./state.json").version')" = "$VERSION"; test "$(node -p 'require("./state.json").identity')" = "$IDENTITY"; status=$(node -p 'require("./state.json").status'); sha=$(node -p 'require("./state.json").releaseSha||""'); parent=$(node -p 'require("./state.json").releaseParent||""')
+          echo "release_sha=$sha" >>"$GITHUB_OUTPUT"; echo "parent_sha=$parent" >>"$GITHUB_OUTPUT"
+          if test "$status" = upload-unknown; then run=$(node -p 'require("./state.json").claimExecution.split(":")[0]'); gh run rerun "$run" --repo "$GITHUB_REPOSITORY" --failed; echo 'Recovery requested failed jobs and their dependents. The sealed upload authority rejects every upload rerun. Promotion and final records can run only after registry and installation proofs succeed.'; exit 0; fi
+          if test "$status" = published; then run=$(node -p 'require("./state.json").claimExecution.split(":")[0]'); gh run rerun "$run" --repo "$GITHUB_REPOSITORY" --failed; echo 'Recovery requested failed jobs and their dependents. Upload cannot repeat. Promotion and final records can run only after registry and installation proofs succeed.'; exit 0; fi
+          old=$(git rev-parse HEAD)
+          if test "$status" = promotion-unknown; then
+            latest=$(npm view ytdb-slate dist-tags.latest --registry "$REGISTRY"); if test "$latest" = "$VERSION"; then result=verified; else result=superseded; fi
+            printf '{"identity":"%s","releaseSha":"%s","execution":"%s","result":"%s","before":"%s","after":"%s"}\n' "$IDENTITY" "$sha" "$(node -p 'require("./state.json").promoterExecution')" "$result" "$(node -p 'require("./state.json").promotionEvidence.expectedLatest')" "$latest" >promotion-recovery.json
+            node verification/release-control.mjs promotion-record --state state.json --result promotion-recovery.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --out next.json; mv next.json state.json; status=$(node -p 'require("./state.json").status')
+          fi
+          if test "$status" = proved && test "$(node -p 'require("./state.json").promotion')" = refused; then
+            expected=$(node -p 'require("./state.json").promotionEvidence.expectedLatest'); latest=$(npm view ytdb-slate dist-tags.latest --registry "$REGISTRY")
+            test "$latest" = "$expected" || { echo "Observed latest conflict $latest. Use close instead of rollback."; exit 2; }
+            node verification/release-control.mjs promotion-intent --state state.json --latest "$expected" --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --out next.json; mv next.json state.json; status=promotion-unknown; echo 'retry_promotion=true' >>"$GITHUB_OUTPUT"
+          fi
+          if test "$status" = promoted; then
+            tag="v$VERSION"; remote=$(git ls-remote --refs origin "refs/tags/$tag" | awk '{print $1}'); target=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish 2>/dev/null || true)
+            node verification/release-job.mjs final-records --state state.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --notes notes.md --repo "$GITHUB_REPOSITORY" --tag-sha "$remote" --release-target "$target"; node verification/release-control.mjs advance --state state.json --next complete --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --out next.json; mv next.json state.json
+          elif test "$status" = proved; then echo 'Promotion was superseded or conflicted. Use close after confirming no promoter is active.'
+          elif test "$status" != promotion-unknown; then echo "No recoverable interrupted effect in state $status" >&2; exit 2; fi
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json promotion-recovery.json 2>/dev/null || git add state.json; git commit -m "Recover observed release effects for $VERSION"; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+
+  recover-promote:
+    needs: recover
+    if: needs.recover.outputs.retry_promotion == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-release
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '24.18.0', registry-url: 'https://registry.npmjs.org' }
+      - env: { NODE_AUTH_TOKEN: '${{ secrets.NPM_STAGE_ONLY_TOKEN }}' }
+        run: node verification/release-job.mjs promote --state state.json --identity '${{ needs.recover.outputs.identity }}' --version '${{ needs.recover.outputs.version }}' --sha '${{ needs.recover.outputs.release_sha }}' --parent '${{ needs.recover.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --registry "$REGISTRY" --out "$RUNNER_TEMP/promotion.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with: { name: recovered-promotion-result, path: '${{ runner.temp }}/promotion.json', if-no-files-found: error, retention-days: 90 }
+
+  recover-promotion-record:
+    needs: [recover, recover-promote]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0 }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with: { name: recovered-promotion-result, path: promotion }
+      - env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          set -euo pipefail; old=$(git rev-parse HEAD); node verification/release-control.mjs promotion-record --state state.json --result promotion/promotion.json --identity '${{ needs.recover.outputs.identity }}' --version '${{ needs.recover.outputs.version }}' --sha '${{ needs.recover.outputs.release_sha }}' --parent '${{ needs.recover.outputs.parent_sha }}' --out next.json; mv next.json state.json
+          if test "$(node -p 'require("./state.json").status')" = promoted; then version=$(node -p 'require("./state.json").version'); tag="v$version"; remote=$(git ls-remote --refs origin "refs/tags/$tag" | awk '{print $1}'); target=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish 2>/dev/null || true); node verification/release-job.mjs final-records --state state.json --identity '${{ needs.recover.outputs.identity }}' --version '${{ needs.recover.outputs.version }}' --sha '${{ needs.recover.outputs.release_sha }}' --parent '${{ needs.recover.outputs.parent_sha }}' --notes notes.md --repo "$GITHUB_REPOSITORY" --tag-sha "$remote" --release-target "$target"; node verification/release-control.mjs advance --state state.json --next complete --identity '${{ needs.recover.outputs.identity }}' --version '${{ needs.recover.outputs.version }}' --sha '${{ needs.recover.outputs.release_sha }}' --parent '${{ needs.recover.outputs.parent_sha }}' --out next.json; mv next.json state.json; fi
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json promotion; git commit -m 'Recover promotion and final records'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+
+  abandon:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'abandon' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: { contents: write, pull-requests: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0 }
+      - name: Abandon only an unmerged preparation
+        env: { GH_TOKEN: '${{ github.token }}', VERSION: '${{ github.event.inputs.version }}', IDENTITY: '${{ github.event.inputs.identity }}' }
+        run: |
+          set -euo pipefail; test "$(node -p 'require("./state.json").version')" = "$VERSION"; test "$(node -p 'require("./state.json").identity')" = "$IDENTITY"; identity=$(node -p 'require("./state.json").identity'); branch="release/v$VERSION-${identity:0:12}"
+          status=$(node -p 'require("./state.json").status'); if test "$status" = abandoned; then echo 'Preparation is already abandoned.'; exit 0; fi
+          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --state all --head "$branch" --json number,mergedAt,state); merged=$(node -e 'const p=JSON.parse(process.argv[1]);process.stdout.write(String(p.some(x=>x.mergedAt)))' "$prs")
+          node verification/release-control.mjs abandon --state state.json --merged "$merged" --identity "$IDENTITY" --version "$VERSION" --out next.json
+          node -e 'for(const p of JSON.parse(process.argv[1]))if(!p.mergedAt&&p.state==="OPEN")console.log(p.number)' "$prs" | while read -r pr; do gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --comment 'Release preparation abandoned before merge and upload.'; done
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then git push origin --delete "$branch"; fi
+          old=$(git rev-parse HEAD); mv next.json state.json; git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json; git commit -m "Abandon release $VERSION"; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+
+  retire:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'retire' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0 }
+      - env: { VERSION: '${{ github.event.inputs.version }}', IDENTITY: '${{ github.event.inputs.identity }}' }
+        run: |
+          set -euo pipefail; old=$(git rev-parse HEAD); test "$(node -p 'require("./state.json").version')" = "$VERSION"; test "$(node -p 'require("./state.json").identity')" = "$IDENTITY"; status=$(node -p 'require("./state.json").status'); if test "$status" = retired; then echo 'Authorization is already retired.'; exit 0; fi
+          sha=$(node -p 'require("./state.json").releaseSha'); parent=$(node -p 'require("./state.json").releaseParent'); node verification/release-control.mjs retire --state state.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --out next.json; mv next.json state.json
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json; git commit -m 'Retire merged no-upload authorization'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+
+  close:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'close' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, fetch-depth: 0 }
+      - env: { VERSION: '${{ github.event.inputs.version }}', IDENTITY: '${{ github.event.inputs.identity }}' }
+        run: |
+          set -euo pipefail; old=$(git rev-parse HEAD); test "$(node -p 'require("./state.json").version')" = "$VERSION"; test "$(node -p 'require("./state.json").identity')" = "$IDENTITY"; sha=$(node -p 'require("./state.json").releaseSha'); parent=$(node -p 'require("./state.json").releaseParent'); status=$(node -p 'require("./state.json").status'); if test "$status" = closed-unpromoted; then echo 'Release is already closed without promotion.'; exit 0; fi
+          node verification/release-control.mjs close --state state.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --out next.json; mv next.json state.json
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json; git commit -m 'Close consumed release without promotion'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"

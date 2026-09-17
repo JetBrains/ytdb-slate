@@ -3427,3 +3427,36 @@ safe configuration values and unrelated workflow variables reach repository
 inspection. A real coverage-gate regression puts `core.fsmonitor` in a
 disposable global configuration file. Its negative control runs the monitor,
 while the complete runner and gate path leaves the same file tree unchanged.
+
+
+## Automated release control
+
+`.github/workflows/release.yml` owns preparation, exact-merge continuation, proof-gated publication, promotion, final records, and recovery. `verification/release-control.mjs` is the schema-versioned state and identity authority. `verification/release-job.mjs` owns the four effect boundaries: upload, npm distribution-tag promotion, empty-cache installed-command proof, and immutable final records. The workflow calls those production commands directly.
+
+The `release-state` branch keeps an additive history. Every request has a hash identity that includes the version, base, release-notes hash, exact coverage path set, and preparation authorization generation. A rerun keeps the workflow run identifier. A later dispatch gets a new generation, including after a terminal outcome with otherwise identical metadata. The path set has five metadata paths for an initial version change and three request paths for a corrected same-unused-version authorization. `verification/release-checks.sh` reads that set from the reviewed request. It does not rebuild the set from the version.
+
+The state distinguishes prepared, claimed, preupload, unknown upload, byte-verified, install-proved, unknown promotion, promoted, complete, abandoned, retired, terminal mismatch, and closed-without-promotion outcomes. A GitHub run and run-attempt pair authorizes one upload. A publisher rerun with another attempt number stops before npm. Recovery from `upload-unknown` requests failed jobs and dependent jobs from the original release run. The upload rerun refuses, while proof-gated dependents can record registry and installation proof, promote, and create final records. Installation proof is read-only and may use a later run attempt. Its success or failure result binds the producing execution to the exact identity, version, release commit, parent, and verified registry integrity. A separate state writer records validated installation failures while the install job remains failed. The failed install produces `install-failure-<attempt>`. `record-install-failure` consumes that artifact under the same run attempt and commits it under `install-failures/`. Failed-job recovery reruns both jobs with one new attempt. A recorder-only rerun cannot consume the prior attempt name. Recovery from `published` state also requests failed jobs and dependent jobs. The recovery job has no upload or promotion authority. The claim is idempotent for an accepted write whose response was lost. Retirement and every irreversible effect use the exact identity, release commit, and owning stage execution. Every workflow stage carries the identity captured by its authorized launch. Operator recovery and terminal actions require both the intended version and identity. A stale artifact or late recorder cannot stamp the current identity onto its own result.
+
+Upload uses OpenID Connect in the main-only `npm-release` environment and publishes under `slate-candidate`. Promotion begins only after registry-byte and installed-command proofs. Only the promotion job references the protected stage-only granular token. It records the expected `latest` value before the write and observes the value after the write. A conflict causes no write. An interrupted write remains unknown until recovery records the observed result. npm supplies no conditional distribution-tag write, so the workflow guarantees serialization only for its own writers.
+
+A byte mismatch is terminal and carries `attribution: unknown`. It does not claim that this workflow uploaded the served bytes. A proved release with a resolved conflict or superseding selection may close without promotion. A registry-verified published release with a validated installation failure may also close. The published route requires resolved upload and promotion outcomes and no active publisher or promoter. It preserves every installation attempt and consumes the version. Neither route creates an npm promotion, Git tag, or GitHub release. These terminal outcomes free the lane while preserving evidence. Late installation records cannot revive a closed identity.
+
+`test/release-control.test.ts` directly imports the production state and effect functions. Its owned adapters record upload, promotion, install, Git, and GitHub effects. The tests cover stale identities at each stage, upload and promotion execution mismatches, retryable installation proof, durable installation failure, accepted-but-lost claims, same-version correction, terminal identical re-preparation, grouped push selection, wrong operator targets, mismatch attribution, promotion conflict and unknown state, close without promotion, and final-record conflicts. They extract and execute the production workflow run blocks for upload sealing, installation, installation-failure recording, published-state recovery, retirement, and close against closed temporary fixtures. They assert the exact producing run attempt, upload flags, registry, tag, and archive. Removing an effect command from the workflow fails the workflow contract assertion. Removing an effect inside `release-job.mjs` fails the adapter assertion.
+
+The same test file executes the real `verification/release-checks.sh` in a temporary Git repository outside the checkout. Closed fake `npm`, `bash`, and `node` commands record the roster. The fixture checks exact order and arguments, strict flags, first-command failure propagation through `PIPESTATUS`, missing verdict refusal, permitted and forbidden coverage `WARN` boundaries, identity evidence, and final roster completeness. Replacing the typecheck command with `true` changes the command record and makes the roster audit fail.
+
+Run the focused tests with:
+
+```sh
+node --test test/release-control.test.ts
+```
+
+Run the full release roster only in a disposable exact-release checkout with installed dependencies:
+
+```sh
+bash verification/release-checks.sh --repo . --base <exact-parent-sha> \
+  --request release/requests/<version>/request.json \
+  --evidence /tmp/slate-release-evidence
+```
+
+The evidence directory must be outside the checkout. The script uses an isolated home for the ladder. It treats every failed command, strict `NOT RUN`, missing final verdict, skipped or reordered roster entry, and unsupported coverage `WARN` as fatal. The evidence includes `commands.tsv`, per-command logs, a coverage disposition when needed, and the final roster identity.

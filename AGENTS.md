@@ -403,30 +403,22 @@ The pack policy answers that risk. It permits a small set of file kinds, and it 
 
 ## Release & versioning
 
-Before any release, read and follow `RELEASING.md` in full. The runbook
-keeps the package version, the exact merge, the package contents and the
-registry artifact in agreement. It keeps NO release pin: the dogfood pin is
-gone and no step moves one (§ Dogfooding). This repository no longer
-dogfoods the published version: `.pi/settings.json` carries the local
-`../../main` entry and no registry entry for slate, so a session here loads
-the sibling worktree and never the release. That is an accepted loss of
-coverage. CI narrows what it costs: the packaging guards read the REAL file
-list from `npm pack --dry-run`, the same packing code `npm publish` uses, on
-every pull request. The package-content check reads that same real list and
-derives the runtime-file roster independently, but `.github/workflows/ci.yml`
-never invokes it, so it stays a hand-run net (§ Package-content check).
-Adding it to CI is open follow-up work and not a decision this file records.
-Two claims still need a publish to exist first. `RELEASING.md` step 6
-compares the registry bytes against the inspected bytes. Step 8 installs the
-published version into a throwaway project, against an empty throwaway npm
-package cache so the install must reach the registry, and confirms that pi
-loads the extension and registers its command. Step 8 asserts a registered
-COMMAND and no registered tool, because the rpc interface of the pinned pi
-lists commands and has no tool-listing request. Those two manual steps are
-the only continuing evidence about the published artifact itself, and neither
-is a proof of doctrine rendering or model routing (issue #293). Issue #199
-asks for an automated release workflow, and its body does not mention
-verification after a publish, so no issue tracks a replacement for step 8
-today. Bump the four SDK devDependency pins with any targeted pi release and
-refresh `package-lock.json`. Run all five CI checks and both
-package-content commands before publication.
+Before any release, read `RELEASING.md` in full. The Release workflow prepares one identity-bound branch. A user creates and merges its pull request. That exact merge authorizes the remaining automatic work.
+
+The `release-state` branch keeps an additive durable lifecycle. It binds the original request, reviewed notes and path set, exact merge and its own parent, complete executable check roster, inspected archive, upload execution, registry bytes, clean install proof, promotion intent and observations, Git tag, and GitHub release. Version alone is never release identity. Each preparation dispatch adds a unique authorization generation to the request identity. A rerun of that workflow run keeps the generation. Every later stage and operator action must carry the launch identity and reject a different current owner before an effect or state write. Compare-and-swap pushes fence the workflow's own writers.
+
+One release permits one live package upload. The publisher binds the upload to one GitHub run and run-attempt pair and publishes under the internal `slate-candidate` npm distribution tag. Unknown upload blocks retry, abandonment, retirement, promotion, and final records. Recovery from `upload-unknown` requests failed jobs and their dependents from the original release run. The sealed upload authority rejects the upload rerun. Proof-gated dependents may later record registry and installation proof, promote, and create final records. Installation proof is read-only and may be retried under a later run attempt. Its success or failure result binds the producing execution to the exact request identity, version, release commit, parent, and verified registry record. Recovery from `published` state also requests failed jobs and their dependents. The recovery job itself grants no upload or promotion authority. Other stage artifacts bind the request identity, release commit, and owning stage execution. A late result cannot replace the outcome of a newer owner. A confirmed byte mismatch is terminal and records no uploader attribution that the evidence cannot prove.
+
+After byte and exact-version install proofs, the promotion job alone receives `NPM_STAGE_ONLY_TOKEN` from the main-only `npm-release` environment. The expiring granular package token must have stage-only write access. It can move distribution tags and deprecate versions but cannot directly publish a new version. Upload keeps OpenID Connect authority. No check, pack, install, final-record, or lifecycle job receives that token. No credentialed job installs dependencies or executes package, test, lifecycle, or extension code.
+
+The workflow observes `latest` before and after promotion. It refuses observed conflicts and does not roll back another observed selection. npm tag writes are unconditional, so this does not protect against an independent npm writer inside the read-and-write window. Nobody may change `latest` manually while release automation is active.
+
+Ordinary abandonment covers only an unmerged request with no upload. Merged no-upload authorization uses explicit retirement. A corrected request may reuse the same unused version and may omit manifest files when `main` already names that version. A proved release with a resolved but impossible promotion may close without promotion. A registry-verified published release with durable installation-failure evidence may also close without promotion. The attempt-keyed `install-failure-<attempt>` artifact feeds `record-install-failure`, which commits validated evidence under `install-failures/`. If that recorder fails, failed-job recovery must rerun the failed installation job and recorder together. A recorder-only rerun requests an artifact under a new attempt number that no installation job produced. This route requires resolved upload and promotion outcomes and no active publisher or promoter. Retirement, mismatch, and close preserve evidence, revoke the exact identity, create no success final records, and free the lane. A published close consumes the version and rejects late installation results.
+
+The release request changes only `package.json`, `package-lock.json`, and its three files under `release/requests/<version>/`. A same-version correction can change only the three request files. The request records the exact permitted set. Those files remain outside the package `files` whitelist. The workflow moves no dogfood pin. Existing SDK pins change only during a targeted pi release.
+
+`verification/release-checks.sh` is the executable release roster. Keep every listed command, order, strict flag, exit status, and verdict check. A refusal, failure, unsupported result, absent verdict, or `NOT RUN` stops before publication. A coverage `WARN` advances only when the committed diff equals the path set in the reviewed request and the exact parent and identity enter evidence.
+
+`verification/release-job.mjs` owns the upload, promotion, installed-command proof, and final-record execution boundaries. Behavioral tests invoke those production functions with closed fake interfaces. They also execute the real workflow run blocks for upload sealing, installation, installation-failure recording, published-state recovery, retirement, and close against isolated state and closed fake commands. The tests execute the real roster script against an isolated fake repository and command set. Keep all three forms of evidence when changing the workflow or release roster.
+
+The fresh-install proof checks installation, extension loading, and `/slate` command registration. It does not prove interactive doctrine rendering, model routing, or tool registration. The first live release must prove trusted upload and stage-only-token promotion. It must also observe the package and organization token and two-factor authentication policy. Development work must not run the Release workflow live.
