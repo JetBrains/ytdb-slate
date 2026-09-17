@@ -22,8 +22,57 @@ while [ $# -gt 0 ]; do
     *) fail "unknown argument '$1'" ;;
   esac
 done
+
+# These settings can redirect repository discovery, writes, configuration, or
+# executable helpers before this runner can establish its real checkout.
+unsafe_git_names=()
+for name in \
+  GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CEILING_DIRECTORIES \
+  GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_EXEC_PATH GIT_TEMPLATE_DIR \
+  GIT_CONFIG GIT_CONFIG_PARAMETERS
+ do
+  [[ -v "$name" ]] && unsafe_git_names+=("$name")
+done
+[[ -v GIT_CONFIG_GLOBAL && "$GIT_CONFIG_GLOBAL" != /dev/null ]] && unsafe_git_names+=(GIT_CONFIG_GLOBAL)
+[[ -v GIT_CONFIG_SYSTEM && "$GIT_CONFIG_SYSTEM" != /dev/null ]] && unsafe_git_names+=(GIT_CONFIG_SYSTEM)
+[[ -v GIT_CONFIG_NOSYSTEM && "$GIT_CONFIG_NOSYSTEM" != 1 ]] && unsafe_git_names+=(GIT_CONFIG_NOSYSTEM)
+[[ -v GIT_CONFIG_COUNT && "$GIT_CONFIG_COUNT" != 0 ]] && unsafe_git_names+=(GIT_CONFIG_COUNT)
+while IFS= read -r name; do
+  [ -n "$name" ] && unsafe_git_names+=("$name")
+done < <(compgen -A variable GIT_CONFIG_KEY_ || true)
+while IFS= read -r name; do
+  [ -n "$name" ] && unsafe_git_names+=("$name")
+done < <(compgen -A variable GIT_CONFIG_VALUE_ || true)
+# Trace1 and Trace2 target variables can append to an arbitrary pathname. Scan
+# the families so a newly added Git trace target cannot bypass this preflight.
+while IFS= read -r name; do
+  [ -n "$name" ] && unsafe_git_names+=("$name")
+done < <(compgen -A variable GIT_TRACE || true)
+if [ "${#unsafe_git_names[@]}" -gt 0 ]; then
+  joined="$(IFS=', '; echo "${unsafe_git_names[*]}")"
+  fail "unsafe inherited Git settings detected before repository inspection: $joined. Unset these settings before running the suite, for example with 'env -u GIT_DIR npm test -- --base <ref>'."
+fi
+
+# Preserve the caller's ordinary process environment, but replace every Git
+# system, global, and command-line configuration source before Git or a
+# descendant can inspect the checkout.
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_SYSTEM=/dev/null
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_COUNT=0
+
 command -v node >/dev/null 2>&1 || fail "node is required"
 command -v git >/dev/null 2>&1 || fail "git is required"
+
+# Resolve the caller-selected temporary root before mktemp can create anything.
+# A spelling outside the checkout can still be a symbolic-link alias into it.
+tmp_root="${TMPDIR:-/tmp}"
+physical_tmp_root="$(cd -- "$tmp_root" 2>/dev/null && pwd -P)" || fail "temporary root is not an accessible directory: $tmp_root"
+case "$physical_tmp_root" in
+  "$repo"|"$repo"/*) fail "temporary root must be outside physical checkout: $physical_tmp_root" ;;
+esac
+
 if [ -z "$base" ]; then
   if git -C "$repo" show-ref --verify --quiet refs/heads/main; then main_ref=main
   elif git -C "$repo" show-ref --verify --quiet refs/remotes/origin/main; then main_ref=origin/main
@@ -33,7 +82,7 @@ if [ -z "$base" ]; then
 fi
 
 bash "$repo/verification/link-peers.sh"
-work="$(mktemp -d "${TMPDIR:-/tmp}/slate-node-test.XXXXXX")" || fail "cannot create temporary directory"
+work="$(mktemp -d "$physical_tmp_root/slate-node-test.XXXXXX")" || fail "cannot create temporary directory"
 cleanup() {
   status=$?
   if [ "$status" -eq 0 ]; then
