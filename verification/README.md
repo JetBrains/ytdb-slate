@@ -558,6 +558,12 @@ A net much smaller than the ladder, for these subjects:
 - the **orchestrator base-model tracker** in `extension/base-model.ts` (`base-*`)
   — the reducer that decides which model switches move the base model new worker
   threads inherit;
+- the disconnected logical-model policy and its shared syntax-derived import
+  check (`logical-*`). The check parses actual TypeScript and JavaScript module
+  references, scans `extension/**/*.ts` and `extension/**/*.mjs`, fails closed on
+  parse errors and unreviewed computed specifiers, and excludes only the three
+  exact dormant module paths. Its committed positive and negative controls cover
+  long and comment-interposed imports without treating comments or prose as code.
 - **the shipped profile table** in `extension/model-profiles.ts` (`profiles-*`)
   — identifier, alias, ladder, tier, metadata, and freezing invariants.
   `profiles-refresh` pins every refreshed ladder, evidence partition, limit and
@@ -585,8 +591,9 @@ A net much smaller than the ladder, for these subjects:
 The TypeScript modules loaded are `worker-extensions.ts`, `mode.ts`, `paths.ts`,
 `model-router.ts`, `route.ts`, `state.ts`, `writing.ts`, `writing-reminder.ts`,
 `worker-reminder.ts`, `worker.ts`, `threads.ts`, `base-model.ts`,
-`model-profiles.ts` and — through the aliased loader — `episodes.ts`. The suite
-imports `threads.ts` and calls its real `messagesForCompression` helper. The
+`model-profiles.ts`, `verification/logical-model-import-check.ts` and — through
+ the aliased loader — `episodes.ts`. The suite imports `threads.ts` and calls its
+real `messagesForCompression` helper. The
 shipped command `extension/writing-check.mjs` is also imported
 and spawned by its own checks. Every one of them is a re-run trigger — and
 because `state.ts`'s spec helpers are also used by `failover.ts`, a change to
@@ -597,6 +604,10 @@ because `state.ts`'s spec helpers are also used by `failover.ts`, a change to
 The ladder above covers slate's model-switch machinery — the model-default
 restore and, in `WK1`, worker-session settings isolation — and says nothing about
 any of the subjects below.
+
+The wrapper refuses with exit 2 before any check when the checkout's exact-pinned
+TypeScript compiler is missing or its installed version differs from the
+manifest. The logical import check is the direct consumer of that compiler.
 
 Unlike the ladder, these pipelines are **pure and deterministic** — one maps a
 host tool registry and a list of regex patterns to a set of load units, the second

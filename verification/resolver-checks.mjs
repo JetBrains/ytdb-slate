@@ -24,7 +24,7 @@
 // piped output): 1 if anything failed, or if a NOT RUN happened under --strict.
 // See verification/README.md.
 // =============================================================================
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -81,6 +81,10 @@ const reminderLoad = await tryImport("extension/writing-reminder.ts");
 const handoffLoad = await tryImport("extension/handoff.ts");
 const workerLoad = await tryImport("extension/worker.ts");
 const workerReminderLoad = await tryImport("extension/worker-reminder.ts");
+const logicalDefinitionsLoad = await tryImport("extension/logical-model-definitions.ts");
+const logicalResolverLoad = await tryImport("extension/logical-model-resolver.ts");
+const logicalRenderLoad = await tryImport("extension/logical-model-render.ts");
+const logicalImportCheckLoad = await tryImport("verification/logical-model-import-check.ts");
 // The base-model tracker is a PURE reducer over model-selection events (its own
 // module header says so), so it belongs here rather than in the ladder: it
 // touches no pi, no filesystem and no clock other than the injected one.
@@ -97,6 +101,10 @@ const reminder = reminderLoad.module;
 const handoff = handoffLoad.module;
 const worker = workerLoad.module;
 const workerReminder = workerReminderLoad.module;
+const logicalDefinitions = logicalDefinitionsLoad.module;
+const logicalResolver = logicalResolverLoad.module;
+const logicalRender = logicalRenderLoad.module;
+const logicalImportCheck = logicalImportCheckLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
 const checker = await import(pathToFileURL(`${REPO}/extension/writing-check.mjs`).href);
@@ -425,6 +433,7 @@ const ROUTE_IDS = [
  * (see the episode section for what each stub does and why it is faithful).
  */
 const EPISODE_IDS = ["episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header"];
+const LOGICAL_IDS = ["logical-defaults", "logical-resolution", "logical-render", "logical-disconnected"];
 /** Checks that need extension/base-model.ts — the orchestrator base-model tracker. */
 const BASE_IDS = [
 	"base-seed",
@@ -465,6 +474,7 @@ const VOIDABLE = [
 	["state-", STATE_IDS, "state-load"],
 	["base-", BASE_IDS, "base-load"],
 	["episode-", EPISODE_IDS, "episode-load"],
+	["logical-", LOGICAL_IDS, "logical-load"],
 ];
 
 // ------------------------------------------------------------------ fixtures --
@@ -2486,6 +2496,62 @@ try {
 	check("state-load", state !== undefined, "extension/state.ts loads", stateLoad.error?.message);
 	check("base-load", tracker !== undefined, "extension/base-model.ts loads", baseLoad.error?.message);
 	check("route-load", route !== undefined, "extension/route.ts loads", routeLoad.error?.message);
+	const logicalLoaded = logicalDefinitions !== undefined && logicalResolver !== undefined && logicalRender !== undefined && logicalImportCheck !== undefined;
+	check("logical-load", logicalLoaded, "the disconnected logical-model modules and their shared syntax-derived import check load", logicalDefinitionsLoad.error?.message ?? logicalResolverLoad.error?.message ?? logicalRenderLoad.error?.message ?? logicalImportCheckLoad.error?.message);
+	if (!logicalLoaded) {
+		for (const id of LOGICAL_IDS) skip(id, "the disconnected logical-model modules could not be loaded");
+	} else {
+		await section("logical-policy", async () => {
+			const defaults = logicalResolver.resolveLogicalModelPolicy({ trusted: true });
+			const exactRatings = [["gpt-5.6-luna", 45, 10], ["claude-sonnet-5", 40, 90], ["gpt-5.6-terra", 50, 55], ["gpt-5.6-sol", 58, 40], ["gemini-3.8-flash", 55, 30], ["claude-opus-5", 72, 80], ["gpt-6-astra", 86, 60]];
+			check("logical-defaults", JSON.stringify(defaults.policy?.ordinary.map((row) => [row.model, row.capabilityRating, row.costRating])) === JSON.stringify(exactRatings) && defaults.policy?.compressor.length === 1 && defaults.policy.compressor[0]?.model === "claude-sonnet-5" && defaults.policy.compressor[0]?.effort === "medium", "the pure resolver exposes seven fixed-rating defaults and the sole Sonnet-medium compressor", defaults);
+			const configured = logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { models: { include: ["gpt-5.6-sol"], add: [{ model: "fixture", capabilityRating: 52, effort: "low", costRating: 25, preferredProvider: "p", providers: { p: "exact/id" }, guidelines: [], cautions: [] }], exclude: ["gpt-5.6-sol"] } } } });
+			const repeatedEffort = logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-sol", effort: "high" }] } } } });
+			const unknownCases = [
+				[logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { models: { add: [{ model: "fixture", capabilityRating: 52, effort: "low", costRating: 25, preferredProvider: "p", providers: { p: "exact/id" }, guidelines: [], cautions: [], unexpected: true }] } } } }), 'router.models.add[0] has unknown field "unexpected".'],
+				[logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-sol", unexpected: true }] } } } }), 'router.models.replace[0] has unknown field "unexpected".'],
+				[logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { models: { unexpected: true } } } }), 'router.models has unknown field "unexpected".'],
+				[logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { compressor: { models: [{ model: "claude-sonnet-5", effort: "medium", unexpected: true }] } } } }), 'router.compressor.models[0] has unknown field "unexpected".'],
+			];
+			const exactUnknownErrors = unknownCases.every(([result, expected]) => result.policy === undefined && JSON.stringify(result.errors) === JSON.stringify([expected]));
+			check("logical-resolution", configured.policy?.ordinary.map((row) => row.model).join() === "fixture" && configured.policy.ordinary[0]?.capabilityRating === 52 && configured.errors.length === 0 && repeatedEffort.policy?.definitions["gpt-5.6-sol"]?.effort === "high" && exactUnknownErrors, "include, add, exclude, fixed ratings, repeated effort, and four isolated unknown-field inputs produce exact full error arrays", { configured, repeatedEffort, unknownCases });
+			const rendered = logicalRender.renderLogicalModelPrompt(defaults.policy);
+			const effective = logicalRender.renderEffectiveLogicalModelPolicy(logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { modelFailover: {}, router: { models: { include: ["gpt-5.6-sol"] } } } }));
+			const blocked = logicalRender.renderEffectiveLogicalModelPolicy(logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { compressor: { models: [] } } } }));
+			const meaning = "fixed project judgments expressed as integers from 1 through 100";
+			const advisory = "Guidance and cautions are advisory and non-exclusive.";
+			const promptRows = [
+				"| logical model | capability rating | cost rating | guidelines | cautions |",
+				"| --- | ---: | ---: | --- | --- |",
+				"| gpt-5.6-luna | 45 | 10 | consumer-contract work | none |",
+				"| claude-sonnet-5 | 40 | 90 | none | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
+				"| gpt-5.6-terra | 50 | 55 | none | none |",
+				"| gpt-5.6-sol | 58 | 40 | none | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
+				"| gemini-3.8-flash | 55 | 30 | concurrency work / data-loss work / performance work | none |",
+				"| claude-opus-5 | 72 | 80 | concurrency work / data-loss work / performance work | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
+				"| gpt-6-astra | 86 | 60 | security work / performance work | none |",
+			];
+			check("logical-render", typeof rendered.text === "string" && promptRows.every((row) => rendered.text.includes(row)) && rendered.text.includes(meaning) && rendered.text.includes(advisory) && !rendered.text.includes("preferredProvider") && effective.includes("permission anthropic/claude-sonnet-5") && effective.includes("Legacy key modelFailover is ignored") && effective.includes(meaning) && effective.includes(advisory) && blocked.includes(meaning) && blocked.includes(advisory) && blocked.includes("credentials"), "the deterministic prompt and both effective states expose complete rating meaning, advisory guidance, permissions, and diagnostics", { rendered, effective, blocked });
+			const longGap = " ".repeat(2_001);
+			const fixture = logicalImportCheck.analyzeLogicalModelSources([
+				{ path: "extension/fixture/named.ts", source: `import { value }${longGap}from "../logical-model-render.ts";` },
+				{ path: "extension/fixture/commented.ts", source: 'export { value } from /* comment */ "../logical-model-resolver.js";' },
+				{ path: "extension/fixture/side-effect.ts", source: 'import /* comment */ "../logical-model-definitions";' },
+				{ path: "extension/fixture/dynamic.mjs", source: 'void import /* comment */ (`../logical-model-render.ts`);' },
+				{ path: "extension/fixture/require.ts", source: 'require("../logical-model-resolver.cjs");' },
+				{ path: "extension/fixture/import-equals.ts", source: 'import Value = require("../logical-model-definitions.mts");' },
+				{ path: "extension/fixture/clean.ts", source: 'const note = "migration from \\\"../logical-model-render.ts\\\""; // import "../logical-model-resolver.ts"' },
+			]);
+			const computed = logicalImportCheck.analyzeLogicalModelSources([{ path: "extension/fixture/computed.ts", source: "void import(target);" }]);
+			const broken = logicalImportCheck.analyzeLogicalModelSources([{ path: "extension/fixture/broken.ts", source: 'import { from "./broken.ts";' }]);
+			const active = logicalImportCheck.scanLogicalModelImports(join(REPO, "extension"));
+			const fixtureReferences = fixture.issues.filter((issue) => issue.kind === "forbidden-reference");
+			const clean = fixture.issues.filter((issue) => issue.path.endsWith("clean.ts"));
+			const syntaxControls = fixtureReferences.length === 6 && clean.length === 0 && computed.issues.length === 1 && computed.issues[0]?.kind === "computed-reference" && broken.issues.length > 0 && broken.issues.every((issue) => issue.kind === "parse-error");
+			const activeClean = active.files.length > 20 && active.files.some((path) => path.endsWith(".mjs")) && JSON.stringify(active.reviewedNonLiteralSites) === JSON.stringify(logicalImportCheck.REVIEWED_NON_LITERAL_MODULE_SITES) && active.issues.length === 0;
+			check("logical-disconnected", syntaxControls && activeClean, "syntax-derived positive and negative controls protect the recursive TypeScript and JavaScript disconnection scan", { fixture, computed, broken, active });
+		});
+	}
 
 	if (!router) {
 		for (const id of ROUTER_IDS) skip(id, "extension/model-router.ts could not be loaded");
@@ -7174,7 +7240,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 		"bar-self-exclude", "bar-self-nested", "bar-self-split-layout", "bar-self-second-entry", "bar-self-symlink", "bar-self-escape", "bar-self-trailing", "bar-self-fallback", "bar-self-case", "bar-self-name", "bar-self-name-origins", "bar-self-name-unitpath", "bar-self-checkout-root", "bar-collision",
 		"match-source", "match-path", "match-toolpath", "match-none", "match-invalid-regex",
 		"inject-safety", "memoization",
-		"router-load", "profiles-load", "state-load",
+		"router-load", "profiles-load", "state-load", "logical-load", ...LOGICAL_IDS,
 		"router-off", "router-unprofiled", "router-malformed", "router-unroutable", "router-alias-duplicate",
 		"router-all-dropped", "router-order", "router-registry-rates", "router-w1-canary", "router-w1-guards", "router-w3-unknown",
 		"router-class-partition", "router-class-default", "router-tag-keep", "router-empty-fields", "router-subject-repair", "router-profile-input-bound", "router-message-cap", "router-separator", "router-separator-forgery", "router-notify-controls", "router-profile-date", "router-w3-explainer", "router-failover-coverage",
