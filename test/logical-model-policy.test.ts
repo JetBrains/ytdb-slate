@@ -3,12 +3,14 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { SHIPPED_COMPRESSOR_MODELS, SHIPPED_LOGICAL_MODELS, type LogicalModelDefinition } from "../extension/logical-model-definitions.ts";
 import { resolveLogicalModelPolicy, type LogicalModelPolicy } from "../extension/logical-model-resolver.ts";
 import { renderEffectiveLogicalModelPolicy, renderLogicalModelPrompt } from "../extension/logical-model-render.ts";
 import { REVIEWED_NON_LITERAL_MODULE_SITES, analyzeLogicalModelSources, scanLogicalModelImports } from "../verification/logical-model-import-check.ts";
 
+const REPOSITORY_ROOT = process.cwd();
 const resolve = (projectConfig?: unknown, trusted = true) => resolveLogicalModelPolicy({ trusted, projectConfig });
 const validCustom = { model: "custom-model", capabilityRating: 52, effort: "high", costRating: 25, preferredProvider: "custom", providers: { custom: "vendor/model-v1" }, guidelines: ["bounded custom work"], cautions: [] };
 const SOURCE = {
@@ -347,7 +349,7 @@ test("the shared syntax check detects every approved literal form and ignores or
     { path: "extension/fixtures/runtime.mjs", source: 'export { value } from "../logical-model-resolver.jsx";' },
     { path: "extension/fixtures/harmless.ts", source: 'const note = "migration from \\\"../logical-model-render.ts\\\" is deferred";\n// import from "../logical-model-resolver.ts"' },
   ];
-  const result = analyzeLogicalModelSources(sources);
+  const result = analyzeLogicalModelSources(sources, REPOSITORY_ROOT);
   const forbidden = result.issues.filter((issue) => issue.kind === "forbidden-reference");
   assert.equal(forbidden.length, 12);
   assert.deepEqual(new Set(forbidden.map((issue) => issue.target)), new Set([
@@ -363,19 +365,66 @@ test("the shared syntax check fails closed for parse errors and unreviewed compu
   const result = analyzeLogicalModelSources([
     { path: "extension/fixtures/computed.ts", source: "void import(target);" },
     { path: "extension/fixtures/broken.ts", source: 'import { from "./broken.ts";' },
-  ]);
+  ], REPOSITORY_ROOT);
   assert.deepEqual(result.issues.map((issue) => issue.kind).sort(), ["computed-reference", "parse-error"]);
   assert.equal(result.issues.find((issue) => issue.kind === "computed-reference")?.expression, "target");
   assert.match(result.issues.find((issue) => issue.kind === "parse-error")?.message ?? "", /expected|declaration/i);
 });
 
 test("only the reviewed writing-checker computed import is accepted once", () => {
-  const once = analyzeLogicalModelSources([{ path: "extension/writing.ts", source: "void import(WRITING_CHECKER_URL);" }]);
+  const once = analyzeLogicalModelSources([{ path: "extension/writing.ts", source: "void import(WRITING_CHECKER_URL);" }], REPOSITORY_ROOT);
   assert.deepEqual(once.reviewedNonLiteralSites, REVIEWED_NON_LITERAL_MODULE_SITES);
   assert.deepEqual(once.issues, []);
-  const twice = analyzeLogicalModelSources([{ path: "extension/writing.ts", source: "void import(WRITING_CHECKER_URL); void import(WRITING_CHECKER_URL);" }]);
+  const twice = analyzeLogicalModelSources([{ path: "extension/writing.ts", source: "void import(WRITING_CHECKER_URL); void import(WRITING_CHECKER_URL);" }], REPOSITORY_ROOT);
   assert.deepEqual(twice.reviewedNonLiteralSites, REVIEWED_NON_LITERAL_MODULE_SITES);
   assert.deepEqual(twice.issues.map((issue) => issue.kind), ["computed-reference"]);
+});
+
+test("dormant target matching follows pinned jiti path and decoration behavior", { timeout: 15_000 }, async () => {
+  const jitiUrl = pathToFileURL(join(REPOSITORY_ROOT, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "jiti", "lib", "jiti-static.mjs")).href;
+  const { createJiti } = await import(jitiUrl) as { createJiti(id: string, options?: object): { import(id: string): Promise<Record<string, unknown>> } };
+  const nestedImporter = join(REPOSITORY_ROOT, "extension", "fixtures", "probe.ts");
+  const jiti = createJiti(nestedImporter, { interopDefault: true, moduleCache: false });
+  const targets = ["logical-model-definitions", "logical-model-resolver", "logical-model-render", "logical-model-recovery", "logical-model-adapters"];
+
+  const check = async (specifier: string, expectedTarget: string | undefined, loads: boolean) => {
+    if (loads) await jiti.import(specifier);
+    else await assert.rejects(jiti.import(specifier), (error: unknown) => error instanceof Error, specifier);
+    const result = analyzeLogicalModelSources([{ path: "extension/fixtures/probe.ts", source: `import ${JSON.stringify(specifier)};` }], REPOSITORY_ROOT);
+    assert.deepEqual(result.issues.map((issue) => [issue.kind, issue.specifier, issue.target]), expectedTarget ? [["forbidden-reference", specifier, `extension/${expectedTarget}`]] : [], specifier);
+  };
+
+  for (const target of targets) {
+    const absolute = join(REPOSITORY_ROOT, "extension", `${target}.ts`);
+    await check(`../${target}.ts`, target, true);
+    await check(absolute, target, true);
+    await check(pathToFileURL(absolute).href, target, true);
+  }
+
+  const adapterPath = join(REPOSITORY_ROOT, "extension", "logical-model-adapters.ts");
+  const adapterUrl = pathToFileURL(adapterPath).href;
+  for (const specifier of [`../logical-model-adapters.ts?live`, `../logical-model-adapters.ts#live`, `${adapterPath}?live`, `${adapterPath}#live`, `${adapterUrl}?live`, `${adapterUrl}#live`, `${adapterUrl}%3Flive`, `${adapterUrl}%23live`]) {
+    await check(specifier, "logical-model-adapters", true);
+  }
+  for (const specifier of [`../logical-model-adapters.ts%3Flive`, `${adapterPath}%3Flive`, `${adapterUrl}%253Flive`]) {
+    await check(specifier, undefined, false);
+  }
+
+  const externalRoot = mkdtempSync(join(tmpdir(), "slate-logical-external-"));
+  let passed = false;
+  try {
+    const external = join(externalRoot, "extension", "logical-model-adapters.ts");
+    mkdirSync(join(externalRoot, "extension"), { recursive: true });
+    writeFileSync(external, "export const marker = 77;\n");
+    const externalSpecifier = `${pathToFileURL(external).href}?live`;
+    const loaded = await jiti.import(externalSpecifier);
+    assert.equal(loaded.marker, 77);
+    await check(externalSpecifier, undefined, true);
+    passed = true;
+  } finally {
+    if (passed) rmSync(externalRoot, { recursive: true, force: true });
+    else process.stderr.write(`external same-tail fixture retained at ${externalRoot}\n`);
+  }
 });
 
 test("recursive runtime-source scanning uses exact dormant paths and includes nested TypeScript and JavaScript", () => {
@@ -384,7 +433,7 @@ test("recursive runtime-source scanning uses exact dormant paths and includes ne
   try {
     const extension = join(root, "extension");
     mkdirSync(join(extension, "nested"), { recursive: true });
-    for (const file of ["logical-model-definitions.ts", "logical-model-resolver.ts", "logical-model-render.ts"]) {
+    for (const file of ["logical-model-definitions.ts", "logical-model-resolver.ts", "logical-model-render.ts", "logical-model-recovery.ts", "logical-model-adapters.ts"]) {
       writeFileSync(join(extension, file), "this is deliberately invalid dormant syntax");
     }
     writeFileSync(join(extension, "logical-model-render.mjs"), 'import "./logical-model-resolver.ts";');
@@ -445,7 +494,7 @@ test("every non-policy runtime extension source stays disconnected from logical-
 
 test("the disconnected policy contains no retired external score or ratio vocabulary", () => {
   const retired = new RegExp(["Artificial", "Analysis|artificialanalysis\\.ai|referenceCostUsd|capabilityScore|relativeCost|displayRelativeCost|capabilityBand"].join(" "));
-  for (const path of ["extension/logical-model-definitions.ts", "extension/logical-model-resolver.ts", "extension/logical-model-render.ts"]) {
+  for (const path of ["extension/logical-model-definitions.ts", "extension/logical-model-resolver.ts", "extension/logical-model-render.ts", "extension/logical-model-recovery.ts", "extension/logical-model-adapters.ts"]) {
     assert.doesNotMatch(readFileSync(path, "utf8"), retired, path);
   }
 });
