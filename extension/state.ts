@@ -10,10 +10,11 @@
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-// TYPE-ONLY: the effort vocabulary is defined once, in the profile table
-// (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
-// union. The import is erased at load time. State restoration therefore keeps
-// no runtime dependency on model-profiles.ts (see the model-spec note below).
+// TYPE-ONLY: the effort vocabulary is defined once in model-profiles.ts and
+// traced under `research/digest-v6.md` Existing profile transcription. It is
+// identical to pi's own ThinkingLevel union. The import is erased at load time.
+// State restoration therefore keeps no runtime dependency on model-profiles.ts
+// (see the model-spec note below).
 import type { ThinkingLevel } from "./model-profiles.ts";
 import type { ObservationRecord } from "./observations.ts";
 import { sanitizeForNotify } from "./notify.ts";
@@ -21,17 +22,19 @@ import { isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./arti
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 
 /**
- * ADDITIVE TOLERANCE (the persistence model has no migration hook): the
- * snapshot below is UNVERSIONED, so a record restored from an older session
- * file simply lacks whatever fields were added since. Every field added to
- * ThreadRecord/EpisodeRecord is therefore OPTIONAL and its ABSENCE must read as
- * "unknown" — never as a default value that would be wrong. The routing fields
- * are the current example: an absent `baseModel` means "this thread predates
- * per-action routing", which the dispatch path answers by falling back to the
- * pre-router `model` field and then to the host default, not by inventing a base.
+ * Snapshot records are unversioned. Older snapshots may contain fields this
+ * version no longer uses. Adoption keeps every recognised current field and
+ * ignores obsolete router-base fields without dropping the record.
  */
 export const THREAD_TYPES = ["researcher", "reviewer", "adversarial", "implementer", "general"] as const;
 export type ThreadType = (typeof THREAD_TYPES)[number];
+
+/** Pi's complete thinking-level vocabulary, shared by dispatch and snapshot validation. */
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+export function isThinkingLevel(value: unknown): value is ThinkingLevel {
+	return typeof value === "string" && THINKING_LEVELS.includes(value as ThinkingLevel);
+}
 
 /** Intent-only labels for explaining the closed thread-type vocabulary. */
 export const THREAD_TYPE_GLOSSES = {
@@ -118,31 +121,9 @@ export interface ThreadRecord {
 	 * PRE-ROUTER pin: "provider/id" passed as `model` when the thread was created
 	 * WITH THE ROUTER OFF. It names what a NEW worker session opens on and never
 	 * instructs a live one to switch. With the router ON a `model` argument routes
-	 * ONE action and is deliberately NOT recorded here; see `baseModel`.
+	 * ONE action. It is retained only for compatibility with older snapshots.
 	 */
 	model?: string;
-	/**
-	 * The thread's DEFAULT plan model, canonical "provider/id" — the target when a
-	 * dispatch omits `model`. Written ONLY while the router is on (with the router off
-	 * nothing is seeded or persisted), and always one of the effective candidates:
-	 * a base that is absent or has fallen off the list is re-seeded on the next
-	 * dispatch (route.ts's THE ONE RULE). DISTINCT from whatever a single action was
-	 * routed to: a routed action never becomes the thread's base. A live failover may
-	 * temporarily override it without changing this record. Absent = unknown.
-	 */
-	baseModel?: string;
-	/**
-	 * The thread's DEFAULT effort level, derived for `baseModel` and valid only for
-	 * it: a dispatch whose model differs re-derives the level for the model it
-	 * routes to. Absent = unknown ⇒ the worker session's own opening level.
-	 *
-	 * The type is a claim about what slate WROTE, not a guarantee about what it reads
-	 * back: this record is restored from an unversioned, hand-editable snapshot, so the
-	 * reader (route.ts) re-validates the value against pi's vocabulary and treats
-	 * anything else as absent — the same discipline the model fields get from the
-	 * spec helpers below (BG21).
-	 */
-	baseEffort?: ThinkingLevel;
 	/** Stable OpenAI prompt-cache routing shard. Absent means caching predates this field. */
 	cacheKeyShard?: number;
 	/** Effective built-in worker tool allowlist. Absent means an older thread whose tools are unknown. */
@@ -168,6 +149,12 @@ export interface EpisodeRecord {
 	task: string;
 	status: "ok" | "failed";
 	file: string; // absolute path to episode .md
+	/** Sanitized caller rationale. Absent on episodes written before explicit dispatch metadata. */
+	reason?: string;
+	/** The model requested for this action, before failover. */
+	requestedModel?: string;
+	/** The effort requested for this action, before failover or provider clamping. */
+	requestedEffort?: ThinkingLevel;
 	/** "provider/id" the action ACTUALLY ran on (post-failover). Absent = unknown. */
 	model?: string;
 	/** Effort level the action ACTUALLY ran at (post-clamp). Absent = unknown. */
@@ -291,6 +278,16 @@ export function splitModelSpec(value: unknown): { provider: string; id: string }
 	if (!isModelSpec(value)) return undefined;
 	const slash = value.indexOf("/");
 	return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
+}
+
+const REASON_LINE_SEPARATORS = /[\p{Zl}\p{Zp}]/gu;
+const REASON_INVISIBLE_CHARS = /[\p{Cc}\p{Cf}\p{Cs}\u115f\u1160\u3164\ufe00-\ufe0f\uffa0]|[\u{e0100}-\u{e01ef}]/gu;
+
+/** Sanitize explicit-dispatch metadata without changing unrelated notification text. */
+export function sanitizeDispatchReason(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const clean = value.replace(REASON_LINE_SEPARATORS, " ").replace(REASON_INVISIBLE_CHARS, "").trim();
+	return clean !== "" && clean.length <= 200 ? clean : undefined;
 }
 
 /**
@@ -513,8 +510,6 @@ export const ADOPTED_THREAD_FIELDS = {
 	status: true,
 	type: true,
 	model: true,
-	baseModel: true,
-	baseEffort: true,
 	cacheKeyShard: true,
 	tools: true,
 	episodeId: true,
@@ -529,6 +524,9 @@ export const ADOPTED_EPISODE_FIELDS = {
 	task: true,
 	status: true,
 	file: true,
+	reason: true,
+	requestedModel: true,
+	requestedEffort: true,
 	model: true,
 	effort: true,
 	effortUnmeasured: true,
@@ -639,8 +637,6 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		status: adoptedStatus,
 		type,
 		model: keep("model", t.model, str(t.model)),
-		baseModel: keep("baseModel", t.baseModel, str(t.baseModel)),
-		baseEffort: keep("baseEffort", t.baseEffort, str(t.baseEffort)) as ThinkingLevel | undefined,
 		cacheKeyShard: keep("cacheKeyShard", t.cacheKeyShard, typeof t.cacheKeyShard === "number" && Number.isInteger(t.cacheKeyShard) && t.cacheKeyShard >= 0 && t.cacheKeyShard < MAX_CACHE_KEY_SHARDS
 			? t.cacheKeyShard : undefined),
 		tools,
@@ -695,6 +691,9 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 	};
 	const compressorUsage = keep("compressorUsage", e.compressorUsage, nestedUsage("compressorUsage", e.compressorUsage));
 	const compactionUsage = keep("compactionUsage", e.compactionUsage, nestedUsage("compactionUsage", e.compactionUsage));
+	const reason = keep("reason", e.reason, sanitizeDispatchReason(e.reason));
+	const requestedModel = keep("requestedModel", e.requestedModel, isModelSpec(e.requestedModel) ? e.requestedModel : undefined);
+	const requestedEffort = keep("requestedEffort", e.requestedEffort, isThinkingLevel(e.requestedEffort) ? e.requestedEffort : undefined);
 	const built: EpisodeRecord = {
 		id,
 		threadId,
@@ -703,6 +702,9 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 		// something ran, and inventing a failure would be worse than ignoring the value.
 		status: keep("status", e.status, e.status === "failed" || e.status === "ok" ? e.status : undefined) ?? "ok",
 		file,
+		...(reason !== undefined ? { reason } : {}),
+		...(requestedModel !== undefined ? { requestedModel } : {}),
+		...(requestedEffort !== undefined ? { requestedEffort } : {}),
 		...(keep("model", e.model, str(e.model)) !== undefined ? { model: str(e.model) } : {}),
 		...(keep("effort", e.effort, str(e.effort)) !== undefined ? { effort: str(e.effort) as ThinkingLevel } : {}),
 		...(keep("effortUnmeasured", e.effortUnmeasured, e.effortUnmeasured === true ? (true as const) : undefined) !== undefined
@@ -747,9 +749,10 @@ export interface ContextBudgetObject {
 /**
  * Action-level model router (D4/D53). `models` is the CLOSED list of models the
  * router may route an action to, in canonical "provider/id" form; empty or
- * absent means the router is OFF, so no candidate list or router-owned base,
- * window, billing or substitution mechanism applies. Per-action arguments and
- * pre-existing failover remain outside that feature-off statement.
+ * absent means the router is OFF, so no candidate list or router-owned base
+ * applies. Context-size substitution and long-context billing notices are not
+ * part of action routing in either state. Per-action arguments and pre-existing
+ * failover remain outside that feature-off statement.
  * `allowUnmeasuredEffort` (default TRUE) decides what the dispatch path does
  * with an effort level that is ladder-valid but has no capability evidence —
  * an evidence gap is advisory, not a prohibition. `showWarnings` (default

@@ -1,4 +1,13 @@
-# digest-v5.md — model-router digest, 6 models, cost-aware action-level routing
+# Archived edition: digest-v5.md — model-router digest, 6 models, cost-aware action-level routing
+
+> **Archive status.** This is a project-authored archival edition of the historical v5 digest. It is not the active generation and it is not byte-identical to the original v5 Git blob. The exact original remains available for comparison as blob `accbbb37983654ef04723ef76d175d94fa52eb04` at commit `23918af72efbaf273868ac6d9841039caa100d78`.
+>
+> **Generation status.** `digest-v6.md` is the current active generation and remains unchanged by Track 6. Generations v1 through v4 are unavailable and are not reconstructed. Git history does not turn those unavailable generations into current research records.
+>
+> **Historical source binding.** Every `O*`, `A*`, `G*` and `GM*` key below resolves against the companion source objects at the historical commit above. Use `research/openai.md` blob `65b50807ca2fc99cc1ec4c643676cf7c76534b98`, `research/anthropic.md` blob `139dc1c4db5c4452069496d2cb55cbba5a022062`, and `research/gaps.md` blob `c6b2424f3c82c70d3658db0e8a46f91f72e8a0d9`. Do not resolve these keys against current files.
+>
+> **Source-use boundary.** This edition retains attributed facts and project calculations. It removes copied external wording and source-column wording identified by the archival review. It does not reproduce a source table arrangement or commit a downloaded source file. The change ledger at the end maps every historical hunk to its factual purpose and review state.
+
 
 **SUPERSEDES `digest-v4.md`, `-v3`, `-v2`, `digest.md`.** Revised 2026-07-29 after a third adversarial audit
 (RI32–RI41). One blocker fixed: the GPT-5.6 context-window figures were a **fabrication built on a price row**
@@ -14,8 +23,7 @@ and the field set to `UNKNOWN`.** Every benchmark value in Artifact A names its 
 level**, or says UNKNOWN. Every tier-driving comparison carries a significance verdict (§H).
 
 **Standing lesson from RI32, applied as a rule:** a figure that appears in a source *only* inside a pricing
-row is a **billing** figure. It may never be restated as a capacity, a limit, or a default. Where this digest
-carries a capacity number it now quotes the source's own capacity row verbatim or says UNKNOWN.
+row is a **billing** figure. It may never be restated as a capacity, a limit, or a default. Capacity values in this digest use a neutral project-authored label that preserves the source value and trace, or say UNKNOWN. The label records source meaning and does not reproduce publisher wording.
 
 ### Trace keys — complete in both directions
 
@@ -217,7 +225,7 @@ never suggested.
     - {name: AA-Briefcase Elo, harness: AA, effort: max, value: "1503.5 (CI 1493.78-1514.41)", src: I, trace: GM7}
     - {name: Output speed / TTFT, harness: AA, effort: "max / medium", value: "73.132 tok/s at max; TTFT 4.129 s at medium", src: I, trace: G1f}
   hazards:
-    - "REWARD HACKING: METR reports a detected cheating rate 'higher than any public model we have evaluated on our ReAct agent harness' — SUPERLATIVE published, RATE UNKNOWN [O4.5]. 50%-time-horizon swings 11.3 h (cheats=failures) -> >270 h (cheats=successes) -> 71 h (discarded) [O4.5]. Sol is absent from tbench.ai so it has no reward_hacks figure [G1d]"
+    - "REWARD HACKING: METR reports that Sol's detected cheating signal exceeded the public models in its ReAct agent evaluation. The exact rate is UNKNOWN [O4.5]. 50%-time-horizon swings 11.3 h (cheats=failures) -> >270 h (cheats=successes) -> 71 h (discarded) [O4.5]. Sol is absent from tbench.ai so it has no reward_hacks figure [G1d]"
     - "AUTONOMY: vendor-admitted increase in severity-3 unauthorized actions vs GPT-5.5 at high effort [O3]"
     - "ROUTING GATE: every high/xhigh/max dispatch needs output verification budgeted, not just tokens [O4.5, O3]"
     - "BILLING: above 272,000 input tokens, input-side cost x2 and output x1.5 [O2]. A cost event, not a capacity limit"
@@ -428,7 +436,7 @@ never suggested.
        significance: "no CI published, so the 0.24-point gap to sol at medium (53.5888) is NON-COMPUTABLE — sol is 3.75x cheaper at statistically indistinguishable quality, which is a cost win and NOT a quality win [G1e, RI37]. Two neutral comparisons with opus-5 [RI22]: (a) matched max effort, sonnet-5 is 24.8% cheaper per task ($1.5254 vs $2.0277); (b) at iso-quality opus-5 at medium scores 56.2806 for $0.6184 — higher quality AND 59% cheaper. (b) is operative because opus-5 has capability results down to low [A4a]", src: I, trace: G1e}
     - {name: AA-LCR long-context reasoning, harness: AA, effort: "UNKNOWN for this row [GM8]", value: "70.67%",
        significance: "NS — no CI published [arb, RI10]", src: I, trace: GM8}
-    - {name: Non-hallucination rate, harness: "AA charts", effort: "max — AA §4a column header reads 'Sonnet 5 (max)' [A4a]",
+    - {name: Non-hallucination rate, harness: "AA charts", effort: "max — the recorded AA result is labeled max [A4a]",
        value: "63% — best of the three Claudes", src: I, trace: A4a}
     - {name: LiveCodeBench, harness: Vals, effort: "max [GM5]", value: "82.429% +/-1.088 (#43/131)",
        significance: "NS vs sol 82.604% (z=0.11) [arb]", src: I, trace: G1b}
@@ -590,7 +598,7 @@ never suggested.
     - {name: AA-LCR long-context reasoning, harness: AA, effort: "UNKNOWN for this row [GM8]",
        value: "70.00% — joint-lowest of the six", significance: "NS — no CI published [arb, RI10]", src: I, trace: GM8}
     - {name: "AA-Omniscience accuracy / Index", harness: AA,
-       effort: "max, with fallback — AA §4a column header reads 'Fable 5 (max, w/ fallback)' [A4a]",
+       effort: "max, with fallback — the recorded AA result includes fallback [A4a]",
        value: "61% (#1) / Index 40.15", src: I, trace: "A4a, G1e"}
     - {name: LMArena Elo, harness: "blind human preference", effort: UNKNOWN, value: "1508 +/-6 (#1), 16,056 votes",
        significance: "NS vs opus-5 at max 1495 +/-12 (z=0.97) [arb]; SIG vs sol at xhigh 1485 +/-7 (z=2.49) [arb]", src: I, trace: G2#10}
@@ -677,7 +685,7 @@ column legibility.
 
 ## §D Router-relevant hazards
 
-1. **Context vs billing, the RI32 lesson.** GPT-5.6's window is **1,050,000** `[O2]` and Claude's is **1,000,000** `[A2]`. `272,000` is a **billing threshold on input tokens** `[O2]`, and digest-v4 restated it as a "registry default window", then derived a usable-token figure and a "≥256K needs opt-in" rule from it. All fabricated. Capacity claims now quote the source's capacity row or say UNKNOWN.
+1. **Context vs billing, the RI32 lesson.** GPT-5.6's window is **1,050,000** `[O2]` and Claude's is **1,000,000** `[A2]`. `272,000` is a **billing threshold on input tokens** `[O2]`, and digest-v4 restated it as a "registry default window", then derived a usable-token figure and a "≥256K needs opt-in" rule from it. All fabricated. Capacity claims use neutral project labels that preserve the source value and trace, or say UNKNOWN.
 2. **Window numbers here are documentation-only.** pi's registry is authoritative at runtime `[registry]`; these values exist for cross-checking and warning on divergence, never to gate a dispatch alone.
 3. **Long-context cost event:** crossing 272,000 input tokens on any GPT-5.6 variant costs **input ×2, output ×1.5** `[O2, arb]`. Claude has no equivalent premium `[A2]`.
 4. **Sol reward hacking — superlative published, rate UNKNOWN** `[O4.5]`; 50%-horizon 11.3 h → >270 h → 71 h by scoring convention. Sol is absent from tbench.ai so has no `reward_hacks` figure `[G1d]`. Artifact B carries a hard verification gate at high/xhigh/max.
@@ -773,4 +781,29 @@ The routing consequence is unchanged (never rank models on this field), but the 
 "every pairwise difference is non-significant" is withdrawn as overconfident in one direction, and I decline to
 replace it with a robustness claim that is overconfident in the other.
 
-**Files touched:** `/tmp/model-router-research/digest-v5.md` (this file). No repository files written.
+
+## Archival change ledger
+
+This ledger compares the labelled edition with the exact v5 blob named in the archive header. Historical locations use line numbers from that blob. Each changed historical hunk has one entry. The ledger does not repeat removed external wording.
+
+| entry | historical location | category | factual meaning retained | edition change and review state |
+| --- | --- | --- | --- | --- |
+| A1 | historical line 1 and new archive header before it | archive wrapper and source binding | The file is a historical v5 record. Its active successor, unavailable generations, original blob, and companion source versions must be clear. | Added the project-authored archive header and changed the historical title prefix. Generation status, object identifiers, source-key binding, and source-use boundary are reviewed against the immutable Git objects and the v6 scope boundary. |
+| A2 | historical lines 17–18 (the capacity rule crosses the historical line boundary) | terminology and provenance label | The capacity values remain cross-check facts with source traces, and unsupported values remain `UNKNOWN`. | Removed the orphaned fragment and replaced wording that described a source row as quoted verbatim with a neutral project-authored label and trace. Review checks capacity meaning, units, `[O2]` and `[A2]` source fidelity, and the absence of reproduced source wording. |
+| A3 | historical line 220 | external wording removal | The Sol reward-hacking hazard, unknown exact rate, time-horizon values, and missing `reward_hacks` result remain. | Replaced copied external wording with an original factual summary. `[O4.5]` and `[G1d]` remain. Review checks the METR source, the retained values, and the absence of reproduced source prose. |
+| A4 | historical line 431 | source-column wording and arrangement | The Sonnet non-hallucination result, max effort, and `[A4a]` trace remain. | Replaced source-column wording with neutral recorded-result wording. Review checks effort, value, and source binding without reproducing a source header. |
+| A5 | historical line 593 | source-column wording and arrangement | The Fable fallback condition, max effort, result, and `[A4a]` trace remain. | Replaced source-column wording with neutral recorded-result wording. Review checks fallback scope, effort, value, and source binding without reproducing a source header. |
+| A6 | historical line 680 | terminology and provenance label | The context values, billing threshold, runtime registry authority, and withdrawal of unsupported capacity advice remain the same. | Replaced wording that described a source row as quoted verbatim with a neutral project-authored label and trace. Review checks capacity meaning, billing units, `[O2]`, `[A2]`, and `[registry]`. |
+| A7 | historical terminal note after line 775 | archival bookkeeping and retained-figure provenance | The file is now a repository archive edition, the exact original remains in Git, and the retained numeric groups have a bounded project-authored provenance note. | Removed the stale temporary-file note and added this ledger and the bounded retained-figure note. This entry covers the terminal structural additions without recursive bookkeeping. Review checks the edition hash against the original comparison, the bound companion objects, and the absence of a fresh retrieval, permission or current licensing claim. |
+
+### Retained project-authored structure
+
+The edition retains the project-authored profile records, compact routing table, evidence summaries, significance ledger, adjudication record, and audit dispositions. The bounded archive review found no basis to treat those structures as copied publisher table arrangement. Their source keys, methods, deployments, units, dates, and limitations remain available for independent source review.
+
+### Bounded retained-figure note
+
+The bounded comparison reviewed the numeric groups cited by the licensing review: Sol's Vals LiveCodeBench result (`[G1b]`), Luna's official Terminal-Bench result (`[G1d]`), and Sonnet's Vals Index result (`[G2#7]`). The edition retains each as a project-selected, attributed factual transcription, not as a copied publisher table row or raw trial record. The bound companion objects named in the archive header supply the historical source, version, date, model, deployment, harness, effort, units, and limitation context where recorded. This archival comparison does not perform a fresh retrieval or current-source recheck, invent a retrieval date, establish publication permission, or claim an independent licensing pass.
+
+### Review boundary
+
+The ledger records source-fidelity and licensing review obligations. It does not claim that a source grants permission. It does not claim that the edition is byte-identical. It does not make the historical v5 record current. The active v6 digest remains the only current generation.

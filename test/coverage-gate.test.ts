@@ -616,6 +616,85 @@ test("run-tests rejects direct, nested, and aliased checkout scratch roots befor
   }
 });
 
+test("run-tests isolates Jiti coverage from a cache warmed by an earlier process", { timeout: 75_000 }, (t) => {
+  const harness = scratchDirectory("slate-runner-jiti-cache-");
+  t.after(() => rmSync(harness, { recursive: true, force: true }));
+  const repo = join(harness, "repo");
+  const outerTmp = join(harness, "outer-tmp");
+  mkdirSync(repo);
+  mkdirSync(outerTmp);
+  cpSync(join(CHECKOUT, "extension"), join(repo, "extension"), { recursive: true });
+  cpSync(join(CHECKOUT, "docs"), join(repo, "docs"), { recursive: true });
+  cpSync(join(CHECKOUT, "verification"), join(repo, "verification"), { recursive: true });
+  cpSync(join(CHECKOUT, "package.json"), join(repo, "package.json"));
+  cpSync(join(CHECKOUT, "README.md"), join(repo, "README.md"));
+  mkdirSync(join(repo, ".pi"));
+  cpSync(join(CHECKOUT, ".pi/settings.json"), join(repo, ".pi/settings.json"));
+  cpSync(join(CHECKOUT, ".pi/slate.json"), join(repo, ".pi/slate.json"));
+  mkdirSync(join(repo, "test"));
+  for (const name of ["doctrine-contract.test.ts", "logical-model-policy.test.ts", "logical-model-recovery.test.ts"]) {
+    cpSync(join(CHECKOUT, "test", name), join(repo, "test", name));
+  }
+  const policyPath = join(repo, "test/logical-model-policy.test.ts");
+  const policySource = readFileSync(policyPath, "utf8");
+  const policyCut = 'test("the real resolver wrapper refuses a missing exact-pinned TypeScript compiler"';
+  assert.equal(policySource.split(policyCut).length, 2, "policy fixture cut point must remain unique");
+  writeFileSync(policyPath, policySource.slice(0, policySource.indexOf(policyCut)));
+  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+
+  const packageLinks = [
+    ["node_modules/typescript", "node_modules/typescript"],
+    ["node_modules/typebox", "node_modules/typebox"],
+    ["node_modules/@earendil-works/pi-ai", "node_modules/@earendil-works/pi-ai"],
+    ["node_modules/@earendil-works/pi-tui", "node_modules/@earendil-works/pi-tui"],
+    ["node_modules/@earendil-works/pi-coding-agent", "node_modules/@earendil-works/pi-coding-agent"],
+    ["node_modules/.bin/pi", "node_modules/.bin/pi"],
+  ] as const;
+  for (const [target, source] of packageLinks) {
+    mkdirSync(dirname(join(repo, target)), { recursive: true });
+    symlinkSync(realpathSync(join(CHECKOUT, source)), join(repo, target), "dir");
+  }
+
+  const renderPath = join(repo, "extension/logical-model-render.ts");
+  const resolverPath = join(repo, "extension/logical-model-resolver.ts");
+  const renderSource = readFileSync(renderPath, "utf8");
+  const resolverSource = readFileSync(resolverPath, "utf8");
+  writeFileSync(renderPath, "export const base = 1;\n");
+  writeFileSync(resolverPath, "export const base = 1;\n");
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "config", "user.email", "gate@example.invalid");
+  git(repo, "config", "user.name", "Gate Test");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "base");
+  const base = git(repo, "rev-parse", "HEAD");
+  writeFileSync(renderPath, renderSource);
+  writeFileSync(resolverPath, resolverSource);
+  commit(repo, "head");
+
+  const childEnv = {
+    ...isolatedChildEnvironment(repo),
+    TMPDIR: outerTmp,
+    JITI_FS_CACHE: join(harness, "caller-selected-cache"),
+    PI_BIN: join(repo, "node_modules/.bin/pi"),
+  };
+  const prewarm = spawnSync("bash", ["verification/run-resolver-checks.sh", "--repo", repo, "--strict"], {
+    cwd: repo, encoding: "utf8", env: childEnv, timeout: 30_000,
+  });
+  assert.equal(prewarm.status, 0, `resolver prewarm failed\n${prewarm.stdout}\n${prewarm.stderr}`);
+  const sharedCache = join(outerTmp, "jiti");
+  const warmedNames = readdirSync(sharedCache);
+  assert.ok(warmedNames.some((name) => name.startsWith("extension-logical-model-render.")), "prewarm did not cache logical-model-render");
+  assert.ok(warmedNames.some((name) => name.startsWith("extension-logical-model-resolver.")), "prewarm did not cache logical-model-resolver");
+
+  const isolated = spawnSync("bash", ["verification/run-tests.sh", "--base", base], {
+    cwd: repo, encoding: "utf8", env: childEnv, timeout: 30_000,
+  });
+  assert.equal(isolated.status, 0, `${isolated.stdout}\n${isolated.stderr}`);
+  assert.match(isolated.stdout, /logical-model-render\.ts: lines 112\/112=100\.00%/);
+  assert.match(isolated.stdout, /logical-model-resolver\.ts: lines 227\/227=100\.00%/);
+  assert.match(isolated.stdout, /RUN VERDICT: PASS — tests passed and coverage gate accepted the patch/);
+});
+
 test("a missing exact-pinned TypeScript devDependency is a legible infrastructure error", { timeout: 20_000 }, (t) => {
   const isolated = scratchDirectory("slate-gate-no-typescript-");
   t.after(() => rmSync(isolated, { recursive: true, force: true }));

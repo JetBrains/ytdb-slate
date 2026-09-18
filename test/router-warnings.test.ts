@@ -6,6 +6,7 @@ import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import slateExtension from "../extension/index.ts";
 import type { ModelProfile } from "../extension/model-profiles.ts";
+import { planRoute } from "../extension/route.ts";
 import {
   createModelRouterResolver,
   resolveModelRouter,
@@ -23,6 +24,7 @@ interface SlateHarness {
   notifications: string[];
   start(): Promise<void>;
   consult(): Promise<void>;
+  dispatch(params: Record<string, unknown>): Promise<unknown>;
   close(): void;
 }
 
@@ -43,7 +45,7 @@ function makeHarness(router: unknown, options: HarnessOptions = {}): SlateHarnes
     const notifications: string[] = [];
     const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => Promise<unknown>>>();
     const commands = new Map<string, RegisteredCommand>();
-    const tools: Array<{ name: string }> = [];
+    const tools: Array<{ name: string; execute?: (...args: any[]) => Promise<unknown> }> = [];
     let activeTools: string[] = [];
     const registry = {
       find(provider: string, id: string) {
@@ -64,7 +66,7 @@ function makeHarness(router: unknown, options: HarnessOptions = {}): SlateHarnes
       registerCommand(name: string, command: RegisteredCommand) {
         commands.set(name, command);
       },
-      registerTool(tool: { name: string }) {
+      registerTool(tool: { name: string; execute?: (...args: any[]) => Promise<unknown> }) {
         tools.push(tool);
         activeTools.push(tool.name);
       },
@@ -144,6 +146,11 @@ function makeHarness(router: unknown, options: HarnessOptions = {}): SlateHarnes
           await handler({ systemPrompt: "base" }, ctx);
         }
       },
+      async dispatch(params) {
+        const thread = tools.find((tool) => tool.name === "thread");
+        assert.ok(thread?.execute);
+        return thread.execute("test-call", params, undefined, undefined, ctx);
+      },
       close() {
         rmSync(cwd, { recursive: true, force: true });
       },
@@ -181,7 +188,7 @@ test("router notes stay hidden and produce one plural discoverability notice acr
     await harness.consult();
 
     assert.deepEqual(discoverability(harness.notifications), [
-      'slate: there are 2 hidden warnings in the model router. Set "router.showWarnings" to true in .pi/slate.json to read them. A hidden warning can affect which model runs an action.',
+      'slate: there are 2 hidden warnings in the model router. Set "router.showWarnings" to true in .pi/slate.json to read them. The notes may inform your explicit model and effort choice.',
     ]);
     assert.equal(harness.notifications.some((message) => message.includes("research table shipped inside slate")), false);
     assert.equal(harness.notifications.some((message) => message.includes("model facts that slate could not trace")), false);
@@ -193,7 +200,7 @@ test("showWarnings reveals every model data note without a discoverability notic
     await harness.consult();
 
     assert.equal(harness.notifications.filter((message) => message.includes("research table shipped inside slate")).length, 1);
-    assert.equal(harness.notifications.filter((message) => message.includes("model facts that slate could not trace")).length, 1);
+    assert.equal(harness.notifications.filter((message) => message.includes("model fact that slate could not trace")).length, 1);
     assert.deepEqual(discoverability(harness.notifications), []);
   });
 });
@@ -248,13 +255,9 @@ test("a throwing discoverability notifier does not abort the session", { timeout
 const BASE_PROFILE: ModelProfile = {
   id: "fixture/model",
   aliases: [],
-  price: [{ from: null, until: null, inUsdPerMTok: 1, outUsdPerMTok: 2 }],
   contextWindow: 100_000,
   maxOutput: 10_000,
-  longContextThreshold: null,
-  longContextMultipliers: null,
   tier: 1,
-  nonPreferred: null,
   routeFor: "fixture work",
   avoidFor: "nothing",
   hazards: [],
@@ -283,7 +286,6 @@ function resolveFixture(profile: ModelProfile): Array<{ message: string; warning
     models: [profile.id],
     profiles,
     failover: { [profile.id]: profile.id },
-    today: "2026-08-06",
   }, (message, warningClass) => warnings.push({ message, warningClass }));
   return warnings;
 }
@@ -315,16 +317,6 @@ test("whole router warnings are capped after several individually capped fields"
   assert.equal(detail.message.includes("field-6"), false);
 });
 
-test("an omitted warning class defaults to configuration fault", () => {
-  const warnings = resolveFixture(profileFixture({
-    nonPreferred: "NEVER AUTO-SELECT [arb] fixture reason",
-  }));
-  const fallback = warnings.find(({ message }) => message.includes("default base model"));
-
-  assert.ok(fallback);
-  assert.equal(fallback.warningClass, "configuration-fault");
-  assert.doesNotMatch(fallback.message, /\[arb\]/);
-});
 
 test("router entry faults explain malformed, unprofiled, unknown, and unauthenticated models", () => {
   const profile = profileFixture({ unknownRoutingCriticalFields: [] });
@@ -357,6 +349,95 @@ test("router entry faults explain malformed, unprofiled, unknown, and unauthenti
   assert.equal(messages.some((message) => message.includes("is not in pi's model registry")), true);
   assert.equal(messages.some((message) => message.includes("has no usable credentials configured in pi")), true);
   assert.equal(classes.every((warningClass) => warningClass === "configuration-fault"), true);
+});
+
+test("a configured retired profile name produces an all-dropped dispatch fault", () => {
+  const resolution = resolveModelRouter({
+    registry: { find: () => ({ contextWindow: 100_000 }), hasConfiguredAuth: () => true },
+    models: ["anthropic/claude-fable-5"],
+  });
+  assert.equal(resolution.on, false);
+  assert.match(resolution.fault ?? "", /claude-fable-5.*\[fault\]/);
+  assert.match(resolution.fault ?? "", /missing shipped model profile/);
+});
+
+test("all-dropped faults use the narrow cause class and mixed precedence", () => {
+  const profile = profileFixture({ unknownRoutingCriticalFields: [] });
+  const profiles: RouterProfileSource = { findProfile: () => profile, ladderFor: () => ["low"] };
+  const registry = { find: () => undefined, hasConfiguredAuth: () => true };
+  const malformed = resolveModelRouter({ registry, models: [7], profiles });
+  const warnOnly = resolveModelRouter({ registry, models: [profile.id], profiles });
+  const mixed = resolveModelRouter({ registry, models: ["bad", profile.id, profile.id], profiles });
+  const aliases = resolveModelRouter({ registry, models: [profile.id, "fixture/alias"], profiles });
+  const survivorProfile = profileFixture({ id: "fixture/survivor", unknownRoutingCriticalFields: [] });
+  const aliasSurvivorProfiles: RouterProfileSource = {
+    findProfile: (spec) => spec === survivorProfile.id ? survivorProfile : profile,
+    ladderFor: () => ["low"],
+  };
+  const aliasSurvivor = resolveModelRouter({
+    registry: { find: (provider, id) => `${provider}/${id}` === survivorProfile.id ? { contextWindow: 100_000 } : undefined, hasConfiguredAuth: () => true },
+    models: [profile.id, "fixture/alias", survivorProfile.id],
+    profiles: aliasSurvivorProfiles,
+  });
+  const survivor = resolveModelRouter({
+    registry: { find: () => ({ contextWindow: 100_000 }), hasConfiguredAuth: () => true },
+    models: ["bad", profile.id],
+    profiles,
+  });
+
+  assert.match(malformed.fault ?? "", /7 \[fault\]/);
+  assert.equal(warnOnly.fault, undefined);
+  assert.match(mixed.fault ?? "", /"bad" \[fault\].*fixture\/model.*\[warn\].*exact specification duplicates/);
+  assert.match(aliases.fault ?? "", /"fixture\/model" \[warn\].*"fixture\/alias" \[fault\].*profile alias duplicates/);
+  assert.equal(aliasSurvivor.on, true);
+  assert.equal(aliasSurvivor.fault, undefined);
+  assert.deepEqual(aliasSurvivor.candidates.map((candidate) => candidate.spec), [survivorProfile.id]);
+  assert.equal(survivor.on, true);
+  assert.equal(survivor.fault, undefined);
+});
+
+test("failover keeps list carve-out but rejects a provider-blocked requested effort", () => {
+  const listed = profileFixture({ id: "fixture/listed", capabilityMeasuredAt: ["low"] });
+  const blocked = profileFixture({ id: "fixture/blocked", capabilityMeasuredAt: ["low"], apiRejectedLevels: ["low"] });
+  const allowed = profileFixture({ id: "fixture/allowed", capabilityMeasuredAt: ["low"], apiRejectedLevels: [] });
+  const profiles: RouterProfileSource = {
+    findProfile: (spec) => spec === blocked.id ? blocked : spec === allowed.id ? allowed : undefined,
+    ladderFor: () => ["low"],
+  };
+  const resolution = {
+    on: true,
+    candidates: [{ spec: listed.id, profile: listed, ladder: ["low"] }],
+    warnings: [],
+  } as any;
+  const rejected = planRoute({
+    resolution, profiles, failoverSwitch: true, requestedModel: blocked.id,
+    requestedEffort: "low", failoverFrom: "other/model",
+  });
+  const allowedVerdict = planRoute({
+    resolution, profiles, failoverSwitch: true, requestedModel: allowed.id,
+    requestedEffort: "low", failoverFrom: "other/model",
+  });
+  const unknown = planRoute({
+    resolution, profiles, failoverSwitch: true, requestedModel: "fixture/unknown",
+    requestedEffort: "low", failoverFrom: "other/model",
+  });
+  const same = planRoute({ resolution, failoverSwitch: true, requestedModel: listed.id, failoverFrom: listed.id });
+  const absent = planRoute({ resolution, failoverSwitch: true });
+  assert.equal(rejected.kind, "reject");
+  assert.match(rejected.kind === "reject" ? rejected.reason : "", /failover model/);
+  assert.equal(allowedVerdict.kind, "proceed");
+  assert.equal(unknown.kind, "proceed");
+  assert.equal(same.kind, "reject");
+  assert.equal(absent.kind, "reject");
+});
+
+test("raw malformed router configuration reaches the real dispatch fault", { timeout: 1000 }, async () => {
+  await withHarness({ models: [7] }, async (harness) => {
+    await assert.rejects(
+      harness.dispatch({ type: "general", task: "must stop", model: "openai/gpt-5.6-luna", effort: "low", reason: "integration canary" }),
+      /routing is disabled.*7 \[fault\]/,
+    );
+  });
 });
 
 test("a throwing warning sink cannot abort model resolution", () => {
@@ -409,25 +490,15 @@ test("resolver catch-all renders non-Error throws and survives a second throwing
   assert.equal(delivered.length, 1);
 });
 
-test("router data notes explain missing prices and a billing-threshold window mismatch", () => {
-  const profile = profileFixture({
-    contextWindow: 100_000,
-    longContextThreshold: 200_000,
-    price: [],
-    unknownRoutingCriticalFields: [],
-  });
+test("context-window divergence remains a model data note", () => {
+  const profile = profileFixture({ contextWindow: 100_000, unknownRoutingCriticalFields: [] });
   const profiles: RouterProfileSource = { findProfile: () => profile, ladderFor: () => ["low"] };
   const warnings: Array<{ message: string; warningClass: RouterWarningClass }> = [];
   resolveModelRouter({
     registry: { find: () => ({ contextWindow: 200_000 }), hasConfiguredAuth: () => true },
-    models: [profile.id],
-    profiles,
-    failover: { [profile.id]: profile.id },
+    models: [profile.id], profiles, failover: { [profile.id]: profile.id },
   }, (message, warningClass) => warnings.push({ message, warningClass }));
-
-  assert.equal(warnings.some(({ message }) => message.includes("has no usable input price")), true);
   assert.equal(warnings.some(({ message }) => message.includes("differs between two sources")), true);
-  assert.equal(warnings.some(({ message }) => message.includes("separate note below names that pattern")), true);
   assert.equal(warnings.every(({ warningClass }) => warningClass === "model-data-note"), true);
 });
 

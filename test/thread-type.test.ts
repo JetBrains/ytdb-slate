@@ -1,3 +1,5 @@
+const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -79,7 +81,7 @@ function registeredThreadTool(status: "ok" | "failed" = "ok"): { tool: Registere
   return { tool: registered as RegisteredThreadTool, calls };
 }
 
-const ctx = {} as ExtensionContext;
+const ctx = { modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
 
 test("thread tool enforces the creation type and publishes the closed vocabulary", async () => {
   const { tool, calls } = registeredThreadTool();
@@ -92,32 +94,38 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
   );
   const descriptionBytes = Buffer.byteLength(tool.description, "utf8");
   const parameterSchemaBytes = Buffer.byteLength(JSON.stringify(tool.parameters), "utf8");
-  assert.equal(descriptionBytes, 1_062, "thread description byte budget changed; update docs/context-budget.md in the same commit");
-  assert.equal(parameterSchemaBytes, 1_246, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
+  assert.deepEqual((tool.parameters as unknown as { required: string[] }).required, ["type", "task", "model", "effort", "reason"]);
+  const routeProperties = tool.parameters.properties as unknown as Record<string, { type?: string; maxLength?: number }>;
+  assert.equal(routeProperties.model?.type, "string");
+  assert.equal(routeProperties.effort?.type, "string");
+  assert.equal(routeProperties.reason?.type, "string");
+  assert.equal(routeProperties.reason?.maxLength, 200);
+  assert.equal(descriptionBytes, 1_032, "thread description byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(parameterSchemaBytes, 1_386, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
   assert.equal(
     descriptionBytes + parameterSchemaBytes,
-    2_308,
+    2_418,
     "thread combined byte budget changed; update docs/context-budget.md in the same commit",
   );
 
   await assert.rejects(
-    tool.execute("missing", { task: "x" }, undefined, undefined, ctx),
+    tool.execute("missing", { ...TEST_ROUTE, task: "x" }, undefined, undefined, ctx),
     new RegExp(`type is required.*Allowed values: ${allowed}`, "i"),
   );
   await assert.rejects(
-    tool.execute("invalid", { task: "x", type: "observer" }, undefined, undefined, ctx),
+    tool.execute("invalid", { ...TEST_ROUTE, task: "x", type: "observer" }, undefined, undefined, ctx),
     new RegExp(`Invalid thread type.*Allowed values: ${allowed}`, "i"),
   );
 
   for (const type of THREAD_TYPES) {
-    await tool.execute(type, { task: `create ${type}`, type }, undefined, undefined, ctx);
+    await tool.execute(type, { ...TEST_ROUTE, task: `create ${type}`, type }, undefined, undefined, ctx);
   }
   assert.deepEqual(calls.map((call) => call.type), [...THREAD_TYPES]);
 });
 
 test("thread tool returns a failed episode with failed status", async () => {
   const { tool } = registeredThreadTool("failed");
-  const result = await tool.execute("failed", { task: "x", type: "general" }, undefined, undefined, ctx) as {
+  const result = await tool.execute("failed", { ...TEST_ROUTE, task: "x", type: "general" }, undefined, undefined, ctx) as {
     content: Array<{ text: string }>;
     details: { status: string; episodeId: string };
   };
@@ -148,8 +156,8 @@ test("public dispatch creates and persists every thread type", async () => {
 
   for (const type of THREAD_TYPES) {
     const result = await manager.dispatch(
-      { name: `fresh-${type}`, task: "x", type },
-      {} as ExtensionContext,
+      { ...TEST_ROUTE, name: `fresh-${type}`, task: "x", type },
+      { modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext,
       undefined,
     ) as unknown as ThreadRecord;
     assert.equal(result.name, `fresh-${type}`);
