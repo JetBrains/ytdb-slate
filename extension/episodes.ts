@@ -35,6 +35,7 @@
  */
 
 import { complete } from "@earendil-works/pi-ai/compat";
+import type { ProviderHeaders } from "@earendil-works/pi-ai";
 import {
 	convertToLlm,
 	serializeConversation,
@@ -125,7 +126,7 @@ ${transcript}`;
 /** What a compression call needs to run: whatever the registry resolved, nothing added. */
 interface UsableAuth {
 	apiKey?: string;
-	headers?: Record<string, string>;
+	headers?: ProviderHeaders;
 	env?: Record<string, string>;
 }
 

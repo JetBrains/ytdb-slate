@@ -580,6 +580,7 @@ const PHASE = process.env.WORKER_PHASE ?? "switch";
 const OPEN = process.env.WORKER_OPEN ?? "probe-a/alpha-1";
 const TARGET = process.env.WORKER_TARGET ?? "probe-c/gamma-1";
 const EFFORT = process.env.WORKER_EFFORT ?? "high";
+const FORCE_PERSIST = process.env.WORKER_FORCE_PERSIST === "1";
 const log = (...a: unknown[]) => console.error("[WKPROBE]", ...a);
 const spec = (m: { provider?: string; id?: string } | undefined | null) => (m?.provider ? `${m.provider}/${m.id}` : null);
 const level = (s: { thinkingLevel?: unknown }) => {
@@ -609,8 +610,8 @@ export default function (pi: ExtensionAPI) {
         out.sessionFile = (s.sessionFile as string) ?? null;
         // Exactly what threads.ts's applyRoute does per dispatch: model first
         // (it re-derives the level internally), then the effort level.
-        await s.setModel(mod.resolveModel(ctx, TARGET));
-        s.setThinkingLevel(EFFORT);
+        await s.setModel(mod.resolveModel(ctx, TARGET), FORCE_PERSIST ? { persist: true } : undefined);
+        s.setThinkingLevel(EFFORT, FORCE_PERSIST ? { persist: true } : undefined);
         out.switchedModel = spec(s.model as never);
         out.switchedEffort = level(s);
         log("worker", out.openedModel, "@", out.openedEffort, "=>", out.switchedModel, "@", out.switchedEffort);
@@ -755,7 +756,7 @@ runprobe() {
 	local label="$1" module="$2" target="$3" queue="$4" inject="$5"; shift 5
 	snapshot "$label-before.json"
 	piexec PROBE_MODULE="$module" PROBE_TARGET="$target" PROBE_QUEUE="$queue" PROBE_INJECT="$inject" \
-		PROBE_RESULT="$OUT/$label.json" timeout 180 pi --no-extensions -e "$PROBE" "$@" -p "x" \
+		PROBE_FORCE_PERSIST=1 PROBE_RESULT="$OUT/$label.json" timeout 180 pi --no-extensions -e "$PROBE" "$@" -p "x" \
 		> "$OUT/$label.out" 2> "$OUT/$label.err"
 	assert_agent_dir "$AGENT" "reset the settings fixture after a probe run"
 	chmod 644 "$SETTINGS" 2>/dev/null; rm -rf "$SETTINGS.lock"
@@ -769,7 +770,7 @@ runprobe_at() {
 	env -u PI_CODING_AGENT -u PI_SESSION_FILE -u PI_SESSION_ID -u PI_PROVIDER -u PI_MODEL \
 		-u PI_REASONING_LEVEL PI_CODING_AGENT_DIR="$ag" \
 		PROBE_MODULE="$module" PROBE_TARGET=probe-c/gamma-1 PROBE_QUEUE=0 PROBE_INJECT="$inject" \
-		PROBE_RESULT="$OUT/$label.json" timeout 180 pi --no-extensions -e "$PROBE" "$@" -p "x" \
+		PROBE_FORCE_PERSIST=1 PROBE_RESULT="$OUT/$label.json" timeout 180 pi --no-extensions -e "$PROBE" "$@" -p "x" \
 		> "$OUT/$label.out" 2> "$OUT/$label.err"
 	assert_agent_dir "$ag" "reset the settings fixture after a probe run"
 	chmod 644 "$ag/settings.json" 2>/dev/null; rm -rf "$ag/settings.json.lock"
@@ -842,25 +843,39 @@ if want R1; then
 	else fail R1 "settings changed: $(triple)"; fi
 fi
 
-# R2 negative control: knob off must leak
+# R2 current pi contract plus compatibility negative control. Extension setters
+# are session-scoped in pi 0.85.1, so knob-off must still write zero bytes. The
+# probe then forces the real AgentSession setters through persist:true and proves
+# that disabling Slate's wrapper exposes the historical global leak.
 if want R2; then
 	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-b/beta-1" }, "preserveGlobalModelDefault": false }'
-	seed "$CANON"; runfailover R2
-	if [ "$(triple)" = "probe-b/beta-1:medium" ]; then pass R2 "leak reappears with the knob off: $(triple)"
-	else fail R2 "expected probe-b/beta-1:medium, got $(triple)"; fi
+	seed "$CANON"; runfailover R2-current
+	CURRENT=$(triple); R2SW=no; switch_seen probe-b beta-1 && R2SW=yes
+	seed "$CANON_XHIGH"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R2-persist-off "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
+	OFF=$(triple)
+	seed "$CANON_XHIGH"; runprobe R2-persist-on "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
+	ON=$(triple)
+	if [ "$R2SW" != yes ]; then fail R2 "the end-to-end failover did not switch, so the current-pi contract is vacuous"
+	elif [ "$CURRENT" != "probe-a/alpha-1:medium" ]; then fail R2 "pi 0.85.1 extension setters persisted unexpectedly: $CURRENT"
+	elif [ "$OFF" != "probe-c/gamma-1:high" ]; then fail R2 "persist:true negative control did not leak the target pair and clamped level (got $OFF)"
+	elif [ "$ON" != "probe-a/alpha-1:xhigh" ]; then fail R2 "Slate did not restore the explicit persisted-switch fixture (got $ON)"
+	else pass R2 "real failover setters are session-scoped ($CURRENT); persist:true leaks with the knob off ($OFF) and Slate restores with it on ($ON)"; fi
 fi
 
-# R3a thinking-level clamp leak (xhigh -> high) restored
+# R3a thinking-level clamp: production failover stays session-scoped, while an
+# explicit persisted switch exercises restoration of pair plus clamped level.
 if want R3a; then
-	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-c/gamma-1" }, "preserveGlobalModelDefault": false }'
-	seed "$CANON_XHIGH"; runfailover R3a-off
-	OFF=$(triple)
 	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-c/gamma-1" } }'
-	seed "$CANON_XHIGH"; runfailover R3a
-	if ! switch_seen probe-c gamma-1; then fail R3a "no model_change to probe-c/gamma-1 in the session record — the switch never fired, so the rung is vacuous"
-	elif [ "$OFF" != "probe-c/gamma-1:high" ]; then fail R3a "control did not leak the clamped level (got $OFF)"
-	elif cmp -s "$OUT/R3a-before.json" "$OUT/R3a-after.json"; then pass R3a "clamp leak $OFF restored to $(triple), byte-identical"
-	else fail R3a "not restored: $(triple)"; fi
+	seed "$CANON_XHIGH"; runfailover R3a-site
+	SITE=$(triple); SITE_SW=no; switch_seen probe-c gamma-1 && SITE_SW=yes
+	seed "$CANON_XHIGH"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R3a-off "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
+	OFF=$(triple)
+	seed "$CANON_XHIGH"; runprobe R3a "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
+	if [ "$SITE_SW" != yes ]; then fail R3a "the production failover site did not switch"
+	elif [ "$SITE" != "probe-a/alpha-1:xhigh" ]; then fail R3a "the production failover setter persisted unexpectedly: $SITE"
+	elif [ "$OFF" != "probe-c/gamma-1:high" ]; then fail R3a "persist:true control did not expose the clamped leak (got $OFF)"
+	elif cmp -s "$OUT/R3a-before.json" "$OUT/R3a-after.json"; then pass R3a "production switch wrote zero bytes; explicit clamp leak $OFF restored byte-identically"
+	else fail R3a "explicit persisted clamp was not restored: $(triple)"; fi
 fi
 
 # R3b thinking-level-ONLY divergence through the failover site
@@ -873,44 +888,50 @@ if want R3b; then
     "enabled": false
   }
 }'
-	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-c/gamma-1" }, "preserveGlobalModelDefault": false }'
-	seed "$PAIR_AT_TARGET"; runfailover R3b-off --provider probe-a --model alpha-1
-	OFF=$(triple)
 	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-c/gamma-1" } }'
-	seed "$PAIR_AT_TARGET"; runfailover R3b --provider probe-a --model alpha-1
-	if ! switch_seen probe-c gamma-1; then fail R3b "no model_change to probe-c/gamma-1 in the session record — the switch never fired, so the rung is vacuous"
-	elif [ "$OFF" != "probe-c/gamma-1:high" ]; then fail R3b "control did not produce a thinking-only leak (got $OFF)"
-	elif cmp -s "$OUT/R3b-before.json" "$OUT/R3b-after.json"; then pass R3b "thinking-only leak $OFF restored, pair untouched, byte-identical"
-	else fail R3b "not restored: $(triple)"; fi
+	seed "$PAIR_AT_TARGET"; runfailover R3b-site --provider probe-a --model alpha-1
+	SITE=$(triple); SITE_SW=no; switch_seen probe-c gamma-1 && SITE_SW=yes
+	seed "$PAIR_AT_TARGET"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R3b-off "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
+	OFF=$(triple)
+	seed "$PAIR_AT_TARGET"; runprobe R3b "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
+	if [ "$SITE_SW" != yes ]; then fail R3b "the production failover site did not switch"
+	elif [ "$SITE" != "probe-c/gamma-1:xhigh" ]; then fail R3b "the production failover setter persisted unexpectedly: $SITE"
+	elif [ "$OFF" != "probe-c/gamma-1:high" ]; then fail R3b "persist:true control did not produce a thinking-only leak (got $OFF)"
+	elif cmp -s "$OUT/R3b-before.json" "$OUT/R3b-after.json"; then pass R3b "production switch wrote zero bytes; explicit thinking-only leak $OFF restored byte-identically"
+	else fail R3b "explicit persisted thinking level was not restored: $(triple)"; fi
 fi
 
 # R4a handoff adoption, thinking-level key written ALONE (equality guard skips setModel)
 if want R4a; then
 	prep_parent
-	slatecfg '{ "modelFailover": {}, "preserveGlobalModelDefault": false }'
-	seed "$CANON"; seed_pending probe-a alpha-1 low; runadopt R4a-off
-	OFF=$(triple)
 	slatecfg '{ "modelFailover": {} }'
-	seed "$CANON"; seed_pending probe-a alpha-1 low; runadopt R4a
-	if ! thinking_change_seen low; then fail R4a "no thinking_level_change to low in the session record — adoption never set the level, so the rung is vacuous"
-	elif [ "$OFF" != "probe-a/alpha-1:low" ]; then fail R4a "control did not leak the thinking key alone (got $OFF)"
+	seed "$CANON"; seed_pending probe-a alpha-1 low; runadopt R4a-site
+	SITE=$(triple); SITE_THINK=no; thinking_change_seen low && SITE_THINK=yes
+	seed "$CANON"; PROBE_SKIP_MODEL=1 PROBE_THINKING=low PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R4a-off "$REPO/extension/model-default.ts" probe-a/alpha-1 0 none --provider probe-a --model alpha-1
+	OFF=$(triple)
+	seed "$CANON"; PROBE_SKIP_MODEL=1 PROBE_THINKING=low runprobe R4a "$REPO/extension/model-default.ts" probe-a/alpha-1 0 none --provider probe-a --model alpha-1
+	if [ "$SITE_THINK" != yes ]; then fail R4a "the handoff adoption site did not set the thinking level"
+	elif [ "$SITE" != "probe-a/alpha-1:medium" ]; then fail R4a "the handoff thinking setter persisted unexpectedly: $SITE"
+	elif [ "$OFF" != "probe-a/alpha-1:low" ]; then fail R4a "persist:true control did not leak the thinking key alone (got $OFF)"
 	elif [ -f "$WORK/.pi/slate/pending-handoff.json" ]; then fail R4a "pending file not consumed — adoption never ran"
-	elif cmp -s "$OUT/R4a-before.json" "$OUT/R4a-after.json"; then pass R4a "adoption thinking-only leak $OFF restored, byte-identical"
-	else fail R4a "not restored: $(triple)"; fi
+	elif cmp -s "$OUT/R4a-before.json" "$OUT/R4a-after.json"; then pass R4a "handoff setter wrote zero bytes; explicit thinking-only leak $OFF restored byte-identically"
+	else fail R4a "explicit persisted thinking level was not restored: $(triple)"; fi
 fi
 
 # R4b handoff adoption, model + thinking
 if want R4b; then
 	prep_parent
-	slatecfg '{ "modelFailover": {}, "preserveGlobalModelDefault": false }'
-	seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 xhigh; runadopt R4b-off
-	OFF=$(triple)
 	slatecfg '{ "modelFailover": {} }'
-	seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 xhigh; runadopt R4b
-	if ! switch_seen probe-c gamma-1; then fail R4b "no model_change to probe-c/gamma-1 in the session record — adoption never switched, so the rung is vacuous"
-	elif [ "$OFF" != "probe-c/gamma-1:high" ]; then fail R4b "control did not leak (got $OFF)"
-	elif cmp -s "$OUT/R4b-before.json" "$OUT/R4b-after.json"; then pass R4b "adoption model+thinking leak $OFF restored, byte-identical"
-	else fail R4b "not restored: $(triple)"; fi
+	seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 xhigh; runadopt R4b-site
+	SITE=$(triple); SITE_SW=no; switch_seen probe-c gamma-1 && SITE_SW=yes
+	seed "$CANON_XHIGH"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R4b-off "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
+	OFF=$(triple)
+	seed "$CANON_XHIGH"; runprobe R4b "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
+	if [ "$SITE_SW" != yes ]; then fail R4b "the handoff adoption site did not switch"
+	elif [ "$SITE" != "probe-a/alpha-1:xhigh" ]; then fail R4b "the handoff setters persisted unexpectedly: $SITE"
+	elif [ "$OFF" != "probe-c/gamma-1:high" ]; then fail R4b "persist:true control did not leak model plus thinking (got $OFF)"
+	elif cmp -s "$OUT/R4b-before.json" "$OUT/R4b-after.json"; then pass R4b "handoff setters wrote zero bytes; explicit model-plus-thinking leak $OFF restored byte-identically"
+	else fail R4b "explicit persisted switch was not restored: $(triple)"; fi
 fi
 
 # R5a/b/c untrustworthy reads: stand down, warn, never delete
@@ -1069,15 +1090,17 @@ fi
 
 # G4a same-provider, model-only divergence
 if want G4a; then
-	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-a/alpha-2" }, "preserveGlobalModelDefault": false }'
-	seed "$CANON"; runfailover G4a-off
-	OFF=$(triple)
 	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-a/alpha-2" } }'
-	seed "$CANON"; runfailover G4a
-	if ! switch_seen probe-a alpha-2; then fail G4a "no model_change to probe-a/alpha-2 in the session record — the switch never fired, so the rung is vacuous"
-	elif [ "$OFF" != "probe-a/alpha-2:medium" ]; then fail G4a "control did not produce a model-only leak (got $OFF)"
-	elif cmp -s "$OUT/G4a-before.json" "$OUT/G4a-after.json"; then pass G4a "same-provider model-only leak $OFF restored, byte-identical"
-	else fail G4a "not restored: $(triple)"; fi
+	seed "$CANON"; runfailover G4a-site
+	SITE=$(triple); SITE_SW=no; switch_seen probe-a alpha-2 && SITE_SW=yes
+	seed "$CANON"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe G4a-off "$REPO/extension/model-default.ts" probe-a/alpha-2 0 none --provider probe-a --model alpha-1
+	OFF=$(triple)
+	seed "$CANON"; runprobe G4a "$REPO/extension/model-default.ts" probe-a/alpha-2 0 none --provider probe-a --model alpha-1
+	if [ "$SITE_SW" != yes ]; then fail G4a "the same-provider production failover did not switch"
+	elif [ "$SITE" != "probe-a/alpha-1:medium" ]; then fail G4a "the production setter persisted unexpectedly: $SITE"
+	elif [ "$OFF" != "probe-a/alpha-2:medium" ]; then fail G4a "persist:true control did not produce a model-only leak (got $OFF)"
+	elif cmp -s "$OUT/G4a-before.json" "$OUT/G4a-after.json"; then pass G4a "production switch wrote zero bytes; explicit same-provider model-only leak $OFF restored byte-identically"
+	else fail G4a "explicit persisted model was not restored: $(triple)"; fi
 fi
 
 # G4b thinking-level key ABSENT beforehand while the pair is present
@@ -1090,17 +1113,20 @@ if want G4b; then
     "enabled": false
   }
 }'
-	slatecfg '{ "modelFailover": {}, "preserveGlobalModelDefault": false }'
-	seed "$NOTHINK"; seed_pending probe-a alpha-1 high; runadopt G4b-off
-	OFF=$(triple)
 	slatecfg '{ "modelFailover": {} }'
-	seed "$NOTHINK"; seed_pending probe-a alpha-1 high; runadopt G4b
+	seed "$NOTHINK"; seed_pending probe-a alpha-1 high; runadopt G4b-site
+	SITE_HAS=$(python3 -c 'import json,sys;print("yes" if "defaultThinkingLevel" in json.load(open(sys.argv[1])) else "no")' "$SETTINGS" 2>/dev/null)
+	SITE_THINK=no; thinking_change_seen high && SITE_THINK=yes
+	seed "$NOTHINK"; PROBE_SKIP_MODEL=1 PROBE_THINKING=high PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe G4b-off "$REPO/extension/model-default.ts" probe-a/alpha-1 0 none --provider probe-a --model alpha-1
+	OFF=$(triple)
+	seed "$NOTHINK"; PROBE_SKIP_MODEL=1 PROBE_THINKING=high runprobe G4b "$REPO/extension/model-default.ts" probe-a/alpha-1 0 none --provider probe-a --model alpha-1
 	HASKEY=$(python3 -c 'import json,sys;print("yes" if "defaultThinkingLevel" in json.load(open(sys.argv[1])) else "no")' "$SETTINGS" 2>/dev/null)
-	if ! thinking_change_seen high; then fail G4b "no thinking_level_change to high in the session record — adoption never set the level, so the rung is vacuous"
-	elif [ "$OFF" != "probe-a/alpha-1:high" ]; then fail G4b "control did not write the absent thinking key (got $OFF)"
-	elif [ "$HASKEY" != "no" ]; then fail G4b "defaultThinkingLevel present after restore — absence not restored"
-	elif cmp -s "$OUT/G4b-before.json" "$OUT/G4b-after.json"; then pass G4b "thinking key absent before, written by the switch ($OFF), restored to ABSENCE; byte-identical"
-	else fail G4b "file changed: $(triple)"; fi
+	if [ "$SITE_THINK" != yes ]; then fail G4b "the handoff adoption site did not set the thinking level"
+	elif [ "$SITE_HAS" != no ]; then fail G4b "the production setter persisted the formerly absent thinking key"
+	elif [ "$OFF" != "probe-a/alpha-1:high" ]; then fail G4b "persist:true control did not write the absent thinking key (got $OFF)"
+	elif [ "$HASKEY" != no ]; then fail G4b "defaultThinkingLevel present after explicit restore — absence not restored"
+	elif cmp -s "$OUT/G4b-before.json" "$OUT/G4b-after.json"; then pass G4b "production setter kept absence; explicit persisted key $OFF restored to absence byte-identically"
+	else fail G4b "explicit persisted thinking key was not restored: $(triple)"; fi
 fi
 
 # =============================================================================
@@ -1156,7 +1182,7 @@ if want P6; then
 	else
 		seed "$CANON_XHIGH"; snapshot "P6-before.json"
 		piexec PROBE_MODULE="$REPO/extension/model-default.ts" PROBE_TARGET=probe-c/gamma-1 PROBE_QUEUE=0 \
-			PROBE_INJECT=chmod PROBE_RESULT="$OUT/P6.json" \
+			PROBE_INJECT=chmod PROBE_FORCE_PERSIST=1 PROBE_RESULT="$OUT/P6.json" \
 			timeout 300 strace -f -qq -e trace=openat -o "$OUT/P6.strace" \
 			pi --no-extensions -e "$PROBE" --provider probe-a --model alpha-1 -p "x" > "$OUT/P6.out" 2> "$OUT/P6.err"
 		assert_agent_dir "$AGENT" "reset the settings fixture after the strace run"
@@ -1167,7 +1193,7 @@ if want P6; then
 		if [ -f "$WEAK/nopacing.ts" ]; then
 			seed "$CANON_XHIGH"
 			piexec PROBE_MODULE="$WEAK/nopacing.ts" PROBE_TARGET=probe-c/gamma-1 PROBE_QUEUE=0 \
-				PROBE_INJECT=chmod PROBE_RESULT="$OUT/P6-nopacing.json" \
+				PROBE_INJECT=chmod PROBE_FORCE_PERSIST=1 PROBE_RESULT="$OUT/P6-nopacing.json" \
 				timeout 300 strace -f -qq -e trace=openat -o "$OUT/P6-nopacing.strace" \
 				pi --no-extensions -e "$PROBE" --provider probe-a --model alpha-1 -p "x" > /dev/null 2>&1
 			chmod 644 "$SETTINGS" 2>/dev/null
@@ -1290,11 +1316,11 @@ fi
 # the advisory region on every machine, and padded with a LETTERS-ONLY component
 # so a cut inside the path could never be mistaken for a word boundary.
 if want P11; then
-	# 81 chars: the alignment where the emitted cut lands in the advisory prose AND
-	# AND a no-boundary-search copy demonstrably cuts mid-word (teeth). Overridable
-	# for diagnosis; the rung still asserts correctly at other lengths, only the
-	# teeth demonstration depends on the alignment.
-	P11_PATH_LEN=${P11_PATH_LEN:-81}
+	# 170 chars is the measured default alignment where the emitted cut lands in
+	# the advisory prose and a no-boundary-search copy demonstrably cuts mid-word.
+	# Overridable for diagnosis. The rung still asserts correctly at other lengths,
+	# but the teeth demonstration depends on the selected alignment.
+	P11_PATH_LEN=${P11_PATH_LEN:-170}
 	P11_BASE=$(( ${#LAB} + 1 + 20 ))   # <lab>/<pad>/agent/settings.json
 	P11_PADLEN=$(( P11_PATH_LEN - P11_BASE ))
 	if [ ! -f "$WEAK/untrunc.ts" ]; then skip P11 "the cap-removed copy could not be generated, so the full message is unknown — there is nothing to compare a cut against"
@@ -1381,7 +1407,7 @@ print("none" if v is None else v)' "$1" "$2"; }
 	WK_TEETH=""
 	if [ -f "$WEAK/worker-filebacked.ts" ]; then
 		seed "$CANON"; snapshot "WK1-weak-before.json"
-		wkrun WK1-weak-switch "$WEAK/worker-filebacked.ts" switch --provider probe-a --model alpha-1
+		WORKER_FORCE_PERSIST=1 wkrun WK1-weak-switch "$WEAK/worker-filebacked.ts" switch --provider probe-a --model alpha-1
 		wkrun WK1-weak-reopen "$WEAK/worker-filebacked.ts" reopen
 		snapshot "WK1-weak-after.json"
 		WK_WEAK_TRIPLE=$(triple)

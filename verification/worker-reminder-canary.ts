@@ -1,6 +1,13 @@
 import { writeFileSync } from "node:fs";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import {
+	type AssistantMessage,
+	type Context,
+	type Model,
+	type SimpleStreamOptions,
+	createAssistantMessageEventStream,
+} from "@earendil-works/pi-ai";
 import { registerApiProvider } from "@earendil-works/pi-ai/compat";
+import { ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const API = "slate-worker-reminder-test-api";
 const PROVIDER = "slate-worker-reminder-fake";
@@ -28,15 +35,20 @@ None.
 ## Open Issues
 None.`;
 
-const evidence = { calls: [], registrations: 0, expected: { API, PROVIDER, MODEL, WORKER_TASK, WORKER_SUCCESS, HOST_SUCCESS, REMINDER_TYPE, REMINDER_TEXT, COMPRESSED_EPISODE } };
+const evidence: { calls: Array<{ kind: string; ordinal: number; context: ReturnType<typeof snapshot> }>; registrations: { host: number; runtime: number; legacy: number }; expected: Record<string, string> } = { calls: [], registrations: { host: 0, runtime: 0, legacy: 0 }, expected: { API, PROVIDER, MODEL, WORKER_TASK, WORKER_SUCCESS, HOST_SUCCESS, REMINDER_TYPE, REMINDER_TEXT, COMPRESSED_EPISODE } };
 
-function textOf(content) {
+function textOf(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
-	return content.filter((part) => part?.type === "text").map((part) => part.text).join("\n");
+	return content.filter((part): part is { type: "text"; text: string } => typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string").map((part) => part.text).join("\n");
 }
 
-function message(model, content, stopReason, input = 100) {
+function message(
+	model: Model<any>,
+	content: AssistantMessage["content"],
+	stopReason: Exclude<AssistantMessage["stopReason"], "pending" | "error" | "aborted">,
+	input = 100,
+): AssistantMessage {
 	return {
 		role: "assistant",
 		content,
@@ -56,31 +68,38 @@ function message(model, content, stopReason, input = 100) {
 	};
 }
 
-function completedStream(output) {
+function completedStream(output: AssistantMessage) {
 	const stream = createAssistantMessageEventStream();
 	queueMicrotask(() => {
 		stream.push({ type: "start", partial: { ...output, stopReason: "pending" } });
-		stream.push({ type: "done", reason: output.stopReason, message: output });
+		stream.push({
+			type: "done",
+			reason: output.stopReason as Exclude<AssistantMessage["stopReason"], "pending" | "error" | "aborted">,
+			message: output,
+		});
 		stream.end();
 	});
 	return stream;
 }
 
-function snapshot(context) {
+function snapshot(context: Context) {
 	return {
 		tools: (context.tools ?? []).map((tool) => tool.name),
-		messages: context.messages.map((item) => ({
-			role: item?.role,
-			customType: item?.customType,
-			content: textOf(item?.content),
-			toolName: item?.toolName,
-			toolCallId: item?.toolCallId,
-			display: item?.display,
-		})),
+		messages: context.messages.map((item) => {
+			const value = item as unknown as Record<string, unknown>;
+			return {
+				role: value.role,
+				customType: value.customType,
+				content: textOf(value.content),
+				toolName: value.toolName,
+				toolCallId: value.toolCallId,
+				display: value.display,
+			};
+		}),
 	};
 }
 
-function classify(context) {
+function classify(context: Context) {
 	const texts = context.messages.map((item) => textOf(item?.content));
 	const tools = (context.tools ?? []).map((tool) => tool.name);
 	if (texts.some((text) => text.includes("You are compressing one completed action of a worker thread"))) return "compressor";
@@ -90,10 +109,11 @@ function classify(context) {
 }
 
 function persist() {
+	if (!EVIDENCE) throw new Error("SLATE_WORKER_REMINDER_EVIDENCE is required");
 	writeFileSync(EVIDENCE, JSON.stringify(evidence, null, 2));
 }
 
-function fakeStream(model, context) {
+function fakeStream(model: Model<any>, context: Context, _options?: SimpleStreamOptions) {
 	const kind = classify(context);
 	const prior = evidence.calls.filter((call) => call.kind === kind).length;
 	evidence.calls.push({ kind, ordinal: prior + 1, context: snapshot(context) });
@@ -120,6 +140,10 @@ function fakeStream(model, context) {
 		], "toolUse", 200));
 	}
 	if (kind === "worker" && prior === 1) {
+		// The worker uses its own native ModelRuntime registration. Register the
+		// legacy API only after that path completed, just before episode compression.
+		// This keeps the native and legacy counterfactuals independent.
+		if (evidence.registrations.legacy === 0) registerLegacyApi();
 		return completedStream(message(model, [{ type: "text", text: WORKER_SUCCESS }], "stop", 220));
 	}
 	if (kind === "compressor" && prior === 0) {
@@ -131,14 +155,29 @@ function fakeStream(model, context) {
 	return completedStream(message(model, [{ type: "text", text: `UNEXPECTED_${kind.toUpperCase()}_CALL_${prior + 1}` }], "stop", 500));
 }
 
-function registerTestApi() {
+function registerLegacyApi() {
 	registerApiProvider({ api: API, stream: fakeStream, streamSimple: fakeStream }, "slate-worker-reminder-canary");
-	evidence.registrations += 1;
+	evidence.registrations.legacy += 1;
 	persist();
 }
 
-registerTestApi();
+const originalCreate = ModelRuntime.create;
+const wrappedCreate = async function (...args: Parameters<typeof ModelRuntime.create>): Promise<ModelRuntime> {
+	const runtime = await originalCreate.apply(ModelRuntime, args);
+	runtime.registerProvider(PROVIDER, { api: API, streamSimple: fakeStream });
+	evidence.registrations.runtime += 1;
+	persist();
+	return runtime;
+};
+let factoryOwned = true;
+ModelRuntime.create = wrappedCreate;
 
-export default function workerReminderCanary(pi) {
-	pi.on("session_start", () => registerTestApi());
+export default function workerReminderCanary(pi: ExtensionAPI) {
+	pi.registerProvider(PROVIDER, { api: API, streamSimple: fakeStream });
+	evidence.registrations.host += 1;
+	persist();
+	pi.on("session_shutdown", () => {
+		if (factoryOwned && ModelRuntime.create === wrappedCreate) ModelRuntime.create = originalCreate;
+		factoryOwned = false;
+	});
 }

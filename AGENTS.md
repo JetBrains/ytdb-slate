@@ -28,7 +28,7 @@ This repo runs slate on itself:
 
 - **There is no build step, but there is a typecheck.** pi loads raw TypeScript through jiti, and it uses `extension/index.ts` as it is. No tool compiles the sources before pi runs them. jiti removes the types, and it does not check them. The typecheck is therefore the only check of the types, and it has no other purpose. `npm run typecheck` runs `tsc --noEmit -p tsconfig.json`, and it writes no output: no artifact, no `dist/` directory, and no input for a later step.
 
-  The typecheck reads `extension/**/*.ts`, `test/**/*.ts`, `verification/probe.ts` and `verification/ci-canary.ts`. It skips `verification/*.mjs`, because that code is JavaScript without type annotations. `tsconfig.json` sets `strict`, `noUncheckedIndexedAccess`, `noUncheckedSideEffectImports` and `erasableSyntaxOnly`. The last flag carries a second job beyond type safety: it keeps every source under `extension/` executable by Node's native type stripping, which is how the `node:test` suite imports the shipped modules with no build step (§ Unit tests and the coverage gate). It also sets `skipLibCheck: true`, and that flag is necessary. Without it, `tsc` reports more errors, and all of them sit inside third-party `.d.ts` files under the pi SDK. This repo cannot correct those files.
+  The typecheck reads `extension/**/*.ts`, `test/**/*.ts`, `verification/probe.ts`, `verification/ci-canary.ts` and `verification/worker-reminder-canary.ts`. It skips `verification/*.mjs`, because that code is JavaScript without type annotations. `tsconfig.json` sets `strict`, `noUncheckedIndexedAccess`, `noUncheckedSideEffectImports` and `erasableSyntaxOnly`. The last flag carries a second job beyond type safety: it keeps every source under `extension/` executable by Node's native type stripping, which is how the `node:test` suite imports the shipped modules with no build step (§ Unit tests and the coverage gate). It also sets `skipLibCheck: true`, and that flag is necessary. Without it, `tsc` reports more errors, and all of them sit inside third-party `.d.ts` files under the pi SDK. This repo cannot correct those files.
 
   `exactOptionalPropertyTypes` and `noPropertyAccessFromIndexSignature` stay off. This repo measured both flags, then deferred the first and rejected the second, and `tsconfig.json` records the reasons together with the two commands that re-derive the current diagnostics. It records no counts on purpose: the include list moves them, and a recorded count went stale twice, most recently when `test/**/*.ts` joined the include list. Nobody must repeat that decision without re-measuring. Every flag in the set passes on the current tree. Add a new flag together with its fix. A flag that fails makes the check unreliable, and people then ignore it.
 
@@ -175,8 +175,8 @@ pi **stays silent** for each failure below: it exits 0, and it prints neither ma
 
 `verification/run-ladder.sh` is the deepest regression net in this repo. It is not the only net. § CI names the five checks that run on every pull request. The sections below add the package-content check, the writing checker's two nets and the writing-reminder integration check. The ladder is the only net that touches the global model-default machinery. It covers:
 
-- `extension/model-default.ts` and both switch sites (`extension/failover.ts` failover, `extension/handoff.ts` handoff adoption): the per-key restore rule, the untrustworthy-read stand-downs, the retry budget and the reporting channels;
-- `extension/worker.ts`'s worker-session settings isolation, in rung `WK1`: a **worker-side per-dispatch model AND effort switch** — what every routed action performs — writes zero bytes to the global settings file and does not survive into a reopened session as a sticky default. It is the only automated net for that guarantee, and the only rung that opens a worker session at all.
+- `extension/model-default.ts` and both switch sites (`extension/failover.ts` failover, `extension/handoff.ts` handoff adoption): pi 0.85.1 production setters must write zero global-settings bytes. A test-only `persist:true` fixture keeps the compatibility restore, per-key rule, untrustworthy-read stand-downs, retry budget and reporting channels under test.
+- `extension/worker.ts`'s worker-session settings isolation, in rung `WK1`: a **worker-side per-dispatch model AND effort switch** — what every routed action performs — writes zero bytes to the global settings file and does not survive into a reopened session as a sticky default. A file-backed control uses explicit persistence to prove the read-only worker settings boundary has teeth. It is the only automated net for that guarantee, and the only rung that opens a worker session at all.
 
 Everything runs against fake offline providers in a throwaway agent directory, so real pi settings are never touched (the run fails if the real file changes).
 
@@ -312,7 +312,7 @@ Re-run it after these changes:
 - Internal factory loading or loader-error reporting in `extension/worker.ts`.
 - Action-slice detection, warning delivery or compression filtering in `extension/threads.ts`.
 - Custom-message or steer semantics.
-- `verification/run-worker-reminder-check.sh` or `verification/worker-reminder-canary.mjs`.
+- `verification/run-worker-reminder-check.sh` or `verification/worker-reminder-canary.ts`.
 - The pi pin, RPC shape, provider-evidence shape or JSON Lines shape.
 
 ### Package-content check (package-resolved runtime files)

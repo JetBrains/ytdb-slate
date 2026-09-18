@@ -6,9 +6,12 @@ two callers, `extension/failover.ts` (orchestrator failover) and
 half of the same hazard: the guarantee in `extension/worker.ts` that a
 **worker-side per-dispatch** model/effort switch never reaches the user's global
 defaults at all. Same failure class (a slate-initiated switch leaving the user's
-pi configuration changed), different mechanism: the restore machinery repairs a
-write that pi has already made, while a worker session is built so the write
-cannot happen.
+pi configuration changed), different mechanism. Pi 0.85.1 makes ordinary
+extension setters session-scoped, so the production switch sites write zero
+global-settings bytes. The probe also drives the real `AgentSession` setters
+with `persist:true`. That explicit fixture keeps the compatibility restore under
+test. Worker sessions use a read-only settings snapshot, so even the explicit
+persisted control cannot reach the global file.
 
 ## Why this exists
 
@@ -180,10 +183,11 @@ Four drive modes, chosen per rung:
    `<lab>/work/.pi/slate/pending-handoff.json` whose `parentSession` matches the
    header `--fork` writes, plus `-a` for project trust.
 3. **`probe.ts`** — imports the module under test by absolute path and calls the
-   real `withGlobalModelDefaultRestored` with the real `pi` and `ctx` around a
-   real `pi.setModel`. Only the *caller* differs from the two shipped switch
-   sites, which is what makes the injection windows (write failure, lock
-   contention, third-party write, write-queue depth) deterministic.
+   real `withGlobalModelDefaultRestored` with the real `pi` and `ctx` around real
+   session setters. The driver temporarily wraps `AgentSession.setModel` and
+   `AgentSession.setThinkingLevel` so each call uses `persist:true`. It restores
+   both methods in `finally`. This test-only fixture makes the failure-injection
+   windows deterministic without changing production code.
 4. **The worker probe** (`<lab>/worker-probe.ts`, generated) — opens a REAL
    worker session through `openWorkerSession` in the module under test and
    performs the per-dispatch model **and** effort switch exactly as
@@ -197,12 +201,12 @@ Four drive modes, chosen per rung:
 
 | id | what it proves |
 | --- | --- |
-| `R1` | a real failover restores the file byte-identically, with the switch proven from the session record |
-| `R2` | knob off ⇒ the leak reappears — the negative control that makes R1 non-vacuous |
-| `R3a` | a clamped thinking level (`xhigh`→`high`) is restored to the user's preference, not the clamp |
-| `R3b` | a thinking-level-**only** divergence through the failover site (pair already at the target) |
-| `R4a` | handoff adoption writing the thinking key **alone**, when its equality guard skips `setModel` |
-| `R4b` | handoff adoption writing model *and* thinking level |
+| `R1` | a real failover fires and leaves the file byte-identical under current session-scoped setter behavior |
+| `R2` | current production setters write zero bytes; the `persist:true` fixture leaks with the knob off and restores with it on |
+| `R3a` | production stays session-scoped; an explicit persisted clamp (`xhigh`→`high`) restores to the user's preference |
+| `R3b` | production stays session-scoped; an explicit persisted thinking-only divergence restores with the pair untouched |
+| `R4a` | handoff adoption sets thinking without a global write; the explicit thinking-only fixture restores |
+| `R4b` | handoff adoption sets model and thinking without a global write; the explicit persisted fixture restores both |
 | `R5a` | zero-byte settings file ⇒ warn, write nothing, never delete |
 | `R5b` | corrupt settings file ⇒ warn, write nothing, never delete |
 | `R5c` | settings lock held ⇒ warn, write nothing, never delete |
@@ -211,8 +215,8 @@ Four drive modes, chosen per rung:
 | `R8` | the retry budget is bounded: it abandons and reports instead of hanging |
 | `G1` | the **macrotask** yield survives a deep write queue — *with teeth*, see below |
 | `G2` | a transient write failure retries and writes back the ORIGINAL pre-switch reference, never a value re-read after the failed attempt |
-| `G4a` | same-provider, model-only divergence |
-| `G4b` | thinking key absent beforehand ⇒ restored to **absence**, pair untouched |
+| `G4a` | a same-provider production switch writes zero bytes; its explicit persisted model-only fixture restores |
+| `G4b` | production keeps an absent thinking key absent; the explicit persisted fixture restores it to **absence** |
 | `P5a` | a third party changing **one half** of the provider/model pair ⇒ the whole pair is left alone (no mixed pair pi could never produce) |
 | `P5b` | the same with the pre-switch pair absent — no `defaultModel` left with no `defaultProvider` |
 | `P6` | retry pacing bounds real write attempts to tens, not hundreds |
@@ -290,7 +294,7 @@ the list of things to fix before CI goes green again.
 | `scratch path too long` (`P11`) | re-run with a shorter `--lab`. |
 | `the JSON parse error carries no raw escapes` (`P8`) | the Node version stopped embedding the raw snippet. The rung would pass vacuously, so it stands down; sanitisation must then be reviewed by reading the code. |
 | `needs the R7 and R8 artifacts` (`P9b`) / `needs the R5a artifact` (`P10`) | you used `--only` without the prerequisite. Add it (see the interdependency table above). |
-| `the file-backed copy could not be built or did not leak either` (`WK1`) | `worker.ts`'s read-only `SettingsManager.fromStorage(…)` block changed shape, so the file-backed variant could not be derived — or it was derived and did **not** leak, which would mean pi stopped persisting a session-level `setModel` at all. Fix the substitution, or the rung has no teeth. The rung's own assertions are reported first, so a FAIL still means a real leak. |
+| `the file-backed copy could not be built or did not leak either` (`WK1`) | `worker.ts`'s read-only `SettingsManager.fromStorage(…)` block changed shape, or the generated probe no longer forces `persist:true` for the file-backed control. Fix the substitution or explicit-persistence control. The real worker path must remain session-scoped and byte-identical. |
 
 ### Teeth
 
@@ -315,10 +319,11 @@ as such:
   **reject**. The rung claims teeth only when they do, and says so otherwise.
 
 - **`WK1`** — a copy of `worker.ts` whose worker sessions get a **file-backed**
-  `SettingsManager` instead of the read-only snapshot one, which is precisely the
-  pre-AF8/AF9 defect. It must leak — write the switch into the global settings
-  and/or leave the next session's worker on the switched model — while the real
-  module does neither; if it does not leak, the rung reports NOT RUN.
+  `SettingsManager` instead of the read-only snapshot one. The real worker uses
+  ordinary session-scoped setters. The control calls those setters with
+  `persist:true`, and it must write the switch or leave the next session on the
+  switched model. The real module must do neither. If the control does not leak,
+  the rung reports NOT RUN.
 
 `G2` carries an inline teeth check instead: it fails itself if the run finished
 too fast for the first write attempt to have failed. `P8` first confirms that
@@ -2097,7 +2102,13 @@ provider makes the orchestrator call the real `thread` tool. The worker issues
 two independent built-in `read` calls in one turn, receives the hidden reminder
 on its continuation request, returns a fixed marker and produces an episode.
 The scratch config keeps `workerExtensions` empty and sets `cacheKeyEnabled` to
-`false`.
+`false`. The TypeScript canary loads through the same jiti module aliases as
+Slate. It registers the native provider on the host and on every test-created
+`ModelRuntime`. It delays the legacy compatibility registration until the
+worker finishes, just before compression. This ordering makes missing native
+worker registration and missing legacy compressor registration independent
+failures. The canary restores its `ModelRuntime.create` wrapper during session
+shutdown when it still owns that method.
 
 On the reference machine, the run takes about five seconds. The hard bound is
 GNU `timeout`: TERM after 60 seconds and KILL five seconds later. Exit **0** means
@@ -2151,7 +2162,7 @@ provider-evidence or JSON Lines shape.
 | file | role |
 | --- | --- |
 | `run-worker-reminder-check.sh` | driver, isolated scratch environment, real pi session, evidence parser, 18-result roster and artifact policy |
-| `worker-reminder-canary.mjs` | deterministic offline provider, orchestrator and worker scripts, call classification and provider-context evidence |
+| `worker-reminder-canary.ts` | deterministic offline provider, orchestrator and worker scripts, call classification and provider-context evidence |
 
 # Packaging guards — `run-packaging-checks.sh`
 

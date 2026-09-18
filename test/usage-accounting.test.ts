@@ -108,7 +108,7 @@ function model(provider: string, id: string): FakeModel {
   return { provider, id, contextWindow: 200_000, maxTokens: 8192, reasoning: false };
 }
 
-function context(cwd: string, models: FakeModel[] = []): ExtensionContext {
+function context(cwd: string, models: FakeModel[] = [], headers?: Record<string, string | null>): ExtensionContext {
   const bySpec = new Map(models.map((entry) => [`${entry.provider}/${entry.id}`, entry]));
   return {
     cwd,
@@ -122,7 +122,7 @@ function context(cwd: string, models: FakeModel[] = []): ExtensionContext {
         return models;
       },
       async getApiKeyAndHeaders() {
-        return { ok: true, apiKey: "test-key" };
+        return { ok: true, apiKey: "test-key", headers };
       },
       hasConfiguredAuth() {
         return true;
@@ -517,7 +517,8 @@ test("compressor usage persists all quantities and accumulates a billed failover
     modelFailover: { "test/primary": "test/fallback" },
   });
   const controller = new AbortController();
-  const result = await manager.dispatch({ task: "compress with failover", type: "general" }, context(cwd, [primary, fallback]), controller.signal);
+  const headers = { authorization: "test-token", "x-provider-default": null };
+  const result = await manager.dispatch({ task: "compress with failover", type: "general" }, context(cwd, [primary, fallback], headers), controller.signal);
 
   assert.equal(calls.length, 2);
   assert.strictEqual(calls[0]?.model, primary);
@@ -526,8 +527,8 @@ test("compressor usage persists all quantities and accumulates a billed failover
   assert.deepEqual(
     calls.map((call) => call.options),
     [
-      { apiKey: "test-key", headers: undefined, env: undefined, maxTokens: 4096, signal: controller.signal },
-      { apiKey: "test-key", headers: undefined, env: undefined, maxTokens: 4096, signal: controller.signal },
+      { apiKey: "test-key", headers, env: undefined, maxTokens: 4096, signal: controller.signal },
+      { apiKey: "test-key", headers, env: undefined, maxTokens: 4096, signal: controller.signal },
     ],
   );
   assert.deepEqual(result.episode.compressorUsage, {
