@@ -89,34 +89,48 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
-      release_sha: ${{ steps.find.outputs.release_sha }}
-      parent_sha: ${{ steps.find.outputs.parent_sha }}
-      version: ${{ steps.find.outputs.version }}
-      request_path: ${{ steps.find.outputs.request_path }}
+      release_sha: ${{ steps.candidate.outputs.release_sha }}
+      parent_sha: ${{ steps.candidate.outputs.parent_sha }}
+      version: ${{ steps.candidate.outputs.version }}
+      request_path: ${{ steps.candidate.outputs.request_path }}
       pull_request: ${{ steps.find.outputs.pull_request }}
       identity: ${{ steps.find.outputs.identity }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0 }
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: release-state, path: durable }
-      - id: find
-        env: { BEFORE: '${{ github.event.before }}', AFTER: '${{ github.sha }}', GH_TOKEN: '${{ github.token }}' }
+      - id: candidate
+        env: { BEFORE: '${{ github.event.before }}', AFTER: '${{ github.sha }}' }
         run: |
           set -euo pipefail
           found=0
           while read -r sha; do
-            parent=$(git rev-parse "$sha^")
             mapfile -t requests < <(git diff-tree --no-commit-id --name-only -r "$sha" | grep '^release/requests/.*/request.json$' || true)
             test "${#requests[@]}" -gt 0 || continue
             test "${#requests[@]}" -eq 1
-            request=${requests[0]}; version=${request#release/requests/}; version=${version%/request.json}
-            tmp=$(mktemp -d)
-            git show "$sha:$request" >"$tmp/request.json"; git show "$sha:release/requests/$version/notes.md" >"$tmp/notes.md"; git show "$sha:release/requests/$version/coverage.json" >"$tmp/coverage.json"; git show "$sha:package.json" >"$tmp/package.json"
-            git diff-tree --no-commit-id --name-only -r "$sha" >"$tmp/paths"
-            prs=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls")
-            request_base=$(node -p 'require(process.argv[1]).baseSha' "$tmp/request.json"); git merge-base --is-ancestor "$request_base" "$parent"
-            result=$(node --input-type=module - "$tmp" "$sha" "$parent" "$prs" <<'NODE'
+            request=${requests[0]}; version=${request#release/requests/}; version=${version%/request.json}; parent=$(git rev-parse "$sha^")
+            found=$((found+1)); test "$found" -eq 1 || { echo 'More than one release candidate appears in this push.' >&2; exit 1; }
+            echo "release_sha=$sha" >>"$GITHUB_OUTPUT"; echo "parent_sha=$parent" >>"$GITHUB_OUTPUT"; echo "version=$version" >>"$GITHUB_OUTPUT"; echo "request_path=$request" >>"$GITHUB_OUTPUT"
+          done < <(git rev-list --reverse "$BEFORE..$AFTER")
+          test "$found" -eq 1 || echo 'Push contains no release candidate.'
+      - if: steps.candidate.outputs.release_sha != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, path: durable }
+      - id: find
+        if: steps.candidate.outputs.release_sha != ''
+        env:
+          RELEASE_SHA: '${{ steps.candidate.outputs.release_sha }}'
+          PARENT_SHA: '${{ steps.candidate.outputs.parent_sha }}'
+          VERSION: '${{ steps.candidate.outputs.version }}'
+          REQUEST: '${{ steps.candidate.outputs.request_path }}'
+          GH_TOKEN: '${{ github.token }}'
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          git show "$RELEASE_SHA:$REQUEST" >"$tmp/request.json"; git show "$RELEASE_SHA:release/requests/$VERSION/notes.md" >"$tmp/notes.md"; git show "$RELEASE_SHA:release/requests/$VERSION/coverage.json" >"$tmp/coverage.json"; git show "$RELEASE_SHA:package.json" >"$tmp/package.json"
+          git diff-tree --no-commit-id --name-only -r "$RELEASE_SHA" >"$tmp/paths"
+          prs=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/pulls")
+          request_base=$(node -p 'require(process.argv[1]).baseSha' "$tmp/request.json"); git merge-base --is-ancestor "$request_base" "$PARENT_SHA"
+          result=$(node --input-type=module - "$tmp" "$RELEASE_SHA" "$PARENT_SHA" "$prs" <<'NODE'
           import fs from 'node:fs'; import {verifyReleaseIdentity} from './verification/release-control.mjs';
           const [d,sha,parent,raw]=process.argv.slice(2),request=JSON.parse(fs.readFileSync(`${d}/request.json`)),durableRequest=JSON.parse(fs.readFileSync('durable/request.json')),version=request.version;
           const associatedPullRequests=JSON.parse(raw).map(p=>({number:p.number,merged:p.merged_at!==null,mergeCommitSha:p.merge_commit_sha,baseRefName:p.base.ref}));
@@ -124,11 +138,7 @@ jobs:
           process.stdout.write(JSON.stringify(x));
           NODE
           )
-            found=$((found+1)); test "$found" -eq 1 || { echo 'More than one exact release merge appears in this push.' >&2; exit 1; }
-            echo "release_sha=$sha" >>"$GITHUB_OUTPUT"; echo "parent_sha=$parent" >>"$GITHUB_OUTPUT"; echo "version=$version" >>"$GITHUB_OUTPUT"; echo "request_path=$request" >>"$GITHUB_OUTPUT"
-            echo "pull_request=$(node -p 'JSON.parse(process.argv[1]).pullRequest' "$result")" >>"$GITHUB_OUTPUT"; echo "identity=$(node -p 'JSON.parse(process.argv[1]).identity' "$result")" >>"$GITHUB_OUTPUT"
-          done < <(git rev-list --reverse "$BEFORE..$AFTER")
-          test "$found" -eq 1 || echo 'Push contains no exact prepared release merge.'
+          echo "pull_request=$(node -p 'JSON.parse(process.argv[1]).pullRequest' "$result")" >>"$GITHUB_OUTPUT"; echo "identity=$(node -p 'JSON.parse(process.argv[1]).identity' "$result")" >>"$GITHUB_OUTPUT"
 
   claim:
     needs: identify
@@ -241,7 +251,7 @@ jobs:
 
   record-registry:
     needs: [identify, registry-proof]
-    if: always() && needs.registry-proof.result != 'cancelled'
+    if: always() && needs.identify.outputs.release_sha != '' && (needs.registry-proof.result == 'success' || needs.registry-proof.result == 'failure')
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
