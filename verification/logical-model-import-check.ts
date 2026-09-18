@@ -1,11 +1,14 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { posix, relative } from "node:path";
+import { dirname, isAbsolute, normalize, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 export const DORMANT_LOGICAL_MODEL_MODULES = Object.freeze([
 	"extension/logical-model-definitions",
 	"extension/logical-model-resolver",
 	"extension/logical-model-render",
+	"extension/logical-model-recovery",
+	"extension/logical-model-adapters",
 ] as const);
 
 export const REVIEWED_NON_LITERAL_MODULE_SITES = Object.freeze([
@@ -51,10 +54,28 @@ function withoutSourceSuffix(path: string): string {
 	return path;
 }
 
-function resolvedDormantTarget(importer: string, specifier: string): string | undefined {
-	if (!specifier.startsWith(".")) return undefined;
-	const resolved = withoutSourceSuffix(posix.normalize(posix.join(posix.dirname(importer), specifier)));
-	return DORMANT_TARGETS.has(resolved) ? resolved : undefined;
+function withoutJitiDecoration(specifier: string): string {
+	const decoration = (specifier.startsWith("file:") ? /[?#]|%(?:3f|23)/i : /[?#]/).exec(specifier);
+	return decoration ? specifier.slice(0, decoration.index) : specifier;
+}
+
+function resolvedDormantTarget(repositoryRoot: string, importer: string, specifier: string): string | undefined {
+	const undecorated = withoutJitiDecoration(specifier);
+	let candidate: string;
+	try {
+		if (undecorated.startsWith("file:")) candidate = fileURLToPath(undecorated);
+		else if (isAbsolute(undecorated)) candidate = undecorated;
+		else if (undecorated.startsWith(".")) candidate = resolve(repositoryRoot, dirname(importer), undecorated);
+		else return undefined;
+	} catch {
+		return undefined;
+	}
+	const resolvedCandidate = withoutSourceSuffix(normalize(candidate));
+	for (const target of DORMANT_TARGETS) {
+		const dormantPath = withoutSourceSuffix(resolve(repositoryRoot, `${target}.ts`));
+		if (resolvedCandidate === dormantPath) return target;
+	}
+	return undefined;
 }
 
 function sourceKind(path: string): ts.ScriptKind {
@@ -75,6 +96,7 @@ function reference(
 
 export function analyzeLogicalModelSources(
 	sources: readonly LogicalModelSource[],
+	repositoryRoot: string,
 	reviewedSites: readonly string[] = REVIEWED_NON_LITERAL_MODULE_SITES,
 ): LogicalModelImportResult {
 	const issues: LogicalModelImportIssue[] = [];
@@ -115,7 +137,7 @@ export function analyzeLogicalModelSources(
 				const start = found.expression?.getStart(sourceFile) ?? node.getStart(sourceFile);
 				const point = location(sourceFile, start);
 				if (found.expression && ts.isStringLiteralLike(found.expression)) {
-					const target = resolvedDormantTarget(path, found.expression.text);
+					const target = resolvedDormantTarget(repositoryRoot, path, found.expression.text);
 					if (target) issues.push({ kind: "forbidden-reference", path, ...point, syntax: found.syntax, specifier: found.expression.text, target });
 				} else {
 					const expression = found.expression?.getText(sourceFile) ?? "<missing>";
@@ -146,6 +168,8 @@ function isRuntimeSource(path: string): boolean {
 }
 
 export function scanLogicalModelImports(extensionDirectory: string): LogicalModelImportResult {
+	const absoluteExtensionDirectory = resolve(extensionDirectory);
+	const repositoryRoot = dirname(absoluteExtensionDirectory);
 	const sources: LogicalModelSource[] = [];
 	const walk = (directory: string): void => {
 		for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
@@ -157,6 +181,6 @@ export function scanLogicalModelImports(extensionDirectory: string): LogicalMode
 			}
 		}
 	};
-	walk(extensionDirectory);
-	return analyzeLogicalModelSources(sources);
+	walk(absoluteExtensionDirectory);
+	return analyzeLogicalModelSources(sources, repositoryRoot);
 }

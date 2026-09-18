@@ -84,6 +84,8 @@ const workerReminderLoad = await tryImport("extension/worker-reminder.ts");
 const logicalDefinitionsLoad = await tryImport("extension/logical-model-definitions.ts");
 const logicalResolverLoad = await tryImport("extension/logical-model-resolver.ts");
 const logicalRenderLoad = await tryImport("extension/logical-model-render.ts");
+const logicalRecoveryLoad = await tryImport("extension/logical-model-recovery.ts");
+const logicalAdaptersLoad = await tryImport("extension/logical-model-adapters.ts");
 const logicalImportCheckLoad = await tryImport("verification/logical-model-import-check.ts");
 // The base-model tracker is a PURE reducer over model-selection events (its own
 // module header says so), so it belongs here rather than in the ladder: it
@@ -104,6 +106,8 @@ const workerReminder = workerReminderLoad.module;
 const logicalDefinitions = logicalDefinitionsLoad.module;
 const logicalResolver = logicalResolverLoad.module;
 const logicalRender = logicalRenderLoad.module;
+const logicalRecovery = logicalRecoveryLoad.module;
+const logicalAdapters = logicalAdaptersLoad.module;
 const logicalImportCheck = logicalImportCheckLoad.module;
 const tracker = baseLoad.module;
 const route = routeLoad.module;
@@ -434,7 +438,7 @@ const ROUTE_IDS = [
  * (see the episode section for what each stub does and why it is faithful).
  */
 const EPISODE_IDS = ["episode-pin", "episode-auth", "episode-version", "episode-report", "episode-header"];
-const LOGICAL_IDS = ["logical-defaults", "logical-resolution", "logical-render", "logical-disconnected"];
+const LOGICAL_IDS = ["logical-defaults", "logical-resolution", "logical-render", "logical-recovery", "logical-disconnected"];
 /** Checks that need extension/base-model.ts — the orchestrator base-model tracker. */
 const BASE_IDS = [
 	"base-seed",
@@ -2497,8 +2501,8 @@ try {
 	check("state-load", state !== undefined, "extension/state.ts loads", stateLoad.error?.message);
 	check("base-load", tracker !== undefined, "extension/base-model.ts loads", baseLoad.error?.message);
 	check("route-load", route !== undefined, "extension/route.ts loads", routeLoad.error?.message);
-	const logicalLoaded = logicalDefinitions !== undefined && logicalResolver !== undefined && logicalRender !== undefined && logicalImportCheck !== undefined;
-	check("logical-load", logicalLoaded, "the disconnected logical-model modules and their shared syntax-derived import check load", logicalDefinitionsLoad.error?.message ?? logicalResolverLoad.error?.message ?? logicalRenderLoad.error?.message ?? logicalImportCheckLoad.error?.message);
+	const logicalLoaded = logicalDefinitions !== undefined && logicalResolver !== undefined && logicalRender !== undefined && logicalRecovery !== undefined && logicalAdapters !== undefined && logicalImportCheck !== undefined;
+	check("logical-load", logicalLoaded, "the disconnected logical-model modules and their shared syntax-derived import check load", logicalDefinitionsLoad.error?.message ?? logicalResolverLoad.error?.message ?? logicalRenderLoad.error?.message ?? logicalRecoveryLoad.error?.message ?? logicalAdaptersLoad.error?.message ?? logicalImportCheckLoad.error?.message);
 	if (!logicalLoaded) {
 		for (const id of LOGICAL_IDS) skip(id, "the disconnected logical-model modules could not be loaded");
 	} else {
@@ -2533,7 +2537,25 @@ try {
 				"| gpt-6-astra | 86 | 60 | security work / performance work | none |",
 			];
 			check("logical-render", typeof rendered.text === "string" && promptRows.every((row) => rendered.text.includes(row)) && rendered.text.includes(meaning) && rendered.text.includes(advisory) && !rendered.text.includes("preferredProvider") && effective.includes("permission anthropic/claude-sonnet-5") && effective.includes("Legacy key modelFailover is ignored") && effective.includes(meaning) && effective.includes(advisory) && blocked.includes(meaning) && blocked.includes(advisory) && blocked.includes("credentials"), "the deterministic prompt and both effective states expose complete rating meaning, advisory guidance, permissions, and diagnostics", { rendered, effective, blocked });
+			const recoveryPolicy = logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { models: { include: ["gpt-5.6-sol", "gemini-3.8-flash", "gpt-5.6-terra", "claude-opus-5"] }, compressor: { models: [{ model: "gpt-5.6-sol", effort: "medium" }, { model: "gemini-3.8-flash", effort: "low" }] } } } }).policy;
+			const preferences = new logicalRecovery.RecoveryPreferences(recoveryPolicy);
+			const admission = preferences.admit();
+			const ordinaryPlan = logicalRecovery.planOrdinaryRecovery(recoveryPolicy, "gpt-5.6-sol", admission.snapshot);
+			const exhaustedActive = ordinaryPlan[0];
+			const postExhaustionPlan = logicalRecovery.planOrdinaryRecovery(recoveryPolicy, "gpt-5.6-sol", admission.snapshot, exhaustedActive);
+			const compressorPlan = logicalRecovery.planCompressorRecovery(recoveryPolicy, admission.snapshot);
+			const ownership = new logicalRecovery.RecoveryOwnership();
+			const owner = ownership.acquire("main", "global");
+			ownership.replaceSession("main");
+			const busy = ownership.acquire("other", "global");
+			if (owner.kind === "acquired") owner.lease.release();
+			const reacquired = ownership.acquire("other", "global");
+			if (reacquired.kind === "acquired") reacquired.lease.release();
+			const retained = { value: "completed" };
+			const compressed = await logicalAdapters.executeCompression(retained, { candidates: compressorPlan, retainedToolResults: [], validateSwitch: () => ({ ok: true }), attempt: () => ({ kind: "retry-exhausted" }) });
+			check("logical-recovery", ordinaryPlan.map((candidate) => candidate.logicalModel).join(",") === "gpt-5.6-sol,claude-opus-5,gemini-3.8-flash,gpt-5.6-terra" && postExhaustionPlan.every((candidate) => candidate.provider !== exhaustedActive.provider || candidate.model !== exhaustedActive.model) && compressorPlan.map((candidate) => candidate.effort).join() === "medium,low" && busy.kind === "busy" && reacquired.kind === "acquired" && compressed.completed === retained && compressed.compression.kind === "failed", "disconnected recovery excludes the exhausted active pair, keeps entry effort and replacement ownership, and retains completed output", { ordinaryPlan, postExhaustionPlan, compressorPlan, busy, reacquired, compressed });
 			const longGap = " ".repeat(2_001);
+			const externalSameTail = file("external/extension/logical-model-adapters.ts", "export const marker = 77;\n");
 			const fixture = logicalImportCheck.analyzeLogicalModelSources([
 				{ path: "extension/fixture/named.ts", source: `import { value }${longGap}from "../logical-model-render.ts";` },
 				{ path: "extension/fixture/commented.ts", source: 'export { value } from /* comment */ "../logical-model-resolver.js";' },
@@ -2541,14 +2563,19 @@ try {
 				{ path: "extension/fixture/dynamic.mjs", source: 'void import /* comment */ (`../logical-model-render.ts`);' },
 				{ path: "extension/fixture/require.ts", source: 'require("../logical-model-resolver.cjs");' },
 				{ path: "extension/fixture/import-equals.ts", source: 'import Value = require("../logical-model-definitions.mts");' },
+				{ path: "extension/fixture/query.ts", source: 'import "../logical-model-adapters.ts?live";' },
+				{ path: "extension/fixture/fragment.ts", source: 'import "../logical-model-recovery.ts#live";' },
+				{ path: "extension/fixture/file-url.ts", source: `import "${pathToFileURL(join(REPO, "extension", "logical-model-adapters.ts")).href}%3Flive";` },
+				{ path: "extension/fixture/absolute.ts", source: `import "${join(REPO, "extension", "logical-model-recovery.ts")}?live";` },
+				{ path: "extension/fixture/external.ts", source: `import "${pathToFileURL(externalSameTail).href}";` },
 				{ path: "extension/fixture/clean.ts", source: 'const note = "migration from \\\"../logical-model-render.ts\\\""; // import "../logical-model-resolver.ts"' },
-			]);
-			const computed = logicalImportCheck.analyzeLogicalModelSources([{ path: "extension/fixture/computed.ts", source: "void import(target);" }]);
-			const broken = logicalImportCheck.analyzeLogicalModelSources([{ path: "extension/fixture/broken.ts", source: 'import { from "./broken.ts";' }]);
+			], REPO);
+			const computed = logicalImportCheck.analyzeLogicalModelSources([{ path: "extension/fixture/computed.ts", source: "void import(target);" }], REPO);
+			const broken = logicalImportCheck.analyzeLogicalModelSources([{ path: "extension/fixture/broken.ts", source: 'import { from "./broken.ts";' }], REPO);
 			const active = logicalImportCheck.scanLogicalModelImports(join(REPO, "extension"));
 			const fixtureReferences = fixture.issues.filter((issue) => issue.kind === "forbidden-reference");
 			const clean = fixture.issues.filter((issue) => issue.path.endsWith("clean.ts"));
-			const syntaxControls = fixtureReferences.length === 6 && clean.length === 0 && computed.issues.length === 1 && computed.issues[0]?.kind === "computed-reference" && broken.issues.length > 0 && broken.issues.every((issue) => issue.kind === "parse-error");
+			const syntaxControls = fixtureReferences.length === 10 && !fixtureReferences.some((issue) => issue.path.endsWith("external.ts")) && clean.length === 0 && computed.issues.length === 1 && computed.issues[0]?.kind === "computed-reference" && broken.issues.length > 0 && broken.issues.every((issue) => issue.kind === "parse-error");
 			const activeClean = active.files.length > 20 && active.files.some((path) => path.endsWith(".mjs")) && JSON.stringify(active.reviewedNonLiteralSites) === JSON.stringify(logicalImportCheck.REVIEWED_NON_LITERAL_MODULE_SITES) && active.issues.length === 0;
 			check("logical-disconnected", syntaxControls && activeClean, "syntax-derived positive and negative controls protect the recursive TypeScript and JavaScript disconnection scan", { fixture, computed, broken, active });
 		});
