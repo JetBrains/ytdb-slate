@@ -93,6 +93,10 @@ test("real worker assembly delivers the charter only to review thread types", as
     model: undefined,
     thinkingLevel: "medium",
     modelRuntime: { getRegisteredProviderIds: () => [] },
+    async bindExtensions() {},
+    extensionRunner: { async emit() {} },
+    dispose() {},
+    agent: { state: { tools: [] } },
   } as unknown as WorkerSession;
   codingAgentStub.createAgentSession = async (options) => {
     opened.push(options);

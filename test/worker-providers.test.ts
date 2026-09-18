@@ -371,11 +371,14 @@ test("an unconfigured unused inherited provider does not block an unrelated usab
 	}
 });
 
-test("worker startup disposes the session and makes no request when inheritance fails", { timeout: 5000 }, async () => {
+test("provider inheritance failure shuts down loaded extensions before disposal without starting them", { timeout: 5000 }, async () => {
 	const root = mkdtempSync(join(tmpdir(), "slate-worker-providers-dispose-"));
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	const previousOffline = process.env.PI_OFFLINE;
 	const originalDispose = AgentSession.prototype.dispose;
+	const marker = join(root, "inheritance-lifecycle.txt");
+	const extensionPath = join(root, "inheritance-lifecycle.mjs");
+	const order: string[] = [];
 	let disposals = 0;
 	let requests = 0;
 	process.env.PI_CODING_AGENT_DIR = join(root, "agent");
@@ -385,8 +388,17 @@ test("worker startup disposes the session and makes no request when inheritance 
 		join(process.env.PI_CODING_AGENT_DIR, "models.json"),
 		JSON.stringify({ providers: { "broken-startup": { baseUrl: "memory://override" } } }),
 	);
+	writeFileSync(extensionPath, `import { appendFileSync } from "node:fs";
+export default function (pi) {
+  pi.on("session_start", () => { appendFileSync(${JSON.stringify(marker)}, "startup\\n"); });
+  pi.on("session_shutdown", () => {
+    appendFileSync(${JSON.stringify(marker)}, "shutdown\\n");
+    throw new Error("cleanup detail");
+  });
+}`);
 	AgentSession.prototype.dispose = function dispose() {
 		disposals += 1;
+		order.push(readFileSync(marker, "utf8"));
 		return originalDispose.call(this);
 	};
 	try {
@@ -394,7 +406,7 @@ test("worker startup disposes the session and makes no request when inheritance 
 			id: "broken-startup",
 			name: "Broken startup",
 			auth: {},
-			getModels() { throw new Error("composition failure"); },
+			getModels() { throw new Error("secret composition failure"); },
 			stream() { requests += 1; throw new Error("request must not run"); },
 			streamSimple() { requests += 1; throw new Error("request must not run"); },
 		} as unknown as Provider;
@@ -403,12 +415,22 @@ test("worker startup disposes the session and makes no request when inheritance 
 			getRegisteredNativeProvider: () => broken,
 			getRegisteredProviderConfig: () => undefined,
 		};
+		const reports: string[] = [];
 		await assert.rejects(
-			openWorkerSession({ ctx: context(root, registry as unknown as ModelRegistry) }),
-			/worker provider inheritance failed for provider "broken-startup"/,
+			openWorkerSession({
+				ctx: context(root, registry as unknown as ModelRegistry, undefined, true),
+				extensionPaths: [extensionPath],
+				report: (message) => reports.push(message),
+			}),
+			(error: Error) => error.message.includes('provider inheritance failed for provider "broken-startup"')
+				&& !error.message.includes("secret composition failure")
+				&& !error.message.includes("cleanup detail"),
 		);
+		assert.equal(readFileSync(marker, "utf8"), "shutdown\n");
+		assert.deepEqual(order, ["shutdown\n"]);
 		assert.equal(disposals, 1);
 		assert.equal(requests, 0);
+		assert.equal(reports.filter((message) => /extension shutdown failed.*cleanup detail/.test(message)).length, 1);
 	} finally {
 		AgentSession.prototype.dispose = originalDispose;
 		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;

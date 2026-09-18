@@ -287,22 +287,22 @@ unit to exactly the entry files the host loaded; that fallback loses the
 package's no-tool companion entries, since an entry that registered no
 tool cannot be shown to be running.)
 
-That collision barrier is best-effort and load-time only: it runs before a
-unit loads, against its tools as the HOST registry reports them, and once
-more after the load, against the tools the units actually registered — a
-post-load collision fails the dispatch CLOSED rather than opening the
-worker. Neither pass can see a tool an extension registers only LATER, on
-the worker's first turn (a `before_agent_start` handler, say). Slate's own
-dispatch tools do not depend on that scan: `createAgentSession` is given
-an `excludeTools` denylist of `thread`/`threads`/`episode` that pi applies
-AFTER the tool allowlist and re-applies on every tool-registry refresh, so
-they can never be active in a worker no matter when or by whom they are
-registered — a deferred registration included. A deferred registration
-that shadows a pi BUILT-IN (`read`, `bash`, …) has no such gap-closer —
-the worker needs the real built-in — so it stays outside Slate's control,
-exactly as available to any extension the host session runs. The guard
-bounds Slate's dispatch tools, not every tool an extension might register
-at runtime.
+The collision barrier runs before a unit loads against the tools in the
+host registry. Slate scans the worker registry again after every selected
+extension completes `session_start`. A tool registered during startup can
+therefore remain eligible when the host selected it, but a startup tool
+that shadows a Slate or pi built-in blocks the action. Slate's dispatch
+tools do not depend on either scan. `createAgentSession` receives an
+`excludeTools` denylist of `thread`, `threads`, and `episode`. Pi applies
+the denylist after the allowlist and on every tool-registry refresh.
+
+Slate owns the complete worker extension lifecycle. It waits for
+`session_start` before the action. A startup handler failure blocks the
+action and enters cleanup. Every terminal path shares one shutdown
+operation per worker. That operation emits `session_shutdown` once and
+then disposes the session even when a shutdown handler fails. Host cleanup
+removes workers from the live set before it awaits their shutdown, so an
+overlapping action cannot continue with a session in teardown.
 
 The orchestrator does NOT get the whitelisted tools; orchestrator mode
 keeps its restricted set. Instead its doctrine gains a rule listing each
@@ -322,10 +322,8 @@ risks that follow are the operator's to weigh:
 - Inside a worker a whitelisted extension has the same filesystem and
   credential reach it has in the host; Slate's read-only settings snapshot
   blocks pi-settings writes and nothing else.
-- Worker sessions never fire the session-start event, so an extension
-  whose model-scoped tool manager depends on it stays unsynced and may
-  offer a tool the worker's model cannot serve — the call simply fails and
-  the episode records it.
+- A startup handler can fail. Slate reports the failure, blocks the action,
+  and still runs shutdown and disposal.
 - Third-party extensions may ignore the abort signal, so their network
   activity can outlive an abort or a context-budget pause.
 - Host and worker copies of the same extension share module-level state

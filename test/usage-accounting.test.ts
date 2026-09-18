@@ -34,7 +34,11 @@ interface FakeSession {
   subscribe(listener: (event: Record<string, unknown>) => void): () => void;
   prompt(text: string): Promise<void>;
   abort(): Promise<void>;
+  shutdownWorker(): Promise<void>;
   dispose(): void;
+  shutdownCalls: number;
+  disposeCalls: number;
+  shutdownPromise: Promise<void> | undefined;
   setModel(model: FakeModel): Promise<void>;
   setThinkingLevel(): void;
   getContextUsage(): undefined;
@@ -76,7 +80,18 @@ function fakeSession(script: PromptScript, model?: FakeModel): FakeSession {
       await script(session);
     },
     async abort() {},
-    dispose() {},
+    shutdownWorker() {
+      if (session.shutdownPromise !== undefined) return session.shutdownPromise;
+      session.shutdownCalls++;
+      session.shutdownPromise = Promise.resolve().then(() => { session.dispose(); });
+      return session.shutdownPromise;
+    },
+    dispose() {
+      session.disposeCalls++;
+    },
+    shutdownCalls: 0,
+    disposeCalls: 0,
+    shutdownPromise: undefined,
     async setModel(next) {
       session.model = next;
     },
@@ -433,6 +448,8 @@ test("fixed episode write failure leaves a terminal reason and no orphan episode
   assert.match(thread?.outcomeReason ?? "", /not a regular file/);
   assert.equal(thread?.episodeId, undefined);
   assert.equal(internalStore.episodes.size, 0);
+  assert.equal(session.shutdownCalls, 1);
+  assert.equal(session.disposeCalls, 1);
 });
 
 test("fixed failure reports a thread-record save failure", { timeout: 1000 }, async (t) => {
@@ -610,6 +627,10 @@ test("dispatch subscriptions are removed after normal completion and error", { t
 
   assert.equal(normal.listenerCount(), 0);
   assert.equal(failed.listenerCount(), 0);
+  assert.deepEqual(
+    [normal.shutdownCalls, normal.disposeCalls, failed.shutdownCalls, failed.disposeCalls],
+    [1, 1, 1, 1],
+  );
   const failedThread = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store.threads.get("t2");
   assert.equal(failedThread?.status, "failed");
   assert.match(failedThread?.outcomeReason ?? "", /scripted prompt failure/);
@@ -633,6 +654,8 @@ test("caller abort and manager disposal record cancellation without an episode",
   assert.equal(callerStore.threads.get("t1")?.status, "cancelled");
   assert.equal(callerStore.threads.get("t1")?.episodeId, undefined);
   assert.equal(callerStore.episodes.size, 0);
+  assert.equal(aborted.shutdownCalls, 1);
+  assert.equal(aborted.disposeCalls, 1);
 
   let disposalManager: InstanceType<typeof ThreadManager>;
   const disposed = fakeSession(async () => {
@@ -648,6 +671,8 @@ test("caller abort and manager disposal record cancellation without an episode",
   assert.equal(disposalStore.threads.get("t1")?.status, "cancelled");
   assert.equal(disposalStore.threads.get("t1")?.episodeId, undefined);
   assert.equal(disposalStore.episodes.size, 0);
+  assert.equal(disposed.shutdownCalls, 1);
+  assert.equal(disposed.disposeCalls, 1);
 });
 
 test("snapshot sanitizer loads old records without accounting fields", () => {
