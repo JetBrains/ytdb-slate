@@ -1,10 +1,6 @@
 {
   "orchestratorModeDefault": true,
   "workflow": { "draftPRs": true },
-  "writing": {
-    "check": true,
-    "remind": true
-  },
   "modelFailover": {
     "openai/gpt-5.6-luna": "anthropic/claude-sonnet-5",
     "openai/gpt-5.6-terra": "anthropic/claude-opus-5",
