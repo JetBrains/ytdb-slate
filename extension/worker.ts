@@ -40,6 +40,8 @@ import {
 	SessionManager,
 	SettingsManager,
 	type ExtensionContext,
+	type ModelRegistry,
+	type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
@@ -185,6 +187,69 @@ export function resolveModel(ctx: ExtensionContext, spec: string) {
 	const model = ctx.modelRegistry.find(parts.provider, parts.id);
 	if (!model) throw new Error(`Unknown model "${spec}" — not found in the model registry`);
 	return model;
+}
+
+function providerInheritanceError(providerId?: string): Error {
+	const suffix = providerId === undefined ? "" : ` for provider "${sanitizeForNotify(providerId, 80)}"`;
+	return new Error(`slate: worker provider inheritance failed${suffix}. No provider configuration details were reported.`);
+}
+
+/**
+ * Copy host extension provider registrations that the constructed worker did
+ * not realize itself. The registered-provider roster is the public union of
+ * native and config registrations. Built-in providers are outside that roster,
+ * so a host extension override of a built-in still crosses this boundary.
+ */
+export function inheritHostProviderRegistrations(
+	host: Pick<
+		ModelRegistry,
+		"getRegisteredProviderIds" | "getRegisteredProviderConfig" | "getRegisteredNativeProvider"
+	>,
+	worker: ModelRuntime,
+): void {
+	let hostIds: readonly string[];
+	try {
+		hostIds = host.getRegisteredProviderIds();
+	} catch {
+		throw providerInheritanceError();
+	}
+
+	let workerIds: Set<string>;
+	let providerIds: string[];
+	try {
+		workerIds = new Set(worker.getRegisteredProviderIds());
+		providerIds = [...new Set(hostIds)];
+		if (providerIds.some((providerId) => typeof providerId !== "string" || providerId.trim() === "")) {
+			throw providerInheritanceError();
+		}
+		providerIds.sort();
+	} catch {
+		throw providerInheritanceError();
+	}
+
+	for (const providerId of providerIds) {
+		if (workerIds.has(providerId)) continue;
+
+		try {
+			const native = host.getRegisteredNativeProvider(providerId);
+			const config = native === undefined ? host.getRegisteredProviderConfig(providerId) : undefined;
+			if (native !== undefined) worker.registerNativeProvider(native);
+			else if (config !== undefined) worker.registerProvider(providerId, config);
+			else throw providerInheritanceError(providerId);
+
+			const registered = new Set(worker.getRegisteredProviderIds());
+			const copiedFormIsPresent = native !== undefined
+				? worker.getRegisteredNativeProvider(providerId) === native
+				: worker.getRegisteredProviderConfig(providerId) !== undefined;
+			const compositionError = worker.getError()?.includes(`Provider "${providerId}":`) === true;
+			if (!registered.has(providerId) || !copiedFormIsPresent || worker.getProvider(providerId) === undefined || compositionError) {
+				throw providerInheritanceError(providerId);
+			}
+			workerIds.add(providerId);
+		} catch {
+			throw providerInheritanceError(providerId);
+		}
+	}
 }
 
 export async function openWorkerSession(opts: {
@@ -379,6 +444,19 @@ export async function openWorkerSession(opts: {
 		sessionManager,
 		settingsManager,
 	});
+	try {
+		// Worker extension registrations flush during AgentSession construction.
+		// Compare the realized union only after createAgentSession returns and
+		// before the caller can select a route or issue the first request.
+		inheritHostProviderRegistrations(ctx.modelRegistry, session.modelRuntime);
+	} catch (error) {
+		try {
+			session.dispose();
+		} catch {
+			// Keep the inheritance failure. Transcript retention is unchanged.
+		}
+		throw error;
+	}
 	const workerSession = Object.assign(session, { workerReminderHandledToolResult: workerReminder.handledToolResult });
 	if (opts.promptCacheKey !== undefined) installPromptCacheKey(workerSession, opts.promptCacheKey);
 	return workerSession;

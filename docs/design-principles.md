@@ -332,6 +332,12 @@ risks that follow are the operator's to weigh:
   through pi's process-global module cache.
 - Provider-native tool billing may escape Slate's worker cost accounting.
 
+Provider registration uses a separate startup boundary from the `workerExtensions` tool allowlist. After pi constructs a worker and realizes its own extension registrations, Slate copies each host extension provider registration whose provider id is absent from the worker registration union. Native and config registrations share one identity for this comparison. A worker registration therefore wins across both forms. Built-in providers are not members of that union, so a host extension can still redirect a built-in provider.
+
+The worker keeps its own model runtime. Sharing the host runtime would couple later mutations and lifetime to the host. Copying before worker construction would compare against an incomplete worker roster. Slate instead copies registrations after construction and before route authentication or a request. A failed copy disposes the session and follows the existing failed-episode path. The check proves registration and composition only. It does not authenticate every inherited provider because an unused provider can be intentionally unconfigured.
+
+This boundary reuses provider functions and can share nested config objects, native provider objects, credential files, authentication callbacks, and third-party module state. It does not copy host provider event handlers. It also does not synchronize host changes after startup. A later partial worker registration can merge with inherited config under pi rules. The merged result can retain inherited credentials while changing an endpoint. The design accepts this risk and adds no late-registration interceptor. Provider extensions that require host event handlers or isolated internal state need their own worker support.
+
 ## 6. Runtime knowledge: what the orchestrator knows, and when
 
 The orchestrator's knowledge of these principles is two-tier, following
