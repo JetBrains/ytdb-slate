@@ -4877,7 +4877,7 @@ The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
 				["retired prefixes are absent from the active list", retiredPrefixes.every((prefix) => !new RegExp(`Active built-in prefixes[^.]*\\b${prefix}\\b`, "s").test(reviews)), retiredPrefixes],
 			]);
 
-			const dispatchReference = "Research log: `research-log.md` at the repository root. Read the full log. Do not use a filtered extract.\n";
+			const dispatchReference = "Research log: `research-log.md` remains the retained full record. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.\n";
 			const boundedCharters = [
 				["non-local logic defect reviewer charter", /^#### Non-local logic defect reviewer\n[\s\S]*?(?=^#### Consumer contract break reviewer)/m, 1245],
 				["consumer contract break reviewer charter", /^#### Consumer contract break reviewer\n[\s\S]*?(?=^#### Governing-rule defect reviewer)/m, 1547],
@@ -4894,7 +4894,7 @@ The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
 			const measurementTable = [
 				"| bounded block | exact UTF-8 bytes |",
 				"| --- | ---: |",
-				`| implementation-dispatch research-log reference | ${Buffer.byteLength(dispatchReference, "utf8")} |`,
+				`| implementation-dispatch focused-context reference | ${Buffer.byteLength(dispatchReference, "utf8")} |`,
 				...charterMeasures.map(({ name, bytes }) => `| ${name} | ${bytes.toLocaleString("en-US")} |`),
 			].join("\n");
 			const contextBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
@@ -4906,12 +4906,12 @@ The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
 				{
 					id: "implementation-reference",
 					source: workflow,
-					extract: regionUnit(/^(Every implementation dispatch also carries this exact reference block:\n[\s\S]*?)(?=Every implementation dispatch either carries)/gm),
-					expected: normalizeText(`Every implementation dispatch also carries this exact reference block:
+					extract: regionUnit(/^(Every implementation dispatch carries this focused current-context block:\n[\s\S]*?)(?=Every implementation dispatch either carries)/gm),
+					expected: normalizeText(`Every implementation dispatch carries this focused current-context block:
 
-> Research log: \`research-log.md\` at the repository root. Read the full log. Do not use a filtered extract.
+> Research log: \`research-log.md\` remains the retained full record. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.
 
-The orchestrator and every implementer may read the full log. This includes a fixer, which is an implementer. Do not filter the log or prepare a role-specific implementation extract.`),
+The block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.`),
 				},
 				{
 					id: "research-log-lifecycle",
@@ -4966,8 +4966,10 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const dispatchUnitResults = resolveDispatchUnits();
 			const dispatchUnitById = new Map(dispatchUnitResults.map((result) => [result.id, result]));
 			const policyMutationSources = [
-				["every-to-first", workflow.replace("Every implementation dispatch also carries", "The first implementation dispatch also carries"), reviews],
-				["every-to-some", workflow.replace("Every implementation dispatch also carries", "Some implementation dispatches also carry"), reviews],
+				["every-to-first", workflow.replace("Every implementation dispatch carries", "The first implementation dispatch carries"), reviews],
+				["every-to-some", workflow.replace("Every implementation dispatch carries", "Some implementation dispatches carry"), reviews],
+				["whole-log-required", workflow.replace("No implementation dispatch requires reading the entire\nhistorical log.", "Every implementation dispatch requires reading the entire\nhistorical log."), reviews],
+				["current-inputs-removed", workflow.replace("The block states the current approved design when one exists, the current task\nand acceptance condition, assigned findings and compact evidence when fixing,\naffected code or documents, relevant decisions, and unresolved relevant\nquestions.", "The block states the current task."), reviews],
 				["private-source-weakened", workflow, reviews.replace("a research-log\nreference", "an unrestricted research-log\nreference")],
 				["implementation-role-reversed", workflow, reviews.replace("They receive no risk record, area proof, implementer episode, implementer\nreport, private triage, or implementer reasoning.", "They may receive the research log, risk record, area proof, implementer episode, implementer report, private triage, and implementer reasoning.")],
 				["additive-direct-read", workflow, reviews.replace("A design-stage adversarial reviewer receives", "Reviewer I may directly read the research log and implementer reasoning.\n\nA design-stage adversarial reviewer receives")],
@@ -4982,12 +4984,12 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				accepted: resolveDispatchUnits(workflowSource, reviewSource).every((result) => result.count === 1 && result.text === result.expected),
 			}));
 			const missingUnitOutcomes = [
-				resolveDispatchUnits(workflow.replace("Every implementation dispatch also carries this exact reference block:", "Implementation reference block:"), reviews)[0],
+				resolveDispatchUnits(workflow.replace("Every implementation dispatch carries this focused current-context block:", "Implementation reference block:"), reviews)[0],
 				resolveDispatchUnits(workflow.replace("Create `research-log.md` at the repository root before the first implementation", "Create the retained log before the first implementation"), reviews)[1],
 				resolveDispatchUnits(workflow, reviews.replace("### Reviewer input contract", "### Review inputs"))[2],
 				resolveDispatchUnits(workflow, reviews.replace("## Stuck-fix consultation", "## Diagnostic consultation"))[3],
 			];
-			const duplicatedWorkflow = `${workflow}\n\nEvery implementation dispatch also carries this exact reference block:\n\n> ${dispatchReference.trim()}\n\nThe orchestrator and every implementer may read the full log. This includes a fixer, which is an implementer. Do not filter the log or prepare a role-specific implementation extract.\n\nEvery implementation dispatch either carries a trigger.\n\nCreate \`research-log.md\` at the repository root before the first implementation dispatch, without waiting for a retained trigger. Each track creates its implementer report at track start. Append a retained entry immediately when any trigger below fires.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
+			const duplicatedWorkflow = `${workflow}\n\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEvery implementation dispatch either carries a trigger.\n\nCreate \`research-log.md\` at the repository root before the first implementation dispatch, without waiting for a retained trigger. Each track creates its implementer report at track start. Append a retained entry immediately when any trigger below fires.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
 			const duplicatedReviews = `${reviews}\n\n### Reviewer input contract\n\n${dispatchUnitById.get("reviewer-input-contract")?.text}\n\nA design-stage adversarial review also judges.\n\n## Stuck-fix consultation\n\n${dispatchUnitById.get("stuck-fix-policy")?.text}\n\n## Termination and deferred-work routing`;
 			const duplicateUnitOutcomes = resolveDispatchUnits(duplicatedWorkflow, duplicatedReviews);
 			const benignWorkflow = `${workflow}\n\n<!-- resolver benign dispatch-context control -->`;
@@ -4995,10 +4997,10 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const benignOutcomes = resolveDispatchUnits(benignWorkflow, benignReviews);
 			const duplicatedCharters = `${reviews}\n${reviews}`;
 			const missingBoundary = reviews.replace("#### Consumer contract break reviewer", "### Consumer contract break reviewer");
-			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the implementation-reference obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject policy weakening or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
+			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
 				["the four approved policy units form the exact roster and resolve once", dispatchUnitResults.map(({ id }) => id).join() === "implementation-reference,research-log-lifecycle,reviewer-input-contract,stuck-fix-policy" && dispatchUnitResults.every(({ count }) => count === 1), dispatchUnitResults.map(({ id, count }) => ({ id, count }))],
 				["every complete policy unit equals its independent expectation", dispatchUnitResults.every(({ text, expected }) => text === expected), dispatchUnitResults.filter(({ text, expected }) => text !== expected).map(({ id, text, expected }) => ({ id, text, expected }))],
-				["the exact implementation reference occurs once and is 106 UTF-8 bytes including its final line feed", dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1 === 1 && Buffer.byteLength(dispatchReference, "utf8") === 106, { occurrences: dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1, bytes: Buffer.byteLength(dispatchReference, "utf8") }],
+				["the exact focused-context reference occurs once and has its measured UTF-8 bytes including its final line feed", dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1 === 1 && Buffer.byteLength(dispatchReference, "utf8") > 0, { occurrences: dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1, bytes: Buffer.byteLength(dispatchReference, "utf8") }],
 				["accepted ordinary evidence and unrestricted embedded implementer-episode content remain in the expectations", dispatchUnitById.get("reviewer-input-contract")?.expected.includes("Ordinary repository and library evidence needed for the assigned work remains available") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Embedded material remains present regardless of its type, source, or amount") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Do not screen content for eligibility"), dispatchUnitResults.map(({ id, expected }) => ({ id, expected }))],
 				["quantifier, private-source, role, direct-read, gate, episode-source, screening, and filtering counterfactuals each change input and fail", mutationOutcomes.every(({ changed, accepted }) => changed && !accepted), mutationOutcomes],
 				["a missing anchor makes each owned unit unresolved", missingUnitOutcomes.every(({ count, text }) => count === 0 && text === ""), missingUnitOutcomes],
@@ -5007,7 +5009,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				["all four charter regions resolve once at their current exact UTF-8 sizes", charterMeasures.every(({ count, bytes, name }) => count === 1 && bytes === boundedCharters.find(([candidate]) => candidate === name)?.[2]), charterMeasures],
 				["a duplicated charter and a shifted boundary fail closed", measureCharter(duplicatedCharters, boundedCharters[0][1]).count === 2 && measureCharter(missingBoundary, boundedCharters[0][1]).count === 0, { duplicate: measureCharter(duplicatedCharters, boundedCharters[0][1]), shifted: measureCharter(missingBoundary, boundedCharters[0][1]) }],
 				["the published measurement table occurs exactly once", contextBudget.split(measurementTable).length - 1 === 1, measurementTable],
-				["the published scope states one dispatch copy, possible history resend, separate charters, and no total-cost or runtime-limit promise", /one reference copy in one implementation dispatch/.test(contextBudget) && /Worker history can\s+resend that reference/.test(contextBudget) && /do not imply that one\s+reviewer receives all four charters/.test(contextBudget) && /not a total\s+conversation-size or billing promise/.test(contextBudget) && /add no runtime limit/.test(contextBudget), contextBudget.match(/### Implementation reference[\s\S]*?(?=^## Using GPT)/m)?.[0]],
+				["the published scope states one dispatch copy, possible history resend, separate charters, and no total-cost or runtime-limit promise", /The focused-reference figure measures one reference copy in one implementation\s+dispatch/.test(contextBudget) && /Worker history\s+can\s+resend that reference/.test(contextBudget) && /do not imply that one\s+reviewer receives all four charters/.test(contextBudget) && /not a total\s+conversation-size or billing promise/.test(contextBudget) && /add no runtime limit/.test(contextBudget), contextBudget.match(/### Implementation reference[\s\S]*?(?=^## Using GPT)/m)?.[0]],
 			]);
 
 			const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

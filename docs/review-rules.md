@@ -409,8 +409,12 @@ the user removes them.
 
 Reviewers find. Implementers fix. Review threads never edit files. Route fixes
 to the original implementer unless the context is compromised or repeatedly
-fails. The fixer receives the review episode reference and synthesized compact
-index. It re-reads the affected code.
+fails. The fixer receives the review episode reference, synthesized compact
+finding index, and the focused current-context block required by
+[track-workflow.md](track-workflow.md) § Track intention block and implementer
+response. It re-reads the affected code. A fixer may read more of the retained
+research log only when a relevant question remains unresolved. A fixer does not
+need to read the entire historical log.
 
 Run at most two ordinary fix rounds. Each round has this sequence:
 
