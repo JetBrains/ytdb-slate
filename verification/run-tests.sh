@@ -94,6 +94,9 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+test_tmp="$work/tmp"
+test_jiti_cache="$test_tmp/jiti"
+mkdir -p "$test_jiti_cache" || fail "cannot create test-private temporary directory"
 lcov="$work/lcov.info"
 
 shopt -s globstar nullglob
@@ -105,7 +108,8 @@ set +e
   # Suppress only Node's package-type inference warning. Adding `type: module`
   # would alter the shipped package, while renaming the required .ts test would
   # complicate discovery and typecheck coverage for no runtime benefit.
-  cd "$repo" && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
+  cd "$repo" && TMPDIR="$test_tmp" JITI_FS_CACHE=true \
+    node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
     --test --experimental-test-coverage \
     --test-coverage-include='extension/**/*.ts' \
     --test-reporter=spec --test-reporter-destination=stdout \
