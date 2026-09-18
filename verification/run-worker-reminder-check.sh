@@ -35,7 +35,7 @@ TIMEOUT_VERSION="$(timeout --version 2>/dev/null)" || die "cannot inspect timeou
 case "$TIMEOUT_VERSION" in *"GNU coreutils"*) ;; *) die "timeout is not GNU coreutils; --kill-after support is required" ;; esac
 REPO="$(cd "$REPO" 2>/dev/null && pwd -P)" || die "bad --repo: not a directory"
 [ -f "$REPO/extension/index.ts" ] || die "the extension entry point is missing: $REPO/extension/index.ts"
-CANARY="$REPO/verification/worker-reminder-canary.mjs"
+CANARY="$REPO/verification/worker-reminder-canary.ts"
 [ -f "$CANARY" ] || die "the canary extension is missing: $CANARY"
 [ -f "$REPO/package.json" ] || die "not a slate checkout: $REPO/package.json is missing"
 
@@ -187,7 +187,7 @@ const result={
   rpcBad:rpc.bad,hostBad:host.bad,workerBad:worker.bad,
   extensionErrors:rpc.values.filter((o)=>o?.type==="extension_error"),
   workingTree:typeof slatePath==="string"&&(slatePath===repo||slatePath.startsWith(repo+"/")),slatePath,
-  providerRoute:evidence?.registrations>=2&&calls.length===5&&calls.every((call)=>call.kind!=="unknown"),
+  providerRoute:evidence?.registrations?.host===1&&evidence?.registrations?.runtime>=1&&evidence?.registrations?.legacy===1&&calls.length===5&&calls.every((call)=>call.kind!=="unknown"),
   oneDispatch:hostToolResults.length===1&&threadResult?.details?.status==="ok"&&textOf(threadResult?.content).includes("STATUS: OK"),
   workerRequests:workerCalls.length===2&&firstToolCalls.length===2&&firstToolCalls[0]?.name==="read"&&firstToolCalls[1]?.name==="read"&&
     textOf(assistantEntries.at(-1)?.message?.content)==="WORKER_REMINDER_CONTINUATION_OK_51c824",
