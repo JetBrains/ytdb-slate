@@ -6,7 +6,7 @@
  * that session once. Terminal work creates at most one episode.
  */
 
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
 	type ExtensionContext,
@@ -23,6 +23,7 @@ import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type
 import { slateEpisodeId } from "./slate-files.ts";
 import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
+import type { RequestThrottle } from "./request-throttle.ts";
 import {
 	captureSessionBaseline,
 	decideEffortSwitch,
@@ -38,7 +39,6 @@ import {
 	type SessionOpenDecision,
 } from "./route.ts";
 import {
-	DEFAULT_CACHE_KEY_SHARDS,
 	effectiveThreadType,
 	isModelSpec,
 	parseThreadType,
@@ -55,12 +55,36 @@ import { DEFAULT_WORKER_TOOLS, isJudgementThreadType, openWorkerSession, resolve
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker-reminder.ts";
 
-export function workerPromptCacheKey(cwd: string, shard: number): string {
-	// Sixteen hex characters provide a short stable project namespace without
-	// sending a path or username. The worst key is 32 characters:
-	// "slate-worker-" (13) + digest (16) + "-" (1) + shard 63 (2).
-	const project = createHash("sha256").update(cwd).digest("hex").slice(0, 16);
-	return `slate-worker-${project}-${shard}`;
+/**
+ * One prompt-cache key for ONE main slate session.
+ *
+ * Every worker session and every model of that main session shares this key, so
+ * their requests reach the same provider cache routing group. A second main
+ * session calls this again and therefore gets a different key, which is what
+ * keeps two concurrent main sessions isolated from each other.
+ *
+ * The value carries no project path and no user name. A random UUID supplies
+ * the session identity. The key is 50 characters, inside the platform limit
+ * slate pins in worker.ts.
+ */
+export function createSessionPromptCacheKey(): string {
+	return `slate-session-${randomUUID()}`;
+}
+
+/**
+ * The parts of a dispatch that belong to the MAIN SESSION rather than to a
+ * thread: its shared prompt-cache key and its shared request throttle.
+ *
+ * Bound BY VALUE at construction like every other session-scoped component
+ * (CN20): a manager orphaned by a session swap keeps its own session's key and
+ * its own session's limiter, so a stale worker can neither join a newer
+ * session's cache group nor spend a newer session's request budget.
+ */
+export interface ThreadSessionScope {
+	/** The main session's shared cache-routing key. Absent means no key injection. */
+	promptCacheKey?: string;
+	/** The main session's shared per-model request throttle. Absent means no pacing. */
+	requestThrottle?: RequestThrottle;
 }
 
 export const MAX_CONTEXT_EPISODES = 32;
@@ -249,6 +273,8 @@ export class ThreadManager {
 	private resolveRouter: () => ModelRouterResolution;
 	/** Orchestrator base model used only by the episode compressor's last-resort rung. */
 	private baseModelTracker?: BaseModelTracker;
+	/** This session's shared cache key and request throttle, frozen at construction. */
+	private sessionScope: ThreadSessionScope;
 
 	constructor(
 		store: SlateStore,
@@ -269,12 +295,20 @@ export class ThreadManager {
 		// Consulted only for the episode compressor's last-resort model rung; route
 		// planning never seeds a worker-thread base from this tracker.
 		baseModelTracker?: BaseModelTracker,
+		// This session's shared prompt-cache key and request throttle, bound BY VALUE
+		// for the same reason as the resolvers above. Defaults to an empty scope, so
+		// existing construction sites and test harnesses keep working with no key and
+		// no pacing.
+		sessionScope: ThreadSessionScope = {},
 	) {
 		this.store = store;
 		this.config = config;
 		this.resolveExtensions = resolveExtensions;
 		this.resolveRouter = resolveRouter;
 		this.baseModelTracker = baseModelTracker;
+		this.sessionScope = sessionScope;
+		// The ACTION-slot limit is untouched by request pacing: the two limits bound
+		// different quantities, and the approved design keeps both.
 		this.semaphore = new Semaphore(config.maxConcurrent ?? 4); // default rationale: docs/design-principles.md §5 repo-local note
 	}
 
@@ -346,10 +380,6 @@ export class ThreadManager {
 	private createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord {
 		const id = this.store.claimNextThreadId();
 		const type = parseThreadType(opts.type, true)!
-		const ordinal = Number(id.slice(1));
-		const cacheKeyShard = this.config.cacheKeyEnabled === false
-			? undefined
-			: (ordinal - 1) % (this.config.cacheKeyShards ?? DEFAULT_CACHE_KEY_SHARDS);
 		const configuredTools = opts.tools ?? this.config.workerTools;
 		const tools = [...new Set(configuredTools && configuredTools.length > 0 ? configuredTools : DEFAULT_WORKER_TOOLS)];
 		const now = Date.now();
@@ -361,7 +391,6 @@ export class ThreadManager {
 			...(this.routerResolution().on ? {} : { model: opts.model }),
 			...(plan.baseModel ? { baseModel: plan.baseModel } : {}),
 			...(plan.baseEffort ? { baseEffort: plan.baseEffort } : {}),
-			...(cacheKeyShard === undefined ? {} : { cacheKeyShard }),
 			tools,
 			createdAt: now,
 			updatedAt: now,
@@ -691,10 +720,13 @@ export class ThreadManager {
 			promptDocs: this.config.workerPromptDocs,
 			extensionPaths: this.resolveExtensions().paths,
 			reviewerCharter: isJudgementThreadType(type),
-			promptCacheKey:
-				this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
-					? undefined
-					: workerPromptCacheKey(args.ctx.cwd, args.thread.cacheKeyShard),
+			// ONE key for the whole main session, and the cache-key switch is the only
+			// thing that withholds it. Nothing about the thread changes the key any
+			// more, so every worker of this session shares one cache routing group.
+			promptCacheKey: this.config.cacheKeyEnabled === false ? undefined : this.sessionScope.promptCacheKey,
+			// The limiter is passed on its OWN switch: a project that disables the cache
+			// key still gets request pacing, and the reverse also holds.
+			requestThrottle: this.sessionScope.requestThrottle,
 		});
 		this.live.set(args.thread.id, session);
 		// A freshly opened session starts on its configured model — drop any stale

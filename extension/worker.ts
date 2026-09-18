@@ -43,6 +43,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
+import type { RequestThrottle } from "./request-throttle.ts";
 import { createWorkerReminderRuntime } from "./worker-reminder.ts";
 import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
@@ -60,7 +61,7 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 	return (JUDGEMENT_THREAD_TYPES as readonly unknown[]).includes(type);
 }
 
-// pi-ai 0.83.0 declares this value in
+// pi-ai 0.85.1 declares this value in
 // @earendil-works/pi-ai/dist/api/openai-prompt-cache.js. pi's extension loader
 // aliases the package root to the compat.js FILE, so an extension cannot safely
 // import that deep subpath. The node test pins this copy to pi-ai's declaration.
@@ -140,7 +141,7 @@ function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string):
 		}
 
 		try {
-			// pi-ai 0.83.0's api/openai-responses.ts buildParams always creates
+			// pi-ai 0.85.1's api/openai-responses.js buildParams always creates
 			// prompt_cache_key and assigns undefined when resolved cacheRetention is
 			// "none". Own-property presence therefore distinguishes that deliberate
 			// opt-out from a payload shape that never considered this field.
@@ -173,6 +174,48 @@ function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string):
 	};
 }
 
+/** The SDK's own stream-function type, read off the session so slate cannot drift from it. */
+type WorkerStreamFunction = WorkerSession["agent"]["streamFunction"];
+
+/**
+ * Put the session's request throttle in front of every provider request.
+ *
+ * WHY THE STREAM FUNCTION, and not `onPayload`:
+ *  · the stream function receives the run's ABORT SIGNAL in its options, so the
+ *    wait can be cancelled; `onPayload` receives only a payload and a model
+ *    (pi-ai types.d.ts), so a wait there could not be cancelled;
+ *  · pi's history compaction and branch summarization call
+ *    `this.agent.streamFunction` directly (pi-coding-agent
+ *    dist/core/agent-session.js lines 1453 and 2551) and their options are built
+ *    WITHOUT `onPayload` (dist/core/compaction/compaction.js
+ *    createSummarizationOptions), so a throttle on `onPayload` would miss every
+ *    worker history summary, which the approved design includes;
+ *  · the wait happens BEFORE the SDK converts the conversation into a provider
+ *    payload, so a waiting request holds no converted copy (PF5).
+ *
+ * THE AUTHENTICATION CONTRACT IS UNCHANGED by this wrapper.
+ * `AgentSession._getSummarizationRequestAuth` (agent-session.js:195) takes its
+ * STRICT branch only while `agent.streamFunction === streamSimple`. A session
+ * built by `createAgentSession` never satisfies that test: the SDK installs its
+ * own stream function on the Agent (dist/core/sdk.js, `streamFn:` in the agent
+ * runtime options), so the lenient branch is already the branch every slate
+ * worker session used before this wrapper existed. A measured probe on the
+ * pinned pi 0.85.1 confirmed `streamFunction === streamSimple` is false for a
+ * fresh worker session, and test/request-throttle-worker.test.ts pins it.
+ *
+ * A THROWN admission error is NOT swallowed. A cancelled wait rejects, pi turns
+ * the rejection into the same aborted or errored assistant outcome it produces
+ * for a provider failure (pi-agent-core dist/agent.js handleRunFailure), and no
+ * request is sent.
+ */
+export function installRequestThrottle(session: WorkerSession, throttle: RequestThrottle): void {
+	const previous: WorkerStreamFunction = session.agent.streamFunction;
+	session.agent.streamFunction = async (model, context, options) => {
+		await throttle.admit(model, options?.signal);
+		return previous(model, context, options);
+	};
+}
+
 /**
  * Resolve a "provider/id" model string against the registry; throws a clear error
  * if unknown. Validation and splitting are the shared helpers (CQ2), so the
@@ -196,7 +239,8 @@ export async function openWorkerSession(opts: {
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
 	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
-	promptCacheKey?: string; // optional OpenAI Responses cache-routing key
+	promptCacheKey?: string; // the main session's shared OpenAI Responses cache-routing key
+	requestThrottle?: RequestThrottle; // the main session's shared per-model request throttle
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
 	const dir = threadsDir(ctx.cwd);
@@ -381,5 +425,8 @@ export async function openWorkerSession(opts: {
 	});
 	const workerSession = Object.assign(session, { workerReminderHandledToolResult: workerReminder.handledToolResult });
 	if (opts.promptCacheKey !== undefined) installPromptCacheKey(workerSession, opts.promptCacheKey);
+	// Installed INDEPENDENTLY of the cache key above: the two switches are
+	// separate, so a project may keep either one without the other.
+	if (opts.requestThrottle !== undefined) installRequestThrottle(workerSession, opts.requestThrottle);
 	return workerSession;
 }

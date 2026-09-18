@@ -3,20 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH as PLATFORM_OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH } from "@earendil-works/pi-ai/api/openai-prompt-cache";
 import { stream as streamOpenAIResponses } from "@earendil-works/pi-ai/api/openai-responses";
-import type { RoutePlanProceed } from "../extension/route.ts";
 import {
-  DEFAULT_CACHE_KEY_SHARDS,
-  MAX_CACHE_KEY_SHARDS,
   sanitizeCacheKeyEnabled,
-  sanitizeCacheKeyShards,
-  SlateStore,
-  type ThreadRecord,
 } from "../extension/state.ts";
-import { ThreadManager, workerPromptCacheKey, type DispatchOptions } from "../extension/threads.ts";
+import { createSessionPromptCacheKey } from "../extension/threads.ts";
 import {
   OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH,
   openWorkerSession,
@@ -228,94 +222,33 @@ test("worker cache wrapper chains platform results and contains platform and wra
   assert.equal(primitiveResult, "non-object payload");
 });
 
-interface ManagerAccess {
-  createThread(opts: DispatchOptions, plan: RoutePlanProceed): ThreadRecord;
-}
 
-function store(): SlateStore {
-  return new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-}
-
-function access(manager: ThreadManager): ManagerAccess {
-  return manager as unknown as ManagerAccess;
-}
-
-const PROCEED = { kind: "proceed" } as unknown as RoutePlanProceed;
-
-test("project namespaces isolate shard keys while preserving within-project grouping", () => {
-  const firstProject = join(scratch, "first-project");
-  const secondProject = join(scratch, "second-project");
-  const sharedA = workerPromptCacheKey(firstProject, 1);
-  const sharedB = workerPromptCacheKey(firstProject, 1);
-  const isolated = workerPromptCacheKey(secondProject, 1);
-
-  assert.equal(sharedA, sharedB);
-  assert.notEqual(sharedA, isolated);
-  assert.equal(sharedA.includes(firstProject), false);
-  assert.match(sharedA, /^slate-worker-[0-9a-f]{16}-1$/);
-
-  const worstCase = workerPromptCacheKey(firstProject, MAX_CACHE_KEY_SHARDS - 1);
-  assert.equal(worstCase.length, 32);
-  assert.ok(worstCase.length <= OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH);
+test("one main-session key can be shared across worker sessions and models", { timeout: 5000 }, async () => {
+  const key = createSessionPromptCacheKey();
+  const first = await open("shared-first", key);
+  const second = await open("shared-second", key);
+  const firstPayload: Record<string, unknown> = {};
+  const secondPayload: Record<string, unknown> = {};
+  await first.agent.onPayload?.(firstPayload, { ...model("openai-responses"), provider: "openai", id: "a" });
+  await second.agent.onPayload?.(secondPayload, { ...model("openai-responses"), provider: "openai", id: "b" });
+  assert.equal(firstPayload.prompt_cache_key, key);
+  assert.equal(secondPayload.prompt_cache_key, key);
+  assert.match(key, /^slate-session-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.ok(key.length <= OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH);
 });
 
-test("new threads receive stable round-robin shards with a two-shard default", () => {
-  const slateStore = store();
-  const manager = new ThreadManager(slateStore, {});
-  const internal = access(manager);
-
-  const first = internal.createThread({ task: "first", type: "general" }, PROCEED);
-  const second = internal.createThread({ task: "second", type: "general" }, PROCEED);
-  const third = internal.createThread({ task: "third", type: "general" }, PROCEED);
-
-  assert.deepEqual([first.cacheKeyShard, second.cacheKeyShard, third.cacheKeyShard], [0, 1, 0]);
-  assert.equal(first.cacheKeyShard, 0);
-  assert.strictEqual(slateStore.threads.get(first.id), first);
-  assert.equal(first.cacheKeyShard, 0);
+test("different main sessions receive different path-free keys", () => {
+  const first = createSessionPromptCacheKey();
+  const second = createSessionPromptCacheKey();
+  assert.notEqual(first, second);
+  assert.equal(first.includes(scratch), false);
 });
 
-test("the dedicated cache-key switch disables shard assignment while the default stays on", () => {
-  const disabledStore = store();
-  const disabled = access(new ThreadManager(disabledStore, { cacheKeyEnabled: false, cacheKeyShards: 3 }));
-  const thread = disabled.createThread({ task: "disabled", type: "general" }, PROCEED);
-  assert.equal(thread.cacheKeyShard, undefined);
-  assert.equal("cacheKeyShard" in thread, false);
-
-  const defaultStore = store();
-  const defaulted = access(new ThreadManager(defaultStore, {}));
-  assert.deepEqual(
-    [defaulted.createThread({ task: "first", type: "general" }, PROCEED).cacheKeyShard,
-      defaulted.createThread({ task: "second", type: "general" }, PROCEED).cacheKeyShard],
-    [0, 1],
-  );
-
+test("cache-key validation keeps its independent opt-out", () => {
   const warnings: string[] = [];
   assert.equal(sanitizeCacheKeyEnabled(false, (warning) => warnings.push(warning)), false);
   assert.equal(sanitizeCacheKeyEnabled(undefined, (warning) => warnings.push(warning)), true);
-  assert.deepEqual(warnings, []);
-
-  const malformedWarnings: string[] = [];
-  assert.equal(sanitizeCacheKeyEnabled("false", (warning) => malformedWarnings.push(warning)), true);
-  assert.equal(malformedWarnings[0], "slate: ignoring cacheKeyEnabled false — expected a boolean. Using true.");
-});
-
-test("configured shard counts are honored and invalid counts warn before defaulting", () => {
-  const configuredStore = store();
-  const configured = access(new ThreadManager(configuredStore, { cacheKeyShards: 3 }));
-  const shards = [0, 1, 2, 3].map((index) => configured.createThread({ task: `task ${index}`, type: "general" }, PROCEED).cacheKeyShard);
-  assert.deepEqual(shards, [0, 1, 2, 0]);
-
-  for (const invalid of [0, MAX_CACHE_KEY_SHARDS + 1, 1.5]) {
-    const warnings: string[] = [];
-    const sanitized = sanitizeCacheKeyShards(invalid, (warning) => warnings.push(warning));
-    assert.equal(sanitized, DEFAULT_CACHE_KEY_SHARDS);
-    assert.equal(warnings.length, 1);
-    assert.equal(warnings[0], `slate: ignoring cacheKeyShards ${invalid} — expected an integer from 1 to 64. Using 2.`);
-  }
-
-  const validWarnings: string[] = [];
-  assert.equal(sanitizeCacheKeyShards(undefined, (warning) => validWarnings.push(warning)), DEFAULT_CACHE_KEY_SHARDS);
-  assert.equal(sanitizeCacheKeyShards(1, (warning) => validWarnings.push(warning)), 1);
-  assert.equal(sanitizeCacheKeyShards(MAX_CACHE_KEY_SHARDS, (warning) => validWarnings.push(warning)), MAX_CACHE_KEY_SHARDS);
-  assert.deepEqual(validWarnings, []);
+  assert.equal(warnings.length, 0);
+  assert.equal(sanitizeCacheKeyEnabled("false", (warning) => warnings.push(warning)), true);
+  assert.match(warnings[0] ?? "", /cacheKeyEnabled.*expected a boolean/);
 });

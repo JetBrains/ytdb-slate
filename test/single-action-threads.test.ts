@@ -369,7 +369,7 @@ test("history compaction without a result does not suppress a reminder-loss warn
 test("the current thread record sanitizer covers every terminal shape", () => {
   const valid = {
     id: "t1", name: "done", status: "successful", type: "reviewer", model: "p/pin",
-    baseModel: "p/base", baseEffort: "medium", cacheKeyShard: 1, tools: ["read"],
+    baseModel: "p/base", baseEffort: "medium", tools: ["read"],
     episodeId: "t1.e1", outcomeReason: "done", createdAt: 1, updatedAt: 2,
   };
   assert.deepEqual(sanitizeThreadRecord(valid, []), valid);
@@ -390,10 +390,10 @@ test("the current thread record sanitizer covers every terminal shape", () => {
     assert.equal(adopted?.episodeId, undefined);
     assert.match(mismatchedRepairs.join("\n"), /ignoring episodeId/);
   }
-  for (const cacheKeyShard of [undefined, "1", 1.5, -1, 64]) {
-    const adopted = sanitizeThreadRecord({ ...valid, status: "failed", episodeId: undefined, cacheKeyShard }, []);
-    assert.equal(adopted?.cacheKeyShard, undefined);
-  }
+  const legacyRepairs: string[] = [];
+  const legacy = sanitizeThreadRecord({ ...valid, cacheKeyShard: 1 }, legacyRepairs);
+  assert.deepEqual(legacy, valid, "obsolete shard metadata must be dropped without losing the thread");
+  assert.deepEqual(legacyRepairs, []);
   const defaults = sanitizeThreadRecord({ id: "t2", name: "failed", status: "failed", type: "general" }, []);
   assert.equal(typeof defaults?.createdAt, "number");
   assert.equal(typeof defaults?.updatedAt, "number");

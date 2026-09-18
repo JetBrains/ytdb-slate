@@ -366,11 +366,11 @@ test("entry configuration reports either ignored writing key through the shared 
   assert.match((await run("writing-percent-retired", { remindPercent: 10 }))[0] ?? "", /token share to a turn count/);
 });
 
-test("entry configuration accepts valid cache shards and rejects invalid counts", { timeout: 5000 }, async () => {
-  const run = async (name: string, cacheKeyShards: number): Promise<string[]> => {
+test("entry configuration validates request pacing and reports the removed shard setting once", { timeout: 5000 }, async () => {
+  const run = async (name: string, config: unknown): Promise<string[]> => {
     const cwd = join(scratch, name);
     mkdirSync(join(cwd, ".pi"), { recursive: true });
-    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({ cacheKeyShards }));
+    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify(config));
     const api = new FakeExtensionApi();
     slateExtension(api as unknown as ExtensionAPI);
     const warnings: string[] = [];
@@ -378,10 +378,11 @@ test("entry configuration accepts valid cache shards and rejects invalid counts"
     return warnings;
   };
 
-  const validWarnings = await run("valid", 3);
-  assert.equal(validWarnings.some((warning) => warning.includes("cacheKeyShards")), false);
-
-  const invalidWarnings = await run("invalid", 0);
-  assert.equal(invalidWarnings.length, 1);
-  assert.match(invalidWarnings[0] ?? "", /cacheKeyShards.*expected an integer from 1 to 64/);
+  assert.deepEqual(await run("valid-throttle", { requestThrottle: { enabled: false, maxRequestsPerMinute: 3, baseWaitMs: 1, jitterMs: 0 } }), []);
+  const invalid = await run("invalid-throttle", { requestThrottle: { maxRequestsPerMinute: 0, baseWaitMs: 0 } });
+  assert.equal(invalid.length, 2);
+  assert.match(invalid.join("\n"), /maxRequestsPerMinute[\s\S]*baseWaitMs/);
+  const removed = await run("removed-shards", { cacheKeyShards: 3 });
+  assert.equal(removed.length, 1);
+  assert.match(removed[0] ?? "", /cacheKeyShards 3 is a removed setting and has no effect/);
 });

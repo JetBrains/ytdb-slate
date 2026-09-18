@@ -7038,7 +7038,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const sane = (raw) => { const repairs = []; return { out: state.sanitizeThreadRecord(raw, repairs), repairs }; };
 			const complete = {
 				id: "t2", name: "impl", status: "successful", type: "reviewer", model: "p/pin",
-				baseModel: "p/base", baseEffort: "medium", cacheKeyShard: 1, tools: ["read"],
+				baseModel: "p/base", baseEffort: "medium", tools: ["read"],
 				episodeId: "t2.e1", outcomeReason: "done", createdAt: 111, updatedAt: 222,
 			};
 			const roundTrip = sane(complete);
@@ -7049,7 +7049,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const unfinished = ["queued", "running"].map((status) => sane({ id: "t3", name: "x", status, type: "general", createdAt: 1, updatedAt: 1 }));
 			const hostile = sane({
 				id: "t4", name: "bad fields", status: "failed", type: "general",
-				model: 7, baseModel: {}, baseEffort: false, cacheKeyShard: "1", tools: "read",
+				model: 7, baseModel: {}, baseEffort: false, tools: "read",
 				episodeId: 8, outcomeReason: [], createdAt: "1", updatedAt: null,
 			});
 			const adoptedKeys = Object.keys(state.ADOPTED_THREAD_FIELDS ?? {});
@@ -7060,7 +7060,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				["wrong-typed and wrong-valued episode ids both keep the failed record", wrongEpisodeIds.every((entry) => entry.out?.status === "failed" && entry.out?.episodeId === undefined && entry.repairs.some((note) => /ignoring episodeId/.test(note))), wrongEpisodeIds],
 				["cancelled may carry a reason without an episode", cancelled.out?.outcomeReason === "before start" && cancelled.out?.episodeId === undefined, cancelled],
 				["unfinished records normalize to failed with a reason", unfinished.every((entry) => entry.out?.status === "failed" && /session ended/.test(entry.out?.outcomeReason ?? "") && entry.repairs.some((note) => /normalized unfinished/.test(note))), unfinished],
-				["every malformed optional field is refused by name", ["model", "baseModel", "baseEffort", "cacheKeyShard", "tools", "episodeId", "outcomeReason", "createdAt", "updatedAt"].every((field) => hostile.repairs.some((note) => note.includes(`ignoring ${field}`))) && hostile.out?.status === "failed", hostile],
+				["every malformed optional field is refused by name", ["model", "baseModel", "baseEffort", "tools", "episodeId", "outcomeReason", "createdAt", "updatedAt"].every((field) => hostile.repairs.some((note) => note.includes(`ignoring ${field}`))) && hostile.out?.status === "failed", hostile],
 				["the adoption roster matches the output", adoptedKeys.every((key) => Object.hasOwn(complete, key)), adoptedKeys],
 			]);
 		});
