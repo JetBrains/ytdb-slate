@@ -199,6 +199,9 @@ function providerInheritanceError(providerId?: string): Error {
  * not realize itself. The registered-provider roster is the public union of
  * native and config registrations. Built-in providers are outside that roster,
  * so a host extension override of a built-in still crosses this boundary.
+ *
+ * @internal
+ * Internal helper. Direct imports are not a supported interface.
  */
 export function inheritHostProviderRegistrations(
 	host: Pick<
