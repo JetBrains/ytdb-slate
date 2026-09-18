@@ -152,7 +152,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		manager.disposeAll();
+		await manager.disposeAll();
 		// Trust gate: project config steers prompts, models, and tool lists, so
 		// it is honored only for trusted projects; untrusted → built-in defaults.
 		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
@@ -276,7 +276,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
-		manager.disposeAll();
+		await manager.disposeAll();
 	});
 
 	// session_start ordering (registration order): restore → adopt pending

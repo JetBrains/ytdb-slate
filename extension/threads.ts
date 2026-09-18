@@ -221,6 +221,13 @@ class Semaphore {
 
 export class ThreadManager {
 	private live = new Map<string, WorkerSession>();
+	/** Opens started by this manager but not yet returned to a dispatch. */
+	private openingWorkers = new Set<Promise<void>>();
+	/** Cleanup already claimed by a terminal path and removed from live. */
+	private closingWorkers = new Set<Promise<void>>();
+	/** One manager-wide teardown operation. Its presence permanently closes this manager. */
+	private teardownPromise: Promise<void> | undefined;
+	private teardownStarted = false;
 	/** threadId → "provider/id" a LIVE session was switched to by model failover (AF12). */
 	private failoverLive = new Map<string, string>();
 	private semaphore: Semaphore;
@@ -682,30 +689,89 @@ export class ThreadManager {
 		tools: string[] | undefined;
 		report: (message: string) => void;
 	}): Promise<{ session: WorkerSession; baseline: SessionBaseline }> {
+		if (this.teardownStarted) {
+			throw new DispatchAbort(`slate: worker startup for thread ${args.thread.id} was cancelled during session teardown`);
+		}
+		let finishOpening!: () => void;
+		const openingDone = new Promise<void>((resolve) => { finishOpening = resolve; });
+		this.openingWorkers.add(openingDone);
 		const type = effectiveThreadType(args.thread, args.report);
-		const session = await openWorkerSession({
-			ctx: args.ctx,
-			sessionFile: undefined,
-			model: args.open.model,
-			tools: args.tools,
-			promptDocs: this.config.workerPromptDocs,
-			extensionPaths: this.resolveExtensions().paths,
-			reviewerCharter: isJudgementThreadType(type),
-			promptCacheKey:
-				this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
-					? undefined
-					: workerPromptCacheKey(args.ctx.cwd, args.thread.cacheKeyShard),
-		});
-		this.live.set(args.thread.id, session);
-		// A freshly opened session starts on its configured model — drop any stale
-		// failover marker (possible if a previous live session was disposed mid-dispatch
-		// after its marker was set).
-		this.failoverLive.delete(args.thread.id);
-		// THE BASELINE both axes fall back to, taken from the SESSION: the model pi
-		// resolved for the model-less plan and the level it clamped to (BG18, BG22).
-		const baseline = captureSessionBaseline(session);
-		this.liveBaselines.set(args.thread.id, baseline);
-		return { session, baseline };
+		const extensions = this.resolveExtensions();
+		let opening: WorkerSession | undefined;
+		let session: WorkerSession;
+		try {
+			try {
+				session = await openWorkerSession({
+					ctx: args.ctx,
+					sessionFile: undefined,
+					model: args.open.model,
+					tools: args.tools,
+					promptDocs: this.config.workerPromptDocs,
+					extensionPaths: extensions.paths,
+					extensionToolNames: extensions.toolNames,
+					reviewerCharter: isJudgementThreadType(type),
+					report: args.report,
+					onCreated: (created) => {
+						opening = created;
+						if (this.teardownStarted) {
+							// Startup remains ordered before shutdown inside WorkerSession. Begin
+							// cleanup now, but let the opening path await and preserve its own error.
+							void this.closeWorker(args.thread.id, created).catch(() => {});
+							return;
+						}
+						this.live.set(args.thread.id, created);
+					},
+					promptCacheKey:
+						this.config.cacheKeyEnabled === false || args.thread.cacheKeyShard === undefined
+							? undefined
+							: workerPromptCacheKey(args.ctx.cwd, args.thread.cacheKeyShard),
+				});
+			} catch (error) {
+				if (opening !== undefined && this.live.get(args.thread.id) === opening) this.live.delete(args.thread.id);
+				this.liveBaselines.delete(args.thread.id);
+				this.failoverLive.delete(args.thread.id);
+				throw error;
+			}
+			if (this.teardownStarted || this.live.get(args.thread.id) !== session) {
+				await session.shutdownWorker();
+				throw new DispatchAbort(`slate: worker startup for thread ${args.thread.id} was cancelled during session teardown`);
+			}
+			// A freshly opened session starts on its configured model — drop any stale
+			// failover marker (possible if a previous live session was disposed mid-dispatch
+			// after its marker was set).
+			this.failoverLive.delete(args.thread.id);
+			// THE BASELINE both axes fall back to, taken from the SESSION: the model pi
+			// resolved for the model-less plan and the level it clamped to (BG18, BG22).
+			const baseline = captureSessionBaseline(session);
+			this.liveBaselines.set(args.thread.id, baseline);
+			return { session, baseline };
+		} finally {
+			this.openingWorkers.delete(openingDone);
+			finishOpening();
+		}
+	}
+
+	/**
+	 * Remove a worker from the live maps before awaiting extension shutdown.
+	 * Every terminal path converges here. WorkerSession memoizes shutdown, so an
+	 * overlapping host cleanup and action cleanup emit session_shutdown once.
+	 */
+	private async closeWorker(threadId: string, session: WorkerSession | undefined): Promise<void> {
+		if (session === undefined) return;
+		if (this.live.get(threadId) === session) this.live.delete(threadId);
+		this.liveBaselines.delete(threadId);
+		this.failoverLive.delete(threadId);
+		const closing = (async () => {
+			const lifecycle = session as WorkerSession & { shutdownWorker?: () => Promise<void>; dispose?: () => void };
+			if (lifecycle.shutdownWorker) await lifecycle.shutdownWorker();
+			else lifecycle.dispose?.();
+		})();
+		this.closingWorkers.add(closing);
+		try {
+			await closing;
+		} finally {
+			this.closingWorkers.delete(closing);
+		}
 	}
 
 	/** The level a session is ACTUALLY on (post-clamp), when it is one pi/slate both know. */
@@ -1060,10 +1126,7 @@ export class ThreadManager {
 			} catch {
 				/* the in-memory removal remains authoritative */
 			} finally {
-				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
-				this.live.delete(thread.id);
-				this.liveBaselines.delete(thread.id);
-				this.failoverLive.delete(thread.id);
+				await this.closeWorker(thread.id, session);
 			}
 			throw new Error(aborted.message);
 		}
@@ -1080,10 +1143,7 @@ export class ThreadManager {
 			} catch {
 				/* retain the terminal cancellation in memory */
 			} finally {
-				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
-				this.live.delete(thread.id);
-				this.liveBaselines.delete(thread.id);
-				this.failoverLive.delete(thread.id);
+				await this.closeWorker(thread.id, session);
 			}
 			throw new Error(`Thread ${thread.id} was ${reason}. No episode was recorded.`);
 		}
@@ -1136,10 +1196,7 @@ export class ThreadManager {
 				this.store.workerCostUsd += totalActionCost;
 				try { this.store.save(); } catch { /* retain the terminal outcome in memory */ }
 				try { emit(true, "failed"); } catch { /* preserve the persistence failure */ }
-				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
-				this.live.delete(thread.id);
-				this.liveBaselines.delete(thread.id);
-				this.failoverLive.delete(thread.id);
+				await this.closeWorker(thread.id, session);
 				throw new Error(`Thread ${thread.id} failed: ${sanitizeForNotify(reason, 200)}. Slate could not store episode ${episodeId}: ${storageDetail}.`);
 			}
 			const episode: EpisodeRecord = {
@@ -1158,10 +1215,7 @@ export class ThreadManager {
 			this.store.workerCostUsd += totalActionCost;
 			let saveError: unknown;
 			try { this.store.save(); } catch (error) { saveError = error; }
-			try { session?.dispose(); } catch { /* terminal cleanup continues */ }
-			this.live.delete(thread.id);
-			this.liveBaselines.delete(thread.id);
-			this.failoverLive.delete(thread.id);
+			await this.closeWorker(thread.id, session);
 			if (saveError !== undefined) {
 				try { emit(true, "failed"); } catch { /* preserve the persistence error */ }
 				throw new Error(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`);
@@ -1326,10 +1380,7 @@ export class ThreadManager {
 			} catch {
 				/* report the original terminal failure through the stable tool boundary */
 			} finally {
-				try { session?.dispose(); } catch { /* terminal cleanup continues */ }
-				this.live.delete(thread.id);
-				this.liveBaselines.delete(thread.id);
-				this.failoverLive.delete(thread.id);
+				await this.closeWorker(thread.id, session);
 			}
 			const safeEpisodeId = sanitizeForNotify(episodeId, 80);
 			lines.push(`✗ slate could not store episode ${safeEpisodeId}.`);
@@ -1377,10 +1428,7 @@ export class ThreadManager {
 		} catch (error) {
 			saveError = error;
 		} finally {
-			try { session?.dispose(); } catch { /* terminal cleanup continues */ }
-			this.live.delete(thread.id);
-			this.liveBaselines.delete(thread.id);
-			this.failoverLive.delete(thread.id);
+			await this.closeWorker(thread.id, session);
 		}
 		if (saveError !== undefined) {
 			try { emit(true, "failed"); } catch { /* preserve the persistence error */ }
@@ -1391,16 +1439,24 @@ export class ThreadManager {
 		return { episodeText: compressed.text, episode, thread, usage, warnings };
 	}
 
-	disposeAll(): void {
-		for (const session of this.live.values()) {
-			try {
-				session.dispose();
-			} catch {
-				/* ignore */
-			}
-		}
+	async disposeAll(): Promise<void> {
+		if (this.teardownPromise !== undefined) return this.teardownPromise;
+		// Close this manager before the first await. No later open may publish work.
+		this.teardownStarted = true;
+		const live = [...this.live.entries()];
+		const openings = [...this.openingWorkers];
+		const alreadyClosing = [...this.closingWorkers];
 		this.live.clear();
-		this.failoverLive.clear(); // markers describe live sessions only (see liveFailoverModel)
-		this.liveBaselines.clear(); // baselines describe live sessions only (see applyRoute)
+		this.openingWorkers.clear();
+		this.failoverLive.clear();
+		this.liveBaselines.clear();
+		this.teardownPromise = (async () => {
+			const liveClosures = live.map(([threadId, session]) => this.closeWorker(threadId, session));
+			// Opening paths own their newly created session and settle only after any
+			// startup or cleanup finishes. Existing closing paths are included because
+			// they have already removed their session from live.
+			await Promise.allSettled([...liveClosures, ...openings, ...alreadyClosing]);
+		})();
+		return this.teardownPromise;
 	}
 }
