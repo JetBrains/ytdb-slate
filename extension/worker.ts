@@ -466,19 +466,6 @@ export async function openWorkerSession(opts: {
 		sessionManager,
 		settingsManager,
 	});
-	try {
-		// Worker extension registrations flush during AgentSession construction.
-		// Compare the realized union only after createAgentSession returns and
-		// before the caller can select a route or issue the first request.
-		inheritHostProviderRegistrations(ctx.modelRegistry, session.modelRuntime);
-	} catch (error) {
-		try {
-			session.dispose();
-		} catch {
-			// Keep the inheritance failure. Transcript retention is unchanged.
-		}
-		throw error;
-	}
 	let lifecyclePhase: "startup" | "running" | "shutdown" = "startup";
 	const startupErrors: string[] = [];
 	let startupPromise: Promise<void> | undefined;
@@ -516,6 +503,22 @@ export async function openWorkerSession(opts: {
 		},
 	});
 	if (opts.promptCacheKey !== undefined) installPromptCacheKey(workerSession, opts.promptCacheKey);
+
+	// bindExtensions has not installed its listener yet. Keep cleanup errors
+	// visible if provider inheritance fails in this partial-startup window.
+	const stopEarlyExtensionErrors = typeof session.extensionRunner.onError === "function"
+		? session.extensionRunner.onError(extensionError)
+		: () => {};
+	try {
+		// Worker extension registrations flush during AgentSession construction.
+		// Compare the realized union only after createAgentSession returns and
+		// before extension startup can select a route or issue the first request.
+		inheritHostProviderRegistrations(ctx.modelRegistry, session.modelRuntime);
+	} catch (error) {
+		await workerSession.shutdownWorker();
+		throw error;
+	}
+	stopEarlyExtensionErrors();
 
 	startupPromise = (async () => {
 		// createAgentSession loads extension factories but does not emit session_start.
