@@ -163,6 +163,11 @@ test("worker loader reports component loading errors with an empty allowlist", {
 			hasUI: false,
 			isProjectTrusted: () => false,
 			model: undefined,
+			modelRegistry: {
+				getRegisteredProviderIds: () => [],
+				getRegisteredNativeProvider: () => undefined,
+				getRegisteredProviderConfig: () => undefined,
+			},
 		} as unknown as ExtensionContext;
 		session = await openWorkerSession({ ctx, extensionPaths: [] });
 		assert.deepEqual(warnings, ["slate: worker extension failed to load — badcomponent: failedto load"]);
