@@ -427,15 +427,15 @@ level-four heading and ends immediately before the next named reviewer heading.
 
 | bounded block | exact UTF-8 bytes |
 | --- | ---: |
-| implementation-dispatch research-log reference | 106 |
+| implementation-dispatch focused-context reference | 192 |
 | non-local logic defect reviewer charter | 1,245 |
 | consumer contract break reviewer charter | 1,547 |
 | governing-rule defect reviewer charter | 1,568 |
 | unreported failure reviewer charter | 1,190 |
 
-The 106-byte figure measures one reference copy in one implementation dispatch.
-It excludes the research log and every other task input. Worker history can
-resend that reference in later model requests. The figure is not a total
+The focused-reference figure measures one reference copy in one implementation
+dispatch. It excludes the research log and every other task input. Worker history
+can resend that reference in later model requests. The figure is not a total
 conversation-size or billing promise.
 
 The four charter rows measure separate role blocks. They do not imply that one

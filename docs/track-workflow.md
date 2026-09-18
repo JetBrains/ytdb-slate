@@ -280,17 +280,23 @@ Every implementation and review dispatch carries these fields:
 - acceptance condition.
 - declared file list.
 
-Every implementation dispatch also carries this exact reference block:
+Every implementation dispatch carries this focused current-context block:
 
-> Research log: `research-log.md` at the repository root. Read the full log. Do not use a filtered extract.
+> Research log: `research-log.md` remains the retained full record. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.
 
-The orchestrator and every implementer may read the full log. This includes a
-fixer, which is an implementer. Do not filter the log or prepare a role-specific
-implementation extract. Every implementation dispatch either carries each
-focus-area trigger with its boundary sentences or directs the implementer to the
-risk definitions in [blast-radius.md](blast-radius.md) § Focus areas and their
-gates. The implementer ends its response with `unplanned risk: none` or one line
-that names a risk the plan did not name.
+The block states the current approved design when one exists, the current task
+and acceptance condition, assigned findings and compact evidence when fixing,
+affected code or documents, relevant decisions, and unresolved relevant
+questions. The orchestrator supplies these inputs through specific section
+references or bounded excerpts. Implementers and fixers use the supplied
+current context. The full log remains available for unresolved relevant
+questions and retention. No implementation dispatch requires reading the entire
+historical log. This rule does not change reviewer input restrictions.
+Every implementation dispatch either carries each focus-area trigger with its boundary
+sentences or directs the implementer to the risk definitions in
+[blast-radius.md](blast-radius.md) § Focus areas and their gates. The implementer
+ends its response with `unplanned risk: none` or one line that names a risk the
+plan did not name.
 
 Review dispatches follow [review-rules.md](review-rules.md) § Reviewer input
 contract. Reviewers receive the approved inputs for their role. Ordinary
