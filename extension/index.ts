@@ -31,7 +31,8 @@
  * projects run on built-in defaults with no project file injection:
  *   { "episodeModel": "provider/id", "workerTools": [...],
  *     "workerExtensions": ["regex", ...], "cacheKeyEnabled": true,
- *     "cacheKeyShards": 2,
+ *     "requestThrottle": { "enabled": true, "maxRequestsPerMinute": 12,
+ *                          "baseWaitMs": 1000, "jitterMs": 1000 },
  *     "maxConcurrent": 4,
  *     "contextBudget": 256000, "orchestratorModeDefault": true,
  *     "orchestratorPromptDocs": ["docs/orchestrator-guidelines.md"],
@@ -71,15 +72,16 @@ import {
 	type ModelRouterResolution,
 	type RouterWarningClass,
 } from "./model-router.ts";
+import { createRequestThrottle, sanitizeRequestThrottle } from "./request-throttle.ts";
 import {
 	sanitizeCacheKeyEnabled,
-	sanitizeCacheKeyShards,
 	sanitizeEpisodeModel,
 	sanitizeWorkflowConfig,
 	SlateStore,
+	warnRemovedCacheKeyShards,
 	type SlateConfig,
 } from "./state.ts";
-import { ThreadManager } from "./threads.ts";
+import { createSessionPromptCacheKey, ThreadManager, type ThreadSessionScope } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
 import {
 	createWorkerExtensionResolver,
@@ -140,7 +142,17 @@ export default function (pi: ExtensionAPI) {
 	// through the console, since no extension context exists yet.
 	let baseModel: BaseModelTracker = createBaseModelTracker({ warn: (msg) => console.warn(msg) });
 
-	let manager = new ThreadManager(store, {}, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel);
+	// One prompt-cache key and one request throttle for THIS main session, both
+	// reassigned at every session_start below. A new main session therefore gets a
+	// new cache key, and its request budget starts empty. The pre-session instance
+	// below exists so a dispatch that somehow precedes session_start still runs
+	// with a key and with the default pacing rather than with neither.
+	let sessionScope: ThreadSessionScope = {
+		promptCacheKey: createSessionPromptCacheKey(),
+		requestThrottle: createRequestThrottle(),
+	};
+
+	let manager = new ThreadManager(store, {}, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel, sessionScope);
 
 	registerSlateTools(pi, store, () => manager);
 
@@ -164,7 +176,17 @@ export default function (pi: ExtensionAPI) {
 		config.contextBudget = sanitizeContextBudget(config.contextBudget, warn);
 		config.workerExtensions = sanitizeWorkerExtensions(config.workerExtensions, warn);
 		config.cacheKeyEnabled = sanitizeCacheKeyEnabled(config.cacheKeyEnabled, warn);
-		config.cacheKeyShards = sanitizeCacheKeyShards(config.cacheKeyShards, warn);
+		// The partitioning setting is gone. A config that still carries it is reported
+		// once here and then ignored, like every other removed key.
+		warnRemovedCacheKeyShards(config.cacheKeyShards, warn);
+		// The limiter's own settings, validated eagerly for the same reason as the keys
+		// above: a malformed wait or threshold must surface at session start and not as
+		// a surprise delay in the middle of an action.
+		// Sanitized ONCE and kept in a local: the limiter below must run on the same
+		// validated values the config reports, and a second sanitize call would repeat
+		// every warning.
+		const requestThrottleSettings = sanitizeRequestThrottle(config.requestThrottle, warn);
+		config.requestThrottle = requestThrottleSettings;
 		// router likewise: a malformed model list must surface at session start, not
 		// when a dispatch is refused for naming a model the list silently dropped.
 		// The router's own warn sink. It reads the CLASS the router tags each warning
@@ -271,7 +293,15 @@ export default function (pi: ExtensionAPI) {
 		// tracker even if a later session_start replaces the module variables above — a
 		// manager orphaned by a session swap must not start answering with a newer
 		// session's frozen candidate list or a newer base model.
-		manager = new ThreadManager(store, config, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel);
+		// Fresh key and fresh limiter per main session, created AFTER sanitization so
+		// the limiter runs on validated settings. The key is unique to this session, so
+		// two main sessions never share a cache routing group, and every worker of THIS
+		// session shares one key and one request budget.
+		sessionScope = {
+			promptCacheKey: createSessionPromptCacheKey(),
+			requestThrottle: createRequestThrottle(requestThrottleSettings),
+		};
+		manager = new ThreadManager(store, config, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel, sessionScope);
 		store.restore(ctx);
 	});
 

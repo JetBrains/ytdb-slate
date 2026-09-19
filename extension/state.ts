@@ -16,6 +16,9 @@ import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@eare
 // no runtime dependency on model-profiles.ts (see the model-spec note below).
 import type { ThinkingLevel } from "./model-profiles.ts";
 import type { ObservationRecord } from "./observations.ts";
+// TYPE-ONLY, like the effort vocabulary above: the request-throttle module owns
+// its own config shape and sanitizer, and this import is erased at load time.
+import type { RequestThrottleConfig, SanitizedRequestThrottle } from "./request-throttle.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import { isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
@@ -143,8 +146,6 @@ export interface ThreadRecord {
 	 * spec helpers below (BG21).
 	 */
 	baseEffort?: ThinkingLevel;
-	/** Stable OpenAI prompt-cache routing shard. Absent means caching predates this field. */
-	cacheKeyShard?: number;
 	/** Effective built-in worker tool allowlist. Absent means an older thread whose tools are unknown. */
 	tools?: string[];
 	/** The action's only episode. Absent only before work starts or after an unbilled abort. */
@@ -385,9 +386,6 @@ export function sanitizeEpisodeModel(raw: unknown, warn: (msg: string) => void):
 	return sanitizeModelSpecKey("episodeModel", raw, warn, "compressing with the built-in default model instead");
 }
 
-export const DEFAULT_CACHE_KEY_SHARDS = 2;
-export const MAX_CACHE_KEY_SHARDS = 64;
-
 /** Validate the explicit prompt-cache-key feature switch. */
 export function sanitizeCacheKeyEnabled(raw: unknown, warn: (msg: string) => void): boolean {
 	if (raw === undefined) return true;
@@ -396,14 +394,19 @@ export function sanitizeCacheKeyEnabled(raw: unknown, warn: (msg: string) => voi
 	return true;
 }
 
-/** Validate the number of stable OpenAI prompt-cache routing shards. */
-export function sanitizeCacheKeyShards(raw: unknown, warn: (msg: string) => void): number {
-	if (raw === undefined) return DEFAULT_CACHE_KEY_SHARDS;
-	if (typeof raw === "number" && Number.isInteger(raw) && raw >= 1 && raw <= MAX_CACHE_KEY_SHARDS) return raw;
+/**
+ * Report the REMOVED cache-key partitioning setting and ignore it.
+ *
+ * Slate no longer partitions the prompt cache key. One key belongs to the whole
+ * main session, so a shard count can no longer mean anything. The key stays
+ * accepted in a config file, reports itself once per session load, and changes
+ * nothing.
+ */
+export function warnRemovedCacheKeyShards(raw: unknown, warn: (msg: string) => void): void {
+	if (raw === undefined) return;
 	warn(
-		`slate: ignoring cacheKeyShards ${sanitizeForNotify(String(raw))} — expected an integer from 1 to ${MAX_CACHE_KEY_SHARDS}. Using ${DEFAULT_CACHE_KEY_SHARDS}.`,
+		`slate: cacheKeyShards ${sanitizeForNotify(String(raw))} is a removed setting and has no effect. Remove it from slate.json. Slate uses one prompt cache key for each main session.`,
 	);
-	return DEFAULT_CACHE_KEY_SHARDS;
 }
 
 /**
@@ -515,7 +518,6 @@ export const ADOPTED_THREAD_FIELDS = {
 	model: true,
 	baseModel: true,
 	baseEffort: true,
-	cacheKeyShard: true,
 	tools: true,
 	episodeId: true,
 	outcomeReason: true,
@@ -641,8 +643,9 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		model: keep("model", t.model, str(t.model)),
 		baseModel: keep("baseModel", t.baseModel, str(t.baseModel)),
 		baseEffort: keep("baseEffort", t.baseEffort, str(t.baseEffort)) as ThinkingLevel | undefined,
-		cacheKeyShard: keep("cacheKeyShard", t.cacheKeyShard, typeof t.cacheKeyShard === "number" && Number.isInteger(t.cacheKeyShard) && t.cacheKeyShard >= 0 && t.cacheKeyShard < MAX_CACHE_KEY_SHARDS
-			? t.cacheKeyShard : undefined),
+		// A `cacheKeyShard` from an older snapshot is NOT named here on purpose. It is
+		// obsolete routing metadata, so adoption drops it in silence while every other
+		// field of that thread — its history, its status and its episode — is kept.
 		tools,
 		episodeId,
 		outcomeReason,
@@ -827,7 +830,8 @@ export interface SlateConfig {
 	workerTools?: string[];
 	workerExtensions?: string[]; // regex patterns selecting which of the HOST session's pi extensions worker threads may load (default [] = none); see worker-extensions.ts
 	cacheKeyEnabled?: boolean; // set false to disable prompt cache keys entirely (default true)
-	cacheKeyShards?: number; // stable OpenAI prompt-cache routing shard count while enabled (default 2; sanitized to 1..64)
+	cacheKeyShards?: number; // REMOVED partitioning setting: accepted, reported once at session load, and ignored
+	requestThrottle?: RequestThrottleConfig | SanitizedRequestThrottle; // raw or session-sanitized per-model worker request pacing — see request-throttle.ts
 	maxConcurrent?: number; // global cap on concurrently running worker actions (default 4; must be ≥ 1 — unenforced, ≤ 0 silently hangs all dispatches; rationale: docs/design-principles.md §5 repo-local note)
 	pauseThresholdPercent?: number; // DEPRECATED: legacy percent-based auto-pause (default 40); applies only when set AND contextBudget is absent or entirely invalid (invalid sanitizes to absent — a partially invalid object stays budget mode)
 	contextBudget?: number | ContextBudgetObject; // absolute orchestrator token budget; bare number = { tokens: N }; {} opts into built-in defaults (256k, 400k for anthropic/*) — see handoff.ts
