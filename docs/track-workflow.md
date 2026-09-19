@@ -193,6 +193,32 @@ The scope-exception rule and the self-contained message rule govern every
 workflow phase. Their position beside re-confirmation does not limit them to
 pre-implementation work.
 
+<!-- requirement-investigation-workflow:begin -->
+After two ordinary fix rounds leave the same approved requirement incomplete,
+stop repair dispatch before another repair. The requirement is the exact
+user-approved requirement named in the track intention or design approval
+record. If those records name different requirements, ask the user to identify
+the requirement before counting rounds. Do not choose between them or treat a
+broad track intention as one requirement. A new finding identifier does not
+create a new requirement or reset the two-round count. Propose an investigation
+scope to the user. The scope must cover relevant lifecycle stages, dependencies,
+unchanged code, actual consumers, and the durable or observable boundary where
+the requirement is judged. The user may correct the scope and must approve it
+before investigation starts.
+
+Record the trigger, proposed scope, user corrections, approved scope, findings,
+evidence, limits, holistic solution, verification plan, and decision as typed
+entries in `research-log.md`. The investigation must distinguish a symptom
+repair from closure of the full approved requirement. After investigation,
+present a holistic solution for the full requirement and wait for a separate
+user approval before implementation resumes. Existing repair caps, the
+stuck-fix consultation and its budget, reviewer input restrictions, focus gates,
+required reviews, and verification remain unchanged. This route adds no repair
+round, resets no cap, creates no new reviewer or separate artifact beyond the
+existing research-log record, narrows no requirement, and does not require
+verbatim retention of every tool result.
+<!-- requirement-investigation-workflow:end -->
+
 Before each track implementation, assess whether the approved design and
 completed design gates cover the track's proved areas and planned behavior. A
 new track created after the original confirmation gate needs user approval of

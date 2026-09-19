@@ -444,6 +444,28 @@ A round that lands no fix stops the ordinary loop. The two-round cap also
 stops it. A second regression on one finding escalates. No silence supplies a
 disposition.
 
+<!-- requirement-investigation-review:begin -->
+When two ordinary fix rounds leave the same approved requirement incomplete, the
+orchestrator stops further repair before another round. A new finding identifier
+does not reset the count when the approved requirement is the same. The
+orchestrator identifies the exact user-approved requirement named in the track
+intention or design approval record. If those records name different
+requirements, the orchestrator asks the user to identify the requirement before
+counting rounds. It does not choose between them or treat a broad track
+intention as one requirement. The orchestrator proposes a requirement-level
+investigation and waits for the user's corrections and approval of that scope.
+The investigation covers the relevant lifecycle stages, dependencies, unchanged
+code, actual consumers, and durable or observable boundaries. It records the
+trigger, proposed scope, corrections, approved scope, evidence, limits, holistic
+solution, verification plan, and user decision in the research log. A symptom
+repair is not requirement closure. The orchestrator presents a holistic solution
+for the full approved requirement and waits for separate user approval before
+implementation resumes. Existing repair caps, consultation budgets, reviewer
+input restrictions, focus gates, and machine-review requirements remain in
+force. The route neither grants a repair, resets a cap, replaces the stuck-fix
+consultation, nor requires every tool result to be copied verbatim.
+<!-- requirement-investigation-review:end -->
+
 ## Stuck-fix consultation
 
 One merged stuck-fix mechanism replaces separate escape routes. It may run when

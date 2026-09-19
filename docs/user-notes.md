@@ -156,7 +156,8 @@ and the user's disposition.
 | event | timing | available options |
 | --- | --- | --- |
 | A fix round lands no fix. | At the end of that round. | Redesign, waive, split. |
-| The two-round fix cap is exhausted. | At the end of round two. | Redesign, waive, split. |
+| The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |
+| The two-round fix cap is exhausted for another case. | At the end of round two. | Redesign, waive, split. |
 | A second regression is filed on one finding. | When the gate thread reports it. | Redesign, waive, accept the regression. |
 | A blocker is proposed for lowering. | Before the lowering takes effect. | Confirm the lowering, keep the blocker. |
 | A pre-existing defect is found. | At once, then again in every later packet until disposition. | Fix, waive, create a tracked issue. |

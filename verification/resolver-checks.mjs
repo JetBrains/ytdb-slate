@@ -396,6 +396,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-acceptance-units",
 	"contract-acceptance-mutations",
 	"contract-escalation-routing",
+	"contract-requirement-investigation",
 	"contract-test-composite",
 	"contract-review-charters",
 	"contract-dispatch-context",
@@ -4757,6 +4758,84 @@ earlier gates only to identify the governing rule set.`),
 				["both rules sit after the acceptance end marker", acceptanceBeginAt >= 0 && endMarkerAt > acceptanceBeginAt && reviews.indexOf("Pre-existing defects") > endMarkerAt && reviews.indexOf("Deferred work becomes a tracked issue") > endMarkerAt, { acceptanceBeginAt, endMarkerAt, escalationAt: reviews.indexOf("Pre-existing defects"), deferredAt: reviews.indexOf("Deferred work becomes a tracked issue") }],
 				["both rules survive the removal of the whole acceptance unit", occurrencesOf(reviewsWithoutUnit, escalationRule) === 1 && occurrencesOf(reviewsWithoutUnit, deferredRule) === 1, { escalation: occurrencesOf(reviewsWithoutUnit, escalationRule), deferred: occurrencesOf(reviewsWithoutUnit, deferredRule) }],
 				["a dropped escalation target fails the assertion", droppedTarget !== reviewsFlat && occurrencesOf(droppedTarget, escalationRule) === 0, occurrencesOf(droppedTarget, escalationRule)],
+			]);
+
+			const investigationReviewExpected = normalizeText(`When two ordinary fix rounds leave the same approved requirement incomplete, the
+orchestrator stops further repair before another round. A new finding identifier
+does not reset the count when the approved requirement is the same. The
+orchestrator identifies the exact user-approved requirement named in the track
+intention or design approval record. If those records name different
+requirements, the orchestrator asks the user to identify the requirement before
+counting rounds. It does not choose between them or treat a broad track
+intention as one requirement. The orchestrator proposes a requirement-level
+investigation and waits for the user's corrections and approval of that scope.
+The investigation covers the relevant lifecycle stages, dependencies, unchanged
+code, actual consumers, and durable or observable boundaries. It records the
+trigger, proposed scope, corrections, approved scope, evidence, limits, holistic
+solution, verification plan, and user decision in the research log. A symptom
+repair is not requirement closure. The orchestrator presents a holistic solution
+for the full approved requirement and waits for separate user approval before
+implementation resumes. Existing repair caps, consultation budgets, reviewer
+input restrictions, focus gates, and machine-review requirements remain in
+force. The route neither grants a repair, resets a cap, replaces the stuck-fix
+consultation, nor requires every tool result to be copied verbatim.`);
+			const investigationReview = markedUnit("requirement-investigation-review")(reviews);
+			const investigationWorkflowExpected = normalizeText(`After two ordinary fix rounds leave the same approved requirement incomplete,
+stop repair dispatch before another repair. The requirement is the exact
+user-approved requirement named in the track intention or design approval
+record. If those records name different requirements, ask the user to identify
+the requirement before counting rounds. Do not choose between them or treat a
+broad track intention as one requirement. A new finding identifier does not
+create a new requirement or reset the two-round count. Propose an investigation
+scope to the user. The scope must cover relevant lifecycle stages, dependencies,
+unchanged code, actual consumers, and the durable or observable boundary where
+the requirement is judged. The user may correct the scope and must approve it
+before investigation starts.
+
+Record the trigger, proposed scope, user corrections, approved scope, findings,
+evidence, limits, holistic solution, verification plan, and decision as typed
+entries in \`research-log.md\`. The investigation must distinguish a symptom
+repair from closure of the full approved requirement. After investigation,
+present a holistic solution for the full requirement and wait for a separate
+user approval before implementation resumes. Existing repair caps, the
+stuck-fix consultation and its budget, reviewer input restrictions, focus gates,
+required reviews, and verification remain unchanged. This route adds no repair
+round, resets no cap, creates no new reviewer or separate artifact beyond the
+existing research-log record, narrows no requirement, and does not require
+verbatim retention of every tool result.`);
+			const investigationWorkflow = markedUnit("requirement-investigation-workflow")(workflow);
+			const investigationUserRowExpected = normalizeText("| The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |");
+			const investigationUserRows = userNotes.split("\n").filter((line) => line.startsWith("|") && line.split("|")[1]?.trim() === "The two-round fix cap is exhausted with the same approved requirement still incomplete.");
+			const investigationUserRow = investigationUserRows.length === 1 && normalizeText(investigationUserRows[0]) === investigationUserRowExpected;
+			const investigationMutationCases = [
+				{ source: reviews.replace("When two ordinary fix rounds leave", "When one ordinary fix round leaves"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
+				{ source: workflow.replace("A new finding identifier does not\ncreate a new requirement", "A new finding identifier creates a new requirement"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
+				{ source: workflow.replace("The user may correct the scope and must approve it\nbefore investigation starts", "The user may correct the scope and may approve it after implementation resumes"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
+				{ source: reviews.replace("waits for separate user approval", "uses the scope approval"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
+			];
+			const investigationMutationResults = investigationMutationCases.map(({ source, original, unitName, expected }) => ({
+				changed: source !== original,
+				unit: markedUnit(unitName)(source),
+				expected,
+			}));
+			const investigationBenign = [
+				{ unit: markedUnit("requirement-investigation-review")(`## Preface\n\nUnrelated note.\n\n${reviews}`), expected: investigationReviewExpected },
+				{ unit: markedUnit("requirement-investigation-review")(`${reviews}\n\n## Appendix\n\nUnrelated note.`), expected: investigationReviewExpected },
+				{ unit: markedUnit("requirement-investigation-workflow")(`## Preface\n\nUnrelated note.\n\n${workflow}`), expected: investigationWorkflowExpected },
+				{ unit: markedUnit("requirement-investigation-workflow")(`${workflow}\n\n## Appendix\n\nUnrelated note.`), expected: investigationWorkflowExpected },
+			];
+			checkAll("contract-requirement-investigation", "the conditional requirement-level investigation route stops after two same-requirement repair rounds, preserves existing budgets and reviewer boundaries, requires broad scope and two user approvals, and records its evidence without narrowing the requirement", [
+				["review route resolves once and equals its canonical expectation", investigationReview.count === 1 && investigationReview.text === investigationReviewExpected, investigationReview],
+				["workflow route resolves once and equals its canonical expectation", investigationWorkflow.count === 1 && investigationWorkflow.text === investigationWorkflowExpected, investigationWorkflow],
+				["user escalation has one independent canonical row", investigationUserRow, { rows: investigationUserRows, expected: investigationUserRowExpected }],
+				["a duplicate or contradictory same-event row fails closed", (() => {
+					const duplicate = `${userNotes}\n| The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two. | Investigation is optional. |`;
+					const rows = duplicate.split("\n").filter((line) => line.startsWith("|") && line.split("|")[1]?.trim() === "The two-round fix cap is exhausted with the same approved requirement still incomplete.");
+					return rows.length !== 1 || normalizeText(rows[0]) !== investigationUserRowExpected;
+				})(), "same-event duplicate with conflicting options"],
+				["review and workflow mutations change the source and no longer resolve canonically through their policy-unit evaluators", investigationMutationResults.every(({ changed, unit, expected }) => changed && (unit.count !== 1 || unit.text !== expected)), investigationMutationResults],
+				["missing and duplicate markers fail closed", markedUnit("requirement-investigation-review")(reviews.replace("<!-- requirement-investigation-review:begin -->", "")).count === 0 && markedUnit("requirement-investigation-workflow")(`${workflow}\n<!-- requirement-investigation-workflow:begin -->\nDuplicate.\n<!-- requirement-investigation-workflow:end -->`).count === 2, { missing: markedUnit("requirement-investigation-review")(reviews.replace("<!-- requirement-investigation-review:begin -->", "")), duplicate: markedUnit("requirement-investigation-workflow")(`${workflow}\n<!-- requirement-investigation-workflow:begin -->\nDuplicate.\n<!-- requirement-investigation-workflow:end -->`) }],
+				["benign text before and after each terminal unit changes neither unit", investigationBenign.every(({ unit, expected }) => unit.count === 1 && unit.text === expected), investigationBenign],
 			]);
 
 			const composite = reviews.match(/^### Test-quality and structure reviewer\n([\s\S]*?)(?=^### Prose reviewer)/m)?.[1] ?? "";

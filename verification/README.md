@@ -531,6 +531,11 @@ Also expected, and not a harness problem:
 
 A net much smaller than the ladder, for these subjects:
 
+- the **workflow contract** for requirement-level investigation after two
+  same-requirement repair rounds (`contract-requirement-investigation`). The
+  check proves policy text and mutation resistance only. It does not enforce
+  live round counting, user interaction, dispatch pausing, or research-log
+  writes.
 - the **worker-extension resolver** in `extension/worker-extensions.ts` and the
   doctrine rule it feeds in `extension/mode.ts`;
 - the **action-routing doctrine rule** in `extension/mode.ts` (`doctrine-*`) —
