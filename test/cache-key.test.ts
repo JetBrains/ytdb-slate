@@ -40,6 +40,11 @@ function context(name: string): ExtensionContext {
     hasUI: false,
     isProjectTrusted: () => false,
     model: undefined,
+    modelRegistry: {
+      getRegisteredProviderIds: () => [],
+      getRegisteredNativeProvider: () => undefined,
+      getRegisteredProviderConfig: () => undefined,
+    },
   } as unknown as ExtensionContext;
 }
 

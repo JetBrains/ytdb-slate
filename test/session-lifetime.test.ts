@@ -42,6 +42,8 @@ function session(counter: { disposed: number }) {
       for (const listener of listeners) listener({ type: "message_end", message });
     },
     async abort() {},
+    async bindExtensions() {},
+    extensionRunner: { async emit() {} },
     dispose() { counter.disposed++; },
     async setModel() {},
     setThinkingLevel() {},

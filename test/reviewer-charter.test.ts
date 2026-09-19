@@ -89,7 +89,15 @@ test("real worker assembly delivers the charter only to review thread types", as
   const root = mkdtempSync(join(tmpdir(), "slate-reviewer-charter-test."));
   const opened: Array<Record<string, unknown>> = [];
   const reports: string[] = [];
-  const fakeSession = { model: undefined, thinkingLevel: "medium" } as unknown as WorkerSession;
+  const fakeSession = {
+    model: undefined,
+    thinkingLevel: "medium",
+    modelRuntime: { getRegisteredProviderIds: () => [] },
+    async bindExtensions() {},
+    extensionRunner: { async emit() {} },
+    dispose() {},
+    agent: { state: { tools: [] } },
+  } as unknown as WorkerSession;
   codingAgentStub.createAgentSession = async (options) => {
     opened.push(options);
     return { session: fakeSession };
@@ -98,6 +106,11 @@ test("real worker assembly delivers the charter only to review thread types", as
     cwd: root,
     model: undefined,
     isProjectTrusted: () => true,
+    modelRegistry: {
+      getRegisteredProviderIds: () => [],
+      getRegisteredNativeProvider: () => undefined,
+      getRegisteredProviderConfig: () => undefined,
+    },
   } as unknown as ExtensionContext;
   const manager = new ThreadManager({} as never, { writing: { check: false, remind: false } });
   const view = manager as unknown as ManagerInternals;

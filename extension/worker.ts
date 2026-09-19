@@ -40,6 +40,8 @@ import {
 	SessionManager,
 	SettingsManager,
 	type ExtensionContext,
+	type ModelRegistry,
+	type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
@@ -50,6 +52,8 @@ import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts"
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"] & {
 	workerReminderHandledToolResult(): boolean;
+	/** Emit worker session_shutdown once, then dispose even when a handler fails. */
+	shutdownWorker(): Promise<void>;
 };
 
 export const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -230,6 +234,72 @@ export function resolveModel(ctx: ExtensionContext, spec: string) {
 	return model;
 }
 
+function providerInheritanceError(providerId?: string): Error {
+	const suffix = providerId === undefined ? "" : ` for provider "${sanitizeForNotify(providerId, 80)}"`;
+	return new Error(`slate: worker provider inheritance failed${suffix}. No provider configuration details were reported.`);
+}
+
+/**
+ * Copy host extension provider registrations that the constructed worker did
+ * not realize itself. The registered-provider roster is the public union of
+ * native and config registrations. Built-in providers are outside that roster,
+ * so a host extension override of a built-in still crosses this boundary.
+ *
+ * @internal
+ * Internal helper. Direct imports are not a supported interface.
+ */
+export function inheritHostProviderRegistrations(
+	host: Pick<
+		ModelRegistry,
+		"getRegisteredProviderIds" | "getRegisteredProviderConfig" | "getRegisteredNativeProvider"
+	>,
+	worker: ModelRuntime,
+): void {
+	let hostIds: readonly string[];
+	try {
+		hostIds = host.getRegisteredProviderIds();
+	} catch {
+		throw providerInheritanceError();
+	}
+
+	let workerIds: Set<string>;
+	let providerIds: string[];
+	try {
+		workerIds = new Set(worker.getRegisteredProviderIds());
+		providerIds = [...new Set(hostIds)];
+		if (providerIds.some((providerId) => typeof providerId !== "string" || providerId.trim() === "")) {
+			throw providerInheritanceError();
+		}
+		providerIds.sort();
+	} catch {
+		throw providerInheritanceError();
+	}
+
+	for (const providerId of providerIds) {
+		if (workerIds.has(providerId)) continue;
+
+		try {
+			const native = host.getRegisteredNativeProvider(providerId);
+			const config = native === undefined ? host.getRegisteredProviderConfig(providerId) : undefined;
+			if (native !== undefined) worker.registerNativeProvider(native);
+			else if (config !== undefined) worker.registerProvider(providerId, config);
+			else throw providerInheritanceError(providerId);
+
+			const registered = new Set(worker.getRegisteredProviderIds());
+			const copiedFormIsPresent = native !== undefined
+				? worker.getRegisteredNativeProvider(providerId) === native
+				: worker.getRegisteredProviderConfig(providerId) !== undefined;
+			const compositionError = worker.getError()?.includes(`Provider "${providerId}":`) === true;
+			if (!registered.has(providerId) || !copiedFormIsPresent || worker.getProvider(providerId) === undefined || compositionError) {
+				throw providerInheritanceError(providerId);
+			}
+			workerIds.add(providerId);
+		} catch {
+			throw providerInheritanceError(providerId);
+		}
+	}
+}
+
 export async function openWorkerSession(opts: {
 	ctx: ExtensionContext;
 	sessionFile?: string; // resume when provided, else create new under <config dir>/slate/threads/
@@ -238,9 +308,12 @@ export async function openWorkerSession(opts: {
 	tools?: string[];
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
 	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
+	extensionToolNames?: string[]; // host-selected names, including tools registered during host session_start
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
 	promptCacheKey?: string; // the main session's shared OpenAI Responses cache-routing key
 	requestThrottle?: RequestThrottle; // the main session's shared per-model request throttle
+	report?: (message: string) => void; // lifecycle failures visible to the dispatch and host
+	onCreated?: (session: WorkerSession) => void; // publish startup-in-flight ownership before session_start awaits
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
 	const dir = threadsDir(ctx.cwd);
@@ -328,7 +401,17 @@ export async function openWorkerSession(opts: {
 	});
 	await loader.reload();
 	const loaded = loader.getExtensions();
-	const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
+	const warn = (msg: string) => {
+		try {
+			if (opts.report) opts.report(msg);
+			else if (ctx.hasUI) ctx.ui.notify(msg, "warning");
+			else console.warn(msg);
+		} catch {
+			// A reporting sink must never turn a fail-soft extension error into an
+			// unobserved lifecycle interruption.
+			try { console.warn(msg); } catch { /* no remaining reporting channel */ }
+		}
+	};
 	// A worker extension or the internal reminder component must not vanish
 	// silently. Surface every loader error naming the path. Paths and messages
 	// are extension-supplied and flow to the UI, the console and the persisted
@@ -410,7 +493,11 @@ export async function openWorkerSession(opts: {
 		// this the extensions would load but stay inert (present in the registry,
 		// absent from the active set). A colliding built-in name was rejected above.
 		tools: [
-			...new Set([...(opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS), ...extensionToolNames]),
+			...new Set([
+				...(opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS),
+				...extensionToolNames,
+				...(extensionPaths.length > 0 ? (opts.extensionToolNames ?? []) : []),
+			]),
 		],
 		// STRUCTURAL depth-1 guard (SE20): slate's dispatch tools are denied to EVERY
 		// worker session. excludeTools applies AFTER the allowlist and the SDK
@@ -423,10 +510,96 @@ export async function openWorkerSession(opts: {
 		sessionManager,
 		settingsManager,
 	});
-	const workerSession = Object.assign(session, { workerReminderHandledToolResult: workerReminder.handledToolResult });
+	let lifecyclePhase: "startup" | "running" | "shutdown" = "startup";
+	const startupErrors: string[] = [];
+	let startupPromise: Promise<void> | undefined;
+	let shutdownPromise: Promise<void> | undefined;
+	const extensionError = (error: { extensionPath: string; event: string; error: string }) => {
+		const detail = `${sanitizeForNotify(error.extensionPath)} (${sanitizeForNotify(error.event)}): ${sanitizeForNotify(error.error)}`;
+		// Attribute an error to the event that produced it. Host teardown can change
+		// lifecyclePhase while an async session_start handler is still running.
+		const phase = error.event === "session_start" ? "startup" : lifecyclePhase;
+		if (phase === "startup") startupErrors.push(detail);
+		warn(`slate: worker extension ${phase} failed — ${detail}`);
+	};
+	const workerSession = Object.assign(session, {
+		workerReminderHandledToolResult: workerReminder.handledToolResult,
+		shutdownWorker(): Promise<void> {
+			if (shutdownPromise !== undefined) return shutdownPromise;
+			lifecyclePhase = "shutdown";
+			shutdownPromise = (async () => {
+				// Host teardown can arrive while session_start is still running. Preserve
+				// pi's lifecycle order by waiting for that startup attempt to settle.
+				try { await startupPromise; } catch { /* failed startup still receives shutdown */ }
+				try {
+					await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+				} catch (error) {
+					warn(`slate: worker extension shutdown failed — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`);
+				} finally {
+					try {
+						session.dispose();
+					} catch (error) {
+						warn(`slate: worker session disposal failed — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`);
+					}
+				}
+			})();
+			return shutdownPromise;
+		},
+	});
 	if (opts.promptCacheKey !== undefined) installPromptCacheKey(workerSession, opts.promptCacheKey);
 	// Installed INDEPENDENTLY of the cache key above: the two switches are
 	// separate, so a project may keep either one without the other.
 	if (opts.requestThrottle !== undefined) installRequestThrottle(workerSession, opts.requestThrottle);
-	return workerSession;
+
+	// bindExtensions has not installed its listener yet. Keep cleanup errors
+	// visible if provider inheritance fails in this partial-startup window.
+	const stopEarlyExtensionErrors = typeof session.extensionRunner.onError === "function"
+		? session.extensionRunner.onError(extensionError)
+		: () => {};
+	try {
+		// Worker extension registrations flush during AgentSession construction.
+		// Compare the realized union only after createAgentSession returns and
+		// before extension startup can select a route or issue the first request.
+		inheritHostProviderRegistrations(ctx.modelRegistry, session.modelRuntime);
+	} catch (error) {
+		await workerSession.shutdownWorker();
+		throw error;
+	}
+	stopEarlyExtensionErrors();
+
+	startupPromise = (async () => {
+		// createAgentSession loads extension factories but does not emit session_start.
+		// Binding completes startup and refreshes tools registered by those handlers.
+		await session.bindExtensions({ mode: "print", onError: extensionError });
+		if (startupErrors.length > 0) {
+			throw new Error(`slate: worker extension startup did not complete: ${startupErrors.join("; ")}`);
+		}
+
+		// The selected unit maps are live. Re-scan after session_start so a deferred
+		// registration cannot replace a Slate or pi built-in before the first prompt.
+		const startupCollisions: string[] = [];
+		for (const ext of loaded.extensions ?? []) {
+			const candidate = ext as unknown as { path?: unknown; tools?: unknown };
+			if (!(candidate.tools instanceof Map)) continue;
+			for (const name of candidate.tools.keys()) {
+				if (typeof name !== "string" || (!SLATE_TOOL_NAMES.includes(name) && !PI_BUILTIN_TOOL_NAMES.includes(name))) continue;
+				const path = typeof candidate.path === "string" ? candidate.path : "extension";
+				startupCollisions.push(`${sanitizeForNotify(path)} → "${sanitizeForNotify(name)}"`);
+			}
+		}
+		if (startupCollisions.length > 0) {
+			throw new Error(
+				`slate: refusing to start worker — selected extension(s) registered tool(s) during startup that overwrite a slate or pi built-in tool: ${startupCollisions.join(", ")}`,
+			);
+		}
+		if (shutdownPromise === undefined) lifecyclePhase = "running";
+	})();
+	opts.onCreated?.(workerSession);
+	try {
+		await startupPromise;
+		return workerSession;
+	} catch (error) {
+		await workerSession.shutdownWorker();
+		throw error;
+	}
 }

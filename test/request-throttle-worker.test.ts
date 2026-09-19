@@ -26,7 +26,17 @@ after(() => {
 });
 
 async function worker(name: string): Promise<WorkerSession> {
-  const ctx = { cwd: join(scratch, name), hasUI: false, isProjectTrusted: () => false, model: undefined } as unknown as ExtensionContext;
+  const ctx = {
+    cwd: join(scratch, name),
+    hasUI: false,
+    isProjectTrusted: () => false,
+    model: undefined,
+    modelRegistry: {
+      getRegisteredProviderIds: () => [],
+      getRegisteredNativeProvider: () => undefined,
+      getRegisteredProviderConfig: () => undefined,
+    },
+  } as unknown as ExtensionContext;
   const session = await openWorkerSession({ ctx });
   sessions.push(session);
   return session;

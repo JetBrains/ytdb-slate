@@ -171,6 +171,7 @@ test("public dispatch enforces maxConcurrent across different threads", { timeou
           subscribers.add(listener);
           return () => subscribers.delete(listener);
         },
+        dispose() {},
         prompt: async () => {
           active++;
           maxActive = Math.max(maxActive, active);
