@@ -18,6 +18,7 @@ export const codingAgentStub = {
   createSettings: () => ({
     getGlobalSettings: () => ({}),
     getProjectSettings: () => ({}),
+    getRetrySettings: () => ({ enabled: true, maxRetries: 2, baseDelayMs: 1 }),
   }),
   settingsFromStorage: () => ({
     getDefaultThinkingLevel: () => "medium",

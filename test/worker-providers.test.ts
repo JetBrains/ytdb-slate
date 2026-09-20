@@ -21,6 +21,7 @@ import {
 	type Provider,
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
+import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
 import { ThreadManager, type DispatchProgress } from "../extension/threads.ts";
 import { inheritHostProviderRegistrations, openWorkerSession } from "../extension/worker.ts";
@@ -471,6 +472,9 @@ test("public dispatch records a failed episode when provider inheritance fails",
 			streamSimple() { requests += 1; throw new Error("request must not run"); },
 		} as unknown as Provider;
 		const registry = {
+			find(provider: string, id: string) { return provider === "broken-dispatch" && id === "model" ? model(provider, id) : undefined; },
+			hasConfiguredAuth: () => true,
+			async getAvailable() { return []; },
 			getRegisteredProviderIds: () => ["broken-dispatch"],
 			getRegisteredNativeProvider: () => broken,
 			getRegisteredProviderConfig: () => undefined,
@@ -481,11 +485,12 @@ test("public dispatch records a failed episode when provider inheritance fails",
 				persistedEntries.push({ type: "custom", customType, data: structuredClone(data) });
 			},
 		} as unknown as ExtensionAPI);
-		const manager = new ThreadManager(store, {});
+		const logicalRuntime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, costRating: 50, effort: "off", preferredProvider: "broken-dispatch", providers: { "broken-dispatch": "model" }, guidelines: [], cautions: [] }] } } } });
+		const manager = new ThreadManager(store, {}, undefined, Object.freeze({ ...logicalRuntime, validateRoute: async () => ({ ok: true } as const) }));
 		const progress: DispatchProgress[] = [];
 
 		const result = await manager.dispatch(
-			{ name: "inheritance failure", type: "general", task: "do not issue a provider request" },
+			{ model: "fixture", reason: "provider inheritance fixture", name: "inheritance failure", type: "general", task: "do not issue a provider request" },
 			context(root, registry as unknown as ModelRegistry),
 			undefined,
 			(update) => progress.push({ ...update, lines: [...update.lines], usage: { ...update.usage } }),

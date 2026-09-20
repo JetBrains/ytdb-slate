@@ -45,13 +45,21 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
-import type { RequestThrottle } from "./request-throttle.ts";
+import type { LogicalModelEffort } from "./logical-model-definitions.ts";
+import type { RecoveryCandidate } from "./logical-model-recovery.ts";
+import { RequestThrottleAbort, type RequestThrottle } from "./request-throttle.ts";
 import { createWorkerReminderRuntime } from "./worker-reminder.ts";
 import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"] & {
 	workerReminderHandledToolResult(): boolean;
+	/** Close extension-managed Pi operation admission before terminal settlement. */
+	closeManagedOperations(): void;
+	/** Abort and join startup, admitted operations, and Pi idle state. */
+	settleManagedOperations(): Promise<void>;
+	/** Test and diagnostics view. Settled operations are removed immediately. */
+	activeManagedOperationCount(): number;
 	/** Emit worker session_shutdown once, then dispose even when a handler fails. */
 	shutdownWorker(): Promise<void>;
 };
@@ -181,6 +189,87 @@ function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string):
 /** The SDK's own stream-function type, read off the session so slate cannot drift from it. */
 type WorkerStreamFunction = WorkerSession["agent"]["streamFunction"];
 
+export const WORKER_REQUEST_CONTRACT_ERROR = "Slate route contract violation.";
+const WORKER_LIFECYCLE_CLOSED_ERROR = "Slate worker lifecycle is closed.";
+
+export interface WorkerRequestContract {
+	/** Aborted exactly once when lifecycle ownership ends. Pacing waits observe it. */
+	readonly invalidationSignal: AbortSignal;
+	expect(candidate: Pick<RecoveryCandidate, "provider" | "model" | "effort">): void;
+	invalidate(): void;
+	latestAccepted(): { model: { provider: string; id: string }; effort: LogicalModelEffort } | undefined;
+	/**
+	 * The refusal message of this action, when one attempted request was refused.
+	 *
+	 * The owner of the action reads this at one place instead of watching each
+	 * event position. A caller cancellation is not a refusal, because the caller
+	 * asked for the stop. A lifecycle invalidation that no request reached is not
+	 * a refusal either, because no request was attempted.
+	 *
+	 * The first refused request is TERMINAL for its action: `accept` blocks every
+	 * later request of the same owner, including a request that carries the pair
+	 * the owner now expects.
+	 */
+	refusal(): string | undefined;
+	accept<T>(
+		model: { provider?: unknown; id?: unknown },
+		reasoning: unknown,
+		signal: AbortSignal | undefined,
+		handoff: () => T,
+	): T;
+}
+
+/** One action-local request owner. It stores only the latest accepted pair. */
+export function createWorkerRequestContract(): WorkerRequestContract {
+	let active = true;
+	let expected: { provider: string; model: string; effort: LogicalModelEffort } | undefined;
+	let latest: { model: { provider: string; id: string }; effort: LogicalModelEffort } | undefined;
+	let refused: string | undefined;
+	const invalidation = new AbortController();
+	const fail = (): never => { throw new Error(WORKER_REQUEST_CONTRACT_ERROR); };
+	// One attempted request was blocked here. The message is constant, so a later
+	// refusal cannot replace the first one with different text.
+	const refuse = (): never => { refused = WORKER_REQUEST_CONTRACT_ERROR; return fail(); };
+	return {
+		invalidationSignal: invalidation.signal,
+		expect(candidate) {
+			if (!active) fail();
+			expected = { provider: candidate.provider, model: candidate.model, effort: candidate.effort };
+		},
+		invalidate() {
+			if (!active) return;
+			active = false;
+			expected = undefined;
+			invalidation.abort();
+		},
+		latestAccepted() {
+			return latest === undefined ? undefined : { model: { ...latest.model }, effort: latest.effort };
+		},
+		refusal() {
+			return refused;
+		},
+		accept(model, reasoning, signal, handoff) {
+			const actualEffort = reasoning === undefined ? "off" : reasoning;
+			const current = expected;
+			// Caller cancellation keeps its own identity and records no refusal.
+			if (signal?.aborted === true) return fail();
+			// TERMINAL LATCH: one refused request ends this action. A later request may
+			// not continue it, not even with the pair this owner now expects, and
+			// whichever position or continuation sends it. The recorded refusal and the
+			// latest accepted pair both stay unchanged.
+			if (refused !== undefined) return fail();
+			if (!active || current === undefined) return refuse();
+			if (model.provider !== current.provider || model.id !== current.model || actualEffort !== current.effort) return refuse();
+			const value = handoff();
+			latest = {
+				model: { provider: current.provider, id: current.model },
+				effort: current.effort,
+			};
+			return value;
+		},
+	};
+}
+
 /**
  * Put the session's request throttle in front of every provider request.
  *
@@ -212,12 +301,39 @@ type WorkerStreamFunction = WorkerSession["agent"]["streamFunction"];
  * for a provider failure (pi-agent-core dist/agent.js handleRunFailure), and no
  * request is sent.
  */
-export function installRequestThrottle(session: WorkerSession, throttle: RequestThrottle): void {
+export function installRequestThrottle(
+	session: WorkerSession,
+	throttle: RequestThrottle,
+	contract?: WorkerRequestContract,
+): void {
 	const previous: WorkerStreamFunction = session.agent.streamFunction;
-	session.agent.streamFunction = async (model, context, options) => {
-		await throttle.admit(model, options?.signal);
-		return previous(model, context, options);
+	const handoff = (model: Parameters<WorkerStreamFunction>[0], context: Parameters<WorkerStreamFunction>[1], options: Parameters<WorkerStreamFunction>[2]) =>
+		contract === undefined
+			? previous(model, context, options)
+			: contract.accept(model, options?.reasoning, options?.signal, () => previous(model, context, options));
+	session.agent.streamFunction = (model, context, options) => {
+		const requestSignal = options?.signal;
+		const waitSignal = contract === undefined
+			? requestSignal
+			: requestSignal === undefined
+				? contract.invalidationSignal
+				: AbortSignal.any([requestSignal, contract.invalidationSignal]);
+		const pending = throttle.accept(model, waitSignal, () => handoff(model, context, options));
+		if (contract === undefined) return pending;
+		return pending.catch((error: unknown) => {
+			// Lifecycle invalidation owns this wake-up. Keep Pi's caller abort distinct.
+			if (error instanceof RequestThrottleAbort && contract.invalidationSignal.aborted && requestSignal?.aborted !== true) {
+				throw new Error(WORKER_REQUEST_CONTRACT_ERROR);
+			}
+			throw error;
+		});
 	};
+}
+
+export function installWorkerRequestContract(session: WorkerSession, contract: WorkerRequestContract): void {
+	const previous: WorkerStreamFunction = session.agent.streamFunction;
+	session.agent.streamFunction = (model, context, options) =>
+		contract.accept(model, options?.reasoning, options?.signal, () => previous(model, context, options));
 }
 
 /**
@@ -312,8 +428,10 @@ export async function openWorkerSession(opts: {
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
 	promptCacheKey?: string; // the main session's shared OpenAI Responses cache-routing key
 	requestThrottle?: RequestThrottle; // the main session's shared per-model request throttle
+	requestContract?: WorkerRequestContract; // action-local expected pair and accepted attribution
 	report?: (message: string) => void; // lifecycle failures visible to the dispatch and host
-	onCreated?: (session: WorkerSession) => void; // publish startup-in-flight ownership before session_start awaits
+	onCreated?: (session: WorkerSession) => void; // publish ownership and install capture before session_start begins
+	deferShutdownOnOpenFailure?: boolean; // ThreadManager persists captured startup facts before shutdown
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
 	const dir = threadsDir(ctx.cwd);
@@ -513,8 +631,16 @@ export async function openWorkerSession(opts: {
 	let lifecyclePhase: "startup" | "running" | "shutdown" = "startup";
 	const startupErrors: string[] = [];
 	let startupPromise: Promise<void> | undefined;
+	let settlementPromise: Promise<void> | undefined;
 	let shutdownPromise: Promise<void> | undefined;
+	let managedAdmissionOpen = true;
+	const activeManagedOperations = new Set<Promise<unknown>>();
 	const extensionError = (error: { extensionPath: string; event: string; error: string }) => {
+		if (
+			!managedAdmissionOpen &&
+			(error.event === "send_message" || error.event === "send_user_message") &&
+			error.error === WORKER_LIFECYCLE_CLOSED_ERROR
+		) return;
 		const detail = `${sanitizeForNotify(error.extensionPath)} (${sanitizeForNotify(error.event)}): ${sanitizeForNotify(error.error)}`;
 		// Attribute an error to the event that produced it. Host teardown can change
 		// lifecyclePhase while an async session_start handler is still running.
@@ -524,13 +650,30 @@ export async function openWorkerSession(opts: {
 	};
 	const workerSession = Object.assign(session, {
 		workerReminderHandledToolResult: workerReminder.handledToolResult,
+		closeManagedOperations(): void {
+			managedAdmissionOpen = false;
+		},
+		activeManagedOperationCount(): number {
+			return activeManagedOperations.size;
+		},
+		settleManagedOperations(): Promise<void> {
+			if (settlementPromise !== undefined) return settlementPromise;
+			managedAdmissionOpen = false;
+			settlementPromise = (async () => {
+				try { await session.abort(); } catch { /* classification uses captured messages */ }
+				try { await startupPromise; } catch { /* startup failure remains independently visible */ }
+				while (activeManagedOperations.size > 0) {
+					await Promise.allSettled([...activeManagedOperations]);
+				}
+				try { await session.waitForIdle(); } catch { /* shutdown still runs */ }
+			})();
+			return settlementPromise;
+		},
 		shutdownWorker(): Promise<void> {
 			if (shutdownPromise !== undefined) return shutdownPromise;
 			lifecyclePhase = "shutdown";
 			shutdownPromise = (async () => {
-				// Host teardown can arrive while session_start is still running. Preserve
-				// pi's lifecycle order by waiting for that startup attempt to settle.
-				try { await startupPromise; } catch { /* failed startup still receives shutdown */ }
+				await workerSession.settleManagedOperations();
 				try {
 					await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
 				} catch (error) {
@@ -546,10 +689,36 @@ export async function openWorkerSession(opts: {
 			return shutdownPromise;
 		},
 	});
+	const managedClosedError = () => new Error(WORKER_LIFECYCLE_CLOSED_ERROR);
+	const managedMethods = session as WorkerSession & {
+		sendUserMessage?: WorkerSession["sendUserMessage"];
+		sendCustomMessage?: WorkerSession["sendCustomMessage"];
+	};
+	const originalSendUserMessage = managedMethods.sendUserMessage?.bind(session);
+	const originalSendCustomMessage = managedMethods.sendCustomMessage?.bind(session);
+	const trackManaged = <T>(start: () => Promise<T>): Promise<T> => {
+		if (!managedAdmissionOpen) return Promise.reject(managedClosedError());
+		const operation = start();
+		activeManagedOperations.add(operation);
+		void operation.then(
+			() => { activeManagedOperations.delete(operation); },
+			() => { activeManagedOperations.delete(operation); },
+		);
+		return operation;
+	};
+	if (originalSendUserMessage !== undefined) {
+		session.sendUserMessage = ((...args: Parameters<typeof session.sendUserMessage>) =>
+			trackManaged(() => originalSendUserMessage(...args))) as typeof session.sendUserMessage;
+	}
+	if (originalSendCustomMessage !== undefined) {
+		session.sendCustomMessage = ((...args: Parameters<typeof session.sendCustomMessage>) =>
+			trackManaged(() => originalSendCustomMessage(...args))) as typeof session.sendCustomMessage;
+	}
 	if (opts.promptCacheKey !== undefined) installPromptCacheKey(workerSession, opts.promptCacheKey);
 	// Installed INDEPENDENTLY of the cache key above: the two switches are
 	// separate, so a project may keep either one without the other.
-	if (opts.requestThrottle !== undefined) installRequestThrottle(workerSession, opts.requestThrottle);
+	if (opts.requestThrottle !== undefined) installRequestThrottle(workerSession, opts.requestThrottle, opts.requestContract);
+	else if (opts.requestContract !== undefined) installWorkerRequestContract(workerSession, opts.requestContract);
 
 	// bindExtensions has not installed its listener yet. Keep cleanup errors
 	// visible if provider inheritance fails in this partial-startup window.
@@ -567,7 +736,9 @@ export async function openWorkerSession(opts: {
 	}
 	stopEarlyExtensionErrors();
 
-	startupPromise = (async () => {
+	let beginStartup!: () => void;
+	const startupGate = new Promise<void>((resolve) => { beginStartup = resolve; });
+	startupPromise = startupGate.then(async () => {
 		// createAgentSession loads extension factories but does not emit session_start.
 		// Binding completes startup and refreshes tools registered by those handlers.
 		await session.bindExtensions({ mode: "print", onError: extensionError });
@@ -593,13 +764,17 @@ export async function openWorkerSession(opts: {
 			);
 		}
 		if (shutdownPromise === undefined) lifecyclePhase = "running";
-	})();
+	});
+	// The action installs its event capture before session_start can submit work.
 	opts.onCreated?.(workerSession);
+	beginStartup();
 	try {
 		await startupPromise;
 		return workerSession;
 	} catch (error) {
-		await workerSession.shutdownWorker();
+		workerSession.closeManagedOperations();
+		await workerSession.settleManagedOperations();
+		if (opts.deferShutdownOnOpenFailure !== true) await workerSession.shutdownWorker();
 		throw error;
 	}
 }

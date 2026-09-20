@@ -21,66 +21,35 @@
  *                 compaction intercept) + fresh-session handoff
  *   base-model.ts — the orchestrator's base model/effort, excluding slate's own
  *                 failover fallbacks (what a new worker thread defaults to)
- *   model-profiles.ts / model-router.ts — the static routing data and the
- *                 resolver that turns `router.models` into routable candidates
- *   route.ts    — PURE per-action route planning + the seven dispatch guards
+ *   logical-model-runtime.ts — frozen parent-session policy and recovery state
  *
- * Optional config, including the deferred-issue prompt, lives at
- * <config dir>/slate.json (config dir = CONFIG_DIR_NAME,
- * ".pi" by default), honored ONLY when the project is trusted — untrusted
- * projects run on built-in defaults with no project file injection:
- *   { "episodeModel": "provider/id", "workerTools": [...],
- *     "workerExtensions": ["regex", ...], "cacheKeyEnabled": true,
- *     "requestThrottle": { "enabled": true, "maxRequestsPerMinute": 12,
- *                          "baseWaitMs": 1000, "jitterMs": 1000 },
- *     "maxConcurrent": 4,
- *     "contextBudget": 256000, "orchestratorModeDefault": true,
- *     "orchestratorPromptDocs": ["docs/orchestrator-guidelines.md"],
- *     "workerPromptDocs": ["docs/thread-guidelines.md"],
- *     "workflow": { "draftPRs": false, "followUpIssues": false },
- *     "modelFailover": { "provider/id": "provider/id" },
- *     "preserveGlobalModelDefault": true,
- *     "doctrineExtraPath": "docs/project-doctrine.md",
- *     "reviewPerspectivesPath": "docs/review-perspectives.md",
- *     "router": { "models": ["provider/id", ...], "allowUnmeasuredEffort": true,
- *                 "showWarnings": false },
- *     "writing": { "remindTurns": 4, "remindOnFinding": true } }
- * router.models is the closed list of models an action may be routed to (empty
- * or absent = router off, the default); allowUnmeasuredEffort (default true)
- * governs effort levels with no capability evidence; showWarnings (default
- * false) also shows the router's model data notes, the warnings about shipped
- * research data that no project config can fix — see model-router.ts.
- * contextBudget also takes { "tokens": N, "overrides": [{ "match": "regex",
- * "tokens": N }] } (match is anchored against "provider/id"); absent, the
- * built-in defaults apply (256k tokens; 400k for anthropic/*). The DEPRECATED
- * pauseThresholdPercent keeps its legacy percent behavior only when it is set
- * AND contextBudget is absent or entirely invalid (invalid sanitizes to
- * absent — a partially invalid object stays budget mode).
+ * Optional project configuration lives at `<config dir>/slate.json`. Slate reads
+ * it only for a trusted project. `router.models` uses include, add, replace, and
+ * exclude lists of provider-free logical names. `router.compressor.models` is an
+ * independent ordered list. Legacy physical router, episodeModel, and
+ * modelFailover keys are reported and ignored without migration. Context-budget,
+ * worker-extension, workflow, prompt, cache, request-throttle, and writing
+ * settings remain independent.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, getAgentDir, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { CompressorRetryPolicy } from "./logical-model-adapters.ts";
+import { RecoveryOwnership } from "./logical-model-recovery.ts";
 import { createBaseModelTracker, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
-import { registerOrchestratorFailover, sanitizeModelFailover } from "./failover.ts";
+import { registerOrchestratorFailover } from "./failover.ts";
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
+import { createLogicalRuntime, type LogicalRuntime } from "./logical-model-runtime.ts";
 import { registerSlateMode } from "./mode.ts";
 import {
-	createModelRouterResolver,
-	ROUTER_OFF,
-	sanitizeRouterConfig,
-	type ModelRouterResolution,
-	type RouterWarningClass,
-} from "./model-router.ts";
-import { createRequestThrottle, sanitizeRequestThrottle } from "./request-throttle.ts";
-import {
 	sanitizeCacheKeyEnabled,
-	sanitizeEpisodeModel,
 	sanitizeWorkflowConfig,
 	SlateStore,
 	warnRemovedCacheKeyShards,
 	type SlateConfig,
 } from "./state.ts";
+import { createRequestThrottle, sanitizeRequestThrottle } from "./request-throttle.ts";
 import { createSessionPromptCacheKey, ThreadManager, type ThreadSessionScope } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
 import {
@@ -91,9 +60,10 @@ import {
 } from "./worker-extensions.ts";
 import { sanitizeWritingConfig } from "./writing.ts";
 
-function loadConfig(cwd: string): SlateConfig {
+function loadConfig(cwd: string, warn: (message: string) => void): SlateConfig {
 	const file = join(cwd, CONFIG_DIR_NAME, "slate.json");
 	try {
+		if (!existsSync(file)) return {};
 		if (existsSync(file)) {
 			// JSON.parse accepts any JSON value; only a non-null plain object is a
 			// usable config — a literal `null`, array, or scalar would crash
@@ -105,9 +75,11 @@ function loadConfig(cwd: string): SlateConfig {
 			}
 		}
 	} catch {
-		/* invalid config → defaults */
+		warn(`slate: ${CONFIG_DIR_NAME}/slate.json could not be parsed. Logical model policy is blocked.`);
+		return { router: null };
 	}
-	return {};
+	warn(`slate: ${CONFIG_DIR_NAME}/slate.json must contain one JSON object. Logical model policy is blocked.`);
+	return { router: null };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -121,13 +93,6 @@ export default function (pi: ExtensionAPI) {
 	// later session's — the live indirection would leak the newer set into the
 	// stale manager. Starts as the empty set (feature off) until session_start.
 	let resolveWorkerExtensionSet: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET;
-	// One MEMOIZED model-router resolution per session (model-router.ts), reassigned
-	// every session_start below for the same reason as the resolver above: the
-	// candidate list is frozen at first use, and a dispatch guard built from a
-	// different resolution than the doctrine describes would be a bug. Starts at the
-	// shared OFF resolution — no candidate list is available — until session_start
-	// has sanitized `router.models`.
-	let resolveModelRouterResolution: () => ModelRouterResolution = () => ROUTER_OFF;
 
 	// One base-model tracker per session (base-model.ts), reassigned every
 	// session_start below so its seed and its one-report-per-condition budget are
@@ -141,18 +106,20 @@ export default function (pi: ExtensionAPI) {
 	// pre-session manager below can be given one; that pre-session instance reports
 	// through the console, since no extension context exists yet.
 	let baseModel: BaseModelTracker = createBaseModelTracker({ warn: (msg) => console.warn(msg) });
+	let logicalRuntime: Readonly<LogicalRuntime> | undefined;
+	let logicalSessionEpoch = 0;
+	let compressorRetryPolicy: CompressorRetryPolicy | undefined;
+	// Factory-local execution state uses one owner. Active saved-default leases
+	// share the exact global settings resource across replacement factories.
+	const lifecycleRecoveryOwnership = new RecoveryOwnership(join(getAgentDir(), "settings.json"));
 
-	// One prompt-cache key and one request throttle for THIS main session, both
-	// reassigned at every session_start below. A new main session therefore gets a
-	// new cache key, and its request budget starts empty. The pre-session instance
-	// below exists so a dispatch that somehow precedes session_start still runs
-	// with a key and with the default pacing rather than with neither.
+	// One prompt-cache key and one request throttle belong to this main session.
 	let sessionScope: ThreadSessionScope = {
 		promptCacheKey: createSessionPromptCacheKey(),
 		requestThrottle: createRequestThrottle(),
 	};
 
-	let manager = new ThreadManager(store, {}, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel, sessionScope);
+	let manager = new ThreadManager(store, {}, resolveWorkerExtensionSet, logicalRuntime, compressorRetryPolicy, sessionScope);
 
 	registerSlateTools(pi, store, () => manager);
 
@@ -164,75 +131,33 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		// Invalidate asynchronous recovery before replacing session-owned state.
+		logicalSessionEpoch += 1;
 		await manager.disposeAll();
+		logicalRuntime?.resetPreferences();
 		// Trust gate: project config steers prompts, models, and tool lists, so
 		// it is honored only for trusted projects; untrusted → built-in defaults.
-		const config = ctx.isProjectTrusted() ? loadConfig(ctx.cwd) : {};
+		const trusted = ctx.isProjectTrusted();
 		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
-		// modelFailover, contextBudget and workerExtensions are validated eagerly:
-		// a malformed value would otherwise fail silently mid-dispatch / exactly
-		// when the auto-pause was supposed to save the orchestrator's context.
-		config.modelFailover = sanitizeModelFailover(config.modelFailover, warn);
+		const config = trusted ? loadConfig(ctx.cwd, warn) : {};
+		try {
+			compressorRetryPolicy = Object.freeze(SettingsManager.create(ctx.cwd, getAgentDir(), {
+				projectTrusted: trusted,
+			}).getRetrySettings());
+		} catch {
+			compressorRetryPolicy = undefined;
+			warn("slate: Pi retry settings could not be read. Episode compression will retain completed output instead of advancing between models.");
+		}
+		// Context budget and worker extensions are validated eagerly.
 		config.contextBudget = sanitizeContextBudget(config.contextBudget, warn);
 		config.workerExtensions = sanitizeWorkerExtensions(config.workerExtensions, warn);
 		config.cacheKeyEnabled = sanitizeCacheKeyEnabled(config.cacheKeyEnabled, warn);
-		// The partitioning setting is gone. A config that still carries it is reported
-		// once here and then ignored, like every other removed key.
+		// Cache-key partitioning is removed. Keep request pacing independent of key injection.
 		warnRemovedCacheKeyShards(config.cacheKeyShards, warn);
-		// The limiter's own settings, validated eagerly for the same reason as the keys
-		// above: a malformed wait or threshold must surface at session start and not as
-		// a surprise delay in the middle of an action.
-		// Sanitized ONCE and kept in a local: the limiter below must run on the same
-		// validated values the config reports, and a second sanitize call would repeat
-		// every warning.
 		const requestThrottleSettings = sanitizeRequestThrottle(config.requestThrottle, warn);
 		config.requestThrottle = requestThrottleSettings;
-		// router likewise: a malformed model list must surface at session start, not
-		// when a dispatch is refused for naming a model the list silently dropped.
-		// The router's own warn sink. It reads the CLASS the router tags each warning
-		// with (model-router.ts) and hides a MODEL DATA NOTE — a fact about slate's
-		// shipped research table that no project config and no credential can change —
-		// unless the project asked for those with router.showWarnings. A CONFIGURATION
-		// FAULT always reaches the user, and so does a warning from a sink that omits
-		// the class argument. Nothing is dropped from the resolution itself: the router
-		// still emits every warning and still collects every one on its result.
-		let showRouterWarnings = false;
-		let hiddenRouterWarnings = 0;
-		let resolutionConsulted = false;
-		let noticeFlushed = false;
-		const flushHiddenRouterWarnings = () => {
-			if (noticeFlushed || hiddenRouterWarnings === 0) return;
-			noticeFlushed = true;
-			const count = hiddenRouterWarnings;
-			const plural = count === 1 ? "is 1 hidden warning" : `are ${count} hidden warnings`;
-			try {
-				warn(
-					`slate: there ${plural} in the model router. Set "router.showWarnings" to true in ` +
-						`${CONFIG_DIR_NAME}/slate.json to read them. A hidden warning can affect which model runs an action.`,
-				);
-			} catch {
-				/* BG3: a throwing sink costs the notice, never the resolution */
-			}
-		};
-		const routerWarn = (msg: string, warningClass?: RouterWarningClass) => {
-			if (warningClass === "model-data-note" && !showRouterWarnings) {
-				hiddenRouterWarnings += 1;
-				// Resolution-time notes are aggregated after the memoized resolver returns.
-				// A dispatch-time note arrives later, so it triggers the same one-time line here.
-				if (resolutionConsulted) flushHiddenRouterWarnings();
-				return;
-			}
-			warn(msg);
-		};
-		config.router = sanitizeRouterConfig(config.router, routerWarn);
-		// Read AFTER sanitization, so an invalid value has already fallen back to false
-		// and reported itself as a configuration fault.
-		showRouterWarnings = config.router.showWarnings === true;
 		config.writing = sanitizeWritingConfig(config.writing, warn);
 		config.workflow = sanitizeWorkflowConfig(config.workflow, warn);
-		// episodeModel too (RG20): an unusable value falls back to the built-in
-		// compressor, and until this ran it did so without saying anything at all.
-		config.episodeModel = sanitizeEpisodeModel(config.episodeModel, warn);
 		if (config.contextBudget !== undefined && config.pauseThresholdPercent !== undefined) {
 			warn("slate: contextBudget is set — the deprecated pauseThresholdPercent is ignored");
 		}
@@ -242,37 +167,6 @@ export default function (pi: ExtensionAPI) {
 		// worker open or a doctrine build — after session_start finishes, so tools
 		// registered during session_start are captured (AD41).
 		resolveWorkerExtensionSet = createWorkerExtensionResolver(pi, () => config.workerExtensions ?? [], warn);
-		// Fresh router resolver per session, AFTER sanitization (it reads the cleaned
-		// model list) and with the same warn sink, so a dropped model — unprofiled,
-		// unknown to the registry, unauthenticated — surfaces the way every other
-		// config problem does. Resolution is LAZY and memoized: the registry and auth
-		// reads happen at first consultation (a dispatch or the doctrine), after
-		// session_start, so a provider another extension registers during startup is
-		// visible — and every later consultation gets that same frozen answer (CQ7).
-		// `failover` is passed so the resolver can report candidates with no failover
-		// coverage; both keys are read through the closure, not captured by value.
-		const memoizedRouterResolution = createModelRouterResolver(
-			() => ({
-				registry: ctx.modelRegistry,
-				models: config.router?.models ?? [],
-				failover: config.modelFailover ?? {},
-			}),
-			routerWarn,
-		);
-		// The discoverability line, at most once per session. It is flushed AFTER the
-		// memoized resolution returns on every return path. The current resolver emits
-		// no model-data note on its all-dropped path, but the flush stays there because
-		// this wrapper must cover that return path if the resolver gains one later. The
-		// memo means a later consultation re-emits nothing and cannot count a warning
-		// twice. A later dispatch-time note can still flush the line when resolution
-		// produced no hidden note. It counts WARNINGS, not rendered lines: one warning
-		// can wrap across several of those.
-		resolveModelRouterResolution = () => {
-			const resolution = memoizedRouterResolution();
-			resolutionConsulted = true;
-			flushHiddenRouterWarnings();
-			return resolution;
-		};
 		// Fresh tracker per session, seeded from the session's OWN resolved model —
 		// undefined is legitimate (no model, or no auth for one) and stays silent.
 		// Same warn channel as the sanitizers above. A handoff adoption re-seeds it
@@ -289,23 +183,32 @@ export default function (pi: ExtensionAPI) {
 		// when there is one.
 		baseModel = createBaseModelTracker({ warn });
 		baseModel.seed(ctx.model, ctx.model ? readLiveEffort(pi) : undefined);
+		// One policy and preference owner for this parent session. Later Track 9
+		// consumers must receive this same object rather than resolving again.
+		logicalRuntime = createLogicalRuntime({ trusted, projectConfig: config, warn, ownership: lifecycleRecoveryOwnership });
+		for (const error of logicalRuntime.criticalErrors) warn(`slate: logical model policy blocked — ${error}`);
+		const selected = ctx.model
+			? logicalRuntime.reverseMap({ provider: ctx.model.provider, model: ctx.model.id })
+			: { kind: "none" as const };
+		baseModel.adoptLogicalIdentity(selected.kind === "one" ? selected.logicalModel : undefined);
 		// Bound BY VALUE (CN20): this manager keeps THIS session's resolvers and
 		// tracker even if a later session_start replaces the module variables above — a
 		// manager orphaned by a session swap must not start answering with a newer
 		// session's frozen candidate list or a newer base model.
-		// Fresh key and fresh limiter per main session, created AFTER sanitization so
-		// the limiter runs on validated settings. The key is unique to this session, so
-		// two main sessions never share a cache routing group, and every worker of THIS
-		// session shares one key and one request budget.
+		// Fresh cache key and request budget for this parent session.
 		sessionScope = {
 			promptCacheKey: createSessionPromptCacheKey(),
 			requestThrottle: createRequestThrottle(requestThrottleSettings),
 		};
-		manager = new ThreadManager(store, config, resolveWorkerExtensionSet, resolveModelRouterResolution, baseModel, sessionScope);
+		manager = new ThreadManager(store, config, resolveWorkerExtensionSet, logicalRuntime, compressorRetryPolicy, sessionScope);
 		store.restore(ctx);
 	});
 
 	pi.on("session_shutdown", async () => {
+		// Pi creates a new extension factory for replacement sessions. Mark every
+		// callback from this factory obsolete, but keep each active lease until the
+		// operation that acquired it reaches its own completion path.
+		lifecycleRecoveryOwnership.retireLifecycle();
 		await manager.disposeAll();
 	});
 
@@ -313,11 +216,18 @@ export default function (pi: ExtensionAPI) {
 	// handoff → re-apply mode tools. registerSlateHandoff must therefore sit
 	// between the restore handler above and registerSlateMode below.
 	// getConfig reads the CURRENT `manager` (reassigned on session_start).
-	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel);
+	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel, () => logicalRuntime);
 
 	// Orchestrator model failover (turn_end/agent_settled/input) — not
 	// order-critical relative to the handlers above (different trigger events).
-	registerOrchestratorFailover(pi, () => manager.getConfig(), () => baseModel);
+	registerOrchestratorFailover(
+		pi,
+		() => manager.getConfig(),
+		() => baseModel,
+		() => logicalRuntime,
+		() => compressorRetryPolicy,
+		() => logicalSessionEpoch,
+	);
 
 	registerSlateMode(
 		pi,
@@ -325,18 +235,6 @@ export default function (pi: ExtensionAPI) {
 		handoff,
 		() => manager.getConfig(),
 		() => resolveWorkerExtensionSet(),
-		// The doctrine's routable-model table (mode.ts), read through a LIVE
-		// indirection for the same reason as the worker-extension set above: the
-		// resolution belongs to the CURRENT session, and session_start reassigns it.
-		// What that indirection yields is the very closure ThreadManager was handed
-		// by value at construction (CN20), so the doctrine and the dispatch guards
-		// consult ONE memoized resolution: the table the orchestrator reads is the
-		// list the dispatcher will actually enforce. A second resolution here would
-		// not merely duplicate work — it would re-run the registry/auth snapshot at a
-		// different moment and could describe a routable set that does not exist.
-		// Nothing is captured by value at REGISTRATION time either: this runs once,
-		// before the first session_start, when the module variable is still the off
-		// resolution.
-		() => resolveModelRouterResolution(),
+		() => logicalRuntime,
 	);
 }

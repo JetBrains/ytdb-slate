@@ -128,7 +128,8 @@ function fakeStream(model: Model<any>, context: Context, _options?: SimpleStream
 				name: "worker-reminder-canary",
 				type: "general",
 				task: WORKER_TASK,
-				model: `${PROVIDER}/${MODEL}`,
+				model: "worker-reminder-canary",
+				reason: "exercise the worker reminder path",
 				tools: ["read"],
 			},
 		}], "toolUse"));

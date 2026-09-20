@@ -71,7 +71,27 @@ ANALYSIS="$LAB/analysis.json"
 cat > "$PROJECT/.pi/slate.json" <<'JSON' || die "could not write scratch slate config"
 {
   "orchestratorModeDefault": true,
-  "episodeModel": "slate-worker-reminder-fake/worker-reminder-model",
+  "router": {
+    "models": {
+      "include": [],
+      "add": [{
+        "model": "worker-reminder-canary",
+        "capabilityRating": 50,
+        "effort": "off",
+        "costRating": 50,
+        "preferredProvider": "slate-worker-reminder-fake",
+        "providers": { "slate-worker-reminder-fake": "worker-reminder-model" },
+        "guidelines": [],
+        "cautions": []
+      }],
+      "replace": [{
+        "model": "claude-sonnet-5",
+        "preferredProvider": "slate-worker-reminder-fake",
+        "providers": { "slate-worker-reminder-fake": "worker-reminder-model" }
+      }]
+    },
+    "compressor": { "models": [{ "model": "claude-sonnet-5", "effort": "off" }] }
+  },
   "workerExtensions": [],
   "cacheKeyEnabled": false,
   "writing": { "check": false, "remind": false }
@@ -202,7 +222,8 @@ const result={
   episodeClean:typeof episodeFile==="string"&&episodeFile.startsWith(project+"/.pi/slate/episodes/")&&episodeText.length>0&&
     !containsReminder(episodeText),
   configBoundary:Array.isArray(config.workerExtensions)&&config.workerExtensions.length===0&&config.cacheKeyEnabled===false&&
-    config.episodeModel==="slate-worker-reminder-fake/worker-reminder-model"&&customEntries.length===1,
+    config.router?.models?.add?.[0]?.model==="worker-reminder-canary"&&config.router?.compressor?.models?.[0]?.model==="claude-sonnet-5"&&
+    !Object.hasOwn(config,"episodeModel")&&!Object.hasOwn(config,"modelFailover")&&customEntries.length===1,
   hostSuccess:hostCalls.length===2&&textOf(host.values.filter((entry)=>entry?.type==="message"&&entry.message?.role==="assistant").at(-1)?.message?.content)
     .includes("WORKER_REMINDER_DISPATCH_OK_51c824"),
   hostFile,workerFile,episodeFile,

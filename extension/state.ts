@@ -10,11 +10,9 @@
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-// TYPE-ONLY: the effort vocabulary is defined once, in the profile table
-// (model-profiles.ts, digest §V), and is identical to pi's own ThinkingLevel
-// union. The import is erased at load time. State restoration therefore keeps
-// no runtime dependency on model-profiles.ts (see the model-spec note below).
-import type { ThinkingLevel } from "./model-profiles.ts";
+import { isLogicalModelName, type LogicalModelEffort } from "./logical-model-definitions.ts";
+/** Compatibility name for Pi's complete thinking-level vocabulary. */
+export type ThinkingLevel = LogicalModelEffort;
 import type { ObservationRecord } from "./observations.ts";
 // TYPE-ONLY, like the effort vocabulary above: the request-throttle module owns
 // its own config shape and sanitizer, and this import is erased at load time.
@@ -24,17 +22,19 @@ import { isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./arti
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 
 /**
- * ADDITIVE TOLERANCE (the persistence model has no migration hook): the
- * snapshot below is UNVERSIONED, so a record restored from an older session
- * file simply lacks whatever fields were added since. Every field added to
- * ThreadRecord/EpisodeRecord is therefore OPTIONAL and its ABSENCE must read as
- * "unknown" — never as a default value that would be wrong. The routing fields
- * are the current example: an absent `baseModel` means "this thread predates
- * per-action routing", which the dispatch path answers by falling back to the
- * pre-router `model` field and then to the host default, not by inventing a base.
+ * Snapshot records are unversioned. Older snapshots may contain fields this
+ * version no longer uses. Adoption keeps every recognised current field and
+ * ignores obsolete router-base fields without dropping the record.
  */
 export const THREAD_TYPES = ["researcher", "reviewer", "adversarial", "implementer", "general"] as const;
 export type ThreadType = (typeof THREAD_TYPES)[number];
+
+/** Pi's complete thinking-level vocabulary, shared by dispatch and snapshot validation. */
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+export function isThinkingLevel(value: unknown): value is ThinkingLevel {
+	return typeof value === "string" && THINKING_LEVELS.includes(value as ThinkingLevel);
+}
 
 /** Intent-only labels for explaining the closed thread-type vocabulary. */
 export const THREAD_TYPE_GLOSSES = {
@@ -121,31 +121,9 @@ export interface ThreadRecord {
 	 * PRE-ROUTER pin: "provider/id" passed as `model` when the thread was created
 	 * WITH THE ROUTER OFF. It names what a NEW worker session opens on and never
 	 * instructs a live one to switch. With the router ON a `model` argument routes
-	 * ONE action and is deliberately NOT recorded here; see `baseModel`.
+	 * ONE action. It is retained only for compatibility with older snapshots.
 	 */
 	model?: string;
-	/**
-	 * The thread's DEFAULT plan model, canonical "provider/id" — the target when a
-	 * dispatch omits `model`. Written ONLY while the router is on (with the router off
-	 * nothing is seeded or persisted), and always one of the effective candidates:
-	 * a base that is absent or has fallen off the list is re-seeded on the next
-	 * dispatch (route.ts's THE ONE RULE). DISTINCT from whatever a single action was
-	 * routed to: a routed action never becomes the thread's base. A live failover may
-	 * temporarily override it without changing this record. Absent = unknown.
-	 */
-	baseModel?: string;
-	/**
-	 * The thread's DEFAULT effort level, derived for `baseModel` and valid only for
-	 * it: a dispatch whose model differs re-derives the level for the model it
-	 * routes to. Absent = unknown ⇒ the worker session's own opening level.
-	 *
-	 * The type is a claim about what slate WROTE, not a guarantee about what it reads
-	 * back: this record is restored from an unversioned, hand-editable snapshot, so the
-	 * reader (route.ts) re-validates the value against pi's vocabulary and treats
-	 * anything else as absent — the same discipline the model fields get from the
-	 * spec helpers below (BG21).
-	 */
-	baseEffort?: ThinkingLevel;
 	/** Effective built-in worker tool allowlist. Absent means an older thread whose tools are unknown. */
 	tools?: string[];
 	/** The action's only episode. Absent only before work starts or after an unbilled abort. */
@@ -169,9 +147,17 @@ export interface EpisodeRecord {
 	task: string;
 	status: "ok" | "failed";
 	file: string; // absolute path to episode .md
-	/** "provider/id" the action ACTUALLY ran on (post-failover). Absent = unknown. */
+	/** Sanitized caller rationale. Absent on episodes written before explicit dispatch metadata. */
+	reason?: string;
+	/** Provider-free logical action selection. Absent on episodes written before logical routing. */
+	logicalModel?: string;
+	/** The model requested for this action, before failover. */
+	requestedModel?: string;
+	/** The effort requested for this action, before failover or provider clamping. */
+	requestedEffort?: ThinkingLevel;
+	/** Latest physical pair accepted for local Pi handoff. Absent = no accepted request. */
 	model?: string;
-	/** Effort level the action ACTUALLY ran at (post-clamp). Absent = unknown. */
+	/** Post-clamp effort in the latest accepted local Pi handoff. Absent = none accepted. */
 	effort?: ThinkingLevel;
 	/** Set only when that effort level has NO capability measurement in the profile data. */
 	effortUnmeasured?: true;
@@ -294,6 +280,16 @@ export function splitModelSpec(value: unknown): { provider: string; id: string }
 	return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
 }
 
+const REASON_LINE_SEPARATORS = /[\p{Zl}\p{Zp}]/gu;
+const REASON_INVISIBLE_CHARS = /[\p{Cc}\p{Cf}\p{Cs}\u115f\u1160\u3164\ufe00-\ufe0f\uffa0]|[\u{e0100}-\u{e01ef}]/gu;
+
+/** Sanitize explicit-dispatch metadata without changing unrelated notification text. */
+export function sanitizeDispatchReason(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const clean = value.replace(REASON_LINE_SEPARATORS, " ").replace(REASON_INVISIBLE_CHARS, "").trim();
+	return clean !== "" && clean.length <= 200 ? clean : undefined;
+}
+
 /**
  * Why `value` is not a canonical spec, as a clause that survives display
  * sanitization (BG2). The RENDERING of an invisible or padded spec is identical
@@ -333,58 +329,6 @@ export function describeConfusables(value: string): string | undefined {
 	return `contains non-ASCII characters: ${codePointList(value, nonAscii)}`;
 }
 
-/**
- * Validate an optional single-spec config key — today `episodeModel` (RG20).
- *
- * Every other config key is checked eagerly at session_start; this one was not,
- * so a value the spec rules reject — a stray trailing newline, a zero-width
- * character pasted from a web page — made the episode compressor fall back to
- * its built-in default with NO diagnostic at all. The configured model simply
- * never ran, and the only visible symptom was a compression bill on a model the
- * user did not choose.
- *
- * THE FALLBACK IS UNCHANGED BY THIS SANITIZER: an unusable value still yields
- * undefined, and the consumer (episodes.ts's resolveCompressorModel) handles that
- * exactly as it handles an absent one. Only the diagnostic is new.
- *
- * What that consumer's chain IS, since a reader here is entitled to know what an
- * ignored value costs: the newest AVAILABLE Anthropic Sonnet, then — as a last
- * resort — the ORCHESTRATOR's base model (base-model.ts), each rung auth-checked,
- * and then the uncompressed fallback. It is NEVER the model the action itself was
- * routed to: a cheaply-routed action must not get a cheaply-compressed episode
- * (the compressor pin, D5 — see episodes.ts's module header for the reasoning).
- *
- * It lives HERE rather than in episodes.ts, which owns the feature, for two
- * reasons: the whole question it answers is the spec vocabulary defined in this
- * module (it holds no episode logic beyond one clause of prose), and episodes.ts
- * cannot be loaded by the pure verification harness — it imports
- * `@earendil-works/pi-ai`, a peer dependency that is not installed in this repo
- * — so a sanitizer placed there would be unverifiable by the only automated net
- * that covers this class of silent failure.
- *
- * Validation is shape-only on purpose: whether the registry knows the model is a
- * resolve-time question with its own fallback chain, and re-answering it here
- * would duplicate that logic against a registry that may not be refreshed yet.
- */
-export function sanitizeModelSpecKey(key: string, raw: unknown, warn: (msg: string) => void, fallback: string): string | undefined {
-	if (raw === undefined) return undefined; // absent ⇒ the built-in default, silently
-	if (!isModelSpec(raw)) {
-		let shown: string | undefined;
-		try {
-			shown = JSON.stringify(raw);
-		} catch {
-			shown = undefined; // cyclic / too deep to stringify
-		}
-		warn(`slate: ignoring ${key} ${sanitizeForNotify(shown ?? String(raw))} — ${describeSpecDefect(raw)}; ${fallback}`);
-		return undefined;
-	}
-	return raw;
-}
-
-/** RG20: `episodeModel`, with the compressor's own fallback named in the warning. */
-export function sanitizeEpisodeModel(raw: unknown, warn: (msg: string) => void): string | undefined {
-	return sanitizeModelSpecKey("episodeModel", raw, warn, "compressing with the built-in default model instead");
-}
 
 /** Validate the explicit prompt-cache-key feature switch. */
 export function sanitizeCacheKeyEnabled(raw: unknown, warn: (msg: string) => void): boolean {
@@ -516,8 +460,6 @@ export const ADOPTED_THREAD_FIELDS = {
 	status: true,
 	type: true,
 	model: true,
-	baseModel: true,
-	baseEffort: true,
 	tools: true,
 	episodeId: true,
 	outcomeReason: true,
@@ -531,6 +473,10 @@ export const ADOPTED_EPISODE_FIELDS = {
 	task: true,
 	status: true,
 	file: true,
+	reason: true,
+	logicalModel: true,
+	requestedModel: true,
+	requestedEffort: true,
 	model: true,
 	effort: true,
 	effortUnmeasured: true,
@@ -641,8 +587,6 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 		status: adoptedStatus,
 		type,
 		model: keep("model", t.model, str(t.model)),
-		baseModel: keep("baseModel", t.baseModel, str(t.baseModel)),
-		baseEffort: keep("baseEffort", t.baseEffort, str(t.baseEffort)) as ThinkingLevel | undefined,
 		// A `cacheKeyShard` from an older snapshot is NOT named here on purpose. It is
 		// obsolete routing metadata, so adoption drops it in silence while every other
 		// field of that thread — its history, its status and its episode — is kept.
@@ -698,6 +642,10 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 	};
 	const compressorUsage = keep("compressorUsage", e.compressorUsage, nestedUsage("compressorUsage", e.compressorUsage));
 	const compactionUsage = keep("compactionUsage", e.compactionUsage, nestedUsage("compactionUsage", e.compactionUsage));
+	const reason = keep("reason", e.reason, sanitizeDispatchReason(e.reason));
+	const logicalModel = keep("logicalModel", e.logicalModel, isLogicalModelName(e.logicalModel) ? e.logicalModel : undefined);
+	const requestedModel = keep("requestedModel", e.requestedModel, isModelSpec(e.requestedModel) ? e.requestedModel : undefined);
+	const requestedEffort = keep("requestedEffort", e.requestedEffort, isThinkingLevel(e.requestedEffort) ? e.requestedEffort : undefined);
 	const built: EpisodeRecord = {
 		id,
 		threadId,
@@ -706,6 +654,10 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 		// something ran, and inventing a failure would be worse than ignoring the value.
 		status: keep("status", e.status, e.status === "failed" || e.status === "ok" ? e.status : undefined) ?? "ok",
 		file,
+		...(reason !== undefined ? { reason } : {}),
+		...(logicalModel !== undefined ? { logicalModel } : {}),
+		...(requestedModel !== undefined ? { requestedModel } : {}),
+		...(requestedEffort !== undefined ? { requestedEffort } : {}),
 		...(keep("model", e.model, str(e.model)) !== undefined ? { model: str(e.model) } : {}),
 		...(keep("effort", e.effort, str(e.effort)) !== undefined ? { effort: str(e.effort) as ThinkingLevel } : {}),
 		...(keep("effortUnmeasured", e.effortUnmeasured, e.effortUnmeasured === true ? (true as const) : undefined) !== undefined
@@ -747,25 +699,8 @@ export interface ContextBudgetObject {
 	overrides?: ContextBudgetOverride[]; // first matching entry wins
 }
 
-/**
- * Action-level model router (D4/D53). `models` is the CLOSED list of models the
- * router may route an action to, in canonical "provider/id" form; empty or
- * absent means the router is OFF, so no candidate list or router-owned base,
- * window, billing or substitution mechanism applies. Per-action arguments and
- * pre-existing failover remain outside that feature-off statement.
- * `allowUnmeasuredEffort` (default TRUE) decides what the dispatch path does
- * with an effort level that is ladder-valid but has no capability evidence —
- * an evidence gap is advisory, not a prohibition. `showWarnings` (default
- * FALSE) reveals the router's MODEL DATA NOTES — the warnings a user cannot stop
- * by changing this file or their pi credentials. A configuration fault is always
- * shown, whatever this key says. Validated by sanitizeRouterConfig in
- * model-router.ts.
- */
-export interface RouterConfig {
-	models?: string[];
-	allowUnmeasuredEffort?: boolean;
-	showWarnings?: boolean;
-}
+/** Trusted logical-model policy configuration. The resolver validates its closed grammar. */
+export type LogicalRouterConfig = unknown;
 
 /** Optional raw workflow publishing and deferred-issue controls. */
 export interface WorkflowConfig {
@@ -826,7 +761,7 @@ export interface WritingConfig {
 }
 
 export interface SlateConfig {
-	episodeModel?: string; // "provider/id" for the episode compressor (D5)
+	episodeModel?: unknown; // legacy key, ignored visibly by logical policy resolution
 	workerTools?: string[];
 	workerExtensions?: string[]; // regex patterns selecting which of the HOST session's pi extensions worker threads may load (default [] = none); see worker-extensions.ts
 	cacheKeyEnabled?: boolean; // set false to disable prompt cache keys entirely (default true)
@@ -839,11 +774,11 @@ export interface SlateConfig {
 	orchestratorPromptDocs?: string[]; // role-guideline docs appended to the orchestrator prompt (cwd-relative paths, default none)
 	workerPromptDocs?: string[]; // role-guideline docs appended to worker system prompts (cwd-relative paths, default none)
 	workflow?: WorkflowConfig | SanitizedWorkflowConfig; // raw or session-sanitized workflow controls (both default false)
-	modelFailover?: Record<string, string>; // model→model failover map ("provider/id" → "provider/id"); empty/absent = feature off
+	modelFailover?: unknown; // legacy key, ignored visibly by logical policy resolution
 	preserveGlobalModelDefault?: boolean; // restore the user's GLOBAL pi model defaults (defaultProvider/defaultModel/defaultThinkingLevel) after a slate-initiated model switch — failover and handoff adoption (default true; only an explicit false disables it) — see model-default.ts
 	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
 	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
-	router?: RouterConfig; // action-level model router: the closed model list + the evidence-gap policy (default: off) — see model-router.ts
+	router?: LogicalRouterConfig; // trusted logical-model policy, validated as one blocking unit
 	writing?: WritingConfig; // always-active writing guidance and configurable reminder cadence — see writing.ts
 }
 

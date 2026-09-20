@@ -1,13 +1,15 @@
+const TEST_ROUTE = { model: "gpt-5.6-luna", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { BaseModelTracker } from "../extension/base-model.ts";
-import { ROUTER_OFF, type ModelRouterResolution } from "../extension/model-router.ts";
+import { createLogicalRuntime, type LogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore, type SlateConfig, type ThreadRecord } from "../extension/state.ts";
 import { ThreadManager } from "../extension/threads.ts";
+import { bindFakeWorkerRequest } from "./worker-request-contract-fixture.ts";
 import {
   EMPTY_WORKER_EXTENSION_SET,
   type WorkerExtensionSet,
@@ -22,61 +24,29 @@ interface ThreadManagerConstructorFields {
   store: SlateStore;
   semaphore: SemaphoreView;
   resolveExtensions: () => WorkerExtensionSet;
-  resolveRouter: () => ModelRouterResolution;
-  baseModelTracker?: BaseModelTracker;
+  logicalRuntime?: Readonly<LogicalRuntime>;
 }
 
 function constructorFields(manager: ThreadManager): ThreadManagerConstructorFields {
   return manager as unknown as ThreadManagerConstructorFields;
 }
 
-test("ThreadManager preserves explicit constructor arguments and resolver defaults", async () => {
+test("ThreadManager preserves explicit constructor arguments and extension defaults", async () => {
   const store = { orchestratorMode: true, paused: true } as unknown as SlateStore;
   const config: SlateConfig = { maxConcurrent: 2, workerTools: ["distinguishable-config"] };
-  const extensions = {
-    units: [],
-    paths: ["/distinguishable/extensions"],
-    toolNames: ["distinguishable-extension"],
-  } satisfies WorkerExtensionSet;
-  const router = { enabled: true, candidates: [] } as unknown as ModelRouterResolution;
-  const extensionResolver = () => extensions;
-  const routerResolver = () => router;
-  const baseModelTracker = { get: () => ({ model: "provider/distinguishable" }) } as unknown as BaseModelTracker;
-
-  const manager = new ThreadManager(
-    store,
-    config,
-    extensionResolver,
-    routerResolver,
-    baseModelTracker,
-  );
+  const extensions = { units: [], paths: ["/distinguishable/extensions"], toolNames: ["distinguishable-extension"] } satisfies WorkerExtensionSet;
+  const runtime = createLogicalRuntime({ trusted: true });
+  const manager = new ThreadManager(store, config, () => extensions, runtime);
   const fields = constructorFields(manager);
-
   assert.strictEqual(manager.getConfig(), config);
-  // TQ3: the injected store must still be the manager's own store. The paused
-  // dispatch below stops at task validation, which reads no store field, so
-  // that rejection alone no longer proves the store wiring.
   assert.strictEqual(fields.store, store);
-  // The injected store is paused AND in orchestrator mode, and that state must
-  // not stop a dispatch: the paused orchestrator saves project state through a
-  // worker. Task validation is the early stop that keeps this constructor test
-  // away from the worker path, and it reads no store field.
-  await assert.rejects(
-    manager.dispatch(
-      { task: "" },
-      {} as ExtensionContext,
-      undefined,
-    ),
-    /task must be a non-empty string/,
-  );
+  await assert.rejects(manager.dispatch({ ...TEST_ROUTE, task: "" }, {} as ExtensionContext, undefined), /task must be a non-empty string/);
   assert.strictEqual(fields.resolveExtensions(), extensions);
-  assert.strictEqual(fields.resolveRouter(), router);
-  assert.strictEqual(fields.baseModelTracker, baseModelTracker);
-
+  assert.strictEqual(fields.logicalRuntime, runtime);
   const defaults = constructorFields(new ThreadManager(store, config));
   assert.strictEqual(defaults.store, store);
   assert.strictEqual(defaults.resolveExtensions(), EMPTY_WORKER_EXTENSION_SET);
-  assert.strictEqual(defaults.resolveRouter(), ROUTER_OFF);
+  assert.equal(defaults.logicalRuntime, undefined);
 });
 
 // A missed wakeup must fail this test instead of hanging the test process. Keep
@@ -142,7 +112,11 @@ test("public dispatch enforces maxConcurrent across different threads", { timeou
   const root = mkdtempSync(join(tmpdir(), "slate-semaphore-dispatch-test."));
   try {
     const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-    const manager = new ThreadManager(store, { maxConcurrent: 1 });
+    const runtime = createLogicalRuntime({
+      trusted: true,
+      projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "test", providers: { test: "worker" } }] } } },
+    });
+    const manager = new ThreadManager(store, { maxConcurrent: 1 }, undefined, runtime);
     const live = (manager as unknown as { live: Map<string, unknown> }).live;
     let opens = 0;
     let active = 0;
@@ -156,17 +130,18 @@ test("public dispatch enforces maxConcurrent across different threads", { timeou
     const secondEntered = new Promise<void>((resolve) => { secondEnteredResolve = resolve; });
 
     (manager as unknown as {
-      openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: unknown; baseline: unknown }>;
-    }).openWorkerFor = async ({ thread }) => {
+      openWorkerFor(args: { thread: ThreadRecord; requestContract: import("../extension/worker.ts").WorkerRequestContract }): Promise<{ session: unknown; baseline: unknown }>;
+    }).openWorkerFor = async ({ thread, requestContract }) => {
       opens++;
       const messages: unknown[] = [];
       const subscribers = new Set<(event: unknown) => void>();
       const session = {
         messages,
-        model: undefined,
-        thinkingLevel: undefined,
+        model: { provider: "test", id: "worker" },
+        thinkingLevel: "max",
         sessionFile: undefined,
         getContextUsage: () => undefined,
+        setThinkingLevel(level: string) { session.thinkingLevel = level; },
         subscribe: (listener: (event: unknown) => void) => {
           subscribers.add(listener);
           return () => subscribers.delete(listener);
@@ -189,14 +164,18 @@ test("public dispatch enforces maxConcurrent across different threads", { timeou
           for (const listener of subscribers) listener({ type: "message_end", message });
         },
       };
+      bindFakeWorkerRequest(session, requestContract);
       live.set(thread.id, session);
       return { session, baseline: {} };
     };
 
-    const ctx = { cwd: root } as ExtensionContext;
-    const first = manager.dispatch({ name: "first", task: "first", type: "researcher" }, ctx, undefined);
+    const ctx = { cwd: root, modelRegistry: {
+      find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id, reasoning: true, thinkingLevelMap: { max: "max" } } : undefined,
+      getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-only" }),
+    } } as unknown as ExtensionContext;
+    const first = manager.dispatch({ ...TEST_ROUTE, name: "first", task: "first", type: "researcher" }, ctx, undefined);
     await firstEntered;
-    const second = manager.dispatch({ name: "second", task: "second", type: "general" }, ctx, undefined);
+    const second = manager.dispatch({ ...TEST_ROUTE, name: "second", task: "second", type: "general" }, ctx, undefined);
     const beforeRelease = await Promise.race([
       secondEntered.then(() => "entered" as const),
       new Promise<"turn">((resolve) => setImmediate(() => resolve("turn"))),

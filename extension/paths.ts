@@ -24,6 +24,5 @@ export const DESIGN_PRINCIPLES_DOC = join(DOCS_DIR, "design-principles.md");
 export const MODEL_ROUTING_DOC = join(DOCS_DIR, "model-routing.md");
 export const WRITING_GUIDANCE_DOC = join(DOCS_DIR, "writing-guidance.md");
 export const CONTEXT_BUDGET_DOC = join(DOCS_DIR, "context-budget.md");
-export const MODEL_FAILOVER_DOC = join(DOCS_DIR, "model-failover.md");
 export const BLAST_RADIUS_DOC = join(DOCS_DIR, "blast-radius.md");
 export const USER_NOTES_DOC = join(DOCS_DIR, "user-notes.md");

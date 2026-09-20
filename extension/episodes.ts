@@ -6,24 +6,11 @@
  * Failed actions without a worker response use a short fixed structure without compression.
  * Episodes are stored at <config dir>/slate/episodes/<id>.md and returned to the orchestrator.
  *
- * COMPRESSOR MODEL RESOLUTION (D5), in this order:
- *   1. the configured `episodeModel`;
- *   2. the newest available Anthropic Sonnet — the built-in default;
- *   3. the ORCHESTRATOR's base model (base-model.ts), as a LAST resort;
- *   4. nothing usable ⇒ the uncompressed fallback (raw final worker output).
- * Each rung additionally has to be USABLE — see resolveUsableAuth, the ONE
- * usability rule, shared with the attempt itself.
- *
- * NO RUNG DERIVES FROM THE ACTION'S ROUTE (CQ48 states this precisely: rung 2 or
- * 3 may COINCIDE with the model an action ran on, and that is fine — what cannot
- * happen is a rung being chosen BECAUSE the action ran there). Why that matters
- * with per-action routing (D4/D53): an action may legitimately be routed to a
- * cheap, small or non-reasoning model, and the episode is read by EVERY later
- * consumer of that thread — the orchestrator, the next action's prompt, a handoff
- * brief. Compressing with whatever the action happened to run on would let one
- * cheap route degrade the durable record, which is the opposite of what the
- * episode is for. The compressor is therefore a fixed, deliberately chosen model;
- * what the action ran on is recorded in the episode HEADER instead.
+ * Compressor candidates come only from the active logical policy. The original
+ * action admission fixes the remembered start and provider order. Pi retries one
+ * physical route. Slate moves only forward after proved exhaustion. It never
+ * wraps to an earlier compressor entry or adds a hidden fallback. Any terminal,
+ * cancelled, unknown, or exhausted compression keeps bounded completed output.
  *
  * THE HEADER IS PROMPT TEXT, not a parsed record: it is returned to the
  * orchestrator and re-enters later worker prompts verbatim (threads.ts's
@@ -34,8 +21,8 @@
  * line or a same-line field (SE1/SE2/SE3, CQ44).
  */
 
-import { complete } from "@earendil-works/pi-ai/compat";
-import type { ProviderHeaders } from "@earendil-works/pi-ai";
+import { isRetryableAssistantError, retryAssistantCall, type AssistantMessage, type ProviderHeaders } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
 	serializeConversation,
@@ -46,11 +33,10 @@ import {
 // joining them, which a local `${m.provider}/${m.id}` does not — a non-string
 // would stringify into something that renders like a model name.
 import { modelSpecOf } from "./base-model.ts";
-import { isFailoverCandidate, resolveMappedModel } from "./failover.ts";
-// TYPE-ONLY (erased at load time): the effort vocabulary is defined once, in the
-// profile table (the CQ2 rule), so recording an effort level here adds no runtime
-// dependency on it.
-import type { ThinkingLevel } from "./model-profiles.ts";
+import { CompressorRetryEvidence, executeRecovery, type CompressorRetryPolicy } from "./logical-model-adapters.ts";
+import type { LogicalRuntime } from "./logical-model-runtime.ts";
+import type { RecoveryAdmission, RecoveryCandidate } from "./logical-model-recovery.ts";
+import type { LogicalModelEffort as ThinkingLevel } from "./logical-model-definitions.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import type { ObservationRecord } from "./observations.ts";
 // SE2: the episode file carries the SAME unsafe write pattern the observation
@@ -58,12 +44,200 @@ import type { ObservationRecord } from "./observations.ts";
 // with recursive mkdir and writeFileSync — so both kinds now go through one safe
 // writer rather than shipping a new guard beside a known identical hole.
 import { writeSlateArtifact } from "./slate-files.ts";
-import { renderThreadId, splitModelSpec, type EpisodeUsage } from "./state.ts";
+import { renderThreadId, type EpisodeUsage } from "./state.ts";
 
 type CompressorModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
 
 const MAX_TRANSCRIPT_CHARS = 300_000;
+const COMPLETED_FACT_MAX_CHARS = 8_000;
+const COMPLETED_FACT_OMISSION_MARKER = "[older completed facts omitted or truncated, or completed fact content omitted]";
 const COMPRESSOR_MAX_TOKENS = 4096;
+
+export interface CompletedFact {
+	readonly kind: "assistant" | "tool";
+	readonly text: string;
+	readonly label: string;
+}
+
+export interface FrozenCompletedFacts {
+	readonly facts: readonly CompletedFact[];
+	readonly text: string;
+	readonly hasFacts: boolean;
+	readonly omitted: boolean;
+}
+
+export interface CompletedFactRecorder {
+	/** Record bounded finalized assistant content and return its bounded text view. */
+	addAssistant(content: unknown, stopReason: string | undefined): string;
+	addTool(toolName: string, result: unknown, isError: boolean): void;
+	freeze(): FrozenCompletedFacts;
+}
+
+interface BoundedText {
+	readonly text: string;
+	readonly hasText: boolean;
+	readonly hasNonWhitespace: boolean;
+	readonly omitted: boolean;
+}
+
+/**
+ * Read the newest text suffix without first joining the complete input. Text
+ * blocks are still scanned for the assistant nonblank rule, but at most the
+ * requested number of characters are copied.
+ */
+function boundedTextSuffix(value: unknown, maxChars: number, nonTextIsOmitted: boolean): BoundedText {
+	const limit = Math.max(0, maxChars);
+	if (typeof value === "string") {
+		const start = Math.max(0, value.length - limit);
+		return {
+			text: limit === 0 ? "" : value.slice(start),
+			hasText: true,
+			hasNonWhitespace: /\S/u.test(value),
+			omitted: start > 0,
+		};
+	}
+	if (!Array.isArray(value)) {
+		return {
+			text: "",
+			hasText: false,
+			hasNonWhitespace: false,
+			omitted: nonTextIsOmitted && value !== undefined && value !== null,
+		};
+	}
+
+	let remaining = limit;
+	let hasText = false;
+	let hasNonWhitespace = false;
+	let omitted = false;
+	let newerTextExists = false;
+	const suffixParts: string[] = [];
+	for (let index = value.length - 1; index >= 0; index--) {
+		const item = value[index];
+		const part = typeof item === "object" && item !== null
+			? item as { type?: unknown; text?: unknown }
+			: undefined;
+		if (part?.type !== "text" || typeof part.text !== "string") {
+			if (nonTextIsOmitted) omitted = true;
+			continue;
+		}
+		hasText = true;
+		if (!hasNonWhitespace && /\S/u.test(part.text)) hasNonWhitespace = true;
+		if (newerTextExists) {
+			if (remaining > 0) {
+				suffixParts.unshift("\n");
+				remaining--;
+			} else {
+				omitted = true;
+			}
+		}
+		if (part.text.length > remaining) omitted = true;
+		if (remaining > 0 && part.text.length > 0) {
+			const start = Math.max(0, part.text.length - remaining);
+			const suffix = part.text.slice(start);
+			suffixParts.unshift(suffix);
+			remaining -= suffix.length;
+		}
+		newerTextExists = true;
+	}
+	return { text: suffixParts.join(""), hasText, hasNonWhitespace, omitted };
+}
+
+/** A bounded text view for compatibility consumers outside the stable recorder. */
+export function boundedCompletedText(value: unknown, maxChars = COMPLETED_FACT_MAX_CHARS): string {
+	return boundedTextSuffix(value, maxChars, false).text;
+}
+
+interface BoundedFactCandidate {
+	readonly fact: CompletedFact;
+	readonly truncated: boolean;
+	readonly sourceText: string;
+}
+
+function boundedFact(
+	kind: CompletedFact["kind"],
+	label: string,
+	content: unknown,
+	requireNonblank: boolean,
+	nonTextIsOmitted: boolean,
+): BoundedFactCandidate | undefined {
+	const maxLabelChars = COMPLETED_FACT_MAX_CHARS - 3;
+	const boundedLabel = label.slice(0, maxLabelChars);
+	const prefix = `[${boundedLabel}]\n`;
+	const room = Math.max(0, COMPLETED_FACT_MAX_CHARS - prefix.length);
+	const bounded = boundedTextSuffix(content, room, nonTextIsOmitted);
+	if (requireNonblank && !bounded.hasNonWhitespace) return undefined;
+	return {
+		fact: Object.freeze({ kind, label: boundedLabel, text: `${prefix}${bounded.text}` }),
+		truncated: label.length > boundedLabel.length || bounded.omitted,
+		sourceText: bounded.text,
+	};
+}
+
+function toolResultContent(result: unknown): unknown {
+	if (typeof result === "object" && result !== null) {
+		return (result as { content?: unknown }).content;
+	}
+	return result;
+}
+
+/**
+ * Keep only the newest bounded completed facts. The recorder never retains a
+ * full tool result or a lifetime history outside the existing transcript cap.
+ */
+export function createCompletedFactRecorder(): CompletedFactRecorder {
+	let facts: CompletedFact[] = [];
+	let chars = 0;
+	let omitted = false;
+	let frozen: FrozenCompletedFacts | undefined;
+	const add = (candidate: { fact: CompletedFact; truncated: boolean } | undefined) => {
+		if (candidate === undefined || frozen !== undefined) return;
+		omitted ||= candidate.truncated;
+		chars += candidate.fact.text.length + (facts.length > 0 ? 2 : 0);
+		facts.push(candidate.fact);
+		while (chars > MAX_TRANSCRIPT_CHARS && facts.length > 1) {
+			const removed = facts.shift();
+			if (removed !== undefined) chars -= removed.text.length + 2;
+			omitted = true;
+		}
+		if (chars > MAX_TRANSCRIPT_CHARS) {
+			const only = facts[0]!;
+			facts = [Object.freeze({ ...only, text: only.text.slice(-MAX_TRANSCRIPT_CHARS) })];
+			chars = facts[0]!.text.length;
+			omitted = true;
+		}
+	};
+	return {
+		addAssistant(content, stopReason) {
+			const candidate = boundedFact("assistant", `final assistant text, stop reason=${stopReason ?? "unknown"}`, content, true, false);
+			add(candidate);
+			return candidate?.sourceText ?? "";
+		},
+		addTool(toolName, result, isError) {
+			add(boundedFact(
+				"tool",
+				`completed tool result: ${toolName}${isError ? " (error)" : ""}`,
+				toolResultContent(result),
+				false,
+				true,
+			));
+		},
+		freeze() {
+			if (frozen !== undefined) return frozen;
+			const retained = Object.freeze([...facts]);
+			let text = retained.map((fact) => fact.text).join("\n\n");
+			if (omitted) {
+				const marker = `${COMPLETED_FACT_OMISSION_MARKER}\n\n`;
+				while (text.length + marker.length > MAX_TRANSCRIPT_CHARS && facts.length > 1) {
+					facts.shift();
+					text = facts.map((fact) => fact.text).join("\n\n");
+				}
+				text = `${marker}${text.slice(-(MAX_TRANSCRIPT_CHARS - marker.length))}`;
+			}
+			frozen = Object.freeze({ facts: Object.freeze([...facts]), text, hasFacts: facts.length > 0, omitted });
+			return frozen;
+		},
+	};
+}
 
 /**
  * Per-field cap for the episode header (CQ44). The header is read on every
@@ -132,8 +306,7 @@ interface UsableAuth {
 
 /**
  * THE usability rule (BG42), and the ONLY place it is expressed: the registry's
- * own verdict, `auth.ok === true`. Both the rung filter and the attempt call this
- * one function and use exactly what it returns, so they cannot drift apart again.
+ * own verdict, `auth.ok === true`.
  *
  * It used to additionally demand a non-empty `apiKey`, and that was wrong: an API
  * key is not what makes a model runnable.
@@ -168,9 +341,8 @@ async function resolveUsableAuth(ctx: ExtensionContext, model: CompressorModel):
 }
 
 /**
- * Registry lookup that cannot take the compression down (CQ41). `find` reaches a
- * pi runtime this module does not own; a throw there must fall through to the next
- * rung, exactly as an unknown model does.
+ * Registry lookup that cannot take compression down (CQ41). `find` reaches a Pi
+ * runtime this module does not own. A throw becomes an unknown route outcome.
  */
 function findModel(ctx: ExtensionContext, spec: { provider: string; id: string }): CompressorModel | undefined {
 	try {
@@ -181,170 +353,17 @@ function findModel(ctx: ExtensionContext, spec: { provider: string; id: string }
 }
 
 /**
- * Report a compressor-selection problem ONCE per process, through the host channel
- * (CQ40).
+ * The header's `ran:` segment: the latest physical pair accepted for local Pi
+ * handoff, plus the unmeasured-effort marker — or undefined, which the header
+ * omits entirely. Absence means Slate has no accepted pair to display. The value
+ * is local handoff attribution and never remote execution or billing proof.
  *
- * The silent fall-through this closes is the exact bug RG20 was written to
- * eliminate one layer up: `episodeModel` is validated at session_start, so a
- * WELL-FORMED value gets past that check and then — if the registry does not know
- * it, or its provider is not configured — was dropped here with no diagnostic at
- * all. The only visible symptom was a compression bill on a model the user did not
- * choose, or no compression at all.
- *
- * `once` is per condition per PROCESS, not per episode: a session compresses many
- * episodes and the answer cannot change between them without a config change, so
- * repeating it would be noise. Never throws — ctx.hasUI/ctx.ui throw on a stale
- * context (model-default.ts documents the same hazard), and a diagnostic must not
- * turn a written episode into a failed dispatch.
- */
-const reported = new Set<string>();
-function reportOnce(ctx: ExtensionContext, key: string, message: string): void {
-	if (reported.has(key)) return;
-	reported.add(key);
-	try {
-		if (ctx.hasUI) ctx.ui.notify(message, "warning");
-		else console.warn(message);
-	} catch {
-		/* stale extension context — no diagnostic is worth failing an episode over */
-	}
-}
-
-/**
- * Compare two model ids NEWEST-FIRST, comparing version components NUMERICALLY
- * (BG40).
- *
- * A plain string sort is wrong for versioned ids the moment a component reaches
- * two digits: "claude-sonnet-4-9" sorts ABOVE "claude-sonnet-4-10", so the newest
- * Sonnet rung would silently start choosing an older model. This repo already fixed
- * the same hazard class once, in the profile table's date handling.
- *
- * The rule: split each id into runs of digits and runs of non-digits, then compare
- * pairwise — digit runs as numbers, everything else as text. A longer id whose
- * prefix matches (a dated snapshot such as "...-4-5-20250929" against "...-4-5")
- * sorts as the more specific, hence newer, of the two; either choice is the same
- * generation, and the ordering only has to be total and stable.
- */
-function compareModelIdsNewestFirst(a: string, b: string): number {
-	const chunks = (id: string) => id.match(/\d+|\D+/g) ?? [];
-	const left = chunks(a);
-	const right = chunks(b);
-	for (let i = 0; i < Math.max(left.length, right.length); i++) {
-		const x = left[i];
-		const y = right[i];
-		if (x === undefined) return 1; // b is more specific ⇒ newer ⇒ first
-		if (y === undefined) return -1;
-		const nx = /^\d+$/.test(x) ? Number(x) : undefined;
-		const ny = /^\d+$/.test(y) ? Number(y) : undefined;
-		if (nx !== undefined && ny !== undefined) {
-			if (nx !== ny) return ny - nx; // DESCENDING: higher number first
-			continue;
-		}
-		if (x !== y) return y.localeCompare(x); // descending text
-	}
-	return 0;
-}
-
-/**
- * THE compressor pin (D5). The order is stated in the module header and repeated
- * here as executable comments, because the ONE thing this function must never do
- * is derive a rung from the model the ACTION was routed to.
- *
- * Returns the model AND the auth that was resolved for it, so the attempt runs on
- * exactly what the rung was accepted for — one resolution, one verdict.
- */
-async function resolveCompressorModel(
-	ctx: ExtensionContext,
-	configured: string | undefined,
-	orchestratorBaseModel: string | undefined,
-): Promise<{ model: CompressorModel; auth: UsableAuth } | undefined> {
-	// RUNG 1 — the configured `episodeModel`: an explicit choice outranks every
-	// default. Shared spec parsing (CQ2); a malformed value falls through to rung 2,
-	// and sanitizeEpisodeModel reports it at session_start (RG20).
-	// A WELL-FORMED value that cannot be used is reported HERE (CQ40): it passed the
-	// session_start check, so this is the only place that can say so, and staying
-	// silent would re-create exactly the bug RG20 closed one layer up.
-	const spec = splitModelSpec(configured);
-	if (spec) {
-		const model = findModel(ctx, spec);
-		if (!model) {
-			reportOnce(
-				ctx,
-				`unknown:${configured}`,
-				`slate: the configured episodeModel ${sanitizeForNotify(String(configured), 80)} is not in pi's model registry — ` +
-					"compressing episodes with the built-in default model instead",
-			);
-		} else {
-			const auth = await resolveUsableAuth(ctx, model);
-			if (auth) return { model, auth };
-			reportOnce(
-				ctx,
-				`auth:${configured}`,
-				`slate: the configured episodeModel ${sanitizeForNotify(String(configured), 80)} has no usable credentials ` +
-					`(pi reports provider "${sanitizeForNotify(model.provider, 40)}" as not configured) — compressing episodes with ` +
-					"the built-in default model instead",
-			);
-		}
-	}
-	// RUNG 2 — the BUILT-IN DEFAULT, previously implicit: the newest available
-	// Anthropic Sonnet. Documented rather than merely coded, because it is a
-	// judgement call the rest of the pin depends on: summarising a long transcript
-	// into a fixed schema is exactly a mid-tier model's job, Sonnet's context window
-	// swallows the 300k-char transcript cap below, and pinning ONE family keeps
-	// episode quality stable across actions routed all over the ladder. "Newest" is
-	// decided by comparing version components NUMERICALLY (compareModelIdsNewestFirst,
-	// BG40) rather than by string order; it is still a heuristic over registry data,
-	// which is why an explicit `episodeModel` (rung 1) exists.
-	// The loop walks candidates in that order and takes the first USABLE one. Auth
-	// resolves per PROVIDER (the registry's own `hasConfiguredAuth(model.provider)`
-	// and `getAuth(model)` are provider-keyed), so in practice every Anthropic
-	// candidate shares one verdict and the loop's second iteration is unreachable
-	// today (CQ42 — the old comment claimed otherwise). It is kept because it costs
-	// nothing, it is what makes the rung correct if pi ever resolves auth per model,
-	// and it also skips a candidate whose own resolution throws.
-	try {
-		const available = await ctx.modelRegistry.getAvailable();
-		const sonnets = available
-			.filter((m: { provider: string; id: string }) => m.provider === "anthropic" && m.id.includes("sonnet"))
-			.sort((a: { id: string }, b: { id: string }) => compareModelIdsNewestFirst(a.id, b.id));
-		for (const sonnet of sonnets) {
-			const auth = await resolveUsableAuth(ctx, sonnet);
-			if (auth) return { model: sonnet, auth };
-		}
-	} catch {
-		/* fall through */
-	}
-	// RUNG 3 — LAST RESORT: the ORCHESTRATOR's base model (base-model.ts), i.e. the
-	// model the orchestrator would be running had slate never failed over. It is the
-	// one model in play that is neither a per-action route nor a failover fallback,
-	// so it is the closest thing to a deliberate choice left once rungs 1 and 2 are
-	// gone (an Anthropic-less setup, or one whose Sonnet credentials went away).
-	// Absent = unknown (no tracker, or a session with no resolvable model), which
-	// simply means this rung does not apply.
-	const base = splitModelSpec(orchestratorBaseModel);
-	if (base) {
-		const model = findModel(ctx, base);
-		if (model) {
-			const auth = await resolveUsableAuth(ctx, model);
-			if (auth) return { model, auth };
-		}
-	}
-	// The ACTION's own model is deliberately NOT a rung here (module header).
-	return undefined;
-}
-
-/**
- * The header's `ran:` segment: the model and effort level the action ACTUALLY ran
- * on, plus the unmeasured-effort marker — or undefined, which the header then
- * omits entirely (absence reads as "unknown", the ThreadRecord/EpisodeRecord
- * contract, never as a default that would be wrong).
- *
- * WHAT `ran:` CLAIMS, exactly (CQ47): the model the worker session ENDED the
- * action on. A mid-action model failover means an earlier turn ran elsewhere and
- * this names the model that finished; there is no second field, because the caller
- * reads one live session, not a per-turn history. And when the action produced no
- * assistant message at all, nothing ran on anything — the caller passes
- * `anyOutput: false` and the segment is omitted rather than asserting a model an
- * action never reached.
+ * WHAT `ran:` CLAIMS, exactly (CQ47): the latest physical pair accepted at the
+ * worker's local Pi request boundary. A mid-action recovery acceptance replaces
+ * an earlier pair. A blocked or pending request does not. The episode keeps one
+ * final pair rather than a per-request ledger. When the action produced no
+ * assistant message, `anyOutput: false` keeps the prose header absent even if the
+ * structured episode records a locally accepted request.
  *
  * The spec is canonicalised by the SHARED helper (modelSpecOf, CQ43), which also
  * rejects whitespace and invisible characters; the level must be a bare word. A
@@ -392,16 +411,17 @@ export interface CompressEpisodeOptions {
 	task: string;
 	status: "ok" | "failed";
 	diagnostics?: string; // failure diagnostics (D6)
-	messages: unknown[]; // AgentMessages produced during this action
+	messages: unknown[]; // AgentMessages produced during this action, used for observation compatibility
+	/** Stable bounded facts captured before mutable Pi history can be rewritten. */
+	completedFacts?: FrozenCompletedFacts;
 	/** Durable final-message facts. Transient capture fields are not rendered. */
 	observations: ObservationRecord;
 	/**
-	 * The model the action ACTUALLY ran on — the live worker session's own model,
-	 * so a failover switch is reflected. Recorded in the episode HEADER and NEVER
-	 * used to pick the compressor (module header).
+	 * Latest physical model accepted for local Pi handoff. A failover request can
+	 * replace it only after crossing the same request boundary. Header only.
 	 */
 	workerModel?: { provider: string; id: string };
-	/** The effort level the action ACTUALLY ran at (post-clamp). Header only. Absent = unknown. */
+	/** Post-clamp effort of the latest accepted local Pi handoff. Header only. */
 	workerEffort?: ThinkingLevel;
 	/** True when that level has NO capability measurement in the profile data (header marker only). */
 	workerEffortUnmeasured?: boolean;
@@ -420,14 +440,14 @@ export interface CompressEpisodeOptions {
 	 * caller's boolean is trusted, which is the older contract.
 	 */
 	workerEffortJudgedFor?: string;
-	configuredModel?: string;
-	/**
-	 * The ORCHESTRATOR's base model as "provider/id" (base-model.ts's tracker —
-	 * `current()`), used as the compressor's LAST resort. Absent = unknown, which
-	 * only means that rung does not apply.
-	 */
-	orchestratorBaseModel?: string;
-	modelFailover?: Record<string, string>; // "provider/id" → "provider/id" retry map (single hop, one retry)
+	/** Bounded completed text captured before host rewrites can remove the message. */
+	completedText?: string;
+	/** The one parent-session runtime shared with dispatch. */
+	logicalRuntime: Readonly<LogicalRuntime>;
+	/** The action admission captured before worker execution. */
+	admission: RecoveryAdmission;
+	/** Pi's effective retry settings captured read-only at session start. */
+	retryPolicy?: CompressorRetryPolicy;
 	signal?: AbortSignal;
 }
 
@@ -456,11 +476,6 @@ export class EpisodePersistenceError extends Error {
 	}
 }
 
-type CompressionAttempt =
-	| { kind: "ok"; body: string; costUsd?: number; usage?: EpisodeUsage }
-	| { kind: "failed"; costUsd?: number; retriable: boolean; usage?: EpisodeUsage }
-	| { kind: "aborted"; costUsd?: number; usage?: EpisodeUsage };
-
 function reportedUsage(usage: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } | undefined): EpisodeUsage | undefined {
 	if (usage === undefined) return undefined;
 	const reported: EpisodeUsage = {
@@ -484,72 +499,48 @@ function addReportedCost(total: number | undefined, cost: number | undefined): n
 	return cost === undefined ? total : (total ?? 0) + cost;
 }
 
-/**
- * ONE compression attempt on ONE model. Failure classification (AF7/AF11):
- * - stopReason "error" → failed; treated as failed even when partial text came
- *   back (a half-written episode is worse than the uncompressed fallback);
- *   retriable unless it is a context overflow — a mapped model cannot shrink
- *   the prompt (isFailoverCandidate).
- * - stopReason "aborted" (or a throw with the signal already aborted) →
- *   aborted; NEVER retried — cancellation must not spend a mapped attempt.
- * - missing auth or a thrown preflight error → failed & retriable (state-based
- *   classification, AF10: the mapped model may be authed when this one isn't).
- * - empty text on a clean stop → failed, not retriable (nothing suggests the
- *   mapped model would answer differently).
- */
+/** Run one physical candidate through Pi-owned retry and raw evidence capture. */
 async function attemptCompression(
 	ctx: ExtensionContext,
-	model: CompressorModel,
+	candidate: RecoveryCandidate,
 	promptText: string,
+	policy: CompressorRetryPolicy | undefined,
 	signal: AbortSignal | undefined,
-): Promise<CompressionAttempt> {
-	let costUsd: number | undefined;
-	let usage: EpisodeUsage | undefined;
-	const measured = <T extends object>(value: T): T & { usage?: EpisodeUsage } =>
-		usage === undefined ? value : { ...value, usage };
+	onMeasured: (response: unknown) => void,
+) {
+	const model = findModel(ctx, { provider: candidate.provider, id: candidate.model });
+	if (!model) return { kind: "unknown" as const, reason: "The validated compressor route disappeared from Pi's registry." };
+	const auth = await resolveUsableAuth(ctx, model);
+	if (!auth) return { kind: "unknown" as const, reason: "The validated compressor credentials disappeared before execution." };
+	const evidence = new CompressorRetryEvidence();
+	let final: unknown;
+	let threw = false;
 	try {
-		// THE SAME rule and the SAME resolution the rung filter used (BG42): one
-		// function, so "usable enough to select" and "usable enough to call" cannot
-		// diverge. `apiKey` may legitimately be absent — pi-ai's provider modules accept
-		// an auth header instead, or authenticate from the environment (bedrock, vertex).
-		const auth = await resolveUsableAuth(ctx, model);
-		if (!auth) return measured({ kind: "failed" as const, costUsd, retriable: true });
-		const response = await complete(
-			model,
-			{
-				messages: [
-					{
-						role: "user" as const,
-						content: [{ type: "text" as const, text: promptText }],
-						timestamp: Date.now(),
-					},
-				],
+		final = await retryAssistantCall(
+			async () => {
+				const response = await completeSimple(model, {
+					messages: [{ role: "user", content: [{ type: "text", text: promptText }], timestamp: Date.now() }],
+				}, {
+					...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }), headers: auth.headers, env: auth.env,
+					maxTokens: COMPRESSOR_MAX_TOKENS, ...(candidate.effort === "off" ? {} : { reasoning: candidate.effort }), signal,
+				});
+				onMeasured(response);
+				return evidence.response(response);
 			},
-			{
-				...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
-				headers: auth.headers,
-				env: auth.env,
-				maxTokens: COMPRESSOR_MAX_TOKENS,
-				signal,
-			},
+			policy,
+			signal,
+			evidence.callbacks,
 		);
-		costUsd = response.usage?.cost?.total;
-		usage = reportedUsage(response.usage);
-		if (response.stopReason === "aborted") return measured({ kind: "aborted" as const, costUsd });
-		if (response.stopReason === "error") {
-			return measured({ kind: "failed" as const, costUsd, retriable: isFailoverCandidate(response, model.contextWindow) });
-		}
-		const text = response.content
-			.filter((c: { type: string }): c is { type: "text"; text: string } => c.type === "text")
-			.map((c: { text: string }) => c.text)
-			.join("\n")
-			.trim();
-		if (!text) return measured({ kind: "failed" as const, costUsd, retriable: false });
-		return measured({ kind: "ok" as const, body: text, costUsd });
 	} catch {
-		if (signal?.aborted) return measured({ kind: "aborted" as const, costUsd });
-		return measured({ kind: "failed" as const, costUsd, retriable: true });
+		threw = true;
 	}
+	let retryable = false;
+	try {
+		retryable = typeof final === "object" && final !== null && isRetryableAssistantError(final as AssistantMessage);
+	} catch {
+		retryable = false;
+	}
+	return evidence.classify({ final, policy, actualEffort: candidate.effort, aborted: signal?.aborted === true, threw, retryable });
 }
 
 function lastAssistantText(messages: unknown[]): string {
@@ -617,62 +608,56 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	let compressor = "(uncompressed fallback)";
 	let costUsd: number | undefined;
 	const compressorUsage: EpisodeUsage = {};
-
-	try {
-		const selected = await resolveCompressorModel(ctx, opts.configuredModel, opts.orchestratorBaseModel);
-		const model = selected?.model;
-		if (model) {
-			let transcript = serializeConversation(convertToLlm(opts.messages as never));
-			if (transcript.length > MAX_TRANSCRIPT_CHARS) {
-				transcript = `[transcript head truncated]\n...${transcript.slice(-MAX_TRANSCRIPT_CHARS)}`;
-			}
-			if (opts.diagnostics) {
-				transcript += `\n\n[dispatch diagnostics: ${opts.diagnostics}]`;
-			}
-			const promptText = compressorPrompt(opts.task, transcript);
-
-			const first = await attemptCompression(ctx, model, promptText, opts.signal);
-			// Cost and usage accumulate across attempts because a failed first call may still bill.
-			costUsd = addReportedCost(costUsd, first.costUsd);
-			addReportedUsage(compressorUsage, first.usage);
-			if (first.kind === "ok") {
-				body = first.body;
-				compressor = `${model.provider}/${model.id}`;
-			} else if (first.kind === "failed" && first.retriable && !opts.signal?.aborted) {
-				// Model failover — single hop, at most ONCE: retry iff the mapped
-				// model resolves, is authed, and differs from the attempt-1 model.
-				const mapped = await resolveMappedModel(ctx, opts.modelFailover ?? {}, model.provider, model.id);
-				// CQ4, now trivially satisfied: resolveMappedModel and this module apply the
-				// SAME usability rule (auth.ok), so the pre-check is the same question the
-				// attempt will ask — it exists only to avoid spending a retry slot on a model
-				// whose provider is not configured at all.
-				const mappedAuth = mapped ? await resolveUsableAuth(ctx, mapped) : undefined;
-				if (mapped && mappedAuth && (mapped.provider !== model.provider || mapped.id !== model.id)) {
-					const second = await attemptCompression(ctx, mapped, promptText, opts.signal);
-					costUsd = addReportedCost(costUsd, second.costUsd);
-					addReportedUsage(compressorUsage, second.usage);
-					if (second.kind === "ok") {
-						body = second.body;
-						// The header's compressor line shows whichever model actually
-						// produced the episode — that is where failover stays visible.
-						compressor = `${mapped.provider}/${mapped.id}`;
-					}
-				}
+	let boundedCompleted = opts.completedFacts?.text;
+	if (boundedCompleted === undefined) {
+		boundedCompleted = opts.completedText;
+		if (boundedCompleted === undefined) {
+			try {
+				boundedCompleted = lastAssistantText(opts.messages);
+			} catch {
+				boundedCompleted = "(completed output could not be prepared)";
 			}
 		}
-	} catch {
-		/* fall back below */
+		boundedCompleted = boundedCompleted.slice(0, COMPLETED_FACT_MAX_CHARS);
+	}
+	let failureNotice = "Compression failed. The bounded completed result was retained.";
+	const measured = (response: unknown) => {
+		const usage = (response as { usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: { total?: number } } } | null)?.usage;
+		costUsd = addReportedCost(costUsd, usage?.cost?.total);
+		addReportedUsage(compressorUsage, reportedUsage(usage));
+	};
+	try {
+		let transcript = opts.completedFacts?.text;
+		if (transcript === undefined) {
+			transcript = serializeConversation(convertToLlm(opts.messages as never));
+			if (transcript.length > MAX_TRANSCRIPT_CHARS) transcript = `[transcript head truncated]\n...${transcript.slice(-MAX_TRANSCRIPT_CHARS)}`;
+		}
+		if (opts.diagnostics) transcript += `\n\n[dispatch diagnostics: ${opts.diagnostics}]`;
+		const promptText = compressorPrompt(opts.task, transcript);
+		const recovery = await executeRecovery({
+			candidates: opts.logicalRuntime.planCompressor(opts.admission.snapshot),
+			retainedToolResults: [],
+			validateSwitch: (candidate) => opts.logicalRuntime.validateRoute(ctx, candidate),
+			attempt: ({ candidate }) => attemptCompression(ctx, candidate, promptText, opts.retryPolicy, opts.signal, measured),
+		});
+		if (recovery.kind === "success") {
+			body = recovery.value;
+			compressor = `${recovery.candidate.provider}/${recovery.candidate.model}`;
+			opts.logicalRuntime.publishProvider(opts.admission, recovery.candidate.logicalModel, recovery.candidate.provider);
+			if (recovery.candidate.compressorIndex !== undefined) opts.logicalRuntime.publishCompressor(opts.admission, recovery.candidate.compressorIndex);
+		} else if (recovery.kind === "cancelled") {
+			failureNotice = "Compression was cancelled. The bounded completed result was retained.";
+		} else if (recovery.kind === "unknown" || recovery.kind === "terminal-fault") {
+			failureNotice = `${recovery.reason} The bounded completed result was retained.`;
+		}
+	} catch (error) {
+		failureNotice = `Compression failed: ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 200)}. The bounded completed result was retained.`;
 	}
 
 	if (!body) {
 		body = [
-			"## Intent",
-			opts.task,
-			"",
-			"## Key Findings",
-			"(episode compression unavailable — raw final worker output follows)",
-			"",
-			lastAssistantText(opts.messages).slice(0, 8000),
+			"## Intent", opts.task, "", "## Key Findings",
+			`(${failureNotice} Raw final worker output follows.)`, "", boundedCompleted,
 			...(opts.diagnostics ? ["", "## Open Issues", opts.diagnostics] : []),
 		].join("\n");
 	}
@@ -687,12 +672,20 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	// reading as a mysteriously weak result. The `compressor:` field beside it keeps
 	// its own meaning untouched: that one is the model that wrote the episode BODY
 	// (post-failover), a different fact from the model the action ran on.
+	let anyOutput = opts.completedFacts?.hasFacts ?? (opts.completedText === undefined ? undefined : opts.completedText.trim() !== "");
+	if (anyOutput === undefined) {
+		try {
+			anyOutput = hasAssistantMessage(opts.messages);
+		} catch {
+			anyOutput = false;
+		}
+	}
 	const ranOn = describeActionRun({
 		model: opts.workerModel,
 		effort: opts.workerEffort,
 		unmeasured: opts.workerEffortUnmeasured,
 		judgedFor: opts.workerEffortJudgedFor,
-		anyOutput: hasAssistantMessage(opts.messages),
+		anyOutput,
 	});
 	// EVERY interpolated value goes through headerField (module header): ids and the
 	// thread name from state, the task and the diagnostics from a provider or a tool

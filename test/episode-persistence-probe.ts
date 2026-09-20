@@ -1,9 +1,13 @@
+const TEST_ROUTE = { model: "fixture", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import { existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
 import { ThreadManager, type DispatchProgress } from "../extension/threads.ts";
+import { bindFakeWorkerRequest } from "./worker-request-contract-fixture.ts";
 
 const root = process.env.SLATE_PROBE_ROOT;
 const observationMode = process.env.SLATE_OBSERVATION_MODE;
@@ -42,15 +46,20 @@ store.save = () => {
   originalSave();
 };
 
-const manager = new ThreadManager(store, { episodeModel: "anthropic/claude-sonnet-5" });
+const logicalRuntime = createLogicalRuntime({ trusted: true, projectConfig: { router: {
+  models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }], replace: [{ model: "claude-sonnet-5", preferredProvider: "anthropic", providers: { anthropic: "claude-sonnet-5" } }] },
+  compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] },
+} } });
+const manager = new ThreadManager(store, {}, undefined, Object.freeze({ ...logicalRuntime, validateRoute: async () => ({ ok: true } as const) }), { enabled: false, maxRetries: 0, baseDelayMs: 0 });
 const messages: unknown[] = [];
 const subscribers = new Set<(event: unknown) => void>();
 const session = {
   messages,
-  model: undefined,
-  thinkingLevel: undefined,
+  model: { provider: "test", id: "worker" },
+  thinkingLevel: "off",
   sessionFile,
   getContextUsage: () => undefined,
+  setThinkingLevel(level: string) { session.thinkingLevel = level; },
   subscribe: (listener: (event: unknown) => void) => {
     subscribers.add(listener);
     return () => subscribers.delete(listener);
@@ -64,19 +73,26 @@ const session = {
     const message = {
       role: "assistant",
       stopReason: "error",
-      errorMessage: "review action failed",
+      errorMessage: "service unavailable",
       content: [{ type: "text", text: "Partial findings." }],
       usage: { cost: { total: 1.25 } },
     };
     messages.push(message);
-    for (const listener of subscribers) listener({ type: "message_end", message });
+    for (const listener of subscribers) {
+      listener({ type: "agent_end", willRetry: true });
+      listener({ type: "auto_retry_start", attempt: 1, maxAttempts: 1, errorMessage: "service unavailable" });
+      listener({ type: "agent_end", willRetry: false });
+      listener({ type: "auto_retry_end", success: false, attempt: 1 });
+      listener({ type: "message_end", message });
+    }
   },
 };
 const view = manager as unknown as {
   live: Map<string, unknown>;
-  openWorkerFor(): Promise<{ session: unknown; baseline: unknown }>;
+  openWorkerFor(args: { requestContract: import("../extension/worker.ts").WorkerRequestContract }): Promise<{ session: unknown; baseline: unknown }>;
 };
-view.openWorkerFor = async () => {
+view.openWorkerFor = async ({ requestContract }) => {
+  bindFakeWorkerRequest(session, requestContract);
   view.live.set("t1", session);
   return { session, baseline: {} };
 };
@@ -93,7 +109,8 @@ const ctx = {
   cwd: root,
   hasUI: false,
   modelRegistry: {
-    find: (provider: string, id: string) => provider === model.provider && id === model.id ? model : undefined,
+    find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : provider === model.provider && id === model.id ? model : undefined,
+    hasConfiguredAuth: () => true,
     getAvailable: async () => [model],
     getApiKeyAndHeaders: async () => ({ ok: true }),
   },
@@ -101,7 +118,7 @@ const ctx = {
 
 await assert.rejects(
   manager.dispatch(
-    { name: "review", type: "reviewer", task: "review" },
+    { ...TEST_ROUTE, name: "review", type: "reviewer", task: "review" },
     ctx,
     undefined,
     (update) => progress.push(update),
@@ -109,9 +126,9 @@ await assert.rejects(
   (error: unknown) => {
     assert.equal(
       String(error),
-      "Error: Thread t1 failed: review action failed. Slate could not store episode t1.e1: slate refused an artifact file because that path is not a regular file.",
+      "Error: Thread t1 failed: all permitted logical recovery routes were exhausted. Slate could not store episode t1.e1: slate refused an artifact file because that path is not a regular file.",
     );
-    assert.match(String(error), /review action failed/);
+    assert.match(String(error), /all permitted logical recovery routes were exhausted/);
     assert.match(String(error), /not a regular file/);
     assert.equal(String(error).includes(root), false);
     return true;
@@ -132,6 +149,7 @@ assert.equal(
   observationRetained
     ? "the observation remains after episode persistence fails"
     : "the external-removal fixture removes the observation",
+
 );
 const observationsParent = lstatSync(join(root, ".pi", "slate", "observations"));
 assert.equal(observationsParent.isDirectory(), observationRetained, "the selected observation fixture has the expected final shape");

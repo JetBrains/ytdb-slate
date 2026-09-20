@@ -32,36 +32,75 @@ after(() => {
 
 const OPENAI_MODEL = { api: "openai-responses", provider: "openai", id: "entry-model" };
 
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve(value: T): void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 type WorkerStub = ReturnType<typeof workerSessionStub>;
 
-function workerSessionStub() {
+function workerSessionStub(initialModel?: unknown) {
   const listeners = new Set<(event: Record<string, unknown>) => void>();
   const messages: unknown[] = [];
-  return {
+  const requestStarted = deferred<void>();
+  const requestFailed = deferred<unknown>();
+  const promptRelease = deferred<void>();
+  const requestAbort = new AbortController();
+  let delegatedRequests = 0;
+  const worker = {
     messages,
+    get delegatedRequests() { return delegatedRequests; },
+    requestStarted: requestStarted.promise,
+    requestFailed: requestFailed.promise,
+    finishPrompt() { promptRelease.resolve(); },
     agent: {
       onPayload: async (payload: unknown, _model?: unknown) => payload,
-      streamFunction: async (..._args: unknown[]) => ({ delegated: true }),
+      streamFunction: async (..._args: unknown[]) => {
+        delegatedRequests += 1;
+        return { delegated: true };
+      },
     },
-    model: undefined,
-    thinkingLevel: "medium",
+    model: initialModel,
+    thinkingLevel: "off",
     sessionFile: undefined,
+    modelRuntime: { getRegisteredProviderIds() { return []; } },
     subscribe(listener: (event: Record<string, unknown>) => void) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
     async prompt(text: string) {
+      requestStarted.resolve();
+      try {
+        await worker.agent.streamFunction(
+          { ...(worker.model as object), api: "openai-responses", provider: "test", id: "worker" },
+          { systemPrompt: "", messages: [], tools: [] },
+          { signal: requestAbort.signal },
+        );
+      } catch (error) {
+        requestFailed.resolve(error);
+        throw error;
+      }
+      await promptRelease.promise;
       messages.push({ role: "user", content: text });
       const message = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] };
       messages.push(message);
       for (const listener of listeners) listener({ type: "message_end", message });
     },
-    async abort() {},
+    async abort() { requestAbort.abort(); },
+    async bindExtensions() {},
+    extensionRunner: { async emit() {}, onError() { return () => {}; } },
     dispose() {},
     async setModel() {},
     setThinkingLevel() {},
     getContextUsage() { return undefined; },
   };
+  return worker;
 }
 
 type Handler = (event: unknown, context: ExtensionContext) => unknown;
@@ -108,31 +147,57 @@ function context(cwd: string, warnings: string[]): ExtensionContext {
     hasUI: true,
     isProjectTrusted: () => true,
     model: undefined,
-    modelRegistry: { find() { return undefined; }, hasConfiguredAuth() { return false; }, async getAvailable() { return []; } },
+    modelRegistry: {
+      find(provider: string, id: string) { return provider === "test" && id === "worker" ? { api: "openai-responses", provider, id, reasoning: false } : undefined; },
+      async getApiKeyAndHeaders() { return { ok: true, apiKey: "fixture" }; },
+      hasConfiguredAuth() { return true; }, async getAvailable() { return []; },
+      getRegisteredProviderIds() { return []; }, getRegisteredNativeProvider() { return undefined; }, getRegisteredProviderConfig() { return undefined; },
+    },
     sessionManager: { getBranch: () => [], getEntries: () => [] },
     ui: { notify: (message: string) => warnings.push(message), setWidget: () => {}, setStatus: () => {} },
   } as unknown as ExtensionContext;
 }
 
 /** One request throttle admits one request per minute, and a wait lasts a minute. */
-const ONE_PER_MINUTE = { requestThrottle: { maxRequestsPerMinute: 1, baseWaitMs: 60000, jitterMs: 0 } };
+const ONE_PER_MINUTE = {
+  router: { models: { include: [], add: [{
+    model: "fixture", capabilityRating: 50, costRating: 50, effort: "off",
+    preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [],
+  }] } },
+  requestThrottle: { maxRequestsPerMinute: 1, baseWaitMs: 60000, jitterMs: 0 },
+};
 
-function harness(): { api: CapturingExtensionApi; opened: WorkerStub[] } {
+function harness(): { api: CapturingExtensionApi; opened: WorkerStub[]; workerAt(index: number): Promise<WorkerStub> } {
   const opened: WorkerStub[] = [];
-  codingAgentStub.createAgentSession = async () => {
-    const created = workerSessionStub();
-    opened.push(created);
+  const opening = new Map<number, Deferred<WorkerStub>>();
+  codingAgentStub.createAgentSession = async (options) => {
+    const created = workerSessionStub(options.model);
+    const index = opened.push(created) - 1;
+    opening.get(index)?.resolve(created);
     return { session: created };
   };
   const api = new CapturingExtensionApi();
   slateExtension(api as unknown as ExtensionAPI);
-  return { api, opened };
+  return {
+    api,
+    opened,
+    workerAt(index) {
+      const existing = opened[index];
+      if (existing !== undefined) return Promise.resolve(existing);
+      let pending = opening.get(index);
+      if (pending === undefined) {
+        pending = deferred<WorkerStub>();
+        opening.set(index, pending);
+      }
+      return pending.promise;
+    },
+  };
 }
 
 async function dispatch(api: CapturingExtensionApi, ctx: ExtensionContext, task: string, signal: AbortSignal): Promise<void> {
   const tool = api.tools.get("thread");
   assert.ok(tool, "the extension must register the thread tool");
-  await tool.execute(`call-${task}`, { type: "general", task }, signal, undefined, ctx);
+  await tool.execute(`call-${task}`, { model: "fixture", reason: "throttle fixture", type: "general", task }, signal, undefined, ctx);
 }
 
 async function cacheKeyOf(worker: WorkerStub): Promise<unknown> {
@@ -141,83 +206,89 @@ async function cacheKeyOf(worker: WorkerStub): Promise<unknown> {
   return payload.prompt_cache_key;
 }
 
-/** Start one request and report whether it is still waiting for capacity. */
-function startRequest(worker: WorkerStub, testSignal: AbortSignal): { pending: Promise<unknown>; settled: () => boolean; cancel: () => void } {
-  const controller = new AbortController();
-  const signal = AbortSignal.any([controller.signal, testSignal]);
-  let done = false;
-  const pending = worker.agent.streamFunction(OPENAI_MODEL, { systemPrompt: "", messages: [], tools: [] }, { signal });
-  void pending.then(() => { done = true; }, () => { done = true; });
-  return { pending, settled: () => done, cancel: () => controller.abort() };
-}
-
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
-
 test("one main session gives every worker the same cache key and one shared request budget", { timeout: 20000 }, async (t) => {
-  const { api, opened } = harness();
+  const { api, opened, workerAt } = harness();
   const warnings: string[] = [];
   const cwd = project("shared-scope", ONE_PER_MINUTE);
   const ctx = context(cwd, warnings);
   await api.emit("session_start", {}, ctx);
-  await dispatch(api, ctx, "first", t.signal);
-  await dispatch(api, ctx, "second", t.signal);
-  assert.deepEqual(warnings, []);
-  assert.equal(opened.length, 2, "two actions must open two worker sessions");
 
-  const first = opened[0]!;
-  const second = opened[1]!;
+  const firstWorker = workerAt(0);
+  const firstDispatch = dispatch(api, ctx, "first", t.signal);
+  const first = await firstWorker;
+  await first.requestStarted;
+  assert.equal(first.delegatedRequests, 1, "the first request must cross the real worker stream handoff");
+
+  const secondController = new AbortController();
+  const secondWorker = workerAt(1);
+  const secondDispatch = dispatch(api, ctx, "second", AbortSignal.any([secondController.signal, t.signal]));
+  const second = await secondWorker;
+  await second.requestStarted;
+
+  assert.equal(opened.length, 2, "two live actions must open two worker sessions");
   const firstKey = await cacheKeyOf(first);
   const secondKey = await cacheKeyOf(second);
   assert.match(String(firstKey), /^slate-session-/);
   assert.equal(secondKey, firstKey, "both workers of one main session share one cache key");
+  assert.equal(first.delegatedRequests, 1);
+  assert.equal(second.delegatedRequests, 0, "the second worker must wait before the underlying provider handoff");
 
-  // The single admission of this main session is taken by the first worker, so
-  // the second worker must wait. That wait proves the two workers share ONE
-  // limiter and that the limiter runs on this project's configured threshold.
-  const admitted = startRequest(first, t.signal);
-  await admitted.pending;
-  const blocked = startRequest(second, t.signal);
-  await settle();
-  assert.equal(blocked.settled(), false, "a second worker must wait on the shared request budget");
-  blocked.cancel();
-  await assert.rejects(blocked.pending, RequestThrottleAbort);
+  secondController.abort();
+  const blockedError = await second.requestFailed;
+  assert.ok(blockedError instanceof RequestThrottleAbort, "cancelling a paced request must preserve the throttle abort outcome");
+  await assert.rejects(secondDispatch, /cancelled by the caller/);
+  assert.equal(second.delegatedRequests, 0, "a cancelled waiter must never delegate its request");
+
+  first.finishPrompt();
+  await firstDispatch;
+  assert.deepEqual(warnings, []);
 });
 
 test("a second main session issues a new cache key and an empty request budget", { timeout: 20000 }, async (t) => {
-  const { api, opened } = harness();
+  const { api, opened, workerAt } = harness();
   const warnings: string[] = [];
   const firstCwd = project("scope-one", ONE_PER_MINUTE);
   const firstCtx = context(firstCwd, warnings);
   await api.emit("session_start", {}, firstCtx);
-  await dispatch(api, firstCtx, "one", t.signal);
-  const firstWorker = opened[0]!;
-  const firstKey = await cacheKeyOf(firstWorker);
-  const firstAdmission = startRequest(firstWorker, t.signal);
-  await firstAdmission.pending;
 
-  // A new main session. Its workers must receive a new key and a limiter whose
-  // window holds none of the admissions above.
+  const oldWorkerPromise = workerAt(0);
+  const oldDispatch = dispatch(api, firstCtx, "one", t.signal);
+  const oldWorker = await oldWorkerPromise;
+  await oldWorker.requestStarted;
+  assert.equal(oldWorker.delegatedRequests, 1);
+  const firstKey = await cacheKeyOf(oldWorker);
+  oldWorker.finishPrompt();
+  await oldDispatch;
+
+  // The first live request in a new main session must delegate immediately. A
+  // second live request must then wait on that new session's own threshold.
   const secondCwd = project("scope-two", ONE_PER_MINUTE);
   const secondCtx = context(secondCwd, warnings);
   await api.emit("session_start", {}, secondCtx);
-  await dispatch(api, secondCtx, "two", t.signal);
-  assert.deepEqual(warnings, []);
-  assert.equal(opened.length, 2);
-  const secondWorker = opened[1]!;
-  const secondKey = await cacheKeyOf(secondWorker);
+  const freshWorkerPromise = workerAt(1);
+  const freshDispatch = dispatch(api, secondCtx, "fresh", t.signal);
+  const freshWorker = await freshWorkerPromise;
+  await freshWorker.requestStarted;
+  assert.equal(freshWorker.delegatedRequests, 1, "the new main session must start with an empty request budget");
+  const secondKey = await cacheKeyOf(freshWorker);
   assert.match(String(secondKey), /^slate-session-/);
   assert.notEqual(secondKey, firstKey, "a new main session must not reuse the previous cache key");
 
-  const fresh = startRequest(secondWorker, t.signal);
-  await settle();
-  assert.equal(fresh.settled(), true, "the new main session starts with an empty request budget");
-  await fresh.pending;
+  const blockedController = new AbortController();
+  const blockedWorkerPromise = workerAt(2);
+  const blockedDispatch = dispatch(api, secondCtx, "threshold", AbortSignal.any([blockedController.signal, t.signal]));
+  const blockedWorker = await blockedWorkerPromise;
+  await blockedWorker.requestStarted;
+  assert.equal(blockedWorker.delegatedRequests, 0, "the new limiter must enforce its configured threshold");
 
-  // The new limiter still enforces the configured threshold, so the next request
-  // of this main session waits.
-  const blocked = startRequest(secondWorker, t.signal);
-  await settle();
-  assert.equal(blocked.settled(), false, "the new limiter must enforce the configured threshold");
-  blocked.cancel();
-  await assert.rejects(blocked.pending, RequestThrottleAbort);
+  blockedController.abort();
+  const blockedError = await blockedWorker.requestFailed;
+  assert.ok(blockedError instanceof RequestThrottleAbort);
+  await assert.rejects(blockedDispatch, /cancelled by the caller/);
+  assert.equal(blockedWorker.delegatedRequests, 0);
+
+  freshWorker.finishPrompt();
+  await freshDispatch;
+  assert.equal(opened.length, 3);
+  assert.deepEqual(warnings, []);
 });

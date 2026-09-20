@@ -124,16 +124,12 @@ also has no area reviewer. Final change acceptance is always blocking.
 | 11 | unreported failure | one area reviewer for unreported failures | every track that proves the area |
 <!-- focus-area-table:end -->
 
-For implementation of a track with no proved area and model routing on, choose
-a suitable candidate from `router.models` with a sourced tier of 2 or higher.
-If none exists, choose the highest sourced tier and record the fallback in the
-track packet. A rendered `t?` is not a rank. It cannot qualify for tier 2 or
-enter a rank comparison. If no candidate has a sourced tier, stop before
-implementation and ask the user to choose explicitly from `router.models`.
-Record the choice and the unknown-tier limitation. Candidate membership,
-effort, avoid, and dispatch restrictions still apply. Routing off has no tier
-vocabulary, so this policy has an accepted enforcement gap and adds no runtime
-guard.
+For implementation of a track with no proved area, the orchestrator selects a
+logical model under the ordinary action guidance. The orchestrator considers
+action fit, capability, cost, guidance, and cautions. The selection uses no
+sourced-tier threshold, highest-tier fallback, or mandatory user-choice gate.
+The ordinary logical-model membership, fixed effort, and dispatch restrictions
+still apply.
 
 [blast-radius.md](blast-radius.md) defines each area and owns the canonical
 copy of this table.

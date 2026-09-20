@@ -1,3 +1,5 @@
+const TEST_ROUTE = { model: "fixture", reason: "test fixture" } as const;
+
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -14,8 +16,15 @@ import {
   shouldWarnFindingsGrammar,
 } from "../extension/observations.ts";
 import { isJudgementThreadType, JUDGEMENT_THREAD_TYPES } from "../extension/worker.ts";
+import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { sanitizeEpisodeRecord, SlateStore, type ThreadRecord } from "../extension/state.ts";
 import { ThreadManager, type DispatchProgress } from "../extension/threads.ts";
+import { bindFakeWorkerRequest } from "./worker-request-contract-fixture.ts";
+
+function fixtureRuntime() {
+  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }] } } } });
+  return Object.freeze({ ...runtime, validateRoute: async () => ({ ok: true } as const) });
+}
 
 function temporaryRoot(): string {
   return mkdtempSync(join(tmpdir(), "slate-observations-test."));
@@ -219,15 +228,16 @@ async function dispatchOnce(opts: {
   const pi = { appendEntry() {} } as unknown as ExtensionAPI;
   const store = new SlateStore(pi);
   opts.onStore?.(store);
-  const manager = new ThreadManager(store, {});
+  const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
   const messages: unknown[] = [];
   const subscribers = new Set<(event: unknown) => void>();
   const session = {
     messages,
-    model: undefined,
-    thinkingLevel: undefined,
+    model: { provider: "test", id: "worker" },
+    thinkingLevel: "off",
     sessionFile: opts.sessionFile,
     getContextUsage: () => undefined,
+    setThinkingLevel(level: string) { session.thinkingLevel = level; },
     subscribe: (listener: (event: unknown) => void) => {
       subscribers.add(listener);
       return () => subscribers.delete(listener);
@@ -246,23 +256,24 @@ async function dispatchOnce(opts: {
   };
   const view = manager as unknown as {
     live: Map<string, unknown>;
-    openWorkerFor(args: unknown): Promise<{ session: unknown; baseline: unknown }>;
+    openWorkerFor(args: { requestContract: import("../extension/worker.ts").WorkerRequestContract }): Promise<{ session: unknown; baseline: unknown }>;
   };
-  view.openWorkerFor = async () => {
+  view.openWorkerFor = async ({ requestContract }) => {
     opts.onOpen?.();
+    bindFakeWorkerRequest(session, requestContract);
     view.live.set(opts.dispatch?.threadId ?? "t1", session);
     return { session, baseline: {} };
   };
   // Built with defineProperty rather than a spread: spreading an object with a
   // throwing getter would fire it here, in the harness, instead of inside the
   // dispatch step under test.
-  const ctxFields: Record<string, unknown> = { cwd: opts.root };
+  const ctxFields: Record<string, unknown> = { cwd: opts.root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true } };
   opts.defineCtx?.(ctxFields);
   const ctx = ctxFields as unknown as ExtensionContext;
   // Use the public dispatch boundary. The harness overrides only the existing
   // private worker opener to avoid a real pi session.
   return await manager.dispatch(
-    { task: "review", type: "reviewer", name: "review", ...opts.dispatch },
+    { ...TEST_ROUTE, task: "review", type: "reviewer", name: "review", ...opts.dispatch },
     ctx,
     undefined,
     opts.onProgress,
@@ -279,7 +290,7 @@ test("dispatch joins text around non-text blocks and distinguishes malformed war
         stopReason: "stop",
         content: [
           { type: "text", text: "Review complete." },
-          { type: "toolCall", name: "ignored" },
+          { type: "toolCall", name: "ignored", arguments: {} },
           { type: "text", text: "BG1 | blocker | x.ts:1 | summary | counterexample" },
         ],
       },
@@ -356,7 +367,7 @@ test("public dispatch gates each grammar warning by outcome and judgement type",
       {
         label: "successful reviewer without final text",
         type: "reviewer" as const,
-        message: { role: "assistant", stopReason: "stop", content: [{ type: "toolCall", name: "done" }] },
+        message: { role: "assistant", stopReason: "stop", content: [{ type: "toolCall", name: "done", arguments: {} }] },
         expected: "final response contained no text blocks, so no compact findings row is available",
       },
     ];

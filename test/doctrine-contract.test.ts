@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { after, test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import slateExtension from "../extension/index.ts";
-import { PROFILES_AS_OF, MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
-import { ROUTER_OFF, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
+import { createLogicalRuntime, type LogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { registerSlateMode } from "../extension/mode.ts";
 import { BLAST_RADIUS_DOC, PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
@@ -21,6 +21,7 @@ type Handler = (event: any, context: ExtensionContext) => unknown;
 
 class FakeExtensionApi {
   readonly handlers = new Map<string, Handler[]>();
+  readonly commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => Promise<void> }>();
   readonly sentMessages: Array<{ message: unknown; options: unknown }> = [];
 
   on(event: string, handler: Handler): void {
@@ -29,7 +30,7 @@ class FakeExtensionApi {
     this.handlers.set(event, handlers);
   }
 
-  registerCommand(): void {}
+  registerCommand(name: string, command: { handler: (args: string, ctx: ExtensionContext) => Promise<void> }): void { this.commands.set(name, command); }
   registerTool(): void {}
   getActiveTools(): string[] { return []; }
   setActiveTools(): void {}
@@ -64,37 +65,7 @@ function extensionContext(cwd: string, warnings: string[] = [], trusted = true):
   } as unknown as ExtensionContext;
 }
 
-function routedResolution(): ModelRouterResolution {
-  const profile = MODEL_PROFILES[0];
-  assert.ok(profile);
-  const price = profile.price.at(-1);
-  assert.ok(price);
-  const candidate: RouterCandidate = {
-    spec: profile.id,
-    provider: profile.id.split("/")[0] ?? "",
-    id: profile.id.split("/")[1] ?? "",
-    profile,
-    tier: profile.tier,
-    inUsdPerMTok: price.inUsdPerMTok,
-    outUsdPerMTok: price.outUsdPerMTok,
-    registryCost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: profile.contextWindow ?? undefined,
-    ladder: ladderFor(profile),
-    hasFailover: true,
-    nonPreferred: profile.nonPreferred,
-    tierUnsourced: profile.tierUnsourced === true,
-    ladderAssumed: profile.ladderAssumed === true,
-  };
-  return {
-    on: true,
-    candidates: [candidate],
-    cheapest: candidate.spec,
-    cheapestNonPreferred: false,
-    warnings: [],
-  };
-}
-
-async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}, trusted = true, paused = false): Promise<string> {
+async function renderDoctrine(runtime: Readonly<LogicalRuntime> | null = createLogicalRuntime({ trusted: true }), config: SlateConfig = {}, trusted = true, paused = false, model?: { provider: string; id: string }, extensions = EMPTY_WORKER_EXTENSION_SET): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
@@ -107,28 +78,231 @@ async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfi
       effectiveContextBudget: () => undefined,
     } as any,
     () => config,
-    () => EMPTY_WORKER_EXTENSION_SET,
-    router === undefined ? undefined : () => router,
+    () => extensions,
+    () => runtime ?? undefined,
   );
   const handler = api.handlers.get("before_agent_start")?.[0];
   assert.ok(handler);
-  const result = await handler({ systemPrompt: "BASE" }, extensionContext(scratch, [], trusted)) as { systemPrompt: string };
+  const context = extensionContext(scratch, [], trusted);
+  context.model = model as never;
+  const result = await handler({ systemPrompt: "BASE" }, context) as { systemPrompt: string };
   assert.ok(result.systemPrompt.startsWith("BASE"));
   return result.systemPrompt.slice("BASE".length);
 }
 
-test("routing doctrine renders dated prices and truthful candidate ordering", { timeout: 5000 }, async () => {
-  const doctrine = await renderDoctrine(routedResolution());
-  const priceDate = /Prices include dated updates after (\d{4}-\d{2}-\d{2}) research\./.exec(doctrine)?.[1];
-  assert.equal(priceDate, PROFILES_AS_OF);
-  assert.match(doctrine, /Candidates\s+follow preference, tier sourcing, tier, price, then specification\./);
-  assert.doesNotMatch(doctrine, /Route every action to the cheapest model and effort that clears it\./);
-  assert.doesNotMatch(doctrine, /Prices as of \d{4}-\d{2}-\d{2} are base rates:/);
-  assert.match(doctrine, /A model or effort change empties the prompt cache\. Rewrites cost 12\.5 times cache reads\./);
+test("logical doctrine uses the cached static runtime policy without physical routes", { timeout: 5000 }, async () => {
+  const runtime = createLogicalRuntime({ trusted: true });
+  const doctrine = await renderDoctrine(runtime);
+  assert.match(doctrine, /Every `thread` call must name logical `model` and a short `reason`/);
+  assert.match(doctrine, /Effort is fixed by policy/);
+  assert.match(doctrine, /Model routing policy:/);
+  assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| security work \/ performance work \| none \|/);
+  assert.doesNotMatch(doctrine, /preferredProvider|permission openai\/|registry prices|context window|`effort`/);
+  assert.match(doctrine, /orchestrator selects the model for a no-area track under the same ordinary guidance/);
+});
+
+test("logical doctrine production renders match published portable measurements", { timeout: 5000 }, async () => {
+  const docsDirectory = TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
+  const runtime = createLogicalRuntime({ trusted: true, documentationDirectory: docsDirectory });
+  const capped = { units: [
+    { path: "/fixture/a", source: "x".repeat(128), isDirectory: true, tools: [{ name: "a".repeat(64), description: "d".repeat(140) }, { name: "b".repeat(64), description: "e".repeat(140) }] },
+    { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
+  ], paths: [], toolNames: [] };
+  const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 1961, lines: 12, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 6771, lines: 86, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2713, lines: 44, paths: 4 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true } }, true, false, undefined, capped)), { portable: 8210, lines: 97, paths: 6 });
+});
+
+test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
+  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { compressor: { models: [] } } } });
+  const doctrine = await renderDoctrine(runtime);
+  assert.match(doctrine, /Logical model work is blocked/);
+  assert.match(doctrine, /compressor.models must not be empty/);
+  assert.doesNotMatch(doctrine, /Model routing policy:/);
+});
+
+test("effective command reads current preferences without policy or provider work", async () => {
+  const api = new FakeExtensionApi();
+  const store = new SlateStore(api as unknown as ExtensionAPI);
+  const runtime = createLogicalRuntime({
+    trusted: true,
+    projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "openai", providers: { openai: "gpt-5.6-luna", second: "luna-2" } }] } } },
+  });
+  const admission = runtime.admit();
+  assert.ok(admission);
+  assert.equal(runtime.publishProvider(admission, "gpt-5.6-luna", "second"), true);
+  registerSlateMode(
+    api as unknown as ExtensionAPI,
+    store,
+    { startHandoff: async () => {}, effectiveContextBudget: () => undefined } as any,
+    () => ({}),
+    () => EMPTY_WORKER_EXTENSION_SET,
+    () => runtime,
+  );
+  const notices: string[] = [];
+  const ctx = extensionContext(scratch, notices);
+  await api.commands.get("slate")!.handler("effective", ctx);
+  assert.equal(notices.length, 1);
+  assert.match(notices[0]!, /preferredProvider=openai; rememberedProvider=second/);
+  assert.match(notices[0]!, /Remembered compressor selection: none/);
+});
+
+test("project startup settings merge causally and select Astra at medium when unscoped", { timeout: 5000 }, async () => {
+  const settingsPath = join(process.cwd(), ".pi", "settings.json");
+  const projectSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
+  assert.deepEqual(projectSettings, {
+    defaultProvider: "openai",
+    defaultModel: "gpt-6-astra",
+    defaultThinkingLevel: "medium",
+    packages: ["../../main", "npm:pi-smart-fetch@0.3.17", "npm:pi-web-search@1.6.0"],
+  });
+  const agentDir = join(scratch, "startup-agent");
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
+    defaultProvider: "anthropic",
+    defaultModel: "global-model",
+    defaultThinkingLevel: "high",
+    packages: ["global-package"],
+  }));
+  const packageRoot = join(process.cwd(), "node_modules", "@earendil-works", "pi-coding-agent", "dist", "core");
+  const settingsModule = await import(join(packageRoot, "settings-manager.js"));
+  const resolverModule = await import(join(packageRoot, "model-resolver.js"));
+  const manager = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: true });
+  assert.equal(manager.getDefaultProvider(), "openai");
+  assert.equal(manager.getDefaultModel(), "gpt-6-astra");
+  assert.equal(manager.getDefaultThinkingLevel(), "medium");
+  assert.deepEqual(manager.getProjectSettings().packages, projectSettings.packages);
+  const astra = { provider: "openai", id: "gpt-6-astra" };
+  const other = { provider: "anthropic", id: "scoped" };
+  const runtime = {
+    getModel: (provider: string, id: string) => provider === astra.provider && id === astra.id ? astra
+      : provider === other.provider && id === other.id ? other : undefined,
+    hasConfiguredAuth: () => true,
+    getModels: () => [astra, other],
+    getAvailable: async () => [other],
+  };
+  const selected = await resolverModule.findInitialModel({
+    scopedModels: [], isContinuing: false,
+    defaultProvider: manager.getDefaultProvider(), defaultModelId: manager.getDefaultModel(),
+    defaultThinkingLevel: manager.getDefaultThinkingLevel(), modelRuntime: runtime,
+  });
+  assert.strictEqual(selected.model, astra);
+  assert.equal(selected.thinkingLevel, "medium");
+  const scoped = await resolverModule.findInitialModel({
+    scopedModels: [{ model: other, thinkingLevel: "low" }], isContinuing: false,
+    defaultProvider: manager.getDefaultProvider(), defaultModelId: manager.getDefaultModel(),
+    defaultThinkingLevel: manager.getDefaultThinkingLevel(), modelRuntime: runtime,
+  });
+  assert.strictEqual(scoped.model, other, "the scoped set must constrain startup selection");
+  assert.equal(scoped.thinkingLevel, "low");
+  const explicit = await resolverModule.findInitialModel({
+    cliProvider: other.provider, cliModel: other.id, scopedModels: [], isContinuing: false,
+    defaultProvider: manager.getDefaultProvider(), defaultModelId: manager.getDefaultModel(),
+    defaultThinkingLevel: manager.getDefaultThinkingLevel(), modelRuntime: runtime,
+  });
+  assert.strictEqual(explicit.model, other, "an explicit command-line model must outrank the project default");
+  const restored = await resolverModule.restoreModelFromSession(other.provider, other.id, astra, false, runtime);
+  assert.strictEqual(restored.model, other, "a usable restored model must replace the startup default");
+  const untrusted = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: false });
+  assert.equal(untrusted.getDefaultProvider(), "anthropic");
+  assert.equal(untrusted.getDefaultModel(), "global-model");
+  assert.deepEqual(untrusted.getProjectSettings(), {});
+});
+
+test("real Pi startup prefers Astra anywhere in the scoped model set", { timeout: 15000 }, () => {
+  const trackedSettings = JSON.parse(readFileSync(join(process.cwd(), ".pi", "settings.json"), "utf8"));
+  const trackedDefaults = {
+    defaultProvider: trackedSettings.defaultProvider,
+    defaultModel: trackedSettings.defaultModel,
+    defaultThinkingLevel: trackedSettings.defaultThinkingLevel,
+  };
+  assert.deepEqual(trackedDefaults, {
+    defaultProvider: "openai",
+    defaultModel: "gpt-6-astra",
+    defaultThinkingLevel: "medium",
+  });
+  const cliScratch = mkdtempSync(join(tmpdir(), "slate-startup-cli-"));
+  const projectDir = join(cliScratch, "project");
+  const agentDir = join(cliScratch, "agent");
+  const homeDir = join(cliScratch, "home");
+  const tempDir = join(cliScratch, "tmp");
+  try {
+    mkdirSync(join(projectDir, ".pi"), { recursive: true });
+    mkdirSync(agentDir, { recursive: true });
+    mkdirSync(homeDir, { recursive: true });
+    mkdirSync(tempDir, { recursive: true });
+    writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify(trackedDefaults));
+    writeFileSync(join(agentDir, "models.json"), JSON.stringify({
+      providers: {
+        openai: {
+          baseUrl: "http://127.0.0.1:9/v1",
+          apiKey: "literal-offline-startup-key",
+          api: "openai-completions",
+          models: ["gpt-5.6-luna", "gpt-6-astra"].map((id) => ({
+            id,
+            name: id,
+            reasoning: true,
+            thinkingLevelMap: { off: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 1_000_000,
+            maxTokens: 4096,
+          })),
+        },
+      },
+    }));
+    writeFileSync(join(agentDir, "auth.json"), "{}");
+
+    const cli = join(process.cwd(), "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
+    const result = spawnSync(process.execPath, [
+      cli,
+      "--no-extensions",
+      "--mode", "rpc",
+      "-a",
+      "--no-session",
+      "--models", "openai/gpt-5.6-luna:high,openai/gpt-6-astra",
+    ], {
+      cwd: projectDir,
+      env: {
+        HOME: homeDir,
+        TMPDIR: tempDir,
+        PATH: process.env.PATH ?? "",
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_OFFLINE: "1",
+        HTTP_PROXY: "http://127.0.0.1:9",
+        HTTPS_PROXY: "http://127.0.0.1:9",
+        ALL_PROXY: "http://127.0.0.1:9",
+        NO_PROXY: "",
+      },
+      input: '{"id":"state","type":"get_state"}\n',
+      encoding: "utf8",
+      timeout: 8000,
+      killSignal: "SIGKILL",
+      maxBuffer: 256 * 1024,
+    });
+    assert.equal(result.error, undefined, `Pi startup failed: ${result.error?.message ?? "unknown error"}`);
+    assert.equal(result.signal, null, `Pi startup ended from signal ${result.signal ?? "unknown"}`);
+    assert.equal(result.status, 0, `Pi startup exited ${result.status}: ${result.stderr.slice(0, 4096)}`);
+    assert.ok(result.stdout.length <= 256 * 1024);
+    assert.ok(result.stderr.length <= 256 * 1024);
+    const response = result.stdout.split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => JSON.parse(line))
+      .find((entry) => entry.id === "state");
+    assert.ok(response, `missing get_state response: ${result.stdout.slice(0, 4096)}`);
+    assert.equal(response.success, true);
+    assert.equal(response.data?.model?.provider, "openai");
+    assert.equal(response.data?.model?.id, "gpt-6-astra");
+    assert.equal(response.data?.thinkingLevel, "medium");
+  } finally {
+    rmSync(cliScratch, { recursive: true, force: true });
+  }
 });
 
 test("single-action doctrine requires new threads and episode references", { timeout: 5000 }, async () => {
-  const doctrine = await renderDoctrine(routedResolution());
+  const doctrine = await renderDoctrine();
   assert.match(doctrine, /Every `thread` call creates a new thread for one action\./);
   assert.match(doctrine, /A follow-up action\s+must use another new thread\./);
   assert.match(doctrine, /No worker conversation crosses that boundary\./);
@@ -199,9 +373,9 @@ test("untrusted follow-up issue configuration leaves doctrine byte-identical", {
 });
 
 test("writing doctrine is active for trusted projects regardless of ignored writing keys", { timeout: 5000 }, async () => {
-  const doctrine = await renderDoctrine(ROUTER_OFF, { writing: { check: false, remind: false } });
-  const absent = await renderDoctrine(ROUTER_OFF);
-  const untrusted = await renderDoctrine(ROUTER_OFF, { writing: { check: true, remind: true } }, false);
+  const doctrine = await renderDoctrine(undefined, { writing: { check: false, remind: false } });
+  const absent = await renderDoctrine(undefined);
+  const untrusted = await renderDoctrine(undefined, { writing: { check: true, remind: true } }, false);
   assert.match(absent, /Check user-facing prose before delivery\./);
   assert.equal(absent, doctrine);
   assert.doesNotMatch(untrusted, /Check user-facing prose before delivery\./);
@@ -283,7 +457,7 @@ test("mode uses the four-turn reminder fallback when writing config is absent", 
     { startHandoff: async () => {}, effectiveContextBudget: () => undefined } as any,
     () => ({}),
     () => EMPTY_WORKER_EXTENSION_SET,
-    () => ROUTER_OFF,
+    () => undefined,
   );
   const context = extensionContext(scratch);
   const turn = { message: { role: "assistant", content: [], stopReason: "stop" }, toolResults: [] };
@@ -303,7 +477,7 @@ test("mode uses the four-turn reminder fallback when writing config is absent", 
     { startHandoff: async () => {}, effectiveContextBudget: () => undefined } as any,
     () => ({ writing: { remindTurns: 5 } }),
     () => EMPTY_WORKER_EXTENSION_SET,
-    () => ROUTER_OFF,
+    () => undefined,
   );
   for (let index = 0; index < 4; index++) await configuredApi.emit("turn_end", turn, context);
   assert.deepEqual(configuredApi.sentMessages, [], "a configured five-turn interval must stay silent through turn four");
@@ -339,13 +513,75 @@ test("the paused doctrine states worker availability and the one-writer save con
   assert.ok(writer > 0 && writer < verify && verify < brief);
 });
 
-test("routing off adds no doctrine bytes", { timeout: 5000 }, async () => {
-  const defaultOff = await renderDoctrine();
-  const explicitOff = await renderDoctrine(ROUTER_OFF);
-  assert.equal(explicitOff, defaultOff);
-  assert.doesNotMatch(explicitOff, /Routable this session/);
-  assert.doesNotMatch(explicitOff, /Prices include dated updates/);
-  assert.doesNotMatch(explicitOff, /Prices as of/);
+test("missing parent runtime produces an explicit blocked rule", { timeout: 5000 }, async () => {
+  const doctrine = await renderDoctrine(null);
+  assert.match(doctrine, /Logical model work is blocked: The logical model policy is unavailable/);
+  assert.doesNotMatch(doctrine, /Routable this session|Session base model/);
+});
+
+test("entry configuration reports legacy keys and blocks invalid current policy", { timeout: 5000 }, async () => {
+  const cwd = join(scratch, "logical-config-blocked");
+  mkdirSync(join(cwd, ".pi"), { recursive: true });
+  writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({
+    modelFailover: { "old/model": "other/model" },
+    episodeModel: "old/compressor",
+    router: { allowUnmeasuredEffort: true, compressor: { models: [] } },
+  }));
+  const api = new FakeExtensionApi();
+  slateExtension(api as unknown as ExtensionAPI);
+  const notices: string[] = [];
+  const ctx = extensionContext(cwd, notices);
+  await api.emit("session_start", {}, ctx);
+  assert.equal(notices.some((message) => /Legacy key modelFailover is ignored/.test(message)), true);
+  assert.equal(notices.some((message) => /Legacy key episodeModel is ignored/.test(message)), true);
+  assert.equal(notices.some((message) => /router.allowUnmeasuredEffort is ignored/.test(message)), true);
+  assert.equal(notices.some((message) => /logical model policy blocked.*compressor.models must not be empty/i.test(message)), true);
+  notices.length = 0;
+  await api.commands.get("slate")!.handler("effective", ctx);
+  assert.match(notices[0] ?? "", /Status: blocked/);
+  assert.match(notices[0] ?? "", /No hidden compressor fallback is approved/);
+});
+
+test("entry configuration rejects every non-object JSON root", { timeout: 5000 }, async () => {
+  for (const [name, value] of [["null", null], ["array", []], ["scalar", 7]] as const) {
+    const cwd = join(scratch, `logical-config-${name}`);
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify(value));
+    const api = new FakeExtensionApi();
+    slateExtension(api as unknown as ExtensionAPI);
+    const notices: string[] = [];
+    await api.emit("session_start", {}, extensionContext(cwd, notices));
+    assert.equal(notices.some((message) => /must contain one JSON object.*policy is blocked/i.test(message)), true, name);
+    assert.equal(notices.some((message) => /logical model policy blocked.*router must be an object/i.test(message)), true, name);
+  }
+});
+
+test("session startup accepts mapped and ambiguous physical routes without a false warning", { timeout: 5000 }, async () => {
+  for (const ambiguous of [false, true]) {
+    const cwd = join(scratch, `startup-reverse-${ambiguous}`);
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    if (ambiguous) writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({ router: { models: { add: [{ model: "alias", capabilityRating: 40, costRating: 40, effort: "max", preferredProvider: "openai", providers: { openai: "gpt-5.6-luna" }, guidelines: [], cautions: [] }] } } }));
+    const api = new FakeExtensionApi();
+    slateExtension(api as unknown as ExtensionAPI);
+    const warnings: string[] = [];
+    const ctx = extensionContext(cwd, warnings);
+    ctx.model = { provider: "openai", id: "gpt-5.6-luna" } as never;
+    await api.emit("session_start", {}, ctx);
+    assert.deepEqual(warnings, [], `startup route ambiguous=${ambiguous} must not invent a failure`);
+  }
+});
+
+test("entry configuration reports malformed JSON and keeps logical work blocked", { timeout: 5000 }, async () => {
+  const cwd = join(scratch, "logical-config-malformed");
+  mkdirSync(join(cwd, ".pi"), { recursive: true });
+  writeFileSync(join(cwd, ".pi", "slate.json"), "{ broken");
+  const api = new FakeExtensionApi();
+  slateExtension(api as unknown as ExtensionAPI);
+  const notices: string[] = [];
+  const ctx = extensionContext(cwd, notices);
+  await api.emit("session_start", {}, ctx);
+  assert.equal(notices.some((message) => /could not be parsed.*policy is blocked/i.test(message)), true);
+  assert.equal(notices.some((message) => /logical model policy blocked.*router must be an object/i.test(message)), true);
 });
 
 test("entry configuration reports either ignored writing key through the shared warning sink", { timeout: 5000 }, async () => {

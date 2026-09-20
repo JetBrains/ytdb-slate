@@ -6,11 +6,15 @@ import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { renderThreadCall, renderThreadResult } from "./render.ts";
+import { sanitizeForNotify } from "./notify.ts";
 import {
 	displayThreadType,
+	isModelSpec,
+	isThinkingLevel,
 	parseThreadType,
 	resolveEpisodeFile,
 	renderThreadId,
+	sanitizeDispatchReason,
 	threadTypeMarker,
 	THREAD_TYPE_GLOSSES,
 	THREAD_TYPES,
@@ -66,11 +70,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"Every new thread requires a type.",
 			"Use `context` to inject episodes by id from any thread.",
 			"Independent calls can run in parallel within the global concurrency limit.",
-			"`model` (\"provider/id\") and `effort` (pi thinking level) route this action only.",
-			"With routing on, omission uses the selected base pair. With routing off, an omitted model uses the host model.",
+			"Every call must name a logical `model` and a short `reason` for that selection.",
+			"The active logical policy fixes effort and the permitted physical routes for this action.",
 			"`tools` sets the new thread's worker tool allowlist.",
-			"Slate rejects a level the model does not offer and, when configured, a model outside the routable list.",
-			"Advisory notices before the episode report routing evidence gaps.",
+			"Slate validates each permitted physical route, its credentials, and the fixed effort before execution.",
 			"A failed action produces one failed episode. Slate compresses any worker response and uses a fixed episode when no response exists.",
 			"File-changing tasks require the track workflow's pre-implementation gates first.",
 		].join(" "),
@@ -88,18 +91,13 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			context: Type.Optional(
 				Type.Array(Type.String(), { description: "Earlier episode ids to load in caller order", maxItems: MAX_CONTEXT_EPISODES }),
 			),
-			model: Type.Optional(
-				Type.String({
-					description: "Worker model \"provider/id\" for this action. Omit it to use Slate's selected base model.",
-				}),
-			),
-			effort: Type.Optional(
-				Type.String({
-					description:
-						"Thinking level for this action: off, minimal, low, medium, high, xhigh or max. " +
-						"Slate refuses a level outside the routed model's known ladder.",
-				}),
-			),
+			model: Type.String({
+				description: "Required logical model name from the active Slate policy.",
+			}),
+			reason: Type.String({
+				description: "Required short reason for this logical model choice.",
+				maxLength: 200,
+			}),
 			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
 		}),
 
@@ -110,6 +108,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			}
 			if (Object.prototype.hasOwnProperty.call(raw, "freshContext")) {
 				throw new Error('The "freshContext" field was removed. Pass earlier episode ids through "context".');
+			}
+			if (Object.prototype.hasOwnProperty.call(raw, "effort")) {
+				throw new Error('The "effort" field was removed. Select a logical model. Its policy fixes the effort.');
 			}
 			const type = parseThreadType(params.type, true);
 			const displayedType = (threadId: string) => displayThreadType(store.threads.get(threadId)?.type ?? type);
@@ -139,7 +140,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					task: params.task,
 					contextEpisodeIds: params.context,
 					model: params.model,
-					effort: params.effort,
+					reason: params.reason,
 					tools: params.tools,
 				},
 				ctx,
@@ -170,10 +171,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					episodeId: result.episode.id,
 					status: result.episode.status,
 					episodeFile: result.episode.file,
-					// `ran*` and not `model`/`effort`: these are what the action ACTUALLY ran on,
-					// post-clamp and post-failover — NOT the `model`/`effort` arguments the call
-					// was made with, which a renderer shows on the call line and
-					// which can differ from these. The names say which of the two a reader has.
+					// `ran*` keeps the established renderer detail names. The values are the
+					// latest post-clamp physical pair accepted for local Pi handoff, not remote
+					// execution proof and not the logical model argument shown on the call line.
 					ranModel: result.episode.model,
 					ranEffort: result.episode.effort,
 					ranEffortUnmeasured: result.episode.effortUnmeasured,
@@ -198,10 +198,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		description:
 			"List worker threads, their status, episodes, activity, and models. " +
 			"type=<type> marks a non-general thread. " +
-			"base=<model>@<effort>? is the nominal plan target when `model` is omitted. " +
-			"The ? marks effort as provisional because Slate re-checks and may re-derive it. " +
-			"last=<model>@<effort> records the last action. live=<model> (failover) shows a held fallback " +
-			"that currently overrides the nominal base.",
+			"logical=<name> and reason= show the action selection. " +
+			"requested=<physical-model>@<effort> and last=<physical-model>@<effort> preserve execution facts.",
 		promptSnippet: "List worker threads and their episodes",
 		parameters: Type.Object({}),
 		async execute() {
@@ -213,26 +211,23 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const episode = t.episodeId ?? "(none)";
 				const typeMarker = threadTypeMarker(displayThreadType(t.type));
 				const marks: string[] = [];
-				// The thread's NOMINAL model — the planner target for a dispatch that omits
-				// `model` (?? t.model: an older thread carries only the pre-router pin).
-				// Absent means the plan has no model. The new session opens on the host model.
-				// A `live=` marker below reports an in-action failover switch.
-				const base = t.baseModel ?? t.model;
-				// CQ19: the MODEL half is authoritative as nominal planning state (an unroutable
-				// base is re-seeded, so this is what an omitted `model` resolves to), but the
-				// LEVEL half is only a STORED default: every dispatch re-checks it against the
-				// model's current capability data and silently derives a fresh one if the table has moved
-				// under it (BG23). Reporting it bare would present a value that may not survive
-				// contact with the next action as fact — the `?` says so, and the tool description
-				// says what it means. `last=` below carries no such caveat: that one is what ran.
-				if (base) marks.push(`base=${base}${t.baseEffort ? `@${t.baseEffort}?` : ""}`);
 				// The action's model may differ from the base after an explicit route or failover.
 				const lastEpisode = t.episodeId === undefined ? undefined : store.episodes.get(t.episodeId);
+				const logicalModel = typeof lastEpisode?.logicalModel === "string" ? lastEpisode.logicalModel : undefined;
+				if (logicalModel) marks.push(`logical=${sanitizeForNotify(logicalModel, 80)}`);
+				const requestedModel = isModelSpec(lastEpisode?.requestedModel) ? lastEpisode.requestedModel : undefined;
+				const requestedEffort = isThinkingLevel(lastEpisode?.requestedEffort) ? lastEpisode.requestedEffort : undefined;
+				if (requestedModel) {
+					marks.push(`requested=${sanitizeForNotify(requestedModel, 80)}${requestedEffort ? `@${requestedEffort}` : ""}`);
+				}
+				const requestReason = sanitizeDispatchReason(lastEpisode?.reason);
+				if (requestReason) marks.push(`reason=${JSON.stringify(requestReason)}`);
 				if (lastEpisode?.model) {
+					const differs = requestedModel !== undefined && requestedModel !== lastEpisode.model ? " (different from requested)" : "";
 					marks.push(
-						`last=${lastEpisode.model}${lastEpisode.effort ? `@${lastEpisode.effort}` : ""}${
+						`last=${sanitizeForNotify(lastEpisode.model, 80)}${lastEpisode.effort ? `@${lastEpisode.effort}` : ""}${
 							lastEpisode.effortUnmeasured ? "(unmeasured)" : ""
-						}`,
+						}${differs}`,
 					);
 				}
 				// AF12: after a model failover the LIVE cached session runs a different model

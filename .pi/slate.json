@@ -1,21 +1,21 @@
 {
   "orchestratorModeDefault": true,
   "workflow": { "draftPRs": true },
-  "modelFailover": {
-    "openai/gpt-5.6-luna": "anthropic/claude-sonnet-5",
-    "openai/gpt-5.6-terra": "anthropic/claude-opus-5",
-    "openai/gpt-5.6-sol": "anthropic/claude-opus-5",
-    "anthropic/claude-sonnet-5": "openai/gpt-5.6-luna",
-    "anthropic/claude-opus-5": "openai/gpt-5.6-sol"
-  },
   "router": {
-    "models": [
-      "openai/gpt-5.6-luna",
-      "openai/gpt-5.6-terra",
-      "openai/gpt-5.6-sol",
-      "anthropic/claude-sonnet-5",
-      "anthropic/claude-opus-5"
-    ]
+    "models": {
+      "include": [
+        "gpt-5.6-luna",
+        "claude-sonnet-5",
+        "gpt-5.6-terra",
+        "gpt-5.6-sol",
+        "gemini-3.8-flash",
+        "claude-opus-5",
+        "gpt-6-astra"
+      ]
+    },
+    "compressor": {
+      "models": [{ "model": "claude-sonnet-5", "effort": "medium" }]
+    }
   },
   "workerExtensions": ["pi-smart-fetch", "pi-web-search"]
 }

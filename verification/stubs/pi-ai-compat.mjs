@@ -1,4 +1,4 @@
-// Provides complete for extension/episodes.ts. Tests can replace
+// Provides completeSimple for extension/episodes.ts. Tests can replace
 // piAiCompatStub.complete to script compression success or failure.
 export const piAiCompatStub = {
   async complete() {
@@ -10,3 +10,4 @@ export const piAiCompatStub = {
   },
 };
 export const complete = (...args) => piAiCompatStub.complete(...args);
+export const completeSimple = (...args) => piAiCompatStub.complete(...args);

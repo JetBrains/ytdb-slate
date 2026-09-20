@@ -23,7 +23,6 @@ interface ThreadCallArgs {
 	task?: string;
 	context?: string[];
 	model?: string;
-	effort?: string;
 }
 
 interface ThreadDetails {
@@ -35,9 +34,9 @@ interface ThreadDetails {
 	lines?: string[];
 	usage?: UsageStats;
 	done?: boolean;
-	// What the action ACTUALLY ran on (tools.ts's `ran*` details). Distinct from the
-	// call's `model`/`effort` ARGUMENTS above: pi may clamp a level, and failover may
-	// switch the model. The collapsed view must show what actually ran (CQ16).
+	// Latest physical pair accepted for local Pi handoff (tools.ts's established
+	// `ran*` detail names). This is distinct from the logical model argument and is
+	// not proof of remote execution or billing.
 	ranModel?: string;
 	ranEffort?: string;
 	ranEffortUnmeasured?: boolean;
@@ -82,11 +81,8 @@ export function renderThreadCall(args: ThreadCallArgs, theme: ThemeLike) {
 	text += theme.fg("accent", args.name ? `new:"${args.name}"` : "new");
 	const typeMarker = args.type === undefined ? "" : threadTypeMarker(args.type);
 	if (typeMarker) text += theme.fg("muted", typeMarker);
-	// What this action ASKED for: "[model @effort]", or just "[@effort]" when only the
-	// level was named. Both are per-DISPATCH. This is the REQUEST — the result line
-	// carries what actually ran (`[ran …]`, see renderThreadResult). A clamped level
-	// or in-action failover can make the result differ from the request.
-	const routed = [args.model, args.effort ? `@${args.effort}` : undefined].filter((part) => !!part).join(" ");
+	// The call names a provider-free logical model. The result reports the physical route.
+	const routed = args.model ?? "";
 	if (routed) text += theme.fg("muted", ` [${routed}]`);
 	if (args.context && args.context.length > 0) text += theme.fg("muted", ` ⇐ ${args.context.join(", ")}`);
 	const task = (args.task ?? "").replace(/\s+/g, " ");
@@ -140,8 +136,8 @@ export function renderThreadResult(
 
 	// Collapsed: headline + Key Findings digest (or Open Issues when failed).
 	let text = `${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`;
-	// What it ACTUALLY ran on, in the call badge's style but labelled `ran` so it cannot
-	// be read as the request (CQ16). Collapsed only: the EXPANDED view renders the full
+	// The latest locally accepted physical pair, labelled `ran` for compatibility.
+	// Collapsed only: the EXPANDED view renders the full
 	// episode markdown, whose header already prints this — repeating it there would be
 	// the duplication that reporting was just consolidated out of.
 	const ran = [details.ranModel, details.ranEffort ? `@${details.ranEffort}` : undefined].filter((part) => !!part).join(" ");

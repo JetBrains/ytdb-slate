@@ -6,11 +6,11 @@
 # Exercises the pure resolver pipelines that have no other regression net:
 #   · the worker-extension resolver in extension/worker-extensions.ts and the
 #     doctrine rule it feeds in extension/mode.ts;
-#   · the model router in extension/model-router.ts — config sanitizer,
-#     candidate resolution and its warnings, the effort predicate — against
-#     fabricated registries and fabricated profile tables;
-#   · structural invariants of the shipped table in extension/model-profiles.ts
-#     (shape and internal consistency only, never a research number).
+#   · the active logical-model policy, runtime, recovery planners, exact import
+#     edge guard, doctrine rule, and live producer-consumer wiring against
+#     fabricated configuration, registries, events, and runtime state;
+#   · model-spec and persisted-record sanitizers, the base-model reducer, and
+#     episode rendering against fabricated records and events.
 # Prints one
 #   CHECK <id> <PASS|FAIL|NOT RUN> — <detail>
 # line per check (a FAIL adds an `observed:` line), then a `roster` check that
@@ -26,14 +26,16 @@
 #
 # Exit status: 0 all checks passed · 1 a check failed, a check went missing, or
 # --strict was given and a check reported NOT RUN · 2 refused to start (a missing
-# tool, a bad --repo, no resolvable pi CLI, or jiti could not be located).
+# tool, a bad --repo, a missing exact-pinned TypeScript compiler, no resolvable
+# pi CLI, or jiti could not be located).
 #
 # Everything runs against fabricated in-memory inputs — no network, no real pi
 # session. The only writes land in a throwaway temp dir this script creates and
 # removes on exit; it never touches real pi state or the repository. The TS is
 # loaded through the jiti bundled with pi (node's strip-only TypeScript mode
-# cannot load the modules), so `node` must be on PATH and a pi installation must
-# be findable — in resolution order: $PI_BIN, then the checkout's own
+# cannot load the modules), so `node` must be on PATH, the checkout's exact-pinned
+# TypeScript compiler must be installed, and a pi installation must be findable —
+# in resolution order: $PI_BIN, then the checkout's own
 # node_modules/.bin/pi (what `npm ci` installs), then a PATH-resolved `pi`.
 # Unlike the ladder this script uses only POSIX shell plus node — no GNU
 # coreutils — so it runs on non-GNU platforms too (symlink canonicalisation is
@@ -73,6 +75,22 @@ done
 
 REPO="$(cd "$REPO" 2>/dev/null && pwd -P)" || die "bad --repo: not a directory"
 [ -f "$REPO/extension/worker-extensions.ts" ] || die "not a slate checkout: $REPO/extension/worker-extensions.ts is missing"
+
+# The logical-model import-edge guard parses actual import syntax. Resolve the
+# checkout's exact devDependency before any check or pi lookup so an unavailable
+# or drifted compiler follows the wrapper's exit-2 refusal contract.
+node - "$REPO" <<'NODE' >/dev/null 2>&1 || die "exact-pinned TypeScript compiler unavailable in $REPO — run 'npm ci --ignore-scripts'"
+const { createRequire } = require("node:module");
+const { join } = require("node:path");
+const repo = process.argv[2];
+const manifestPath = join(repo, "package.json");
+const manifest = require(manifestPath);
+const expected = manifest.devDependencies?.typescript;
+if (typeof expected !== "string" || !/^\d+\.\d+\.\d+$/.test(expected)) process.exit(1);
+const request = createRequire(manifestPath);
+const actual = request("typescript/package.json").version;
+if (actual !== expected) process.exit(1);
+NODE
 
 # --------------------------------------------------------------- the pi CLI --
 # Same resolution order as verification/run-load-check.sh, so there is one
