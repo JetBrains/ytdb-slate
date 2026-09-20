@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { generateSummary } from "@earendil-works/pi-coding-agent";
-import { isRetryableAssistantError, streamSimple, type Api, type Model } from "@earendil-works/pi-ai/compat";
+import { setImmediate as nextTick } from "node:timers/promises";
+import { createAgentSession, generateSummary, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAssistantMessageEventStream, isRetryableAssistantError, normalizeContext, streamSimple, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createRequestThrottle, RequestThrottleAbort, type RequestThrottle } from "../extension/request-throttle.ts";
 import {
@@ -31,11 +32,11 @@ after(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-async function worker(name: string): Promise<WorkerSession> {
+async function worker(name: string, trusted = false): Promise<WorkerSession> {
   const ctx = {
     cwd: join(scratch, name),
     hasUI: false,
-    isProjectTrusted: () => false,
+    isProjectTrusted: () => trusted,
     model: undefined,
     modelRegistry: {
       getRegisteredProviderIds: () => [],
@@ -107,10 +108,89 @@ test("worker request contracts isolate actions and replace history only on accep
   assert.throws(() => first.accept({ ...model(), id: "recovery" }, "high", undefined, () => "stale"));
 });
 
-test("fresh pi 0.85.1 workers already use the SDK stream wrapper rather than streamSimple", { timeout: 5000 }, async () => {
+test("fresh workers use the SDK stream wrapper rather than streamSimple", { timeout: 5000 }, async () => {
   const session = await worker("identity");
   assert.notStrictEqual(session.agent.streamFunction, streamSimple);
   assert.equal(typeof session.agent.streamFunction, "function");
+});
+
+test("workers suppress real cache refreshes without changing host or saved settings", { timeout: 10_000 }, async (t) => {
+  const globalFile = join(scratch, "agent", "settings.json");
+  mkdirSync(join(scratch, "agent"), { recursive: true });
+  const eligible = { ...model(), contextWindow: 1_000_000, promptCache: { short: 300 },
+    cost: { input: 10, output: 10, cacheRead: 0.1, cacheWrite: 0 } };
+  const context = normalizeContext({ messages: [{ role: "user", content: "warmable request", timestamp: 0 }] });
+  for (const trusted of [false, true]) {
+    for (const mode of [undefined, "off", "streaming", "idle"] as const) {
+      const name = `warming-${trusted}-${mode ?? "default"}`;
+      const projectFile = join(scratch, name, ".pi", "settings.json");
+      mkdirSync(join(scratch, name, ".pi"), { recursive: true });
+      const globalJson = JSON.stringify({ cacheWarming: mode, defaultThinkingLevel: "low" });
+      const projectJson = JSON.stringify({ cacheWarming: "idle", defaultThinkingLevel: "high" });
+      writeFileSync(globalFile, globalJson);
+      writeFileSync(projectFile, projectJson);
+      const hostSettings = SettingsManager.create(join(scratch, name), join(scratch, "agent"), { projectTrusted: trusted });
+      const session = await worker(name, trusted);
+      assert.equal(session.settingsManager.getCacheWarmingMode(), "off", "disabled before any request");
+      assert.equal(session.settingsManager.getDefaultThinkingLevel(), trusted ? "high" : "low");
+      const { session: control } = await createAgentSession({
+        cwd: join(scratch, name), agentDir: join(scratch, "agent"), model: eligible,
+        settingsManager: hostSettings, sessionManager: SessionManager.inMemory(), resourceLoader: session.resourceLoader,
+      });
+      const counts = new Map([[session, 0], [control, 0]]);
+      const output = response() as AssistantMessage;
+      output.usage.input = 100_000;
+      const throttle = createRequestThrottle({ enabled: true, maxRequestsPerMinute: 1, baseWaitMs: 1, jitterMs: 0 });
+      const contract = createWorkerRequestContract();
+      contract.expect({ provider: eligible.provider, model: eligible.id, effort: "off" });
+      installRequestThrottle(session, throttle, contract);
+      try {
+        for (const candidate of [session, control]) {
+          candidate.agent.state.model = eligible;
+          candidate.sessionManager.appendMessage(output);
+          candidate.modelRuntime.streamSimple = (_model, _context, options) => {
+            const count = counts.get(candidate)!;
+            if (count > 0) assert.equal(options?.maxTokens, 1, "the extra request is a real upstream warm refresh");
+            counts.set(candidate, count + 1);
+            const stream = createAssistantMessageEventStream();
+            stream.push({ type: "done", reason: "stop", message: output });
+            stream.end();
+            return stream;
+          };
+        }
+        t.mock.timers.enable({ apis: ["Date", "setTimeout"] });
+        for (const candidate of [session, control]) {
+          await candidate.agent.streamFunction(eligible, context, { sessionId: candidate.sessionId, cacheRetention: "short" });
+        }
+        assert.equal(session.cacheWarmingStatus?.reason, "cache warming disabled");
+        if (mode !== "off") {
+          assert.equal(control.cacheWarmingStatus?.state, "scheduled");
+          assert.equal(control.cacheWarmingStatus?.decision?.action, "warm");
+          assert.ok(control.cacheWarmingStatus!.decision!.expectedSavings > 0.05);
+        }
+        t.mock.timers.tick(270_000);
+        await nextTick(); // Let the real timer's asynchronous refresh and usage persistence finish.
+        assert.equal(counts.get(control), mode === "off" ? 1 : 2, "positive control reaches the provider without worker suppression");
+        assert.equal(counts.get(session), 1, "no background request bypasses worker admission");
+        assert.equal(control.sessionManager.getBranch().filter((entry) => entry.type === "usage").length, mode === "off" ? 0 : 1);
+        assert.equal(session.sessionManager.getBranch().filter((entry) => entry.type === "usage").length, 0);
+        assert.deepEqual(contract.latestAccepted(), { model: { provider: eligible.provider, id: eligible.id }, effort: "off" });
+        // Explicit persistence still targets only the worker's no-write storage.
+        session.settingsManager.setDefaultThinkingLevel("max");
+        await session.settingsManager.flush();
+        session.settingsManager.reload();
+        assert.equal(session.settingsManager.getCacheWarmingMode(), "off", "reload retains the isolated override");
+        assert.equal(hostSettings.getCacheWarmingMode(), mode ?? "streaming");
+        assert.equal(readFileSync(globalFile, "utf8"), globalJson);
+        assert.equal(readFileSync(projectFile, "utf8"), projectJson);
+      } finally {
+        control.dispose();
+        session.dispose();
+        t.mock.timers.reset();
+        rmSync(globalFile, { force: true });
+      }
+    }
+  }
 });
 
 test("worker installation waits before delegating and preserves model, context, options, and errors", { timeout: 5000 }, async () => {
@@ -132,7 +212,7 @@ test("worker installation waits before delegating and preserves model, context, 
   };
   installRequestThrottle(session, throttle);
   const selectedModel = model();
-  const context = { systemPrompt: "system", messages: [], tools: [] };
+  const context = normalizeContext({ systemPrompt: "system", messages: [], tools: [] });
   const controller = new AbortController();
   await assert.rejects(async () => session.agent.streamFunction(selectedModel, context, { signal: controller.signal }), sentinel);
   assert.deepEqual(calls, ["admit", "delegate"]);
@@ -176,7 +256,7 @@ test("worker throttle cancellation rejects before the provider stream function r
   installRequestThrottle(session, throttle);
   const controller = new AbortController();
   controller.abort();
-  await assert.rejects(async () => session.agent.streamFunction(model(), { systemPrompt: "", messages: [], tools: [] }, { signal: controller.signal }), RequestThrottleAbort);
+  await assert.rejects(async () => session.agent.streamFunction(model(), normalizeContext({ systemPrompt: "", messages: [], tools: [] }), { signal: controller.signal }), RequestThrottleAbort);
   assert.equal(delegated, false);
 });
 
@@ -202,7 +282,7 @@ test("contract invalidation wakes an installed paced request without waiting for
   const contract = createWorkerRequestContract();
   contract.expect({ provider: "openai", model: "test-model", effort: "off" });
   installRequestThrottle(session, throttle, contract);
-  const pending = session.agent.streamFunction(model(), { systemPrompt: "", messages: [], tools: [] }, undefined);
+  const pending = session.agent.streamFunction(model(), normalizeContext({ systemPrompt: "", messages: [], tools: [] }), undefined);
   await Promise.resolve();
   assert.deepEqual(throttle.inspect(), { models: 1, timestamps: 1, waiters: 1 });
   assert.equal(scheduled.length, 1);
@@ -230,7 +310,7 @@ test("an abort immediately after admission reaches the delegated SDK stream", { 
     inspect() { return { models: 0, timestamps: 0, waiters: 0 }; },
   };
   installRequestThrottle(session, throttle);
-  await session.agent.streamFunction(model(), { systemPrompt: "", messages: [], tools: [] }, { signal: controller.signal });
+  await session.agent.streamFunction(model(), normalizeContext({ systemPrompt: "", messages: [], tools: [] }), { signal: controller.signal });
   assert.strictEqual(delegatedSignal, controller.signal);
   assert.equal(delegatedSignal?.aborted, true);
 });
@@ -359,7 +439,7 @@ test("caller cancellation of a paced contract request keeps its own identity and
     contract.expect({ provider: "openai", model: "test-model", effort: "off" });
     installRequestThrottle(session, throttle, contract);
     const controller = new AbortController();
-    const pending = session.agent.streamFunction(model(), { systemPrompt: "", messages: [], tools: [] }, { signal: controller.signal });
+    const pending = session.agent.streamFunction(model(), normalizeContext({ systemPrompt: "", messages: [], tools: [] }), { signal: controller.signal });
     await Promise.resolve();
     assert.deepEqual(throttle.inspect(), { models: 1, timestamps: 1, waiters: 1 });
     assert.equal(scheduled.length, 1);

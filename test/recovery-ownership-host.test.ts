@@ -278,6 +278,7 @@ interface MatrixState {
 	fallbackCalls: number;
 	otherCalls: number;
 	compactionCalls: number;
+	compactionEvents?: Array<{ phase: "start" | "success"; reason: string; willRetry: boolean }>;
 	toolCalls: number;
 	modelSwitchSucceeded: boolean;
 }
@@ -310,11 +311,12 @@ function matrixMessage(selected: Model<any>, kind: "tool" | "error" | "overflow"
 		provider: selected.provider,
 		model: selected.id,
 		usage: {
-			input: kind === "tool" ? 200_000 : 1,
+			// Only the scripted overflow should trigger compaction, not this tool turn.
+			input: 1,
 			output: 1,
 			cacheRead: 0,
 			cacheWrite: 0,
-			totalTokens: kind === "tool" ? 200_001 : 2,
+			totalTokens: 2,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		},
 		stopReason,
@@ -543,6 +545,7 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 	const cancelController = new AbortController();
 	const state: MatrixState = {
 		scenario,
+		compactionEvents: [],
 		startupRunEnded: false,
 		startupRequestSettled: false,
 		startupWorkCompleted: false,
@@ -578,6 +581,12 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 import type { ExtensionAPI } from ${JSON.stringify("@earendil-works/pi-coding-agent")};
 const state = (globalThis as any)[Symbol.for(${JSON.stringify(stateKey)})];
 export default function (pi: ExtensionAPI) {
+  pi.on("session_before_compact", (event) => {
+    state.compactionEvents.push({ phase: "start", reason: event.reason, willRetry: event.willRetry });
+  });
+  pi.on("session_compact", (event) => {
+    state.compactionEvents.push({ phase: "success", reason: event.reason, willRetry: event.willRetry });
+  });
   if (state.scenario === "startup-assistant-then-command-error") {
     pi.registerCommand("boom", {
       description: "Throw one attributed command failure.",
@@ -768,6 +777,10 @@ export default function (pi: ExtensionAPI) {
 		} else if (scenario === "compaction-then-cancel") {
 			await within(postCompactionEntered.promise, "the continuation that follows a successful history rewrite", 6_000);
 			assert.equal(state.compactionCalls, 1, "the rewrite must succeed before the cancellation");
+			assert.deepEqual(state.compactionEvents, [
+				{ phase: "start", reason: "overflow", willRetry: true },
+				{ phase: "success", reason: "overflow", willRetry: true },
+			], "Pi must finish overflow compaction before the caller cancels its continuation");
 			cancelController.abort();
 			postCompactionGate.resolve();
 			result = await within(dispatch, `${scenario} production ThreadManager dispatch`, 8_000);
@@ -775,6 +788,17 @@ export default function (pi: ExtensionAPI) {
 		} else {
 			result = await within(dispatch, `${scenario} production ThreadManager dispatch`, 8_000);
 			await manager.disposeAll();
+		}
+
+		if (scenario === "compaction" || scenario === "compaction-then-cancel") {
+			assert.deepEqual(state.compactionEvents, [
+				{ phase: "start", reason: "overflow", willRetry: true },
+				{ phase: "success", reason: "overflow", willRetry: true },
+			], `${scenario}: only the scripted overflow causes a successful retrying compaction`);
+		} else if (scenario === "compaction-refusal" || scenario === "recovery-compaction-refusal") {
+			assert.deepEqual(state.compactionEvents, [
+				{ phase: "start", reason: "overflow", willRetry: true },
+			], `${scenario}: overflow compaction starts but the contract prevents its completion`);
 		}
 
 		const episodeBytes = readFileSync(result.episode.file, "utf8");

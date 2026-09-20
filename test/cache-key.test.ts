@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import { normalizeContext, type Api, type Model } from "@earendil-works/pi-ai";
 import { OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH as PLATFORM_OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH } from "@earendil-works/pi-ai/api/openai-prompt-cache";
 import { stream as streamOpenAIResponses } from "@earendil-works/pi-ai/api/openai-responses";
 import {
@@ -128,7 +128,7 @@ test("worker cache wrapper preserves the OpenAI Responses retention opt-out", { 
       contextWindow: 1000,
       maxTokens: 100,
     },
-    { systemPrompt: "", messages: [], tools: [] },
+    normalizeContext({ systemPrompt: "", messages: [], tools: [] }),
     {
       apiKey: "test-key",
       cacheRetention: "none",

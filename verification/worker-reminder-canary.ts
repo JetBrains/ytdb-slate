@@ -1,7 +1,8 @@
 import { writeFileSync } from "node:fs";
 import {
 	type AssistantMessage,
-	type Context,
+	type TranscriptContext,
+	getCurrentTools,
 	type Model,
 	type SimpleStreamOptions,
 	createAssistantMessageEventStream,
@@ -82,9 +83,9 @@ function completedStream(output: AssistantMessage) {
 	return stream;
 }
 
-function snapshot(context: Context) {
+function snapshot(context: TranscriptContext) {
 	return {
-		tools: (context.tools ?? []).map((tool) => tool.name),
+		tools: getCurrentTools(context.messages).map((tool) => tool.name),
 		messages: context.messages.map((item) => {
 			const value = item as unknown as Record<string, unknown>;
 			return {
@@ -99,9 +100,9 @@ function snapshot(context: Context) {
 	};
 }
 
-function classify(context: Context) {
+function classify(context: TranscriptContext) {
 	const texts = context.messages.map((item) => textOf(item?.content));
-	const tools = (context.tools ?? []).map((tool) => tool.name);
+	const tools = getCurrentTools(context.messages).map((tool) => tool.name);
 	if (texts.some((text) => text.includes("You are compressing one completed action of a worker thread"))) return "compressor";
 	if (tools.includes("thread")) return "orchestrator";
 	if (texts.some((text) => text.includes(WORKER_TASK))) return "worker";
@@ -113,7 +114,7 @@ function persist() {
 	writeFileSync(EVIDENCE, JSON.stringify(evidence, null, 2));
 }
 
-function fakeStream(model: Model<any>, context: Context, _options?: SimpleStreamOptions) {
+function fakeStream(model: Model<any>, context: TranscriptContext, _options?: SimpleStreamOptions) {
 	const kind = classify(context);
 	const prior = evidence.calls.filter((call) => call.kind === kind).length;
 	evidence.calls.push({ kind, ordinal: prior + 1, context: snapshot(context) });
