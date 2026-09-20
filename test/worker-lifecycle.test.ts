@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
 import { ThreadManager } from "../extension/threads.ts";
 import { openWorkerSession, type WorkerSession } from "../extension/worker.ts";
@@ -15,6 +16,10 @@ function context(cwd: string): ExtensionContext {
     isProjectTrusted: () => true,
     model: undefined,
     modelRegistry: {
+      find(provider: string, id: string) { return provider === "test" && id === "worker" ? { provider, id, reasoning: false } : undefined; },
+      async getApiKeyAndHeaders() { return { ok: true, apiKey: "fixture" }; },
+      hasConfiguredAuth() { return true; },
+      async getAvailable() { return []; },
       getRegisteredProviderIds: () => [],
       getRegisteredNativeProvider: () => undefined,
       getRegisteredProviderConfig: () => undefined,
@@ -82,6 +87,62 @@ export default function (pi) {
     await Promise.all([session.shutdownWorker(), session.shutdownWorker()]);
     assert.equal(readFileSync(marker, "utf8"), "shutdown\n");
     assert.deepEqual(reports, []);
+  });
+});
+
+test("action ownership starts before session_start and managed operations leave the active set", { timeout: 10000 }, async (t) => {
+  await isolatedWorkerTest(t, async (root) => {
+    const marker = join(root, "early-boundary.txt");
+    const path = fixture(root, `import { writeFileSync } from "node:fs";
+export default function (pi) {
+  pi.on("session_start", () => {
+    pi.sendMessage({ customType: "fixture", content: "startup aside", display: false }, { deliverAs: "nextTurn" });
+    writeFileSync(${JSON.stringify(marker)}, "started");
+  });
+}`);
+    let callbackSawStartup = true;
+    const session = await openWorkerSession({
+      ctx: context(root),
+      extensionPaths: [path],
+      onCreated: () => { callbackSawStartup = existsSync(marker); },
+    });
+    assert.equal(callbackSawStartup, false, "the owner callback runs before session_start");
+    assert.equal(readFileSync(marker, "utf8"), "started");
+    assert.equal(session.activeManagedOperationCount(), 0, "settled startup operations are removed");
+    for (let index = 0; index < 25; index++) {
+      await session.sendCustomMessage(
+        { customType: "fixture", content: `settled-${index}`, display: false },
+        { deliverAs: "nextTurn" },
+      );
+      assert.equal(session.activeManagedOperationCount(), 0, "settled operations do not form a lifetime list");
+    }
+
+    let entered!: () => void;
+    let release!: () => void;
+    const operationEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const operationGate = new Promise<void>((resolve) => { release = resolve; });
+    session.prompt = async () => {
+      entered();
+      await operationGate;
+    };
+    const held = session.sendUserMessage("held managed operation");
+    await operationEntered;
+    assert.equal(session.activeManagedOperationCount(), 1, "only the held operation remains active");
+
+    let settlementFinished = false;
+    const settlement = session.settleManagedOperations().then(() => { settlementFinished = true; });
+    await Promise.resolve();
+    assert.equal(settlementFinished, false, "settlement waits for admitted work");
+    await assert.rejects(
+      session.sendCustomMessage({ customType: "fixture", content: "late", display: false }, { deliverAs: "nextTurn" }),
+      /lifecycle is closed/,
+    );
+    assert.equal(session.activeManagedOperationCount(), 1, "post-closure work is rejected before delegation");
+    release();
+    await held;
+    await settlement;
+    assert.equal(session.activeManagedOperationCount(), 0);
+    await session.shutdownWorker();
   });
 });
 
@@ -200,7 +261,11 @@ test("shutdown emission failure is reported and disposal still completes", { tim
       extensionPaths: [path],
       report: (message) => reports.push(message),
       onCreated: (created) => {
-        created.extensionRunner.emit = async () => { throw new Error("emit exploded"); };
+        const emit = created.extensionRunner.emit.bind(created.extensionRunner);
+        created.extensionRunner.emit = async (event) => {
+          if (event.type === "session_shutdown") throw new Error("emit exploded");
+          return emit(event);
+        };
         created.dispose = () => { disposed++; };
       },
     });
@@ -261,12 +326,14 @@ while (!existsSync(${JSON.stringify(release)})) await new Promise((resolve) => s
 export default function (pi) {
   pi.on("session_shutdown", () => { appendFileSync(${JSON.stringify(stopped)}, "stopped\\n"); });
 }`);
+    const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, costRating: 50, effort: "off", preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }] } } } });
     const manager = new ThreadManager(
       new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI),
       {},
       () => ({ units: [], paths: [path], toolNames: [] }),
+      runtime,
     );
-    const dispatch = manager.dispatch({ task: "opening teardown", type: "general" }, context(root), undefined);
+    const dispatch = manager.dispatch({ model: "fixture", reason: "lifecycle fixture", task: "opening teardown", type: "general" }, context(root), undefined);
     for (let tries = 0; tries < 200; tries++) {
       try { readFileSync(started); break; } catch { await new Promise((resolve) => setTimeout(resolve, 5)); }
     }
@@ -286,6 +353,118 @@ export default function (pi) {
     assert.equal(secondReturnedEarly, false);
     const view = manager as unknown as { live: Map<string, WorkerSession> };
     assert.equal(view.live.size, 0);
+  });
+});
+
+test("shutdown excludes independent background tasks while managed calls remain joined", { timeout: 10000 }, async (t) => {
+  await isolatedWorkerTest(t, async (root) => {
+    let backgroundEntered!: () => void;
+    let releaseBackground!: () => void;
+    let backgroundFinished!: () => void;
+    const entered = new Promise<void>((resolve) => { backgroundEntered = resolve; });
+    const gate = new Promise<void>((resolve) => { releaseBackground = resolve; });
+    const finished = new Promise<void>((resolve) => { backgroundFinished = resolve; });
+    const state = { backgroundEntered, gate, backgroundFinished, completed: false };
+    const stateKey = `slate-independent-background:${process.pid}:${Date.now()}:${Math.random()}`;
+    const symbol = Symbol.for(stateKey);
+    (globalThis as Record<symbol, unknown>)[symbol] = state;
+    const path = fixture(root, `const state = globalThis[Symbol.for(${JSON.stringify(stateKey)})];
+export default function (pi) {
+  pi.on("session_start", () => {
+    void (async () => {
+      state.backgroundEntered();
+      await state.gate;
+      state.completed = true;
+      state.backgroundFinished();
+    })();
+  });
+}`);
+    const session = await openWorkerSession({
+      ctx: context(root),
+      extensionPaths: [path],
+    });
+    try {
+      await entered;
+      await session.shutdownWorker();
+      assert.equal(state.completed, false, "independent background work does not delay shutdown");
+      releaseBackground();
+      await finished;
+      assert.equal(state.completed, true);
+    } finally {
+      releaseBackground();
+      await session.shutdownWorker();
+      delete (globalThis as Record<symbol, unknown>)[symbol];
+    }
+  });
+});
+
+test("caller cancellation before worker creation closes the onCreated race and cleans the opening", { timeout: 10000 }, async (t) => {
+  await isolatedWorkerTest(t, async (root, reports) => {
+    let loadEntered!: () => void;
+    let releaseLoad!: () => void;
+    const entered = new Promise<void>((resolve) => { loadEntered = resolve; });
+    const loadGate = new Promise<void>((resolve) => { releaseLoad = resolve; });
+    const state = { loadEntered, loadGate, startupAttempts: 0, shutdowns: 0 };
+    const stateKey = `slate-caller-opening:${process.pid}:${Date.now()}:${Math.random()}`;
+    const symbol = Symbol.for(stateKey);
+    (globalThis as Record<symbol, unknown>)[symbol] = state;
+    const path = fixture(root, `const state = globalThis[Symbol.for(${JSON.stringify(stateKey)})];
+state.loadEntered();
+await state.loadGate;
+export default function (pi) {
+  pi.on("session_start", () => {
+    state.startupAttempts += 1;
+    pi.sendUserMessage("post-cancellation startup work must not reach Pi");
+  });
+  pi.on("session_shutdown", () => { state.shutdowns += 1; });
+}`);
+    const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, costRating: 50, effort: "off", preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }] } } } });
+    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const manager = new ThreadManager(
+      store,
+      {},
+      () => ({ units: [], paths: [path], toolNames: [] }),
+      runtime,
+    );
+    const controller = new AbortController();
+    const dispatch = manager.dispatch(
+      { model: "fixture", reason: "caller opening cancellation", task: "opening caller cancellation", type: "general" },
+      context(root),
+      controller.signal,
+    );
+    const outcome = dispatch.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    try {
+      await entered;
+      const view = manager as unknown as {
+        requestContracts: Map<string, { invalidationSignal: AbortSignal; latestAccepted(): unknown }>;
+        openingWorkers: Set<Promise<void>>;
+        live: Map<string, WorkerSession>;
+      };
+      const contract = [...view.requestContracts.values()][0];
+      assert.ok(contract, "the opening request owner is visible before worker creation");
+      controller.abort();
+      assert.equal(contract.invalidationSignal.aborted, true, "caller cancellation invalidates the opening owner synchronously");
+      assert.equal(contract.latestAccepted(), undefined, "the pre-creation cancellation accepts no request");
+      releaseLoad();
+      const error = await outcome;
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /cancelled by the caller/);
+      assert.equal(state.startupAttempts, 1, "session_start reaches the closed managed-operation boundary");
+      assert.equal(state.shutdowns, 1, "failed opening cleanup emits one shutdown");
+      assert.equal(reports.some((message) => /route contract violation/i.test(message)), false);
+      assert.equal(view.requestContracts.size, 0);
+      assert.equal(view.openingWorkers.size, 0);
+      assert.equal(view.live.size, 0);
+      assert.equal(store.threads.size, 0);
+      assert.equal(store.episodes.size, 0);
+      await manager.disposeAll();
+    } finally {
+      releaseLoad();
+      delete (globalThis as Record<symbol, unknown>)[symbol];
+    }
   });
 });
 

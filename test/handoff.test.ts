@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createBaseModelTracker } from "../extension/base-model.ts";
+import { SAVED_DEFAULT_RESOURCE_KEY } from "../extension/failover.ts";
 import { effectiveContextBudgetTokens, registerSlateHandoff } from "../extension/handoff.ts";
-import { SlateStore } from "../extension/state.ts";
+import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
+import { SLATE_STATE_FORMAT, SlateStore } from "../extension/state.ts";
 
 // TQ4: the budget fixture below reaches SettingsManager, which reads a settings
 // file and takes a lock beside it. Without isolation that file is the
@@ -145,6 +148,209 @@ test("the clamped token budget reads the private settings file and names both nu
       f.sent[0]!.message.content as string,
       `[slate] Context is at 999,000 tokens — over the ${cap.toLocaleString("en-US")}-token budget (configured 999,000, clamped for this model's context window). Slate auto-paused: user prompts are refused, and state-save workers remain available.`,
     );
+  });
+});
+
+test("handoff adoption keeps completed state while busy and unpauses only after allowed fixed effort", { timeout: 2_000 }, async () => {
+  await isolated(async () => {
+    const stateFile = join(projectDir, ".pi", "slate", "episodes", "t1.e1.md");
+    mkdirSync(join(projectDir, ".pi", "slate", "episodes"), { recursive: true });
+    writeFileSync(stateFile, "completed worker result");
+    const snapshot = {
+      format: SLATE_STATE_FORMAT,
+      threads: [{ id: "t1", name: "done", status: "successful", type: "general", episodeId: "t1.e1", createdAt: 1, updatedAt: 1 }],
+      episodes: [{ id: "t1.e1", threadId: "t1", task: "done", status: "ok", file: stateFile, createdAt: 1 }],
+      orchestratorMode: true, paused: true, workerCostUsd: 0, carriedCostUsd: 0,
+    };
+    const run = async (busy: boolean) => {
+      const runtime = createLogicalRuntime({ trusted: true });
+      const base = createBaseModelTracker({ warn() {} });
+      const target = { provider: "openai", id: "gpt-5.6-luna" };
+      base.seed(target, "max"); base.adoptLogicalIdentity("gpt-5.6-luna");
+      let thinking = busy ? "low" : "max";
+      let modelSwitches = 0;
+      let thinkingSwitches = 0;
+      const handlers = new Map<string, (event: any, ctx: ExtensionContext) => Promise<unknown>>();
+      const pi = {
+        on(event: string, handler: any) { handlers.set(event, handler); },
+        getThinkingLevel() { return thinking; }, setThinkingLevel(level: string) { thinkingSwitches++; thinking = level; },
+        async setModel() { modelSwitches++; return true; }, appendEntry() {},
+      } as unknown as ExtensionAPI;
+      const store = new SlateStore(pi);
+      registerSlateHandoff(pi, store, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime);
+      const file = join(projectDir, ".pi", "slate", "pending-handoff.json");
+      mkdirSync(join(projectDir, ".pi", "slate"), { recursive: true });
+      writeFileSync(file, JSON.stringify({ parentSession: "parent", createdAt: Date.now(), brief: "done", model: target, thinkingLevel: "low", logicalModel: "gpt-5.6-luna", snapshot }));
+      const held = busy ? runtime.ownership.acquire("main", SAVED_DEFAULT_RESOURCE_KEY) : undefined;
+      const ctx = {
+        cwd: projectDir, hasUI: false, model: target, isProjectTrusted: () => true,
+        sessionManager: { getHeader: () => ({ parentSession: "parent" }) },
+        modelRegistry: { find: () => target },
+      } as unknown as ExtensionContext;
+      await handlers.get("session_start")!({}, ctx);
+      assert.equal(store.episodes.get("t1.e1")?.file, stateFile, "completed worker result survives adoption");
+      assert.equal(store.writingReminder.forceNext, true);
+      assert.equal(modelSwitches, 0, "the equality guard does not perform a redundant model switch");
+      if (busy) {
+        assert.equal(store.paused, true);
+        assert.equal(thinking, "low", "busy adoption performs no effort switch");
+        if (held?.kind === "acquired") held.lease.release();
+      } else {
+        assert.equal(store.paused, false);
+        assert.equal(thinking, "max");
+        assert.equal(thinkingSwitches, 0, "the exact route and fixed effort no-op calls no Pi setter");
+        assert.equal(base.currentLogicalIdentity(), "gpt-5.6-luna");
+      }
+    };
+    await run(true);
+    await run(false);
+  });
+});
+
+test("handoff adoption reports persistence failures and preserves a safe pause boundary", { timeout: 2_000 }, async () => {
+  await isolated(async () => {
+    const snapshot = {
+      format: SLATE_STATE_FORMAT, threads: [], episodes: [], orchestratorMode: true, paused: true,
+      workerCostUsd: 0, carriedCostUsd: 0,
+    };
+    const target = { provider: "openai", id: "gpt-5.6-luna" };
+    const run = async (failAt?: number) => {
+      const cwd = join(projectDir, `persistence-${failAt ?? "success"}`);
+      mkdirSync(join(cwd, ".pi", "slate"), { recursive: true });
+      writeFileSync(join(cwd, ".pi", "settings.json"), "{}");
+      const file = join(cwd, ".pi", "slate", "pending-handoff.json");
+      writeFileSync(file, JSON.stringify({
+        parentSession: "parent", createdAt: Date.now(), brief: "done", model: target,
+        logicalModel: "gpt-5.6-luna", snapshot,
+      }));
+      const runtime = createLogicalRuntime({ trusted: true });
+      const base = createBaseModelTracker({ warn() {} });
+      let appends = 0;
+      const durablePaused: boolean[] = [];
+      const handlers = new Map<string, any>();
+      const pi = {
+        on(event: string, handler: any) { handlers.set(event, handler); },
+        appendEntry(_type: string, state: Record<string, unknown>) {
+          appends++;
+          if (appends === failAt) throw new Error(`append ${appends} failed`);
+          durablePaused.push(state.paused as boolean);
+        },
+        getThinkingLevel: () => "max",
+        setThinkingLevel() { throw new Error("unexpected effort switch"); },
+        async setModel() { throw new Error("unexpected model switch"); },
+      } as unknown as ExtensionAPI;
+      const store = new SlateStore(pi);
+      registerSlateHandoff(pi, store, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime);
+      const ctx = {
+        cwd, hasUI: false, model: target, isProjectTrusted: () => true,
+        sessionManager: { getHeader: () => ({ parentSession: "parent" }) },
+        modelRegistry: { find: () => target },
+      } as unknown as ExtensionContext;
+      const warnings: string[] = [];
+      const old = console.warn; console.warn = (value?: unknown) => warnings.push(String(value));
+      try { await handlers.get("session_start")({}, ctx); } finally { console.warn = old; }
+      return { appends, durablePaused, file, paused: store.paused, warnings };
+    };
+
+    const first = await run(1);
+    assert.equal(first.appends, 1);
+    assert.deepEqual(first.durablePaused, []);
+    assert.equal(first.paused, true);
+    assert.equal(existsSync(first.file), true, "a failed adoption commit remains available for retry");
+    assert.match(first.warnings.join("\n"), /could not persist restored handoff state.*append 1 failed.*remains paused\. Reload can retry/s);
+
+    const second = await run(2);
+    assert.equal(second.appends, 2);
+    assert.deepEqual(second.durablePaused, [true], "the durable adoption remains paused");
+    assert.equal(second.paused, true, "failed unpause persistence restores the safe live pause");
+    assert.equal(existsSync(second.file), false, "the committed adoption keeps the existing pending-file behavior");
+    assert.match(second.warnings.join("\n"), /could not persist the unpaused handoff state.*append 2 failed.*remains paused/s);
+
+    const success = await run();
+    assert.equal(success.appends, 2);
+    assert.deepEqual(success.durablePaused, [true, false]);
+    assert.equal(success.paused, false);
+    assert.equal(existsSync(success.file), false);
+    assert.deepEqual(success.warnings, []);
+  });
+});
+
+test("handoff adoption keeps restored state paused on every identity and setter failure", { timeout: 2_000 }, async () => {
+  await isolated(async () => {
+    const snapshot = {
+      format: SLATE_STATE_FORMAT, threads: [], episodes: [], orchestratorMode: true, paused: true,
+      workerCostUsd: 0, carriedCostUsd: 0,
+    };
+    const target = { provider: "openai", id: "gpt-5.6-luna" };
+    const cases = [
+      ["missing-runtime", /not one unambiguous allowed logical choice/],
+      ["ambiguous", /not one unambiguous allowed logical choice/],
+      ["missing-effort", /no allowed fixed effort/],
+      ["missing-model", /without a usable model identity/],
+      ["registry-miss", /unknown or no auth/],
+      ["setter-false", /unknown or no auth/],
+      ["setter-throw", /could not restore model.*setter failed/s],
+      ["effort-throw", /could not apply fixed effort.*effort failed/s],
+      ["effort-clamp", /clamped effort/],
+    ] as const;
+    for (const [mode, expected] of cases) {
+      const cwd = join(projectDir, mode);
+      mkdirSync(join(cwd, ".pi", "slate"), { recursive: true });
+      writeFileSync(join(cwd, ".pi", "settings.json"), "{}");
+      const ordinary = createLogicalRuntime({
+        trusted: true,
+        projectConfig: mode === "ambiguous" ? { router: { models: { add: [{ model: "alias", capabilityRating: 40, costRating: 40, effort: "max", preferredProvider: "openai", providers: { openai: "gpt-5.6-luna" }, guidelines: [], cautions: [] }] } } } : undefined,
+      });
+      let runtime: any = mode === "missing-runtime" ? undefined : ordinary;
+      if (mode === "missing-effort") runtime = { ...ordinary, effortFor: () => undefined };
+      const base = createBaseModelTracker({ warn() {} });
+      let thinking: any = "low";
+      const handlers = new Map<string, any>();
+      const pi = {
+        on(event: string, handler: any) { handlers.set(event, handler); }, appendEntry() {}, getThinkingLevel: () => thinking,
+        setThinkingLevel(level: string) { if (mode === "effort-throw") throw new Error("effort failed"); if (mode !== "effort-clamp") thinking = level; },
+        async setModel() { if (mode === "setter-throw") throw new Error("setter failed"); return mode !== "setter-false"; },
+      } as unknown as ExtensionAPI;
+      const store = new SlateStore(pi);
+      registerSlateHandoff(pi, store, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime);
+      writeFileSync(join(cwd, ".pi", "slate", "pending-handoff.json"), JSON.stringify({
+        parentSession: "parent", createdAt: Date.now(), brief: "done",
+        ...(mode === "missing-model" ? {} : { model: target }), logicalModel: mode === "ambiguous" ? undefined : "gpt-5.6-luna", snapshot,
+      }));
+      const ctx = {
+        cwd, hasUI: false, model: { provider: "other", id: "current" }, isProjectTrusted: () => true,
+        sessionManager: { getHeader: () => ({ parentSession: "parent" }) },
+        modelRegistry: { find: () => mode === "registry-miss" ? undefined : target },
+      } as unknown as ExtensionContext;
+      const warnings: string[] = [];
+      const old = console.warn; console.warn = (value?: unknown) => warnings.push(String(value));
+      try { await handlers.get("session_start")({}, ctx); } finally { console.warn = old; }
+      assert.equal(store.paused, true, mode);
+      assert.match(warnings.join("\n"), expected, mode);
+      const available = runtime?.ownership.acquire("after", SAVED_DEFAULT_RESOURCE_KEY);
+      assert.equal(available?.kind ?? "acquired", "acquired", `${mode} releases ownership`);
+      if (available?.kind === "acquired") available.lease.release();
+    }
+  });
+});
+
+test("handoff adoption ignores stale, untrusted, unrelated, and already-restored pending state", { timeout: 2_000 }, async () => {
+  await isolated(async () => {
+    for (const mode of ["stale", "untrusted", "unrelated", "restored"] as const) {
+      const cwd = join(projectDir, `ignored-${mode}`);
+      mkdirSync(join(cwd, ".pi", "slate"), { recursive: true });
+      writeFileSync(join(cwd, ".pi", "settings.json"), "{}");
+      const file = join(cwd, ".pi", "slate", "pending-handoff.json");
+      writeFileSync(file, JSON.stringify({ parentSession: "parent", createdAt: mode === "stale" ? 0 : Date.now(), snapshot: { format: SLATE_STATE_FORMAT, threads: [], episodes: [], orchestratorMode: true, paused: true, workerCostUsd: 0, carriedCostUsd: 0 } }));
+      const handlers = new Map<string, any>();
+      const pi = { on(event: string, handler: any) { handlers.set(event, handler); }, appendEntry() {} } as unknown as ExtensionAPI;
+      const store = new SlateStore(pi); if (mode === "restored") store.orchestratorMode = true;
+      registerSlateHandoff(pi, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
+      const ctx = { cwd, hasUI: false, isProjectTrusted: () => mode !== "untrusted", sessionManager: { getHeader: () => ({ parentSession: mode === "unrelated" ? "other" : "parent" }) } } as unknown as ExtensionContext;
+      await handlers.get("session_start")({}, ctx);
+      assert.equal(store.paused, false, mode);
+      assert.equal(existsSync(file), mode !== "stale", mode);
+    }
   });
 });
 

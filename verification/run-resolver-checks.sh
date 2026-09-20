@@ -6,11 +6,11 @@
 # Exercises the pure resolver pipelines that have no other regression net:
 #   · the worker-extension resolver in extension/worker-extensions.ts and the
 #     doctrine rule it feeds in extension/mode.ts;
-#   · the model router in extension/model-router.ts — config sanitizer,
-#     candidate resolution and its warnings, the effort predicate — against
-#     fabricated registries and fabricated profile tables;
-#   · structural invariants of the shipped table in extension/model-profiles.ts
-#     (identifier and alias resolution, ladder consistency, tier range and freezing).
+#   · the active logical-model policy, runtime, recovery planners, exact import
+#     edge guard, doctrine rule, and live producer-consumer wiring against
+#     fabricated configuration, registries, events, and runtime state;
+#   · model-spec and persisted-record sanitizers, the base-model reducer, and
+#     episode rendering against fabricated records and events.
 # Prints one
 #   CHECK <id> <PASS|FAIL|NOT RUN> — <detail>
 # line per check (a FAIL adds an `observed:` line), then a `roster` check that
@@ -76,7 +76,7 @@ done
 REPO="$(cd "$REPO" 2>/dev/null && pwd -P)" || die "bad --repo: not a directory"
 [ -f "$REPO/extension/worker-extensions.ts" ] || die "not a slate checkout: $REPO/extension/worker-extensions.ts is missing"
 
-# The logical-model disconnection check parses actual import syntax. Resolve the
+# The logical-model import-edge guard parses actual import syntax. Resolve the
 # checkout's exact devDependency before any check or pi lookup so an unavailable
 # or drifted compiler follows the wrapper's exit-2 refusal contract.
 node - "$REPO" <<'NODE' >/dev/null 2>&1 || die "exact-pinned TypeScript compiler unavailable in $REPO — run 'npm ci --ignore-scripts'"

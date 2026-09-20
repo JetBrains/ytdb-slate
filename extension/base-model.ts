@@ -147,14 +147,13 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ThinkingLevel } from "./model-profiles.ts";
+import type { LogicalModelEffort as ThinkingLevel } from "./logical-model-definitions.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import { isModelSpec } from "./state.ts";
 
-// ONE definition of the effort vocabulary (the CQ2 rule the model-spec helpers
-// follow): the ladder union already exists in model-profiles.ts and the router
-// consumes it from there, so this module re-exports it rather than adding a
-// fourth copy. `import type` is erased, so no table is loaded at runtime.
+// ONE definition of the effort vocabulary. The logical-model definition owns
+// the active seven-level union, so this module re-exports that type without
+// loading a runtime table.
 export type { ThinkingLevel };
 
 /**
@@ -196,6 +195,10 @@ export interface BaseModelTracker {
 	current(): string | undefined;
 	/** The thinking level observed alongside the base model; undefined when unknown. */
 	currentEffort(): ThinkingLevel | undefined;
+	/** Explicit logical identity trusted for exact reverse-map disambiguation. */
+	currentLogicalIdentity(): string | undefined;
+	/** Record a policy-validated logical identity after its exact route is live. */
+	adoptLogicalIdentity(logicalModel: string | undefined): void;
 	/**
 	 * Declare a slate-initiated switch, immediately BEFORE the setter, so the event
 	 * it emits does not move the base.
@@ -300,6 +303,7 @@ function describeSpec(spec: string | undefined): string {
 export function createBaseModelTracker(deps: { warn: (msg: string) => void }): BaseModelTracker {
 	let base: string | undefined;
 	let baseEffort: ThinkingLevel | undefined;
+	let logicalIdentity: string | undefined;
 	/** Declarations, oldest first: in flight (settled === false) or in their one-event grace. */
 	const pending: Declaration[] = [];
 	const reported = new Set<string>();
@@ -371,6 +375,7 @@ export function createBaseModelTracker(deps: { warn: (msg: string) => void }): B
 	};
 
 	const seed = (model: unknown, effort?: ThinkingLevel): void => {
+		logicalIdentity = undefined;
 		// ABSENCE is legitimate and SILENT: a session with no model, or none it has
 		// auth for, resolves nothing — dispatch then falls back to whatever it did
 		// before this tracker existed. It reaches here as undefined/null, which is why
@@ -445,6 +450,10 @@ export function createBaseModelTracker(deps: { warn: (msg: string) => void }): B
 	return {
 		current: () => base,
 		currentEffort: () => baseEffort,
+		currentLogicalIdentity: () => logicalIdentity,
+		adoptLogicalIdentity: (logicalModel) => {
+			logicalIdentity = typeof logicalModel === "string" && logicalModel !== "" ? logicalModel : undefined;
+		},
 		seed,
 		expectOwnSwitch,
 
@@ -538,6 +547,7 @@ export function createBaseModelTracker(deps: { warn: (msg: string) => void }): B
 			// just matched, and including a "cycle" event, which is a real user action.
 			dropSettled();
 			if (ownSwitchEvent) return;
+			logicalIdentity = undefined;
 			base = next;
 			baseEffort = effort;
 		},

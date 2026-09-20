@@ -8,7 +8,7 @@ The orchestrator is your main pi session. It dispatches each **bounded action** 
 
 The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use focus areas backed by user-approved proofs. Optional umbrella **draft-PR publishing** covers tracks.
 
-An opt-in **model-failover** map adds high availability: when a model API fails, the orchestrator, worker threads, and episode compression each retry once on a configured equal-quality alternative. A second opt-in, **action-level model routing**, gives each dispatched action a model and an effort level chosen to be up to the task and no more, so cost is bounded per action instead of per session.
+Slate uses one trusted **logical-model policy** for action routing and recovery. Each action names a provider-free logical model and a short reason. The policy fixes effort, exact physical routes, capability and cost ratings, guidance, cautions, and bounded recovery order.
 
 ### Join our Zulip community!
 
@@ -73,32 +73,39 @@ Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
 
 This summary provides orientation only. The shipped docs listed below are normative.
 
-## Model failover
+## Logical-model routing and recovery
 
-Slate can ride through model API outages. The opt-in `modelFailover` map in `.pi/slate.json` (trusted projects only) maps a model (`provider/id`) to an equal-quality alternative. On an eligible model API failure — not an abort or a context overflow, and for the orchestrator and worker sites only after pi's own retries are exhausted — the affected site (orchestrator, worker thread, or episode compression) retries once on the mapped model (single hop, never chained). An orchestrator failover — like the handoff adoption that re-applies a parent session's model — would otherwise leave pi's global model defaults changed, so Slate restores them on a best-effort basis unless `preserveGlobalModelDefault` is `false`. The map is empty by default (feature off) and read once at session start. Full semantics: the `modelFailover` row in [Configuration](#configuration) and the shipped [`docs/model-failover.md`](docs/model-failover.md) — if they disagree, that document wins.
+Every `thread` call names a provider-free logical `model` and a short `reason`.
+The active policy fixes effort and permits exact provider and model pairs. Slate
+resolves one immutable policy when the parent session starts. Dispatch,
+compression, main-session recovery, doctrine, and `/slate effective` share it.
 
-## Action-level model routing
+The shipped ordinary pool has seven definitions. A trusted project can replace
+membership, add complete definitions, replace selected fields, and exclude
+members. The independent compressor list defaults to Sonnet at `medium`.
+Untrusted projects use the shipped policy and consume no project router data.
+Critical errors block logical work. Legacy physical-router keys produce named
+warnings and receive no automatic migration.
 
-This project's Pi settings prefer `openai/gpt-6-astra` at medium for a fresh
-trusted session. When a scoped model set is active, Pi selects Astra at medium if
-Astra appears anywhere in that set and its scope entry does not specify another
-effort. If Astra is absent, the scope excludes it. Explicit command-line and
-restored-session choices keep their existing precedence. A new worker session may
-initialize on this project default, but Slate applies the action's explicit route
-before its first billed worker call. This setting does not change global defaults
-or force a worker action.
+Pi retries the active physical route first. Slate advances only after Pi reports
+known retry exhaustion. Recovery tries another permitted provider for the same
+logical model before it moves through the ordinary or compressor order. Unknown
+outcomes and cancellation stop recovery. One operation owns recovery. An
+overlapping operation receives a visible busy refusal. Slate does not queue or
+replay it.
 
-Slate checks the explicit model and effort level for each action. Every `thread` call requires `model`, `effort`, and a short `reason`. `router.models` in `.pi/slate.json` is a closed list of `provider/id` specs for trusted projects. An empty list disables candidate-list enforcement, base seeding, and effort derivation. Explicit action arguments stay active in both router states. Slate checks explicit effort against pi's vocabulary. Slate also checks the model ladder when profile data exists. Each action opens a new worker session. [`docs/model-routing.md`](docs/model-routing.md) holds the full contract.
-
-Router startup warnings have two classes. One class is a configuration fault. It reports project configuration that Slate ignored or dropped. A configuration fault also covers problems the user can stop by adding a model, credential, or failover entry.
-
-The addition must go into their project configuration or pi credentials. Removing the model named by a warning does not meet this second test. Slate always shows configuration faults.
-
-The other class is a model data note. It reports shipped research data that project configuration cannot correct. Slate hides those notes by default.
-
-With this repository's seven-model list and the documented stock-window fixture, Slate hides eleven notes. Slate shows one discoverability line instead. A local registry override can change that count. The line names the hidden warning count and the `router.showWarnings` setting. The notes may inform an explicit model and effort choice. They do not select or reroute an action.
-
-The dispatch guards refuse an unlisted model and an invalid effort level. Gemini aliases do not inherit canonical Vertex effort evidence or positive capability guidance. Normal strict policy refuses their evidence gaps. Normal permissive policy marks them unmeasured. The existing failover exception still allows a working alias effort unless the provider rejects that control. The guards mark an unmeasured level. They refuse that level only when `router.allowUnmeasuredEffort` is `false`. Slate does not substitute models by context size. Slate does not emit a long-context billing notice. The doctrine states profile-based obligations that code does not enforce. Full semantics appear in the `router.*` configuration rows and [`docs/model-routing.md`](docs/model-routing.md).
+Pi 0.85.1 model and effort switches are session-only unless persistence is
+requested. Slate retains its saved-default compatibility guard for explicit
+persistence and older behavior. Slate retains bounded completed worker output
+when compression fails or is cancelled. A failed episode write can prevent an
+episode. A failed final state save can leave episode bytes without a proved
+durable reference. Both failures remain visible. A remembered later compressor
+starts later actions at that entry and does not move backward until preference
+reset. This is an accepted limitation. `extension/index.ts` is the supported
+package entry.
+The new logical-runtime exports are internal and unstable. The same rule applies
+to retry-evidence exports, which classify provider retry outcomes.
+[`docs/model-routing.md`](docs/model-routing.md) defines the complete contract.
 
 ## Writing guidance
 
@@ -129,7 +136,6 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | Key | Type | Default | Semantics |
 | --- | --- | --- | --- |
 | `orchestratorModeDefault` | boolean | `false` | Start fresh interactive sessions with orchestrator mode ON. |
-| `episodeModel` | string | newest available Anthropic Sonnet, else the orchestrator's own base model | Model (`provider/id`) used to compress a successful action or failed partial work into an episode. A failure without a worker response uses no compression model. Never the model an action was routed to: an episode is read by every later consumer of the thread, so one cheap route must not degrade the record. An unusable value is reported and the default is used. |
 | `workerTools` | string[] | `["read", "bash", "edit", "write", "grep", "find", "ls"]` | Tools available to worker threads (an empty list also falls back to the default). |
 | `workerExtensions` | string[] | `[]` | Regex patterns (matched **unanchored**) selecting which of the host session's already-loaded extensions also load into every worker thread; each matched extension's tools are added **on top of** `workerTools`. Empty (default) means workers load no project or discovered extensions. Slate still supplies one internal reminder component. The orchestrator keeps its restricted tool set but its doctrine is told what was whitelisted. Invalid patterns are dropped with a warning at session start. |
 | `cacheKeyEnabled` | boolean | `true` | Add one OpenAI Responses prompt cache key to all workers in the current main Slate session. Another main session receives another key. `false` disables key injection. It does not disable request throttling. Provider requests with `cacheRetention: "none"`, including worker summaries, keep that opt-out and receive no forced key. |
@@ -154,18 +160,14 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `writing.findings` | boolean | `true` | Include the latest model-visible writing findings in the hidden reminder. An invalid value warns and falls back to `true`. Measurement and the status line continue when this value is `false`. |
 | `doctrineExtraPath` | string | — | Project markdown whose **content** is appended to the orchestrator doctrine (project-specific workflow additions). |
 | `reviewPerspectivesPath` | string | — | Project review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
-| `modelFailover` | object (string → string) | — (empty, failover off) | Map of `provider/id` → equal-quality alternative model; on a model API failure the affected site retries once on the mapped model (worker/orchestrator sites only after pi's own retries are exhausted; episode compression has no pi retry loop). Read once at session start — see [`docs/model-failover.md`](docs/model-failover.md). |
-| `preserveGlobalModelDefault` | boolean | `true` | Put pi's global model defaults (`defaultProvider`, `defaultModel`, `defaultThinkingLevel`) back after a Slate-initiated model switch — orchestrator failover and handoff adoption — so the switch stays session-scoped. `false` turns that restore off at both sites (the switches themselves are unaffected), leaving each one persisted in pi's global settings. Best-effort: Slate reverts only a value its own switch produced, and can stand down or give up — limits in [`docs/model-failover.md`](docs/model-failover.md). |
-| `router.models` | string[] | `[]` (empty — routing off) | Closed list of models (`provider/id`) an action may use. Every dispatch requires `model`, `effort`, and `reason`. Empty or absent means Slate enforces no candidate list and derives no routing defaults. Slate checks effort against pi's vocabulary and the routed model's ladder when profile data exists. Context-size substitution and a long-context billing notice are not part of action routing. A listed model becomes routable only if Slate has its benchmark profile, pi registers it, and credentials are configured. An all-dropped list blocks dispatch when a malformed specification, missing shipped profile, or profile-alias duplicate caused a drop. This includes a list made only of retired Mini, Nano, or Fable 5 profile names. Other all-dropped causes turn routing off with a loud warning. With routing off, a retired model is unprofiled, so Slate does not reject its model-specific unsupported effort and Pi may clamp it. Slate reads and resolves the list once per session. See [`docs/model-routing.md`](docs/model-routing.md). |
-| `router.allowUnmeasuredEffort` | boolean | `true` | What happens when an explicitly requested effort level is on the target model's ladder but has no capability measurement in Slate's profiles: `true` dispatches it with a ⚠ notice and marks the episode `(unmeasured level)`; `false` refuses the dispatch. Either way a level that is off the model's ladder, or one the provider rejects outright, is refused. Slate derives no action effort. |
-| `router.showWarnings` | boolean | `false` | Reveal model data notes about Slate's shipped routing research. Configuration faults are never hidden. See [`docs/model-routing.md`](docs/model-routing.md). |
+| `router.models` | object | shipped seven-model pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Lists and provider maps replace whole fields rather than merge. |
+| `router.compressor.models` | array of `{ model, effort }` | `[{"model":"claude-sonnet-5","effort":"medium"}]` | Independent ordered compressor list. An explicit empty list blocks work. |
 
 Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point them at markdown files that actually exist in **your** project):
 
 ```json
 {
   "orchestratorModeDefault": true,
-  "episodeModel": "anthropic/claude-sonnet-5",
   "cacheKeyEnabled": true,
   "requestThrottle": { "enabled": true, "maxRequestsPerMinute": 12, "baseWaitMs": 1000, "jitterMs": 1000 },
   "maxConcurrent": 4,
@@ -175,8 +177,10 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
   "writing": { "remindTurns": 4, "remindOnFinding": true, "sentenceWordLimit": 25, "statusWindowTurns": 10, "findings": true },
   "doctrineExtraPath": "docs/agents/workflow-additions.md",
   "reviewPerspectivesPath": "docs/agents/review-perspectives.md",
-  "modelFailover": { "anthropic/claude-sonnet-5": "openai/gpt-5.2" },
-  "router": { "models": ["openai/gpt-5.6-luna", "anthropic/claude-opus-5"] }
+  "router": {
+    "models": { "include": ["gpt-5.6-luna", "claude-opus-5"] },
+    "compressor": { "models": [{ "model": "claude-sonnet-5", "effort": "medium" }] }
+  }
 }
 ```
 
@@ -227,10 +231,9 @@ In orchestrator mode, Slate appends a short **doctrine** (a block of numbered ru
 - `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
 - `docs/review-rules.md` — reviewer composition, the composite test-quality role, evidence standards, findings, and fix gates
 - `docs/design-principles.md` — Slate's own design rationale
-- `docs/model-failover.md` — the opt-in `modelFailover` map (**reference documentation** — unlike the entries above it is not workflow doctrine and is not cited by the doctrine)
 - `docs/context-budget.md` — the orchestrator `contextBudget`: defaults, per-model overrides, the window clamp, and the pricing rationale (also **reference documentation**, not cited by the doctrine)
 - `docs/writing-guidance.md` — the always-active writing convention, ignored writing keys, status line, and checker CLI
-- `docs/model-routing.md` — the action-level model routing reference. It covers the three `router` keys, model eligibility, required dispatch fields, and dispatch guards. It also covers first-session warnings. The doctrine cites this absolute path only while the routing rule renders. This path is fifth normally and sixth when `workflow.draftPRs` is on. The rule renders the live list because it depends on the session registry and credentials.
+- `docs/model-routing.md` — the logical-model policy, exact defaults, configuration, common recovery, history, and accepted limitations. The doctrine cites this absolute path for trusted sessions.
 Project-specific additions layer on top — they extend, not replace, the shipped doctrine — via two distinct mechanisms:
 
 - **Content injection**: `doctrineExtraPath` (appended to the doctrine itself, re-read at each prompt assembly) and `orchestratorPromptDocs` / `workerPromptDocs` (appended to the respective system prompts).

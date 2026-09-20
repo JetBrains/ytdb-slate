@@ -1,8 +1,9 @@
-const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+const TEST_ROUTE = { model: "fixture", reason: "test fixture" } as const;
 
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore, THREAD_TYPES, type ThreadRecord } from "../extension/state.ts";
 import { ThreadManager, type DispatchOptions } from "../extension/threads.ts";
 import { registerSlateTools } from "../extension/tools.ts";
@@ -10,6 +11,11 @@ import { registerSlateTools } from "../extension/tools.ts";
 interface ManagerInternals {
   createThread(opts: DispatchOptions, plan: unknown): ThreadRecord;
   runDispatch: (...args: unknown[]) => Promise<unknown>;
+}
+
+function fixtureRuntime() {
+  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }] } } } });
+  return Object.freeze({ ...runtime, validateRoute: async () => ({ ok: true } as const) });
 }
 
 function internals(manager: ThreadManager): ManagerInternals {
@@ -94,17 +100,17 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
   );
   const descriptionBytes = Buffer.byteLength(tool.description, "utf8");
   const parameterSchemaBytes = Buffer.byteLength(JSON.stringify(tool.parameters), "utf8");
-  assert.deepEqual((tool.parameters as unknown as { required: string[] }).required, ["type", "task", "model", "effort", "reason"]);
+  assert.deepEqual((tool.parameters as unknown as { required: string[] }).required, ["type", "task", "model", "reason"]);
   const routeProperties = tool.parameters.properties as unknown as Record<string, { type?: string; maxLength?: number }>;
   assert.equal(routeProperties.model?.type, "string");
-  assert.equal(routeProperties.effort?.type, "string");
+  assert.equal(routeProperties.effort, undefined);
   assert.equal(routeProperties.reason?.type, "string");
   assert.equal(routeProperties.reason?.maxLength, 200);
-  assert.equal(descriptionBytes, 1_032, "thread description byte budget changed; update docs/context-budget.md in the same commit");
-  assert.equal(parameterSchemaBytes, 1_386, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(descriptionBytes, 973, "thread description byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(parameterSchemaBytes, 1_158, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
   assert.equal(
     descriptionBytes + parameterSchemaBytes,
-    2_418,
+    2_131,
     "thread combined byte budget changed; update docs/context-budget.md in the same commit",
   );
 
@@ -150,7 +156,7 @@ test("new records persist every valid type", () => {
 
 test("public dispatch creates and persists every thread type", async () => {
   const { store } = storeHarness();
-  const manager = new ThreadManager(store, {});
+  const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
   const view = internals(manager);
   view.runDispatch = async (thread: unknown) => thread;
 

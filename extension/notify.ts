@@ -8,8 +8,8 @@
  * strip control characters and cap the length before display.
  *
  * Imported across failover.ts, handoff.ts, worker.ts, worker-extensions.ts,
- * writing.ts, state.ts, episodes.ts, threads.ts, route.ts, base-model.ts and
- * model-router.ts. This shared change therefore affects every notify or console
+ * writing.ts, state.ts, episodes.ts, threads.ts, and base-model.ts. This shared
+ * change therefore affects every notify or console
  * warning those modules emit. model-default.ts deliberately does NOT import this:
  * it also needs the bare control-char strip as a standalone primitive (for its
  * word-boundary report truncation, which this helper does not do), so it keeps

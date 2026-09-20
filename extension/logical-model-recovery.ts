@@ -40,8 +40,12 @@ function physicalKey(route: PhysicalRoute): string {
 
 function providerOrder(definition: Readonly<LogicalModelDefinition>, remembered: string | undefined, active: string | undefined = undefined): string[] {
 	const order: string[] = [];
+	const seen = new Set<string>();
 	for (const provider of [active, remembered, definition.preferredProvider, ...Object.keys(definition.providers)]) {
-		if (provider !== undefined && Object.hasOwn(definition.providers, provider) && !order.includes(provider)) order.push(provider);
+		if (provider !== undefined && Object.hasOwn(definition.providers, provider) && !seen.has(provider)) {
+			seen.add(provider);
+			order.push(provider);
+		}
 	}
 	return order;
 }
@@ -154,13 +158,23 @@ export class RecoveryPreferences {
 		this.#policy = policy;
 	}
 
-	admit(): RecoveryAdmission {
+	remembered(): Readonly<{ providers: Readonly<Record<string, string>>; compressorIndex?: number }> {
 		const providers = Object.create(null) as Record<string, string>;
 		for (const [model, preference] of this.#providers) providers[model] = preference.provider;
 		return Object.freeze({
-			sequence: ++this.#nextSequence,
-			snapshot: Object.freeze({ providers: Object.freeze(providers), compressorIndex: this.#compressor?.index ?? 0, resetEpoch: this.#resetEpoch }),
+			providers: Object.freeze(providers),
+			...(this.#compressor === undefined ? {} : { compressorIndex: this.#compressor.index }),
 		});
+	}
+
+	snapshot(): RecoveryPreferenceSnapshot {
+		const providers = Object.create(null) as Record<string, string>;
+		for (const [model, preference] of this.#providers) providers[model] = preference.provider;
+		return Object.freeze({ providers: Object.freeze(providers), compressorIndex: this.#compressor?.index ?? 0, resetEpoch: this.#resetEpoch });
+	}
+
+	admit(): RecoveryAdmission {
+		return Object.freeze({ sequence: ++this.#nextSequence, snapshot: this.snapshot() });
 	}
 
 	publishProvider(admission: RecoveryAdmission, logicalModel: string, provider: string): boolean {
@@ -194,6 +208,11 @@ interface OwnershipToken {
 	readonly savedDefaultKey?: string;
 }
 
+// Only active saved-default leases live here. A scope is the physical settings
+// resource that a host can write. Empty scope buckets are removed on release,
+// so session replacement shares live exclusion without retaining old runtimes.
+const sharedSavedDefaults = new Map<string, Map<string, OwnershipToken>>();
+
 export interface RecoveryLease {
 	release(): void;
 }
@@ -205,13 +224,54 @@ export type RecoveryOwnershipResult =
 export class RecoveryOwnership {
 	readonly #sessions = new Map<string, OwnershipToken>();
 	readonly #defaults = new Map<string, OwnershipToken>();
+	readonly #savedDefaultScope: string | undefined;
+	#lifecycleCurrent = true;
+
+	constructor(savedDefaultScope?: string) {
+		this.#savedDefaultScope = savedDefaultScope;
+	}
+
+	isCurrentLifecycle(): boolean {
+		return this.#lifecycleCurrent;
+	}
+
+	/** Mark callbacks from this extension factory obsolete without releasing leases. */
+	retireLifecycle(): void {
+		this.#lifecycleCurrent = false;
+	}
+
+	#defaultOwner(savedDefaultKey: string): OwnershipToken | undefined {
+		if (this.#savedDefaultScope === undefined) return this.#defaults.get(savedDefaultKey);
+		return sharedSavedDefaults.get(this.#savedDefaultScope)?.get(savedDefaultKey);
+	}
+
+	#setDefaultOwner(savedDefaultKey: string, token: OwnershipToken): void {
+		if (this.#savedDefaultScope === undefined) {
+			this.#defaults.set(savedDefaultKey, token);
+			return;
+		}
+		const scoped = sharedSavedDefaults.get(this.#savedDefaultScope) ?? new Map<string, OwnershipToken>();
+		scoped.set(savedDefaultKey, token);
+		sharedSavedDefaults.set(this.#savedDefaultScope, scoped);
+	}
+
+	#deleteDefaultOwner(savedDefaultKey: string, token: OwnershipToken): void {
+		if (this.#savedDefaultScope === undefined) {
+			if (this.#defaults.get(savedDefaultKey) === token) this.#defaults.delete(savedDefaultKey);
+			return;
+		}
+		const scoped = sharedSavedDefaults.get(this.#savedDefaultScope);
+		if (scoped?.get(savedDefaultKey) !== token) return;
+		scoped.delete(savedDefaultKey);
+		if (scoped.size === 0) sharedSavedDefaults.delete(this.#savedDefaultScope);
+	}
 
 	acquire(sessionKey: string, savedDefaultKey?: string): RecoveryOwnershipResult {
 		if (this.#sessions.has(sessionKey)) return { kind: "busy", resource: "execution-session", key: sessionKey };
-		if (savedDefaultKey !== undefined && this.#defaults.has(savedDefaultKey)) return { kind: "busy", resource: "saved-default", key: savedDefaultKey };
+		if (savedDefaultKey !== undefined && this.#defaultOwner(savedDefaultKey) !== undefined) return { kind: "busy", resource: "saved-default", key: savedDefaultKey };
 		const token: OwnershipToken = Object.freeze({ identity: Symbol("recovery-owner"), sessionKey, ...(savedDefaultKey === undefined ? {} : { savedDefaultKey }) });
 		this.#sessions.set(sessionKey, token);
-		if (savedDefaultKey !== undefined) this.#defaults.set(savedDefaultKey, token);
+		if (savedDefaultKey !== undefined) this.#setDefaultOwner(savedDefaultKey, token);
 		let released = false;
 		return {
 			kind: "acquired",
@@ -220,7 +280,7 @@ export class RecoveryOwnership {
 					if (released) return;
 					released = true;
 					if (this.#sessions.get(sessionKey) === token) this.#sessions.delete(sessionKey);
-					if (savedDefaultKey !== undefined && this.#defaults.get(savedDefaultKey) === token) this.#defaults.delete(savedDefaultKey);
+					if (savedDefaultKey !== undefined) this.#deleteDefaultOwner(savedDefaultKey, token);
 				},
 			}),
 		};

@@ -44,6 +44,8 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { currentModelSpec, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
+import { SAVED_DEFAULT_RESOURCE_KEY } from "./failover.ts";
+import type { LogicalRuntime } from "./logical-model-runtime.ts";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
@@ -87,6 +89,7 @@ interface PendingHandoff {
 	// and when the parent session had no model.
 	model?: { provider: string; id: string };
 	thinkingLevel?: ThinkingLevel;
+	logicalModel?: string;
 	snapshot: SlateSnapshot;
 }
 
@@ -312,6 +315,7 @@ export function registerSlateHandoff(
 	store: SlateStore,
 	getConfig: () => SlateConfig,
 	getBaseModel: () => BaseModelTracker,
+	getRuntime: () => Readonly<LogicalRuntime> | undefined = () => undefined,
 ): SlateHandoffHooks {
 	// pi's compaction reserve — read ONCE, lazily, then cached: it feeds a
 	// per-turn check and SettingsManager.create is a lock-protected disk read.
@@ -503,8 +507,21 @@ export function registerSlateHandoff(
 			store.adoptSnapshot(pending.snapshot, ctx);
 			store.writingReminder.forceNext = true;
 			store.writingReminder.adoptedThisSessionStart = true;
-			store.paused = false;
-			store.save();
+			// State is durable before model adoption. Keep the replacement paused
+			// until an exact allowed logical identity and fixed effort are live.
+			store.paused = true;
+			try {
+				store.save();
+			} catch (error) {
+				reportFailure(
+					ctx,
+					`slate: could not persist restored handoff state — ${sanitizeForNotify(
+						error instanceof Error ? error.message : String(error),
+					)}. Handoff remains paused. Reload can retry the pending handoff.`,
+				);
+				return;
+			}
+			getRuntime()?.resetPreferences();
 			rmSync(file, { force: true });
 			if (ctx.hasUI) {
 				const t = store.threads.size;
@@ -537,26 +554,41 @@ export function registerSlateHandoff(
 			) {
 				const { provider, id } = spec;
 				const label = sanitizeForNotify(`${provider}/${id}`);
-				// The WHOLE adoption block runs inside the shared restore wrapper, not
-				// just the setModel call: both setters persist into the user's GLOBAL
-				// settings, and this path can persist the thinking-level key ALONE when
-				// the equality guard below short-circuits the model setter — so the
-				// wrapper's yield and post-switch read must follow the LAST write here
-				// (model-default.ts).
+				const runtime = getRuntime();
+				const mapping = runtime?.reverseMap({ provider, model: id }, pending.logicalModel);
+				if (!runtime || !mapping || mapping.kind !== "one") {
+					reportFailure(ctx, `slate: handoff state is restored but model ${label} is not one unambiguous allowed logical choice. Handoff remains paused; choose a logical model.`);
+					return;
+				}
+				const requiredEffort = runtime.effortFor(mapping.logicalModel);
+				if (!requiredEffort) {
+					reportFailure(ctx, `slate: handoff state is restored but ${label} has no allowed fixed effort. Handoff remains paused; choose a logical model.`);
+					return;
+				}
+				const owner = runtime.ownership.acquire(`slate:handoff:${pending.parentSession ?? "unknown"}`, SAVED_DEFAULT_RESOURCE_KEY);
+				if (owner.kind === "busy") {
+					reportFailure(ctx, `slate: handoff model adoption is busy on ${owner.resource}. No second model switch was started. Handoff remains paused; retry later.`);
+					return;
+				}
+				let adopted = false;
+				try {
+				// Keep the whole adoption block inside the compatibility restore guard.
+				// Pi 0.85.1 extension setters are session-only, so this is normally a
+				// zero-write no-op. The guard still covers older or explicitly persistent
+				// host behavior, including a thinking-level-only write.
 				await withGlobalModelDefaultRestored(
 					pi,
 					ctx,
 					getConfig(),
 					{ provider, id },
 					async () => {
-						// True once a pi setter has actually been CALLED — only then can pi
-						// have persisted anything, and only then does the wrapper need to do
-						// its post-switch work.
+						// True once a Pi setter has been called. Pi 0.85.1 does not persist
+						// this call, but the compatibility guard must conservatively cover hosts
+						// where the same call can write a default.
 						let calledSetter = false;
 						try {
-							// Equality guard: setModel persists the model as the user's GLOBAL
-							// default as a side effect, so only call it when the fresh session
-							// actually resolved to something else.
+							// Equality guard: avoid a recorded session switch when the fresh
+							// session already resolved to the captured physical model.
 							let restored = ctx.model?.provider === provider && ctx.model?.id === id;
 							if (!restored) {
 								const model = ctx.modelRegistry.find(provider, id);
@@ -575,43 +607,25 @@ export function registerSlateHandoff(
 								}
 							}
 							if (restored) {
-								// CONFIRMED success only (the model is live in this session, either
-								// because the setter returned true or because it already was): a handoff
-								// adoption deliberately re-seeds the orchestrator's base model. Recorded
-								// BEFORE the thinking-level setter (BG12): that setter can throw — it
-								// emits events and appends to the session file — and a throw there must
-								// not lose an adoption that already succeeded. A failed or abandoned
-								// model restore never reaches this line, so the base then keeps the seed
-								// taken from this session's own model.
-								getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
-								// Thinking level rides only on a matching/restored model, and only
-								// AFTER setModel (which re-derives thinking internally). Like
-								// setModel, setThinkingLevel persists to the user's ONE GLOBAL
-								// default thinking level (not a per-model value), so clamping the
-								// old level against an unrelated fallback model would persist
-								// garbage there. Non-strings are never passed on; pi clamps
-								// unknown string levels itself.
-								if (typeof pending.thinkingLevel === "string") {
-									calledSetter = true;
-									// Its OWN try/catch (BG12): the outer one reports "could not restore
-									// model … keeping the session default", which would be a false claim
-									// once the model IS restored. This failure is the thinking level's
-									// alone, and it is reported as such.
-									try {
-										pi.setThinkingLevel(pending.thinkingLevel);
-										// Re-record the base with the level pi actually clamped to, now that
-										// it is applied. adopt() is idempotent for the model; this only
-										// refreshes the observed effort.
-										getBaseModel().adopt(`${provider}/${id}`, readLiveEffort(pi));
-									} catch (error) {
-										reportFailure(
-											ctx,
-											`slate: restored model ${label}, but could not apply the handoff's thinking level ` +
-												`"${sanitizeForNotify(pending.thinkingLevel, 20)}" — ${sanitizeForNotify(
-													error instanceof Error ? error.message : String(error),
-												)}. Keeping the session's own thinking level.`,
-										);
+								try {
+									// Keep the no-op path exact. When both the physical route and
+									// its fixed effort are already live, no Pi setter can persist a
+									// default, so the compatibility guard must skip its post-read.
+									let actualEffort = readLiveEffort(pi);
+									if (actualEffort !== requiredEffort) {
+										calledSetter = true;
+										pi.setThinkingLevel(requiredEffort);
+										actualEffort = readLiveEffort(pi);
 									}
+									if (actualEffort !== requiredEffort) {
+										reportFailure(ctx, `slate: restored model ${label}, but Pi clamped effort to ${sanitizeForNotify(String(actualEffort))}; policy requires ${requiredEffort}. Handoff remains paused.`);
+									} else if (runtime.ownership.isCurrentLifecycle()) {
+										getBaseModel().adopt(`${provider}/${id}`, actualEffort);
+										getBaseModel().adoptLogicalIdentity(mapping.logicalModel);
+										adopted = true;
+									}
+								} catch (error) {
+									reportFailure(ctx, `slate: restored model ${label}, but could not apply fixed effort ${requiredEffort} — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}. Handoff remains paused.`);
 								}
 							} else {
 								reportFailure(
@@ -620,9 +634,8 @@ export function registerSlateHandoff(
 								);
 							}
 						} catch (error) {
-							// A throw can land AFTER a completed write (pi persists the pair
-							// before the cascade that can throw), so this counts as "a setter
-							// ran" — the safe direction.
+							// A compatibility host can throw after a persistent write. Treat the
+							// attempted setter as potentially written in the safe direction.
 							calledSetter = true;
 							reportFailure(
 								ctx,
@@ -637,6 +650,25 @@ export function registerSlateHandoff(
 					// wrapper's post-switch reads, retries and reporting entirely.
 					(calledSetter) => calledSetter,
 				);
+				} finally {
+					owner.lease.release();
+				}
+				if (adopted && runtime.ownership.isCurrentLifecycle()) {
+					store.paused = false;
+					try {
+						store.save();
+					} catch (error) {
+						store.paused = true;
+						reportFailure(
+							ctx,
+							`slate: could not persist the unpaused handoff state — ${sanitizeForNotify(
+								error instanceof Error ? error.message : String(error),
+							)}. Handoff remains paused.`,
+						);
+					}
+				}
+			} else {
+				reportFailure(ctx, "slate: handoff state is restored without a usable model identity. Handoff remains paused; choose a logical model.");
 			}
 		} catch {
 			/* a broken pending file must never break session start */
@@ -658,11 +690,12 @@ export function registerSlateHandoff(
 			brief,
 			model,
 			thinkingLevel: model ? pi.getThinkingLevel() : undefined,
-			// The successor starts unpaused and in orchestrator mode regardless of
-			// the current (paused) state.
+			logicalModel: model ? getBaseModel().currentLogicalIdentity() : undefined,
+			// The successor starts paused until model adoption confirms an allowed
+			// logical identity and its fixed effort.
 			snapshot: {
 				...store.snapshot(),
-				paused: false,
+				paused: true,
 				orchestratorMode: true,
 				// The successor's own branch sum starts at zero, so bank the parent's
 				// billed orchestrator spend (plus anything already carried) — the

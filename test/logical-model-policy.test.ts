@@ -8,7 +8,7 @@ import test from "node:test";
 import { SHIPPED_COMPRESSOR_MODELS, SHIPPED_LOGICAL_MODELS, type LogicalModelDefinition } from "../extension/logical-model-definitions.ts";
 import { resolveLogicalModelPolicy, type LogicalModelPolicy } from "../extension/logical-model-resolver.ts";
 import { renderEffectiveLogicalModelPolicy, renderLogicalModelPrompt } from "../extension/logical-model-render.ts";
-import { REVIEWED_NON_LITERAL_MODULE_SITES, analyzeLogicalModelSources, scanLogicalModelImports } from "../verification/logical-model-import-check.ts";
+import { REVIEWED_LOGICAL_MODEL_EDGES, REVIEWED_NON_LITERAL_MODULE_SITES, analyzeLogicalModelSources, scanLogicalModelImports } from "../verification/logical-model-import-check.ts";
 
 const REPOSITORY_ROOT = process.cwd();
 const resolve = (projectConfig?: unknown, trusted = true) => resolveLogicalModelPolicy({ trusted, projectConfig });
@@ -48,6 +48,52 @@ const COMPLETE_DEFAULTS = [
   { model: "claude-opus-5", capabilityRating: 72, effort: "high", costRating: 80, preferredProvider: "anthropic", providers: { anthropic: "claude-opus-5" }, guidelines: ["concurrency work", "data-loss work", "performance work"], cautions: ["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], source: SOURCE },
   { model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60, preferredProvider: "openai", providers: { openai: "gpt-6-astra" }, guidelines: ["security work", "performance work"], cautions: [], source: SOURCE },
 ];
+
+test("project configuration selects the exact approved logical defaults", () => {
+  const config = JSON.parse(readFileSync(join(process.cwd(), ".pi", "slate.json"), "utf8"));
+  assert.deepEqual(config, {
+    orchestratorModeDefault: true,
+    workflow: { draftPRs: true },
+    router: {
+      models: { include: COMPLETE_DEFAULTS.map((row) => row.model) },
+      compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] },
+    },
+    workerExtensions: ["pi-smart-fetch", "pi-web-search"],
+  });
+  const resolution = resolve(config);
+  assert.deepEqual(resolution.policy?.ordinary.map((row) => row.model), COMPLETE_DEFAULTS.map((row) => row.model));
+  assert.deepEqual(resolution.policy?.compressor, [{ model: "claude-sonnet-5", effort: "medium" }]);
+});
+
+test("documented add and replace JSON examples resolve through production policy", () => {
+  const document = readFileSync(join(process.cwd(), "docs", "model-routing.md"), "utf8");
+  const example = (label: "add" | "replace"): unknown => {
+    const match = new RegExp("Complete `" + label + "` example:\\n\\n```json\\n([\\s\\S]*?)\\n```").exec(document);
+    assert.ok(match?.[1], `missing ${label} JSON example`);
+    return JSON.parse(match[1]);
+  };
+
+  const added = resolve(example("add"));
+  assert.deepEqual(added.errors, []);
+  assert.deepEqual(added.policy?.ordinary.map((row) => row.model), ["project-fast"]);
+  assert.deepEqual({ ...added.policy?.definitions["project-fast"]?.providers }, {
+    acme: "acme-fast-v2",
+    "acme-backup": "acme/fast-v2",
+  });
+
+  const replaced = resolve(example("replace"));
+  assert.deepEqual(replaced.errors, []);
+  assert.deepEqual(plain(replaced.policy?.definitions["gpt-5.6-sol"]), {
+    model: "gpt-5.6-sol",
+    capabilityRating: 58,
+    effort: "max",
+    costRating: 40,
+    preferredProvider: "gateway",
+    providers: { gateway: "openai/gpt-5.6-sol" },
+    guidelines: ["repository-wide implementation"],
+    cautions: [],
+  });
+});
 
 test("shipped definitions match the complete approved literal", () => {
   assert.deepEqual(plain(SHIPPED_LOGICAL_MODELS), COMPLETE_DEFAULTS);
@@ -138,8 +184,10 @@ test("one-defect definition fixtures independently block each validation rule", 
   }
 });
 
-test("unknown fields in add, replace, router.models, and compressor entries independently block", () => {
+test("unknown fields at every router level independently block", () => {
   const cases = [
+    ["router models typo", { router: { modles: {} } }, "router has unknown field \"modles\"."],
+    ["router compressor typo", { router: { compresor: {} } }, "router has unknown field \"compresor\"."],
     ["complete add", { router: { models: { add: [{ ...validCustom, unexpected: true }] } } }, "router.models.add[0] has unknown field \"unexpected\"."],
     ["partial replace", { router: { models: { replace: [{ model: "gpt-5.6-sol", unexpected: true }] } } }, "router.models.replace[0] has unknown field \"unexpected\"."],
     ["models section", { router: { models: { unexpected: true } } }, "router.models has unknown field \"unexpected\"."],
@@ -434,17 +482,22 @@ test("recursive runtime-source scanning uses exact dormant paths and includes ne
     const extension = join(root, "extension");
     mkdirSync(join(extension, "nested"), { recursive: true });
     for (const file of ["logical-model-definitions.ts", "logical-model-resolver.ts", "logical-model-render.ts", "logical-model-recovery.ts", "logical-model-adapters.ts"]) {
-      writeFileSync(join(extension, file), "this is deliberately invalid dormant syntax");
+      writeFileSync(join(extension, file), "export {};\n");
     }
     writeFileSync(join(extension, "logical-model-render.mjs"), 'import "./logical-model-resolver.ts";');
     writeFileSync(join(extension, "nested", "logical-model-render.ts"), 'import "../logical-model-render.ts";');
     writeFileSync(join(extension, "nested", "logical-model-resolver.mjs"), 'export { value } from "../logical-model-definitions.ts";');
     writeFileSync(join(extension, "nested", "runtime.mjs"), 'void import("../logical-model-resolver.js");');
     writeFileSync(join(extension, "clean.ts"), 'const note = "from \\\"./logical-model-render.ts\\\"";');
-    const result = scanLogicalModelImports(extension);
+    const result = scanLogicalModelImports(extension, []);
     assert.deepEqual(result.files, [
       "extension/clean.ts",
+      "extension/logical-model-adapters.ts",
+      "extension/logical-model-definitions.ts",
+      "extension/logical-model-recovery.ts",
       "extension/logical-model-render.mjs",
+      "extension/logical-model-render.ts",
+      "extension/logical-model-resolver.ts",
       "extension/nested/logical-model-render.ts",
       "extension/nested/logical-model-resolver.mjs",
       "extension/nested/runtime.mjs",
@@ -484,12 +537,56 @@ test("the real resolver wrapper refuses a missing exact-pinned TypeScript compil
   }
 });
 
-test("every non-policy runtime extension source stays disconnected from logical-model modules", () => {
+test("the active logical-model graph equals the exact reviewed edge roster", () => {
   const result = scanLogicalModelImports("extension");
   assert.ok(result.files.length > 20);
   assert.equal(result.files.some((path) => path.endsWith(".mjs")), true);
+  assert.deepEqual(result.reviewedLiteralEdges, REVIEWED_LOGICAL_MODEL_EDGES);
   assert.deepEqual(result.reviewedNonLiteralSites, REVIEWED_NON_LITERAL_MODULE_SITES);
   assert.deepEqual(result.issues, []);
+
+  const one = "extension/consumer.ts|import|extension/logical-model-runtime";
+  const source = [{ path: "extension/consumer.ts", source: 'import "./logical-model-runtime.ts";' }];
+  assert.deepEqual(analyzeLogicalModelSources(source, REPOSITORY_ROOT, [], [one]).issues, []);
+  assert.deepEqual(analyzeLogicalModelSources([], REPOSITORY_ROOT, [], [one]).issues.map((issue) => issue.kind), ["missing-reviewed-edge"]);
+  assert.deepEqual(analyzeLogicalModelSources([{ ...source[0]!, source: `${source[0]!.source}\n${source[0]!.source}` }], REPOSITORY_ROOT, [], [one]).issues.map((issue) => issue.kind), ["forbidden-reference"]);
+  assert.deepEqual(analyzeLogicalModelSources(source, REPOSITORY_ROOT, [], []).issues.map((issue) => issue.kind), ["forbidden-reference"]);
+  assert.deepEqual(analyzeLogicalModelSources([{ path: "extension/failover.ts", source: "const forged = value as OpenModel;" }], REPOSITORY_ROOT, [], []).issues.map((issue) => issue.kind), ["unsafe-brand-cast"]);
+});
+
+test("the brand guard rejects exactly the approved assertion shapes in its bounded consumer", () => {
+  const approved = [
+    "value as SessionBaseline",
+    "value as OpenModel",
+    "value as unknown as SessionBaseline",
+    "value as unknown as OpenModel",
+    "value as any as SessionBaseline",
+    "value as any as OpenModel",
+    "<SessionBaseline>value",
+    "<OpenModel>value",
+    "value as never",
+  ];
+  for (const expression of approved) {
+    const result = analyzeLogicalModelSources([{ path: "extension/threads.ts", source: `const forged = ${expression};` }], REPOSITORY_ROOT, [], []);
+    assert.deepEqual(result.issues.map((issue) => issue.kind), ["unsafe-brand-cast"], expression);
+    assert.equal(result.issues[0]?.expression, expression);
+  }
+  const producer = analyzeLogicalModelSources(approved.map((expression, index) => ({
+    path: "extension/logical-model-runtime.ts",
+    source: `const forged${index} = ${expression};`,
+  })), REPOSITORY_ROOT, [], []);
+  assert.deepEqual(producer.issues, [], "the exact authorized producer stays exempt");
+  const secondConsumer = analyzeLogicalModelSources([
+    { path: "extension/failover.ts", source: "const forgedBaseline = value as SessionBaseline;" },
+    { path: "extension/failover.ts", source: "const forgedModel = value as OpenModel;" },
+  ], REPOSITORY_ROOT, [], []);
+  assert.deepEqual(secondConsumer.issues.map((issue) => issue.kind), ["unsafe-brand-cast", "unsafe-brand-cast"], "direct named as-assertions stay forbidden throughout the nonproducer scan scope");
+  const outsideBound = analyzeLogicalModelSources([
+    { path: "extension/tools.ts", source: "const renderAdapter = value as never;" },
+    { path: "extension/fixture/consumer.ts", source: "const alias = value as Alias;" },
+    { path: "extension/failover.ts", source: "const angle = <OpenModel>value;" },
+  ], REPOSITORY_ROOT, [], []);
+  assert.deepEqual(outsideBound.issues, [], "as-never and angle assertions stay bounded, and alias resolution stays outside scope");
 });
 
 test("the disconnected policy contains no retired external score or ratio vocabulary", () => {

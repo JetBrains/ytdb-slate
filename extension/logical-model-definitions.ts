@@ -31,6 +31,13 @@ export interface LogicalCompressorEntry {
 	effort: LogicalModelEffort;
 }
 
+const LOGICAL_MODEL_NAME = /^[a-z0-9][a-z0-9._-]*$/;
+
+/** One provider-free logical model name accepted by policy and durable history. */
+export function isLogicalModelName(value: unknown): value is string {
+	return typeof value === "string" && LOGICAL_MODEL_NAME.test(value);
+}
+
 function deepFreeze<T>(value: T): T {
 	if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
 		Object.freeze(value);

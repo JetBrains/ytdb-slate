@@ -32,6 +32,8 @@
  */
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createAssistantMessageEventStream, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
+import { registerApiProvider } from "@earendil-works/pi-ai/compat";
 import { AgentSession, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const AG = process.env.PI_CODING_AGENT_DIR!;
 const SETTINGS = join(AG, "settings.json");
@@ -59,7 +61,36 @@ function applyPatch(patchJson: string): void {
   for (const [k, v] of Object.entries(patch)) { if (v === null) delete cur[k]; else cur[k] = v; }
   writeFileSync(SETTINGS, JSON.stringify(cur, null, 2));
 }
+function recoveryMessage(model: Model<any>, stopReason: "error" | "stop"): AssistantMessage {
+  return {
+    role: "assistant", content: stopReason === "stop" ? [{ type: "text", text: "recovered" }] : [],
+    api: model.api, provider: model.provider, model: model.id,
+    usage: { input: 1, output: stopReason === "stop" ? 1 : 0, cacheRead: 0, cacheWrite: 0, totalTokens: stopReason === "stop" ? 2 : 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason, ...(stopReason === "error" ? { errorMessage: "Connection error." } : {}), timestamp: Date.now(),
+  };
+}
+function registerRecoveryApi(): void {
+  const calls: string[] = [];
+  const evidence = process.env.SLATE_LADDER_RECOVERY_EVIDENCE;
+  const stream = (model: Model<any>) => {
+    const result = recoveryMessage(model, model.provider === "probe-a" ? "error" : "stop");
+    calls.push(`${model.provider}/${model.id}:${result.stopReason}`);
+    if (evidence) writeFileSync(evidence, JSON.stringify({ calls }, null, 2));
+    const output = createAssistantMessageEventStream();
+    queueMicrotask(() => {
+      output.push({ type: "start", partial: { ...result, stopReason: "pending" } });
+      output.push({ type: "done", reason: result.stopReason, message: result } as never);
+      output.end();
+    });
+    return output;
+  };
+  registerApiProvider({ api: "slate-ladder-recovery", stream, streamSimple: stream }, "slate-ladder-recovery");
+}
 export default function (pi: ExtensionAPI) {
+  if (process.env.SLATE_LADDER_RECOVERY === "1") {
+    registerRecoveryApi();
+    return;
+  }
   pi.on("session_start", async (_e, ctx) => {
     const mod = (await import(MODULE)) as { withGlobalModelDefaultRestored: (
       pi: unknown, ctx: unknown, config: unknown, target: { provider: string; id: string },

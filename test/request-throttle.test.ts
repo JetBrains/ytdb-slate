@@ -13,6 +13,7 @@ import {
   throttleIdentity,
   type SanitizedRequestThrottle,
 } from "../extension/request-throttle.ts";
+import { createWorkerRequestContract, WORKER_REQUEST_CONTRACT_ERROR } from "../extension/worker.ts";
 
 const OPENAI_A = { api: "openai-responses", provider: "openai", id: "a" };
 const OPENAI_B = { api: "openai-responses", provider: "openai", id: "b" };
@@ -153,6 +154,74 @@ test("every recheck of one blocked caller takes another configured delay", { tim
   assert.equal(h.waits[1]?.delay, 300);
   controller.abort();
   await assert.rejects(blocked, RequestThrottleAbort);
+});
+
+test("a rejected synchronous handoff consumes no admission", { timeout: WAITER_TIMEOUT_MS }, async () => {
+  const h = harness({ maxRequestsPerMinute: 1 });
+  assert.equal(h.throttle.inspect().timestamps, 0);
+  await assert.rejects(h.throttle.accept(OPENAI_A, undefined, () => { throw new Error("final validation failed"); }), /final validation failed/);
+  assert.equal(h.throttle.inspect().timestamps, 0);
+  assert.equal(await h.throttle.accept(OPENAI_A, undefined, () => "accepted"), "accepted");
+  assert.equal(h.throttle.inspect().timestamps, 1);
+});
+
+test("contract invalidation before immediate capacity or during a wait consumes no admission", { timeout: WAITER_TIMEOUT_MS }, async () => {
+  const immediate = harness({ maxRequestsPerMinute: 1 });
+  const inactive = createWorkerRequestContract();
+  inactive.expect({ provider: "openai", model: "a", effort: "off" });
+  inactive.invalidate();
+  await assert.rejects(
+    immediate.throttle.accept(OPENAI_A, undefined, () => inactive.accept(OPENAI_A, undefined, undefined, () => "sent")),
+    new RegExp(WORKER_REQUEST_CONTRACT_ERROR),
+  );
+  assert.deepEqual(immediate.throttle.inspect(), { models: 0, timestamps: 0, waiters: 0 });
+
+  const waiting = harness({ maxRequestsPerMinute: 1 });
+  await waiting.throttle.accept(OPENAI_A, undefined, () => "seed");
+  const pending = createWorkerRequestContract();
+  pending.expect({ provider: "openai", model: "a", effort: "off" });
+  const blocked = waiting.throttle.accept(
+    OPENAI_A,
+    pending.invalidationSignal,
+    () => pending.accept(OPENAI_A, undefined, undefined, () => "must not reach Pi"),
+  );
+  await Promise.resolve();
+  assert.equal(waiting.throttle.inspect().waiters, 1);
+  assert.equal(waiting.waits.length, 1);
+  pending.invalidate();
+  await assert.rejects(blocked, RequestThrottleAbort);
+  assert.equal(waiting.waits[0]?.cancelled, true, "invalidation cancels the current timer directly");
+  assert.equal(waiting.waits.length, 1, "invalidation schedules no capacity recheck");
+  assert.deepEqual(waiting.throttle.inspect(), { models: 1, timestamps: 1, waiters: 0 });
+});
+
+test("disabled and out-of-scope throttles still run the atomic handoff without state", { timeout: WAITER_TIMEOUT_MS }, async () => {
+  for (const [candidate, enabled] of [
+    [OPENAI_A, false],
+    [{ api: "anthropic-messages", provider: "anthropic", id: "a" }, true],
+  ] as const) {
+    const h = harness({ enabled, maxRequestsPerMinute: 1 });
+    let handoffs = 0;
+    assert.equal(await h.throttle.accept(candidate, undefined, () => ++handoffs), 1);
+    assert.equal(handoffs, 1);
+    assert.deepEqual(h.throttle.inspect(), { models: 0, timestamps: 0, waiters: 0 });
+  }
+});
+
+test("cancellation inside the accepted handoff keeps admission and attribution", { timeout: WAITER_TIMEOUT_MS }, async () => {
+  const h = harness({ maxRequestsPerMinute: 1 });
+  const contract = createWorkerRequestContract();
+  contract.expect({ provider: "openai", model: "a", effort: "off" });
+  const controller = new AbortController();
+  const result = await h.throttle.accept(OPENAI_A, controller.signal, () =>
+    contract.accept(OPENAI_A, undefined, controller.signal, () => {
+      controller.abort();
+      return "accepted";
+    }),
+  );
+  assert.equal(result, "accepted");
+  assert.deepEqual(contract.latestAccepted(), { model: { provider: "openai", id: "a" }, effort: "off" });
+  assert.equal(h.throttle.inspect().timestamps, 1);
 });
 
 test("overlapping calls cannot both consume one free slot", { timeout: WAITER_TIMEOUT_MS }, async () => {

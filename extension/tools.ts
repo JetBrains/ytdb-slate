@@ -70,11 +70,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"Every new thread requires a type.",
 			"Use `context` to inject episodes by id from any thread.",
 			"Independent calls can run in parallel within the global concurrency limit.",
-			"Every call must name `model` (\"provider/id\"), `effort` (pi thinking level), and a short `reason` for the route.",
-			"These values describe and route this action only.",
+			"Every call must name a logical `model` and a short `reason` for that selection.",
+			"The active logical policy fixes effort and the permitted physical routes for this action.",
 			"`tools` sets the new thread's worker tool allowlist.",
-			"Slate rejects a level the model does not offer and, when configured, a model outside the routable list.",
-			"Advisory notices before the episode report routing evidence gaps.",
+			"Slate validates each permitted physical route, its credentials, and the fixed effort before execution.",
 			"A failed action produces one failed episode. Slate compresses any worker response and uses a fixed episode when no response exists.",
 			"File-changing tasks require the track workflow's pre-implementation gates first.",
 		].join(" "),
@@ -93,15 +92,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				Type.Array(Type.String(), { description: "Earlier episode ids to load in caller order", maxItems: MAX_CONTEXT_EPISODES }),
 			),
 			model: Type.String({
-				description: "Required worker model as a canonical provider/id specification for this action.",
-			}),
-			effort: Type.String({
-				description:
-					"Required thinking level for this action: off, minimal, low, medium, high, xhigh or max. " +
-					"Slate refuses a level outside the routed model's known ladder.",
+				description: "Required logical model name from the active Slate policy.",
 			}),
 			reason: Type.String({
-				description: "Required short reason for this model and effort choice.",
+				description: "Required short reason for this logical model choice.",
 				maxLength: 200,
 			}),
 			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
@@ -114,6 +108,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			}
 			if (Object.prototype.hasOwnProperty.call(raw, "freshContext")) {
 				throw new Error('The "freshContext" field was removed. Pass earlier episode ids through "context".');
+			}
+			if (Object.prototype.hasOwnProperty.call(raw, "effort")) {
+				throw new Error('The "effort" field was removed. Select a logical model. Its policy fixes the effort.');
 			}
 			const type = parseThreadType(params.type, true);
 			const displayedType = (threadId: string) => displayThreadType(store.threads.get(threadId)?.type ?? type);
@@ -143,7 +140,6 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					task: params.task,
 					contextEpisodeIds: params.context,
 					model: params.model,
-					effort: params.effort,
 					reason: params.reason,
 					tools: params.tools,
 				},
@@ -175,10 +171,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					episodeId: result.episode.id,
 					status: result.episode.status,
 					episodeFile: result.episode.file,
-					// `ran*` and not `model`/`effort`: these are what the action ACTUALLY ran on,
-					// post-clamp and post-failover — NOT the `model`/`effort` arguments the call
-					// was made with, which a renderer shows on the call line and
-					// which can differ from these. The names say which of the two a reader has.
+					// `ran*` keeps the established renderer detail names. The values are the
+					// latest post-clamp physical pair accepted for local Pi handoff, not remote
+					// execution proof and not the logical model argument shown on the call line.
 					ranModel: result.episode.model,
 					ranEffort: result.episode.effort,
 					ranEffortUnmeasured: result.episode.effortUnmeasured,
@@ -203,8 +198,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		description:
 			"List worker threads, their status, episodes, activity, and models. " +
 			"type=<type> marks a non-general thread. " +
-			"requested=<model>@<effort> and reason= show the last dispatch request. " +
-			"last=<model>@<effort> records what ran. live=<model> (failover) shows a held fallback.",
+			"logical=<name> and reason= show the action selection. " +
+			"requested=<physical-model>@<effort> and last=<physical-model>@<effort> preserve execution facts.",
 		promptSnippet: "List worker threads and their episodes",
 		parameters: Type.Object({}),
 		async execute() {
@@ -218,6 +213,8 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const marks: string[] = [];
 				// The action's model may differ from the base after an explicit route or failover.
 				const lastEpisode = t.episodeId === undefined ? undefined : store.episodes.get(t.episodeId);
+				const logicalModel = typeof lastEpisode?.logicalModel === "string" ? lastEpisode.logicalModel : undefined;
+				if (logicalModel) marks.push(`logical=${sanitizeForNotify(logicalModel, 80)}`);
 				const requestedModel = isModelSpec(lastEpisode?.requestedModel) ? lastEpisode.requestedModel : undefined;
 				const requestedEffort = isThinkingLevel(lastEpisode?.requestedEffort) ? lastEpisode.requestedEffort : undefined;
 				if (requestedModel) {

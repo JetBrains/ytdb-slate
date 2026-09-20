@@ -1,345 +1,224 @@
-/**
- * Model failover: shared helpers for the `modelFailover` config map
- * ("provider/id" → "provider/id"), consumed by the three retry sites
- * (worker dispatch, episode compression, orchestrator), plus the
- * orchestrator-side registration itself (registerOrchestratorFailover).
- *
- * Rules baked in here:
- *  - SINGLE HOP: a mapping's target is never itself re-looked-up in the map,
- *    so chains and cycles in the config are inert — one failed model buys at
- *    most one retry on its mapped model.
- *  - Classification is STATE-based, not message-based (AF10): pi signals
- *    preflight auth failures as plain Errors with prose messages, so
- *    substring matching would silently break on a pi wording change (peer dep
- *    is "*"). Instead, isAuthFailure re-runs the registry auth check, which
- *    reads credentials fresh on every call.
- *  - Context-overflow failures never qualify (isContextOverflow): switching
- *    models cannot shrink an oversized prompt, and pi has its own overflow
- *    handling. "aborted" stops never qualify either (AF11): a user or
- *    orchestrator cancellation must not be answered with a retry.
- */
-
 import { isContextOverflow, isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
-import {
-	getAgentDir,
-	SettingsManager,
-	type ExtensionAPI,
-	type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { currentModelSpec, type BaseModelTracker } from "./base-model.ts";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { currentModelSpec, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
+import { MainRetryEvidence, type CompressorRetryPolicy } from "./logical-model-adapters.ts";
+import type { LogicalRuntime } from "./logical-model-runtime.ts";
+import { RecoveryOperation, type RecoveryAdmission, type RecoveryCandidate, type RecoveryLease } from "./logical-model-recovery.ts";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { isModelSpec, splitModelSpec, type SlateConfig } from "./state.ts";
+import type { SlateConfig } from "./state.ts";
 
-type RegistryModel = NonNullable<ReturnType<ExtensionContext["modelRegistry"]["find"]>>;
+export const MAIN_RECOVERY_SESSION_KEY = "slate:main-session";
+export const SAVED_DEFAULT_RESOURCE_KEY = "slate:global-model-default";
+const CONTINUATION = "[slate] The previous main-session response exhausted Pi retries on an eligible transient provider failure. Continue from the retained conversation state. Inspect existing tool results before any new call. Do not replay a completed call.";
 
-// Console-first reporting, for FAILURES ONLY: the console line is
-// unconditional, so a failover that could not happen still surfaces in
-// headless runs and at teardown — the has-UI branch is exactly the one that
-// vanishes there — and the UI notification is the extra. Success notices keep
-// their has-UI gate: an unconditional stderr write during an interactive turn
-// scribbles pi-tui's differentially rendered frame, and a failover that worked
-// is not news worth that cost. ctx.hasUI is a getter that THROWS on a stale
-// context, so it is guarded: an unguarded check would be a crash, not a test.
-function reportFailure(ctx: ExtensionContext, message: string): void {
+type MainOperation = {
+	runtime: Readonly<LogicalRuntime>;
+	sessionEpoch: number;
+	admission: RecoveryAdmission;
+	lease: RecoveryLease;
+	candidates: readonly RecoveryCandidate[];
+	visited: RecoveryOperation;
+	next: number;
+	transitioning: boolean;
+	active?: RecoveryCandidate;
+};
+
+function report(ctx: ExtensionContext, message: string): void {
 	console.warn(message);
+	try { if (ctx.hasUI) ctx.ui.notify(message, "warning"); } catch { /* stale context */ }
+}
+
+function notice(ctx: ExtensionContext, message: string): void {
+	try { if (ctx.hasUI) ctx.ui.notify(message, "warning"); } catch { /* cosmetic */ }
+}
+
+function routeOf(ctx: ExtensionContext): { provider: string; model: string } | undefined {
 	try {
-		if (ctx.hasUI) ctx.ui.notify(message, "warning");
-	} catch {
-		/* stale ctx — the console line above stands */
-	}
+		const model = ctx.model;
+		return model ? { provider: model.provider, model: model.id } : undefined;
+	} catch { return undefined; }
 }
 
-// UI-only notice, as before this module gained a restore mechanism: shown when
-// a UI exists, silent otherwise — only the guard is new, since ctx.hasUI throws
-// on a stale context.
-function notifyUi(ctx: ExtensionContext, message: string): void {
-	try {
-		if (ctx.hasUI) ctx.ui.notify(message, "warning");
-	} catch {
-		/* stale ctx — a cosmetic notice is not worth unwinding the handler */
-	}
-}
-
-/**
- * Validate the raw `modelFailover` config value. Keeps only entries where key
- * and value are both "provider/id" strings and key !== value (a self-mapping
- * could never help). Drops everything else with ONE aggregate warning;
- * non-object input yields an empty map (absent = feature off, silently).
- */
-export function sanitizeModelFailover(
-	raw: unknown,
-	warn: (msg: string) => void,
-): Record<string, string> {
-	if (raw === undefined) return {};
-	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-		warn('slate: ignoring modelFailover — expected an object mapping "provider/id" to "provider/id"');
-		return {};
-	}
-	const map: Record<string, string> = {};
-	const dropped: string[] = [];
-	for (const [key, value] of Object.entries(raw)) {
-		if (isModelSpec(key) && isModelSpec(value) && key !== value) {
-			map[key] = value;
-		} else {
-			// CQ1: keys/values come from user-edited slate.json and reach
-			// ctx.ui.notify — strip control/ANSI codes before display.
-			dropped.push(sanitizeForNotify(`"${key}": ${JSON.stringify(value)}`));
-		}
-	}
-	if (dropped.length > 0) {
-		warn(
-			`slate: dropped invalid modelFailover entries (need "provider/id" → "provider/id", key ≠ value, ` +
-				`no whitespace or invisible characters):\n${dropped.join("\n")}`,
-		);
-	}
-	return map;
-}
-
-/**
- * True iff a finished assistant message is a failure that a model switch
- * could plausibly fix: stopReason "error" that is NOT a context overflow.
- * Never true for "aborted" (or any other stopReason), or for a missing
- * message.
- */
-export function isFailoverCandidate(
-	msg: { stopReason?: string; errorMessage?: string; usage?: unknown } | undefined,
-	contextWindow: number | undefined,
-): boolean {
-	if (!msg || msg.stopReason !== "error") return false;
-	return !isContextOverflow(msg as AssistantMessage, contextWindow);
-}
-
-/**
- * Resolve the failover target for the current model: look up
- * map["provider/id"], resolve it against the registry, and verify auth.
- * Returns the Model when all three succeed, undefined otherwise. Single hop:
- * the result is returned as-is, never fed back through the map.
- */
-export async function resolveMappedModel(
-	ctx: ExtensionContext,
-	map: Record<string, string>,
-	currentProvider: string,
-	currentId: string,
-): Promise<RegistryModel | undefined> {
-	const target = splitModelSpec(map[`${currentProvider}/${currentId}`]);
-	if (!target) return undefined;
-	const model = ctx.modelRegistry.find(target.provider, target.id);
-	if (!model) return undefined;
-	try {
-		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-		if (!auth.ok) return undefined;
-	} catch {
-		return undefined;
-	}
-	return model;
-}
-
-/**
- * State-based auth classification (AF10): after a caught preflight throw,
- * re-run the registry auth check on the model that was in use. True when
- * credentials are missing/bad NOW — no error-message parsing. A throwing
- * check counts as failed auth: if credentials cannot even be resolved, a
- * mapped-model retry is the right response.
- */
-export async function isAuthFailure(ctx: ExtensionContext, model: RegistryModel): Promise<boolean> {
-	try {
-		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-		return !auth.ok;
-	} catch {
-		return true;
-	}
-}
-
-/**
- * Orchestrator-side model failover.
- *
- * Trigger point is `agent_settled`: pi fires it only after its own retry,
- * compaction, and queued-continuation logic is fully done — so a mapped
- * retry never races or duplicates pi's built-in retries. The event carries
- * no payload, so the final assistant message of the last turn is cached from
- * `turn_end` (which fires even for errored/aborted runs).
- *
- * One-shot guard (AF1): armed synchronously BEFORE the handler's first await
- * (CN3 — a second, independent run can settle and enter this handler while
- * the first invocation is parked at an await; the pre-await arm makes the
- * second invocation bail on the guard check). The guard deliberately STAYS
- * armed on the no-map/no-auth/setModel-failed early-outs: failover cannot
- * succeed right now anyway, and the guard re-arms on the next non-error
- * settle or user prompt. Re-arm rules: (a) an agent run settling with a
- * non-error final message, or (b) a genuine new user prompt via the `input`
- * event. The `input` event fires for interactive/rpc prompts and
- * sendUserMessage, but NOT for pi.sendMessage custom steers (verified:
- * sendCustomMessage skips the input-event path), so slate's own
- * failover/pause steers cannot re-arm the guard.
- *
- * BG2 (cancel during pi's auto-retry backoff): cancelling during the backoff
- * sleep emits NO extension-visible event — `auto_retry_end` is a
- * session-subscriber event only, no fresh turn_end fires, and agent.abort()
- * no-ops because the agent loop already returned — so the settle after a
- * cancel is indistinguishable by event shape from "retries exhausted". The
- * guard below reconstructs the distinction: pi retries an error iff
- * isRetryableAssistantError(msg) (agent-session's _isRetryableError minus
- * the overflow case, which isFailoverCandidate already excluded), so for a
- * retryable error "exhausted" means exactly maxRetries+1 consecutive errored
- * turns, while a backoff cancel settles with ≤ maxRetries of them. The
- * consecutive counter mirrors pi's own _retryAttempt reset-on-success rule.
- * RESIDUAL GAP: the retry settings are re-read here at settle time, so a
- * mid-flight settings change — or a pi release changing its retry semantics
- * (peer dep "*") — can desync the threshold; the failure mode is a skipped
- * failover (conservative), or a failover on a cancelled run only if
- * maxRetries was LOWERED mid-cycle.
- *
- * Deliberately NOT gated on store.paused: failover must run while slate is
- * paused for handoff, so the handoff brief is written by a working model.
- */
+/** Main-session logical recovery using only extension-visible retry evidence. */
 export function registerOrchestratorFailover(
 	pi: ExtensionAPI,
 	getConfig: () => SlateConfig,
 	getBaseModel: () => BaseModelTracker,
+	getRuntime: () => Readonly<LogicalRuntime> | undefined,
+	getRetryPolicy: () => CompressorRetryPolicy | undefined,
+	getSessionEpoch: () => number = () => 0,
 ): void {
-	/** Final assistant message of the last turn (agent_settled has no payload). */
-	let lastAssistant: { stopReason?: string; errorMessage?: string; usage?: unknown } | undefined;
-	/** Consecutive errored assistant turns in the current settle cycle (BG2). */
-	let consecutiveErrors = 0;
-	/** One-shot guard (AF1). */
-	let failedOver = false;
+	const evidence = new MainRetryEvidence();
+	let operation: MainOperation | undefined;
 
-	pi.on("turn_end", async (event) => {
-		const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string; usage?: unknown };
-		if (msg?.role !== "assistant") return;
-		lastAssistant = msg;
-		// Mirrors pi's auto-retry counter: any non-error assistant message resets
-		// it (agent-session resets _retryAttempt on success the same way).
-		if (msg.stopReason === "error") consecutiveErrors++;
-		else consecutiveErrors = 0;
+	const finish = (held: MainOperation): void => {
+		if (operation !== held) return;
+		operation = undefined;
+		try { held.lease.release(); } catch { /* idempotent lease contract */ }
+	};
+
+	const stop = (held: MainOperation, ctx: ExtensionContext, message: string): void => {
+		report(ctx, message);
+		finish(held);
+	};
+
+	const isCurrent = (held: MainOperation): boolean =>
+		operation === held && held.runtime.ownership.isCurrentLifecycle() &&
+		held.sessionEpoch === getSessionEpoch() && getRuntime() === held.runtime;
+
+	const advance = async (ctx: ExtensionContext): Promise<void> => {
+		const current = operation;
+		if (!current) return;
+		while (current.next < current.candidates.length) {
+			const candidate = current.candidates[current.next++]!;
+			if (!current.visited.enter(candidate)) continue;
+			const validation = await current.runtime.validateRoute(ctx, candidate);
+			if (!isCurrent(current)) {
+				stop(current, ctx, "slate: main recovery stopped because its session was replaced during route validation. Retry in the current session.");
+				return;
+			}
+			if (!validation.ok && validation.kind === "unavailable") continue;
+			if (!validation.ok) {
+				stop(current, ctx, `slate: main recovery stopped — ${sanitizeForNotify(validation.reason)} Choose an allowed model.`);
+				return;
+			}
+			const model = ctx.modelRegistry.find(candidate.provider, candidate.model);
+			if (!model) continue;
+			const from = currentModelSpec(ctx);
+			const to = `${candidate.provider}/${candidate.model}`;
+			let calledSetter = false;
+			try {
+				const switched = await withGlobalModelDefaultRestored(
+					pi, ctx, getConfig(), { provider: candidate.provider, id: candidate.model },
+					async () => {
+						calledSetter = true;
+						const ok = await getBaseModel().ownSwitch(from, to, () => pi.setModel(model));
+						if (!ok) return false;
+						pi.setThinkingLevel(candidate.effort);
+						return true;
+					},
+					(ok) => ok || calledSetter,
+				);
+				if (!switched) continue;
+			} catch (error) {
+				stop(current, ctx, `slate: main recovery switch to ${sanitizeForNotify(to)} failed — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}.`);
+				return;
+			}
+			if (!isCurrent(current)) {
+				stop(current, ctx, "slate: main recovery stopped because its session was replaced during model switching. The replacement session kept no stale logical identity.");
+				return;
+			}
+			const actual = readLiveEffort(pi);
+			if (actual !== candidate.effort) {
+				stop(current, ctx, `slate: main recovery stopped after ${sanitizeForNotify(to)} clamped effort to ${sanitizeForNotify(String(actual))}; policy requires ${candidate.effort}. Choose an allowed model.`);
+				return;
+			}
+			current.active = candidate;
+			evidence.reset();
+			try {
+				pi.sendMessage({ customType: "slate-failover", content: CONTINUATION, display: true }, { deliverAs: "steer", triggerTurn: true });
+				notice(ctx, `slate: main recovery switched to ${to} at ${actual}.`);
+			} catch (error) {
+				stop(current, ctx, `slate: main recovery could not continue after switching to ${sanitizeForNotify(to)} — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}.`);
+			}
+			return;
+		}
+		stop(current, ctx, "slate: main recovery exhausted every permitted route. Choose an allowed model to continue.");
+	};
+
+	const transition = async (current: MainOperation, ctx: ExtensionContext): Promise<void> => {
+		if (operation !== current || current.transitioning) return;
+		current.transitioning = true;
+		try {
+			await advance(ctx);
+		} catch (error) {
+			stop(current, ctx, `slate: main recovery failed — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}.`);
+		} finally {
+			current.transitioning = false;
+		}
+	};
+
+	pi.on("turn_end", async (event, ctx) => {
+		const message = event.message as { role?: unknown; stopReason?: unknown; errorMessage?: unknown };
+		if (message?.role !== "assistant") return;
+		const route = routeOf(ctx);
+		evidence.observe(message, route ? `${route.provider}/${route.model}` : undefined, readLiveEffort(pi));
 	});
 
-	// Genuine new user prompt → re-arm (rule (b) above) and drop stale caches.
 	pi.on("input", async () => {
-		failedOver = false;
-		lastAssistant = undefined;
-		consecutiveErrors = 0;
+		// A new request cannot reuse stale evidence. It does not release an owner
+		// whose continuation is still in flight.
+		evidence.reset();
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
-		const msg = lastAssistant;
-		const errors = consecutiveErrors;
-		// BG3/CN5: consume the caches — a later settle that produced no fresh
-		// turn_end (e.g. a run throwing before its first turn completes) must
-		// never re-classify this run's message.
-		lastAssistant = undefined;
-		consecutiveErrors = 0;
-		if (!msg || msg.stopReason !== "error") {
-			// Non-error settle (including aborts — never fail over on abort):
-			// the model works, re-arm the guard (rule (a) above).
-			failedOver = false;
+		const existing = operation;
+		// Pi may overlap awaited extension callbacks. The operation that owns an
+		// asynchronous transition is the only callback allowed to consume evidence,
+		// advance, terminate, or release its lease.
+		if (existing?.transitioning) return;
+		if (existing && !isCurrent(existing)) {
+			stop(existing, ctx, "slate: main recovery stopped because its session was replaced. Retry in the current session.");
 			return;
 		}
-		if (failedOver) return;
-		const current = ctx.model;
-		if (!current) return;
-		if (!isFailoverCandidate(msg, current.contextWindow)) return;
+		const route = routeOf(ctx);
+		const effort = readLiveEffort(pi);
+		const outcome = evidence.settle({
+			route: route ? `${route.provider}/${route.model}` : undefined,
+			effort,
+			policy: getRetryPolicy(),
+			isRetryable: (message) => isRetryableAssistantError(message as AssistantMessage),
+			isContextOverflow: (message) => isContextOverflow(message as AssistantMessage, ctx.model?.contextWindow),
+		});
 
-		// BG2 guard (see header): for a retryable error, only pi exhausting its
-		// auto-retries reaches settle with maxRetries+1 consecutive errored
-		// turns; fewer means the user cancelled during a backoff sleep — a
-		// cancelled run must NEVER fail over. Non-retryable errors (quota,
-		// billing, auth…) fail fast with no backoff to cancel, so they pass.
-		// SettingsManager.create is a synchronous, lock-protected read of the
-		// same merged settings pi uses. READ-ONLY, and it must stay that way: a
-		// setter call on this throwaway instance would write straight into the
-		// user's GLOBAL settings unmediated — every write goes through
-		// model-default.ts instead.
-		if (isRetryableAssistantError(msg as AssistantMessage)) {
-			try {
-				const retry = SettingsManager.create(ctx.cwd, getAgentDir(), {
-					projectTrusted: ctx.isProjectTrusted(),
-				}).getRetrySettings();
-				if (retry.enabled && errors <= retry.maxRetries) return;
-			} catch {
-				return; // cannot read retry settings ⇒ cannot rule out a cancel → stand down
+		if (operation) {
+			const current = operation;
+			if (outcome.kind === "success") {
+				const active = current.active;
+				const settledRoute = route ? `${route.provider}/${route.model}` : undefined;
+				const activeRoute = active ? `${active.provider}/${active.model}` : undefined;
+				if (!active || !isCurrent(current) || settledRoute !== activeRoute || effort !== active.effort) {
+					stop(current, ctx, "slate: main recovery stopped because the settled route or effort changed before success publication. The external choice was preserved.");
+					return;
+				}
+				current.runtime.publishProvider(current.admission, active.logicalModel, active.provider);
+				getBaseModel().adoptLogicalIdentity(active.logicalModel);
+				finish(current);
+				return;
 			}
+			if (outcome.kind === "retry-exhausted") { await transition(current, ctx); return; }
+			const reason = outcome.kind === "cancelled" ? "cancelled" : outcome.kind === "terminal-fault" ? outcome.reason : outcome.reason;
+			stop(current, ctx, `slate: main recovery stopped — ${sanitizeForNotify(reason)} Choose an allowed model or retry later.`);
+			return;
 		}
 
-		// AF1/CN3: arm the guard BEFORE the first await — a concurrent settle
-		// entering this handler while we are parked below must bail above. Stays
-		// armed on every early-out (see header).
-		failedOver = true;
-		const mapped = await resolveMappedModel(ctx, getConfig().modelFailover ?? {}, current.provider, current.id);
-		if (!mapped) return; // no mapping / unknown / unauthed → the original failure stands
-		const from = `${current.provider}/${current.id}`;
-		const to = `${mapped.provider}/${mapped.id}`;
-		// pi.setModel persists the switch into the user's GLOBAL settings
-		// (defaultProvider, defaultModel and, through its thinking cascade,
-		// defaultThinkingLevel) — a session-scoped failover must not leave that
-		// behind, so the switch runs inside the shared restore wrapper, which
-		// puts back exactly what THIS switch changed (model-default.ts).
-		// Sequencing matters: the wrapper completes the restore BEFORE the
-		// steer below, so settings are already clean even if the steer then
-		// fails on a stale context.
-		// Set when pi.setModel THREW: the throw can land after pi already wrote the
-		// pair (it persists before the thinking cascade and the model-select
-		// emission), so that case must still be treated as "may have persisted"
-		// even though the switch failed. Read by the predicate below, which runs
-		// after the callback has resolved.
-		let mayHaveWritten = false;
-		const switched = await withGlobalModelDefaultRestored(
-			pi,
-			ctx,
-			getConfig(),
-			mapped,
-			async () => {
-				try {
-					// A failover fallback must NOT become the base model new worker threads
-					// default to, so the switch runs THROUGH the tracker: ownSwitch declares
-					// the (from, to) pair immediately before the setter and retires the
-					// declaration the moment the setter SETTLES — on true, on false and on a
-					// throw alike — so the declaration lives exactly as long as the switch
-					// does, however long pi's live credential check takes (base-model.ts;
-					// a wall-clock bound was defect BG10). ownSwitch returns the setter's own
-					// value and re-throws its error unchanged, so the handling below is
-					// exactly what it was.
-					// The declared `from` is read FRESH here, matching the handoff site: the
-					// `from` in the messages below is the model whose turn FAILED, which is a
-					// deliberately different thing several awaits later. currentModelSpec is
-					// guarded (ctx.model throws on a stale context) and falls back to it.
-					// pi.setModel returns false when no API key is available, but can ALSO
-					// throw on a failed live auth check despite the Promise<boolean>
-					// contract — handle both.
-					if (!(await getBaseModel().ownSwitch(currentModelSpec(ctx) ?? from, to, () => pi.setModel(mapped)))) {
-						reportFailure(ctx, `slate: model failover to ${to} skipped — no API key. Keeping ${from}.`);
-						return false;
-					}
-				} catch (error) {
-					mayHaveWritten = true;
-					reportFailure(
-						ctx,
-						`slate: model failover to ${to} failed — ${sanitizeForNotify(
-							error instanceof Error ? error.message : String(error),
-						)}. Keeping ${from}.`,
-					);
-					return false;
-				}
-				return true;
-			},
-			// A plain false return means pi.setModel bailed on its own auth check
-			// BEFORE touching settings (the extension-facing setModel returns false
-			// ahead of the session setter), so nothing can have been persisted and
-			// the whole post-switch phase is skipped — unless it failed by THROWING.
-			(ok) => ok || mayHaveWritten,
-		);
-		if (!switched) return;
-		notifyUi(ctx, `slate: model failover ${from} ⇒ ${to} — retrying the failed turn`);
-		pi.sendMessage(
-			{
-				customType: "slate-failover",
-				content:
-					`[slate] The previous turn failed due to a model API failure. The model has been switched to ${to}. ` +
-					"The conversation context is intact — re-issue the failed action and continue.",
-				display: true,
-			},
-			{ deliverAs: "steer", triggerTurn: true },
-		);
+		if (outcome.kind !== "retry-exhausted") {
+			if (outcome.kind === "cancelled") report(ctx, "slate: main recovery did not start because the run was cancelled.");
+			else if (outcome.kind === "terminal-fault") report(ctx, `slate: main recovery did not start — ${sanitizeForNotify(outcome.reason)}`);
+			else if (outcome.kind === "unknown" && route) report(ctx, `slate: main recovery did not start — ${sanitizeForNotify(outcome.reason)}`);
+			return;
+		}
+		if (!route) { report(ctx, "slate: main recovery stopped because the active physical route is unavailable. Choose a model."); return; }
+		const runtime = getRuntime();
+		const admission = runtime?.admit();
+		if (!runtime || !admission) { report(ctx, "slate: main recovery is blocked by the logical model policy."); return; }
+		const mapping = runtime.reverseMap(route, getBaseModel().currentLogicalIdentity());
+		if (mapping.kind !== "one") {
+			const detail = mapping.kind === "none" ? "does not map to an allowed logical model" : "maps to several logical models without a trusted identity";
+			report(ctx, `slate: main recovery stopped because ${route.provider}/${route.model} ${detail}. Choose a logical model.`);
+			return;
+		}
+		const acquired = runtime.ownership.acquire(MAIN_RECOVERY_SESSION_KEY, SAVED_DEFAULT_RESOURCE_KEY);
+		if (acquired.kind === "busy") {
+			report(ctx, `slate: main recovery is busy on ${acquired.resource}. No second model switch was started. Retry as a new operation later.`);
+			return;
+		}
+		operation = {
+			runtime, sessionEpoch: getSessionEpoch(), admission, lease: acquired.lease,
+			candidates: runtime.planOrdinary(mapping.logicalModel, admission.snapshot, route),
+			visited: new RecoveryOperation(), next: 0, transitioning: false,
+		};
+		await transition(operation, ctx);
 	});
 }

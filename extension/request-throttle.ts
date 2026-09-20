@@ -190,6 +190,11 @@ export interface RequestThrottle {
 	readonly settings: SanitizedRequestThrottle;
 	/** Resolve when the request may be sent. Reject when the caller cancels. */
 	admit(model: unknown, signal?: AbortSignal): Promise<void>;
+	/**
+	 * Wait for capacity, then run one synchronous local handoff. The admission
+	 * timestamp is committed only after the handoff returns successfully.
+	 */
+	accept<T>(model: unknown, signal: AbortSignal | undefined, handoff: () => T): Promise<Awaited<T>>;
 	/** Retained state, for tests and for the bounded-state claim. */
 	inspect(): { models: number; timestamps: number; waiters: number };
 }
@@ -299,33 +304,50 @@ export function createRequestThrottle(
 		});
 	};
 
-	return {
-		settings: frozen,
-		async admit(model: unknown, signal?: AbortSignal): Promise<void> {
-			if (!frozen.enabled) return;
-			const key = throttleIdentity(model);
-			if (key === undefined) return;
+	const accept = async <T>(model: unknown, signal: AbortSignal | undefined, handoff: () => T): Promise<Awaited<T>> => {
+		const rejectIfAborted = () => {
 			if (signal?.aborted === true) {
 				throw new RequestThrottleAbort("Request was aborted before the slate request throttle admitted it. The request was not sent.");
 			}
-			// `waited` is why a waiter cannot be blocked by its own registration: once
-			// this caller has taken a delay it competes for capacity whatever the
-			// waiter count is, so a model whose only arrival is this one still admits.
-			let waited = false;
-			for (;;) {
-				// ONE synchronous admission unit: prune, check, insert. No await inside.
-				const at = now();
-				const entry = windowFor(key, at);
-				if (entry.times.length < frozen.maxRequestsPerMinute && (entry.waiters === 0 || waited)) {
-					entry.times.push(at);
-					armExpiry(key, entry);
-					return;
+		};
+		const key = frozen.enabled ? throttleIdentity(model) : undefined;
+		if (key === undefined) {
+			rejectIfAborted();
+			return handoff() as Awaited<T>;
+		}
+		rejectIfAborted();
+		// `waited` is why a waiter cannot be blocked by its own registration: once
+		// this caller has taken a delay it competes for capacity whatever the
+		// waiter count is, so a model whose only arrival is this one still admits.
+		let waited = false;
+		for (;;) {
+			const at = now();
+			const entry = windowFor(key, at);
+			if (entry.times.length < frozen.maxRequestsPerMinute && (entry.waiters === 0 || waited)) {
+				rejectIfAborted();
+				// Final validation, Pi handoff and timestamp commit have no await or
+				// callback boundary between them. A rejected handoff consumes no quota.
+				let value: T;
+				try {
+					value = handoff();
+				} catch (error) {
+					forgetIfIdle(key);
+					throw error;
 				}
-				// The entry stays in the map across the wait: either it still holds a
-				// recent admission, or this caller's own registration keeps it alive.
-				await waitOnce(key, entry, signal);
-				waited = true;
+				entry.times.push(at);
+				armExpiry(key, entry);
+				return value as Awaited<T>;
 			}
+			await waitOnce(key, entry, signal);
+			waited = true;
+		}
+	};
+
+	return {
+		settings: frozen,
+		accept,
+		async admit(model: unknown, signal?: AbortSignal): Promise<void> {
+			await accept(model, signal, () => undefined);
 		},
 		inspect() {
 			let timestamps = 0;

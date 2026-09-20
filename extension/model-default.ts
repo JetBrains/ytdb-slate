@@ -2,14 +2,12 @@
  * Global model-default restore: put the user's GLOBAL pi defaults back after a
  * slate-initiated model switch.
  *
- * pi persists every in-session model switch into the user's global settings
- * file (<agent dir>/settings.json): setModel writes defaultProvider and
- * defaultModel, and its internal thinking cascade can write
- * defaultThinkingLevel too. Both slate switch sites — orchestrator failover
- * (failover.ts) and handoff adoption (handoff.ts) — mean "make THIS session
- * run that model", so the cross-project residue is a side effect nobody asked
- * for: every later pi session, in every project, starts on slate's pick. This
- * module wraps each such switch and undoes exactly that residue.
+ * Pi 0.85.1 keeps ordinary extension model and thinking-level switches inside
+ * the current session. It changes global defaults only when a lower-level caller
+ * explicitly requests persistence. Slate requests no persistence. This guard
+ * remains for compatibility with explicit persistence fixtures and older host
+ * behavior. If a switch does write global defaults, the guard restores exactly
+ * the residue that the switch produced.
  *
  * TWO INDEPENDENT DECISIONS, NEVER ONE PER SWITCH AND NEVER ONE PER KEY:
  *  - the defaultProvider + defaultModel PAIR, decided and written as ONE UNIT;

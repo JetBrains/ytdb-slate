@@ -2,6 +2,7 @@ import {
 	LOGICAL_MODEL_EFFORTS,
 	SHIPPED_COMPRESSOR_MODELS,
 	SHIPPED_LOGICAL_MODELS,
+	isLogicalModelName,
 	type LogicalCompressorEntry,
 	type LogicalFieldSource,
 	type LogicalModelDefinition,
@@ -25,9 +26,10 @@ export interface ResolveLogicalPolicyInput {
 }
 
 type UnknownRecord = Record<string, unknown>;
-const NAME = /^[a-z0-9][a-z0-9._-]*$/;
+const PROVIDER_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 const EXACT_ID = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/;
 const LEGACY_ROUTER_KEYS = ["allowUnmeasuredEffort", "showWarnings"] as const;
+const ROUTER_KEYS = new Set(["models", "compressor", ...LEGACY_ROUTER_KEYS]);
 
 function deepFreeze<T>(value: T): T {
 	if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
@@ -68,7 +70,7 @@ function providerMap(value: unknown, path: string, errors: string[]): Record<str
 	const result = Object.create(null) as Record<string, string>;
 	for (const key of keys(input, path, errors)) {
 		const model = read(input, key, errors, path);
-		if (!NAME.test(key) || key === "__proto__" || key === "prototype" || key === "constructor") errors.push(`${path} has invalid provider ${JSON.stringify(key)}.`);
+		if (!PROVIDER_NAME.test(key) || key === "__proto__" || key === "prototype" || key === "constructor") errors.push(`${path} has invalid provider ${JSON.stringify(key)}.`);
 		else if (typeof model !== "string" || !EXACT_ID.test(model)) errors.push(`${path}.${key} must be one exact Pi model identifier.`);
 		else result[key] = model;
 	}
@@ -88,13 +90,13 @@ function definition(value: unknown, path: string, errors: string[]): LogicalMode
 	const providers = providerMap(read(input, "providers", errors, path), `${path}.providers`, errors);
 	const guidelines = textList(read(input, "guidelines", errors, path), `${path}.guidelines`, errors);
 	const cautions = textList(read(input, "cautions", errors, path), `${path}.cautions`, errors);
-	if (typeof model !== "string" || !NAME.test(model)) errors.push(`${path}.model must be one provider-free logical name.`);
+	if (!isLogicalModelName(model)) errors.push(`${path}.model must be one provider-free logical name.`);
 	if (!rating(capabilityRating)) errors.push(`${path}.capabilityRating must be an integer from 1 through 100.`);
 	if (!effort(selectedEffort)) errors.push(`${path}.effort must be one of: ${LOGICAL_MODEL_EFFORTS.join(", ")}.`);
 	if (!rating(costRating)) errors.push(`${path}.costRating must be an integer from 1 through 100.`);
-	if (typeof preferredProvider !== "string" || !NAME.test(preferredProvider)) errors.push(`${path}.preferredProvider must be one exact provider name.`);
+	if (typeof preferredProvider !== "string" || !PROVIDER_NAME.test(preferredProvider)) errors.push(`${path}.preferredProvider must be one exact provider name.`);
 	else if (providers && !own(providers, preferredProvider)) errors.push(`${path}.preferredProvider must be present in ${path}.providers.`);
-	if (typeof model !== "string" || !NAME.test(model) || !rating(capabilityRating) || !effort(selectedEffort) || !rating(costRating) || typeof preferredProvider !== "string" || !NAME.test(preferredProvider) || !providers || !own(providers, preferredProvider) || !guidelines || !cautions) return undefined;
+	if (!isLogicalModelName(model) || !rating(capabilityRating) || !effort(selectedEffort) || !rating(costRating) || typeof preferredProvider !== "string" || !PROVIDER_NAME.test(preferredProvider) || !providers || !own(providers, preferredProvider) || !guidelines || !cautions) return undefined;
 	return { model, capabilityRating, effort: selectedEffort, costRating, preferredProvider, providers, guidelines, cautions };
 }
 function stringArray(value: unknown, path: string, errors: string[]): string[] | undefined {
@@ -103,7 +105,7 @@ function stringArray(value: unknown, path: string, errors: string[]): string[] |
 	const seen = new Set<string>();
 	for (let index = 0; index < value.length; index++) {
 		const item = value[index];
-		if (typeof item !== "string" || !NAME.test(item)) errors.push(`${path}[${index}] must be one provider-free logical name.`);
+		if (!isLogicalModelName(item)) errors.push(`${path}[${index}] must be one provider-free logical name.`);
 		else if (seen.has(item)) errors.push(`${path} contains duplicate model ${JSON.stringify(item)}.`);
 		else { seen.add(item); result.push(item); }
 	}
@@ -117,7 +119,7 @@ function objectArray(value: unknown, path: string, errors: string[]): UnknownRec
 		const item = record(value[index]);
 		if (!item) { errors.push(`${path}[${index}] must be an object with an explicit model field.`); continue; }
 		const model = read(item, "model", errors, `${path}[${index}]`);
-		if (typeof model !== "string" || !NAME.test(model)) {
+		if (!isLogicalModelName(model)) {
 			errors.push(`${path}[${index}].model must be one provider-free logical name.`);
 			result.push(item);
 		} else if (seen.has(model)) errors.push(`${path} contains duplicate model ${JSON.stringify(model)}.`);
@@ -153,6 +155,7 @@ function readCurrentConfig(projectConfig: unknown, errors: string[], warnings: s
 	if (routerValue === undefined) return undefined;
 	const router = record(routerValue);
 	if (!router) { errors.push("router must be an object."); return undefined; }
+	for (const key of keys(router, "router", errors)) if (!ROUTER_KEYS.has(key)) errors.push(`router has unknown field ${JSON.stringify(key)}.`);
 	for (const key of LEGACY_ROUTER_KEYS) if (own(router, key)) warnings.push(`Legacy key router.${key} is ignored. No automatic migration is performed.`);
 	return router;
 }
@@ -190,7 +193,7 @@ export function resolveLogicalModelPolicy(input: ResolveLogicalPolicyInput): Rea
 		const item = replace![index]!;
 		const path = `router.models.replace[${index}]`;
 		const name = read(item, "model", errors, path);
-		if (typeof name !== "string" || !NAME.test(name)) continue;
+		if (!isLogicalModelName(name)) continue;
 		if (addedNames.includes(name)) { errors.push(`Model ${JSON.stringify(name)} cannot appear in both add and replace.`); continue; }
 		const base = definitions.get(name);
 		if (!base) { errors.push(`router.models.replace targets unknown model ${JSON.stringify(name)}.`); continue; }

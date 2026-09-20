@@ -1,4 +1,4 @@
-const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+const TEST_ROUTE = { model: "fixture", reason: "test fixture" } as const;
 
 import assert from "node:assert/strict";
 import test from "node:test";

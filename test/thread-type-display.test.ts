@@ -1,4 +1,4 @@
-const TEST_ROUTE = { model: "test/worker", effort: "low", reason: "test fixture" } as const;
+const TEST_ROUTE = { model: "fixture", reason: "test fixture" } as const;
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -224,8 +224,8 @@ test("dispatch call lines render every new thread type", () => {
   const threadTool = registered.get("thread");
   assert.ok(threadTool?.renderCall);
   for (const entry of cases) {
-    const rendered: { render(width: number): string[] } = threadTool.renderCall({ name: entry.name, type: entry.type, task: "Inspect", model: "p/m", effort: "high" }, theme);
-    assert.equal(firstLine(rendered), `thread new:"${entry.name}"${entry.marker} [p/m @high]`);
+    const rendered: { render(width: number): string[] } = threadTool.renderCall({ name: entry.name, type: entry.type, task: "Inspect", model: "fixture", reason: "test fixture" }, theme);
+    assert.equal(firstLine(rendered), `thread new:"${entry.name}"${entry.marker} [fixture]`);
   }
 });
 

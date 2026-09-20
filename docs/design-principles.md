@@ -15,15 +15,7 @@ per-round review findings, whose prefix says which review raised them:
 AD (adversarial), AF (agent-failure), BG (blocker/bug), CN (concurrency),
 CQ (code quality), DF (data fidelity), N (numeric), RG (regression),
 RI (research integrity), SE (security), WB (worker boundary) and WS (worker
-safety). `extension/model-profiles.ts` additionally cites research TRACE keys
-(`G1a`, `GM3`, `O4.2`, `A4b`, …). Those name rows in the research corpus that
-produced the profile table; the corpus lives in the project repository and is
-NOT part of the published package, so in an installed copy the keys are
-provenance marks to quote when reporting a data problem, not links to follow.
-What a consumer can act on without the corpus is in `model-routing.md`
-(§ where the numbers come from): the table's provenance rules, its `asOf`
-date, and which fields are marked untraced. This document is the in-repo
-source for the architecture rationale.
+safety). The logical-model source files carry the approved project attribution and retrieval date. The retained research log holds the full private evidence record. This document is the in-repo source for the architecture rationale.
 
 ## 1. The problems Slate is built to solve
 
@@ -211,35 +203,17 @@ while staying safe on common consumer API tiers; wider fan-outs only
 pay tail latency, and projects with higher-tier keys raise the cap in
 `slate.json`.
 
-Repo-local note (not from the report): **action-level model routing**
-applies P10's discipline to a second scarce resource. P10 treats
-CONTEXT as RAM; the optional `router.models` list treats SPEND the same
-way — each dispatched action gets a model and an effort level chosen to
-be up to the task and no more, instead of every action inheriting
-whatever model the orchestrator happens to be running. It is also a P1
-corollary: an action is only a bounded unit if what it may cost is
-bounded too, and the closed model list plus a derived (never inflated)
-effort level is what bounds it. The two disciplines remain separate.
-Pi's compaction settings clamp the orchestrator context budget. Action
-routing selects from the configured model list without using prompt size.
+Repo-local note (not from the report): **logical-model routing and recovery**
+applies P10 discipline to provider spend. Each bounded action names a provider-free
+logical model and a reason. The immutable parent-session policy fixes effort, exact
+physical permissions, ratings, guidance, cautions, and common recovery order. Pi
+owns discovery, authentication, and execution. Slate owns no provider alias rule.
 
-Candidate routing is OFF until `router.models` lists something — the
-per-action `model` and `effort` arguments, and a fallback a failover
-is holding, stay active either way. The feature is
-built on a deliberate split that is worth holding onto when reasoning
-about the architecture: the code ENFORCES less than the routing data
-ADVISES. Dispatch guards refuse what is mechanically wrong — a model
-outside the configured list, a level a model does not offer — because
-those are decidable from the data. The obligations that require
-JUDGMENT about the work, such as which actions count as review or gate
-actions and what a compliance constraint demands of a given task, are
-stated in the doctrine for the orchestrator to honor and are not
-guards. That is the same reasoning as P6: the harness makes the right
-thing natural and blocks what it can decide, rather than pretending to
-adjudicate what it cannot see. Which obligations fall on which side of
-that line changes as the feature grows, so this document deliberately
-does not restate the list — `model-routing.md` in this directory owns
-it, along with the mechanics and the provenance of the routing data.
+The policy separates enforced facts from orchestrator judgment. Code enforces exact
+permissions, complete definitions, fixed effort, trust, critical-error blocking,
+and bounded recovery. The orchestrator judges action fit and advisory guidance. A
+track with no proved focus area uses the same ordinary selection rule.
+`model-routing.md` owns the complete configuration and recovery contract.
 
 Repo-local note (not from the report): the P7 guard was originally
 absolute — workers loaded no extensions, so Slate's `thread` tool simply
@@ -351,13 +325,7 @@ the load-on-demand discipline the extension itself prescribes:
   project uses measurements, not assertions. `context-budget.md` owns the
   measurements and the configuration table.
 
-  The routing rule has one table row for each routable model. The raw count
-  depends on where the package is
-  installed because the doctrine embeds absolute doc paths. The original "a
-  few hundred tokens" holds only for the fixed rules, and a configured router
-  buys its table with
-  a real slice of every request. It still covers everything routine
-  dispatching needs.
+  The logical-model rule has one row for each ordinary logical model. Its raw count depends on the installed documentation path. `context-budget.md` publishes portable production renders and separates runtime rejection boundaries from regression baselines.
 - **Tier 2 — on demand.** This document. The doctrine carries a short
   pointer to it (doctrine rule 10); the orchestrator reads it only when
   reasoning about the architecture itself — explaining slate, modifying

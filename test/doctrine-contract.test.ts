@@ -6,8 +6,7 @@ import { spawnSync } from "node:child_process";
 import { after, test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import slateExtension from "../extension/index.ts";
-import { MODEL_PROFILES, ladderFor } from "../extension/model-profiles.ts";
-import { ROUTER_OFF, resolveModelRouter, type ModelRouterResolution, type RouterCandidate } from "../extension/model-router.ts";
+import { createLogicalRuntime, type LogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { registerSlateMode } from "../extension/mode.ts";
 import { BLAST_RADIUS_DOC, PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
@@ -16,26 +15,13 @@ import { DESIGN_REQUIREMENTS, WRITING_REQUIREMENTS } from "../extension/writing-
 
 const scratch = mkdtempSync(join(tmpdir(), "slate-doctrine-contract-"));
 
-const EXPECTED_ROUTING_BENCHMARK_GUIDE = "\n   Benchmark score guide:\n   - DeepSWE v1.1: scored-attempt pass rate. Context-window failures and agent\n     timeouts are failures. Provider, verifier, and network errors are excluded.\n     Its published 95% run interval is 1.96 * std(runs) / sqrt(4) across four\n     whole-benchmark runs. The standard-deviation divisor is not published.\n   - Vals Code Migration: mean hidden-test pass rate across migrations, with\n     equal source-repository weight after target-language averaging. It is not\n     the percentage of whole migrations completed. Anti-cheat checks can zero\n     wrappers, copied artifacts, and wrong-language submissions.\n   - Terminal-Bench 2.1: binary task pass@1. Every test must pass. There is no\n     partial credit.\n   - OpenAI MRCR v2, eight needles: mean approximate text-match credit. The\n     required 12-character hash must precede the retrieved text or the example\n     scores zero. This is fractional credit, not binary correctness. Tool access\n     is a separate setup condition.\n   - OSWorld 2.0: partial is weighted checkpoint credit. Strict is the share of\n     fully completed workflows. Keep the two results separate. Release, tasks,\n     evaluator, interface, and action limit affect comparability.\n   - AutomationBench-AA: objectives completed after guardrail violations are\n     penalized. Raw objectives completed is separate. The accessible method does\n     not publish the exact penalty and aggregation formula.\n   - AA-LCR v1.1: percentage of 100 answers accepted by an equality-checker\n     judge. Its roughly 99K mean completed-prompt tokens describe the evidence\n     window, not route capacity. Version 1.0.0 is not comparable with v1.1.\n   - AA-Omniscience: current hallucination rate is Incorrect / (Incorrect +\n     Partial + Not Attempted), and lower is better. Accuracy and attempt rate are\n     separate. The current method does not prove that this denominator applied\n     to the dated Opus 5 result.\n   - ARC-AGI-3: Relative Human Action Efficiency (RHAE) combines level completion with\n     action efficiency against a human reference. Uncompleted levels score zero.\n     It is not a task-solve percentage. Standard and Provider Adapter harnesses\n     are separate. Adapter state retention and compaction are not normal Slate\n     capabilities. Published cost is total evaluation cost.\n   Use this guide:\n   - Pi's complete effort vocabulary is off < minimal < low < medium < high <\n     xhigh < max. A model can offer only a subset. The five provider effort\n     labels used by several benchmark series are low through max.\n   - For DeepSWE-shaped repository coding, choose the lowest measured effort for\n     which no higher measured effort has a clearly better nonoverlapping\n     published 95% interval. A higher effort clearly beats it only when the\n     higher lower bound exceeds the candidate upper bound. Do not recompute\n     unpublished bounds.\n   - Interval overlap only means this heuristic does not select the higher\n     effort. It does not prove equality, equivalence, non-inferiority, or no gain.\n   - Do not transfer the coding rule to computer use, retrieval, tool use,\n     factual recall, long-context work, or other tasks.\n   - Keep each effort attached to its result. An unreported setting validates no\n     setting. A model-level signal can guide a choice with judgment and an\n     explicit valid setting, but it proves no capability at that setting.\n   - Fable 5.1 and Haiku 4.5 have no evidence-based coding default. This is an\n     evidence gap, not a prohibition. Provisional use needs an explicit valid\n     effort and normal result verification. Do not invent a recommended coding\n     effort, coding optimality, or DeepSWE price.\n   - Terra is nonpreferred. Do not pick it by default. State a work-specific\n     reason in the task text. Do not add a tool argument or report field.\n   - Unknown capabilities are not prohibited. An explicit avoid cell is the\n     exception.\n   - Many short tasks means separate independent actions with directly checkable\n     results, not one long loop that repeatedly plans, uses tools, reads feedback,\n     and adapts. No numeric boundary is supported.\n   - Treat a near-zero ARC-AGI-3 result as evidence against benchmark-shaped\n     interactive work. Do not create a universal numerical threshold.\n   - Benchmarks are proxies, not Slate execution. Harness adaptation is not a\n     supported routing feature.\n   - Use the active Pi registry for route capacity and prices. DeepSWE costs are\n     dated cost-per-attempt figures generated on 2026-09-03 and retrieved on\n     2026-09-11. They are not future quotes. Context bands are not route limits.\n   - Keep partial, strict, fallback-assisted, and special-harness results\n     separate. Do not turn limited evidence into a positive recommendation.\n   - Respect provider, tool, credential, account, and privacy constraints.\n     Benchmark availability does not establish eligibility.\n   - The Fable 5.1 72.6% label is \"among questions not answered correctly\".\n     Do not derive another denominator from it.\n   - Zero Data Retention needs account-owner confirmation of model-specific\n     authorization and the required provider and account configuration under the\n     governing agreement. Use the project's established authorization record.";
-
-const EXPECTED_PROFILE_GUIDANCE = new Map<string, { routeFor: string; avoidFor: string }>([
-  ["openai/gpt-5.6-luna", { routeFor: "Use for agentic repository coding at @max. DeepSWE v1.1 reports 67.19% scored-attempt pass rate. The dated mean benchmark cost is $0.61 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. Vendor guidance supports well-specified changes with explicit tests. Vals Code Migration reports 36.1% mean hidden-test pass rate across migrations. This result does not measure architecture or design quality. ARC-AGI-3 Standard reports 0.18% at @max under the RHAE method. This near-zero result is evidence against routing novel interactive reasoning for benchmark-shaped work.", avoidFor: "For DeepSWE-shaped repository coding, avoid lower efforts. The interval rule in the guide selected @max from the measured series. The mean DeepSWE duration was 1,123 seconds per complete benchmark task. It includes the benchmark harness, tools, host, and provider load. It is not response latency and does not establish ordinary interactive speed. Capabilities not listed are unknown, not prohibited." }],
-  ["anthropic/claude-sonnet-5", { routeFor: "Use for agentic repository coding at @high. DeepSWE v1.1 reports 48.23% scored-attempt pass rate. The dated mean benchmark cost is $7.43 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. Terminal-Bench 2.1 reports 74.53% task pass rate at @high over three runs in the Vals deployment. Every task needs all tests to pass. Vals Code Migration reports 36.3% mean hidden-test pass rate across migrations. ARC-AGI-3 has no verified result. Missing evidence is not zero or a routing prohibition.", avoidFor: "Do not raise coding effort to @xhigh or @max only to claim better quality. Their published DeepSWE 95% intervals overlap the @high interval. Under the exact rule, no clearly better nonoverlapping interval is shown. Overlap does not prove equal performance. This advice applies only to DeepSWE-shaped coding." }],
-  ["openai/gpt-5.6-terra", { routeFor: "Use for agentic repository coding at @max. DeepSWE v1.1 reports 69.62% scored-attempt pass rate. The dated mean benchmark cost is $3.96 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. OpenAI MRCR v2 reports 89.6% mean approximate text-match credit in the 256K–512K token band and 72.5% in the 512K–1M token band. The source reports its best tested effort but does not identify that effort. Vals Code Migration reports 40.4% mean hidden-test pass rate across migrations. ARC-AGI-3 Standard reports 0.80% at @max under the RHAE method. This near-zero result is evidence against routing novel interactive reasoning for benchmark-shaped work. This is a nonpreferred route. Do not pick it by default. If a task uses it, state the work-specific reason in the task text under the existing doctrine rule. Do not add a tool argument or report field.", avoidFor: "For coding, lower efforts are not the selected setting under the interval rule. This coding rule does not establish the best effort for another task type. MRCR context bands do not establish active route capacity or uniform retrieval quality across every size in either band. Check the active Pi registry for current route capacity. Capabilities not listed are unknown, not prohibited." }],
-  ["openai/gpt-5.6-sol", { routeFor: "Use for agentic repository coding at @high. DeepSWE v1.1 reports 69.40% scored-attempt pass rate. The dated mean benchmark cost is $2.66 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. OpenAI MRCR v2 reports 91.5% mean approximate text-match credit in the 256K–512K token band and 73.8% in the 512K–1M token band. The source reports its best tested effort but does not identify that effort. Vendor Terminal-Bench 2.1 reports 88.8% task pass rate. Vals Code Migration reports 47.2% mean hidden-test pass rate across migrations. ARC-AGI-3 Standard reports 7.78% at @max under the RHAE method. The low score and effort mismatch make it weak evidence for novel interactive reasoning.", avoidFor: "Do not raise coding effort to @xhigh or @max only to claim better quality. Their published DeepSWE 95% intervals overlap the @high interval. Under the exact rule, no clearly better nonoverlapping interval is shown. The interactive result uses @max under its own harness. It does not support the proposed @high coding setting or establish ordinary worker performance. MRCR does not establish active route capacity. Check the active Pi registry for current route capacity. Capabilities not listed are unknown, not prohibited." }],
-  ["anthropic/claude-opus-5", { routeFor: "Use for agentic repository coding at @high. DeepSWE v1.1 reports 72.83% scored-attempt pass rate. The dated mean benchmark cost is $6.08 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. Vals Code Migration reports 53.3% mean hidden-test pass rate across migrations with server-side fallback permitted. The fallback-assisted share is unknown. ARC-AGI-3 Standard reports 30.16% at @high under the RHAE method. OSWorld 2.0 reports 70.57% first-attempt success over five runs in a live 1080p Ubuntu environment with a 500-action limit. Keep that source unit and setup. This supports computer-interface work only within the stated setup.", avoidFor: "Do not raise coding effort to @xhigh or @max only to claim better quality. Their published DeepSWE 95% intervals overlap the @high interval. Under the exact rule, no clearly better nonoverlapping interval is shown. Use caution for factual recall at @max. AA-Omniscience reported a 50% hallucination rate on 2026-07-24. The dated source does not state its denominator. Do not impute the current denominator to that historical result." }],
-  ["anthropic/claude-fable-5-1", { routeFor: "This row has no established agentic-coding effort. DeepSWE v1.1 has no result, interval, benchmark cost, or duration for this row. Provisional use is allowed with an explicit valid measured effort where policy requires one, normal result verification, and no claim of coding optimality or DeepSWE price. Vals Code Migration reports 57.10% mean hidden-test pass rate at @max with server-side fallback enabled. The fallback-assisted share is unknown. OSWorld 2.0 reports 77.9% partial score and 41.7% strict score on the August 2026 release. AA-LCR v1.1 reports 85% at @medium, 84% at @high, 83% at @xhigh, and 85% at @max on completed prompts averaging about 99K tokens. Fallback contribution is unknown. ARC-AGI-3 has no verified result. Missing evidence is not zero.", avoidFor: "Do not claim an evidence-based coding effort or DeepSWE cost. Do not treat @max on Code Migration or the AA-LCR effort labels as a general recommendation. AA-Omniscience at @max reports 67.2% accuracy, a 93.4% attempt rate, and a 72.6% hallucination rate among questions not answered correctly. Preserve that exact denominator label. Zero Data Retention work without account-owner confirmation of express model-specific authorization and the required provider and account configuration under the governing agreement (REFUSE). Use the project's established authorization record. A general agreement, model availability, or successful request does not provide automatic approval." }],
-  ["google-vertex/gemini-3.8-flash", { routeFor: "Use for agentic repository coding at @medium. DeepSWE v1.1 reports 71.02% scored-attempt pass rate. The dated mean benchmark cost is $1.97 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. Terminal-Bench 2.1 reports 90.8% task pass rate in Google Vertex documentation and 89.4% in the Google DeepMind model card. Neither source states a tested effort. The difference is unresolved, so preserve both figures. AutomationBench-AA v1.0.6 reports a 61% score at @medium across 657 simulated software-as-a-service workflows after tools were available. The headline score penalizes guardrail violations. Its exact penalty formula is unpublished. AA-LCR v1.1 reports 84% at @medium on prompts averaging about 99K tokens. Vals Code Migration reports 25.9% mean hidden-test pass rate across migrations. ARC-AGI-3 has no verified result. Missing evidence is not zero.", avoidFor: "Do not raise coding effort to @high only to claim better quality. The tested DeepSWE @high interval overlaps the @medium interval. Under the exact rule, no clearly better nonoverlapping interval is shown. AA-LCR does not establish retrieval quality for substantially larger contexts or a precise boundary near 100K. The benchmark publications do not establish deployment support, discovery, or selection of an unknown tool. Check the active deployment and tool configuration separately. Vertex measurements do not establish cache, privacy, adapter, or measured-effort behavior on alias routes." }],
-  ["openai/gpt-6-astra", { routeFor: "Use for agentic repository coding at @medium. DeepSWE v1.1 reports 72.79% scored-attempt pass rate. The dated mean benchmark cost is $4.38 per attempted task. Context-window failures and agent timeouts count as failures. Provider, verifier, and network errors are excluded. OpenAI MRCR v2 reports 100% mean approximate text-match credit in the 256K–512K token band and 96.3% in the 512K–1M token band. The source reports its best tested effort but does not identify that effort. OSWorld 2.0 reports 72.6% partial score. AutomationBench-AA reports a 68% score at @max. The @max label records that tested capability setting, not the coding recommendation. Vals Code Migration reports 67.5% mean hidden-test pass rate across migrations. ARC-AGI-3 Standard reports 62.71% at @max through the ordinary ARC interface. A separate Provider Adapter evaluation reports 99.95% at @high through a special provider-specific integration. The adapter preserves provider state and compaction. Keep the two evaluations separate. The adapter is not a normal Slate route.", avoidFor: "Do not raise coding effort to @high, @xhigh, or @max only to claim better quality. Their published DeepSWE 95% intervals overlap the @medium interval. Under the exact rule, no clearly better nonoverlapping interval is shown. The computer and tool scores retain their measured setup and effort. Neither interactive result came from the Slate worker harness. Keep the Provider Adapter result separate from ordinary dispatch. MRCR does not establish active route capacity. Check the active Pi registry for current route capacity." }],
-  ["anthropic/claude-haiku-4-5", { routeFor: "Use for many separate, independent, short tasks when each result can be checked directly. Bulk describes the number of independent tasks. It does not mean one long action with repeated planning and adaptation. Vendor guidance describes high-volume work and a fastest-model use case with checkable outputs. No project benchmark establishes a preferred effort. Terminal-Bench 2.1 reports 43.8% task pass rate. Vals Code Migration reports 10.1% mean hidden-test pass rate across migrations on a separately labelled Thinking deployment. That label does not map to a verified Pi effort. ARC-AGI-3 has no verified result. Missing evidence is not zero.", avoidFor: "Avoid one long action that depends on repeated autonomous planning, tool use, feedback, and adaptation. No numeric turn, token, or duration threshold is supported. Split suitable bulk work into independent short tasks. Do not make an exact-effort quality claim because no project effort was measured. A supported explicit effort may be chosen with judgment, but this row provides no evidence-based coding default. No DeepSWE result or comparable DeepSWE cost exists. A context-window snapshot does not establish permanent route capacity or retrieval quality. Check the active Pi registry for current route capacity." }],
-]);
-
 after(() => rmSync(scratch, { recursive: true, force: true }));
 
 type Handler = (event: any, context: ExtensionContext) => unknown;
 
 class FakeExtensionApi {
   readonly handlers = new Map<string, Handler[]>();
+  readonly commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => Promise<void> }>();
   readonly sentMessages: Array<{ message: unknown; options: unknown }> = [];
 
   on(event: string, handler: Handler): void {
@@ -44,7 +30,7 @@ class FakeExtensionApi {
     this.handlers.set(event, handlers);
   }
 
-  registerCommand(): void {}
+  registerCommand(name: string, command: { handler: (args: string, ctx: ExtensionContext) => Promise<void> }): void { this.commands.set(name, command); }
   registerTool(): void {}
   getActiveTools(): string[] { return []; }
   setActiveTools(): void {}
@@ -79,30 +65,7 @@ function extensionContext(cwd: string, warnings: string[] = [], trusted = true):
   } as unknown as ExtensionContext;
 }
 
-function routedResolution(): ModelRouterResolution {
-  const profile = MODEL_PROFILES[0];
-  assert.ok(profile);
-  const candidate: RouterCandidate = {
-    spec: profile.id,
-    provider: profile.id.split("/")[0] ?? "",
-    id: profile.id.split("/")[1] ?? "",
-    profile,
-    tier: profile.tier,
-    registryCost: { input: 0, output: 1.25, cacheRead: 99, cacheWrite: 88 },
-    contextWindow: profile.contextWindow ?? undefined,
-    ladder: ladderFor(profile),
-    hasFailover: true,
-    tierUnsourced: profile.tierUnsourced === true,
-    ladderAssumed: profile.ladderAssumed === true,
-  };
-  return {
-    on: true,
-    candidates: [candidate],
-    warnings: [],
-  };
-}
-
-async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfig = {}, trusted = true, paused = false, model?: { provider: string; id: string }): Promise<string> {
+async function renderDoctrine(runtime: Readonly<LogicalRuntime> | null = createLogicalRuntime({ trusted: true }), config: SlateConfig = {}, trusted = true, paused = false, model?: { provider: string; id: string }, extensions = EMPTY_WORKER_EXTENSION_SET): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
@@ -115,8 +78,8 @@ async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfi
       effectiveContextBudget: () => undefined,
     } as any,
     () => config,
-    () => EMPTY_WORKER_EXTENSION_SET,
-    router === undefined ? undefined : () => router,
+    () => extensions,
+    () => runtime ?? undefined,
   );
   const handler = api.handlers.get("before_agent_start")?.[0];
   assert.ok(handler);
@@ -127,106 +90,63 @@ async function renderDoctrine(router?: ModelRouterResolution, config: SlateConfi
   return result.systemPrompt.slice("BASE".length);
 }
 
-test("routing doctrine renders registry prices, configured order, and full tier words", { timeout: 5000 }, async () => {
-  const doctrine = await renderDoctrine(routedResolution());
-  assert.match(doctrine, /Candidate rows preserve\s+configured order after validation\./);
-  assert.match(doctrine, /openai\/gpt-5\.6-luna\|0\/1\.25\|/);
-  assert.match(doctrine, /\|tier 1\|/);
-  assert.match(doctrine, /Prices are base input\/output rates from each exact pi registry entry\./);
-  assert.doesNotMatch(doctrine, /cheapest|preference, tier sourcing|dated updates|never a default pick/);
-  assert.match(doctrine, /Slate's model switch or top-level effort switch starts a cold prompt-cache path\./);
-  assert.doesNotMatch(doctrine, /12\.5 times|cache reads/);
+test("logical doctrine uses the cached static runtime policy without physical routes", { timeout: 5000 }, async () => {
+  const runtime = createLogicalRuntime({ trusted: true });
+  const doctrine = await renderDoctrine(runtime);
+  assert.match(doctrine, /Every `thread` call must name logical `model` and a short `reason`/);
+  assert.match(doctrine, /Effort is fixed by policy/);
+  assert.match(doctrine, /Model routing policy:/);
+  assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| security work \/ performance work \| none \|/);
+  assert.doesNotMatch(doctrine, /preferredProvider|permission openai\/|registry prices|context window|`effort`/);
+  assert.match(doctrine, /orchestrator selects the model for a no-area track under the same ordinary guidance/);
 });
 
-test("Fable 5.1 authorization exception survives production doctrine rendering", { timeout: 5000 }, async () => {
-  const profile = MODEL_PROFILES.find((entry) => entry.id === "anthropic/claude-fable-5-1");
-  assert.ok(profile);
-  const resolution = resolveModelRouter({
-    models: [profile.id],
-    registry: {
-      find: () => ({ cost: { input: 1, output: 5 }, contextWindow: profile.contextWindow ?? undefined }),
-      hasConfiguredAuth: () => true,
-    },
-    failover: { [profile.id]: profile.id },
+test("logical doctrine production renders match published portable measurements", { timeout: 5000 }, async () => {
+  const docsDirectory = TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
+  const runtime = createLogicalRuntime({ trusted: true, documentationDirectory: docsDirectory });
+  const capped = { units: [
+    { path: "/fixture/a", source: "x".repeat(128), isDirectory: true, tools: [{ name: "a".repeat(64), description: "d".repeat(140) }, { name: "b".repeat(64), description: "e".repeat(140) }] },
+    { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
+  ], paths: [], toolNames: [] };
+  const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 1961, lines: 12, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 6771, lines: 86, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2713, lines: 44, paths: 4 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true } }, true, false, undefined, capped)), { portable: 8210, lines: 97, paths: 6 });
+});
+
+test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
+  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { compressor: { models: [] } } } });
+  const doctrine = await renderDoctrine(runtime);
+  assert.match(doctrine, /Logical model work is blocked/);
+  assert.match(doctrine, /compressor.models must not be empty/);
+  assert.doesNotMatch(doctrine, /Model routing policy:/);
+});
+
+test("effective command reads current preferences without policy or provider work", async () => {
+  const api = new FakeExtensionApi();
+  const store = new SlateStore(api as unknown as ExtensionAPI);
+  const runtime = createLogicalRuntime({
+    trusted: true,
+    projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "openai", providers: { openai: "gpt-5.6-luna", second: "luna-2" } }] } } },
   });
-  assert.equal(resolution.on, true);
-
-  const doctrine = await renderDoctrine(resolution);
-  const row = doctrine.split("\n").find((line) => line.includes(profile.id));
-  assert.ok(row, "the production renderer must include the Fable row");
-  assert.ok(row.length <= 1800, "the Fable row must remain within the enforced model-row bound");
-  assert.match(row, /Zero Data Retention work without account-owner confirmation.*\(REFUSE\)/);
-  assert.doesNotMatch(row, /claude-fable-5\|/);
-});
-
-test("routing benchmark guide matches the complete independent golden and only renders with a trusted live table", { timeout: 5000 }, async () => {
-  const routed = await renderDoctrine(routedResolution());
-  const start = routed.indexOf("\n   Benchmark score guide:");
-  const end = routed.indexOf("\n   Routable this session", start);
-  assert.ok(start >= 0 && end > start);
-  assert.equal(routed.slice(start, end), EXPECTED_ROUTING_BENCHMARK_GUIDE);
-  assert.doesNotMatch(routed, /Rows? [A-I]\b/);
-
-  assert.doesNotMatch(await renderDoctrine(ROUTER_OFF), /Benchmark score guide/);
-  assert.doesNotMatch(await renderDoctrine(routedResolution(), {}, false), /Benchmark score guide/);
-  assert.doesNotMatch(await renderDoctrine({ on: true, candidates: [], warnings: [] }), /Benchmark score guide/);
-});
-
-test("all nine canonical profile rows match independent complete guidance goldens", { timeout: 5000 }, async () => {
-  assert.deepEqual(MODEL_PROFILES.map((profile) => profile.id), [...EXPECTED_PROFILE_GUIDANCE.keys()]);
-  for (const profile of MODEL_PROFILES) {
-    assert.deepEqual(
-      { routeFor: profile.routeFor, avoidFor: profile.avoidFor },
-      EXPECTED_PROFILE_GUIDANCE.get(profile.id),
-      `${profile.id} guidance changed`,
-    );
-  }
-  const specs = [...EXPECTED_PROFILE_GUIDANCE.keys()];
-  const resolution = resolveModelRouter({
-    models: specs,
-    registry: { find: () => ({ cost: { input: 1, output: 2 }, contextWindow: 1_000_000 }), hasConfiguredAuth: () => true },
-    failover: Object.fromEntries(specs.map((spec) => [spec, spec])),
-  });
-  const doctrine = await renderDoctrine(resolution);
-  for (const [spec, expected] of EXPECTED_PROFILE_GUIDANCE) {
-    const row = doctrine.split("\n").find((line) => line.startsWith(`   ${spec}|`));
-    assert.ok(row, `missing profile row: ${spec}`);
-    const cells = row.split("|");
-    assert.equal(cells[5], expected.routeFor, `${spec} rendered routeFor changed`);
-    assert.equal(cells[6], expected.avoidFor, `${spec} rendered avoidFor changed`);
-  }
-  assert.doesNotMatch(doctrine, /\$1 per million input tokens|\$5 per million output tokens/);
-});
-
-test("canonical and alias Gemini doctrine rows keep their separate evidence contracts", { timeout: 5000 }, async () => {
-  const identities = [
-    "google-vertex/gemini-3.8-flash",
-    "google/gemini-3.8-flash",
-    "opencode/gemini-3.8-flash",
-    "openrouter/google/gemini-3.8-flash",
-  ];
-  for (const spec of identities) {
-    const resolution = resolveModelRouter({
-      models: [spec],
-      registry: { find: () => ({ cost: { input: 7, output: 8 }, contextWindow: 777_000 }), hasConfiguredAuth: () => true },
-      failover: { [spec]: "anthropic/claude-opus-5" },
-    });
-    assert.equal(resolution.candidates[0]?.spec, spec);
-    const doctrine = await renderDoctrine(resolution);
-    const row = doctrine.split("\n").find((line) => line.startsWith(`   ${spec}|`));
-    assert.ok(row);
-    assert.match(row, /\|7\/8\|777K\|/);
-    if (spec === identities[0]) {
-      assert.match(row, /\|low,medium,high\|Use for agentic repository coding at @medium\./);
-      assert.match(row, /71\.02%/);
-    } else {
-      assert.match(row, /\|none\|No capability or effort measurement is established for this alias route\./);
-      assert.doesNotMatch(row, /71\.02%|\$1\.97 per attempted task|coding at @medium/);
-      assert.match(row, /Cache, privacy, adapter, wire-format, rate, deployment, and tool contracts can differ/);
-      assert.match(doctrine, /none = no measured effort in Slate's profile/);
-      assert.doesNotMatch(doctrine, /none = pi's own level applies/);
-    }
-  }
+  const admission = runtime.admit();
+  assert.ok(admission);
+  assert.equal(runtime.publishProvider(admission, "gpt-5.6-luna", "second"), true);
+  registerSlateMode(
+    api as unknown as ExtensionAPI,
+    store,
+    { startHandoff: async () => {}, effectiveContextBudget: () => undefined } as any,
+    () => ({}),
+    () => EMPTY_WORKER_EXTENSION_SET,
+    () => runtime,
+  );
+  const notices: string[] = [];
+  const ctx = extensionContext(scratch, notices);
+  await api.commands.get("slate")!.handler("effective", ctx);
+  assert.equal(notices.length, 1);
+  assert.match(notices[0]!, /preferredProvider=openai; rememberedProvider=second/);
+  assert.match(notices[0]!, /Remembered compressor selection: none/);
 });
 
 test("project startup settings merge causally and select Astra at medium when unscoped", { timeout: 5000 }, async () => {
@@ -381,71 +301,8 @@ test("real Pi startup prefers Astra anywhere in the scoped model set", { timeout
   }
 });
 
-test("project routing configuration keeps seven candidates and both new Opus fallbacks", () => {
-  const config = JSON.parse(readFileSync(join(process.cwd(), ".pi", "slate.json"), "utf8"));
-  assert.deepEqual(config.router.models, [
-    "openai/gpt-5.6-luna",
-    "openai/gpt-5.6-terra",
-    "openai/gpt-5.6-sol",
-    "anthropic/claude-sonnet-5",
-    "anthropic/claude-opus-5",
-    "google-vertex/gemini-3.8-flash",
-    "openai/gpt-6-astra",
-  ]);
-  assert.deepEqual(config.modelFailover, {
-    "openai/gpt-5.6-luna": "anthropic/claude-sonnet-5",
-    "openai/gpt-5.6-terra": "anthropic/claude-opus-5",
-    "openai/gpt-5.6-sol": "anthropic/claude-opus-5",
-    "anthropic/claude-sonnet-5": "openai/gpt-5.6-luna",
-    "anthropic/claude-opus-5": "openai/gpt-5.6-sol",
-    "google-vertex/gemini-3.8-flash": "anthropic/claude-opus-5",
-    "openai/gpt-6-astra": "anthropic/claude-opus-5",
-  });
-
-  const resolution = resolveModelRouter({
-    models: config.router.models,
-    registry: {
-      find: (provider, id) => ({
-        cost: { input: 1, output: 2 },
-        contextWindow: provider === "anthropic" ? 1_000_000
-          : provider === "google-vertex" ? 1_048_576
-            : id === "gpt-6-astra" ? 1_050_000 : 272_000,
-      }),
-      hasConfiguredAuth: () => true,
-    },
-    failover: config.modelFailover,
-  });
-  assert.deepEqual(resolution.candidates.map((candidate) => candidate.spec), config.router.models);
-  assert.equal(resolution.warnings.length, 11);
-});
-
-test("registry rates flow through production resolution into doctrine rows", { timeout: 5000 }, async () => {
-  const specs = MODEL_PROFILES.slice(0, 3).map((profile) => profile.id);
-  assert.equal(specs.length, 3);
-  const registry = new Map([
-    [specs[0], { cost: { input: 7, output: 8 } }],
-    [specs[1], { cost: { input: 0 } }],
-    [specs[2], { cost: { output: 9 } }],
-  ]);
-  const resolution = resolveModelRouter({
-    models: specs,
-    registry: {
-      find: (provider, id) => registry.get(`${provider}/${id}`),
-      hasConfiguredAuth: () => true,
-    },
-    failover: Object.fromEntries(specs.map((spec) => [spec, spec])),
-  });
-  assert.equal(resolution.on, true);
-  assert.deepEqual(resolution.candidates.map((candidate) => candidate.spec), specs);
-
-  const doctrine = await renderDoctrine(resolution);
-  assert.match(doctrine, new RegExp(`   ${specs[0]?.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\|7/8\\|`));
-  assert.match(doctrine, new RegExp(`   ${specs[1]?.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\|0/unknown\\|`));
-  assert.match(doctrine, new RegExp(`   ${specs[2]?.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\|unknown/9\\|`));
-});
-
 test("single-action doctrine requires new threads and episode references", { timeout: 5000 }, async () => {
-  const doctrine = await renderDoctrine(routedResolution());
+  const doctrine = await renderDoctrine();
   assert.match(doctrine, /Every `thread` call creates a new thread for one action\./);
   assert.match(doctrine, /A follow-up action\s+must use another new thread\./);
   assert.match(doctrine, /No worker conversation crosses that boundary\./);
@@ -516,9 +373,9 @@ test("untrusted follow-up issue configuration leaves doctrine byte-identical", {
 });
 
 test("writing doctrine is active for trusted projects regardless of ignored writing keys", { timeout: 5000 }, async () => {
-  const doctrine = await renderDoctrine(ROUTER_OFF, { writing: { check: false, remind: false } });
-  const absent = await renderDoctrine(ROUTER_OFF);
-  const untrusted = await renderDoctrine(ROUTER_OFF, { writing: { check: true, remind: true } }, false);
+  const doctrine = await renderDoctrine(undefined, { writing: { check: false, remind: false } });
+  const absent = await renderDoctrine(undefined);
+  const untrusted = await renderDoctrine(undefined, { writing: { check: true, remind: true } }, false);
   assert.match(absent, /Check user-facing prose before delivery\./);
   assert.equal(absent, doctrine);
   assert.doesNotMatch(untrusted, /Check user-facing prose before delivery\./);
@@ -600,7 +457,7 @@ test("mode uses the four-turn reminder fallback when writing config is absent", 
     { startHandoff: async () => {}, effectiveContextBudget: () => undefined } as any,
     () => ({}),
     () => EMPTY_WORKER_EXTENSION_SET,
-    () => ROUTER_OFF,
+    () => undefined,
   );
   const context = extensionContext(scratch);
   const turn = { message: { role: "assistant", content: [], stopReason: "stop" }, toolResults: [] };
@@ -620,7 +477,7 @@ test("mode uses the four-turn reminder fallback when writing config is absent", 
     { startHandoff: async () => {}, effectiveContextBudget: () => undefined } as any,
     () => ({ writing: { remindTurns: 5 } }),
     () => EMPTY_WORKER_EXTENSION_SET,
-    () => ROUTER_OFF,
+    () => undefined,
   );
   for (let index = 0; index < 4; index++) await configuredApi.emit("turn_end", turn, context);
   assert.deepEqual(configuredApi.sentMessages, [], "a configured five-turn interval must stay silent through turn four");
@@ -656,16 +513,75 @@ test("the paused doctrine states worker availability and the one-writer save con
   assert.ok(writer > 0 && writer < verify && verify < brief);
 });
 
-test("routing off gives the explicit dispatch vocabulary without a candidate table", { timeout: 5000 }, async () => {
-  const defaultOff = await renderDoctrine();
-  const explicitOff = await renderDoctrine(ROUTER_OFF);
-  assert.equal(explicitOff, defaultOff);
-  assert.match(explicitOff, /Every `thread` call must name `model`, `effort` .* and `reason`\. Session base model: unknown\./);
-  assert.doesNotMatch(explicitOff, /Routable this session/);
-  assert.doesNotMatch(explicitOff, /Prices include dated updates/);
+test("missing parent runtime produces an explicit blocked rule", { timeout: 5000 }, async () => {
+  const doctrine = await renderDoctrine(null);
+  assert.match(doctrine, /Logical model work is blocked: The logical model policy is unavailable/);
+  assert.doesNotMatch(doctrine, /Routable this session|Session base model/);
+});
 
-  const withBase = await renderDoctrine(ROUTER_OFF, {}, true, false, { provider: "p", id: "base" });
-  assert.match(withBase, /Session base model: p\/base\./);
+test("entry configuration reports legacy keys and blocks invalid current policy", { timeout: 5000 }, async () => {
+  const cwd = join(scratch, "logical-config-blocked");
+  mkdirSync(join(cwd, ".pi"), { recursive: true });
+  writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({
+    modelFailover: { "old/model": "other/model" },
+    episodeModel: "old/compressor",
+    router: { allowUnmeasuredEffort: true, compressor: { models: [] } },
+  }));
+  const api = new FakeExtensionApi();
+  slateExtension(api as unknown as ExtensionAPI);
+  const notices: string[] = [];
+  const ctx = extensionContext(cwd, notices);
+  await api.emit("session_start", {}, ctx);
+  assert.equal(notices.some((message) => /Legacy key modelFailover is ignored/.test(message)), true);
+  assert.equal(notices.some((message) => /Legacy key episodeModel is ignored/.test(message)), true);
+  assert.equal(notices.some((message) => /router.allowUnmeasuredEffort is ignored/.test(message)), true);
+  assert.equal(notices.some((message) => /logical model policy blocked.*compressor.models must not be empty/i.test(message)), true);
+  notices.length = 0;
+  await api.commands.get("slate")!.handler("effective", ctx);
+  assert.match(notices[0] ?? "", /Status: blocked/);
+  assert.match(notices[0] ?? "", /No hidden compressor fallback is approved/);
+});
+
+test("entry configuration rejects every non-object JSON root", { timeout: 5000 }, async () => {
+  for (const [name, value] of [["null", null], ["array", []], ["scalar", 7]] as const) {
+    const cwd = join(scratch, `logical-config-${name}`);
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify(value));
+    const api = new FakeExtensionApi();
+    slateExtension(api as unknown as ExtensionAPI);
+    const notices: string[] = [];
+    await api.emit("session_start", {}, extensionContext(cwd, notices));
+    assert.equal(notices.some((message) => /must contain one JSON object.*policy is blocked/i.test(message)), true, name);
+    assert.equal(notices.some((message) => /logical model policy blocked.*router must be an object/i.test(message)), true, name);
+  }
+});
+
+test("session startup accepts mapped and ambiguous physical routes without a false warning", { timeout: 5000 }, async () => {
+  for (const ambiguous of [false, true]) {
+    const cwd = join(scratch, `startup-reverse-${ambiguous}`);
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    if (ambiguous) writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({ router: { models: { add: [{ model: "alias", capabilityRating: 40, costRating: 40, effort: "max", preferredProvider: "openai", providers: { openai: "gpt-5.6-luna" }, guidelines: [], cautions: [] }] } } }));
+    const api = new FakeExtensionApi();
+    slateExtension(api as unknown as ExtensionAPI);
+    const warnings: string[] = [];
+    const ctx = extensionContext(cwd, warnings);
+    ctx.model = { provider: "openai", id: "gpt-5.6-luna" } as never;
+    await api.emit("session_start", {}, ctx);
+    assert.deepEqual(warnings, [], `startup route ambiguous=${ambiguous} must not invent a failure`);
+  }
+});
+
+test("entry configuration reports malformed JSON and keeps logical work blocked", { timeout: 5000 }, async () => {
+  const cwd = join(scratch, "logical-config-malformed");
+  mkdirSync(join(cwd, ".pi"), { recursive: true });
+  writeFileSync(join(cwd, ".pi", "slate.json"), "{ broken");
+  const api = new FakeExtensionApi();
+  slateExtension(api as unknown as ExtensionAPI);
+  const notices: string[] = [];
+  const ctx = extensionContext(cwd, notices);
+  await api.emit("session_start", {}, ctx);
+  assert.equal(notices.some((message) => /could not be parsed.*policy is blocked/i.test(message)), true);
+  assert.equal(notices.some((message) => /logical model policy blocked.*router must be an object/i.test(message)), true);
 });
 
 test("entry configuration reports either ignored writing key through the shared warning sink", { timeout: 5000 }, async () => {

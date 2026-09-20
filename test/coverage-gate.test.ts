@@ -616,6 +616,204 @@ test("run-tests rejects direct, nested, and aliased checkout scratch roots befor
   }
 });
 
+test("run-tests makes native and real-Pi host processes mandatory, isolated, exhaustive, and coverage-separated", { timeout: 20_000 }, (t) => {
+  const root = scratchDirectory("slate-runner-partition-");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, "repo");
+  const outerTmp = join(root, "tmp");
+  mkdirSync(join(repo, "verification"), { recursive: true });
+  mkdirSync(join(repo, "test", "new"), { recursive: true });
+  mkdirSync(outerTmp);
+  cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
+  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/coverage-gate.mjs"), "// invoked through the fake node fixture\n");
+  writeFileSync(join(repo, "test/smoke.test.ts"), "// native fixture\n");
+  writeFileSync(join(repo, "test/new/discovered.test.ts"), "// newly discovered native fixture\n");
+  writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "// mandatory host fixture\n");
+  const bin = join(repo, "bin");
+  mkdirSync(bin);
+  const calls = join(root, "node-calls.txt");
+  const fakeNode = join(bin, "node");
+  writeFileSync(fakeNode, `#!/bin/sh
+printf 'TMPDIR=%s JITI=%s ARGS=%s\\n' "$TMPDIR" "$JITI_FS_CACHE" "$*" >> ${JSON.stringify(calls)}
+case " $* " in
+  *' --test '*)
+    destination=''
+    for arg in "$@"; do case "$arg" in --test-reporter-destination=*) destination="\${arg#*=}" ;; esac; done
+    case " $* " in
+      *recovery-ownership-host.test.ts*)
+        printf 'TN:host-only\\n' > "$destination"
+        [ -f ${JSON.stringify(join(root, "host-fail"))} ] && exit 9
+        ;;
+      *) printf 'TN:native-only\\n' > "$destination" ;;
+    esac
+    printf 'fixture node:test PASS\\n'
+    exit 0
+    ;;
+esac
+lcov=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --lcov ]; then lcov="$2"; break; fi
+  shift
+done
+printf 'GATE INPUT: '
+cat "$lcov"
+printf 'VERDICT: PASS — fixture gate accepted native LCOV\\n'
+`);
+  chmodSync(fakeNode, 0o755);
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "config", "user.email", "gate@example.invalid");
+  git(repo, "config", "user.name", "Gate Test");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "fixture");
+  const env = { PATH: `${bin}:${process.env.PATH ?? ""}`, TMPDIR: outerTmp };
+  const passed = command(repo, "bash", ["verification/run-tests.sh"], env);
+  assert.equal(passed.status, 0, `${passed.stdout}\n${passed.stderr}`);
+  assert.match(passed.stdout, /GATE INPUT: TN:native-only/);
+  assert.doesNotMatch(passed.stdout, /GATE INPUT: TN:host-only/);
+  assert.match(passed.stdout, /separate no-credit host LCOV/);
+  const invocationLines = readFileSync(calls, "utf8").trim().split("\n").filter((line) => line.includes(" --test "));
+  assert.equal(invocationLines.length, 2);
+  const native = invocationLines.find((line) => line.includes("smoke.test.ts"));
+  const host = invocationLines.find((line) => line.includes("recovery-ownership-host.test.ts"));
+  assert.ok(native);
+  assert.ok(host);
+  assert.match(native, /new\/discovered\.test\.ts/);
+  assert.doesNotMatch(native, /recovery-ownership-host\.test\.ts/);
+  assert.doesNotMatch(host, /smoke\.test\.ts|new\/discovered\.test\.ts/);
+  assert.match(native, /native-tmp/);
+  assert.match(host, /host-tmp/);
+
+  writeFileSync(calls, "");
+  writeFileSync(join(root, "host-fail"), "fail");
+  const failed = command(repo, "bash", ["verification/run-tests.sh"], env);
+  assert.equal(failed.status, 9, `${failed.stdout}\n${failed.stderr}`);
+  assert.match(failed.stdout, /real-Pi host node:test exited 9/);
+  assert.doesNotMatch(failed.stdout, /GATE INPUT:/);
+});
+
+test("run-tests roster audit rejects omitted, overlapping, and duplicate partition assignments before node:test", { timeout: 20_000 }, (t) => {
+  const root = scratchDirectory("slate-runner-roster-audit-");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, "repo");
+  const outerTmp = join(root, "tmp");
+  mkdirSync(join(repo, "verification"), { recursive: true });
+  mkdirSync(join(repo, "test"), { recursive: true });
+  mkdirSync(outerTmp);
+  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "test/smoke.test.ts"), "// native fixture\n");
+  writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "// host fixture\n");
+  const bin = join(repo, "bin");
+  mkdirSync(bin);
+  const nodeMarker = join(root, "node-ran");
+  writeFileSync(join(bin, "node"), `#!/bin/sh\nprintf ran > ${JSON.stringify(nodeMarker)}\nexit 99\n`);
+  chmodSync(join(bin, "node"), 0o755);
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "config", "user.email", "gate@example.invalid");
+  git(repo, "config", "user.name", "Gate Test");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "fixture");
+  const original = readFileSync(RUNNER, "utf8");
+  const branch = 'if [ "$file" = "$host_path" ]; then host_files+=("$file")\n  else native_files+=("$file")\n  fi';
+  assert.equal(original.split(branch).length, 2, "partition branch must remain unique");
+  const mutants = [
+    ["omitted", 'if [ "$file" = "$host_path" ]; then host_files+=("$file")\n  else :\n  fi', /not exhaustive/],
+    ["overlap", 'if [ "$file" = "$host_path" ]; then host_files+=("$file"); native_files+=("$file")\n  else native_files+=("$file")\n  fi', /overlap or duplicate/],
+    ["duplicate", 'if [ "$file" = "$host_path" ]; then host_files+=("$file")\n  else native_files+=("$file"); native_files+=("$file")\n  fi', /overlap or duplicate/],
+  ] as const;
+  for (const [label, replacement, expected] of mutants) {
+    rmSync(nodeMarker, { force: true });
+    writeFileSync(join(repo, "verification/run-tests.sh"), original.replace(branch, replacement));
+    const result = command(repo, "bash", ["verification/run-tests.sh"], {
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      TMPDIR: outerTmp,
+    });
+    assert.equal(result.status, 2, `${label}: ${result.stdout}\n${result.stderr}`);
+    assert.match(result.stderr, expected, label);
+    assert.equal(existsSync(nodeMarker), false, `${label}: node:test ran before the roster refusal`);
+  }
+});
+
+test("run-tests isolates Jiti coverage from a cache warmed by an earlier process", { timeout: 75_000 }, (t) => {
+  const harness = scratchDirectory("slate-runner-jiti-cache-");
+  t.after(() => rmSync(harness, { recursive: true, force: true }));
+  const repo = join(harness, "repo");
+  const outerTmp = join(harness, "outer-tmp");
+  mkdirSync(repo);
+  mkdirSync(outerTmp);
+  cpSync(join(CHECKOUT, "extension"), join(repo, "extension"), { recursive: true });
+  cpSync(join(CHECKOUT, "docs"), join(repo, "docs"), { recursive: true });
+  cpSync(join(CHECKOUT, "verification"), join(repo, "verification"), { recursive: true });
+  cpSync(join(CHECKOUT, "package.json"), join(repo, "package.json"));
+  cpSync(join(CHECKOUT, "README.md"), join(repo, "README.md"));
+  mkdirSync(join(repo, ".pi"));
+  cpSync(join(CHECKOUT, ".pi/settings.json"), join(repo, ".pi/settings.json"));
+  cpSync(join(CHECKOUT, ".pi/slate.json"), join(repo, ".pi/slate.json"));
+  mkdirSync(join(repo, "test"));
+  writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "import test from 'node:test'; test('host partition fixture', () => {});\n");
+  for (const name of ["doctrine-contract.test.ts", "logical-model-policy.test.ts", "logical-model-recovery.test.ts"]) {
+    cpSync(join(CHECKOUT, "test", name), join(repo, "test", name));
+  }
+  const policyPath = join(repo, "test/logical-model-policy.test.ts");
+  const policySource = readFileSync(policyPath, "utf8");
+  const policyCut = 'test("the real resolver wrapper refuses a missing exact-pinned TypeScript compiler"';
+  assert.equal(policySource.split(policyCut).length, 2, "policy fixture cut point must remain unique");
+  writeFileSync(policyPath, policySource.slice(0, policySource.indexOf(policyCut)));
+  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+
+  const packageLinks = [
+    ["node_modules/typescript", "node_modules/typescript"],
+    ["node_modules/typebox", "node_modules/typebox"],
+    ["node_modules/@earendil-works/pi-ai", "node_modules/@earendil-works/pi-ai"],
+    ["node_modules/@earendil-works/pi-tui", "node_modules/@earendil-works/pi-tui"],
+    ["node_modules/@earendil-works/pi-coding-agent", "node_modules/@earendil-works/pi-coding-agent"],
+    ["node_modules/.bin/pi", "node_modules/.bin/pi"],
+  ] as const;
+  for (const [target, source] of packageLinks) {
+    mkdirSync(dirname(join(repo, target)), { recursive: true });
+    symlinkSync(realpathSync(join(CHECKOUT, source)), join(repo, target), "dir");
+  }
+
+  const renderPath = join(repo, "extension/logical-model-render.ts");
+  const resolverPath = join(repo, "extension/logical-model-resolver.ts");
+  const renderSource = readFileSync(renderPath, "utf8");
+  const resolverSource = readFileSync(resolverPath, "utf8");
+  writeFileSync(renderPath, "export const base = 1;\n");
+  writeFileSync(resolverPath, "export const base = 1;\n");
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "config", "user.email", "gate@example.invalid");
+  git(repo, "config", "user.name", "Gate Test");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "base");
+  const base = git(repo, "rev-parse", "HEAD");
+  writeFileSync(renderPath, renderSource);
+  writeFileSync(resolverPath, resolverSource);
+  commit(repo, "head");
+
+  const childEnv = {
+    ...isolatedChildEnvironment(repo),
+    TMPDIR: outerTmp,
+    JITI_FS_CACHE: join(harness, "caller-selected-cache"),
+    PI_BIN: join(repo, "node_modules/.bin/pi"),
+  };
+  const prewarm = spawnSync("bash", ["verification/run-resolver-checks.sh", "--repo", repo, "--strict"], {
+    cwd: repo, encoding: "utf8", env: childEnv, timeout: 30_000,
+  });
+  assert.equal(prewarm.status, 0, `resolver prewarm failed\n${prewarm.stdout}\n${prewarm.stderr}`);
+  const sharedCache = join(outerTmp, "jiti");
+  const warmedNames = readdirSync(sharedCache);
+  assert.ok(warmedNames.some((name) => name.startsWith("extension-logical-model-render.")), "prewarm did not cache logical-model-render");
+  assert.ok(warmedNames.some((name) => name.startsWith("extension-logical-model-resolver.")), "prewarm did not cache logical-model-resolver");
+
+  const isolated = spawnSync("bash", ["verification/run-tests.sh", "--base", base], {
+    cwd: repo, encoding: "utf8", env: childEnv, timeout: 30_000,
+  });
+  assert.equal(isolated.status, 0, `${isolated.stdout}\n${isolated.stderr}`);
+  assert.match(isolated.stdout, /logical-model-render\.ts: lines ([1-9]\d*)\/\1=100\.00%/);
+  assert.match(isolated.stdout, /logical-model-resolver\.ts: lines ([1-9]\d*)\/\1=100\.00%/);
+  assert.match(isolated.stdout, /RUN VERDICT: PASS — tests passed and coverage gate accepted the patch/);
+});
+
 test("a missing exact-pinned TypeScript devDependency is a legible infrastructure error", { timeout: 20_000 }, (t) => {
   const isolated = scratchDirectory("slate-gate-no-typescript-");
   t.after(() => rmSync(isolated, { recursive: true, force: true }));
@@ -811,6 +1009,7 @@ test("run-tests isolates global fsmonitor configuration through the real coverag
   const { repo, base } = fixture(t);
   mkdirSync(join(repo, "test"), { recursive: true });
   cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
+  writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "// host fixture\n");
   cpSync(GATE, join(repo, "verification/coverage-gate.mjs"));
   writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
   const modules = join(repo, "node_modules");
@@ -870,6 +1069,7 @@ test("run-tests preserves a gate WARN as its final verdict (WH23)", (t) => {
   writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
   writeFileSync(join(repo, "verification/coverage-gate.mjs"), "console.log('VERDICT: WARN — fixture requires manual review');\n");
   writeFileSync(join(repo, "test/smoke.test.ts"), "import test from 'node:test'; test('smoke', () => {});\n");
+  writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "import test from 'node:test'; test('host', () => {});\n");
   const bin = join(repo, "bin");
   mkdirSync(bin);
   const fakeNode = join(bin, "node");
@@ -914,6 +1114,7 @@ test("missing LCOV is an infrastructure error and the runner labels it (WH41)", 
   writeFileSync(join(runnerRepo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
   writeFileSync(join(runnerRepo, "verification/coverage-gate.mjs"), "process.exitCode = 2;\n");
   writeFileSync(join(runnerRepo, "test/smoke.test.ts"), "// fixture\n");
+  writeFileSync(join(runnerRepo, "test/recovery-ownership-host.test.ts"), "// host fixture\n");
   const bin = join(runnerRepo, "bin");
   mkdirSync(bin);
   const fakeNode = join(bin, "node");

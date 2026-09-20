@@ -94,32 +94,69 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+native_tmp="$work/native-tmp"
+host_tmp="$work/host-tmp"
+mkdir -p "$native_tmp/jiti" "$host_tmp/jiti" || fail "cannot create test-private temporary directories"
 lcov="$work/lcov.info"
+host_lcov="$work/host-lcov.info"
 
 shopt -s globstar nullglob
 test_files=("$repo"/test/**/*.test.ts)
 [ "${#test_files[@]}" -gt 0 ] || fail "no test/**/*.test.ts files found"
-printf 'run-tests: node --test test/ (%s file(s); LCOV: %s)\n' "${#test_files[@]}" "$lcov"
+host_path="$repo/test/recovery-ownership-host.test.ts"
+native_files=()
+host_files=()
+for file in "${test_files[@]}"; do
+  if [ "$file" = "$host_path" ]; then host_files+=("$file")
+  else native_files+=("$file")
+  fi
+done
+[ "${#host_files[@]}" -eq 1 ] || fail "the real-Pi host test is missing from the discovered roster"
+declare -A roster_seen=()
+for file in "${native_files[@]}" "${host_files[@]}"; do
+  [ -z "${roster_seen[$file]+x}" ] || fail "native and host test rosters overlap or duplicate $file"
+  roster_seen[$file]=1
+done
+[ "$(( ${#native_files[@]} + ${#host_files[@]} ))" -eq "${#test_files[@]}" ] || fail "native and host test rosters are not exhaustive"
+
+printf 'run-tests: native node --test test/ (%s file(s); LCOV: %s)\n' "${#native_files[@]}" "$lcov"
 set +e
 (
-  # Suppress only Node's package-type inference warning. Adding `type: module`
-  # would alter the shipped package, while renaming the required .ts test would
-  # complicate discovery and typecheck coverage for no runtime benefit.
-  cd "$repo" && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
+  cd "$repo" && TMPDIR="$native_tmp" JITI_FS_CACHE=true \
+    node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
     --test --experimental-test-coverage \
     --test-coverage-include='extension/**/*.ts' \
     --test-reporter=spec --test-reporter-destination=stdout \
     --test-reporter=lcov --test-reporter-destination="$lcov" \
-    "${test_files[@]}"
+    "${native_files[@]}"
 )
-test_status=$?
+native_status=$?
 set -e
-if [ "$test_status" -ne 0 ]; then
-  printf 'TEST VERDICT: FAIL — node:test exited %s; coverage gate not run\n' "$test_status"
-  exit "$test_status"
+if [ "$native_status" -ne 0 ]; then
+  printf 'TEST VERDICT: FAIL — native node:test exited %s; host tests and coverage gate not run\n' "$native_status"
+  exit "$native_status"
 fi
-[ -s "$lcov" ] || fail "node:test passed but did not produce LCOV at $lcov"
-printf 'TEST VERDICT: PASS — node:test exited 0 and emitted %s bytes of LCOV\n' "$(wc -c < "$lcov" | tr -d ' ')"
+printf 'run-tests: real-Pi host node --test (%s file; separate LCOV: %s; no patch-coverage credit)\n' "${#host_files[@]}" "$host_lcov"
+set +e
+(
+  cd "$repo" && TMPDIR="$host_tmp" JITI_FS_CACHE=true \
+    node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
+    --test --experimental-test-coverage \
+    --test-coverage-include='extension/**/*.ts' \
+    --test-reporter=spec --test-reporter-destination=stdout \
+    --test-reporter=lcov --test-reporter-destination="$host_lcov" \
+    "${host_files[@]}"
+)
+host_status=$?
+set -e
+if [ "$host_status" -ne 0 ]; then
+  printf 'TEST VERDICT: FAIL — real-Pi host node:test exited %s; coverage gate not run\n' "$host_status"
+  exit "$host_status"
+fi
+[ -s "$lcov" ] || fail "native node:test passed but did not produce LCOV at $lcov"
+[ -s "$host_lcov" ] || fail "real-Pi host node:test passed but did not produce separate LCOV at $host_lcov"
+printf 'TEST VERDICT: PASS — native and real-Pi host node:test exited 0; native LCOV %s bytes; separate no-credit host LCOV %s bytes\n' \
+  "$(wc -c < "$lcov" | tr -d ' ')" "$(wc -c < "$host_lcov" | tr -d ' ')"
 if [ "$gate" -eq 0 ]; then
   echo "COVERAGE VERDICT: SKIPPED — --no-gate"
   exit 0

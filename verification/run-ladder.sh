@@ -392,7 +392,9 @@ CANON='{
   "defaultModel": "alpha-1",
   "defaultThinkingLevel": "medium",
   "retry": {
-    "enabled": false
+    "enabled": true,
+    "maxRetries": 0,
+    "baseDelayMs": 0
   }
 }'
 CANON_XHIGH='{
@@ -400,11 +402,47 @@ CANON_XHIGH='{
   "defaultModel": "alpha-1",
   "defaultThinkingLevel": "xhigh",
   "retry": {
-    "enabled": false
+    "enabled": true,
+    "maxRetries": 0,
+    "baseDelayMs": 0
   }
 }'
 
 slatecfg() { printf '%s' "$1" > "$WORK/.pi/slate.json"; }
+logicalcfg() { # target provider, target model, fixed effort, optional extra root fields
+	local provider="$1" model="$2" effort="$3" extra="${4:-}"
+	cat > "$WORK/.pi/slate.json" <<JSON
+{
+  "router": { "models": { "include": [], "add": [{
+    "model": "ladder", "capabilityRating": 50, "effort": "$effort", "costRating": 50,
+    "preferredProvider": "probe-a", "providers": { "probe-a": "alpha-1", "$provider": "$model" },
+    "guidelines": [], "cautions": []
+  }] } }$extra
+}
+JSON
+}
+handoffcfg() { # provider, model, fixed effort, optional extra root fields
+	local provider="$1" model="$2" effort="$3" extra="${4:-}"
+	cat > "$WORK/.pi/slate.json" <<JSON
+{
+  "router": { "models": { "include": [], "add": [{
+    "model": "ladder", "capabilityRating": 50, "effort": "$effort", "costRating": 50,
+    "preferredProvider": "$provider", "providers": { "$provider": "$model" },
+    "guidelines": [], "cautions": []
+  }] } }$extra
+}
+JSON
+}
+sameprovidercfg() {
+	cat > "$WORK/.pi/slate.json" <<'JSON'
+{
+  "router": { "models": { "include": [], "add": [
+    { "model": "ladder", "capabilityRating": 50, "effort": "medium", "costRating": 50, "preferredProvider": "probe-a", "providers": { "probe-a": "alpha-1" }, "guidelines": [], "cautions": [] },
+    { "model": "ladder-next", "capabilityRating": 50, "effort": "medium", "costRating": 51, "preferredProvider": "probe-a", "providers": { "probe-a": "alpha-2" }, "guidelines": [], "cautions": [] }
+  ] } }
+}
+JSON
+}
 
 # ------------------------------------------------------------------- fixtures
 assert_agent_dir "$AGENT" "write the fake model catalogue"
@@ -798,7 +836,7 @@ seed_pending() { # $1 provider, $2 id, $3 thinkingLevel or "-"
 import json,sys,time
 parent,out,prov,mid,think = sys.argv[1:6]
 p={"parentSession":parent,"createdAt":int(time.time()*1000),"brief":"ladder",
-   "model":{"provider":prov,"id":mid},
+   "model":{"provider":prov,"id":mid},"logicalModel":"ladder",
    "snapshot":{"threads":[],"episodes":[],"orchestratorMode":True,"paused":False,"workerCostUsd":0,"carriedCostUsd":0}}
 if think != "-": p["thinkingLevel"]=think
 open(out,"w").write(json.dumps(p,indent=2)+"\n")
@@ -835,7 +873,7 @@ fi
 
 # R1 positive on-disk assertion, switch proven from the session record
 if want R1; then
-	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-b/beta-1" } }'
+	logicalcfg probe-b beta-1 off
 	seed "$CANON"; runfailover R1
 	if ! switch_seen probe-b beta-1; then fail R1 "failover never fired — rung is vacuous"
 	elif cmp -s "$OUT/R1-before.json" "$OUT/R1-after.json"; then
@@ -848,7 +886,7 @@ fi
 # probe then forces the real AgentSession setters through persist:true and proves
 # that disabling Slate's wrapper exposes the historical global leak.
 if want R2; then
-	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-b/beta-1" }, "preserveGlobalModelDefault": false }'
+	logicalcfg probe-b beta-1 off ', "preserveGlobalModelDefault": false'
 	seed "$CANON"; runfailover R2-current
 	CURRENT=$(triple); R2SW=no; switch_seen probe-b beta-1 && R2SW=yes
 	seed "$CANON_XHIGH"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R2-persist-off "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
@@ -865,7 +903,7 @@ fi
 # R3a thinking-level clamp: production failover stays session-scoped, while an
 # explicit persisted switch exercises restoration of pair plus clamped level.
 if want R3a; then
-	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-c/gamma-1" } }'
+	logicalcfg probe-c gamma-1 high
 	seed "$CANON_XHIGH"; runfailover R3a-site
 	SITE=$(triple); SITE_SW=no; switch_seen probe-c gamma-1 && SITE_SW=yes
 	seed "$CANON_XHIGH"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R3a-off "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
@@ -885,10 +923,12 @@ if want R3b; then
   "defaultModel": "gamma-1",
   "defaultThinkingLevel": "xhigh",
   "retry": {
-    "enabled": false
+    "enabled": true,
+    "maxRetries": 0,
+    "baseDelayMs": 0
   }
 }'
-	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-c/gamma-1" } }'
+	logicalcfg probe-c gamma-1 high
 	seed "$PAIR_AT_TARGET"; runfailover R3b-site --provider probe-a --model alpha-1
 	SITE=$(triple); SITE_SW=no; switch_seen probe-c gamma-1 && SITE_SW=yes
 	seed "$PAIR_AT_TARGET"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R3b-off "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
@@ -904,7 +944,7 @@ fi
 # R4a handoff adoption, thinking-level key written ALONE (equality guard skips setModel)
 if want R4a; then
 	prep_parent
-	slatecfg '{ "modelFailover": {} }'
+	handoffcfg probe-a alpha-1 low
 	seed "$CANON"; seed_pending probe-a alpha-1 low; runadopt R4a-site
 	SITE=$(triple); SITE_THINK=no; thinking_change_seen low && SITE_THINK=yes
 	seed "$CANON"; PROBE_SKIP_MODEL=1 PROBE_THINKING=low PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R4a-off "$REPO/extension/model-default.ts" probe-a/alpha-1 0 none --provider probe-a --model alpha-1
@@ -921,8 +961,8 @@ fi
 # R4b handoff adoption, model + thinking
 if want R4b; then
 	prep_parent
-	slatecfg '{ "modelFailover": {} }'
-	seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 xhigh; runadopt R4b-site
+	handoffcfg probe-c gamma-1 high
+	seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 high; runadopt R4b-site
 	SITE=$(triple); SITE_SW=no; switch_seen probe-c gamma-1 && SITE_SW=yes
 	seed "$CANON_XHIGH"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R4b-off "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
 	OFF=$(triple)
@@ -941,11 +981,11 @@ seed_corrupt() { assert_agent_dir "$AGENT" "write the corrupt settings fixture"
 untrustworthy() { # $1 id, $2 seeder-fn, $3 cause-class regex (synonyms, not prose)
 	prep_parent
 	local id="$1" seeder="$2" frag="$3"
-	slatecfg '{ "modelFailover": {} }'
+	handoffcfg probe-c gamma-1 high
 	$seeder; seed_pending probe-c gamma-1 high; runadopt "$id" --provider probe-a --model alpha-1
 	local on_after; on_after=$(sha "$SETTINGS")
 	cp -f "$SETTINGS" "$OUT/$id-on-after.json"
-	slatecfg '{ "modelFailover": {}, "preserveGlobalModelDefault": false }'
+	handoffcfg probe-c gamma-1 high ', "preserveGlobalModelDefault": false'
 	$seeder; seed_pending probe-c gamma-1 high; runadopt "$id-off" --provider probe-a --model alpha-1
 	local off_after; off_after=$(sha "$SETTINGS")
 	if [ ! -f "$SETTINGS" ]; then fail "$id" "BLOCKER: settings file deleted"
@@ -970,13 +1010,13 @@ const iv = setInterval(() => { const n = new Date(); try { utimesSync(t, n, n); 
   if (Date.now() - t0 > hold) { clearInterval(iv); try { rmSync(t, { recursive: true, force: true }); } catch {} process.exit(0); } }, 500);
 EOF
 	runlocked() { # $1 label, $2 knobcfg
-		slatecfg "$2"; seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 high
+		handoffcfg probe-c gamma-1 high "$2"; seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 high
 		assert_agent_dir "$AGENT" "hold the settings lock"
 		rm -rf "$SETTINGS.lock"; node "$LAB/holdlock.mjs" "$SETTINGS" 40000 2>/dev/null & local lp=$!
 		sleep 0.4; runadopt "$1" --provider probe-a --model alpha-1; kill $lp 2>/dev/null; wait $lp 2>/dev/null; rm -rf "$SETTINGS.lock"
 	}
-	runlocked R5c '{ "modelFailover": {} }'; ON=$(sha "$SETTINGS"); cp -f "$SETTINGS" "$OUT/R5c-on-after.json"
-	runlocked R5c-off '{ "modelFailover": {}, "preserveGlobalModelDefault": false }'; OFFH=$(sha "$SETTINGS")
+	runlocked R5c ''; ON=$(sha "$SETTINGS"); cp -f "$SETTINGS" "$OUT/R5c-on-after.json"
+	runlocked R5c-off ', "preserveGlobalModelDefault": false'; OFFH=$(sha "$SETTINGS")
 	# 'Lock file is already being held' is pi's (proper-lockfile's) wording, not
 	# slate's, so it is matched as a tolerant cause class too.
 	if ! said_something "$OUT/R5c.err"; then fail R5c "slate emitted no report at all"
@@ -990,7 +1030,7 @@ fi
 
 # R6 mid-session third-party change survives session end
 if want R6; then
-	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-c/gamma-1" } }'
+	logicalcfg probe-c gamma-1 high
 	seed "$CANON_XHIGH"; snapshot "R6-before.json"
 	rm -f "$LAB/r6.in"; mkfifo "$LAB/r6.in"
 	piexec timeout 120 pi --no-extensions -e "$REPO" --mode rpc < "$LAB/r6.in" > "$OUT/R6.out" 2> "$OUT/R6.err" &
@@ -1090,7 +1130,7 @@ fi
 
 # G4a same-provider, model-only divergence
 if want G4a; then
-	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-a/alpha-2" } }'
+	sameprovidercfg
 	seed "$CANON"; runfailover G4a-site
 	SITE=$(triple); SITE_SW=no; switch_seen probe-a alpha-2 && SITE_SW=yes
 	seed "$CANON"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe G4a-off "$REPO/extension/model-default.ts" probe-a/alpha-2 0 none --provider probe-a --model alpha-1
@@ -1113,7 +1153,7 @@ if want G4b; then
     "enabled": false
   }
 }'
-	slatecfg '{ "modelFailover": {} }'
+	handoffcfg probe-a alpha-1 high
 	seed "$NOTHINK"; seed_pending probe-a alpha-1 high; runadopt G4b-site
 	SITE_HAS=$(python3 -c 'import json,sys;print("yes" if "defaultThinkingLevel" in json.load(open(sys.argv[1])) else "no")' "$SETTINGS" 2>/dev/null)
 	SITE_THINK=no; thinking_change_seen high && SITE_THINK=yes
@@ -1247,7 +1287,7 @@ open(sys.argv[1], "wb").write(b"{ " + q + b"defaultProvider" + q + b": " + q + b
 const {readFileSync}=require("fs");
 try{JSON.parse(readFileSync(process.argv[1],"utf8"));console.log("no-parse-error")}
 catch(e){console.log(e.message.includes("\u001b")||e.message.includes("\u0007")?"raw-escapes-in-parse-error":"no-escapes-in-parse-error")}' "$SETTINGS")
-	slatecfg '{ "modelFailover": {} }'
+	handoffcfg probe-c gamma-1 high
 	seed_pending probe-c gamma-1 high; runadopt P8 --provider probe-a --model alpha-1
 	ESC=$(python3 -c 'import sys
 lines = open(sys.argv[1], "rb").read().split(b"\n")
@@ -1269,15 +1309,17 @@ fi
 # P9 no false claims when nothing was switched / when divergence is unknown
 if want P9a; then
 	prep_parent
-	slatecfg '{ "modelFailover": {} }'
-	seed "$CANON_XHIGH"; seed_pending probe-a alpha-1 -     # model already live, no thinking level => no setter call
+	handoffcfg probe-a alpha-1 xhigh
+	seed "$CANON_XHIGH"; seed_pending probe-a alpha-1 -     # route and fixed effort already live => no setter call
 	assert_agent_dir "$AGENT" "hold the settings lock"
 	rm -rf "$SETTINGS.lock"; node "$LAB/holdlock.mjs" "$SETTINGS" 40000 2>/dev/null & LP=$!
-	sleep 0.4; runadopt P9a --provider probe-a --model alpha-1; kill $LP 2>/dev/null; wait $LP 2>/dev/null; rm -rf "$SETTINGS.lock"
-	# Structural and wording-proof: the assertion is that slate said NOTHING at all.
-	if said_something "$OUT/P9a.err"; then fail P9a "wrapper spoke even though no pi setter ran: $(slate_lines "$OUT/P9a.err" | head -1)"
+	sleep 0.4; runadopt P9a --provider probe-a --model alpha-1 --thinking xhigh; kill $LP 2>/dev/null; wait $LP 2>/dev/null; rm -rf "$SETTINGS.lock"
+	# The no-op assertion targets the compatibility wrapper. The prompt sent by
+	# runadopt can independently fail on the dead provider and main recovery must
+	# remain free to report that real outcome.
+	if said "$OUT/P9a.err" "$RX_STOOD_DOWN|$RX_TRIED_RESTORE|$RX_ONLY_CHECKED"; then fail P9a "the compatibility wrapper spoke even though no Pi setter ran: $(slate_lines "$OUT/P9a.err" | grep -E "$RX_STOOD_DOWN|$RX_TRIED_RESTORE|$RX_ONLY_CHECKED" | head -1)"
 	elif ! cmp -s "$OUT/P9a-before.json" "$OUT/P9a-after.json"; then fail P9a "settings changed"
-	else pass P9a "no setter called ⇒ no post-switch phase, no warning, settings untouched — even with the settings lock held (contrast: R5c, same lock, a real setter, does warn)"; fi
+	else pass P9a "the exact route and fixed effort no-op called no setter, skipped compatibility post-reads under the held lock, and left settings untouched"; fi
 fi
 if want P9b; then
 	# Mutual exclusion of the two report verbs is the assertion; the surrounding
@@ -1291,18 +1333,69 @@ fi
 
 # P10 success notices off stderr, failure reports still on stderr in print mode
 if want P10; then
-	slatecfg '{ "modelFailover": { "probe-a/alpha-1": "probe-b/beta-1" } }'
-	seed "$CANON"; runfailover P10
-	# Structural, and stronger than matching the old success wording: a failover
-	# that WORKED must leave NO slate line on stderr at all (success notices are
-	# UI-only, and a successful restore is silent). Matching the notice's prose
-	# would silently stop discriminating the moment it were reworded.
+	logicalcfg probe-b beta-1 off
+	# P10 needs a real successful fallback response. A physical switch followed
+	# by another dead-port error is not successful recovery and must stay visible.
+	# The committed probe registers one deterministic in-process API only for
+	# this run: probe-a returns an eligible transient error and probe-b returns a
+	# complete final assistant response. Restore the catalogue before later rungs.
+	cp "$AGENT/models.json" "$LAB/P10-models.json"
+	python3 - "$AGENT/models.json" <<'PY_P10'
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p))
+for name in ("probe-a", "probe-b"):
+    d["providers"][name]["api"]="slate-ladder-recovery"
+open(p,"w").write(json.dumps(d,indent=2)+"\n")
+PY_P10
+	seed "$CANON"
+	snapshot "P10-before.json"
+	# Print mode exits after the caller's prompt and does not await an extension's
+	# fire-and-forget triggerTurn continuation. Use RPC and keep stdin open until
+	# both the failed primary and successful continuation have fully settled.
+	piexec SLATE_LADDER_RECOVERY=1 SLATE_LADDER_RECOVERY_EVIDENCE="$OUT/P10.json" \
+		node - "$OUT/P10.out" "$OUT/P10.err" "$(command -v pi)" "$REPO" "$PROBE" <<'NODE_P10'
+const fs = require("node:fs");
+const { spawn } = require("node:child_process");
+const [outPath, errPath, pi, repo, probe] = process.argv.slice(2);
+const out = fs.createWriteStream(outPath), err = fs.createWriteStream(errPath);
+const child = spawn("timeout", ["--kill-after=5", "60", pi, "--no-extensions", "-e", repo, "-e", probe, "--mode", "rpc", "--provider", "probe-a", "--model", "alpha-1"], { stdio: ["pipe", "pipe", "pipe"] });
+let buffer = "", settled = 0, sent = false;
+child.stdout.on("data", chunk => {
+  out.write(chunk); buffer += chunk;
+  for (;;) {
+    const i = buffer.indexOf("\n"); if (i < 0) break;
+    const line = buffer.slice(0, i); buffer = buffer.slice(i + 1);
+    let event; try { event = JSON.parse(line); } catch { continue; }
+    if (event?.type === "response" && event.id === "p10" && event.success === true) sent = true;
+    if (event?.type === "agent_settled") {
+      settled++;
+      if (sent && settled >= 2) child.stdin.end();
+    }
+  }
+});
+child.stderr.pipe(err);
+child.stdin.write(JSON.stringify({ id: "p10", type: "prompt", message: "say ok" }) + "\n");
+child.on("exit", code => { out.end(); err.end(); process.exitCode = code ?? 1; });
+NODE_P10
+	snapshot "P10-after.json"
+	cp "$LAB/P10-models.json" "$AGENT/models.json"
 	SUCC=$(slate_lines "$OUT/P10.err" | wc -l)
+	P10_FACTS=$(python3 - "$OUT/P10.json" <<'PY_P10_FACTS'
+import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+    print("ok" if d.get("calls")==["probe-a/alpha-1:error","probe-b/beta-1:stop"] else "wrong:"+repr(d.get("calls")))
+except Exception as e: print("missing:"+str(e))
+PY_P10_FACTS
+)
 	if ! switch_seen probe-b beta-1; then fail P10 "failover did not fire"
-	elif [ "$SUCC" -ne 0 ]; then fail P10 "a successful failover still wrote to stderr: $(slate_lines "$OUT/P10.err" | head -1)"
+	elif [ "$P10_FACTS" != ok ]; then fail P10 "the deterministic provider did not prove one failed primary and one successful fallback ($P10_FACTS)"
+	elif grep -q '"type":"extension_error"' "$OUT/P10.out" || grep -q '^Extension error' "$OUT/P10.err"; then fail P10 "successful recovery produced an extension error"
+	elif [ "$SUCC" -ne 0 ]; then fail P10 "successful recovery wrote to stderr: $(slate_lines "$OUT/P10.err" | head -1)"
 	elif [ ! -f "$OUT/R5a.err" ]; then skip P10 "needs the R5a artifact to confirm failures ARE still visible in print mode"
 	elif ! said_something "$OUT/R5a.err"; then fail P10 "failure reporting is no longer visible in print mode"
-	else pass P10 "a successful failover leaves no slate line on stderr in -p mode ($SUCC), while a failure report does reach it (R5a)"; fi
+	else pass P10 "one real failed primary and successful fallback left no slate or extension-error line on stderr, while R5a kept failure reporting visible"; fi
 fi
 
 # P11 a truncated report is cut on a word boundary, marked, and keeps the
@@ -1433,7 +1526,7 @@ fi
 # ------------------------------------------------------------------- latency
 if want LAT; then
 	lat() { local knob="$1" i t s e; local -a T=()
-		slatecfg "{ \"modelFailover\": { \"probe-a/alpha-1\": \"probe-c/gamma-1\" }$knob }"
+		logicalcfg probe-c gamma-1 high "$knob"
 		for i in 1 2 3 4 5 6 7; do seed "$CANON_XHIGH"; s=$(date +%s%N)
 			piexec timeout 120 pi --no-extensions -e "$REPO" -p "say ok" >/dev/null 2>/dev/null
 			e=$(date +%s%N); T+=( $(( (e-s)/1000000 )) ); done

@@ -11,40 +11,28 @@ import { readFileSync } from "node:fs";
 import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-// TYPE-ONLY, and deliberately so: the orchestrator's base-model tracker is
-// created and wired in by index.ts; this module only reads it through the
-// injected instance (and never calls expectOwnSwitch — a WORKER session's model
-// switch is not an orchestrator switch, so it must not be announced as one).
-import type { BaseModelTracker } from "./base-model.ts";
-import { compressEpisode, EpisodePersistenceError, writeFailedEpisode } from "./episodes.ts";
-import { isAuthFailure, isFailoverCandidate, resolveMappedModel } from "./failover.ts";
-import type { ThinkingLevel } from "./model-profiles.ts";
+import { WorkerRetryEvidence, executeRecovery, type CompressorRetryPolicy } from "./logical-model-adapters.ts";
+import type { LogicalRuntime } from "./logical-model-runtime.ts";
+import type { RecoveryAdmission, RecoveryCandidate } from "./logical-model-recovery.ts";
+import {
+	boundedCompletedText,
+	compressEpisode,
+	createCompletedFactRecorder,
+	EpisodePersistenceError,
+	writeFailedEpisode,
+	type FrozenCompletedFacts,
+} from "./episodes.ts";
+import { LOGICAL_MODEL_EFFORTS, type LogicalModelEffort } from "./logical-model-definitions.ts";
 import { captureObservation, durableObservation, shouldWarnFindingsGrammar, type ObservationCapture, type ObservationRecord } from "./observations.ts";
 import { slateEpisodeId } from "./slate-files.ts";
-import { ROUTER_OFF, SHIPPED_PROFILE_SOURCE, type ModelRouterResolution, type RouterProfileSource } from "./model-router.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import type { RequestThrottle } from "./request-throttle.ts";
-import {
-	captureSessionBaseline,
-	decideEffortSwitch,
-	decideModelSwitch,
-	NO_SESSION_BASELINE,
-	planRoute,
-	planSessionOpen,
-	THINKING_LEVELS,
-	usableResolution,
-	type RoutePlanInput,
-	type RoutePlanProceed,
-	type SessionBaseline,
-	type SessionOpenDecision,
-} from "./route.ts";
+import { planSessionOpen, type SessionOpenDecision } from "./logical-model-runtime.ts";
 import {
 	effectiveThreadType,
-	isModelSpec,
 	parseThreadType,
 	sanitizeDispatchReason,
 	resolveEpisodeFile,
-	splitModelSpec,
 	type EpisodeRecord,
 	type EpisodeUsage,
 	type SlateConfig,
@@ -52,7 +40,15 @@ import {
 	type ThreadRecord,
 	type ThreadType,
 } from "./state.ts";
-import { DEFAULT_WORKER_TOOLS, isJudgementThreadType, openWorkerSession, resolveModel, type WorkerSession } from "./worker.ts";
+import {
+	createWorkerRequestContract,
+	DEFAULT_WORKER_TOOLS,
+	isJudgementThreadType,
+	openWorkerSession,
+	resolveModel,
+	type WorkerRequestContract,
+	type WorkerSession,
+} from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker-reminder.ts";
 
@@ -112,7 +108,8 @@ export interface DispatchOptions {
 	/** Removed public field. Kept only so direct callers receive the migration error. */
 	freshContext?: unknown;
 	model?: string; // required at the public runtime boundary
-	effort?: string; // required at the public runtime boundary
+	/** Removed public field. Kept only so direct callers receive the migration error. */
+	effort?: unknown;
 	reason?: string; // sanitized dispatch rationale, required and at most 200 characters
 	tools?: string[];
 }
@@ -167,13 +164,9 @@ interface WorkerAssistantMsg {
 	content?: Array<{ type: string; text?: string }>;
 }
 
-/** Preserve the final assistant message's text parts in their emitted order. */
+/** Preserve a bounded suffix of final assistant text in emitted order. */
 function assistantMessageText(message: WorkerAssistantMsg): string {
-	if (!Array.isArray(message.content)) return "";
-	return message.content
-		.filter((part) => part.type === "text")
-		.map((part) => part.text ?? "")
-		.join("\n");
+	return boundedCompletedText(message.content);
 }
 
 /**
@@ -247,78 +240,51 @@ class Semaphore {
 
 export class ThreadManager {
 	private live = new Map<string, WorkerSession>();
+	/** Action-local request owners. Removed and invalidated before shutdown awaits. */
+	private requestContracts = new Map<string, WorkerRequestContract>();
 	/** Opens started by this manager but not yet returned to a dispatch. */
 	private openingWorkers = new Set<Promise<void>>();
 	/** Cleanup already claimed by a terminal path and removed from live. */
 	private closingWorkers = new Set<Promise<void>>();
+	/** Dispatch finalizers that manager teardown must join before it can return. */
+	private actionFinalizers = new Map<string, Promise<void>>();
 	/** One manager-wide teardown operation. Its presence permanently closes this manager. */
 	private teardownPromise: Promise<void> | undefined;
 	private teardownStarted = false;
 	/** threadId → "provider/id" a LIVE session was switched to by model failover (AF12). */
 	private failoverLive = new Map<string, string>();
 	private semaphore: Semaphore;
-	/**
-	 * threadId → what a LIVE worker session was OPENED on, both axes in one captured
-	 * value: pi's clamped settings default for that session's model, and the model pi
-	 * resolved for the model-less open plan. An action whose plan resolves no level runs
-	 * at the opening level rather than inheriting the previous action's (BG18), and an
-	 * action that names no model reverts the session to the opening model rather than
-	 * letting one routed action govern the thread (BG22). Session-scoped, like `live`.
-	 *
-	 * ONE map of one branded value, written in exactly one place — the opening helper —
-	 * and read by exactly one expression, the argument passed into applyRoute (TQ7).
-	 * Both defects above were "the baseline came from somewhere else, later"; keeping the
-	 * pair together and captured atomically is what leaves nowhere else for it to come
-	 * from.
-	 */
-	private liveBaselines = new Map<string, SessionBaseline>();
 	/** Session-owned persisted thread and episode state. */
 	private store: SlateStore;
 	/** This manager's immutable session configuration. */
 	private config: SlateConfig;
 	/** Frozen worker-extension resolver, bound by value to this session (AD41/CN20). */
 	private resolveExtensions: () => WorkerExtensionSet;
-	/** Memoized router resolver, bound by value to this session. */
-	private resolveRouter: () => ModelRouterResolution;
-	/** Orchestrator base model used only by the episode compressor's last-resort rung. */
-	private baseModelTracker?: BaseModelTracker;
+	/** One immutable logical policy and shared preference owner for this parent session. */
+	private logicalRuntime?: Readonly<LogicalRuntime>;
+	/** Pi retry settings captured read-only at the parent-session boundary. */
+	private compressorRetryPolicy?: CompressorRetryPolicy;
 	/** This session's shared cache key and request throttle, frozen at construction. */
 	private sessionScope: ThreadSessionScope;
 
 	constructor(
 		store: SlateStore,
 		config: SlateConfig,
-		// This session's frozen worker-extension resolver (AD41), bound BY VALUE at
-		// construction (CN20) so a manager orphaned by a session swap keeps its own
-		// session's set instead of resolving against a later one's. Read lazily per
-		// new worker. Defaults to the empty-set function so existing construction
-		// sites and test harnesses keep working with the feature off.
+		// This session's frozen worker-extension resolver is bound by value.
 		resolveExtensions: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET,
-		// This session's MEMOIZED model-router resolution (model-router.ts's
-		// createModelRouterResolver), bound by value for the same reason as the
-		// resolver above: a manager orphaned by a session swap must keep answering
-		// with its own session's frozen candidate list. Defaults to the shared OFF
-		// resolution, which supplies no candidates or router-owned base.
-		resolveRouter: () => ModelRouterResolution = () => ROUTER_OFF,
-		// The orchestrator's base model, EXCLUDING failover fallbacks (base-model.ts).
-		// Consulted only for the episode compressor's last-resort model rung; route
-		// planning never seeds a worker-thread base from this tracker.
-		baseModelTracker?: BaseModelTracker,
-		// This session's shared prompt-cache key and request throttle, bound BY VALUE
-		// for the same reason as the resolvers above. Defaults to an empty scope, so
-		// existing construction sites and test harnesses keep working with no key and
-		// no pacing.
+		logicalRuntime?: Readonly<LogicalRuntime>,
+		compressorRetryPolicy?: CompressorRetryPolicy,
+		// Shared cache key and request throttle for this parent session.
 		sessionScope: ThreadSessionScope = {},
 	) {
 		this.store = store;
 		this.config = config;
 		this.resolveExtensions = resolveExtensions;
-		this.resolveRouter = resolveRouter;
-		this.baseModelTracker = baseModelTracker;
+		this.logicalRuntime = logicalRuntime;
+		this.compressorRetryPolicy = compressorRetryPolicy;
 		this.sessionScope = sessionScope;
-		// The ACTION-slot limit is untouched by request pacing: the two limits bound
-		// different quantities, and the approved design keeps both.
-		this.semaphore = new Semaphore(config.maxConcurrent ?? 4); // default rationale: docs/design-principles.md §5 repo-local note
+		// Action concurrency and request pacing limit different quantities.
+		this.semaphore = new Semaphore(config.maxConcurrent ?? 4);
 	}
 
 	getConfig(): SlateConfig {
@@ -350,32 +316,26 @@ export class ThreadManager {
 		if (typeof opts.task !== "string" || opts.task.trim() === "") {
 			throw new Error("task must be a non-empty string.");
 		}
+		if (opts.effort !== undefined) throw new Error('The "effort" field was removed. Select a logical model. Its policy fixes the effort.');
+		if (typeof opts.model !== "string" || opts.model.trim() === "") throw new Error("model must name one logical model from the active policy.");
 		const reason = sanitizeDispatchReason(opts.reason);
 		if (reason === undefined) throw new Error("reason must be a non-empty string of at most 200 characters after invisible and control characters are removed.");
+		if (this.teardownStarted) throw new Error("Slate worker manager teardown has started. No new action was admitted.");
+		const runtime = this.logicalRuntime;
+		if (!runtime || !runtime.policy) throw new Error(runtime?.criticalErrors.join(" ") || "Logical model policy is unavailable for this parent session.");
+		const admission = runtime.admit();
+		if (!admission) throw new Error("Logical model policy could not admit this action.");
+		const initialRoute = runtime.startRoute(opts.model, admission.snapshot);
+		if (!initialRoute) throw new Error(`Logical model "${sanitizeForNotify(opts.model, 80)}" is not available for ordinary worker actions.`);
+		const validation = await runtime.validateRoute(ctx, initialRoute);
+		if (!validation.ok) throw new Error(`Logical model "${sanitizeForNotify(opts.model, 80)}" cannot start: ${validation.reason}`);
+		if (this.teardownStarted) throw new Error("Slate worker manager teardown started while the action route was being validated. No action was admitted.");
 		const type = parseThreadType(opts.type, true)!
 		const contextEpisodeIds = normalizeContextEpisodeIds(opts.contextEpisodeIds);
 		const accepted: DispatchOptions = { ...opts, reason, type, contextEpisodeIds };
 		const prompt = this.buildPrompt(accepted, ctx.cwd);
-		const early = planRoute(this.routeInputs(ctx, undefined, accepted));
-		if (early.kind === "reject") throw new Error(early.reason);
-		this.validateRequestedModel(ctx, accepted.model);
 		const thread = this.createThread(accepted);
-		return this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress);
-	}
-
-	/** Create a thread only after explicit route validation succeeds. */
-	private validateRequestedModel(ctx: ExtensionContext, spec: string | undefined): void {
-		if (spec === undefined) return;
-		const parts = splitModelSpec(spec);
-		if (!parts) throw new Error(`Requested model "${sanitizeForNotify(spec, 80)}" is not a valid provider/id spec.`);
-		try {
-			const model = ctx.modelRegistry.find(parts.provider, parts.id);
-			if (!model || ctx.modelRegistry.hasConfiguredAuth(model) !== true) {
-				throw new Error("unavailable or has no configured credentials");
-			}
-		} catch (error) {
-			throw new Error(`Requested model "${sanitizeForNotify(spec, 80)}" could not be validated: ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 160)}.`);
-		}
+		return this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute);
 	}
 
 	private createThread(opts: DispatchOptions): ThreadRecord {
@@ -424,263 +384,12 @@ export class ThreadManager {
 	// pure: reading this session's frozen resolver, pi's settings and the live
 	// worker session, and assembling them into the planner's inputs.
 
-	/**
-	 * This session's frozen router resolution, defensively.
-	 *
-	 * A THROWING resolver, or one that hands back a malformed object, falls back to
-	 * the shared OFF resolution. That answer supplies no candidates, so candidate-dependent paths cannot walk an unreadable shape. The SHAPE check
-	 * itself is route.ts's usableResolution, so the planner and this module cannot
-	 * disagree about what a usable resolution is.
-	 */
-	private routerResolution(): ModelRouterResolution {
-		try {
-			return usableResolution(this.resolveRouter());
-		} catch {
-			return ROUTER_OFF;
-		}
-	}
-
-
-	/**
-	 * The orchestrator's base model, EXCLUDING slate's own failover fallbacks, so a
-	 * worker never inherits a temporary fallback as its permanent default. Validated
-	 * as a spec HERE, at the boundary it crosses, and tolerant of a broken tracker:
-	 * a fallback is a routing decision, never a reason to fail a dispatch.
-	 */
-	private trackedBaseModel(): string | undefined {
-		let tracked: string | undefined;
-		try {
-			tracked = this.baseModelTracker?.current();
-		} catch {
-			tracked = undefined;
-		}
-		return isModelSpec(tracked) ? tracked : undefined;
-	}
-
-	/**
-	 * The profile lookup the ROUTER-OFF ladder answer uses.
-	 *
-	 * COMPOSED rather than passed straight through, so the answer stays identical to
-	 * the pre-extraction one: that path resolved a throwaway one-model router list,
-	 * which dropped a model that was unprofiled, unknown to pi's registry, or
-	 * unauthenticated. A spec this session cannot actually serve therefore reports NO
-	 * profile here — the effort guards then have no basis to refuse and pi's own
-	 * clamp decides, exactly as before. Keeping the registry read in this closure is
-	 * also what keeps route.ts free of it.
-	 */
-	private routerOffProfiles(ctx: ExtensionContext): RouterProfileSource {
-		return {
-			findProfile: (spec) => (this.registryCanServe(ctx, spec) ? SHIPPED_PROFILE_SOURCE.findProfile(spec) : undefined),
-			ladderFor: (profile) => SHIPPED_PROFILE_SOURCE.ladderFor(profile),
-		};
-	}
-
-	/** Whether pi's registry knows a spec AND has credentials configured for it. */
-	private registryCanServe(ctx: ExtensionContext, spec: string): boolean {
-		const parts = splitModelSpec(spec);
-		if (!parts) return false;
-		try {
-			const model = ctx.modelRegistry.find(parts.provider, parts.id);
-			return !!model && ctx.modelRegistry.hasConfiguredAuth(model) === true;
-		} catch {
-			return false; // cannot even resolve credentials ⇒ treat as unusable
-		}
-	}
-
-
-
-	/**
-	 * Assemble the PURE planner's inputs from this session's impure surroundings.
-	 *
-	 * `failover` switches it into guard 7's carve-out mode: the target replaces the
-	 * requested model, the original requested effort is preserved, and the planner
-	 * bypasses list membership and the normal effort guards. A failover target need
-	 * not be a routing candidate, so its profile is consulted through the injected
-	 * source for provider-rejected effort protection.
-	 */
-	private routeInputs(
-		ctx: ExtensionContext,
-		thread: ThreadRecord | undefined,
-		opts: DispatchOptions,
-		_session?: WorkerSession,
-		failover?: { target: string; from: string; contextWindow?: number },
-	): RoutePlanInput {
-		return {
-			thread,
-			requestedModel: failover ? failover.target : opts.model,
-			requestedEffort: opts.effort,
-			resolution: this.routerResolution(),
-			allowUnmeasuredEffort: this.config.router?.allowUnmeasuredEffort,
-			hostModel: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
-			profiles: this.routerOffProfiles(ctx),
-			requireExplicit: failover === undefined,
-			failoverSwitch: failover !== undefined,
-			failoverFrom: failover?.from,
-		};
-	}
-
-
-
-	/**
-	 * Put the resolved model/effort onto the worker session — the LAST unbilled
-	 * step of a dispatch, and the one that makes a non-billed abort reachable.
-	 *
-	 * WHAT A FAILURE MEANS depends on who asked for the switch (BG24), and the two
-	 * answers are deliberate:
-	 *  · a PLAN-driven switch — the caller's `model` argument, or the router's base —
-	 *    that pi refuses, or whose spec no longer resolves, is a DispatchAbort: nothing
-	 *    has been spent, so nothing is recorded, and the action does not run on a model
-	 *    neither the caller nor the router chose;
-	 *  · a REVERT — slate returning the session to the model it opened on, which nobody
-	 *    requested — only WARNS and leaves the session where it is, because housekeeping
-	 *    must not kill an action (pi's setModel THROWS on a missing key, unlike
-	 *    setThinkingLevel, which merely clamps).
-	 * Setting the thinking level, and an abort or disposal caught in the windows around
-	 * the switch, are DispatchAborts for the same reason as the first case. This all runs
-	 * BEFORE the first prompt() and before the message subscriber's baseline, so an
-	 * aborted dispatch adds nothing to the thread.
-	 */
-	private async applyRoute(
-		session: WorkerSession,
-		plan: RoutePlanProceed,
-		thread: ThreadRecord,
-		ctx: ExtensionContext,
-		signal: AbortSignal | undefined,
-		warn: (message: string) => void,
-		/**
-		 * What the session was OPENED on — a PARAMETER, not a lookup (TQ7). Both switch
-		 * decisions below need a baseline, and the failure mode of both is reading it live
-		 * instead: this method runs at apply time, when the session's own state is no
-		 * longer the opening state. Taking it as an argument means the value was captured
-		 * before this method could exist, and the brand means a live reading cannot be
-		 * passed in its place.
-		 */
-		baseline: SessionBaseline,
-	): Promise<void> {
-		// CN2: the switch below AWAITS, and every await is a window in which the dispatch
-		// can be aborted or this manager disposed — exactly the hazard the failover phase
-		// re-checks for (CN1/BG1/CN2 there). A disposed worker session does not throw on
-		// setModel because this direct worker-session call is not an extension-context
-		// operation guarded by the SDK's assertActive method. That remains true when the
-		// worker allowlist adds project extensions. An aborted dispatch still reaches the
-		// compressor and BILLS one. So the same predicate is checked before and after the
-		// await, and a hit aborts unbilled rather than becoming a failed episode.
-		const blocked = (): string | undefined => {
-			if (signal?.aborted === true) return "aborted by the orchestrator";
-			if (this.live.get(thread.id) !== session) return "its worker session was disposed";
-			return undefined;
-		};
-		const abortIfBlocked = () => {
-			const why = blocked();
-			if (why === undefined) return;
-			throw new DispatchAbort(
-				`slate: aborting the dispatch to thread ${thread.id} before any billed work — ${why}. ` +
-					"No episode was recorded.",
-			);
-		};
-		abortIfBlocked();
-		// WHICH MODEL this action starts on is decided by route.ts's pure `decideModelSwitch`
-		// (the plan's model, else the session's opening model as a REVERT, standing down
-		// while a failover holds it). Everything it needs is passed explicitly, so the
-		// decision — the part with the interesting cases — is checkable without a
-		// ThreadManager; what stays here is the part that cannot be pure: resolving the
-		// spec, awaiting the switch, and deciding what a failure means.
-		const decision = decideModelSwitch({
-			planned: plan.model,
-			openOnly: plan.openOnly,
-			current: session.model ? `${session.model.provider}/${session.model.id}` : undefined,
-			baseline,
-			failoverHeld: this.failoverLive.get(thread.id) !== undefined,
-		});
-		if (decision.kind === "switch") {
-			// BG24: what a FAILED switch means depends on WHO asked for it. pi's setModel
-			// THROWS on a missing key (unlike setThinkingLevel, which only clamps), so a
-			// revert — slate housekeeping the caller never requested — could abort a whole
-			// dispatch just because the model the session opened on has since lost its
-			// credentials. A housekeeping revert therefore warns and keeps the current model.
-			// A PLAN-driven
-			// switch stays fatal, because running the action on a model neither the caller
-			// nor the router chose would break the routing contract itself.
-			const fatal = decision.source === "plan";
-			const giveUp = (what: string, error: unknown): void => {
-				const detail = sanitizeForNotify(error instanceof Error ? error.message : String(error), 200);
-				if (fatal) {
-					throw new DispatchAbort(
-						`slate: aborting the dispatch to thread ${thread.id} — ${what}: ${detail}. ` +
-							"Nothing ran and no episode was recorded.",
-					);
-				}
-				warn(
-					`slate: could not return thread ${thread.id}'s worker session to the model it opened on ` +
-						`(${sanitizeForNotify(decision.spec, 80)}) — ${detail}. This action runs on ` +
-						`${sanitizeForNotify(session.model ? `${session.model.provider}/${session.model.id}` : "the session's current model", 80)} instead.`,
-				);
-			};
-			let target: ReturnType<typeof resolveModel> | undefined;
-			try {
-				target = resolveModel(ctx, decision.spec);
-			} catch (error) {
-				// Same split: a plan target that no longer resolves aborts, a revert target
-				// that no longer resolves is a warning (giveUp returns, and `target` stays
-				// undefined, so nothing is switched).
-				giveUp(`the model ${sanitizeForNotify(decision.spec, 80)} could not be resolved`, error);
-			}
-			if (target !== undefined) {
-				try {
-					await session.setModel(target);
-					// A PLAN-driven switch supersedes a failover marker: the session no longer runs
-					// the mapped model, so reporting one would be a lie (see liveFailoverModel). A
-					// revert cannot reach here while a marker is held, so this only ever clears a
-					// marker the plan's own route replaced.
-					this.failoverLive.delete(thread.id);
-				} catch (error) {
-					giveUp(`switching its worker session to ${sanitizeForNotify(decision.spec, 80)} failed`, error);
-				}
-				// CN2 again: the await above is the window, so re-check AFTER it. The switch
-				// already happened — the session is left on the new model, which costs nothing —
-				// but no prompt follows and no episode is recorded.
-				abortIfBlocked();
-			}
-		}
-		// AFTER the model switch, which re-derives the thinking level internally.
-		//
-		// WHICH LEVEL, decided by route.ts's pure `decideEffortSwitch` — the model axis's
-		// twin, and the executable form of invariant I1's effort half: the plan's level,
-		// else the level the session OPENED on, so no action inherits the previous
-		// action's (BG18). The asymmetries with the model axis are documented there: no
-		// failover stand-down (a level cannot undo a rescue) and no fatality boundary
-		// (setThinkingLevel clamps, it does not throw). The try/catch below is belt and
-		// braces for that last claim, not a path pi is known to take.
-		const effort = decideEffortSwitch({
-			planned: plan.effort,
-			current: this.sessionEffort(session),
-			baseline,
-		});
-		if (effort.kind === "switch") {
-			try {
-				session.setThinkingLevel(effort.level);
-			} catch (error) {
-				throw new DispatchAbort(
-					`slate: aborting the dispatch to thread ${thread.id} — setting effort "${effort.level}" failed: ` +
-						`${sanitizeForNotify(error instanceof Error ? error.message : String(error), 200)}. ` +
-						"Nothing ran and no episode was recorded.",
-				);
-			}
-		}
-	}
 
 	/**
 	 * OPEN a worker session for a thread and capture what it opened on.
 	 *
-	 * A separate method for one structural reason (TQ7): the dispatch's own `opts` is not
-	 * in scope here. `?? opts.model` on the open model is the edit that shipped BG22 on
-	 * the opening path and it re-inserts fully green, so the remedy is to put the opening
-	 * where that expression cannot be written — the only model in scope is the one the
-	 * pure derivation produced, and it is branded, so a hand-built decision is not a way
-	 * round either. The baseline is captured HERE, in the same breath as the open and
-	 * before any per-action switch, which is the property applyRoute now takes on trust
-	 * from its parameter.
-	 *
+	 * The dispatch options are intentionally out of scope here. The only model in
+	 * scope is the exact physical route from the immutable admitted candidate.
 	 * The new session receives the frozen worker-extension set for this orchestrator session.
 	 */
 	private async openWorkerFor(args: {
@@ -689,18 +398,35 @@ export class ThreadManager {
 		open: SessionOpenDecision;
 		tools: string[] | undefined;
 		report: (message: string) => void;
-	}): Promise<{ session: WorkerSession; baseline: SessionBaseline }> {
+		requestContract: WorkerRequestContract;
+		/**
+		 * Report the created worker session to the action that owns it.
+		 *
+		 * The action keeps this reference even when opening fails later, so the
+		 * failed result can still read the startup work of its own session.
+		 */
+		observeSession?: (session: WorkerSession) => void;
+	}): Promise<{ session: WorkerSession }> {
 		if (this.teardownStarted) {
 			throw new DispatchAbort(`slate: worker startup for thread ${args.thread.id} was cancelled during session teardown`);
 		}
+		// Publish the action owner before openWorkerSession reaches any awaited
+		// extension load or startup work. Teardown can now invalidate that owner even
+		// while no WorkerSession exists yet.
+		this.requestContracts.set(args.thread.id, args.requestContract);
 		let finishOpening!: () => void;
 		const openingDone = new Promise<void>((resolve) => { finishOpening = resolve; });
 		this.openingWorkers.add(openingDone);
-		const type = effectiveThreadType(args.thread, args.report);
-		const extensions = this.resolveExtensions();
 		let opening: WorkerSession | undefined;
 		let session: WorkerSession;
+		let opened = false;
 		try {
+			// Startup preparation belongs to the owned opening lifetime. A synchronous
+			// throw from role selection or from extension resolution used to escape this
+			// scope. The opening promise then never settled, and a later disposeAll
+			// waited for it forever.
+			const type = effectiveThreadType(args.thread, args.report);
+			const extensions = this.resolveExtensions();
 			try {
 				session = await openWorkerSession({
 					ctx: args.ctx,
@@ -714,40 +440,48 @@ export class ThreadManager {
 					report: args.report,
 					onCreated: (created) => {
 						opening = created;
-						if (this.teardownStarted) {
-							// Startup remains ordered before shutdown inside WorkerSession. Begin
-							// cleanup now, but let the opening path await and preserve its own error.
-							void this.closeWorker(args.thread.id, created).catch(() => {});
+						args.observeSession?.(created);
+						if (this.teardownStarted || args.requestContract?.invalidationSignal.aborted === true) {
+							created.closeManagedOperations();
+							void created.abort().catch(() => {});
 							return;
 						}
 						this.live.set(args.thread.id, created);
 					},
+					deferShutdownOnOpenFailure: true,
 					// ONE key for the whole main session, and the cache-key switch is the only
 					// thing that withholds it. Every worker of this session shares one group.
 					promptCacheKey: this.config.cacheKeyEnabled === false ? undefined : this.sessionScope.promptCacheKey,
 					// Request pacing has its own switch and remains independent of cache keys.
 					requestThrottle: this.sessionScope.requestThrottle,
+					requestContract: args.requestContract,
 				});
 			} catch (error) {
 				if (opening !== undefined && this.live.get(args.thread.id) === opening) this.live.delete(args.thread.id);
-				this.liveBaselines.delete(args.thread.id);
 				this.failoverLive.delete(args.thread.id);
 				throw error;
 			}
-			if (this.teardownStarted || this.live.get(args.thread.id) !== session) {
-				await session.shutdownWorker();
-				throw new DispatchAbort(`slate: worker startup for thread ${args.thread.id} was cancelled during session teardown`);
+			if (this.teardownStarted || args.requestContract?.invalidationSignal.aborted === true || this.live.get(args.thread.id) !== session) {
+				session.closeManagedOperations();
+				await session.settleManagedOperations();
+				const cause = this.teardownStarted ? "session teardown" : "action cancellation";
+				throw new DispatchAbort(`slate: worker startup for thread ${args.thread.id} was cancelled during ${cause}`);
 			}
 			// A freshly opened session starts on its configured model — drop any stale
 			// failover marker (possible if a previous live session was disposed mid-dispatch
 			// after its marker was set).
 			this.failoverLive.delete(args.thread.id);
-			// THE BASELINE both axes fall back to, taken from the SESSION: the model pi
-			// resolved for the model-less plan and the level it clamped to (BG18, BG22).
-			const baseline = captureSessionBaseline(session);
-			this.liveBaselines.set(args.thread.id, baseline);
-			return { session, baseline };
+			opened = true;
+			return { session };
 		} finally {
+			if (!opened) {
+				// This action never became live. Manager teardown can already have
+				// invalidated and removed the same owner while startup was paused, and
+				// both operations are idempotent, so this repeat stays safe. One thread
+				// id owns at most one contract, so this removal is exact.
+				args.requestContract.invalidate();
+				this.requestContracts.delete(args.thread.id);
+			}
 			this.openingWorkers.delete(openingDone);
 			finishOpening();
 		}
@@ -759,9 +493,13 @@ export class ThreadManager {
 	 * overlapping host cleanup and action cleanup emit session_shutdown once.
 	 */
 	private async closeWorker(threadId: string, session: WorkerSession | undefined): Promise<void> {
+		const requestContract = this.requestContracts.get(threadId);
+		requestContract?.invalidate();
+		this.requestContracts.delete(threadId);
 		if (session === undefined) return;
+		session.closeManagedOperations?.();
+		if (session.settleManagedOperations !== undefined) await session.settleManagedOperations();
 		if (this.live.get(threadId) === session) this.live.delete(threadId);
-		this.liveBaselines.delete(threadId);
 		this.failoverLive.delete(threadId);
 		const closing = (async () => {
 			const lifecycle = session as WorkerSession & { shutdownWorker?: () => Promise<void>; dispose?: () => void };
@@ -777,13 +515,31 @@ export class ThreadManager {
 	}
 
 	/** The level a session is ACTUALLY on (post-clamp), when it is one pi/slate both know. */
-	private sessionEffort(session: WorkerSession | undefined): ThinkingLevel | undefined {
+	private sessionEffort(session: WorkerSession | undefined): LogicalModelEffort | undefined {
 		try {
-			const level = session?.thinkingLevel as ThinkingLevel | undefined;
-			return level !== undefined && THINKING_LEVELS.includes(level) ? level : undefined;
+			const level = session?.thinkingLevel as LogicalModelEffort | undefined;
+			return level !== undefined && LOGICAL_MODEL_EFFORTS.includes(level) ? level : undefined;
 		} catch {
 			return undefined;
 		}
+	}
+
+	private captureAppliedRoute(
+		session: WorkerSession,
+		candidate: RecoveryCandidate,
+	):
+		| { ok: true; model: { provider: string; id: string }; effort: LogicalModelEffort }
+		| { ok: false; reason: string } {
+		let model: { provider?: unknown; id?: unknown } | undefined;
+		try { model = session.model; } catch { model = undefined; }
+		if (model?.provider !== candidate.provider || model.id !== candidate.model) {
+			return { ok: false, reason: `The worker session did not apply physical route ${candidate.provider}/${candidate.model}.` };
+		}
+		const effort = this.sessionEffort(session);
+		if (effort !== candidate.effort) {
+			return { ok: false, reason: `The worker session applied effort ${String(effort)} instead of required effort ${candidate.effort}.` };
+		}
+		return { ok: true, model: { provider: candidate.provider, id: candidate.model }, effort };
 	}
 
 	private cancelBeforeStart(thread: ThreadRecord): never {
@@ -803,15 +559,34 @@ export class ThreadManager {
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
+		admission?: RecoveryAdmission,
+		initialRoute?: RecoveryCandidate,
 	): Promise<DispatchResult> {
 		const episodeId = slateEpisodeId(thread.id)!;
-		if (signal?.aborted) this.cancelBeforeStart(thread);
-		await this.semaphore.acquire();
+		// Enroll synchronously before the semaphore can suspend this action. Manager
+		// teardown snapshots this map, so a queued action cannot begin terminal work
+		// after teardown has already returned.
+		let finishFinalizer!: () => void;
+		const finalizer = new Promise<void>((resolve) => { finishFinalizer = resolve; });
+		this.actionFinalizers.set(thread.id, finalizer);
+		let acquired = false;
 		try {
 			if (signal?.aborted) this.cancelBeforeStart(thread);
-			return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress);
+			await this.semaphore.acquire();
+			acquired = true;
+			if (this.teardownStarted) this.cancelBeforeStart(thread);
+			if (signal?.aborted) this.cancelBeforeStart(thread);
+			const lease = this.logicalRuntime?.ownership.acquire(thread.id);
+			if (lease?.kind === "busy") throw new Error(`Thread ${thread.id} cannot start because its recovery owner is busy.`);
+			try {
+				return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute);
+			} finally {
+				if (lease?.kind === "acquired") lease.lease.release();
+			}
 		} finally {
-			this.semaphore.release();
+			if (acquired) this.semaphore.release();
+			this.actionFinalizers.delete(thread.id);
+			finishFinalizer();
 		}
 	}
 
@@ -823,6 +598,8 @@ export class ThreadManager {
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
+		admission?: RecoveryAdmission,
+		initialRoute?: RecoveryCandidate,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
@@ -849,27 +626,56 @@ export class ThreadManager {
 			onProgress?.({ threadId: thread.id, threadName: thread.name, lines, usage, done, status });
 
 		let session: WorkerSession | undefined;
+		/** The worker session this action opened, kept readable after a failed open. */
+		let startupSession: WorkerSession | undefined;
 		let unsubscribe: (() => void) | undefined;
 		let onAbort: (() => void) | undefined;
 		let messagesBefore = 0;
 		let actionCompacted = false;
+		/** The refusal of this action, reported to the caller exactly once. */
+		let reportedRefusal: string | undefined;
 		let workerCallStarted = false;
-		let workerProducedResponse = false;
+		let completedWorkerText: string | undefined;
+		let latestAssistant: WorkerAssistantMsg | undefined;
+		let captureExecutionReports = false;
+		let executionReport: string | undefined;
+		const completedFacts = createCompletedFactRecorder();
+		let frozenCompletedFacts: FrozenCompletedFacts | undefined;
 		let status: "ok" | "failed" = "ok";
 		let diagnostics: string | undefined;
-		/** The authoritative route for this action (apply-time plan); undefined if we never got that far. */
-		let plan: RoutePlanProceed | undefined;
+		/** The selected logical route. It changes only after proved physical exhaustion. */
+		let logicalRoute = initialRoute;
+		let lastExecution: { model: { provider: string; id: string }; effort: LogicalModelEffort } | undefined;
+		const requestContract = createWorkerRequestContract();
 		/** Set ONLY by an apply-time rejection: end the dispatch with no episode and no compression. */
 		let aborted: DispatchAbort | undefined;
 		const warnings: string[] = [];
+		const retryEvidence = new WorkerRetryEvidence();
 		// Routing notices go to BOTH channels: the progress lines (so they are visible
 		// while the action runs) and the tool result (so the ORCHESTRATOR reads them —
 		// a cost cliff or an evidence gap is its decision to make, not the user's).
 		const routeWarn = (message: string) => {
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
+			if (captureExecutionReports && executionReport === undefined) executionReport = message;
 		};
-
+		// ONE action-scoped refusal report at the managed request boundary. Worker
+		// startup, initial work, a later turn, recovery continuation and worker
+		// history compaction all cross the same contract, so no event position needs
+		// its own detector. The FIRST observation stops this action: the reader below
+		// runs before the ordinary prompt, before logical recovery and after the
+		// action settles. A refusal makes the action fail visibly, and no later
+		// success may replace that result. The contract itself refuses every later
+		// request of a refused action, so a continuation that races this reader
+		// cannot reach a provider either.
+		const captureRefusal = (): string | undefined => {
+			const refusal = requestContract.refusal();
+			if (refusal !== undefined && reportedRefusal === undefined) {
+				reportedRefusal = refusal;
+				routeWarn(refusal);
+			}
+			return reportedRefusal;
+		};
 		// AF3: status/diagnostics derive from the FINAL assistant message of this
 		// action after prompt() settles — not from a sticky message_end flag. This
 		// fixes a latent bug: pi retries transient provider errors internally and
@@ -877,7 +683,7 @@ export class ThreadManager {
 		// errored message_end mid-run does NOT mean the action failed. Thrown
 		// prompt() exceptions and orchestrator aborts still mean failed.
 		const deriveOutcome = (thrown?: { error: unknown }) => {
-			const final = lastAssistantMessage(session ? session.messages.slice(messagesBefore) : []);
+			const final = latestAssistant ?? lastAssistantMessage(session ? session.messages.slice(messagesBefore) : []);
 			if (signal?.aborted) {
 				return { status: "failed" as const, diagnostics: "aborted by orchestrator", final };
 			}
@@ -886,7 +692,12 @@ export class ThreadManager {
 				return { status: "failed" as const, diagnostics: msg, final };
 			}
 			if (!final) {
-				return { status: "failed" as const, diagnostics: "worker produced no assistant message", final };
+				const noResponse = "worker produced no assistant message";
+				return {
+					status: "failed" as const,
+					diagnostics: executionReport === undefined ? noResponse : `${noResponse}. ${executionReport}`,
+					final,
+				};
 			}
 			if (final.stopReason === "error" || final.stopReason === "aborted") {
 				return {
@@ -896,6 +707,54 @@ export class ThreadManager {
 				};
 			}
 			return { status: "ok" as const, diagnostics: undefined, final };
+		};
+
+		const observeWorkerEvent = (event: { type: string; [k: string]: unknown }) => {
+			retryEvidence.observe(event);
+			if (event.type === "message_update") {
+				// Streaming deltas are deliberately not completed facts.
+			} else if (event.type === "tool_execution_start") {
+				lines.push(`→ ${(event as unknown as { toolName: string }).toolName}`);
+				emit(false);
+			} else if (event.type === "tool_execution_end") {
+				const tool = event as unknown as { toolName: string; result: unknown; isError: boolean };
+				completedFacts.addTool(tool.toolName, tool.result, tool.isError);
+			} else if (event.type === "compaction_end") {
+				if (event.result !== undefined && event.aborted !== true) actionCompacted = true;
+				if (seenCompactionEvents.has(event)) return;
+				seenCompactionEvents.add(event);
+				const compactionEvent = event as unknown as {
+					result?: { usage?: EpisodeUsage & { cost?: { total?: number } } };
+					aborted?: boolean;
+				};
+				addCompactionUsage(compactionEvent.result?.usage);
+			} else if (event.type === "message_end") {
+				const msg = (event as unknown as { message: WorkerAssistantMsg }).message;
+				if (msg.role !== "assistant") return;
+				latestAssistant = msg;
+				const emittedText = completedFacts.addAssistant(msg.content, msg.stopReason);
+				if (/\S/u.test(emittedText)) completedWorkerText = emittedText;
+				usage.turns++;
+				usage.input += msg.usage?.input ?? 0;
+				usage.output += msg.usage?.output ?? 0;
+				addEpisodeUsage("input", msg.usage?.input);
+				addEpisodeUsage("output", msg.usage?.output);
+				addEpisodeUsage("cacheRead", msg.usage?.cacheRead);
+				addEpisodeUsage("cacheWrite", msg.usage?.cacheWrite);
+				const reportedCost = msg.usage?.cost?.total;
+				if (reportedCost !== undefined) {
+					workerCostUsd = (workerCostUsd ?? 0) + reportedCost;
+					usage.cost += reportedCost;
+				}
+				const contextTokens = msg.usage?.totalTokens;
+				if (typeof contextTokens === "number" && Number.isFinite(contextTokens) && Number.isInteger(contextTokens) && contextTokens >= 0) {
+					reportedContextTokens = contextTokens;
+					usage.contextTokens = contextTokens;
+				}
+				const text = emittedText.replace(/\s+/g, " ").trim();
+				if (text) lines.push(text.length > 120 ? `${text.slice(0, 120)}...` : text);
+				emit(false);
+			}
 		};
 
 		thread.status = "running";
@@ -913,95 +772,67 @@ export class ThreadManager {
 
 		try {
 			emit(false);
-			const open = planSessionOpen(this.routeInputs(ctx, thread, opts));
-			let baseline = NO_SESSION_BASELINE;
-			({ session, baseline } = await this.openWorkerFor({
+			if (!logicalRoute || !admission || !this.logicalRuntime) throw new DispatchAbort("Logical route admission was lost before worker startup.");
+			const queuedValidation = await this.logicalRuntime.validateRoute(ctx, logicalRoute);
+			if (!queuedValidation.ok) throw new DispatchAbort(`Logical worker startup stopped before billed work: ${queuedValidation.reason}`);
+			const open = planSessionOpen(logicalRoute);
+			requestContract.expect(logicalRoute);
+			onAbort = () => {
+				requestContract.invalidate();
+				const ownedSession = session ?? startupSession;
+				ownedSession?.closeManagedOperations?.();
+				void ownedSession?.abort().catch(() => {});
+			};
+			if (signal?.aborted === true) onAbort();
+			else signal?.addEventListener("abort", onAbort, { once: true });
+			({ session } = await this.openWorkerFor({
 				thread,
 				ctx,
 				open,
 				tools: thread.tools,
 				report: routeWarn,
+				requestContract,
+				observeSession: (created) => {
+					startupSession = created;
+					if (unsubscribe === undefined) unsubscribe = created.subscribe(observeWorkerEvent);
+				},
 			}));
-
-			// Apply-time validation catches registry changes before the first prompt.
-			const applied = planRoute(this.routeInputs(ctx, thread, opts, session));
-			if (applied.kind === "reject") {
-				// The world moved between the early validation and now (the router list is
-				// frozen per session, so this is a registry/credential/effort change).
-				throw new DispatchAbort(
-					`slate: aborting the dispatch to thread ${thread.id} before any billed work — ` +
-						`${applied.reason} No episode was recorded.`,
-				);
+			if (signal?.aborted === true) throw new DispatchAbort("Logical worker startup was cancelled by the caller.");
+			if (this.live.get(thread.id) !== session) throw new DispatchAbort("Logical worker startup was cancelled during session teardown.");
+			// Worker startup crosses this same request owner. A refusal recorded there
+			// ends the action HERE, so no ordinary request follows the refused one.
+			// The action owns the startup work of its own worker session, so that work
+			// stays inside the action slice. The catch below records the accepted pair,
+			// the refusal and the completed startup output of this failed action.
+			const refusedAtStartup = captureRefusal();
+			if (refusedAtStartup !== undefined) throw new Error(refusedAtStartup);
+			try { session.setThinkingLevel(logicalRoute.effort); }
+			catch (error) {
+				throw new DispatchAbort(`Logical worker startup could not apply fixed effort: ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 200)}.`);
 			}
-			plan = applied;
-			// APPLY FIRST, then record what was decided. Everything above this line can
-			// still abort the dispatch unbilled, and an abort discards the warnings — so
-			// nothing that MARKS a notice as delivered may run before the notice can
-			// actually be delivered.
-			await this.applyRoute(session, plan, thread, ctx, signal, routeWarn, baseline);
-			for (const message of applied.warnings) routeWarn(message);
-
-			if (applied.warnings.length > 0) emit(false);
+			const appliedValidation = await this.logicalRuntime.validateRoute(ctx, logicalRoute);
+			if (!appliedValidation.ok) throw new DispatchAbort(`Logical worker startup stopped before billed work: ${appliedValidation.reason}`);
 
 			messagesBefore = session.messages.length;
-
-			unsubscribe = session.subscribe((event: { type: string; [k: string]: unknown }) => {
-				if (event.type === "message_update") {
-					const message = (event as unknown as { message?: WorkerAssistantMsg }).message;
-					if (message?.role === "assistant" && assistantMessageText(message).trim() !== "") workerProducedResponse = true;
-				} else if (event.type === "tool_execution_start") {
-					lines.push(`→ ${(event as unknown as { toolName: string }).toolName}`);
-					emit(false);
-				} else if (event.type === "compaction_end") {
-					// Pi emits a successful compaction_end with a result after it replaces
-					// the session message history. The old action-slice index is then invalid.
-					if (event.result !== undefined && event.aborted !== true) actionCompacted = true;
-					if (seenCompactionEvents.has(event)) return;
-					seenCompactionEvents.add(event);
-					const result = (event as unknown as {
-						result?: { usage?: EpisodeUsage & { cost?: { total?: number } } };
-					}).result;
-					addCompactionUsage(result?.usage);
-				} else if (event.type === "message_end") {
-					// This event-local signal survives host compaction and retry rewrites of
-					// session.messages. It therefore remains valid at episode selection time.
-					const msg = (event as unknown as { message: WorkerAssistantMsg }).message;
-					if (msg.role !== "assistant") return;
-					if (assistantMessageText(msg).trim() !== "") workerProducedResponse = true;
-					usage.turns++;
-					usage.input += msg.usage?.input ?? 0;
-					usage.output += msg.usage?.output ?? 0;
-					addEpisodeUsage("input", msg.usage?.input);
-					addEpisodeUsage("output", msg.usage?.output);
-					addEpisodeUsage("cacheRead", msg.usage?.cacheRead);
-					addEpisodeUsage("cacheWrite", msg.usage?.cacheWrite);
-					const reportedCost = msg.usage?.cost?.total;
-					if (reportedCost !== undefined) {
-						workerCostUsd = (workerCostUsd ?? 0) + reportedCost;
-						usage.cost += reportedCost;
-					}
-					const contextTokens = msg.usage?.totalTokens;
-					if (typeof contextTokens === "number" && Number.isFinite(contextTokens) && Number.isInteger(contextTokens) && contextTokens >= 0) {
-						reportedContextTokens = contextTokens;
-						usage.contextTokens = contextTokens;
-					}
-					const text = (msg.content ?? [])
-						.filter((c) => c.type === "text")
-						.map((c) => c.text ?? "")
-						.join(" ")
-						.trim();
-					if (text) lines.push(text.length > 120 ? `${text.slice(0, 120)}...` : text);
-					emit(false);
-				}
-			});
+			// Startup assistant messages remain completed facts, but they cannot
+			// classify the ordinary task or a slash command that returns no response.
+			latestAssistant = undefined;
+			executionReport = undefined;
+			// Test doubles that bypass openWorkerFor's callback still receive capture.
+			if (unsubscribe === undefined) unsubscribe = session.subscribe(observeWorkerEvent);
 
 			if (signal?.aborted) throw new Error("aborted before worker start");
-			onAbort = () => void session?.abort();
-			signal?.addEventListener("abort", onAbort, { once: true });
 
-			// Attempt 1.
+			// Attempt 1. Pi owns retries on this physical route. Route validation may
+			// await credential work, so capture the final live route and effort only
+			// after it settles. Keep capture and prompt invocation in one synchronous
+			// path so an extension callback cannot change the selection between them.
+			retryEvidence.reset();
+			const applied = this.captureAppliedRoute(session, logicalRoute);
+			if (!applied.ok) throw new DispatchAbort(`Logical worker startup stopped before billed work: ${applied.reason}`);
 			let thrown: { error: unknown } | undefined;
 			try {
+				captureExecutionReports = true;
 				const promptRun = session.prompt(prompt);
 				// COMMIT POINT: prompt execution has started. A caller may no longer
 				// roll this dispatch back or repeat its action on another thread.
@@ -1010,111 +841,160 @@ export class ThreadManager {
 			} catch (error) {
 				thrown = { error };
 			}
+			lastExecution = requestContract.latestAccepted();
 			let outcome = deriveOutcome(thrown);
+			// A refusal from worker startup or from this prompt, including one inside
+			// automatic history compaction, is a terminal fault for this action. It
+			// therefore starts no logical recovery and no substitute request.
+			const refusedBeforeRecovery = captureRefusal();
 			({ status, diagnostics } = outcome);
 
-			// Model failover — single hop, at most ONCE per dispatch: when the
-			// attempt failed with a model-API error (never an abort or a context
-			// overflow — see failover.ts) or prompt() threw AND the current model
-			// now fails its auth check (state-based classification, AF10), switch
-			// the LIVE session to the mapped model and re-prompt once. Usage keeps
-			// accumulating through the same subscriber, and messagesBefore is
-			// unchanged (same session), so the episode covers both attempts.
-			const current = session.model;
-			if (status === "failed" && !signal?.aborted && current) {
-				// CN1/BG1 + CN2: every await below is a window in which the dispatch
-				// can be aborted or this manager disposed. The abort listener cannot
-				// cover it — session.abort() no-ops on an idle session — and a DISPOSED worker
-				// session does not throw on setModel/prompt because these direct worker-session
-				// calls are not extension-context operations guarded by the SDK's assertActive
-				// method. That remains true when the worker allowlist adds project extensions.
-				// Re-check both hazards before each side effect. An abort or disposal anywhere
-				// in the window means NO retry.
-				const retryBlocked = () => signal?.aborted === true || this.live.get(thread.id) !== session;
-				const candidate =
-					isFailoverCandidate(outcome.final, current.contextWindow) ||
-					(thrown !== undefined && (await isAuthFailure(ctx, current)));
-				const resolvedMapping = candidate
-					? await resolveMappedModel(ctx, this.config.modelFailover ?? {}, current.provider, current.id)
-					: undefined;
-				// GUARD 7 — THE FAILOVER CARVE-OUT, planned by route.ts in failover mode:
-				// the list and effort guards do not run, the mapped model is never required
-				// to be a routing candidate (a model that just failed is worse than an
-				// unlisted one that works), and the window check only WARNS — substituting
-				// here would be the router vetoing failover by another name.
-				//
-				// A REJECT verdict here means "do not switch", never an error: the one rule
-				// failover must obey is that a mapping may not resolve to the model that just
-				// failed, and the pre-router response to that was a silent skip — so it stays
-				// one. (The config sanitizer already drops a self-mapping; per-action routing
-				// adds the case it cannot see, where `current` is no longer the model the map
-				// was keyed on.)
-				const failoverPlan = resolvedMapping
-					? planRoute(
-							this.routeInputs(ctx, thread, opts, session, {
-								target: `${resolvedMapping.provider}/${resolvedMapping.id}`,
-								from: `${current.provider}/${current.id}`,
-								contextWindow: resolvedMapping.contextWindow,
-							}),
-						)
-					: undefined;
-				for (const message of failoverPlan?.warnings ?? []) routeWarn(message);
-				const mapped = failoverPlan?.kind === "proceed" ? resolvedMapping : undefined;
-				if (mapped && !retryBlocked()) {
-					lines.push(`⚠ failover ${current.provider}/${current.id} ⇒ ${mapped.provider}/${mapped.id}`);
-					emit(false);
-					let switched = false;
-					try {
-						await session.setModel(mapped); // can throw on a failed live auth check
-						switched = true;
-					} catch {
-						/* keep the original failure */
-					}
-					if (switched) {
-						if (failoverPlan?.kind === "proceed" && failoverPlan.effort !== undefined) session.setThinkingLevel(failoverPlan.effort);
-						// Record the mapped model for this live action. Disposal removes the marker.
-						this.failoverLive.set(thread.id, `${mapped.provider}/${mapped.id}`);
-					}
-					// Re-check after the setModel await. If the signal has NOT fired,
-					// the once-listener is still armed, so a retry that does start
-					// remains abortable (a fire in the microtask gap between this check
-					// and prompt() startup is the residual race inherent to
-					// AbortSignal listeners).
-					if (switched && !retryBlocked()) {
-						thrown = undefined;
+
+			// Logical recovery starts only after direct Pi events prove that retries on
+			// the current physical route are exhausted. The same worker session and its
+			// transcript are retained. Only the continuation nudge is added.
+			const recoverySession = session;
+			const isAborted = () => signal?.aborted === true;
+			const initialAttempt = refusedBeforeRecovery !== undefined
+				? { kind: "terminal-fault" as const, reason: refusedBeforeRecovery }
+				: thrown !== undefined && !isAborted()
+					? { kind: "unknown" as const, reason: "The worker prompt threw without cancellation evidence." }
+				: outcome.final === undefined
+					? { kind: "terminal-fault" as const, reason: outcome.diagnostics ?? "The worker produced no assistant response." }
+				: lastExecution === undefined
+					? { kind: "unknown" as const, reason: outcome.diagnostics ?? "The worker prompt has no validated physical execution facts." }
+					: retryEvidence.classify({
+						final: outcome.final,
+						value: outcome.final,
+						actualEffort: lastExecution.effort,
+						aborted: isAborted(),
+						contextWindow: recoverySession.model?.contextWindow,
+					});
+			if (initialAttempt.kind === "success") {
+				this.logicalRuntime.publishProvider(admission, logicalRoute.logicalModel, logicalRoute.provider);
+			} else if (initialAttempt.kind === "retry-exhausted") {
+				const retainedToolResults = recoverySession.messages.slice(messagesBefore).filter((message) => (message as { role?: unknown }).role === "toolResult");
+				const recovery = await executeRecovery({
+					candidates: this.logicalRuntime.planOrdinary(logicalRoute.logicalModel, admission.snapshot, logicalRoute),
+					retainedToolResults,
+					validateSwitch: (candidate) => this.logicalRuntime!.validateRoute(ctx, candidate),
+					attempt: async ({ candidate, retainedToolResults: retained }) => {
+						if (isAborted() || this.live.get(thread.id) !== recoverySession) return { kind: "cancelled" as const };
+						const beforeToolResults = recoverySession.messages.filter((message) => (message as { role?: unknown }).role === "toolResult");
+						if (retained.some((message) => !beforeToolResults.includes(message))) {
+							return { kind: "unknown" as const, reason: "A retained tool result disappeared before logical recovery." };
+						}
+						retryEvidence.reset();
 						try {
-							await session.prompt(FAILOVER_NUDGE);
+							await recoverySession.setModel(resolveModel(ctx, `${candidate.provider}/${candidate.model}`));
+							recoverySession.setThinkingLevel(candidate.effort);
 						} catch (error) {
-							thrown = { error };
+							return { kind: "terminal-fault" as const, reason: `The recovery route could not be applied: ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 200)}.` };
 						}
-						outcome = deriveOutcome(thrown);
-						({ status, diagnostics } = outcome);
-						// CQ2: an aborted retry is an abort, not a failover failure.
-						if (status === "failed" && !signal?.aborted) {
-							diagnostics = `${diagnostics} (failover to ${mapped.provider}/${mapped.id} also failed)`;
-						}
-					}
+						if (isAborted() || this.live.get(thread.id) !== recoverySession) return { kind: "cancelled" as const };
+						const recoveryValidation = await this.logicalRuntime!.validateRoute(ctx, candidate);
+						if (!recoveryValidation.ok) return { kind: "terminal-fault" as const, reason: recoveryValidation.reason };
+						if (isAborted() || this.live.get(thread.id) !== recoverySession) return { kind: "cancelled" as const };
+						// No Slate-owned await may separate this final capture from prompt().
+						const recoveryApplied = this.captureAppliedRoute(recoverySession, candidate);
+						if (!recoveryApplied.ok) return { kind: "terminal-fault" as const, reason: recoveryApplied.reason };
+						requestContract.expect(candidate);
+						this.failoverLive.set(thread.id, `${recoveryApplied.model.provider}/${recoveryApplied.model.id}`);
+						let retryThrow: { error: unknown } | undefined;
+						try { await recoverySession.prompt(FAILOVER_NUDGE); } catch (error) { retryThrow = { error }; }
+						lastExecution = requestContract.latestAccepted();
+						const retryOutcome = deriveOutcome(retryThrow);
+						outcome = retryOutcome;
+						// A refused recovery request, including a refused compaction inside
+						// this prompt, ends the operation. No further candidate may replace it.
+						const refusedRecovery = captureRefusal();
+						if (refusedRecovery !== undefined) return { kind: "terminal-fault" as const, reason: refusedRecovery };
+						if (retryThrow !== undefined && !isAborted()) return { kind: "unknown" as const, reason: "The recovery prompt threw without cancellation evidence." };
+						return retryEvidence.classify({
+							final: retryOutcome.final,
+							value: retryOutcome.final,
+							actualEffort: recoveryApplied.effort,
+							aborted: isAborted(),
+							contextWindow: recoverySession.model?.contextWindow,
+						});
+					},
+				});
+				if (recovery.kind === "success") {
+					logicalRoute = recovery.candidate;
+					status = "ok";
+					diagnostics = undefined;
+					this.logicalRuntime.publishProvider(admission, recovery.candidate.logicalModel, recovery.candidate.provider);
+				} else {
+					status = "failed";
+					diagnostics = recovery.kind === "unknown" || recovery.kind === "terminal-fault"
+						? recovery.reason
+						: recovery.kind === "cancelled" ? "logical recovery was cancelled" : "all permitted logical recovery routes were exhausted";
 				}
-				// CQ2: an abort that landed anywhere in this failover window surfaces
-				// as an abort (deriveOutcome checks the signal first) — never as the
-				// stale attempt-1 error or a "failover also failed". Disposal without
-				// abort keeps the attempt-1 outcome.
-				if (signal?.aborted) ({ status, diagnostics } = deriveOutcome(thrown));
+			} else {
+				status = "failed";
+				diagnostics = initialAttempt.kind === "unknown"
+					? initialAttempt.reason
+					: initialAttempt.kind === "cancelled" ? "worker action was cancelled" : diagnostics;
 			}
+			// The last read of the same owner. It records the refusal of an action whose
+			// work already stopped at the reader that observed it first. A refused action
+			// is failed here whatever the classified outcome said.
+			const refusedDuringAction = captureRefusal();
+			if (refusedDuringAction !== undefined) {
+				status = "failed";
+				diagnostics = refusedDuringAction;
+			}
+
 		} catch (error) {
 			// The ONE non-billed exit (module header). Everything else in this method —
 			// including a session that could not be opened — keeps its historical
 			// behaviour of becoming a FAILED episode, because by then the action was
 			// attempted; a DispatchAbort is raised only from the pre-prompt routing
 			// phase, where nothing has been spent, so it must not manufacture work.
-			if (error instanceof DispatchAbort) aborted = error;
-			else {
+			if (error instanceof DispatchAbort) {
+				aborted = signal?.aborted === true
+					? new DispatchAbort("Logical worker startup was cancelled by the caller.")
+					: error;
+			} else {
 				status = "failed";
-				diagnostics = error instanceof Error ? error.message : String(error);
+				const failure = error instanceof Error ? error.message : String(error);
+				// A refusal latched on this owner survives a failed opening, and a startup
+				// error is an independent fact. Report both, and each one exactly once.
+				const refused = captureRefusal();
+				diagnostics = refused === undefined || refused === failure ? failure : `${failure}; ${refused}`;
+				// A request that startup already accepted keeps its physical facts. A
+				// prompt that ran recorded its own facts, and those stay unchanged.
+				if (lastExecution === undefined) lastExecution = requestContract.latestAccepted();
+				// The action owns the worker session it opened, so a failed opening keeps
+				// that transcript readable for the failed result. This adoption starts no
+				// lifetime: openWorkerSession already shut such a session down, and every
+				// later shutdown of the same session is memoized.
+				if (session === undefined) session = startupSession;
 			}
 		} finally {
+			captureExecutionReports = false;
+			const ownedSession = session ?? startupSession;
+			requestContract.invalidate();
+			ownedSession?.closeManagedOperations?.();
+			await ownedSession?.settleManagedOperations?.();
+			if (session === undefined) session = startupSession;
+			if (lastExecution === undefined) lastExecution = requestContract.latestAccepted();
+			const settledRefusal = captureRefusal();
+			if (settledRefusal !== undefined) {
+				status = "failed";
+				diagnostics = diagnostics === undefined || diagnostics.includes(settledRefusal)
+					? diagnostics ?? settledRefusal
+					: `${diagnostics}; ${settledRefusal}`;
+			}
+			frozenCompletedFacts = completedFacts.freeze();
 			unsubscribe?.();
 			if (onAbort) signal?.removeEventListener("abort", onAbort);
+		}
+
+		if (aborted && frozenCompletedFacts?.hasFacts) {
+			status = "failed";
+			diagnostics = diagnostics ?? aborted.message;
+			aborted = undefined;
 		}
 
 		if (aborted) {
@@ -1133,17 +1013,25 @@ export class ThreadManager {
 
 		const cancelledAfterStart = workerCallStarted &&
 			(signal?.aborted === true || (session !== undefined && this.live.get(thread.id) !== session));
-		if (cancelledAfterStart) {
+		if (cancelledAfterStart && frozenCompletedFacts?.hasFacts) {
+			status = "failed";
+			diagnostics ??= signal?.aborted === true ? "cancelled by the caller" : "cancelled during session teardown";
+		}
+		if (cancelledAfterStart && !frozenCompletedFacts?.hasFacts) {
 			const reason = signal?.aborted === true ? "cancelled by the caller" : "cancelled during session teardown";
 			thread.status = "cancelled";
 			thread.outcomeReason = reason;
 			thread.updatedAt = Date.now();
+			let cancellationSaveError: unknown;
 			try {
 				this.store.save();
-			} catch {
-				/* retain the terminal cancellation in memory */
+			} catch (error) {
+				cancellationSaveError = error;
 			} finally {
 				await this.closeWorker(thread.id, session);
+			}
+			if (cancellationSaveError !== undefined) {
+				throw new Error(`Thread ${thread.id} was ${reason}, and Slate could not save that terminal state: ${sanitizeForNotify(cancellationSaveError instanceof Error ? cancellationSaveError.message : String(cancellationSaveError), 200)}.`);
 			}
 			throw new Error(`Thread ${thread.id} was ${reason}. No episode was recorded.`);
 		}
@@ -1162,12 +1050,11 @@ export class ThreadManager {
 			normalizeContextEpisodeIds(opts.contextEpisodeIds).length > 0 ? prompt : undefined,
 		);
 
-		// Derive the model once before either fixed failure writing or compression.
-		const ranModel = session?.model
-			? { provider: session.model.provider, id: session.model.id }
-			: splitModelSpec(plan?.model);
+		// Keep facts from the last route that actually reached prompt execution.
+		// A rejected recovery switch must not replace the prior execution history.
+		const ranModel = lastExecution?.model;
 		const actualModel = ranModel ? `${ranModel.provider}/${ranModel.id}` : undefined;
-		const actualEffort = this.sessionEffort(session) ?? plan?.effort;
+		const actualEffort = lastExecution?.effort;
 
 		// An event-local response flag and recorded billing survive host rewrites of
 		// session.messages. Either selects compression even when the rewritten slice
@@ -1177,7 +1064,7 @@ export class ThreadManager {
 			workerCostUsd !== undefined ||
 			compactionCostUsd !== undefined ||
 			Object.values(compactionUsage).some((quantity) => quantity > 0);
-		if (status === "failed" && !workerProducedResponse && !actionHasBillingEvidence) {
+		if (status === "failed" && !frozenCompletedFacts?.hasFacts && !actionHasBillingEvidence) {
 			const reason = diagnostics ?? "the worker action failed";
 			const totalActionCost = usage.cost + (compactionCostUsd ?? 0);
 			let failed: ReturnType<typeof writeFailedEpisode>;
@@ -1201,7 +1088,8 @@ export class ThreadManager {
 			}
 			const episode: EpisodeRecord = {
 				id: episodeId, threadId: thread.id, task: opts.task, status: "failed", file: failed.file,
-				reason: opts.reason!, requestedModel: opts.model!, requestedEffort: opts.effort as ThinkingLevel,
+				reason: opts.reason!, logicalModel: opts.model!,
+				...(initialRoute ? { requestedModel: `${initialRoute.provider}/${initialRoute.model}`, requestedEffort: initialRoute.effort } : {}),
 				...(actualModel ? { model: actualModel } : {}),
 				...(actualEffort ? { effort: actualEffort } : {}), ...episodeUsage,
 				...(reportedContextTokens !== undefined ? { contextTokens: reportedContextTokens } : {}),
@@ -1225,26 +1113,6 @@ export class ThreadManager {
 			try { emit(true, "failed"); } catch { /* preserve the failed result */ }
 			return { episodeText: failed.text, episode, thread, usage, warnings };
 		}
-		// The unmeasured marker is a claim about the profile data for ONE (model, level)
-		// pair — the pair the guards judged. It survives to the episode only if BOTH
-		// halves of that pair are what actually ran, and the two halves are checked by the
-		// side that can see them:
-		//
-		//  · THE LEVEL, here: pi CLAMPS a level the model cannot do, and only this side
-		//    knows the level the plan asked for, so a clamp drops the marker rather than
-		//    attaching a gap claim to a level nobody judged.
-		//  · THE MODEL, in episodes.ts: `workerEffortJudgedFor` carries the planner's
-		//    `effortJudgedFor` through verbatim, so the module that PRINTS the pair also
-		//    verifies it against the model it is printing, instead of trusting a boolean it
-		//    cannot check. That is also what keeps the marker on the router-OFF path, where
-		//    the guards judge the HOST model and the plan carries no model of its own.
-		//
-		// The RECORD's own field has no judged-spec column, so it keeps the fully collapsed
-		// answer (both halves) below.
-		const effortIsAsPlanned = plan?.effortUnmeasured === true && actualEffort !== undefined && actualEffort === plan.effort;
-		const actualEffortUnmeasured = effortIsAsPlanned && actualModel !== undefined && actualModel === plan?.effortJudgedFor;
-
-
 		// Capture before compression so an episode-write failure does not itself
 		// remove the exact output. The returned union is the single source for the
 		// path, byte count, truncation fact and structural grammar result.
@@ -1326,23 +1194,14 @@ export class ThreadManager {
 				diagnostics,
 				messages: compressionMessages as unknown[],
 				observations: durableObservations,
-				// Header only, all four (episodes.ts never picks the compressor from them —
-				// that is the whole point of the compressor pin). `workerEffortUnmeasured` is the
-				// LEVEL-checked flag and `workerEffortJudgedFor` is the spec it is a claim about,
-				// so the header verifies the model half itself (see the derivation above).
 				workerModel: ranModel,
 				workerEffort: actualEffort,
-				workerEffortUnmeasured: effortIsAsPlanned,
-				workerEffortJudgedFor: plan?.effortJudgedFor,
-				configuredModel: this.config.episodeModel,
-				// The compressor's LAST-RESORT rung: the ORCHESTRATOR's base model from the
-				// tracker (failover fallbacks excluded, spec-validated). Route planning no
-				// longer consumes this tracker. Without it the compressor pin's bottom rung
-				// could never fire, and a project with no episodeModel and no usable Sonnet
-				// would drop straight to the uncompressed fallback.
-				orchestratorBaseModel: this.trackedBaseModel(),
-				modelFailover: this.config.modelFailover,
-				signal: signal?.aborted ? undefined : signal,
+				completedText: completedWorkerText,
+				completedFacts: frozenCompletedFacts,
+				logicalRuntime: this.logicalRuntime!,
+				admission: admission!,
+				retryPolicy: this.compressorRetryPolicy,
+				signal,
 			});
 		} catch (error) {
 			// The live session has grown, but no episode will publish its new cache and
@@ -1404,11 +1263,10 @@ export class ThreadManager {
 			status,
 			file: compressed.file,
 			reason: opts.reason!,
-			requestedModel: opts.model!,
-			requestedEffort: opts.effort as ThinkingLevel,
+			logicalModel: opts.model!,
+			...(initialRoute ? { requestedModel: `${initialRoute.provider}/${initialRoute.model}`, requestedEffort: initialRoute.effort } : {}),
 			...(actualModel ? { model: actualModel } : {}),
 			...(actualEffort ? { effort: actualEffort } : {}),
-			...(actualEffortUnmeasured ? { effortUnmeasured: true as const } : {}),
 			observations: durableObservations,
 			...episodeUsage,
 			...(reportedContextTokens !== undefined ? { contextTokens: reportedContextTokens } : {}),
@@ -1446,21 +1304,33 @@ export class ThreadManager {
 
 	async disposeAll(): Promise<void> {
 		if (this.teardownPromise !== undefined) return this.teardownPromise;
-		// Close this manager before the first await. No later open may publish work.
+		// Close both admission boundaries before the first await. Running dispatches
+		// retain persistence ownership and converge on their shared finalizer.
 		this.teardownStarted = true;
+		const contracts = [...this.requestContracts.values()];
+		this.requestContracts.clear();
+		for (const contract of contracts) contract.invalidate();
 		const live = [...this.live.entries()];
 		const openings = [...this.openingWorkers];
 		const alreadyClosing = [...this.closingWorkers];
+		const actionFinalizers = new Map(this.actionFinalizers);
+		for (const [, session] of live) {
+			session.closeManagedOperations?.();
+			void session.abort?.().catch(() => {});
+		}
 		this.live.clear();
 		this.openingWorkers.clear();
 		this.failoverLive.clear();
-		this.liveBaselines.clear();
 		this.teardownPromise = (async () => {
-			const liveClosures = live.map(([threadId, session]) => this.closeWorker(threadId, session));
-			// Opening paths own their newly created session and settle only after any
-			// startup or cleanup finishes. Existing closing paths are included because
-			// they have already removed their session from live.
-			await Promise.allSettled([...liveClosures, ...openings, ...alreadyClosing]);
+			const orphanClosures = live
+				.filter(([threadId]) => !actionFinalizers.has(threadId))
+				.map(([threadId, session]) => this.closeWorker(threadId, session));
+			await Promise.allSettled([
+				...actionFinalizers.values(),
+				...orphanClosures,
+				...openings,
+				...alreadyClosing,
+			]);
 		})();
 		return this.teardownPromise;
 	}

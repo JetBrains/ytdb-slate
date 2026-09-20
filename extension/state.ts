@@ -10,12 +10,9 @@
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-// TYPE-ONLY: the effort vocabulary is defined once in model-profiles.ts and
-// traced under `research/digest-v6.md` Existing profile transcription. It is
-// identical to pi's own ThinkingLevel union. The import is erased at load time.
-// State restoration therefore keeps no runtime dependency on model-profiles.ts
-// (see the model-spec note below).
-import type { ThinkingLevel } from "./model-profiles.ts";
+import { isLogicalModelName, type LogicalModelEffort } from "./logical-model-definitions.ts";
+/** Compatibility name for Pi's complete thinking-level vocabulary. */
+export type ThinkingLevel = LogicalModelEffort;
 import type { ObservationRecord } from "./observations.ts";
 // TYPE-ONLY, like the effort vocabulary above: the request-throttle module owns
 // its own config shape and sanitizer, and this import is erased at load time.
@@ -152,13 +149,15 @@ export interface EpisodeRecord {
 	file: string; // absolute path to episode .md
 	/** Sanitized caller rationale. Absent on episodes written before explicit dispatch metadata. */
 	reason?: string;
+	/** Provider-free logical action selection. Absent on episodes written before logical routing. */
+	logicalModel?: string;
 	/** The model requested for this action, before failover. */
 	requestedModel?: string;
 	/** The effort requested for this action, before failover or provider clamping. */
 	requestedEffort?: ThinkingLevel;
-	/** "provider/id" the action ACTUALLY ran on (post-failover). Absent = unknown. */
+	/** Latest physical pair accepted for local Pi handoff. Absent = no accepted request. */
 	model?: string;
-	/** Effort level the action ACTUALLY ran at (post-clamp). Absent = unknown. */
+	/** Post-clamp effort in the latest accepted local Pi handoff. Absent = none accepted. */
 	effort?: ThinkingLevel;
 	/** Set only when that effort level has NO capability measurement in the profile data. */
 	effortUnmeasured?: true;
@@ -330,58 +329,6 @@ export function describeConfusables(value: string): string | undefined {
 	return `contains non-ASCII characters: ${codePointList(value, nonAscii)}`;
 }
 
-/**
- * Validate an optional single-spec config key — today `episodeModel` (RG20).
- *
- * Every other config key is checked eagerly at session_start; this one was not,
- * so a value the spec rules reject — a stray trailing newline, a zero-width
- * character pasted from a web page — made the episode compressor fall back to
- * its built-in default with NO diagnostic at all. The configured model simply
- * never ran, and the only visible symptom was a compression bill on a model the
- * user did not choose.
- *
- * THE FALLBACK IS UNCHANGED BY THIS SANITIZER: an unusable value still yields
- * undefined, and the consumer (episodes.ts's resolveCompressorModel) handles that
- * exactly as it handles an absent one. Only the diagnostic is new.
- *
- * What that consumer's chain IS, since a reader here is entitled to know what an
- * ignored value costs: the newest AVAILABLE Anthropic Sonnet, then — as a last
- * resort — the ORCHESTRATOR's base model (base-model.ts), each rung auth-checked,
- * and then the uncompressed fallback. It is NEVER the model the action itself was
- * routed to: a cheaply-routed action must not get a cheaply-compressed episode
- * (the compressor pin, D5 — see episodes.ts's module header for the reasoning).
- *
- * It lives HERE rather than in episodes.ts, which owns the feature, for two
- * reasons: the whole question it answers is the spec vocabulary defined in this
- * module (it holds no episode logic beyond one clause of prose), and episodes.ts
- * cannot be loaded by the pure verification harness — it imports
- * `@earendil-works/pi-ai`, a peer dependency that is not installed in this repo
- * — so a sanitizer placed there would be unverifiable by the only automated net
- * that covers this class of silent failure.
- *
- * Validation is shape-only on purpose: whether the registry knows the model is a
- * resolve-time question with its own fallback chain, and re-answering it here
- * would duplicate that logic against a registry that may not be refreshed yet.
- */
-export function sanitizeModelSpecKey(key: string, raw: unknown, warn: (msg: string) => void, fallback: string): string | undefined {
-	if (raw === undefined) return undefined; // absent ⇒ the built-in default, silently
-	if (!isModelSpec(raw)) {
-		let shown: string | undefined;
-		try {
-			shown = JSON.stringify(raw);
-		} catch {
-			shown = undefined; // cyclic / too deep to stringify
-		}
-		warn(`slate: ignoring ${key} ${sanitizeForNotify(shown ?? String(raw))} — ${describeSpecDefect(raw)}; ${fallback}`);
-		return undefined;
-	}
-	return raw;
-}
-
-/** RG20: `episodeModel`, with the compressor's own fallback named in the warning. */
-export function sanitizeEpisodeModel(raw: unknown, warn: (msg: string) => void): string | undefined {
-	return sanitizeModelSpecKey("episodeModel", raw, warn, "compressing with the built-in default model instead");
-}
 
 /** Validate the explicit prompt-cache-key feature switch. */
 export function sanitizeCacheKeyEnabled(raw: unknown, warn: (msg: string) => void): boolean {
@@ -527,6 +474,7 @@ export const ADOPTED_EPISODE_FIELDS = {
 	status: true,
 	file: true,
 	reason: true,
+	logicalModel: true,
 	requestedModel: true,
 	requestedEffort: true,
 	model: true,
@@ -695,6 +643,7 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 	const compressorUsage = keep("compressorUsage", e.compressorUsage, nestedUsage("compressorUsage", e.compressorUsage));
 	const compactionUsage = keep("compactionUsage", e.compactionUsage, nestedUsage("compactionUsage", e.compactionUsage));
 	const reason = keep("reason", e.reason, sanitizeDispatchReason(e.reason));
+	const logicalModel = keep("logicalModel", e.logicalModel, isLogicalModelName(e.logicalModel) ? e.logicalModel : undefined);
 	const requestedModel = keep("requestedModel", e.requestedModel, isModelSpec(e.requestedModel) ? e.requestedModel : undefined);
 	const requestedEffort = keep("requestedEffort", e.requestedEffort, isThinkingLevel(e.requestedEffort) ? e.requestedEffort : undefined);
 	const built: EpisodeRecord = {
@@ -706,6 +655,7 @@ export function sanitizeEpisodeRecord(raw: unknown, repairs: string[]): EpisodeR
 		status: keep("status", e.status, e.status === "failed" || e.status === "ok" ? e.status : undefined) ?? "ok",
 		file,
 		...(reason !== undefined ? { reason } : {}),
+		...(logicalModel !== undefined ? { logicalModel } : {}),
 		...(requestedModel !== undefined ? { requestedModel } : {}),
 		...(requestedEffort !== undefined ? { requestedEffort } : {}),
 		...(keep("model", e.model, str(e.model)) !== undefined ? { model: str(e.model) } : {}),
@@ -749,26 +699,8 @@ export interface ContextBudgetObject {
 	overrides?: ContextBudgetOverride[]; // first matching entry wins
 }
 
-/**
- * Action-level model router (D4/D53). `models` is the CLOSED list of models the
- * router may route an action to, in canonical "provider/id" form; empty or
- * absent means the router is OFF, so no candidate list or router-owned base
- * applies. Context-size substitution and long-context billing notices are not
- * part of action routing in either state. Per-action arguments and pre-existing
- * failover remain outside that feature-off statement.
- * `allowUnmeasuredEffort` (default TRUE) decides what the dispatch path does
- * with an effort level that is ladder-valid but has no capability evidence —
- * an evidence gap is advisory, not a prohibition. `showWarnings` (default
- * FALSE) reveals the router's MODEL DATA NOTES — the warnings a user cannot stop
- * by changing this file or their pi credentials. A configuration fault is always
- * shown, whatever this key says. Validated by sanitizeRouterConfig in
- * model-router.ts.
- */
-export interface RouterConfig {
-	models?: string[];
-	allowUnmeasuredEffort?: boolean;
-	showWarnings?: boolean;
-}
+/** Trusted logical-model policy configuration. The resolver validates its closed grammar. */
+export type LogicalRouterConfig = unknown;
 
 /** Optional raw workflow publishing and deferred-issue controls. */
 export interface WorkflowConfig {
@@ -829,7 +761,7 @@ export interface WritingConfig {
 }
 
 export interface SlateConfig {
-	episodeModel?: string; // "provider/id" for the episode compressor (D5)
+	episodeModel?: unknown; // legacy key, ignored visibly by logical policy resolution
 	workerTools?: string[];
 	workerExtensions?: string[]; // regex patterns selecting which of the HOST session's pi extensions worker threads may load (default [] = none); see worker-extensions.ts
 	cacheKeyEnabled?: boolean; // set false to disable prompt cache keys entirely (default true)
@@ -842,11 +774,11 @@ export interface SlateConfig {
 	orchestratorPromptDocs?: string[]; // role-guideline docs appended to the orchestrator prompt (cwd-relative paths, default none)
 	workerPromptDocs?: string[]; // role-guideline docs appended to worker system prompts (cwd-relative paths, default none)
 	workflow?: WorkflowConfig | SanitizedWorkflowConfig; // raw or session-sanitized workflow controls (both default false)
-	modelFailover?: Record<string, string>; // model→model failover map ("provider/id" → "provider/id"); empty/absent = feature off
+	modelFailover?: unknown; // legacy key, ignored visibly by logical policy resolution
 	preserveGlobalModelDefault?: boolean; // restore the user's GLOBAL pi model defaults (defaultProvider/defaultModel/defaultThinkingLevel) after a slate-initiated model switch — failover and handoff adoption (default true; only an explicit false disables it) — see model-default.ts
 	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
 	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
-	router?: RouterConfig; // action-level model router: the closed model list + the evidence-gap policy (default: off) — see model-router.ts
+	router?: LogicalRouterConfig; // trusted logical-model policy, validated as one blocking unit
 	writing?: WritingConfig; // always-active writing guidance and configurable reminder cadence — see writing.ts
 }
 
