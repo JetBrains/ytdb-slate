@@ -94,8 +94,14 @@ effective = min(budget,
                     ceil(contextWindow / 2)))
 ```
 
-`compactionReserve` comes from pi's compaction settings
-(`compaction.reserveTokens`, default 16,384).
+`compactionReserve` resolves from pi's settings for the active model on every
+calculation. The exact `provider/modelId` entry in `compaction.modelOverrides`
+takes precedence over ordinary `compaction.reserveTokens`, then the default
+of 16,384. Global and trusted project settings merge before this lookup.
+Slate keeps one read-only settings snapshot, so model switches take effect
+immediately but mid-session settings-file edits do not. If the settings reader
+fails, Slate keeps its fallback of 16,384. The formula and half-window floor
+above remain unchanged.
 
 | Context window | Effective budget |
 | --- | --- |

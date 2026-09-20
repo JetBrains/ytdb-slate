@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SettingsManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createBaseModelTracker } from "../extension/base-model.ts";
 import { SAVED_DEFAULT_RESOURCE_KEY } from "../extension/failover.ts";
 import { effectiveContextBudgetTokens, registerSlateHandoff } from "../extension/handoff.ts";
@@ -73,7 +73,7 @@ function fixture(config: Record<string, unknown>, usage?: { percent: number; tok
   } as unknown as ExtensionAPI;
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
   store.orchestratorMode = true;
-  registerSlateHandoff(pi, store, () => config as any, () => ({}) as any);
+  const hooks = registerSlateHandoff(pi, store, () => config as any, () => ({}) as any);
   const ctx = {
     cwd: projectDir,
     hasUI: false,
@@ -81,7 +81,7 @@ function fixture(config: Record<string, unknown>, usage?: { percent: number; tok
     ...(model ? { model } : {}),
     getContextUsage: () => usage ?? { percent: 100, tokens: 10, contextWindow: 1000 },
   } as unknown as ExtensionContext;
-  return { handlers, sent, store, ctx };
+  return { handlers, sent, store, ctx, hooks };
 }
 
 test("the pinned SDK resolves the agent directory at call time, so the fixture isolation holds", async () => {
@@ -148,6 +148,75 @@ test("the clamped token budget reads the private settings file and names both nu
       f.sent[0]!.message.content as string,
       `[slate] Context is at 999,000 tokens — over the ${cap.toLocaleString("en-US")}-token budget (configured 999,000, clamped for this model's context window). Slate auto-paused: user prompts are refused, and state-save workers remain available.`,
     );
+  });
+});
+
+test("every budget path resolves live model reserves with Pi precedence and unchanged bounds", { timeout: 5_000 }, async () => {
+  await isolated(async () => {
+    const globalFile = join(agentDir, "settings.json");
+    const projectFile = join(projectDir, ".pi", "settings.json");
+    const before = [readFileSync(globalFile, "utf8"), readFileSync(projectFile, "utf8")];
+    const globalJson = JSON.stringify({ compaction: { reserveTokens: 20_000, modelOverrides: {
+      "p/a": { reserveTokens: 100_000 }, "p/b": { reserveTokens: 60_000 },
+      "p/zero": { reserveTokens: 0 }, "p/floor": { reserveTokens: 200_000 },
+      "p/bad": { reserveTokens: -1 },
+    } } });
+    const projectJson = JSON.stringify({ compaction: { reserveTokens: 30_000, modelOverrides: {
+      "p/a": { reserveTokens: 110_000 }, "p/b": { keepRecentTokens: 123 },
+    } } });
+    try {
+      writeFileSync(globalFile, globalJson);
+      writeFileSync(projectFile, projectJson);
+      for (const trusted of [false, true]) {
+        const usage = { percent: 90, tokens: 0, contextWindow: 272_000 };
+        const f = fixture({ contextBudget: 256_000 }, usage);
+        f.ctx.isProjectTrusted = () => trusted;
+        assert.equal(f.hooks.effectiveContextBudget(usage.contextWindow, f.ctx), undefined);
+        const cases = [
+          ["p", "a", trusted ? 129_232 : 139_232], ["p", "b", 179_232],
+          ["p", "unmatched", trusted ? 209_232 : 219_232], ["other", "a", trusted ? 209_232 : 219_232],
+          ["p", "zero", 239_232], ["p", "floor", 136_000],
+          ["p", "bad", 222_848], ["p", "a", trusted ? 129_232 : 139_232],
+        ] as const;
+        for (const [provider, id, rawExpected] of cases) {
+          // The 110k reserve engages the existing half-window floor, not a new policy.
+          const expected = Math.max(rawExpected, 136_000);
+          f.ctx.model = { provider, id } as NonNullable<ExtensionContext["model"]>;
+          assert.equal(f.hooks.effectiveContextBudget(usage.contextWindow, f.ctx), expected, `${trusted}/${provider}/${id}`);
+          for (const event of ["turn_end", "agent_end"]) {
+            f.store.paused = false;
+            usage.tokens = expected - 1;
+            await f.handlers.get(event)!({}, f.ctx);
+            assert.equal(f.store.paused, false, `${event} must not pause below the live threshold`);
+            usage.tokens = expected;
+            await f.handlers.get(event)!({}, f.ctx);
+            assert.equal(f.store.paused, true, `${event} must pause at the live threshold`);
+            assert.match(f.sent.at(-1)!.message.content, new RegExp(`${expected.toLocaleString("en-US")}-token budget`));
+          }
+        }
+      }
+      assert.equal(readFileSync(globalFile, "utf8"), globalJson);
+      assert.equal(readFileSync(projectFile, "utf8"), projectJson);
+      for (const settings of [{}, { compaction: { reserveTokens: -1 } }]) {
+        writeFileSync(globalFile, JSON.stringify(settings));
+        const f = fixture({}, undefined, { provider: "p", id: "a" });
+        assert.equal(f.hooks.effectiveContextBudget(272_000, f.ctx), 222_848, "absent or unreadable reserve keeps 16,384 fallback");
+      }
+    } finally {
+      writeFileSync(globalFile, before[0]!);
+      writeFileSync(projectFile, before[1]!);
+    }
+  });
+});
+
+test("budget settings snapshot reads once and retains the fallback after creation failure", { timeout: 5_000 }, async (t) => {
+  await isolated(async () => {
+    const create = t.mock.method(SettingsManager, "create", () => { throw new Error("reader unavailable"); });
+    const f = fixture({}, undefined, { provider: "p", id: "a" });
+    assert.equal(f.hooks.effectiveContextBudget(272_000, f.ctx), 222_848);
+    f.ctx.model = { provider: "p", id: "b" } as NonNullable<ExtensionContext["model"]>;
+    assert.equal(f.hooks.effectiveContextBudget(272_000, f.ctx), 222_848);
+    assert.equal(create.mock.callCount(), 1, "a per-turn fallback must not repeat disk reads");
   });
 });
 

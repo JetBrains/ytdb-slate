@@ -466,7 +466,10 @@ export async function openWorkerSession(opts: {
 	// called on it.
 	const trusted = ctx.isProjectTrusted();
 	const snapshot = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: trusted });
-	const globalJson = JSON.stringify(snapshot.getGlobalSettings());
+	// Pi's background warmer bypasses agent.streamFunction and therefore Slate's
+	// request admission. Disable it before session creation in this worker-only
+	// global view. Project overrides cannot enable this global-only setting.
+	const globalJson = JSON.stringify({ ...snapshot.getGlobalSettings(), cacheWarming: "off" });
 	const projectJson = JSON.stringify(snapshot.getProjectSettings());
 	const settingsManager = SettingsManager.fromStorage(
 		{

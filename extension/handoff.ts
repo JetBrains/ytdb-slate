@@ -317,25 +317,26 @@ export function registerSlateHandoff(
 	getBaseModel: () => BaseModelTracker,
 	getRuntime: () => Readonly<LogicalRuntime> | undefined = () => undefined,
 ): SlateHandoffHooks {
-	// pi's compaction reserve — read ONCE, lazily, then cached: it feeds a
-	// per-turn check and SettingsManager.create is a lock-protected disk read.
-	// A mid-session settings edit is not picked up (acceptable: the clamp is a
-	// safety margin, not an exact contract). READ-ONLY, and it must stay that
-	// way: a setter call on this throwaway instance would write straight into
-	// the user's GLOBAL settings unmediated — every write goes through
-	// model-default.ts instead.
-	let cachedReserveTokens: number | undefined;
+	// Snapshot settings once: creation takes a disk lock on this per-turn path.
+	// Resolve the reserve against the LIVE model on every calculation instead
+	// of caching one model's value. Mid-session file edits remain unobserved.
+	// READ-ONLY: never call a setter on this file-backed settings reader.
+	let cachedSettings: SettingsManager | null | undefined;
 	const reserveTokens = (ctx: ExtensionContext): number => {
-		if (cachedReserveTokens === undefined) {
+		if (cachedSettings === undefined) {
 			try {
-				cachedReserveTokens = SettingsManager.create(ctx.cwd, getAgentDir(), {
+				cachedSettings = SettingsManager.create(ctx.cwd, getAgentDir(), {
 					projectTrusted: ctx.isProjectTrusted(),
-				}).getCompactionReserveTokens();
+				});
 			} catch {
-				cachedReserveTokens = FALLBACK_RESERVE_TOKENS;
+				cachedSettings = null;
 			}
 		}
-		return cachedReserveTokens;
+		try {
+			return cachedSettings?.getCompactionReserveTokens(ctx.model) ?? FALLBACK_RESERVE_TOKENS;
+		} catch {
+			return FALLBACK_RESERVE_TOKENS;
+		}
 	};
 
 	const effectiveContextBudget = (contextWindow: number, ctx: ExtensionContext): number | undefined => {

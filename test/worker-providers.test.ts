@@ -551,6 +551,7 @@ test("the first real worker request uses inherited native auth and behavior with
 		const host = await runtime(root, "host");
 		const provider = nativeProvider("provider-only", (_selected, requestContext, options) => {
 			const prompt = requestContext.messages
+				.filter((message) => message.role === "user")
 				.flatMap((message) => {
 					if (typeof message.content === "string") return [message.content];
 					if (!Array.isArray(message.content)) return [];
