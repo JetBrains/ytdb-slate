@@ -444,8 +444,11 @@ or verification claims. Examples of forbidden claims include
 receive repository state and declared intent, not implementer confidence.
 
 For a multi-track change, every commit in a track's review range must belong to
-that track. A reviewer checks the range against the track brief, its boundary
-markers and its title prefixes. A commit from another track is cross-track
-contamination. Correct a wrong boundary or title before the next writer
-starts. An undeclared material deviation found during this check fires the
-halt and re-derivation route above.
+that track. A reviewer checks the range against the track brief, the selected
+mode's boundary authority, and the title prefixes. Marker commits are the
+boundary authority in umbrella mode and when publishing is disabled. Per-track
+mode uses the reviewed branch range before merge and the user-merged default
+branch commit afterward. A commit from another track is cross-track
+contamination. Correct a wrong boundary or title before the next writer starts.
+An undeclared material deviation found during this check fires the halt and
+re-derivation route above.

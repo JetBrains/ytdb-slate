@@ -1,16 +1,46 @@
 # Draft-PR publishing
 
-Umbrella draft PR mechanics for the track-based workflow (see
+Draft pull request mechanics for the track-based workflow (see
 track-workflow.md in this directory). This document applies ONLY when
 `workflow.draftPRs` is enabled in the project's `slate.json` (default:
-false). When it is disabled, the workflow creates no PR; the
-research-log lifecycle in that mode is owned by track-workflow.md
-§ Session handoff and the research log.
+false). When it is disabled, the workflow asks no publishing-mode question and
+creates no pull request. The research-log lifecycle in that mode is owned by
+track-workflow.md § Session handoff and the research log.
+
+## Publishing mode
+
+<!-- publishing-mode-policy:begin -->
+Before the first track implementation, ask the user once: "Should each track
+become its own pull request?" Record the answer in `research-log.md` and in the
+pull-request plan. Do not add a configuration key. The answer selects one mode
+for the whole change.
+
+A yes answer selects per-track mode. Each track gets its own draft pull request,
+which the user merges before the next track starts. The user then informs the
+orchestrator. After that notice, or when a resumed session detects the merge,
+the orchestrator verifies that the expected pull request was merged into the
+expected default branch. The orchestrator updates its local default branch and
+verifies that branch includes the merged result. Only then may it treat the
+track as merged and create the next track's fresh branch from the updated
+default branch. Never trust the notice alone, reuse the merged branch, or start
+later-track implementation before this verification sequence is complete.
+
+A no answer selects umbrella mode. Create one draft pull request for the whole
+change. Keep every track autonomous and independently mergeable inside that
+branch even though only the umbrella pull request is merged.
+
+The mode changes pull-request and branch boundaries only. It does not remove or
+move planning, design, focus approval, review, track-packet, user-note, blocking
+track-acceptance, final-acceptance, or finding-disposition requirements. The
+agent never merges a pull request. Retain `research-log.md` and every implementer
+report across intermediate per-track merges. Delete them only after the whole
+change reaches delivery.
+<!-- publishing-mode-policy:end -->
 
 ## Creation
 
-Select the creation path when the umbrella draft pull request is first
-created.
+Select this creation path whenever the selected mode requires a new draft pull
+request.
 
 For a change with a high-level design, draft the pull request description
 before final design approval. Present the draft beside the validated design.
@@ -27,8 +57,9 @@ request or apply its creation timing retrospectively.
 
 Every creation path keeps these safeguards:
 
-- Created as a DRAFT, based on the repository's default development
-  branch.
+- Create the pull request as a DRAFT. In umbrella mode, base the working branch
+  on the repository's default development branch. In per-track mode, base each
+  fresh branch on the updated default branch after the prior track merges.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
 - At creation for every change with a high-level design, the research log's
@@ -119,20 +150,28 @@ of a table.
 
 ## Keeping the PR in sync
 
-Keep the title and description synchronized with what is actually
-pushed: update a track's table row when its marker commit lands,
-append post-design decisions as they are made, and revise Planned
-changes whenever reality diverges from it. A stale description fails
-the "deep enough" test.
+Keep the title and description synchronized with what is actually pushed. In
+umbrella mode, update a track's table row when its marker commit lands. In
+per-track mode, update the current track's row before its pull request becomes
+ready. Record the merged boundary in the research log after the user merges it.
+In both modes, append post-design decisions as they are made and
+revise Planned changes whenever reality diverges from it. A stale description
+fails the "deep enough" test.
 
 ## Ready-for-review flip
 
-The umbrella PR is the ONLY PR this workflow ever merges (squash), and
-the merge is performed BY THE USER — the agent never merges it.
-Flipping the PR to ready-for-review is the agent's last act before
-handing the PR to the user; post-flip fix work and post-merge cleanup
-stay agent duties (below). The flip is gated by this checklist,
-executed in order:
+In umbrella mode, this section runs once after all tracks finish. In per-track
+mode, it runs for each track after that track's required machine reviews, track
+packet, requested fixes, and blocking user notes are complete. A proved
+DESIGN-TRIGGERING area still makes track acceptance blocking. The user's merge
+supplies that acceptance when required. No later track starts before the merge.
+The final per-track merge also supplies final change acceptance after the note
+queue, final accounting, and every other final gate are complete.
+
+Flipping the current pull request to ready-for-review is the agent's last act
+before handing that pull request to the user. The user performs every merge.
+The agent never merges a pull request. Post-flip fix work and post-merge cleanup
+stay agent duties below. The flip is gated by this checklist, executed in order:
 
 - Any layered peer-review process (see track-workflow.md § Layering richer
   workflows on top) is completed or explicitly user-waived — flipping never
@@ -145,10 +184,10 @@ executed in order:
 - Strip the whole Tracks section from the description, whatever its
   form — the table for multi-track changes or the "N/A (single-track)"
   placeholder — plus any notes under it. Track numbers are ephemeral
-  branch-life identifiers: after the squash-merge the marker commits
-  are gone, so track references would dangle in the default branch's
-  history. The rest of the description — Motivation, Planned changes —
-  stays: it becomes the squash-commit body.
+  branch-life identifiers. An umbrella squash merge removes marker commits.
+  Per-track mode creates no markers. In either mode, track references would
+  dangle in the delivered history. The rest of the description — Motivation,
+  Planned changes — stays: it becomes the squash-commit body.
 - Update the PR title and description to the final state of the
   change: the title names what was actually delivered — preserving any
   prefixes or markers the project's conventions require — and the
@@ -176,15 +215,26 @@ description change, and again at the final handoff for merge, repeat
 the byte measurement and any over-target size exception required by §
 Description rules. Commits pushed directly by reviewers are visible in
 the PR UI; the agent reconciles the description with them on its next
-task. The user's merge act is the final approval, including acceptance
-of any recorded size exception.
+task. The user's merge act approves the current pull request, including
+acceptance of any recorded description-size exception. The umbrella merge and the final
+per-track merge also supply final change acceptance.
 
 ## After the merge
 
-Complete the research-log delivery cleanup defined by track-workflow.md
-§ Session handoff and the research log.
+When the user reports an intermediate per-track merge, or when a resumed session
+detects it, verify that the expected pull request was merged into the expected
+default branch. If verification fails or names another branch, stop and resolve
+the mismatch with the user. Update the local default branch and verify that it
+includes the merged result. Only then record the merged boundary in the research
+log and treat the track as merged. Create the next track's fresh branch from
+that updated default branch only after the next track's required planning and
+gates are complete. Keep the research log and implementer reports.
 
-Any cleanup a layered peer-review process requires (closing its review
-PRs, deleting its pinned branches) is an agent duty, executed when the
-user reports the merge or a later session detects it, per that
+After the umbrella merge or final per-track merge, complete the research-log
+delivery cleanup defined by track-workflow.md § Session handoff and the research
+log.
+
+Any cleanup a layered peer-review process requires, such as closing its review
+pull requests or deleting its pinned branches, is an agent duty. Execute it when
+the user reports the applicable merge or a later session detects it, under that
 process's own rules.

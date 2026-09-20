@@ -6,7 +6,7 @@ Slate is a thread-weaving orchestration extension for the [pi coding agent](http
 
 The orchestrator is your main pi session. It dispatches each **bounded action** to a new **worker thread**. Each thread runs one action. A large language model compresses successful work and failed partial work into one **episode**. A failure without a worker response uses a fixed episode and no compression call. The episode retains intent, actions, findings, artifacts, open issues, and handoff notes.
 
-The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use focus areas backed by user-approved proofs. Optional umbrella **draft-PR publishing** covers tracks.
+The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use focus areas backed by user-approved proofs. Optional **draft-PR publishing** uses either one pull request per track or one umbrella pull request.
 
 Slate uses one trusted **logical-model policy** for action routing and recovery. Each action names a provider-free logical model and a short reason. The policy fixes effort, exact physical routes, capability and cost ratings, guidance, cautions, and bounded recovery order.
 
@@ -66,10 +66,10 @@ The workflow follows these steps:
 
 1. **Plan and confirm** — the orchestrator proposes all eleven focus lines. The user alone approves or rejects each NAMED proof.
 2. **Design** — a proved DESIGN-TRIGGERING area requires a high-level design. The user validates it before focus reconfirmation and one adversarial design review per proved DESIGN-TRIGGERING area. Final design approval follows.
-3. **Implement tracks** — each track is one coherent unit with its own focus set. The orchestrator compares the committed difference with that set before review.
-4. **Review and deliver** — when a track has a proved area, one Reviewer I and every required area specialist inspect it in separate review actions. A zero-area track reports routine implementation review as `NOT REQUIRED`. Tracks with a proved DESIGN-TRIGGERING area require blocking user acceptance. Other tracks do not. Their markers follow required machine gates, the packet, and resolution of blocking user notes. Final change acceptance is always blocking.
+3. **Implement tracks** — each track is one coherent, independently mergeable unit with its own focus set. About 400 added plus removed lines is a planning guideline. The orchestrator estimates before splitting work. The implementer estimates during work and stops at a coherent boundary near the guideline. A small overrun may finish the nearest coherent unit and must include its reason. Lockfiles, migration files, and generated output do not count.
+4. **Review and deliver** — when a track has a proved area, one Reviewer I and every required area specialist inspect it in separate review actions. A zero-area track reports routine implementation review as `NOT REQUIRED`. Tracks with a proved DESIGN-TRIGGERING area require blocking user acceptance. Other tracks do not. Where a marker applies, it follows required machine gates, the packet, and resolution of blocking user notes. Per-track mode uses the user-merged commit instead. Final change acceptance is always blocking.
 
-Umbrella draft-PR publishing activates only when `workflow.draftPRs` is `true`.
+Draft-PR publishing activates only when `workflow.draftPRs` is `true`. The orchestrator then asks once whether every track gets its own pull request. A yes answer requires user merges in sequence and a fresh branch from updated `main` for each next track. A no answer keeps one umbrella draft pull request.
 
 This summary provides orientation only. The shipped docs listed below are normative.
 
@@ -148,7 +148,7 @@ Optional config file: `slate.json` in the project's pi config dir (`.pi/slate.js
 | `contextBudget` | number \| object | `256000` (Anthropic models: `400000`) | Absolute orchestrator context budget (tokens) at which Slate auto-pauses and prepares a fresh-session handoff — semantics, defaults, per-model overrides, and rationale in [`docs/context-budget.md`](docs/context-budget.md). |
 | `orchestratorPromptDocs` | string[] | `[]` | Project markdown files (paths relative to the project root) whose **contents** are appended to the orchestrator system prompt. |
 | `workerPromptDocs` | string[] | `[]` | Project markdown files whose **contents** are appended to every worker-thread system prompt. |
-| `workflow.draftPRs` | boolean | `false` | Enable umbrella draft-PR publishing for tracks. |
+| `workflow.draftPRs` | boolean | `false` | Enable draft-PR publishing. Before implementation, ask once whether each track gets its own pull request or all tracks share one umbrella pull request. |
 | `workflow.followUpIssues` | boolean | `false` | When true, the orchestrator asks which deferred items become tracked issues. Deferred items are always reported whatever the value. |
 | `writing.check` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Guidance is automatic in trusted projects during orchestrator mode. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remind` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Reminder gates are orchestrator mode, project trust, no pause, turn cadence or finding trigger, handoff force, and one-per-response-round control. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
@@ -228,7 +228,7 @@ Slate reads project configuration (`.pi/slate.json`) and injects project files (
 In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths make the block's character count depend on your install location. [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
 
 - `docs/track-workflow.md` — the focus-area lifecycle for research, design, implementation, review, and delivery
-- `docs/pr-publishing.md` — umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
+- `docs/pr-publishing.md` — per-track and umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
 - `docs/review-rules.md` — reviewer composition, the composite test-quality role, evidence standards, findings, and fix gates
 - `docs/design-principles.md` — Slate's own design rationale
 - `docs/context-budget.md` — the orchestrator `contextBudget`: defaults, per-model overrides, the window clamp, and the pricing rationale (also **reference documentation**, not cited by the doctrine)

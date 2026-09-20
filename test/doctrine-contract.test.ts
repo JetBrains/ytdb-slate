@@ -112,7 +112,7 @@ test("logical doctrine production renders match published portable measurements"
   assert.deepEqual(metric(runtime.promptText()!), { portable: 1961, lines: 12, paths: 0 });
   assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 6771, lines: 86, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2713, lines: 44, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true } }, true, false, undefined, capped)), { portable: 8210, lines: 97, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true } }, true, false, undefined, capped)), { portable: 8359, lines: 99, paths: 6 });
 });
 
 test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
@@ -350,10 +350,15 @@ test("rule 8 renders the exact research-log and draft-publishing tails", { timeo
   assert.ok(local.includes("Durable workflow records anchor in the retained repo-root research log per the workflow doc."));
   assert.doesNotMatch(local, /repo-root workflow log/);
   assert.equal(local.includes(PR_PUBLISHING_DOC), false);
+  assert.doesNotMatch(local, /per-track or umbrella PRs/);
 
   const published = (await renderDoctrine(undefined, { workflow: { draftPRs: true } })).replace(/\s+/g, " ");
-  assert.ok(published.includes("An umbrella draft PR is part of the pre-implementation gates;"));
-  assert.ok(published.includes(`PR publishing mechanics are in ${PR_PUBLISHING_DOC}.`));
+  assert.ok(published.includes("Ask once: per-track or umbrella PRs? Record."));
+  assert.ok(published.includes("Keep tracks mergeable."));
+  assert.ok(published.includes("Per-track: user merges, reports. Verify expected PR reached expected default."));
+  assert.ok(published.includes("Update it to the merge, then branch fresh."));
+  assert.ok(published.includes("Umbrella: one PR. Only user merges."));
+  assert.ok(published.includes(`Mechanics: ${PR_PUBLISHING_DOC}.`));
   assert.doesNotMatch(published, /repo-root (?:workflow|research) log/);
 });
 

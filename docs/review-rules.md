@@ -520,11 +520,13 @@ Apply this ordered test to each finding that is not waived, moot, or rejected:
 A track packet can follow machine-review termination. It reports every ignored
 finding. User acceptance of a track is blocking when that track proves at least
 one DESIGN-TRIGGERING area. A track with only REVIEWER-ONLY areas, or no proved
-area, has no mandatory track-acceptance gate. A multi-track marker for such a
-track follows completed required machine gates and the packet, after all
-blocking user notes are resolved. In a single-track change, any blocking track
-acceptance and final change acceptance are one event. Final change acceptance is
-always blocking.
+area, has no mandatory track-acceptance gate. Without mandatory track
+acceptance, an applicable marker waits for completed machine gates, the packet,
+and resolved blocking user notes. In per-track mode, pull-request readiness
+waits for the same steps, and the user's merge supplies the boundary before the
+next track starts. In a
+single-track change, any blocking track acceptance and final change acceptance
+are one event. Final change acceptance is always blocking.
 <!-- track-acceptance:end -->
 
 The marked block above is the protected acceptance unit of this document. Its

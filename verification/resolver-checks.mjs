@@ -340,6 +340,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-risk-definitions",
 	"contract-risk-lifecycle",
 	"contract-focus-gates",
+	"contract-track-size-publishing",
 	"contract-publishing-migration",
 	"contract-acceptance-units",
 	"contract-acceptance-mutations",
@@ -1358,9 +1359,9 @@ try {
 		};
 		const exact = {
 			prompt: { portable: 1961, lines: 12, paths: 0 }, trusted: { portable: 6771, lines: 86, paths: 5 },
-			untrusted: { portable: 2713, lines: 44, paths: 4 }, draft: { portable: 6789, lines: 86, paths: 6 },
-			extensions: { portable: 8118, lines: 96, paths: 5 }, allTails: { portable: 8136, lines: 96, paths: 6 },
-			maximal: { portable: 8210, lines: 97, paths: 6 }, dogfood: { portable: 7335, lines: 96, paths: 6 },
+			untrusted: { portable: 2713, lines: 44, paths: 4 }, draft: { portable: 6938, lines: 88, paths: 6 },
+			extensions: { portable: 8118, lines: 96, paths: 5 }, allTails: { portable: 8285, lines: 98, paths: 6 },
+			maximal: { portable: 8359, lines: 99, paths: 6 }, dogfood: { portable: 7484, lines: 98, paths: 6 },
 		};
 		const doctrineBaselines = [rendered.trusted, rendered.untrusted, rendered.draft, rendered.extensions, rendered.allTails, rendered.maximal, rendered.dogfood];
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1394,8 +1395,8 @@ try {
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(composition) === 25575 && portable(deferred) === 25649 && portable(deferred) <= DOCTRINE_LIMITS.maximalChars, { composition: portable(composition), deferred: portable(deferred) }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 25884 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(composition) === 25724 && portable(deferred) === 25798 && portable(deferred) <= DOCTRINE_LIMITS.maximalChars, { composition: portable(composition), deferred: portable(deferred) }],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 26033 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -2330,7 +2331,7 @@ per-track implementer report.`;
 			const duplicateP11WithP13 = resolveP11(`${principles}\n\n${expectedP11Source}\n\n- **P13 — Alternate probe terminator.**`);
 			const benignP11 = resolveP11(`${principles}\n\n<!-- resolver benign P11 control -->`);
 			const reviewerRows = [...reviews.matchAll(/^\| (one or more proved areas|no proved area) \| (.+) \|$/gm)].map((match) => [match[1], match[2]]);
-			const markerRule = normalizeText(workflow.match(/A multi-track boundary adds one empty marker commit[\s\S]*?(?=```bash)/)?.[0] ?? "");
+			const markerRule = normalizeText(workflow.match(/In umbrella mode, a multi-track boundary adds one empty marker commit[\s\S]*?(?=```bash)/)?.[0] ?? "");
 			checkAll("contract-focus-gates", "effective focus states, conditional design phases, per-track design entry, per-reversal design-review permission, the exact clean-review ending, approved removals, marker availability, late-area routing, conditional Reviewer I composition, and no-area model choice are explicit. The acceptance policy itself belongs to contract-acceptance-units and contract-acceptance-mutations", [
 				["design-review policy resolves once and matches its independent bounded expectation", designReviewPolicy.count === 1 && designReviewPolicy.endCount === 1 && designReviewPolicy.text === expectedDesignReviewPolicy, { designReviewPolicy, expectedDesignReviewPolicy }],
 				["one-total, mandatory-round, wrong-stage, and alternate-ending mutations fail", designReviewMutations.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text !== expectedDesignReviewPolicy), designReviewMutations],
@@ -2347,7 +2348,7 @@ per-track implementer report.`;
 				["benign text outside the handoff unit preserves its exact expectation", benignPhaseHandoff.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text === expectedPhaseHandoff), benignPhaseHandoff],
 				["proved-area removal needs user approval and rejection preserves all gates", /area remains proved, with all of its gates and reviewers,\s*until the user approves removal/.test(riskLifecycle) && /Rejection preserves the proved area/.test(riskLifecycle), riskLifecycle],
 				["user-requested track fixes are unconditional", /applies and commits required user-review\s+fixes whenever the user requests them/.test(workflow), workflow.match(/.{0,100}required user-review.{0,160}/s)?.[0]],
-				["marker exists without track acceptance after machine gates, packet, and blocking notes", /after required machine gates and the track packet are complete/.test(markerRule) && /all blocking user notes are resolved/.test(markerRule) && /When track acceptance is mandatory/.test(markerRule), markerRule],
+				["marker exists without track acceptance after machine gates, packet, and blocking notes", /after required machine gates and the track packet are complete/.test(markerRule) && /[Aa]ll blocking user notes are resolved/.test(markerRule) && /When track acceptance is mandatory/.test(markerRule), markerRule],
 				["late areas require immediate user decision, complete-set transitions, completed-range coverage, and no retrospective design gate", /presents its four-part proof to the user at once/.test(riskLifecycle) && /Approval recomputes the\s+complete required routine reviewer set/.test(riskLifecycle) && /Every newly required routine reviewer\s+perspective reviews the completed range/.test(riskLifecycle) && /Completed work\s+receives no retrospective design gate/.test(riskLifecycle), riskLifecycle],
 				["NAMED, SKIPPED, and file type do not create routine reviewers", /`NAMED` and `SKIPPED` areas do not select reviewers/.test(reviews) && /Code, mixed, and\s+documentation-only status do not select reviewers/.test(reviews), reviews.slice(0, 4000)],
 				["no-area orchestrator choice uses ordinary logical guidance without a tier threshold or mandatory user gate", /the orchestrator selects a\s+logical model under the ordinary action guidance/.test(workflow) && /action fit, capability, cost, guidance, and cautions/.test(workflow) && /uses no\s+sourced-tier threshold, highest-tier fallback, or mandatory user-choice gate/.test(workflow) && /ordinary logical-model membership, fixed effort, and dispatch restrictions/.test(workflow), workflow.match(/For implementation of a track with no proved area[\s\S]*?(?=\n\n\[blast-radius)/)?.[0]],
@@ -2365,9 +2366,9 @@ per-track implementer report.`;
 			/**
 			 * ONE canonical record of every acceptance fact the protected units state,
 			 * and the ONLY expected source of acceptance policy in this harness. The
-			 * three outcomes are its outcome subset; `merger`, `markerOrder` and
-			 * `markerWithoutAcceptance` are the acceptance facts the earlier exact
-			 * copies already pinned, so dropping one here is a visible policy loss and
+			 * three outcomes are its outcome subset; `merger`, `boundaryWithAcceptance`
+			 * and `boundaryWithoutAcceptance` are acceptance facts that the earlier
+			 * exact copies already pinned, so dropping one is a visible policy loss and
 			 * not an invisible narrowing (DNL19).
 			 *
 			 * Each fact carries the wording of its renderings: `document` for a shipped
@@ -2396,11 +2397,11 @@ per-track implementer report.`;
 				merger: Object.freeze({
 					document: "In a single-track change, any blocking track acceptance and final change acceptance are one event.",
 				}),
-				markerOrder: Object.freeze({
-					document: "The orchestrator cannot add the marker or start the next track until the user accepts that track and every requested fix.",
+				boundaryWithAcceptance: Object.freeze({
+					document: "Where a marker applies, it waits for required track acceptance and every requested fix. In per-track mode, the user's merge supplies acceptance and the boundary before the next track starts.",
 				}),
-				markerWithoutAcceptance: Object.freeze({
-					document: "A multi-track marker for such a track follows completed required machine gates and the packet, after all blocking user notes are resolved.",
+				boundaryWithoutAcceptance: Object.freeze({
+					document: "Without mandatory track acceptance, an applicable marker waits for completed machine gates, the packet, and resolved blocking user notes. In per-track mode, pull-request readiness waits for the same steps, and the user's merge supplies the boundary before the next track starts.",
 				}),
 			});
 			/** A segment that renders one canonical fact. A plain string is local framing. */
@@ -2423,6 +2424,134 @@ per-track implementer report.`;
 				return { count: resolved ? 1 : pairs > 1 ? pairs : 0, text: resolved ? normalizeText(found.text) : "" };
 			};
 			const focusClassesPattern = /^## Focus classes and gates\n([\s\S]*?)(?=^<!-- focus-area-table:begin -->)/gm;
+			const publishingActivation = {
+				extract: regionUnit(/^(Publishing depends on `workflow\.draftPRs`[\s\S]*?)(?=^## Track size and split)/gm),
+				expected: normalizeText(`Publishing depends on \`workflow.draftPRs\` in \`slate.json\`. When enabled, use
+[pr-publishing.md](pr-publishing.md). Ask once before implementation whether the
+change uses one pull request per track or one umbrella pull request. When
+publishing is disabled, ask no pull-request-mode question. The retained research
+log is the durable workflow record.`),
+			};
+
+			const trackSizePublishingUnits = [
+				{
+					id: "track-size",
+					extract: markedUnit("track-size-policy"),
+					expected: normalizeText(`About 400 added plus removed lines per track is a planning guideline, not a hard
+limit or a completion gate. Lockfiles, migration files, and generated output do
+not count. The orchestrator estimates track size before it proposes the split.
+The implementer estimates size from the work during implementation. Neither role
+needs a cumulative diff counter, a token estimate, or a total-input measurement.
+
+Plan each track as an autonomous, independently mergeable pull request, even
+when the selected publishing mode uses one umbrella pull request. Aim for a
+coherent boundary close to 400 changed lines without exceeding the guideline.
+If the nearest coherent, independently mergeable unit needs a small overrun,
+finish that unit and report the reason. Size never permits dropping an approved
+requirement, reducing implementation or test quality, or declaring partial work
+complete.
+
+When an implementer approaches the guideline, the implementer stops adding
+scope and finishes at the nearest coherent point. The response reports completed
+work, remaining work, and a proposed track split. It also reports the reason for
+a small overrun. If the remaining approved work cannot fit in the coherent unit,
+the orchestrator proposes the additional track or tracks. The orchestrator
+obtains every approval that a new track requires before implementation continues.`),
+				},
+				{
+					id: "publishing-mode",
+					extract: markedUnit("publishing-mode-policy"),
+					expected: normalizeText(`Before the first track implementation, ask the user once: "Should each track
+become its own pull request?" Record the answer in \`research-log.md\` and in the
+pull-request plan. Do not add a configuration key. The answer selects one mode
+for the whole change.
+
+A yes answer selects per-track mode. Each track gets its own draft pull request,
+which the user merges before the next track starts. The user then informs the
+orchestrator. After that notice, or when a resumed session detects the merge,
+the orchestrator verifies that the expected pull request was merged into the
+expected default branch. The orchestrator updates its local default branch and
+verifies that branch includes the merged result. Only then may it treat the
+track as merged and create the next track's fresh branch from the updated
+default branch. Never trust the notice alone, reuse the merged branch, or start
+later-track implementation before this verification sequence is complete.
+
+A no answer selects umbrella mode. Create one draft pull request for the whole
+change. Keep every track autonomous and independently mergeable inside that
+branch even though only the umbrella pull request is merged.
+
+The mode changes pull-request and branch boundaries only. It does not remove or
+move planning, design, focus approval, review, track-packet, user-note, blocking
+track-acceptance, final-acceptance, or finding-disposition requirements. The
+agent never merges a pull request. Retain \`research-log.md\` and every implementer
+report across intermediate per-track merges. Delete them only after the whole
+change reaches delivery.`),
+				},
+				{
+					id: "publishing-after-merge",
+					extract: regionUnit(/^## After the merge\n\n([\s\S]*?)(?=^After the umbrella merge)/gm),
+					expected: normalizeText(`When the user reports an intermediate per-track merge, or when a resumed session
+detects it, verify that the expected pull request was merged into the expected
+default branch. If verification fails or names another branch, stop and resolve
+the mismatch with the user. Update the local default branch and verify that it
+includes the merged result. Only then record the merged boundary in the research
+log and treat the track as merged. Create the next track's fresh branch from
+that updated default branch only after the next track's required planning and
+gates are complete. Keep the research log and implementer reports.`),
+				},
+			];
+			const resolveTrackSizePublishing = (workflowSource = workflow, publishingSource = publishing) => [
+				{ id: "track-size", expected: trackSizePublishingUnits[0].expected, ...trackSizePublishingUnits[0].extract(workflowSource) },
+				{ id: "publishing-mode", expected: trackSizePublishingUnits[1].expected, ...trackSizePublishingUnits[1].extract(publishingSource) },
+				{ id: "publishing-after-merge", expected: trackSizePublishingUnits[2].expected, ...trackSizePublishingUnits[2].extract(publishingSource) },
+			];
+			const publishingActivationResult = publishingActivation.extract(workflow);
+			const publishingActivationMutations = [
+				workflow.replace("When enabled, use\n[pr-publishing.md](pr-publishing.md).", "When disabled, use\n[pr-publishing.md](pr-publishing.md)."),
+				workflow.replace("publishing is disabled, ask no pull-request-mode question", "publishing is disabled, ask the pull-request-mode question"),
+			].map((source) => {
+				const resolved = publishingActivation.extract(source);
+				return { changed: source !== workflow, accepted: resolved.count === 1 && resolved.text === publishingActivation.expected };
+			});
+			const trackSizePublishingResults = resolveTrackSizePublishing();
+			const trackSizePublishingMutations = [
+				[workflow.replace("not a hard\nlimit", "a hard\nlimit"), publishing],
+				[workflow.replace("Lockfiles, migration files, and generated output do\nnot count.", "All changed files count."), publishing],
+				[workflow.replace("The orchestrator estimates track size before it proposes the split.", "The implementer alone estimates track size."), publishing],
+				[workflow.replace("The implementer estimates size from the work during implementation.", "The implementer does not estimate during implementation."), publishing],
+				[workflow.replace("Neither role\nneeds a cumulative diff counter, a token estimate, or a total-input measurement.", "Both roles require cumulative counters and token measurements."), publishing],
+				[workflow.replace("autonomous, independently mergeable pull request", "dependent partial change"), publishing],
+				[workflow.replace("needs a small overrun,\nfinish that unit and report the reason", "needs a small overrun,\ncut required work to stay below the guideline"), publishing],
+				[workflow.replace("stops adding\nscope", "keeps adding\nscope"), publishing],
+				[workflow.replace("completed\nwork, remaining work, and a proposed track split", "completed work"), publishing],
+				[workflow.replace("Size never permits dropping an approved\nrequirement", "Size permits dropping an approved\nrequirement"), publishing],
+				[workflow.replace("declaring partial work\ncomplete", "declaring partial work near the guideline\ncomplete"), publishing],
+				[workflow, publishing.replace("ask the user once", "choose without asking the user")],
+				[workflow, publishing.replace("which the user merges before the next track starts", "which may stay open when the next track starts")],
+				[workflow, publishing.replace("the orchestrator verifies that the expected pull request was merged", "the orchestrator trusts the notice that the expected pull request was merged")],
+				[workflow, publishing.replace("create the next track's fresh branch from the updated\ndefault branch", "reuse the merged branch for the next track")],
+				[workflow, publishing.replace("detects it, verify that the expected pull request was merged", "detects it, trust the report that the expected pull request was merged")],
+				[workflow, publishing.replace("A no answer selects umbrella mode", "A no answer disables publishing")],
+				[workflow, publishing.replace("It does not remove or\nmove planning", "It may remove or\nmove planning")],
+				[workflow, publishing.replace("Retain \`research-log.md\` and every implementer\nreport", "Delete \`research-log.md\` and every implementer\nreport")],
+			].map(([workflowSource, publishingSource]) => ({
+				changed: workflowSource !== workflow || publishingSource !== publishing,
+				accepted: resolveTrackSizePublishing(workflowSource, publishingSource).every((unit) => unit.count === 1 && unit.text === unit.expected),
+			}));
+			const missingTrackSizePublishing = [
+				resolveTrackSizePublishing(workflow.replace("<!-- track-size-policy:begin -->", ""), publishing)[0],
+				resolveTrackSizePublishing(workflow, publishing.replace("<!-- publishing-mode-policy:end -->", ""))[1],
+				resolveTrackSizePublishing(workflow, publishing.replace("## After the merge", "## After merging"))[2],
+			];
+			const duplicateTrackSizePublishing = resolveTrackSizePublishing(
+				`${workflow}\n\n<!-- track-size-policy:begin -->\n${trackSizePublishingUnits[0].expected}\n<!-- track-size-policy:end -->`,
+				`${publishing}\n\n<!-- publishing-mode-policy:begin -->\n${trackSizePublishingUnits[1].expected}\n<!-- publishing-mode-policy:end -->\n\n## After the merge\n\n${trackSizePublishingUnits[2].expected}\n\nAfter the umbrella merge`,
+			);
+			checkAll("contract-track-size-publishing", "track sizing, publishing activation, both publishing modes, and post-merge verification are exact mutation-resistant policy units", [
+				["publishing activation and all three policy units resolve once and equal independent expectations", publishingActivationResult.count === 1 && publishingActivationResult.text === publishingActivation.expected && trackSizePublishingResults.every((unit) => unit.count === 1 && unit.text === unit.expected), { publishingActivationResult, trackSizePublishingResults }],
+				["enabled and disabled activation, limit, exclusions, both estimates, metric exclusions, autonomy, coherent overrun, stopping report, false completion, requirement retention, mode choice, merge order, notification verification, fresh branch, post-merge verification, umbrella, gate, and record-retention mutations fail", publishingActivationMutations.every(({ changed, accepted }) => changed && !accepted) && trackSizePublishingMutations.every(({ changed, accepted }) => changed && !accepted), { publishingActivationMutations, trackSizePublishingMutations }],
+				["missing and duplicated marker boundaries fail closed", missingTrackSizePublishing.every(({ count, text }) => count === 0 && text === "") && duplicateTrackSizePublishing.every(({ count }) => count === 2), { missingTrackSizePublishing, duplicateTrackSizePublishing }],
+			]);
 
 			// Publishing and migration are complete bounded policy units. Their
 			// expectations are authored here rather than derived from candidate text.
@@ -2431,8 +2560,8 @@ per-track implementer report.`;
 					id: "publishing-creation",
 					source: publishing,
 					extract: regionUnit(/^## Creation\n\n([\s\S]*?)(?=^## Description rules)/gm),
-					expected: normalizeText(`Select the creation path when the umbrella draft pull request is first
-created.
+					expected: normalizeText(`Select this creation path whenever the selected mode requires a new draft pull
+request.
 
 For a change with a high-level design, draft the pull request description
 before final design approval. Present the draft beside the validated design.
@@ -2449,8 +2578,9 @@ request or apply its creation timing retrospectively.
 
 Every creation path keeps these safeguards:
 
-- Created as a DRAFT, based on the repository's default development
-  branch.
+- Create the pull request as a DRAFT. In umbrella mode, base the working branch
+  on the repository's default development branch. In per-track mode, base each
+  fresh branch on the updated default branch after the prior track merges.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
 - At creation for every change with a high-level design, the research log's
@@ -2556,7 +2686,7 @@ earlier gates only to identify the governing rule set.`),
 					segments: [
 						"Every completed track reaches the user through the track packet defined in [user-notes.md](user-notes.md) § Track packets.",
 						fact("blocking"),
-						fact("markerOrder"),
+						fact("boundaryWithAcceptance"),
 						fact("noMandatory"),
 						fact("merger"),
 						fact("finalBlocking"),
@@ -2572,7 +2702,7 @@ earlier gates only to identify the governing rule set.`),
 						"A track packet can follow machine-review termination. It reports every ignored finding.",
 						fact("blocking"),
 						fact("noMandatory"),
-						fact("markerWithoutAcceptance"),
+						fact("boundaryWithoutAcceptance"),
 						fact("merger"),
 						fact("finalBlocking"),
 					],
@@ -2586,10 +2716,10 @@ earlier gates only to identify the governing rule set.`),
 					segments: [
 						"The packet states which acceptance rule applies.",
 						fact("blocking"),
-						fact("markerOrder"),
+						fact("boundaryWithAcceptance"),
 						fact("noMandatory"),
 						"Its packet reports progress and every requested decision.",
-						fact("markerWithoutAcceptance"),
+						fact("boundaryWithoutAcceptance"),
 						fact("merger"),
 						fact("finalBlocking"),
 					],

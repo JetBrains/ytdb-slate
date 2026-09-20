@@ -257,12 +257,14 @@ function buildDoctrine(
 	extensions: WorkerExtensionSet,
 	runtime: Readonly<LogicalRuntime> | undefined,
 ): string {
-	// Rule 8 tail: with draft-PR publishing enabled, the umbrella draft PR is
-	// one of the gates; otherwise durable records live in the research log.
+	// Rule 8 tail: draft publishing adds one up-front mode choice and its branch
+	// order. Otherwise durable records live in the research log.
 	const rule8Tail =
 		config.workflow?.draftPRs === true
-			? `An umbrella draft PR is part of the pre-implementation gates; PR
-   publishing mechanics are in ${PR_PUBLISHING_DOC}.`
+			? `Ask once: per-track or umbrella PRs? Record. Keep tracks mergeable. Per-track:
+   user merges, reports. Verify expected PR reached expected default. Update it
+   to the merge, then branch fresh. Umbrella: one PR. Only user merges.
+   Mechanics: ${PR_PUBLISHING_DOC}.`
 			: `Durable workflow records anchor in the retained repo-root research
    log per the workflow doc.`;
 	const followUpTail = trusted && config.workflow?.followUpIssues === true
