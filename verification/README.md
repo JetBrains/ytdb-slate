@@ -604,33 +604,33 @@ exact current production renders are:
 | shipped logical section | 0 | 1,961 | 12 |
 | trusted shipped-default doctrine | 5 | 6,771 | 86 |
 | untrusted doctrine | 4 | 2,713 | 44 |
-| draft pull requests, shipped policy | 6 | 6,789 | 86 |
+| draft pull requests, shipped policy | 6 | 6,938 | 88 |
 | capped workers, shipped policy | 5 | 8,118 | 96 |
-| draft plus capped workers | 6 | 8,136 | 96 |
-| canonical maximal baseline with deferred tail | 6 | 8,210 | 97 |
-| dogfood config and extension roster | 6 | 7,335 | 96 |
-| 19,400-character policy plus draft and capped workers | 6 | 25,575 | 96 |
-| same boundary composition plus deferred tail | 6 | 25,649 | 97 |
-| valid shipped policy plus 88 capped tools | 6 | 25,884 | 180 |
+| draft plus capped workers | 6 | 8,285 | 98 |
+| canonical maximal baseline with deferred tail | 6 | 8,359 | 99 |
+| dogfood config and extension roster | 6 | 7,484 | 98 |
+| 19,400-character policy plus draft and capped workers | 6 | 25,724 | 98 |
+| same boundary composition plus deferred tail | 6 | 25,798 | 99 |
+| valid shipped policy plus 88 capped tools | 6 | 26,033 | 182 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 8,210-character baseline uses all seven shipped logical models,
+The canonical 8,359-character baseline uses all seven shipped logical models,
 draft pull requests, the capped worker roster, and the deferred-issue tail. Its
-required five-percent value is 8,621. The unchanged 25,800 whole-doctrine ceiling
+required five-percent value is 8,777. The unchanged 25,800 whole-doctrine ceiling
 keeps that reserve.
 
 Runtime rejection controls are separate. A logical section at exactly 19,400
 portable characters or 105 lines is valid. A section at 19,401 characters or
-106 lines is rejected before work. The 25,575 and 25,649 compositions prove that
+106 lines is rejected before work. The 25,724 and 25,798 compositions prove that
 a valid exact-boundary policy still fits the unchanged whole-doctrine ceiling.
 They are not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
-supported capped worker tools. Its 25,884 portable characters exceed the ceiling.
+supported capped worker tools. Its 26,033 portable characters exceed the ceiling.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
@@ -647,7 +647,9 @@ all-tail characters, and 25,800 whole-doctrine characters.
 Re-run the strict suite after changes to active logical-model modules,
 `mode.ts`, `paths.ts`, worker-extension doctrine, state sanitizers, base-model
 tracking, episode headers, writing or reminder modules, worker prompt wiring, or
-any workflow contract read by the harness. A model-switch or handoff change can
+any workflow contract read by the harness. Track-size or publishing-mode rule
+changes require the strict suite because mutation checks pin those policy units.
+A model-switch or handoff change can
 also require the full ladder. The package and writing checks remain separate
 nets.
 

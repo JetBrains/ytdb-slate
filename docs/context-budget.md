@@ -188,30 +188,30 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | shipped logical section | 0 | 1,961 | 12 |
 | trusted shipped-default doctrine | 5 | 6,771 | 86 |
 | untrusted doctrine | 4 | 2,713 | 44 |
-| draft pull requests, shipped policy | 6 | 6,789 | 86 |
+| draft pull requests, shipped policy | 6 | 6,938 | 88 |
 | capped workers, shipped policy | 5 | 8,118 | 96 |
-| draft plus capped workers | 6 | 8,136 | 96 |
-| canonical maximal baseline with deferred-issue tail | 6 | 8,210 | 97 |
-| dogfood `.pi/slate.json` and its two extension units | 6 | 7,335 | 96 |
-| runtime boundary plus draft and capped workers | 6 | 25,575 | 96 |
-| runtime boundary plus draft, capped workers, and deferred tail | 6 | 25,649 | 97 |
-| valid shipped policy plus 88 capped worker tools | 6 | 25,884 | 180 |
+| draft plus capped workers | 6 | 8,285 | 98 |
+| canonical maximal baseline with deferred-issue tail | 6 | 8,359 | 99 |
+| dogfood `.pi/slate.json` and its two extension units | 6 | 7,484 | 98 |
+| runtime boundary plus draft and capped workers | 6 | 25,724 | 98 |
+| runtime boundary plus draft, capped workers, and deferred tail | 6 | 25,798 | 99 |
+| valid shipped policy plus 88 capped worker tools | 6 | 26,033 | 182 |
 
 The canonical maximal baseline uses all seven shipped logical definitions, draft
 pull requests, the fixed capped worker roster, and the deferred-issue tail. Its
-five-percent requirement is `ceil(8,210 × 1.05) = 8,621`. The unchanged 25,800
+five-percent requirement is `ceil(8,359 × 1.05) = 8,777`. The unchanged 25,800
 whole-doctrine ceiling exceeds it. Draft-disabled and tail-specific exact fixtures
 remain pinned separately. The dogfood row reads the actual project configuration.
 A change to `.pi/slate.json` requires a fresh render.
 
-The two 25,575 and 25,649 rows are boundary-composition controls. They combine a
+The two 25,724 and 25,798 rows are boundary-composition controls. They combine a
 valid logical section padded to exactly 19,400 characters with supported doctrine
 tails. They do not define a reserve-bearing baseline. Both remain below the
 unchanged 25,800 portable-character ceiling.
 
 The over-cap counterfactual uses a valid shipped logical policy and one supported
-worker-extension unit with 88 capped tools. Its 25,884 portable characters exceed
-the whole-doctrine ceiling by 84. The check therefore detects whole-doctrine
+worker-extension unit with 88 capped tools. Its 26,033 portable characters exceed
+the whole-doctrine ceiling by 233. The check therefore detects whole-doctrine
 growth without using a retired model-row shape or an assumed per-tool increment.
 Worker-extension doctrine has no runtime size cap, so the fixture reaches the
 whole-doctrine guard rather than failing logical-policy validation first.

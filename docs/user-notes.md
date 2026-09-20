@@ -20,9 +20,11 @@ these twelve fields:
    high-level design exists, state that this field does not apply.
 4. evidence from the required tests and checks.
 5. the cumulative implementation commit reference, as defined in
-   [track-workflow.md](track-workflow.md) § Lifecycle and phases, with the
-   pull-request link when draft-pull-request publishing is enabled. Otherwise,
-   it states that no pull request exists.
+   [track-workflow.md](track-workflow.md) § Lifecycle and phases. With draft
+   publishing enabled, include the current pull-request link and state whether
+   the selected mode is per-track or umbrella. For a later per-track packet,
+   also name the prior track's merged default-branch boundary. When publishing
+   is disabled, state that no pull request exists.
 6. the places where the user's judgment matters. For each requested decision,
    state every option and its consequence. State that no decision is requested
    when none exists.
@@ -31,7 +33,9 @@ these twelve fields:
    the committed-difference comparison added or proposed for removal. State the
    user's decision on each proposed removal.
 8. every finding recorded with the ignored disposition.
-9. the commit range that contains the track.
+9. the commit range that contains the track. Before a per-track pull request
+   merges, give the reviewed branch range. Record the durable merged range in
+   the research log after the user merges it.
 10. the machine-review outcome, with finding counts by type, severity, and
     disposition.
 11. override-log entries created for this track.
@@ -41,14 +45,17 @@ The track packet references the diff and never inlines it. It states where to
 find the diff. The user may ask for any part of it.
 
 The packet states which acceptance rule applies. User acceptance of a track is
-blocking when that track proves at least one DESIGN-TRIGGERING area. The
-orchestrator cannot add the marker or start the next track until the user accepts
-that track and every requested fix. A track with only REVIEWER-ONLY areas, or no
-proved area, has no mandatory track-acceptance gate. Its packet reports progress
-and every requested decision. A multi-track marker for such a track follows
-completed required machine gates and the packet, after all blocking user notes
-are resolved. In a single-track change, any blocking track acceptance and final
-change acceptance are one event. Final change acceptance is always blocking.
+blocking when that track proves at least one DESIGN-TRIGGERING area. Where a
+marker applies, it waits for required track acceptance and every requested fix.
+In per-track mode, the user's merge supplies acceptance and the boundary before
+the next track starts. A track with only REVIEWER-ONLY areas, or no proved area,
+has no mandatory track-acceptance gate. Its packet reports progress and every
+requested decision. Without mandatory track acceptance, an applicable marker
+waits for completed machine gates, the packet, and resolved blocking user notes.
+In per-track mode, pull-request readiness waits for the same steps, and the
+user's merge supplies the boundary before the next track starts. In a
+single-track change, any blocking track acceptance and final change acceptance
+are one event. Final change acceptance is always blocking.
 
 
 ## Receiving and routing a user note
