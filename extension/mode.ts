@@ -266,11 +266,11 @@ function buildDoctrine(
 	const rule8Tail =
 		config.workflow?.draftPRs === true
 			? routingRecommendations
-				? `Ask once: per-track or umbrella PRs? Record it. Keep tracks mergeable.
+				? `Ask if unresolved: per-track or umbrella PRs? Record. Keep tracks mergeable.
    Only users merge. Follow ${PR_PUBLISHING_DOC}.`
-				: `Ask once: per-track or umbrella PRs? Record. Keep tracks mergeable. Per-track:
-   user merges, reports. Verify expected PR reached expected default. Update it
-   to the merge, then branch fresh. Umbrella: one PR. Only user merges.
+				: `Ask if unresolved: per-track or umbrella PRs? Record. Keep tracks mergeable.
+   Per-track: user merges, reports. Verify expected PR reached expected default.
+   Update it to the merge, then branch fresh. Umbrella: one PR. Only user merges.
    Mechanics: ${PR_PUBLISHING_DOC}.`
 			: `Durable workflow records anchor in the retained repo-root research
    log per the workflow doc.`;
@@ -291,31 +291,33 @@ function buildDoctrine(
 
 # Slate orchestrator mode
 
-You are the orchestrator of a thread-weaving system. You strategize; worker
-threads execute. Rules:
+You orchestrate thread weaving. You strategize; workers execute. Rules:
 
-1. Do tactical work ONLY by dispatching bounded actions via the \`thread\` tool
-   (one action = one clear, completable task). You cannot edit files or run
-   commands yourself.
-2. Dispatch independent actions in PARALLEL by emitting several \`thread\`
-   calls in one turn. Never serialize what can run concurrently.
+1. Do tactical work ONLY through bounded \`thread\` actions. You cannot edit files
+   or run commands yourself.
+2. Dispatch independent actions in PARALLEL in one turn. Never serialize work
+   that can run concurrently.
 3. Every \`thread\` call creates a new thread for one action. A follow-up action
    must use another new thread. No worker conversation crosses that boundary.
 4. Compose context by reference. Pass prior episode ids in \`context\` instead
    of restating their content. Slate loads those episodes into the new worker prompt.
-5. Your read-only tools (read/grep/find/ls) are for cheap orientation only;
-   anything substantial goes to a thread.
-6. After every episode, update your strategy. Slate compresses partial worker
-   responses into failed episodes. A failure without a worker response uses a fixed
-   episode. Episodes marked STATUS: FAILED require adaptation, not blind retry.
-7. Keep your own messages strategic: goals, task routing, synthesis.
-8. Focus areas are the only workflow trigger, in two classes: DESIGN-TRIGGERING
-   and REVIEWER-ONLY. Write independent eleven-line records for the change and
-   each track. NAMED submits defect, place, consequence, and review contribution.
-   User approval proves it. Rejection makes it SKIPPED. Only proved areas add
-   gates/reviewers: one Reviewer I, separate from area reviewers. User judges
-   proofs and the simplest solution. Definitions: ${BLAST_RADIUS_DOC}. Lifecycle: ${TRACK_WORKFLOW_DOC}. Read only as needed. Before edits,
-   get user approval for each NAMED proof and finish required gates. Each proved
+5. Use read-only tools for orientation. Delegate substantial work.
+6. Update strategy after every episode. Partial responses become failed episodes.
+   A failure without a response uses a fixed episode. STATUS: FAILED requires
+   adaptation, not blind retry.
+7. Keep your messages strategic: goals, routing, synthesis.
+8. Only focus areas trigger workflow. Classes: DESIGN-TRIGGERING and
+   REVIEWER-ONLY. Keep separate eleven-line change and track records. They may
+   cite one applicable approval. NAMED submits defect, place, consequence, and
+   review contribution. User approval proves it. Rejection means SKIPPED. Only proved
+   areas add gates/reviewers: one Reviewer I separate from area reviewers. User
+   judges proofs and solution simplicity. Definitions: ${BLAST_RADIUS_DOC}. Lifecycle: ${TRACK_WORKFLOW_DOC}. Read only as needed. Before edits,
+   get user approval for each NAMED proof and finish its gates. Before asking,
+   apply evidence and answers. Do not re-ask known facts. Evidence cannot
+   authorize. Reuse authorization only for a covered decision with current
+   conditions and every prerequisite complete when answered. Ask only unresolved
+   or changed parts. Explain material changes. Preserve gate order, reviews,
+   reassessment, and final acceptance. Each proved
    DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation
    before its adversarial design review, final design approval, and blocking
    track acceptance. REVIEWER-ONLY or no-area tracks need no track acceptance.
@@ -324,12 +326,9 @@ threads execute. Rules:
 9. Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow it.
    For no-area model choice, follow Lifecycle. Skip the read when that file is
    already in your context.${rule9Tail}${followUpTail}
-10. The design principles behind this architecture are documented in
-   ${DESIGN_PRINCIPLES_DOC}.
-   Read that file only when you must reason about slate itself.
-   Reasons include explaining slate, changing the extension, and an unusual
-   routing or compaction decision. Never read it for routine dispatching.
-   Skip the read if it is already in your context.${numberedTail([
+10. Design rationale: ${DESIGN_PRINCIPLES_DOC}. Read it only to explain or change
+   slate, or for an unusual routing or compaction decision.
+   Never read it for routine dispatching. Skip the read if it is already in your context.${numberedTail([
 		(n) => buildWorkerExtensionsRule(extensions, n),
 		(n) => (trusted ? buildLogicalModelRule(runtime, n) : ""),
 		// Append-only conditional tail. Writing guidance is active for every trusted

@@ -246,8 +246,8 @@ test("empty home enables the trusted default doctrine in an untrusted session", 
   const docsDirectory = TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
   const metrics = (text: string) => ({ portable: text.split(docsDirectory).join("").length,
     paths: text.split(docsDirectory).length - 1, lines: text.split("\n").length });
-  assert.deepEqual(metrics(withoutHome), { portable: 2713, paths: 4, lines: 44 });
-  assert.deepEqual(metrics(homeEnabled), { portable: 8954, paths: 5, lines: 86 });
+  assert.deepEqual(metrics(withoutHome), { portable: 2705, paths: 4, lines: 43 });
+  assert.deepEqual(metrics(homeEnabled), { portable: 8946, paths: 5, lines: 85 });
 });
 
 test("real entry shares home routing, doctrine, writing cadence and startup settings in untrusted sessions", { timeout: 10000 }, async (t) => {

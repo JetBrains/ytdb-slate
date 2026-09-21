@@ -304,6 +304,11 @@ four-part proof. A line that is not NAMED states which part of the trigger
 answers no. A NAMED line becomes proved only through user approval. A rejected
 NAMED line becomes SKIPPED and adds no gate or reviewer.
 
+Each change and track keeps its own assessment and risk record. When two records
+pose the same decision, each record may cite one applicable user approval under
+[track-workflow.md](track-workflow.md) § Confirmation gate. A shared approval
+does not merge the records or replace either record's evidence.
+
 Every NAMED proof has these four parts:
 
 1. **Defect class.** State the kind of defect that the area covers.
@@ -376,9 +381,10 @@ On a halt, the orchestrator:
 2. re-derives all eleven focus lines for the remaining work.
 3. presents each addition or proposed removal with its proof or failed trigger
    part.
-4. obtains the user's approval or rejection of every new NAMED proof and every
-   proposed removal of a proved area. A rejected removal preserves the proved
-   area and all of its gates and reviewers.
+4. applies an applicable prior user answer or obtains the user's approval or
+   rejection of every new NAMED proof and every proposed removal of a proved
+   area. A rejected removal preserves the proved area and all of its gates and
+   reviewers.
 5. runs the required design gate for remaining work when a newly proved
    DESIGN-TRIGGERING area requires it, unless the user records a decision to
    skip that gate.

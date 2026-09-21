@@ -10,10 +10,14 @@ track-workflow.md § Session handoff and the research log.
 ## Publishing mode
 
 <!-- publishing-mode-policy:begin -->
-Before the first track implementation, ask the user once: "Should each track
-become its own pull request?" Record the answer in `research-log.md` and in the
-pull-request plan. Do not add a configuration key. The answer selects one mode
-for the whole change.
+Before the first track implementation, resolve the publishing mode under
+track-workflow.md § Confirmation gate and its user-decision-reuse rule. A mode
+selection requires an applicable explicit user answer. Reuse that answer when
+available. If the mode remains unresolved, ask the user: "Should each track
+become its own pull request?" Record the source answer in `research-log.md` and
+in the pull-request plan. Do not add a configuration key.
+
+The answer selects one mode for the whole change.
 
 A yes answer selects per-track mode. Each track gets its own draft pull request,
 which the user merges before the next track starts. The user then informs the

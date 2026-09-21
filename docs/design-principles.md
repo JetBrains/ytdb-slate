@@ -165,6 +165,11 @@ size budget governs them instead. P11 constrains the authors of future rules.
 It does not remove or condition current required artifacts, including the
 per-track implementer report.
 
+P11 also governs user interaction. Questions follow unresolved decisions, not
+the number of workflow steps, records, or tracks. Applicable evidence and prior
+explicit answers reduce repeated questions. They do not remove reassessment,
+required reviews, ordered gates, user authority, or final acceptance.
+
 - **P12 — Reader understanding decides the form.** *(Repo-local note, not from the report.)*
   Write so that a reader whose first language is not English, and who knows
   nothing about the project, understands the text on one reading. Sentence

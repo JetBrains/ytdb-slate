@@ -632,47 +632,47 @@ exact current production renders are:
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 4,144 | 12 |
-| trusted shipped-default doctrine | 5 | 8,954 | 86 |
-| untrusted doctrine | 4 | 2,713 | 44 |
-| draft pull requests, shipped policy | 6 | 9,121 | 88 |
-| capped workers, shipped policy | 5 | 10,301 | 96 |
-| draft plus capped workers | 6 | 10,468 | 98 |
-| deferred issues plus capped workers | 5 | 10,375 | 97 |
-| routing recommendations plus capped workers | 5 | 10,398 | 97 |
-| draft plus deferred issues and capped workers | 6 | 10,542 | 99 |
-| draft plus routing recommendations and capped workers | 6 | 10,419 | 97 |
-| deferred issues plus routing recommendations and capped workers | 5 | 10,472 | 98 |
-| canonical maximal baseline with all workflow options | 6 | 10,493 | 98 |
-| dogfood config and extension roster | 6 | 9,618 | 97 |
-| 19,400-character policy plus draft and capped workers | 6 | 25,724 | 98 |
-| same policy plus draft and deferred issues, with routing off | 6 | 25,798 | 99 |
-| same policy plus routing recommendations and capped workers | 5 | 25,654 | 97 |
-| same policy plus deferred issues and routing recommendations, without drafts | 5 | 25,728 | 98 |
-| same policy plus draft, routing recommendations, and capped workers | 6 | 25,675 | 97 |
-| same boundary composition plus deferred issues | 6 | 25,749 | 98 |
-| valid shipped policy plus 88 capped tools | 6 | 28,167 | 181 |
+| trusted shipped-default doctrine | 5 | 8,946 | 85 |
+| untrusted doctrine | 4 | 2,705 | 43 |
+| draft pull requests, shipped policy | 6 | 9,122 | 87 |
+| capped workers, shipped policy | 5 | 10,293 | 95 |
+| draft plus capped workers | 6 | 10,469 | 97 |
+| deferred issues plus capped workers | 5 | 10,367 | 96 |
+| routing recommendations plus capped workers | 5 | 10,390 | 96 |
+| draft plus deferred issues and capped workers | 6 | 10,543 | 98 |
+| draft plus routing recommendations and capped workers | 6 | 10,417 | 96 |
+| deferred issues plus routing recommendations and capped workers | 5 | 10,464 | 97 |
+| canonical maximal baseline with all workflow options | 6 | 10,491 | 97 |
+| dogfood config and extension roster | 6 | 9,616 | 96 |
+| 19,400-character policy plus draft and capped workers | 6 | 25,725 | 97 |
+| same policy plus draft and deferred issues, with routing off | 6 | 25,799 | 98 |
+| same policy plus routing recommendations and capped workers | 5 | 25,646 | 96 |
+| same policy plus deferred issues and routing recommendations, without drafts | 5 | 25,720 | 97 |
+| same policy plus draft, routing recommendations, and capped workers | 6 | 25,673 | 96 |
+| same boundary composition plus deferred issues | 6 | 25,747 | 97 |
+| valid shipped policy plus 88 capped tools | 6 | 28,165 | 180 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 10,493-character baseline uses all seven shipped logical models,
+The canonical 10,491-character baseline uses all seven shipped logical models,
 all three workflow options, and the capped worker roster. Its required
-five-percent value is 11,018. The unchanged 25,800 whole-doctrine ceiling keeps
+five-percent value is 11,016. The unchanged 25,800 whole-doctrine ceiling keeps
 that reserve. The exact fixtures cover all eight workflow-option combinations.
 
 Runtime rejection controls are separate. A logical section at exactly 19,400
 portable characters or 105 lines is valid. A section at 19,401 characters or
 106 lines is rejected before work. The four routing-enabled boundary
-compositions and the 25,724-character and 25,798-character feature-off
+compositions and the 25,725-character and 25,799-character feature-off
 compatibility controls prove that an exact-boundary policy still fits the
 unchanged whole-doctrine ceiling. The
-25,798-character control pins the supported composition with the smallest
+25,799-character control pins the supported composition with the smallest
 margin. These controls are not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
-supported capped worker tools. Its 28,167 portable characters exceed the ceiling.
+supported capped worker tools. Its 28,165 portable characters exceed the ceiling.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the

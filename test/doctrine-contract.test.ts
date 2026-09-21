@@ -112,9 +112,9 @@ test("logical doctrine production renders match published portable measurements"
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
   assert.deepEqual(metric(runtime.promptText()!), { portable: 4144, lines: 12, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8954, lines: 86, paths: 5 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2713, lines: 44, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10493, lines: 98, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8946, lines: 85, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2705, lines: 43, paths: 4 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10491, lines: 97, paths: 6 });
 });
 
 test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
@@ -314,16 +314,27 @@ test("single-action doctrine requires new threads and episode references", { tim
 
 test("doctrine uses approved focus states, the four-part proof, and effective gates", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Focus areas are the only workflow trigger, in two classes: DESIGN-TRIGGERING and REVIEWER-ONLY."));
-  assert.ok(doctrine.includes("Write independent eleven-line records for the change and each track."));
-  assert.ok(doctrine.includes("NAMED submits defect, place, consequence, and review contribution. User approval proves it. Rejection makes it SKIPPED."));
-  assert.ok(doctrine.includes("Only proved areas add gates/reviewers: one Reviewer I, separate from area reviewers."));
+  assert.ok(doctrine.includes("Only focus areas trigger workflow. Classes: DESIGN-TRIGGERING and REVIEWER-ONLY."));
+  assert.ok(doctrine.includes("Keep separate eleven-line change and track records. They may cite one applicable approval."));
+  assert.ok(doctrine.includes("NAMED submits defect, place, consequence, and review contribution. User approval proves it. Rejection means SKIPPED."));
+  assert.ok(doctrine.includes("Only proved areas add gates/reviewers: one Reviewer I separate from area reviewers."));
   assert.doesNotMatch(doctrine, /Reviewer I remains required on every track|Review every track with Reviewer I/);
-  assert.ok(doctrine.includes("User judges proofs and the simplest solution."));
+  assert.ok(doctrine.includes("User judges proofs and solution simplicity."));
   assert.ok(doctrine.includes(`Definitions: ${BLAST_RADIUS_DOC}. Lifecycle: ${TRACK_WORKFLOW_DOC}.`));
   assert.doesNotMatch(doctrine, /Concurrency defect|Data loss|Security weakness|Licensing exposure/);
   assert.ok(doctrine.includes(`Lifecycle: ${TRACK_WORKFLOW_DOC}. Read only as needed.`));
-  assert.ok(doctrine.includes("Before edits, get user approval for each NAMED proof and finish required gates."));
+  assert.ok(doctrine.includes("Before edits, get user approval for each NAMED proof and finish its gates."));
+});
+
+test("doctrine reuses known facts and only applicable user authorization", { timeout: 5000 }, async () => {
+  const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
+  assert.ok(doctrine.includes("Before asking, apply evidence and answers."));
+  assert.ok(doctrine.includes("Do not re-ask known facts."));
+  assert.ok(doctrine.includes("Evidence cannot authorize."));
+  assert.ok(doctrine.includes("Reuse authorization only for a covered decision with current conditions and every prerequisite complete when answered."));
+  assert.ok(doctrine.includes("Ask only unresolved or changed parts. Explain material changes."));
+  assert.ok(doctrine.includes("Preserve gate order, reviews, reassessment, and final acceptance."));
+  assert.doesNotMatch(doctrine, /prior required gates hold/);
 });
 
 test("design gates state validation, adversarial review, and final approval as one ordered contract", { timeout: 5000 }, async () => {
@@ -355,7 +366,8 @@ test("rule 8 renders exact feature-off and enabled publishing tails", { timeout:
   assert.doesNotMatch(local, /per-track or umbrella PRs/);
 
   const published = (await renderDoctrine(undefined, { workflow: { draftPRs: true } })).replace(/\s+/g, " ");
-  assert.ok(published.includes("Ask once: per-track or umbrella PRs? Record."));
+  assert.ok(published.includes("Ask if unresolved: per-track or umbrella PRs? Record."));
+  assert.doesNotMatch(published, /Ask once: per-track or umbrella PRs/);
   assert.ok(published.includes("Keep tracks mergeable."));
   assert.ok(published.includes("Per-track: user merges, reports. Verify expected PR reached expected default."));
   assert.ok(published.includes("Update it to the merge, then branch fresh."));
@@ -364,7 +376,7 @@ test("rule 8 renders exact feature-off and enabled publishing tails", { timeout:
   assert.doesNotMatch(published, /repo-root (?:workflow|research) log/);
 
   const combined = (await renderDoctrine(undefined, { workflow: { draftPRs: true, routingRecommendations: true } })).replace(/\s+/g, " ");
-  assert.ok(combined.includes("Ask once: per-track or umbrella PRs? Record it. Keep tracks mergeable. Only users merge."));
+  assert.ok(combined.includes("Ask if unresolved: per-track or umbrella PRs? Record. Keep tracks mergeable. Only users merge."));
   assert.ok(combined.includes(`Follow ${PR_PUBLISHING_DOC}.`));
   assert.doesNotMatch(combined, /Per-track: user merges, reports/);
 });

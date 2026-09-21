@@ -339,6 +339,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-safety-floor-absent",
 	"contract-focus-table-sync",
 	"contract-risk-definitions",
+	"contract-decision-reuse",
 	"contract-risk-lifecycle",
 	"contract-focus-gates",
 	"contract-track-size-publishing",
@@ -1365,13 +1366,13 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 4144, lines: 12, paths: 0 }, trusted: { portable: 8954, lines: 86, paths: 5 },
-			untrusted: { portable: 2713, lines: 44, paths: 4 }, draft: { portable: 9121, lines: 88, paths: 6 },
-			extensions: { portable: 10301, lines: 96, paths: 5 }, allTails: { portable: 10468, lines: 98, paths: 6 },
-			followUp: { portable: 10375, lines: 97, paths: 5 }, routing: { portable: 10398, lines: 97, paths: 5 },
-			draftFollowUp: { portable: 10542, lines: 99, paths: 6 }, draftRouting: { portable: 10419, lines: 97, paths: 6 },
-			followUpRouting: { portable: 10472, lines: 98, paths: 5 }, maximal: { portable: 10493, lines: 98, paths: 6 },
-			dogfood: { portable: 9618, lines: 97, paths: 6 },
+			prompt: { portable: 4144, lines: 12, paths: 0 }, trusted: { portable: 8946, lines: 85, paths: 5 },
+			untrusted: { portable: 2705, lines: 43, paths: 4 }, draft: { portable: 9122, lines: 87, paths: 6 },
+			extensions: { portable: 10293, lines: 95, paths: 5 }, allTails: { portable: 10469, lines: 97, paths: 6 },
+			followUp: { portable: 10367, lines: 96, paths: 5 }, routing: { portable: 10390, lines: 96, paths: 5 },
+			draftFollowUp: { portable: 10543, lines: 98, paths: 6 }, draftRouting: { portable: 10417, lines: 96, paths: 6 },
+			followUpRouting: { portable: 10464, lines: 97, paths: 5 }, maximal: { portable: 10491, lines: 97, paths: 6 },
+			dogfood: { portable: 9616, lines: 96, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1409,8 +1410,8 @@ try {
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 25724 && portable(featureOffTight) === 25798 && portable(routingWithoutDrafts) === 25654 && portable(routingWithFollowUp) === 25728 && portable(routing) === 25675 && portable(deferred) === 25749 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28167 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 25725 && portable(featureOffTight) === 25799 && portable(routingWithoutDrafts) === 25646 && portable(routingWithFollowUp) === 25720 && portable(routing) === 25673 && portable(deferred) === 25747 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28165 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -2105,6 +2106,97 @@ Areas may engage together when each area meets its own trigger. The unreported f
 				["retired definition markers are absent", oldDefinitionMarkers.every((name) => block(blast, name).count === 0 && block(blast, name).endCount === 0), oldDefinitionMarkers.filter((name) => block(blast, name).count !== 0 || block(blast, name).endCount !== 0)],
 			]);
 
+			const expectedDecisionReuse = normalizeText(`Before asking the user for information or a decision, the orchestrator assesses
+applicable evidence and prior explicit user answers. Use a fact that applicable
+evidence or a prior answer already establishes. Do not ask the user for that fact
+again while its source remains applicable. Evidence can establish facts. It
+cannot grant user authorization.
+
+A prior answer applies only when all of these conditions hold:
+
+1. The answer covers the current fact or decision and the relevant part of its
+   scope.
+2. Its stated and implied conditions remain current. New evidence does not
+   materially change the available choices or their consequences.
+3. Every required prerequisite was complete when the user gave the answer.
+   Prerequisites include any investigation or review that must precede the
+   decision.
+
+A clear correction supersedes the earlier answer for the part it corrects. Two
+answers that conflict without a clear correction leave that part unresolved.
+Reuse every covered part and ask only for the unresolved remainder. A material
+change alters a choice, scope, condition, or consequence. Reopen only the part
+that the material change affects, and explain that change before asking again.
+
+Reassess evidence and answer applicability at every existing reassessment
+boundary. These boundaries include new-track planning, focus reconfirmation,
+and resume reconciliation. Reassessment is mandatory, but it does not require
+a repeated question when the prior answer still applies. It also does not grant
+automatic approval for a changed decision.
+
+This rule governs every workflow instruction to ask the user. A more specific
+ask instruction sets timing or content. It does not require a question about a
+fact or decision that this rule already settles.
+
+Batch independent questions when one request reduces user effort. Do not move a
+question before an investigation or review that it depends on. Record the
+source answer and its applicable scope in the existing workflow record.
+Independent change and track risk records remain separate assessments, but they
+may cite the same applicable approval. Reuse never removes a required review,
+changes decision authority, or turns planning approval into track or final
+acceptance. Final change acceptance remains a separate blocking decision.`);
+			const resolveDecisionReuse = (source) => {
+				const resolved = block(source, "user-decision-reuse");
+				const accepted = resolved.count === 1 && resolved.endCount === 1 && normalizeText(resolved.text) === expectedDecisionReuse;
+				return { ...resolved, accepted };
+			};
+			const decisionReuse = resolveDecisionReuse(workflow);
+			const decisionReuseMutationSources = [
+				workflow
+					.replace("Before asking the user for information or a decision", "Before asking the user for a decision")
+					.replace("Use a fact that applicable\nevidence or a prior answer already establishes. Do not ask the user for that fact\nagain while its source remains applicable. ", "Assess available facts. "),
+				workflow.replace("Use a fact that applicable\nevidence or a prior answer already establishes. Do not ask the user for that fact\nagain while its source remains applicable. ", "Assess available facts. "),
+				workflow.replace("cannot grant user authorization", "can grant user authorization"),
+				workflow.replace("covers the current fact or decision and the relevant part of its\n   scope", "covers any related fact or decision"),
+				workflow.replace("conditions remain current", "conditions need not remain current"),
+				workflow.replace("Every required prerequisite was complete", "A required prerequisite may be incomplete"),
+				workflow.replace("leave that part unresolved", "select the earlier answer automatically"),
+				workflow.replace("ask only for the unresolved remainder", "ask for the whole decision again"),
+				workflow.replace("Reopen only the part", "Reopen every part"),
+				workflow.replace("Reassessment is mandatory", "Reassessment is optional"),
+				workflow.replace("does not grant\nautomatic approval", "grants\nautomatic approval"),
+				workflow.replace("A more specific\nask instruction sets timing or content.", "A more specific\nask instruction overrides this rule."),
+				workflow.replace("Do not move a\nquestion before", "Move a\nquestion before"),
+				workflow.replace("remain separate assessments", "become one assessment"),
+				workflow.replace("Reuse never removes a required review", "Reuse may remove a required review"),
+				workflow.replace("planning approval into track or final\nacceptance", "planning approval into track and final\nacceptance"),
+			];
+			const decisionReuseMutationOutcomes = decisionReuseMutationSources.map((source) => ({ changed: source !== workflow, resolved: resolveDecisionReuse(source) }));
+			const decisionReuseBegin = "<!-- user-decision-reuse:begin -->";
+			const decisionReuseEnd = "<!-- user-decision-reuse:end -->";
+			const malformedDecisionReuse = workflow
+				.replace(decisionReuseBegin, "<!-- user-decision-reuse:temporary -->")
+				.replace(decisionReuseEnd, decisionReuseBegin)
+				.replace("<!-- user-decision-reuse:temporary -->", decisionReuseEnd);
+			const decisionReuseBoundaryOutcomes = [
+				workflow.replace(decisionReuseBegin, ""),
+				workflow.replace(decisionReuseEnd, ""),
+				`${workflow}\n\n${decisionReuseBegin}\n${expectedDecisionReuse}\n${decisionReuseEnd}`,
+				malformedDecisionReuse,
+			].map(resolveDecisionReuse);
+			const benignDecisionReuseOutcomes = [
+				workflow.replace(decisionReuseBegin, `<!-- resolver benign reuse before -->\n${decisionReuseBegin}`),
+				workflow.replace(decisionReuseEnd, `${decisionReuseEnd}\n<!-- resolver benign reuse after -->`),
+				`${workflow}\n\n<!-- resolver benign reuse EOF control -->`,
+			].map(resolveDecisionReuse);
+			checkAll("contract-decision-reuse", "factual evidence and explicit-answer assessment, bounded full and partial reuse, stale or conflicting answer handling, material-delta reopening, workflow-wide precedence, reassessment boundaries, ordered batching, shared approval references, review preservation, authority, and final acceptance form one exact mutation-resistant policy unit", [
+				["the marked rule resolves once and passes its independent acceptance predicate", decisionReuse.accepted, { decisionReuse, expectedDecisionReuse }],
+				["fact omission, decision-only scope, authorization, coverage, freshness, prerequisite, conflict, partial, material-change, reassessment, precedence, ordering, record-independence, review, and acceptance weakenings all fail through the same predicate", decisionReuseMutationOutcomes.every(({ changed, resolved }) => changed && !resolved.accepted), decisionReuseMutationOutcomes],
+				["new-track, focus-reconfirmation, and resume boundaries are explicit", /new-track planning, focus reconfirmation,\s+and resume reconciliation/.test(decisionReuse.text), decisionReuse.text],
+				["missing, duplicate, and malformed markers fail closed", decisionReuseBoundaryOutcomes.every(({ accepted }) => !accepted), decisionReuseBoundaryOutcomes],
+				["benign text outside the marked unit stays accepted", benignDecisionReuseOutcomes.every(({ accepted }) => accepted), benignDecisionReuseOutcomes],
+			]);
+
 			const riskLifecycle = normalizeText(workflow.match(/^## Risk planning and reconciliation\n([\s\S]*?)(?=^## Track intention block and implementer response)/m)?.[1] ?? "");
 			const proofSection = normalizeText(blast.match(/^### Judged proof and risk record\n([\s\S]*?)(?=^## Optional path declarations)/m)?.[1] ?? "");
 			const expectedRiskLifecycle = normalizeText(`The orchestrator judges each focus area for the whole planned track, not for
@@ -2161,6 +2253,11 @@ implementation reviewer receives no proof.`);
 four-part proof. A line that is not NAMED states which part of the trigger
 answers no. A NAMED line becomes proved only through user approval. A rejected
 NAMED line becomes SKIPPED and adds no gate or reviewer.
+
+Each change and track keeps its own assessment and risk record. When two records
+pose the same decision, each record may cite one applicable user approval under
+[track-workflow.md](track-workflow.md) § Confirmation gate. A shared approval
+does not merge the records or replace either record's evidence.
 
 Every NAMED proof has these four parts:
 
@@ -2219,7 +2316,7 @@ Reviewer composition and merging belong to
 				["first-late-area specialist-only mutation fails exact comparison", lateFirstAreaMutation !== riskLifecycle && lateFirstAreaMutation !== expectedRiskLifecycle, lateFirstAreaMutation],
 				["later proved area adds only its specialist without redispatching Reviewer I", /existing Reviewer I remains required but is not dispatched\s+again\. The only newly required perspective is the new area specialist/.test(riskLifecycle), riskLifecycle],
 				["later-area duplicate-Reviewer-I mutation fails exact comparison", lateAdditionalAreaMutation !== riskLifecycle && lateAdditionalAreaMutation !== expectedRiskLifecycle, lateAdditionalAreaMutation],
-				["new-track approval is explicit", /new track created after the original confirmation gate needs user approval of\nits independent risk record before implementation starts/.test(workflow), workflow.match(/.{0,100}new track created.{0,180}/s)?.[0]],
+				["new-track applicable approval is explicit", /new track created after the original confirmation gate needs an applicable\nuser approval of its independent risk record before implementation starts/.test(workflow), workflow.match(/.{0,100}new track created.{0,200}/s)?.[0]],
 				["implementer reports one unplanned-risk line", /ends its response with `unplanned risk: none` or one line/.test(workflow), workflow.match(/.{0,100}unplanned risk.{0,140}/s)?.[0]],
 			]);
 
@@ -2337,7 +2434,12 @@ evidence appears in every track, in which case the rule is unconditional.
 Prompt text and output quality floors are not process steps, and a published
 size budget governs them instead. P11 constrains the authors of future rules.
 It does not remove or condition current required artifacts, including the
-per-track implementer report.`;
+per-track implementer report.
+
+P11 also governs user interaction. Questions follow unresolved decisions, not
+the number of workflow steps, records, or tracks. Applicable evidence and prior
+explicit answers reduce repeated questions. They do not remove reassessment,
+required reviews, ordered gates, user authority, or final acceptance.`;
 			const expectedP11 = normalizeText(expectedP11Source);
 			const p11Resolution = resolveP11(principles);
 			const p11 = p11Resolution.text;
@@ -2346,6 +2448,8 @@ per-track implementer report.`;
 				p11.replace("The research log is the sole permitted unconditional-artifact exception", "The research log and implementer report are permitted unconditional-artifact exceptions"),
 				p11.replace("or specific evidence that does not appear in every track", "or any available evidence"),
 				p11.replace("It does not remove or condition current required artifacts", "It may condition current required artifacts"),
+				p11.replace("Questions follow unresolved decisions", "Questions follow workflow steps"),
+				p11.replace("They do not remove reassessment", "They may remove reassessment"),
 			];
 			const contradictoryP11Source = `- **P11 — Proportional process.** *(Repo-local note, not from the report.)*
   Required gates and artifacts follow the confirmed size grade. Any future rule
@@ -2382,8 +2486,8 @@ per-track implementer report.`;
 				["P11 is one exact independently specified policy unit", p11Resolution.count === 1 && p11 === expectedP11, { resolution: p11Resolution, expected: expectedP11 }],
 				["missing and duplicate P11 units fail closed across P12, end-of-file, and alternate-number boundaries", missingP11Source !== principles && missingP11.count === 0 && missingP11.text === "" && [duplicateP11WithP12, duplicateP11AtEnd, duplicateP11WithP13].every(({ count, text }) => count === 2 && text === ""), { missingP11, duplicateP11WithP12, duplicateP11AtEnd, duplicateP11WithP13 }],
 				["benign text outside P11 preserves one exact unit", benignP11.count === 1 && benignP11.text === expectedP11, benignP11],
-				["P11 permits only proved focus, focus-decided artifacts, or non-universal evidence and preserves current reports", /condition is a proved focus area, an artifact whose own existence a proved focus area decides, or specific evidence that does not appear in every track/.test(p11) && /research log is the sole permitted unconditional-artifact exception/.test(p11) && /authors of future rules/.test(p11) && /does not remove or condition current required artifacts/.test(p11) && /per-track implementer report/.test(p11) && !/size grade/.test(p11) && !/Reviewer I on every track/.test(p11), p11],
-				["restored grade, widened exception, universal evidence, and current-artifact weakening mutations all fail", p11Mutations.every((mutation) => mutation !== p11 && mutation !== expectedP11), p11Mutations],
+				["P11 permits only proved focus, focus-decided artifacts, or non-universal evidence, preserves current reports, and scales questions with unresolved decisions", /condition is a proved focus area, an artifact whose own existence a proved focus area decides, or specific evidence that does not appear in every track/.test(p11) && /research log is the sole permitted unconditional-artifact exception/.test(p11) && /authors of future rules/.test(p11) && /does not remove or condition current required artifacts/.test(p11) && /per-track implementer report/.test(p11) && /Questions follow unresolved decisions, not the number of workflow steps, records, or tracks/.test(p11) && /do not remove reassessment, required reviews, ordered gates, user authority, or final acceptance/.test(p11) && !/size grade/.test(p11) && !/Reviewer I on every track/.test(p11), p11],
+				["restored grade, widened exception, universal evidence, current-artifact, question-scaling, and authority weakening mutations all fail", p11Mutations.every((mutation) => mutation !== p11 && mutation !== expectedP11), p11Mutations],
 				["wrong proof state fails", wrongState !== focusGates && !/Only a proved area adds a focus-dependent gate or routine implementation reviewer/.test(wrongState), wrongState],
 				["SKIPPED approval mutation fails", skippedApproval !== focusGates && !/Only a proved area adds a focus-dependent gate or routine implementation reviewer/.test(skippedApproval), skippedApproval],
 			]);
@@ -2453,10 +2557,11 @@ per-track implementer report.`;
 			const publishingActivation = {
 				extract: regionUnit(/^(Publishing depends on `workflow\.draftPRs`[\s\S]*?)(?=^## Track size and split)/gm),
 				expected: normalizeText(`Publishing depends on \`workflow.draftPRs\` in \`slate.json\`. When enabled, use
-[pr-publishing.md](pr-publishing.md). Ask once before implementation whether the
-change uses one pull request per track or one umbrella pull request. When
-publishing is disabled, ask no pull-request-mode question. The retained research
-log is the durable workflow record.`),
+[pr-publishing.md](pr-publishing.md) and resolve the mode before implementation.
+Apply the user-decision-reuse rule below. Reuse an applicable explicit answer,
+and ask only if the mode remains unresolved. When publishing is disabled, ask
+no pull-request-mode question. The retained research log is the durable workflow
+record.`),
 			};
 
 			const trackSizePublishingUnits = [
@@ -2487,10 +2592,14 @@ obtains every approval that a new track requires before implementation continues
 				{
 					id: "publishing-mode",
 					extract: markedUnit("publishing-mode-policy"),
-					expected: normalizeText(`Before the first track implementation, ask the user once: "Should each track
-become its own pull request?" Record the answer in \`research-log.md\` and in the
-pull-request plan. Do not add a configuration key. The answer selects one mode
-for the whole change.
+					expected: normalizeText(`Before the first track implementation, resolve the publishing mode under
+track-workflow.md § Confirmation gate and its user-decision-reuse rule. A mode
+selection requires an applicable explicit user answer. Reuse that answer when
+available. If the mode remains unresolved, ask the user: "Should each track
+become its own pull request?" Record the source answer in \`research-log.md\` and
+in the pull-request plan. Do not add a configuration key.
+
+The answer selects one mode for the whole change.
 
 A yes answer selects per-track mode. Each track gets its own draft pull request,
 which the user merges before the next track starts. The user then informs the
@@ -2533,8 +2642,9 @@ gates are complete. Keep the research log and implementer reports.`),
 			];
 			const publishingActivationResult = publishingActivation.extract(workflow);
 			const publishingActivationMutations = [
-				workflow.replace("When enabled, use\n[pr-publishing.md](pr-publishing.md).", "When disabled, use\n[pr-publishing.md](pr-publishing.md)."),
-				workflow.replace("publishing is disabled, ask no pull-request-mode question", "publishing is disabled, ask the pull-request-mode question"),
+				workflow.replace("When enabled, use\n[pr-publishing.md](pr-publishing.md)", "When disabled, use\n[pr-publishing.md](pr-publishing.md)"),
+				workflow.replace("Reuse an applicable explicit answer,\nand ask only if the mode remains unresolved.", "Ask for the mode even when an applicable answer exists."),
+				workflow.replace("publishing is disabled, ask\nno pull-request-mode question", "publishing is disabled, ask\nthe pull-request-mode question"),
 			].map((source) => {
 				const resolved = publishingActivation.extract(source);
 				return { changed: source !== workflow, accepted: resolved.count === 1 && resolved.text === publishingActivation.expected };
@@ -2552,7 +2662,8 @@ gates are complete. Keep the research log and implementer reports.`),
 				[workflow.replace("completed\nwork, remaining work, and a proposed track split", "completed work"), publishing],
 				[workflow.replace("Size never permits dropping an approved\nrequirement", "Size permits dropping an approved\nrequirement"), publishing],
 				[workflow.replace("declaring partial work\ncomplete", "declaring partial work near the guideline\ncomplete"), publishing],
-				[workflow, publishing.replace("ask the user once", "choose without asking the user")],
+				[workflow, publishing.replace("selection requires an applicable explicit user answer", "selection may be inferred from evidence")],
+				[workflow, publishing.replace("Reuse that answer when\navailable. If the mode remains unresolved, ask the user", "Ask the user even when an applicable answer is available")],
 				[workflow, publishing.replace("which the user merges before the next track starts", "which may stay open when the next track starts")],
 				[workflow, publishing.replace("the orchestrator verifies that the expected pull request was merged", "the orchestrator trusts the notice that the expected pull request was merged")],
 				[workflow, publishing.replace("create the next track's fresh branch from the updated\ndefault branch", "reuse the merged branch for the next track")],
@@ -2575,7 +2686,7 @@ gates are complete. Keep the research log and implementer reports.`),
 			);
 			checkAll("contract-track-size-publishing", "track sizing, publishing activation, both publishing modes, and post-merge verification are exact mutation-resistant policy units", [
 				["publishing activation and all three policy units resolve once and equal independent expectations", publishingActivationResult.count === 1 && publishingActivationResult.text === publishingActivation.expected && trackSizePublishingResults.every((unit) => unit.count === 1 && unit.text === unit.expected), { publishingActivationResult, trackSizePublishingResults }],
-				["enabled and disabled activation, limit, exclusions, both estimates, metric exclusions, autonomy, coherent overrun, stopping report, false completion, requirement retention, mode choice, merge order, notification verification, fresh branch, post-merge verification, umbrella, gate, and record-retention mutations fail", publishingActivationMutations.every(({ changed, accepted }) => changed && !accepted) && trackSizePublishingMutations.every(({ changed, accepted }) => changed && !accepted), { publishingActivationMutations, trackSizePublishingMutations }],
+				["enabled and disabled activation, answer reuse, limit, exclusions, both estimates, metric exclusions, autonomy, coherent overrun, stopping report, false completion, explicit mode choice, merge order, notification verification, fresh branch, post-merge verification, umbrella, gate, and record-retention mutations fail", publishingActivationMutations.every(({ changed, accepted }) => changed && !accepted) && trackSizePublishingMutations.every(({ changed, accepted }) => changed && !accepted), { publishingActivationMutations, trackSizePublishingMutations }],
 				["missing and duplicated marker boundaries fail closed", missingTrackSizePublishing.every(({ count, text }) => count === 0 && text === "") && duplicateTrackSizePublishing.every(({ count }) => count === 2), { missingTrackSizePublishing, duplicateTrackSizePublishing }],
 			]);
 
