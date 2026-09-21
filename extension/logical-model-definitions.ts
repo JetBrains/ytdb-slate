@@ -106,7 +106,7 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
 		model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60,
 		preferredProvider: "openai", providers: providers("openai", "gpt-6-astra"),
-		guidelines: ["prefer when available for design and code reviewers of focus areas that trigger high-level design", "this Astra preference overrides the Sol prose preference", "security work", "performance work"],
+		guidelines: ["prefer when available for design and code reviewers of focus areas that trigger high-level design", "this Astra preference overrides the Sol prose preference", "security work", "performance work", "Do not select Astra as the default implementer. Use Astra for review and research when appropriate. If a lower-capability model repeatedly fails at implementation, first ask Astra to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Astra as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."],
 		cautions: [], source: source(),
 	},
 ];

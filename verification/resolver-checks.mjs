@@ -1365,13 +1365,13 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3637, lines: 12, paths: 0 }, trusted: { portable: 8447, lines: 86, paths: 5 },
-			untrusted: { portable: 2713, lines: 44, paths: 4 }, draft: { portable: 8614, lines: 88, paths: 6 },
-			extensions: { portable: 9794, lines: 96, paths: 5 }, allTails: { portable: 9961, lines: 98, paths: 6 },
-			followUp: { portable: 9868, lines: 97, paths: 5 }, routing: { portable: 9891, lines: 97, paths: 5 },
-			draftFollowUp: { portable: 10035, lines: 99, paths: 6 }, draftRouting: { portable: 9912, lines: 97, paths: 6 },
-			followUpRouting: { portable: 9965, lines: 98, paths: 5 }, maximal: { portable: 9986, lines: 98, paths: 6 },
-			dogfood: { portable: 9111, lines: 97, paths: 6 },
+			prompt: { portable: 4144, lines: 12, paths: 0 }, trusted: { portable: 8954, lines: 86, paths: 5 },
+			untrusted: { portable: 2713, lines: 44, paths: 4 }, draft: { portable: 9121, lines: 88, paths: 6 },
+			extensions: { portable: 10301, lines: 96, paths: 5 }, allTails: { portable: 10468, lines: 98, paths: 6 },
+			followUp: { portable: 10375, lines: 97, paths: 5 }, routing: { portable: 10398, lines: 97, paths: 5 },
+			draftFollowUp: { portable: 10542, lines: 99, paths: 6 }, draftRouting: { portable: 10419, lines: 97, paths: 6 },
+			followUpRouting: { portable: 10472, lines: 98, paths: 5 }, maximal: { portable: 10493, lines: 98, paths: 6 },
+			dogfood: { portable: 9618, lines: 97, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1410,7 +1410,7 @@ try {
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
 			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 25724 && portable(featureOffTight) === 25798 && portable(routingWithoutDrafts) === 25654 && portable(routingWithFollowUp) === 25728 && portable(routing) === 25675 && portable(deferred) === 25749 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 27660 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28167 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -1637,7 +1637,7 @@ try {
 				"| gpt-5.6-sol | 58 | 40 | default thread choice / prefer for changes that amend prose or governing rules expressed in prose / this Sol preference overrides the general Flash preference / the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference / Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help. / Switching models should have a concrete reason. | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
 				"| gemini-3.8-flash | 55 | 30 | default thread choice / generally prefer over Sol and Luna when available / a more specific active guideline overrides this general Flash preference / concurrency work / data-loss work / performance work | Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior. |",
 				"| claude-opus-5 | 72 | 80 | concurrency work / data-loss work / performance work | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
-				"| gpt-6-astra | 86 | 60 | prefer when available for design and code reviewers of focus areas that trigger high-level design / this Astra preference overrides the Sol prose preference / security work / performance work | none |",
+				"| gpt-6-astra | 86 | 60 | prefer when available for design and code reviewers of focus areas that trigger high-level design / this Astra preference overrides the Sol prose preference / security work / performance work / Do not select Astra as the default implementer. Use Astra for review and research when appropriate. If a lower-capability model repeatedly fails at implementation, first ask Astra to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Astra as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | none |",
 			];
 			const replacementConfig = { router: { models: { replace: ["gpt-5.6-luna", "gpt-5.6-sol", "gemini-3.8-flash", "gpt-6-astra"].map((model) => ({ model, guidelines: [`custom guidance for ${model}`] })) } } };
 			const replacementResolution = logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: replacementConfig });
