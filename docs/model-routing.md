@@ -48,9 +48,15 @@ request has no final pair.
 The orchestrator selects a logical model from action fit, relevant area guidance,
 behavioral cautions, capability evidence, and a lower supported cost rating. A
 higher capability or cost rating is not enough by itself. Guidance and cautions
-are advisory. They create no fixed role, ranking, eligibility rule, or quality
-guarantee. A track with no proved focus area uses this same ordinary rule. It has
-no sourced-tier threshold, highest-tier fallback, or mandatory user-choice gate.
+direct selection, but Slate does not enforce them at runtime. Shipped preferences
+are not rigid rankings and do not guarantee quality. Apply a more specific active
+guideline when it states an exception to a general preference. A reference to
+another model describes a conditional preference and does not require selecting
+an excluded model. Trusted project definitions can replace shipped guidance, and
+custom model definitions remain supported. Guidance and cautions create no
+runtime eligibility or rejection rules. A track with no proved focus area uses
+this same ordinary rule. It has no sourced-tier threshold,
+highest-tier fallback, or mandatory user-choice gate.
 
 ## Shipped definitions
 
@@ -62,19 +68,24 @@ forecasts. Membership changes do not rescale them.
 
 | logical model | ordinary effort | capability | cost | preferred provider | exact initial permission | guidance | cautions |
 | --- | --- | ---: | ---: | --- | --- | --- | --- |
-| `gpt-5.6-luna` | `max` | 45 | 10 | `openai` | `openai/gpt-5.6-luna` | consumer-contract work | none |
+| `gpt-5.6-luna` | `max` | 45 | 10 | `openai` | `openai/gpt-5.6-luna` | Auxiliary tasks only, such as file location or check-result collection. Never primary research, implementation, design, or review. Consumer-contract work only when auxiliary. | scope caution below |
 | `claude-sonnet-5` | `high` | 40 | 90 | `anthropic` | `anthropic/claude-sonnet-5` | none | scope caution below |
 | `gpt-5.6-terra` | `max` | 50 | 55 | `openai` | `openai/gpt-5.6-terra` | none | none |
-| `gpt-5.6-sol` | `high` | 58 | 40 | `openai` | `openai/gpt-5.6-sol` | none | blocked-action caution below |
-| `gemini-3.8-flash` | `medium` | 55 | 30 | `google-vertex` | `google-vertex/gemini-3.8-flash` | concurrency, data-loss, performance | none |
+| `gpt-5.6-sol` | `high` | 58 | 40 | `openai` | `openai/gpt-5.6-sol` | Default thread choice. Prefer for changes that amend prose or governing rules expressed in prose. This Sol preference overrides the general Flash preference. The Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference. Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help. Switching models should have a concrete reason. | blocked-action caution below |
+| `gemini-3.8-flash` | `medium` | 55 | 30 | `google-vertex` | `google-vertex/gemini-3.8-flash` | Default thread choice. Generally prefer over Sol and Luna when available. A more specific active guideline overrides this general Flash preference. Concurrency, data-loss, performance. | design review caution below |
 | `claude-opus-5` | `high` | 72 | 80 | `anthropic` | `anthropic/claude-opus-5` | concurrency, data-loss, performance | scope caution below |
-| `gpt-6-astra` | `medium` | 86 | 60 | `openai` | `openai/gpt-6-astra` | security, performance | none |
+| `gpt-6-astra` | `medium` | 86 | 60 | `openai` | `openai/gpt-6-astra` | Prefer when available for design and code reviewers of focus areas that trigger high-level design. This Astra preference overrides the Sol prose preference. Security and performance work. | none |
 
 Sonnet and Opus use this caution: `May exceed explicit scope or infer permission
 from earlier requests. Check changes against stated exclusions and approval
 requirements.` Sol uses this caution: `When blocked, may substitute unapproved
 resources or perform destructive cleanup. Require permission before either
-action.` Fable is not active because it has no complete approved definition.
+action.` Luna uses this caution: `May treat supplied repair context as
+permission to implement despite explicit task limits. Restrict write access for
+record-only work and verify the changed files.` Flash uses this caution:
+`Verify source citations and distinguish proposed behavior from existing
+behavior in design reviews.` Fable is not active because it has no complete
+approved definition.
 
 The independent shipped compressor list contains one entry. It is
 `claude-sonnet-5` at `medium`. Ordinary Sonnet remains at `high`.

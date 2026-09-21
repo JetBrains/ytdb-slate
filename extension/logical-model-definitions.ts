@@ -48,6 +48,8 @@ function deepFreeze<T>(value: T): T {
 
 const SONNET_OPUS_CAUTION = "May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements.";
 const SOL_CAUTION = "When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action.";
+const LUNA_CAUTION = "May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files.";
+const FLASH_CAUTION = "Verify source citations and distinguish proposed behavior from existing behavior in design reviews.";
 
 function providers(provider: string, model: string): Record<string, string> {
 	const result = Object.create(null) as Record<string, string>;
@@ -72,7 +74,8 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
 		model: "gpt-5.6-luna", capabilityRating: 45, effort: "max", costRating: 10,
 		preferredProvider: "openai", providers: providers("openai", "gpt-5.6-luna"),
-		guidelines: ["consumer-contract work"], cautions: [], source: source(),
+		guidelines: ["auxiliary tasks only, such as file location or check-result collection", "never primary research, implementation, design, or review", "consumer-contract work only when auxiliary"],
+		cautions: [LUNA_CAUTION], source: source(),
 	},
 	{
 		model: "claude-sonnet-5", capabilityRating: 40, effort: "high", costRating: 90,
@@ -87,12 +90,13 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
 		model: "gpt-5.6-sol", capabilityRating: 58, effort: "high", costRating: 40,
 		preferredProvider: "openai", providers: providers("openai", "gpt-5.6-sol"),
-		guidelines: [], cautions: [SOL_CAUTION], source: source(),
+		guidelines: ["default thread choice", "prefer for changes that amend prose or governing rules expressed in prose", "this Sol preference overrides the general Flash preference", "the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference", "Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help.", "Switching models should have a concrete reason."], cautions: [SOL_CAUTION], source: source(),
 	},
 	{
 		model: "gemini-3.8-flash", capabilityRating: 55, effort: "medium", costRating: 30,
 		preferredProvider: "google-vertex", providers: providers("google-vertex", "gemini-3.8-flash"),
-		guidelines: ["concurrency work", "data-loss work", "performance work"], cautions: [], source: source(),
+		guidelines: ["default thread choice", "generally prefer over Sol and Luna when available", "a more specific active guideline overrides this general Flash preference", "concurrency work", "data-loss work", "performance work"],
+		cautions: [FLASH_CAUTION], source: source(),
 	},
 	{
 		model: "claude-opus-5", capabilityRating: 72, effort: "high", costRating: 80,
@@ -102,7 +106,8 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
 		model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60,
 		preferredProvider: "openai", providers: providers("openai", "gpt-6-astra"),
-		guidelines: ["security work", "performance work"], cautions: [], source: source(),
+		guidelines: ["prefer when available for design and code reviewers of focus areas that trigger high-level design", "this Astra preference overrides the Sol prose preference", "security work", "performance work"],
+		cautions: [], source: source(),
 	},
 ];
 

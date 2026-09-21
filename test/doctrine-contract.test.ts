@@ -96,7 +96,9 @@ test("logical doctrine uses the cached static runtime policy without physical ro
   assert.match(doctrine, /Every `thread` call must name logical `model` and a short `reason`/);
   assert.match(doctrine, /Effort is fixed by policy/);
   assert.match(doctrine, /Model routing policy:/);
-  assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| security work \/ performance work \| none \|/);
+  assert.match(doctrine, /\| gpt-5\.6-sol \| 58 \| 40 \| default thread choice \/ prefer for changes that amend prose or governing rules expressed in prose \/ this Sol preference overrides the general Flash preference \/ the Astra preference[^|]+overrides this Sol preference/);
+  assert.match(doctrine, /Apply a more specific active guideline when it states an exception to a general preference\./);
+  assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| prefer when available for design and code reviewers of focus areas that trigger high-level design \/ this Astra preference overrides the Sol prose preference \/ security work \/ performance work \| none \|/);
   assert.doesNotMatch(doctrine, /preferredProvider|permission openai\/|registry prices|context window|`effort`/);
   assert.match(doctrine, /orchestrator selects the model for a no-area track under the same ordinary guidance/);
 });
@@ -109,10 +111,10 @@ test("logical doctrine production renders match published portable measurements"
     { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
-  assert.deepEqual(metric(runtime.promptText()!), { portable: 1961, lines: 12, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 6771, lines: 86, paths: 5 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 3566, lines: 12, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8376, lines: 86, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2713, lines: 44, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true } }, true, false, undefined, capped)), { portable: 8359, lines: 99, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true } }, true, false, undefined, capped)), { portable: 9964, lines: 99, paths: 6 });
 });
 
 test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
