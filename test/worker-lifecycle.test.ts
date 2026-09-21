@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,6 +7,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
 import { ThreadManager } from "../extension/threads.ts";
+import { registerSlateTools } from "../extension/tools.ts";
 import { openWorkerSession, type WorkerSession } from "../extension/worker.ts";
 
 function context(cwd: string): ExtensionContext {
@@ -419,7 +420,10 @@ export default function (pi) {
   pi.on("session_shutdown", () => { state.shutdowns += 1; });
 }`);
     const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, costRating: 50, effort: "off", preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }] } } } });
-    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const snapshots: unknown[] = [];
+    const store = new SlateStore({
+      appendEntry(_customType: string, data: unknown) { snapshots.push(structuredClone(data)); },
+    } as unknown as ExtensionAPI);
     const manager = new ThreadManager(
       store,
       {},
@@ -427,15 +431,19 @@ export default function (pi) {
       runtime,
     );
     const controller = new AbortController();
+    const ctx = context(root);
     const dispatch = manager.dispatch(
       { model: "fixture", reason: "caller opening cancellation", task: "opening caller cancellation", type: "general" },
-      context(root),
+      ctx,
       controller.signal,
     );
     const outcome = dispatch.then(
       () => undefined,
       (error: unknown) => error,
     );
+    let bodyError: unknown;
+    let cleanupFinished = false;
+    const cleanupProbe = "intentional assertion failure after cancellation assertions";
     try {
       await entered;
       const view = manager as unknown as {
@@ -460,11 +468,63 @@ export default function (pi) {
       assert.equal(view.live.size, 0);
       assert.equal(store.threads.size, 0);
       assert.equal(store.episodes.size, 0);
-      await manager.disposeAll();
+
+      const episodeId = "t1.e1";
+      const episodeDir = join(root, ".pi", "slate", "episodes");
+      const episodeFiles = existsSync(episodeDir)
+        ? readdirSync(episodeDir).filter((name) => name.endsWith(".md"))
+        : [];
+      assert.deepEqual(episodeFiles, [], "pre-creation cancellation writes no episode file");
+      assert.equal(existsSync(join(episodeDir, `${episodeId}.md`)), false);
+
+      const durableSnapshot = snapshots.at(-1);
+      assert.ok(durableSnapshot, "the thread-removal snapshot is saved before restoration");
+      const restored = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+      restored.adoptSnapshot(durableSnapshot as Parameters<SlateStore["adoptSnapshot"]>[0], ctx);
+      assert.equal(restored.threads.has("t1"), false, "restored state has no cancelled thread");
+      assert.equal(restored.episodes.has(episodeId), false, "restored state has no cancelled episode");
+
+      let episodeTool: { execute(...args: unknown[]): Promise<unknown> } | undefined;
+      registerSlateTools(
+        { registerTool(candidate: { name: string }) { if (candidate.name === "episode") episodeTool = candidate as unknown as typeof episodeTool; } } as unknown as ExtensionAPI,
+        restored,
+        () => new ThreadManager(restored, {}, undefined, runtime),
+      );
+      assert.ok(episodeTool, "the production episode tool is registered");
+      await assert.rejects(
+        episodeTool.execute("call", { id: episodeId }, undefined, undefined, ctx),
+        /Unknown episode/,
+      );
+
+      const later = new ThreadManager(restored, {}, undefined, runtime);
+      const before = restored.threads.size;
+      await assert.rejects(
+        later.dispatch(
+          { model: "fixture", reason: "inverse durable context", task: "later worker context", type: "general", contextEpisodeIds: [episodeId] },
+          ctx,
+          undefined,
+        ),
+        /Unknown context episode/,
+      );
+      assert.equal(restored.threads.size, before, "rejected cancelled context allocates no later thread");
+      const laterPrompt = (later as unknown as {
+        buildPrompt(opts: { task: string; contextEpisodeIds: string[] }, cwd: string): string;
+      }).buildPrompt({ task: "later ordinary action", contextEpisodeIds: [] }, root);
+      assert.equal(laterPrompt, "later ordinary action");
+      assert.doesNotMatch(laterPrompt, /opening caller cancellation|post-cancellation startup work/);
+
+      assert.fail(cleanupProbe);
+    } catch (error) {
+      bodyError = error;
     } finally {
       releaseLoad();
+      await manager.disposeAll();
+      cleanupFinished = true;
       delete (globalThis as Record<symbol, unknown>)[symbol];
     }
+    if (!(bodyError instanceof assert.AssertionError) || bodyError.message !== cleanupProbe) throw bodyError;
+    assert.equal(cleanupFinished, true, "disposeAll completes after an assertion failure");
+    assert.equal(existsSync(root), true, "disposeAll completes before the outer fixture removes the project");
   });
 });
 
