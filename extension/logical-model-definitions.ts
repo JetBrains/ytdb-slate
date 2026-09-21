@@ -49,7 +49,7 @@ function deepFreeze<T>(value: T): T {
 const SONNET_OPUS_CAUTION = "May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements.";
 const SOL_CAUTION = "When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action.";
 const LUNA_CAUTION = "May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files.";
-const FLASH_CAUTION = "Verify source citations and distinguish proposed behavior from existing behavior in design reviews.";
+const FLASH_CAUTION = "Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior.";
 
 function providers(provider: string, model: string): Record<string, string> {
 	const result = Object.create(null) as Record<string, string>;
