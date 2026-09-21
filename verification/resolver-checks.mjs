@@ -1358,10 +1358,10 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 1961, lines: 12, paths: 0 }, trusted: { portable: 6771, lines: 86, paths: 5 },
-			untrusted: { portable: 2713, lines: 44, paths: 4 }, draft: { portable: 6938, lines: 88, paths: 6 },
-			extensions: { portable: 8118, lines: 96, paths: 5 }, allTails: { portable: 8285, lines: 98, paths: 6 },
-			maximal: { portable: 8359, lines: 99, paths: 6 }, dogfood: { portable: 7484, lines: 98, paths: 6 },
+			prompt: { portable: 3566, lines: 12, paths: 0 }, trusted: { portable: 8376, lines: 86, paths: 5 },
+			untrusted: { portable: 2713, lines: 44, paths: 4 }, draft: { portable: 8543, lines: 88, paths: 6 },
+			extensions: { portable: 9723, lines: 96, paths: 5 }, allTails: { portable: 9890, lines: 98, paths: 6 },
+			maximal: { portable: 9964, lines: 99, paths: 6 }, dogfood: { portable: 9089, lines: 98, paths: 6 },
 		};
 		const doctrineBaselines = [rendered.trusted, rendered.untrusted, rendered.draft, rendered.extensions, rendered.allTails, rendered.maximal, rendered.dogfood];
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1396,7 +1396,7 @@ try {
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
 			["boundary compositions stay exact and below whole-doctrine cap", portable(composition) === 25724 && portable(deferred) === 25798 && portable(deferred) <= DOCTRINE_LIMITS.maximalChars, { composition: portable(composition), deferred: portable(deferred) }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 26033 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 27638 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -1613,19 +1613,29 @@ try {
 			const effective = logicalRender.renderEffectiveLogicalModelPolicy(logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { modelFailover: {}, router: { models: { include: ["gpt-5.6-sol"] } } } }));
 			const blocked = logicalRender.renderEffectiveLogicalModelPolicy(logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { compressor: { models: [] } } } }));
 			const meaning = "fixed project judgments expressed as integers from 1 through 100";
-			const advisory = "Guidance and cautions are advisory and non-exclusive.";
+			const guidanceMeaning = "Guidance and cautions direct selection, but Slate does not enforce them at runtime. Shipped preferences are not rigid rankings and do not guarantee quality. Apply a more specific active guideline when it states an exception to a general preference. A reference to another model describes a conditional preference and does not require selecting an excluded model. Trusted project definitions can replace shipped guidance, and custom model definitions remain supported. Guidance and cautions create no runtime eligibility or rejection rules.";
 			const promptRows = [
 				"| logical model | capability rating | cost rating | guidelines | cautions |",
 				"| --- | ---: | ---: | --- | --- |",
-				"| gpt-5.6-luna | 45 | 10 | consumer-contract work | none |",
+				"| gpt-5.6-luna | 45 | 10 | auxiliary tasks only, such as file location or check-result collection / never primary research, implementation, design, or review / consumer-contract work only when auxiliary | May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files. |",
 				"| claude-sonnet-5 | 40 | 90 | none | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
 				"| gpt-5.6-terra | 50 | 55 | none | none |",
-				"| gpt-5.6-sol | 58 | 40 | none | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
-				"| gemini-3.8-flash | 55 | 30 | concurrency work / data-loss work / performance work | none |",
+				"| gpt-5.6-sol | 58 | 40 | default thread choice / prefer for changes that amend prose or governing rules expressed in prose / this Sol preference overrides the general Flash preference / the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference / Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help. / Switching models should have a concrete reason. | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
+				"| gemini-3.8-flash | 55 | 30 | default thread choice / generally prefer over Sol and Luna when available / a more specific active guideline overrides this general Flash preference / concurrency work / data-loss work / performance work | Verify source citations and distinguish proposed behavior from existing behavior in design reviews. |",
 				"| claude-opus-5 | 72 | 80 | concurrency work / data-loss work / performance work | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
-				"| gpt-6-astra | 86 | 60 | security work / performance work | none |",
+				"| gpt-6-astra | 86 | 60 | prefer when available for design and code reviewers of focus areas that trigger high-level design / this Astra preference overrides the Sol prose preference / security work / performance work | none |",
 			];
-			check("logical-render", typeof rendered.text === "string" && promptRows.every((row) => rendered.text.includes(row)) && rendered.text.includes(meaning) && rendered.text.includes(advisory) && !rendered.text.includes("preferredProvider") && effective.includes("permission anthropic/claude-sonnet-5") && effective.includes("Legacy key modelFailover is ignored") && effective.includes(meaning) && effective.includes(advisory) && blocked.includes(meaning) && blocked.includes(advisory) && blocked.includes("credentials"), "the deterministic prompt and both effective states expose complete rating meaning, advisory guidance, permissions, and diagnostics", { rendered, effective, blocked });
+			const replacementConfig = { router: { models: { replace: ["gpt-5.6-luna", "gpt-5.6-sol", "gemini-3.8-flash", "gpt-6-astra"].map((model) => ({ model, guidelines: [`custom guidance for ${model}`] })) } } };
+			const replacementResolution = logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: replacementConfig });
+			const replacementPrompt = logicalRender.renderLogicalModelPrompt(replacementResolution.policy).text;
+			const replacementEffective = logicalRender.renderEffectiveLogicalModelPolicy(replacementResolution);
+			const staleRules = ["The Sol preference for changes that amend prose or governing rules expressed in prose overrides the general Flash preference.", "It does not override the Astra preference for design and code reviews of focus areas that trigger high-level design.", "The shipped Luna guidance restricts selection to auxiliary tasks."];
+			const replacementsWin = replacementPrompt !== undefined && [replacementPrompt, replacementEffective].every((text) => ["gpt-5.6-luna", "gpt-5.6-sol", "gemini-3.8-flash", "gpt-6-astra"].every((model) => text.includes(`custom guidance for ${model}`)) && staleRules.every((rule) => !text.includes(rule)) && text.includes(guidanceMeaning));
+			const exclusionResolution = logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { models: { include: ["gpt-5.6-sol"], exclude: ["gpt-5.6-luna", "gemini-3.8-flash", "gpt-6-astra"] } } } });
+			const exclusionPrompt = logicalRender.renderLogicalModelPrompt(exclusionResolution.policy).text;
+			const exclusionEffective = logicalRender.renderEffectiveLogicalModelPolicy(exclusionResolution);
+			const exclusionReferencesStayConditional = exclusionPrompt !== undefined && [exclusionPrompt, exclusionEffective].every((text) => text.includes("this Sol preference overrides the general Flash preference") && text.includes("the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference")) && ["gpt-5.6-luna", "gemini-3.8-flash", "gpt-6-astra"].every((model) => !exclusionPrompt.includes(`| ${model} |`) && !exclusionEffective.includes(`- ${model}:`));
+			check("logical-render", typeof rendered.text === "string" && promptRows.every((row) => rendered.text.includes(row)) && rendered.text.includes(meaning) && rendered.text.includes(guidanceMeaning) && !rendered.text.includes("preferredProvider") && effective.includes("permission anthropic/claude-sonnet-5") && effective.includes("Legacy key modelFailover is ignored") && effective.includes(meaning) && effective.includes(guidanceMeaning) && blocked.includes(meaning) && blocked.includes(guidanceMeaning) && blocked.includes("credentials") && replacementsWin && exclusionReferencesStayConditional, "the deterministic prompt and both effective states expose active selection guidance without restoring replaced or excluded definitions", { rendered, effective, blocked, replacementPrompt, replacementEffective, exclusionPrompt, exclusionEffective });
 			const recoveryPolicy = logicalResolver.resolveLogicalModelPolicy({ trusted: true, projectConfig: { router: { models: { include: ["gpt-5.6-sol", "gemini-3.8-flash", "gpt-5.6-terra", "claude-opus-5"] }, compressor: { models: [{ model: "gpt-5.6-sol", effort: "medium" }, { model: "gemini-3.8-flash", effort: "low" }] } } } }).policy;
 			const preferences = new logicalRecovery.RecoveryPreferences(recoveryPolicy);
 			const admission = preferences.admit();

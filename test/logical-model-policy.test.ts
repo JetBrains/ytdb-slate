@@ -18,8 +18,9 @@ const SOURCE = {
   costRating: { publisher: "DeepSWE/DataCurve", retrieved: "2026-09-11", sourceUrl: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json", basis: "Project judgment informed by DeepSWE v1.1 and reviewed supporting evidence" },
   guidelines: { publisher: "DeepSWE/DataCurve", retrieved: "2026-09-11", sourceUrl: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json", basis: "Project judgment informed by DeepSWE v1.1 and reviewed supporting evidence" },
 };
+const EXPECTED_GUIDANCE_MEANING = "Guidance and cautions direct selection, but Slate does not enforce them at runtime. Shipped preferences are not rigid rankings and do not guarantee quality. Apply a more specific active guideline when it states an exception to a general preference. A reference to another model describes a conditional preference and does not require selecting an excluded model. Trusted project definitions can replace shipped guidance, and custom model definitions remain supported. Guidance and cautions create no runtime eligibility or rejection rules.";
 const EXPECTED_ROUTER_PROMPT_INSTRUCTIONS = [
-  "Select a logical model for the current action. Use action fit, relevant area guidance, behavioral cautions, capability evidence, and a lower supported cost rating. A higher capability rating or higher cost rating is not enough by itself. Reassess after each episode. Change models only for a concrete expected benefit. Keep quality redispatch separate from transient recovery. Guidance and cautions are advisory and non-exclusive. They do not create fixed roles, rankings, eligibility rules, or quality guarantees.",
+  `Select a logical model for the current action. Use action fit, relevant area guidance, behavioral cautions, capability evidence, and a lower supported cost rating. A higher capability rating or higher cost rating is not enough by itself. Reassess after each episode. Change models only when there is a concrete reason and an expected benefit. Keep quality redispatch separate from transient recovery. ${EXPECTED_GUIDANCE_MEANING}`,
   "Capability and cost ratings are fixed project judgments expressed as integers from 1 through 100. Higher capability means stronger expected capability. Higher cost means greater expected expense. Ratings stay fixed when membership changes. Ties are valid, and ratings form no fixed groups. They are not percentages, measurements, ratios, statistical claims, realized costs, or billing forecasts. A small gap has no claimed statistical significance, and the endpoints have no fixed absolute meaning.",
 ] as const;
 const EXPECTED_DEFAULT_PROMPT_LINES = [
@@ -28,25 +29,25 @@ const EXPECTED_DEFAULT_PROMPT_LINES = [
   EXPECTED_ROUTER_PROMPT_INSTRUCTIONS[1],
   "| logical model | capability rating | cost rating | guidelines | cautions |",
   "| --- | ---: | ---: | --- | --- |",
-  "| gpt-5.6-luna | 45 | 10 | consumer-contract work | none |",
+  "| gpt-5.6-luna | 45 | 10 | auxiliary tasks only, such as file location or check-result collection / never primary research, implementation, design, or review / consumer-contract work only when auxiliary | May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files. |",
   "| claude-sonnet-5 | 40 | 90 | none | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
   "| gpt-5.6-terra | 50 | 55 | none | none |",
-  "| gpt-5.6-sol | 58 | 40 | none | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
-  "| gemini-3.8-flash | 55 | 30 | concurrency work / data-loss work / performance work | none |",
+  "| gpt-5.6-sol | 58 | 40 | default thread choice / prefer for changes that amend prose or governing rules expressed in prose / this Sol preference overrides the general Flash preference / the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference / Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help. / Switching models should have a concrete reason. | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
+  "| gemini-3.8-flash | 55 | 30 | default thread choice / generally prefer over Sol and Luna when available / a more specific active guideline overrides this general Flash preference / concurrency work / data-loss work / performance work | Verify source citations and distinguish proposed behavior from existing behavior in design reviews. |",
   "| claude-opus-5 | 72 | 80 | concurrency work / data-loss work / performance work | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
-  "| gpt-6-astra | 86 | 60 | security work / performance work | none |",
+  "| gpt-6-astra | 86 | 60 | prefer when available for design and code reviewers of focus areas that trigger high-level design / this Astra preference overrides the Sol prose preference / security work / performance work | none |",
 ] as const;
 
 function plain<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 
 const COMPLETE_DEFAULTS = [
-  { model: "gpt-5.6-luna", capabilityRating: 45, effort: "max", costRating: 10, preferredProvider: "openai", providers: { openai: "gpt-5.6-luna" }, guidelines: ["consumer-contract work"], cautions: [], source: SOURCE },
+  { model: "gpt-5.6-luna", capabilityRating: 45, effort: "max", costRating: 10, preferredProvider: "openai", providers: { openai: "gpt-5.6-luna" }, guidelines: ["auxiliary tasks only, such as file location or check-result collection", "never primary research, implementation, design, or review", "consumer-contract work only when auxiliary"], cautions: ["May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files."], source: SOURCE },
   { model: "claude-sonnet-5", capabilityRating: 40, effort: "high", costRating: 90, preferredProvider: "anthropic", providers: { anthropic: "claude-sonnet-5" }, guidelines: [], cautions: ["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], source: SOURCE },
   { model: "gpt-5.6-terra", capabilityRating: 50, effort: "max", costRating: 55, preferredProvider: "openai", providers: { openai: "gpt-5.6-terra" }, guidelines: [], cautions: [], source: SOURCE },
-  { model: "gpt-5.6-sol", capabilityRating: 58, effort: "high", costRating: 40, preferredProvider: "openai", providers: { openai: "gpt-5.6-sol" }, guidelines: [], cautions: ["When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action."], source: SOURCE },
-  { model: "gemini-3.8-flash", capabilityRating: 55, effort: "medium", costRating: 30, preferredProvider: "google-vertex", providers: { "google-vertex": "gemini-3.8-flash" }, guidelines: ["concurrency work", "data-loss work", "performance work"], cautions: [], source: SOURCE },
+  { model: "gpt-5.6-sol", capabilityRating: 58, effort: "high", costRating: 40, preferredProvider: "openai", providers: { openai: "gpt-5.6-sol" }, guidelines: ["default thread choice", "prefer for changes that amend prose or governing rules expressed in prose", "this Sol preference overrides the general Flash preference", "the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference", "Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help.", "Switching models should have a concrete reason."], cautions: ["When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action."], source: SOURCE },
+  { model: "gemini-3.8-flash", capabilityRating: 55, effort: "medium", costRating: 30, preferredProvider: "google-vertex", providers: { "google-vertex": "gemini-3.8-flash" }, guidelines: ["default thread choice", "generally prefer over Sol and Luna when available", "a more specific active guideline overrides this general Flash preference", "concurrency work", "data-loss work", "performance work"], cautions: ["Verify source citations and distinguish proposed behavior from existing behavior in design reviews."], source: SOURCE },
   { model: "claude-opus-5", capabilityRating: 72, effort: "high", costRating: 80, preferredProvider: "anthropic", providers: { anthropic: "claude-opus-5" }, guidelines: ["concurrency work", "data-loss work", "performance work"], cautions: ["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], source: SOURCE },
-  { model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60, preferredProvider: "openai", providers: { openai: "gpt-6-astra" }, guidelines: ["security work", "performance work"], cautions: [], source: SOURCE },
+  { model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60, preferredProvider: "openai", providers: { openai: "gpt-6-astra" }, guidelines: ["prefer when available for design and code reviewers of focus areas that trigger high-level design", "this Astra preference overrides the Sol prose preference", "security work", "performance work"], cautions: [], source: SOURCE },
 ];
 
 test("project configuration selects the exact approved logical defaults", () => {
@@ -138,7 +139,7 @@ test("field attribution survives equal and unrelated replacements and clears onl
   const cases = [
     [{ preferredProvider: "gateway", providers: { gateway: "gpt-5.6-sol" } }, [true, true, true]],
     [{ cautions: ["changed"] }, [true, true, true]],
-    [{ guidelines: [] }, [true, true, true]],
+    [{ guidelines: ["default thread choice", "prefer for changes that amend prose or governing rules expressed in prose", "this Sol preference overrides the general Flash preference", "the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference", "Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help.", "Switching models should have a concrete reason."] }, [true, true, true]],
     [{ capabilityRating: 58 }, [true, true, true]],
     [{ costRating: 40 }, [true, true, true]],
     [{ capabilityRating: 59 }, [false, true, true]],
@@ -271,6 +272,45 @@ test("prompt rendering pins exact instructions, columns, sanitation, and determi
   assert.doesNotMatch(first.text, /benchmark|raw rate|capability band|relative reference cost/i);
 });
 
+test("trusted replacements remove shipped model rules from prompt and effective output", () => {
+  const replacements = ["gpt-5.6-luna", "gpt-5.6-sol", "gemini-3.8-flash", "gpt-6-astra"].map((model) => ({ model, guidelines: [`custom guidance for ${model}`] }));
+  const resolution = resolve({ router: { models: { replace: replacements } } });
+  assert.ok(resolution.policy);
+  const prompt = renderLogicalModelPrompt(resolution.policy).text;
+  const effective = renderEffectiveLogicalModelPolicy(resolution);
+  assert.ok(prompt);
+  for (const replacement of replacements) {
+    assert.match(prompt, new RegExp(`custom guidance for ${replacement.model}`));
+    assert.match(effective, new RegExp(`custom guidance for ${replacement.model}`));
+  }
+  for (const staleRule of [
+    "The Sol preference for changes that amend prose or governing rules expressed in prose overrides the general Flash preference.",
+    "It does not override the Astra preference for design and code reviews of focus areas that trigger high-level design.",
+    "The shipped Luna guidance restricts selection to auxiliary tasks.",
+  ]) {
+    assert.equal(prompt.includes(staleRule), false);
+    assert.equal(effective.includes(staleRule), false);
+  }
+  assert.ok(prompt.includes(EXPECTED_GUIDANCE_MEANING));
+  assert.ok(effective.includes(EXPECTED_GUIDANCE_MEANING));
+});
+
+test("remaining active guidance may refer to excluded models without selecting them", () => {
+  const resolution = resolve({ router: { models: { include: ["gpt-5.6-sol"], exclude: ["gpt-5.6-luna", "gemini-3.8-flash", "gpt-6-astra"] } } });
+  assert.ok(resolution.policy);
+  const prompt = renderLogicalModelPrompt(resolution.policy).text;
+  const effective = renderEffectiveLogicalModelPolicy(resolution);
+  assert.ok(prompt);
+  assert.match(prompt, /this Sol preference overrides the general Flash preference/);
+  assert.match(prompt, /the Astra preference[^|]+overrides this Sol preference/);
+  assert.match(effective, /this Sol preference overrides the general Flash preference/);
+  assert.match(effective, /the Astra preference[^\n]+overrides this Sol preference/);
+  for (const excluded of ["gpt-5.6-luna", "gemini-3.8-flash", "gpt-6-astra"]) {
+    assert.equal(prompt.includes(`| ${excluded} |`), false);
+    assert.equal(effective.includes(`- ${excluded}:`), false);
+  }
+});
+
 function clonePolicy(policy: LogicalModelPolicy, ordinary: LogicalModelDefinition[]): LogicalModelPolicy {
   return { definitions: policy.definitions, ordinary, compressor: policy.compressor };
 }
@@ -296,7 +336,7 @@ test("prompt character budget accepts 19400 and rejects 19401 with sanitized att
 
 function linePolicy(rows: number): LogicalModelPolicy {
   const base = resolve().policy!;
-  const template = base.ordinary[0]!;
+  const template = { ...base.ordinary[0]!, guidelines: [], cautions: [] };
   const ordinary = Array.from({ length: rows }, (_, index) => ({ ...template, model: `m${index}` }));
   return clonePolicy(base, ordinary);
 }
@@ -321,7 +361,7 @@ Ordinary membership in configured order after exclusion: gpt-5.6-sol
 Definitions used by ordinary or compressor policy:
 - gpt-5.6-sol: capabilityRating=58; costRating=40; fixedEffort=high; preferredProvider=openai; rememberedProvider=openai
   permission openai/gpt-5.6-sol
-  guidelines: none
+  guidelines: default thread choice / prefer for changes that amend prose or governing rules expressed in prose / this Sol preference overrides the general Flash preference / the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference / Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help. / Switching models should have a concrete reason.
   cautions: When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action.
 - claude-sonnet-5: capabilityRating=40; costRating=90; fixedEffort=high; preferredProvider=anthropic; rememberedProvider=none
   permission anthropic/claude-sonnet-5
@@ -331,7 +371,7 @@ Compressor order is independent from ordinary membership:
 1. claude-sonnet-5 @ medium
 Remembered compressor selection: claude-sonnet-5
 Remembered selections are runtime facts. Static preferred providers are configuration facts.
-Guidance and cautions are advisory and non-exclusive. They do not create fixed roles, rankings, eligibility rules, or quality guarantees.
+${EXPECTED_GUIDANCE_MEANING}
 Rating meaning: capability and cost ratings are fixed project judgments expressed as integers from 1 through 100. Higher capability means stronger expected capability. Higher cost means greater expected expense. Ratings stay fixed when membership changes. Ties are valid, and ratings form no fixed groups.
 Rating limits: ratings are not percentages, measurements, ratios, statistical claims, realized costs, or billing forecasts. A small gap has no claimed statistical significance, and the endpoints have no fixed absolute meaning.
 Runtime evidence limits: static policy does not prove task quality, registry presence, credentials, authorization, provider equivalence, or availability.`);
@@ -347,7 +387,7 @@ Warnings and ignored legacy keys:
 - Legacy key episodeModel is ignored. Use router.models or router.compressor.models. No automatic migration is performed.
 Ordinary membership: unavailable because validation blocked the policy.
 Compressor order: unavailable because validation blocked the policy.
-Guidance and cautions are advisory and non-exclusive. They do not create fixed roles, rankings, eligibility rules, or quality guarantees.
+${EXPECTED_GUIDANCE_MEANING}
 Rating meaning: capability and cost ratings are fixed project judgments expressed as integers from 1 through 100. Higher capability means stronger expected capability. Higher cost means greater expected expense. Ratings stay fixed when membership changes. Ties are valid, and ratings form no fixed groups.
 Rating limits: ratings are not percentages, measurements, ratios, statistical claims, realized costs, or billing forecasts. A small gap has no claimed statistical significance, and the endpoints have no fixed absolute meaning.
 Runtime evidence limits: static policy does not prove task quality, registry presence, credentials, authorization, provider equivalence, or availability.`);
@@ -363,7 +403,7 @@ Ordinary membership in configured order after exclusion: gpt-5.6-sol
 Definitions used by ordinary or compressor policy:
 - gpt-5.6-sol: capabilityRating=58; costRating=40; fixedEffort=high; preferredProvider=openai; rememberedProvider=invalid or unavailable
   permission openai/gpt-5.6-sol
-  guidelines: none
+  guidelines: default thread choice / prefer for changes that amend prose or governing rules expressed in prose / this Sol preference overrides the general Flash preference / the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference / Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help. / Switching models should have a concrete reason.
   cautions: When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action.
 - claude-sonnet-5: capabilityRating=40; costRating=90; fixedEffort=high; preferredProvider=anthropic; rememberedProvider=none
   permission anthropic/claude-sonnet-5
@@ -373,7 +413,7 @@ Compressor order is independent from ordinary membership:
 1. claude-sonnet-5 @ medium
 Remembered compressor selection: invalid or unavailable
 Remembered selections are runtime facts. Static preferred providers are configuration facts.
-Guidance and cautions are advisory and non-exclusive. They do not create fixed roles, rankings, eligibility rules, or quality guarantees.
+${EXPECTED_GUIDANCE_MEANING}
 Rating meaning: capability and cost ratings are fixed project judgments expressed as integers from 1 through 100. Higher capability means stronger expected capability. Higher cost means greater expected expense. Ratings stay fixed when membership changes. Ties are valid, and ratings form no fixed groups.
 Rating limits: ratings are not percentages, measurements, ratios, statistical claims, realized costs, or billing forecasts. A small gap has no claimed statistical significance, and the endpoints have no fixed absolute meaning.
 Runtime evidence limits: static policy does not prove task quality, registry presence, credentials, authorization, provider equivalence, or availability.`);
