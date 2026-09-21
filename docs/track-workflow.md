@@ -9,7 +9,8 @@ areas select design, review, and track-acceptance gates.
 | orchestrator | focus planning | [blast-radius.md](blast-radius.md) | § Focus states and track constraints |
 | implementer | every track | this document | § Track intention block and implementer response |
 | reviewer | every review | [review-rules.md](review-rules.md) | § Reviewer sets, merge rule and charters |
-| user | completed track | [user-notes.md](user-notes.md) | § Track packets |
+| orchestrator | track or change package | [delivery-packages.md](delivery-packages.md) | § Package preparation |
+| user | feedback and note accounting | [user-notes.md](user-notes.md) | § Receiving and routing a user note |
 | publisher | draft pull request enabled | [pr-publishing.md](pr-publishing.md) | § Publishing mode |
 
 ## Lifecycle and phases
@@ -33,7 +34,7 @@ presents the approved high-level design when required, plans and approves the
 track's independent risk record, implements, validates, compares the committed
 difference with the proved areas, reviews, and fixes. It then presents any
 changed high-level design when required, creates the cumulative implementation
-commit, and delivers the track packet. It applies and commits required user-review
+commit, and delivers the track package. It applies and commits required user-review
 fixes whenever the user requests them. It verifies their range when one exists
 and marks the boundary. The implementer produces the low-level design and
 implements it as one integrated action.
@@ -295,9 +296,10 @@ proved set. A missed area follows the late-area route below. For an area that no
 longer engages, record the failed trigger part and present a removal proposal to
 the user at once. The area remains proved, with all of its gates and reviewers,
 until the user approves removal. Rejection preserves the proved area. Keep every
-reviewer that already covered completed work. The track packet reports every
-addition, proposed or approved removal, SKIPPED state, user decision, and
-reviewer-coverage decision.
+reviewer that already covered completed work. The durable delivery record
+reports every addition, proposed or approved removal, SKIPPED state, user
+decision, and reviewer-coverage decision. A package puts any unresolved
+requested decision or relevant risk under **Needs attention**.
 
 When the orchestrator or implementer discovers a late area, the orchestrator
 presents its four-part proof to the user at once. Approval recomputes the
@@ -453,10 +455,11 @@ coverage conclusion required below.
 ### Routing recommendations at change completion
 
 When trusted configuration sets `workflow.routingRecommendations` to `true`, the
-orchestrator adds routing advice to the final report before it asks for final
-acceptance. The advice covers only logical models named in action records for the
-current change. Use the current-change workflow context to set that boundary. Do
-not scan unrelated actions from the full session history.
+orchestrator adds model-routing recommendations to the change package before it
+asks for final acceptance. The advice covers only logical models named in
+action records for the current change. Use the current-change workflow context
+to set that boundary. Do not scan unrelated actions from the full session
+history.
 
 Treat the logical-model name as a selection fact. It does not prove which
 physical model executed after recovery. State direct observations separately
@@ -466,8 +469,9 @@ it. Keep the advice short and ready to copy.
 Recommend changes to existing guidance or cautions first. Recommend another
 entry change only when empirical evidence is sufficient for that specific
 change. Do not derive broad capability claims from weak evidence. Do not invent
-a recommendation when the records support none. No empty or no-evidence block is
-required.
+a recommendation when the records support none. In that case, use the exact
+no-change statement required by
+[delivery-packages.md](delivery-packages.md) § Change package.
 
 The advice is advisory. It never authorizes a model selection or roster change.
 It never edits configuration, routing, or model files. A user decision and the
@@ -475,10 +479,21 @@ ordinary workflow govern any later change.
 
 ## Delivery and termination
 
-Every completed track reaches the user through the track packet defined in
-[user-notes.md](user-notes.md) § Track packets. User acceptance of a track is
-blocking when that track proves at least one DESIGN-TRIGGERING area. Where a
-marker applies, it waits for required track acceptance and every requested fix.
+<!-- delivery-package-loading:begin -->
+Immediately before preparing any track package or final change package, read
+[delivery-packages.md](delivery-packages.md). Skip the read when that document
+is already in context. This is the only workflow stage that loads the document.
+Do not read it at session start or during routine planning, implementation, or
+review. The document owns package presentation only. Continue to read
+[user-notes.md](user-notes.md) at each feedback and note-accounting trigger that
+it defines.
+<!-- delivery-package-loading:end -->
+
+Every completed track reaches the user through the track package defined in
+[delivery-packages.md](delivery-packages.md) § Track package. User acceptance of
+a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
+Where a marker applies, it waits for required track acceptance and every
+requested fix.
 In per-track mode, the user's merge supplies acceptance and the boundary before
 the next track starts. A track with only REVIEWER-ONLY areas, or no proved area,
 has no mandatory track-acceptance gate.
@@ -575,13 +590,21 @@ identifier. Track numbers are append-only. Abandoned tracks are struck through.
 Numbers are never reused.
 
 Delivery is the selected publishing mode's final accepted merge on the default
-development branch. When publishing is disabled, delivery is the final squashed
-commit. Explicit abandonment is the other delivery outcome. Resolve or hand
-every open question to the user. Follow [user-notes.md](user-notes.md) for final
-accounting. Delete the retained local log and every implementer report only
-after the whole change reaches delivery. The untracked-retention rule in
-§ Session handoff and the research log keeps them out of the pull request. On
-abandonment, offer their content for archival first.
+development branch. When publishing is disabled, the final package asks for
+acceptance while the research log and every implementer report remain retained.
+After acceptance, copy the required accounting from the log into the final
+squashed commit body as part of creating that commit. Verify the body before
+calling the commit delivery. This sequence applies to single-track and
+multi-track changes. Intermediate multi-track packages continue to use the
+retained research log as their current accounting source. Explicit abandonment
+is the other delivery outcome. Resolve or hand every open question to the user.
+Follow [user-notes.md](user-notes.md) for feedback and note accounting. Follow
+[delivery-packages.md](delivery-packages.md) for the final user-facing package
+and the complete accounting sequence. Delete the retained local log and every
+implementer report only after the whole change reaches delivery and the required
+accounting is verified in its final record. The untracked-retention rule in
+§ Session handoff and the research log keeps the local files out of the pull
+request. On abandonment, offer their content for archival first.
 
 Aim for a delivery body at or below 16,384 UTF-8 bytes. Measure exact bytes from
 the commit object. If larger, remove repetition first. Then record a measured

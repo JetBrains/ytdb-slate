@@ -104,6 +104,10 @@ Subsections activate when their content exists:
   when that review ran.
 - **Ignored findings** — a one-line index for every ignored finding. Each entry
   carries its identifier, location, and one-line summary.
+- **Delivery accounting** — the conclusions that
+  [delivery-packages.md](delivery-packages.md) § Durable accounting requires.
+  Update this subsection from the research log before each package. Keep private
+  reasoning and private data out of it.
 - **Verification approach** — 1–2 lines.
 
 "Deep enough" test: a reviewer who knows the codebase but not this
@@ -155,8 +159,9 @@ umbrella mode, update a track's table row when its marker commit lands. In
 per-track mode, update the current track's row before its pull request becomes
 ready. Record the merged boundary in the research log after the user merges it.
 In both modes, append post-design decisions as they are made and
-revise Planned changes whenever reality diverges from it. A stale description
-fails the "deep enough" test.
+revise Planned changes whenever reality diverges from it. Before each track or
+change package, copy the required delivery accounting from the research log
+into the description. A stale description fails the "deep enough" test.
 
 ## Ready-for-review flip
 

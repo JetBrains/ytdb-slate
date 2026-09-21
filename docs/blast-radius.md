@@ -390,8 +390,8 @@ A late proved area recomputes the complete required routine reviewer set for the
 completed range. The first proved area adds Reviewer I and the new area
 specialist. A later proved area keeps the existing Reviewer I without
 redispatching that perspective and adds only the new area specialist. Every
-newly required perspective reviews the completed range. The track packet and
-final acceptance report the resulting coverage.
+newly required perspective reviews the completed range. The durable delivery
+record reports the resulting coverage.
 
 ## Review coverage and the coverage register
 
