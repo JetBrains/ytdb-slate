@@ -72,7 +72,7 @@ forecasts. Membership changes do not rescale them.
 | `claude-sonnet-5` | `high` | 40 | 90 | `anthropic` | `anthropic/claude-sonnet-5` | none | scope caution below |
 | `gpt-5.6-terra` | `max` | 50 | 55 | `openai` | `openai/gpt-5.6-terra` | none | none |
 | `gpt-5.6-sol` | `high` | 58 | 40 | `openai` | `openai/gpt-5.6-sol` | Default thread choice. Prefer for changes that amend prose or governing rules expressed in prose. This Sol preference overrides the general Flash preference. The Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference. Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help. Switching models should have a concrete reason. | blocked-action caution below |
-| `gemini-3.8-flash` | `medium` | 55 | 30 | `google-vertex` | `google-vertex/gemini-3.8-flash` | Default thread choice. Generally prefer over Sol and Luna when available. A more specific active guideline overrides this general Flash preference. Concurrency, data-loss, performance. | design review caution below |
+| `gemini-3.8-flash` | `medium` | 55 | 30 | `google-vertex` | `google-vertex/gemini-3.8-flash` | Default thread choice. Generally prefer over Sol and Luna when available. A more specific active guideline overrides this general Flash preference. Concurrency, data-loss, performance. | reviewer and evidence caution below |
 | `claude-opus-5` | `high` | 72 | 80 | `anthropic` | `anthropic/claude-opus-5` | concurrency, data-loss, performance | scope caution below |
 | `gpt-6-astra` | `medium` | 86 | 60 | `openai` | `openai/gpt-6-astra` | Prefer when available for design and code reviewers of focus areas that trigger high-level design. This Astra preference overrides the Sol prose preference. Security and performance work. | none |
 
@@ -82,9 +82,10 @@ requirements.` Sol uses this caution: `When blocked, may substitute unapproved
 resources or perform destructive cleanup. Require permission before either
 action.` Luna uses this caution: `May treat supplied repair context as
 permission to implement despite explicit task limits. Restrict write access for
-record-only work and verify the changed files.` Flash uses this caution:
-`Verify source citations and distinguish proposed behavior from existing
-behavior in design reviews.` Fable is not active because it has no complete
+record-only work and verify the changed files.` Flash uses this caution: `Do not
+use as a reviewer. It relies too much on passing tests and exact-size assertions.
+Verify source citations and distinguish proposed behavior from existing
+behavior.` Fable is not active because it has no complete
 approved definition.
 
 The independent shipped compressor list contains one entry. It is

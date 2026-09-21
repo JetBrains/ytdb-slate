@@ -111,10 +111,10 @@ test("logical doctrine production renders match published portable measurements"
     { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
-  assert.deepEqual(metric(runtime.promptText()!), { portable: 3566, lines: 12, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8376, lines: 86, paths: 5 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 3637, lines: 12, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8447, lines: 86, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2713, lines: 44, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9915, lines: 98, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9986, lines: 98, paths: 6 });
 });
 
 test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {

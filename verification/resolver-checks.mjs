@@ -1363,13 +1363,13 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3566, lines: 12, paths: 0 }, trusted: { portable: 8376, lines: 86, paths: 5 },
-			untrusted: { portable: 2713, lines: 44, paths: 4 }, draft: { portable: 8543, lines: 88, paths: 6 },
-			extensions: { portable: 9723, lines: 96, paths: 5 }, allTails: { portable: 9890, lines: 98, paths: 6 },
-			followUp: { portable: 9797, lines: 97, paths: 5 }, routing: { portable: 9820, lines: 97, paths: 5 },
-			draftFollowUp: { portable: 9964, lines: 99, paths: 6 }, draftRouting: { portable: 9841, lines: 97, paths: 6 },
-			followUpRouting: { portable: 9894, lines: 98, paths: 5 }, maximal: { portable: 9915, lines: 98, paths: 6 },
-			dogfood: { portable: 9040, lines: 97, paths: 6 },
+			prompt: { portable: 3637, lines: 12, paths: 0 }, trusted: { portable: 8447, lines: 86, paths: 5 },
+			untrusted: { portable: 2713, lines: 44, paths: 4 }, draft: { portable: 8614, lines: 88, paths: 6 },
+			extensions: { portable: 9794, lines: 96, paths: 5 }, allTails: { portable: 9961, lines: 98, paths: 6 },
+			followUp: { portable: 9868, lines: 97, paths: 5 }, routing: { portable: 9891, lines: 97, paths: 5 },
+			draftFollowUp: { portable: 10035, lines: 99, paths: 6 }, draftRouting: { portable: 9912, lines: 97, paths: 6 },
+			followUpRouting: { portable: 9965, lines: 98, paths: 5 }, maximal: { portable: 9986, lines: 98, paths: 6 },
+			dogfood: { portable: 9111, lines: 97, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1408,7 +1408,7 @@ try {
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
 			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 25724 && portable(featureOffTight) === 25798 && portable(routingWithoutDrafts) === 25654 && portable(routingWithFollowUp) === 25728 && portable(routing) === 25675 && portable(deferred) === 25749 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 27589 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 27660 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -1633,7 +1633,7 @@ try {
 				"| claude-sonnet-5 | 40 | 90 | none | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
 				"| gpt-5.6-terra | 50 | 55 | none | none |",
 				"| gpt-5.6-sol | 58 | 40 | default thread choice / prefer for changes that amend prose or governing rules expressed in prose / this Sol preference overrides the general Flash preference / the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference / Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help. / Switching models should have a concrete reason. | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
-				"| gemini-3.8-flash | 55 | 30 | default thread choice / generally prefer over Sol and Luna when available / a more specific active guideline overrides this general Flash preference / concurrency work / data-loss work / performance work | Verify source citations and distinguish proposed behavior from existing behavior in design reviews. |",
+				"| gemini-3.8-flash | 55 | 30 | default thread choice / generally prefer over Sol and Luna when available / a more specific active guideline overrides this general Flash preference / concurrency work / data-loss work / performance work | Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior. |",
 				"| claude-opus-5 | 72 | 80 | concurrency work / data-loss work / performance work | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
 				"| gpt-6-astra | 86 | 60 | prefer when available for design and code reviewers of focus areas that trigger high-level design / this Astra preference overrides the Sol prose preference / security work / performance work | none |",
 			];
