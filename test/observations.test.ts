@@ -59,6 +59,249 @@ test("the observations cap keeps exact-cap content and truncates only above it",
   });
 });
 
+test("observation capture preserves full 20k ASCII response and early findings row without truncation", () => {
+  withRoot((root) => {
+    const findingRow = "BG1 | blocker | x.ts:1 | summary | counterexample";
+    const filler = "y".repeat(20_000);
+    const content = `${findingRow}\n${filler}`;
+    const result = captureObservation(root, "t1.e1", content);
+    assert.equal(result.stored, true);
+    if (!result.stored) return;
+    assert.equal(result.truncated, false);
+    assert.equal(result.grammar, "present");
+    assert.equal(result.zeroFindings, false);
+    assert.equal(result.bytes, Buffer.byteLength(content, "utf8"));
+    const stored = readFileSync(join(root, result.path), "utf8");
+    assert.equal(stored, content);
+    assert.ok(stored.includes(findingRow));
+  });
+});
+
+test("separator-only overflow reports truthful truncation", () => {
+  withRoot((root) => {
+    const exact = "x".repeat(OBSERVATIONS_MAX_BYTES);
+    const result1 = captureObservation(root, "t1.e1", [
+      { type: "text", text: exact },
+      { type: "text", text: "extra" },
+    ]);
+    assert.equal(result1.stored, true);
+    if (!result1.stored) return;
+    assert.equal(result1.truncated, true);
+    assert.equal(result1.bytes, OBSERVATIONS_MAX_BYTES + 15);
+    assert.equal(readFileSync(join(root, result1.path), "utf8"), `${exact} […truncated]`);
+
+    const result2 = captureObservation(root, "t1.e2", [
+      { type: "text", text: exact },
+      { type: "text", text: "" },
+    ]);
+    assert.equal(result2.stored, true);
+    if (!result2.stored) return;
+    assert.equal(result2.truncated, true);
+    assert.equal(readFileSync(join(root, result2.path), "utf8"), `${exact} […truncated]`);
+
+    const near = "x".repeat(OBSERVATIONS_MAX_BYTES - 1);
+    const result3 = captureObservation(root, "t1.e3", [
+      { type: "text", text: near },
+      { type: "text", text: "" },
+      { type: "text", text: "z" },
+    ]);
+    assert.equal(result3.stored, true);
+    if (!result3.stored) return;
+    assert.equal(result3.truncated, true);
+    assert.equal(readFileSync(join(root, result3.path), "utf8"), `${near}\n […truncated]`);
+
+    const result4 = captureObservation(root, "t1.e4", [
+      { type: "text", text: near },
+      { type: "text", text: "" },
+    ]);
+    assert.equal(result4.stored, true);
+    if (!result4.stored) return;
+    assert.equal(result4.truncated, false);
+    assert.equal(result4.bytes, OBSERVATIONS_MAX_BYTES);
+    assert.equal(readFileSync(join(root, result4.path), "utf8"), `${near}\n`);
+  });
+});
+
+test("empty and ignored blocks follow separator and retention semantics", () => {
+  withRoot((root) => {
+    const exact = "x".repeat(OBSERVATIONS_MAX_BYTES);
+    const resultIgnored = captureObservation(root, "t1.e1", [
+      { type: "text", text: exact },
+      { type: "toolCall", name: "done", arguments: {} },
+    ]);
+    assert.equal(resultIgnored.stored, true);
+    if (!resultIgnored.stored) return;
+    assert.equal(resultIgnored.truncated, false);
+    assert.equal(resultIgnored.bytes, OBSERVATIONS_MAX_BYTES);
+    assert.equal(readFileSync(join(root, resultIgnored.path), "utf8"), exact);
+
+    const singleEmpty = captureObservation(root, "t1.e2", [{ type: "text", text: "" }]);
+    assert.deepEqual(singleEmpty, { stored: false, reason: "no-final-text", grammar: "absent" });
+
+    const twoEmpty = captureObservation(root, "t1.e3", [
+      { type: "text", text: "" },
+      { type: "text", text: "" },
+    ]);
+    assert.equal(twoEmpty.stored, true);
+    if (!twoEmpty.stored) return;
+    assert.equal(twoEmpty.truncated, false);
+    assert.equal(twoEmpty.bytes, 1);
+    assert.equal(readFileSync(join(root, twoEmpty.path), "utf8"), "\n");
+
+    const middleEmpty = captureObservation(root, "t1.e4", [
+      { type: "text", text: "hello" },
+      { type: "text", text: "" },
+      { type: "text", text: "world" },
+    ]);
+    assert.equal(middleEmpty.stored, true);
+    if (!middleEmpty.stored) return;
+    assert.equal(middleEmpty.truncated, false);
+    assert.equal(readFileSync(join(root, middleEmpty.path), "utf8"), "hello\n\nworld");
+  });
+});
+
+test("2-byte, 3-byte, and 4-byte Unicode boundary and surrogate handling", () => {
+  withRoot((root) => {
+    const prefix2 = "x".repeat(OBSERVATIONS_MAX_BYTES - 1);
+    const result2 = captureObservation(root, "t1.e1", `${prefix2}£`);
+    assert.equal(result2.stored, true);
+    if (!result2.stored) return;
+    assert.equal(result2.truncated, true);
+    const stored2 = readFileSync(join(root, result2.path), "utf8");
+    assert.equal(stored2, `${prefix2} […truncated]`);
+    assert.equal(stored2.includes("\uFFFD"), false);
+
+    const prefix4Exact = "x".repeat(OBSERVATIONS_MAX_BYTES - 4);
+    const result4Exact = captureObservation(root, "t1.e2", `${prefix4Exact}😀`);
+    assert.equal(result4Exact.stored, true);
+    if (!result4Exact.stored) return;
+    assert.equal(result4Exact.truncated, false);
+    assert.equal(result4Exact.bytes, OBSERVATIONS_MAX_BYTES);
+    assert.equal(readFileSync(join(root, result4Exact.path), "utf8"), `${prefix4Exact}😀`);
+
+    const prefix4Over = "x".repeat(OBSERVATIONS_MAX_BYTES - 3);
+    const result4Over = captureObservation(root, "t1.e3", `${prefix4Over}😀`);
+    assert.equal(result4Over.stored, true);
+    if (!result4Over.stored) return;
+    assert.equal(result4Over.truncated, true);
+    const stored4 = readFileSync(join(root, result4Over.path), "utf8");
+    assert.equal(stored4, `${prefix4Over} […truncated]`);
+    assert.equal(stored4.includes("\uFFFD"), false);
+
+    const hugeWithSurrogate = `${prefix4Over}😀${"y".repeat(100_000)}`;
+    const resultHuge = captureObservation(root, "t1.e4", hugeWithSurrogate);
+    assert.equal(resultHuge.stored, true);
+    if (!resultHuge.stored) return;
+    assert.equal(resultHuge.truncated, true);
+    const storedHuge = readFileSync(join(root, resultHuge.path), "utf8");
+    assert.equal(storedHuge, `${prefix4Over} […truncated]`);
+    assert.equal(storedHuge.includes("\uFFFD"), false);
+  });
+});
+
+test("nested bare strings inside content arrays are ignored while top-level strings are preserved", () => {
+  withRoot((root) => {
+    // Top-level string is preserved
+    const topLevel = captureObservation(root, "t1.e1", "top level text");
+    assert.equal(topLevel.stored, true);
+    if (!topLevel.stored) return;
+    assert.equal(readFileSync(join(root, topLevel.path), "utf8"), "top level text");
+
+    // Array containing only bare strings is ignored as having no eligible text blocks
+    const arrayOnlyStrings = captureObservation(root, "t1.e2", ["raw-string-block"]);
+    assert.deepEqual(arrayOnlyStrings, { stored: false, reason: "no-final-text", grammar: "absent" });
+
+    // Mixed array ignores bare strings and retains only eligible text block objects
+    const mixed = captureObservation(root, "t1.e3", [
+      { type: "text", text: "first" },
+      "ignored bare string",
+      { type: "toolCall", name: "call_1", arguments: {} },
+      { type: "text", text: "second" },
+    ]);
+    assert.equal(mixed.stored, true);
+    if (!mixed.stored) return;
+    assert.equal(mixed.truncated, false);
+    assert.equal(readFileSync(join(root, mixed.path), "utf8"), "first\nsecond");
+  });
+});
+
+test("bounded intermediate allocations avoid full-block or full-array materialization", () => {
+  withRoot((root) => {
+    // Instrument Buffer.from to reject encoding any string exceeding the bounded budget
+    const originalBufferFrom = Buffer.from;
+    let attemptedOversizedBuffer = false;
+    let maxEncodedStringLength = 0;
+
+    // We replace Buffer.from temporarily during capture
+    const patchedBufferFrom = function (value: unknown, ...args: unknown[]): Buffer {
+      if (typeof value === "string") {
+        if (value.length > maxEncodedStringLength) {
+          maxEncodedStringLength = value.length;
+        }
+        // Retained prefix budget is at most OBSERVATIONS_MAX_BYTES + 1 character (for surrogate pairing)
+        if (value.length > OBSERVATIONS_MAX_BYTES + 1) {
+          attemptedOversizedBuffer = true;
+          throw new Error(`Buffer.from called with oversized string of length ${value.length}`);
+        }
+      }
+      return Reflect.apply(originalBufferFrom, Buffer, [value, ...args]);
+    } as typeof Buffer.from;
+
+    Buffer.from = patchedBufferFrom;
+    try {
+      const huge = "a".repeat(20_000_000);
+      const result = captureObservation(root, "t1.e1", huge);
+      assert.equal(result.stored, true);
+      if (!result.stored) return;
+      assert.equal(result.truncated, true);
+      assert.equal(result.bytes, OBSERVATIONS_MAX_BYTES + 15);
+      assert.equal(readFileSync(join(root, result.path), "utf8"), `${"a".repeat(OBSERVATIONS_MAX_BYTES)} […truncated]`);
+      assert.equal(attemptedOversizedBuffer, false, "no oversized string was passed to Buffer.from");
+      assert.ok(maxEncodedStringLength <= OBSERVATIONS_MAX_BYTES + 1);
+
+      // Verify array-level element access rejects unneeded tail access and full-array copying (e.g. [...content], slice, map)
+      let tailAccessed = false;
+      const blocksWithGuardedTail: unknown[] = [
+        { type: "text", text: "x".repeat(OBSERVATIONS_MAX_BYTES + 1000) },
+      ];
+      Object.defineProperty(blocksWithGuardedTail, 1, {
+        get() {
+          tailAccessed = true;
+          throw new Error("unneeded array tail item was accessed after budget exhaustion");
+        },
+        configurable: true,
+        enumerable: true,
+      });
+      blocksWithGuardedTail.length = 10_000;
+
+      const tailResult = captureObservation(root, "t1.e2", blocksWithGuardedTail);
+      assert.equal(tailResult.stored, true);
+      assert.equal(tailAccessed, false, "array items after full budget exhaustion were not accessed");
+
+      // Verify array index reads do not scale with array size (input-sized collection/copy guard)
+      let indexReadCount = 0;
+      const arrayTarget: unknown[] = [
+        { type: "text", text: "x".repeat(OBSERVATIONS_MAX_BYTES + 1000) },
+      ];
+      arrayTarget.length = 10_000;
+      const countingArray = new Proxy(arrayTarget, {
+        get(target, prop, receiver) {
+          if (typeof prop === "string" && /^\d+$/.test(prop)) {
+            indexReadCount++;
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+      const proxyResult = captureObservation(root, "t1.e3", countingArray);
+      assert.equal(proxyResult.stored, true);
+      assert.equal(indexReadCount, 1, "only the first array item needed for the budget was read");
+    } finally {
+      Buffer.from = originalBufferFrom;
+    }
+    assert.equal(Buffer.from, originalBufferFrom, "Buffer.from is restored after test completion");
+  });
+});
+
 test("truncation backs up to a complete UTF-8 character", () => {
   withRoot((root) => {
     const prefix = "x".repeat(OBSERVATIONS_MAX_BYTES - 1);

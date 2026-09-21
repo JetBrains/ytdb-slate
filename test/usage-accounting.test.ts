@@ -18,6 +18,7 @@ const { compressEpisode, createCompletedFactRecorder, writeFailedEpisode } = awa
 const { SlateStore, sanitizeEpisodeRecord } = await load<typeof import("../extension/state.ts")>("../extension/state.ts");
 const { registerSlateTools } = await load<typeof import("../extension/tools.ts")>("../extension/tools.ts");
 const { NO_SESSION_BASELINE } = await load<typeof import("../extension/logical-model-runtime.ts")>("../extension/logical-model-runtime.ts");
+const { OBSERVATIONS_MAX_BYTES } = await load<typeof import("../extension/observations.ts")>("../extension/observations.ts");
 const { piAiCompatStub } = await load<{
   piAiCompatStub: { complete: (...args: unknown[]) => Promise<unknown> };
 }>("../verification/stubs/pi-ai-compat.mjs");
@@ -925,7 +926,13 @@ test("ThreadManager bounds multi-block assistant event and observation capture b
     const observation = result.episode.observations;
     assert.ok(observation?.stored, "the production observation path stores the final assistant text");
     const observationText = readFileSync(join(cwd, observation.path), "utf8");
-    assert.equal(observationText, newest.slice(-8_000), "observation capture stores the exact bounded newest suffix");
+    assert.equal(observation.truncated, true, "observation capture reports truncation for oversized content");
+    assert.equal(observation.bytes, OBSERVATIONS_MAX_BYTES + 15, "stored byte count matches bounded content plus marker");
+    assert.equal(
+      observationText,
+      `${"x".repeat(OBSERVATIONS_MAX_BYTES)} […truncated]`,
+      "observation capture stores the exact bounded oldest prefix",
+    );
     assert.ok(
       result.episodeText.includes(`> observations: stored | path: ${observation.path}`),
       "the durable episode names the production observation artifact",
