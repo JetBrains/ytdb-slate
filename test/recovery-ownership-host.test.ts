@@ -286,9 +286,30 @@ interface MatrixState {
 	fallbackCalls: number;
 	otherCalls: number;
 	compactionCalls: number;
+	compactionHistoryCalls: number;
+	compactionTurnPrefixCalls: number;
 	compactionEvents?: Array<{ phase: "start" | "success"; reason: string; willRetry: boolean }>;
 	toolCalls: number;
 	modelSwitchSucceeded: boolean;
+}
+
+function extractContextText(context: unknown): string {
+	if (!context || typeof context !== "object" || !("messages" in context) || !Array.isArray((context as { messages?: unknown[] }).messages)) {
+		return "";
+	}
+	let text = "";
+	for (const msg of (context as { messages: Array<{ content?: unknown }> }).messages) {
+		if (typeof msg.content === "string") {
+			text += msg.content;
+		} else if (Array.isArray(msg.content)) {
+			for (const block of msg.content) {
+				if (block && typeof block === "object" && "text" in block && typeof (block as { text?: unknown }).text === "string") {
+					text += (block as { text: string }).text;
+				}
+			}
+		}
+	}
+	return text;
 }
 
 function matrixModel(provider: string, id: string): Model<any> {
@@ -345,7 +366,18 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 		else if (provider === "matrix-fallback") state.fallbackCalls++;
 		else state.otherCalls++;
 		const summarizing = options?.cacheRetention === "none";
-		if (summarizing) state.compactionCalls++;
+		let summaryKind: "history" | "turn-prefix" | undefined;
+		if (summarizing) {
+			state.compactionCalls++;
+			const prompt = extractContextText(_context);
+			if (prompt.includes("This is the PREFIX of a turn that was too large to keep")) {
+				summaryKind = "turn-prefix";
+				state.compactionTurnPrefixCalls++;
+			} else {
+				summaryKind = "history";
+				state.compactionHistoryCalls++;
+			}
+		}
 		let kind: "tool" | "error" | "overflow" | "text" | "summary" = summarizing ? "summary" : "text";
 		if (!summarizing && state.scenario === "recovery-effort" && provider === "matrix-primary") kind = "error";
 		if (!summarizing && state.scenario === "recovery-compaction-refusal") {
@@ -368,9 +400,11 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 			// continuation the caller cancels.
 			kind = state.primaryCalls === 1 ? "tool" : state.primaryCalls === 2 ? "overflow" : "text";
 		}
-		const responseText = !summarizing && state.scenario === "startup-assistant-then-ordinary-success" && provider === "matrix-primary"
-			? state.primaryCalls === 1 ? "startup completed fact" : "ordinary action success"
-			: undefined;
+		const responseText = summarizing
+			? summaryKind === "turn-prefix" ? "matrix turn prefix summary" : "matrix history summary"
+			: !summarizing && state.scenario === "startup-assistant-then-ordinary-success" && provider === "matrix-primary"
+				? state.primaryCalls === 1 ? "startup completed fact" : "ordinary action success"
+				: undefined;
 		const output = matrixMessage(requestModel, kind, responseText);
 		const events = createAssistantMessageEventStream();
 		const publish = () => {
@@ -432,6 +466,8 @@ test("manager teardown invalidates a request owner before paused worker startup 
 		fallbackCalls: 0,
 		otherCalls: 0,
 		compactionCalls: 0,
+		compactionHistoryCalls: 0,
+		compactionTurnPrefixCalls: 0,
 		toolCalls: 0,
 		modelSwitchSucceeded: false,
 		startupEntered: startupEntered.resolve,
@@ -604,6 +640,8 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 		fallbackCalls: 0,
 		otherCalls: 0,
 		compactionCalls: 0,
+		compactionHistoryCalls: 0,
+		compactionTurnPrefixCalls: 0,
 		toolCalls: 0,
 		modelSwitchSucceeded: false,
 	};
@@ -890,7 +928,9 @@ export default function (pi: ExtensionAPI) {
 			await manager.disposeAll();
 		} else if (scenario === "compaction-then-cancel") {
 			await within(postCompactionEntered.promise, "the continuation that follows a successful history rewrite", 6_000);
-			assert.equal(state.compactionCalls, 1, "the rewrite must succeed before the cancellation");
+			assert.equal(state.compactionCalls, 2, "history and turn-prefix rewrites must both succeed before the cancellation");
+			assert.equal(state.compactionHistoryCalls, 1, "exactly one history rewrite request must precede the cancellation");
+			assert.equal(state.compactionTurnPrefixCalls, 1, "exactly one turn-prefix rewrite request must precede the cancellation");
 			assert.deepEqual(state.compactionEvents, [
 				{ phase: "start", reason: "overflow", willRetry: true },
 				{ phase: "success", reason: "overflow", willRetry: true },
@@ -1039,9 +1079,13 @@ test("production ThreadManager and real Pi workers guard preflight, later-turn, 
 
 	await t.test("actual Pi worker auto-compaction crosses the request contract and keeps accepted identity", { timeout: 10_000 }, async () => {
 		const { result, state, transcript, episodeBytes, restored } = await runWorkerRequestMatrixScenario("compaction");
-		assert.equal(state.compactionCalls, 1, "one real Pi history summarization request must reach the fake provider");
-		assert.equal(state.primaryCalls, 4, "tool turn, overflow, compaction, and retry are distinct accepted provider calls");
+		assert.equal(state.compactionCalls, 2, "history and turn-prefix summarization requests must reach the fake provider");
+		assert.equal(state.compactionHistoryCalls, 1, "exactly one history summarization request must reach the fake provider");
+		assert.equal(state.compactionTurnPrefixCalls, 1, "exactly one turn-prefix summarization request must reach the fake provider");
+		assert.equal(state.primaryCalls, 5, "tool turn, overflow, two compaction summaries, and retry are distinct accepted provider calls");
 		assert.match(transcript, /\"type\":\"compaction\"/);
+		assert.match(transcript, /matrix history summary/);
+		assert.match(transcript, /matrix turn prefix summary/);
 		assert.equal(result.episode.model, "matrix-primary/primary");
 		assert.equal(result.episode.effort, "max");
 		// T8: the ordinary successful outcome and its successful format are unchanged,
@@ -1063,12 +1107,16 @@ test("production ThreadManager and real Pi workers guard preflight, later-turn, 
 		const { result, state, transcript, episodeBytes, laterPrompt, restored, episodeFileCount } =
 			await runWorkerRequestMatrixScenario("compaction-then-cancel");
 		// T13: the rewrite really happened, and only then did the caller cancel.
-		assert.equal(state.compactionCalls, 1, "one real Pi history rewrite reached the fake provider");
-		assert.equal(state.primaryCalls, 4, "tool turn, overflow, rewrite, and the cancelled continuation");
+		assert.equal(state.compactionCalls, 2, "history and turn-prefix rewrites must reach the fake provider");
+		assert.equal(state.compactionHistoryCalls, 1, "exactly one history rewrite request must reach the fake provider");
+		assert.equal(state.compactionTurnPrefixCalls, 1, "exactly one turn-prefix rewrite request must reach the fake provider");
+		assert.equal(state.primaryCalls, 5, "tool turn, overflow, two compaction rewrites, and the cancelled continuation");
 		assert.equal(state.toolCalls, 1);
 		assert.equal(state.fallbackCalls, 0, "a cancellation starts no recovery and no replay");
 		assert.equal(state.otherCalls, 0);
 		assert.match(transcript, /\"type\":\"compaction\"/);
+		assert.match(transcript, /matrix history summary/);
+		assert.match(transcript, /matrix turn prefix summary/);
 		assert.equal(episodeFileCount, 1);
 		assert.equal(result.episode.status, "failed");
 		assert.equal(result.thread.status, "failed");
