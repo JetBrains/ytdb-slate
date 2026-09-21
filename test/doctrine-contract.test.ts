@@ -98,7 +98,7 @@ test("logical doctrine uses the cached static runtime policy without physical ro
   assert.match(doctrine, /Model routing policy:/);
   assert.match(doctrine, /\| gpt-5\.6-sol \| 58 \| 40 \| default thread choice \/ prefer for changes that amend prose or governing rules expressed in prose \/ this Sol preference overrides the general Flash preference \/ the Astra preference[^|]+overrides this Sol preference/);
   assert.match(doctrine, /Apply a more specific active guideline when it states an exception to a general preference\./);
-  assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| prefer when available for design and code reviewers of focus areas that trigger high-level design \/ this Astra preference overrides the Sol prose preference \/ security work \/ performance work \/ Do not select Astra as the default implementer\. Use Astra for review and research when appropriate\. If a lower-capability model repeatedly fails at implementation, first ask Astra to investigate and provide detailed repair instructions\. Let the implementer try those instructions\. Use Astra as the implementer only if that guided attempt also fails\. Treat that use as an exception\. Select another suitable model for later implementation work\. Existing approval requirements and repair limits still apply\. \| none \|/);
+  assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| prefer when available for design and code reviewers of focus areas that trigger high-level design \/ this Astra preference overrides the Sol prose preference \/ security work \/ performance work \/ Do not select Astra as the default implementer\. Use Astra for review only when assigned to a specific focus area\. Use Astra for research when appropriate\. If a lower-capability model repeatedly fails at implementation, first ask Astra to investigate and provide detailed repair instructions\. Let the implementer try those instructions\. Use Astra as the implementer only if that guided attempt also fails\. Treat that use as an exception\. Select another suitable model for later implementation work\. Existing approval requirements and repair limits still apply\. \| none \|/);
   assert.doesNotMatch(doctrine, /preferredProvider|permission openai\/|registry prices|context window|`effort`/);
   assert.match(doctrine, /orchestrator selects the model for a no-area track under the same ordinary guidance/);
 });
@@ -111,10 +111,10 @@ test("logical doctrine production renders match published portable measurements"
     { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
-  assert.deepEqual(metric(runtime.promptText()!), { portable: 4144, lines: 12, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8946, lines: 85, paths: 5 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 4199, lines: 12, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 9001, lines: 85, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2705, lines: 43, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10491, lines: 97, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10546, lines: 97, paths: 6 });
 });
 
 test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
