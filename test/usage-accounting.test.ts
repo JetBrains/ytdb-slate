@@ -1,7 +1,7 @@
 const TEST_ROUTE = { model: "fixture", reason: "test fixture" } as const;
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { register } from "node:module";
@@ -47,6 +47,7 @@ interface FakeSession {
   setModel(model: FakeModel): Promise<void>;
   setThinkingLevel(level: string): void;
   getContextUsage(): undefined;
+  workerReminderHandledToolResult(): boolean;
   listenerCount(): number;
   emit(event: Record<string, unknown>): void;
 }
@@ -105,6 +106,9 @@ function fakeSession(script: PromptScript, model?: FakeModel): FakeSession {
     },
     getContextUsage() {
       return undefined;
+    },
+    workerReminderHandledToolResult() {
+      return false;
     },
     listenerCount() {
       return listeners.size;
@@ -490,20 +494,33 @@ test("a successful action keeps its format and reaches every durable consumer", 
   });
 });
 
-test("a throwing initial progress callback still leaves a terminal failed action", { timeout: 1000 }, async (t) => {
+test("a throwing progress callback stays separate from a successful action", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
-  const manager = managerWithSessions([]);
+  const ran = model("test", "worker");
+  const compressor = model("test", "compressor");
+  const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]), ran);
+  session.workerReminderHandledToolResult = () => true;
+  piAiCompatStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
+  let progressCalls = 0;
+  const manager = managerWithSessions([session]);
   const result = await manager.dispatch(
     { ...TEST_ROUTE, task: "survive progress failure", type: "general" },
-    context(cwd),
+    context(cwd, [ran, compressor]),
     undefined,
-    () => { throw new Error("progress sink failed"); },
+    () => {
+      progressCalls++;
+      throw new Error("progress sink failed");
+    },
   );
   const internalStore = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
-  assert.equal(result.episode.status, "failed");
-  assert.equal(internalStore.threads.get("t1")?.status, "failed");
-  assert.equal(internalStore.threads.get("t1")?.episodeId, "t1.e1");
-  assert.match(internalStore.threads.get("t1")?.outcomeReason ?? "", /progress sink failed/);
+  assert.ok(progressCalls > 0);
+  assert.equal(result.episode.status, "ok");
+  assert.equal(result.thread.status, "successful");
+  assert.equal(result.thread.outcomeReason, undefined);
+  assert.equal(result.warnings.filter((warning) => warning.includes("progress sink failed")).length, 1);
+  assert.ok(result.warnings.some((warning) => warning.includes("worker tool result reached the reminder handler")));
+  assert.match(result.episodeText, /STATUS: OK/);
+  assert.equal(internalStore.threads.get("t1")?.status, "successful");
 });
 
 test("failed actions without a worker response write one fixed episode without compression", { timeout: 1000 }, async (t) => {
@@ -1475,6 +1492,307 @@ test("dispatch subscriptions are removed after normal completion and error", { t
   assert.equal(failedThread?.status, "failed");
   assert.match(failedThread?.outcomeReason ?? "", /worker prompt threw without cancellation evidence/);
   assert.equal(failedThread?.episodeId, "t2.e1");
+});
+
+test("a resolver failure observed after caller cancellation keeps no-fact cancellation primary", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const controller = new AbortController();
+  const snapshots: unknown[] = [];
+  const sharedStore = capturingStore(snapshots);
+  const manager = new ThreadManager(
+    sharedStore,
+    {},
+    () => {
+      controller.abort();
+      throw new Error("extension resolver exploded");
+    },
+    fixtureRuntime(),
+    { enabled: true, maxRetries: 1, baseDelayMs: 0 },
+  );
+  await assert.rejects(
+    manager.dispatch({ ...TEST_ROUTE, task: "resolver cancellation order", type: "general" }, context(cwd), controller.signal),
+    (error: Error) => {
+      assert.match(error.message, /cancelled by the caller/);
+      assert.match(error.message, /extension resolver exploded/);
+      assert.match(error.message, /No episode was recorded/);
+      assert.equal(error.message.match(/extension resolver exploded/g)?.length, 1);
+      return true;
+    },
+  );
+  assert.equal(sharedStore.episodes.size, 0);
+  assert.equal(sharedStore.threads.get("t1")?.status, "cancelled");
+  await assertNoEpisodeConsumers(sharedStore, cwd, "t1.e1", snapshots.at(-1));
+});
+
+test("no-fact cancellation keeps lifecycle reports beside a terminal save failure", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const controller = new AbortController();
+  const session = fakeSession(async () => { throw new Error("ordinary prompt must not run"); }, model("test", "worker"));
+  const snapshots: unknown[] = [];
+  const sharedStore = capturingStore(snapshots);
+  const originalSave = sharedStore.save.bind(sharedStore);
+  let saves = 0;
+  sharedStore.save = () => {
+    saves++;
+    if (saves === 3) throw new Error("terminal state unavailable");
+    originalSave();
+  };
+  const manager = new ThreadManager(sharedStore, {}, undefined, fixtureRuntime(), { enabled: true, maxRetries: 1, baseDelayMs: 0 });
+  const internals = manager as unknown as {
+    live: Map<string, FakeSession>;
+    openWorkerFor(args: {
+      thread: { id: string };
+      report: (message: string) => void;
+      requestContract: import("../extension/worker.ts").WorkerRequestContract;
+      observeSession?: (worker: FakeSession) => void;
+      observeStartupFailure?: (detail: string) => void;
+    }): Promise<{ session: FakeSession; baseline: typeof NO_SESSION_BASELINE }>;
+  };
+  internals.openWorkerFor = async ({ thread, report, requestContract, observeSession, observeStartupFailure }) => {
+    bindFakeWorkerRequest(session, requestContract);
+    observeSession?.(session);
+    internals.live.set(thread.id, session);
+    session.dispose = () => { session.disposeCalls++; throw new Error("disposal exploded"); };
+    session.shutdownWorker = async () => {
+      session.shutdownCalls++;
+      report("slate: worker extension shutdown failed — shutdown exploded");
+      try { session.dispose(); }
+      catch (error) { report(`slate: worker session disposal failed — ${(error as Error).message}`); }
+    };
+    controller.abort();
+    observeStartupFailure?.("startup exploded");
+    throw new Error("startup open exploded");
+  };
+
+  await assert.rejects(
+    manager.dispatch({ ...TEST_ROUTE, task: "save and lifecycle causes", type: "general" }, context(cwd), controller.signal),
+    (error: Error) => {
+      assert.match(error.message, /cancelled by the caller/);
+      for (const detail of ["startup exploded", "shutdown exploded", "disposal exploded", "terminal state unavailable"]) {
+        assert.equal(error.message.match(new RegExp(detail, "g"))?.length, 1, detail);
+      }
+      return true;
+    },
+  );
+  assert.equal(sharedStore.episodes.size, 0);
+  assert.equal(sharedStore.threads.get("t1")?.status, "cancelled");
+  assert.equal(session.shutdownCalls, 1);
+  assert.equal(session.disposeCalls, 1);
+  await manager.disposeAll();
+});
+
+test("fact cancellation keeps lifecycle reports beside episode and state persistence failures", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  mkdirSync(join(cwd, ".pi", "slate", "episodes", "t1.e1.md"), { recursive: true });
+  const controller = new AbortController();
+  const ran = model("test", "worker");
+  const compressor = model("test", "compressor");
+  const session = fakeSession(async () => { throw new Error("ordinary prompt must not run"); }, ran);
+  piAiCompatStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
+  const sharedStore = store();
+  const originalSave = sharedStore.save.bind(sharedStore);
+  sharedStore.save = () => {
+    const thread = sharedStore.threads.get("t1");
+    if (thread?.status === "failed" && sharedStore.episodes.size === 0) throw new Error("terminal state unavailable");
+    originalSave();
+  };
+  const manager = managerWithSessions([session], {}, fixtureRuntime(), sharedStore);
+  const internals = manager as unknown as {
+    live: Map<string, FakeSession>;
+    openWorkerFor(args: {
+      thread: { id: string };
+      report: (message: string) => void;
+      requestContract: import("../extension/worker.ts").WorkerRequestContract;
+      observeSession?: (worker: FakeSession) => void;
+      observeStartupFailure?: (detail: string) => void;
+    }): Promise<{ session: FakeSession; baseline: typeof NO_SESSION_BASELINE }>;
+  };
+  internals.openWorkerFor = async ({ thread, report, requestContract, observeSession, observeStartupFailure }) => {
+    bindFakeWorkerRequest(session, requestContract);
+    observeSession?.(session);
+    internals.live.set(thread.id, session);
+    session.dispose = () => { session.disposeCalls++; throw new Error("disposal exploded"); };
+    session.shutdownWorker = async () => {
+      session.shutdownCalls++;
+      report("slate: worker extension shutdown failed — shutdown exploded");
+      try { session.dispose(); }
+      catch (error) { report(`slate: worker session disposal failed — ${(error as Error).message}`); }
+    };
+    session.emit({
+      type: "tool_execution_end",
+      toolName: "read",
+      result: { content: [{ type: "text", text: "FACT BEFORE STARTUP FAILURE" }] },
+      isError: false,
+    });
+    controller.abort();
+    observeStartupFailure?.("startup exploded");
+    throw new Error("startup open exploded");
+  };
+
+  await assert.rejects(
+    manager.dispatch({ ...TEST_ROUTE, task: "episode and state causes", type: "general" }, context(cwd, [ran, compressor]), controller.signal),
+    (error: Error) => {
+      assert.match(error.message, /cancelled by the caller/);
+      assert.match(error.message, /not a regular file/);
+      assert.match(error.message, /terminal state unavailable/);
+      for (const detail of ["startup exploded", "shutdown exploded", "disposal exploded"]) {
+        assert.equal(error.message.match(new RegExp(detail, "g"))?.length, 1, detail);
+      }
+      return true;
+    },
+  );
+  const thread = sharedStore.threads.get("t1");
+  assert.equal(thread?.status, "failed");
+  assert.match(thread?.outcomeReason ?? "", /not a regular file/);
+  assert.match(thread?.outcomeReason ?? "", /terminal state unavailable/);
+  assert.equal(sharedStore.episodes.size, 0);
+  assert.equal(session.shutdownCalls, 1);
+  assert.equal(session.disposeCalls, 1);
+});
+
+test("a request refusal remains primary when cancellation and startup failure follow", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const controller = new AbortController();
+  const session = fakeSession(async () => { throw new Error("the refused action must not prompt"); }, model("test", "worker"));
+  const manager = managerWithSessions([session]);
+  const internals = manager as unknown as {
+    live: Map<string, FakeSession>;
+    openWorkerFor(args: {
+      thread: { id: string };
+      requestContract: import("../extension/worker.ts").WorkerRequestContract;
+      observeSession?: (worker: FakeSession) => void;
+      observeStartupFailure?: (detail: string) => void;
+    }): Promise<{ session: FakeSession; baseline: typeof NO_SESSION_BASELINE }>;
+  };
+  internals.openWorkerFor = async ({ thread, requestContract, observeSession, observeStartupFailure }) => {
+    bindFakeWorkerRequest(session, requestContract);
+    observeSession?.(session);
+    internals.live.set(thread.id, session);
+    try { requestContract.accept({ provider: "wrong", id: "wrong" }, "off", undefined, () => undefined); }
+    catch { /* the contract records the refusal for the action owner */ }
+    controller.abort();
+    observeStartupFailure?.("startup exploded");
+    throw new Error("startup open exploded");
+  };
+
+  const result = await manager.dispatch({ ...TEST_ROUTE, task: "refusal precedence", type: "general" }, context(cwd), controller.signal);
+  assert.equal(result.episode.status, "failed");
+  assert.equal(result.thread.status, "failed");
+  assert.match(result.episodeText, /Slate route contract violation/);
+  assert.doesNotMatch(result.episodeText, /cancelled by the caller/);
+  assert.equal(session.shutdownCalls, 1);
+  assert.equal(session.disposeCalls, 1);
+});
+
+test("caller cancellation stops logical recovery after retry exhaustion", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const controller = new AbortController();
+  const primary = model("test", "primary");
+  const fallback = model("anthropic", "claude-sonnet-5");
+  const compressor = model("test", "compressor");
+  let prompts = 0;
+  const session = fakeSession((current) => {
+    prompts++;
+    assert.equal(prompts, 1, "the recovery prompt must not reach the worker");
+    const message = { role: "assistant", stopReason: "error", errorMessage: "service unavailable", content: [], usage: {} };
+    current.messages.push(message);
+    current.emit({ type: "message_end", message });
+    current.emit({ type: "agent_end", willRetry: true });
+    current.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 1, delayMs: 0, errorMessage: "service unavailable" });
+    current.emit({ type: "agent_end", willRetry: false });
+    current.emit({ type: "auto_retry_end", success: false, attempt: 1, finalError: "service unavailable" });
+  }, primary);
+  const originalSetModel = session.setModel.bind(session);
+  session.setModel = async (next) => {
+    await originalSetModel(next);
+    controller.abort();
+  };
+  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: {
+    models: {
+      include: [],
+      add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "primary", anthropic: "claude-sonnet-5" }, guidelines: [], cautions: [] }],
+      replace: [{ model: "claude-sonnet-5", preferredProvider: "test", providers: { test: "compressor" } }],
+    },
+    compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] },
+  } } });
+  const manager = managerWithSessions([session], {}, runtime);
+
+  await assert.rejects(
+    manager.dispatch({ ...TEST_ROUTE, task: "cancel recovery", type: "general" }, context(cwd, [primary, fallback, compressor]), controller.signal),
+    /cancelled by the caller.*No episode was recorded/,
+  );
+  assert.equal(prompts, 1);
+  assert.equal((manager as unknown as { store: InstanceType<typeof SlateStore> }).store.episodes.size, 0);
+});
+
+test("startup failure and cancellation order keeps the observed primary cause", { timeout: 2000 }, async (t) => {
+  for (const order of ["cancel-first", "startup-first"] as const) {
+    await t.test(order, { timeout: 1000 }, async (t) => {
+      const cwd = temporaryProject(t);
+      const controller = new AbortController();
+      const session = fakeSession(async () => { throw new Error("ordinary prompt must not run"); }, model("test", "worker"));
+      const snapshots: unknown[] = [];
+      const manager = managerWithSessions([session], {}, fixtureRuntime(), capturingStore(snapshots));
+      const internals = manager as unknown as {
+        live: Map<string, FakeSession>;
+        openWorkerFor(args: {
+          thread: { id: string };
+          report: (message: string) => void;
+          requestContract: import("../extension/worker.ts").WorkerRequestContract;
+          observeSession?: (worker: FakeSession) => void;
+          observeStartupFailure?: (detail: string) => void;
+        }): Promise<{ session: FakeSession; baseline: typeof NO_SESSION_BASELINE }>;
+      };
+      internals.openWorkerFor = async ({ thread, report, requestContract, observeSession, observeStartupFailure }) => {
+        bindFakeWorkerRequest(session, requestContract);
+        observeSession?.(session);
+        internals.live.set(thread.id, session);
+        session.dispose = () => { session.disposeCalls++; throw new Error("disposal exploded"); };
+        session.shutdownWorker = async () => {
+          session.shutdownCalls++;
+          report("slate: worker extension shutdown failed — shutdown exploded");
+          try { session.dispose(); }
+          catch (error) { report(`slate: worker session disposal failed — ${(error as Error).message}`); }
+        };
+        if (order === "cancel-first") controller.abort();
+        observeStartupFailure?.("startup exploded");
+        if (order === "startup-first") controller.abort();
+        throw new Error("slate: worker extension startup did not complete: startup exploded");
+      };
+
+      const dispatch = manager.dispatch(
+        { ...TEST_ROUTE, task: `startup order ${order}`, type: "general" },
+        context(cwd),
+        controller.signal,
+      );
+      if (order === "cancel-first") {
+        await assert.rejects(dispatch, (error: Error) => {
+          assert.match(error.message, /cancelled by the caller/);
+          for (const detail of ["startup exploded", "shutdown exploded", "disposal exploded"]) {
+            assert.equal(error.message.match(new RegExp(detail, "g"))?.length, 1, detail);
+          }
+          return true;
+        });
+        const internalStore = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+        assert.equal(internalStore.episodes.size, 0);
+        assert.equal(internalStore.threads.get("t1")?.status, "cancelled");
+        assert.equal(session.shutdownCalls, 1);
+        assert.equal(session.disposeCalls, 1);
+        assert.equal(existsSync(join(cwd, ".pi", "slate", "episodes", "t1.e1.md")), false);
+        await assertNoEpisodeConsumers(internalStore, cwd, "t1.e1", snapshots.at(-1));
+      } else {
+        const result = await dispatch;
+        assert.equal(result.episode.status, "failed");
+        assert.match(result.thread.outcomeReason ?? "", /startup exploded/);
+        assert.doesNotMatch(result.episodeText, /shutdown exploded|disposal exploded/);
+        for (const detail of ["startup exploded", "shutdown exploded", "disposal exploded"]) {
+          assert.equal(result.warnings.join("\n").match(new RegExp(detail, "g"))?.length, 1, detail);
+        }
+        assert.equal(session.shutdownCalls, 1);
+        assert.equal(session.disposeCalls, 1);
+      }
+    });
+  }
 });
 
 test("caller abort and manager disposal record cancellation without an episode", { timeout: 1000 }, async (t) => {

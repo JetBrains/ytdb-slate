@@ -406,6 +406,8 @@ export class ThreadManager {
 		 * failed result can still read the startup work of its own session.
 		 */
 		observeSession?: (session: WorkerSession) => void;
+		/** Record an ordinary startup failure at the point the open promise observes it. */
+		observeStartupFailure?: (detail: string) => void;
 	}): Promise<{ session: WorkerSession }> {
 		if (this.teardownStarted) {
 			throw new DispatchAbort(`slate: worker startup for thread ${args.thread.id} was cancelled during session teardown`);
@@ -425,9 +427,9 @@ export class ThreadManager {
 			// throw from role selection or from extension resolution used to escape this
 			// scope. The opening promise then never settled, and a later disposeAll
 			// waited for it forever.
-			const type = effectiveThreadType(args.thread, args.report);
-			const extensions = this.resolveExtensions();
 			try {
+				const type = effectiveThreadType(args.thread, args.report);
+				const extensions = this.resolveExtensions();
 				session = await openWorkerSession({
 					ctx: args.ctx,
 					sessionFile: undefined,
@@ -459,6 +461,7 @@ export class ThreadManager {
 			} catch (error) {
 				if (opening !== undefined && this.live.get(args.thread.id) === opening) this.live.delete(args.thread.id);
 				this.failoverLive.delete(args.thread.id);
+				args.observeStartupFailure?.(error instanceof Error ? error.message : String(error));
 				throw error;
 			}
 			if (this.teardownStarted || args.requestContract?.invalidationSignal.aborted === true || this.live.get(args.thread.id) !== session) {
@@ -622,8 +625,22 @@ export class ThreadManager {
 			if (cost !== undefined) compactionCostUsd = (compactionCostUsd ?? 0) + cost;
 		};
 		const lines: string[] = [];
-		const emit = (done: boolean, status?: "ok" | "failed") =>
-			onProgress?.({ threadId: thread.id, threadName: thread.name, lines, usage, done, status });
+		const warnings: string[] = [];
+		const progressWarnings: string[] = [];
+		const reportProgressFailure = (error: unknown) => {
+			const message = `slate: progress callback failed — ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 200)}`;
+			if (progressWarnings.includes(message)) return;
+			progressWarnings.push(message);
+			warnings.push(message);
+			lines.push(`⚠ ${message}`);
+		};
+		const emit = (done: boolean, status?: "ok" | "failed") => {
+			try {
+				onProgress?.({ threadId: thread.id, threadName: thread.name, lines, usage, done, status });
+			} catch (error) {
+				reportProgressFailure(error);
+			}
+		};
 
 		let session: WorkerSession | undefined;
 		/** The worker session this action opened, kept readable after a failed open. */
@@ -635,6 +652,39 @@ export class ThreadManager {
 		/** The refusal of this action, reported to the caller exactly once. */
 		let reportedRefusal: string | undefined;
 		let workerCallStarted = false;
+		let observationOrder = 0;
+		let cancellationObservation: { kind: "caller" | "session teardown"; order: number } | undefined;
+		let startupFailureOrder: number | undefined;
+		let startupFailureDetail: string | undefined;
+		const reportedStartupDetails: string[] = [];
+		const startupWarningPrefix = "slate: worker extension startup failed — ";
+		const lifecycleWarnings: string[] = [];
+		const observeCancellation = (kind: "caller" | "session teardown") => {
+			if (cancellationObservation !== undefined) return;
+			cancellationObservation = { kind, order: ++observationOrder };
+		};
+		const observeStartupFailure = () => {
+			if (startupFailureOrder === undefined) startupFailureOrder = ++observationOrder;
+		};
+		const isStartupWarning = (message: string) => /worker extension (?:startup failed|failed to load)/u.test(message);
+		const isLifecycleWarning = (message: string) => /worker (?:extension (?:startup|shutdown) failed|session disposal failed|extension failed to load)/u.test(message);
+		const appendLifecycleWarnings = (message: string): string => {
+			const reports: string[] = [];
+			if (lifecycleWarnings.length > 0) reports.push(`Lifecycle failures: ${lifecycleWarnings.join(" ")}`);
+			if (progressWarnings.length > 0) reports.push(`Progress callback failures: ${progressWarnings.join(" ")}`);
+			return reports.length === 0 ? message : `${message} ${reports.join(" ")}`;
+		};
+		const cancellationReason = (): string =>
+			cancellationObservation?.kind === "caller"
+				? "cancelled by the caller"
+				: cancellationObservation?.kind === "session teardown"
+					? "cancelled during session teardown"
+					: signal?.aborted === true ? "cancelled by the caller" : "cancelled during session teardown";
+		const startupCancellation = () =>
+			startupFailureOrder !== undefined &&
+			cancellationObservation !== undefined &&
+			cancellationObservation.order < startupFailureOrder &&
+			reportedRefusal === undefined;
 		let completedWorkerText: string | undefined;
 		let latestAssistant: WorkerAssistantMsg | undefined;
 		let captureExecutionReports = false;
@@ -649,12 +699,17 @@ export class ThreadManager {
 		const requestContract = createWorkerRequestContract();
 		/** Set ONLY by an apply-time rejection: end the dispatch with no episode and no compression. */
 		let aborted: DispatchAbort | undefined;
-		const warnings: string[] = [];
 		const retryEvidence = new WorkerRetryEvidence();
 		// Routing notices go to BOTH channels: the progress lines (so they are visible
 		// while the action runs) and the tool result (so the ORCHESTRATOR reads them —
 		// a cost cliff or an evidence gap is its decision to make, not the user's).
 		const routeWarn = (message: string) => {
+			if (isStartupWarning(message)) {
+				if (message.startsWith(startupWarningPrefix)) reportedStartupDetails.push(message.slice(startupWarningPrefix.length));
+				if (this.teardownStarted) observeCancellation("session teardown");
+				observeStartupFailure();
+			}
+			if (isLifecycleWarning(message)) lifecycleWarnings.push(message);
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
 			if (captureExecutionReports && executionReport === undefined) executionReport = message;
@@ -778,6 +833,7 @@ export class ThreadManager {
 			const open = planSessionOpen(logicalRoute);
 			requestContract.expect(logicalRoute);
 			onAbort = () => {
+				observeCancellation("caller");
 				requestContract.invalidate();
 				const ownedSession = session ?? startupSession;
 				ownedSession?.closeManagedOperations?.();
@@ -785,18 +841,32 @@ export class ThreadManager {
 			};
 			if (signal?.aborted === true) onAbort();
 			else signal?.addEventListener("abort", onAbort, { once: true });
-			({ session } = await this.openWorkerFor({
-				thread,
-				ctx,
-				open,
-				tools: thread.tools,
-				report: routeWarn,
-				requestContract,
-				observeSession: (created) => {
-					startupSession = created;
-					if (unsubscribe === undefined) unsubscribe = created.subscribe(observeWorkerEvent);
-				},
-			}));
+			try {
+				({ session } = await this.openWorkerFor({
+					thread,
+					ctx,
+					open,
+					tools: thread.tools,
+					report: routeWarn,
+					requestContract,
+					observeStartupFailure: (detail) => {
+						if (this.teardownStarted) observeCancellation("session teardown");
+						observeStartupFailure();
+						// worker.ts rethrows this exact aggregate after reporting each handler
+						// error. Only that replay is redundant. Loader warnings do not cover
+						// a later direct failure, such as a built-in-tool collision.
+						const reportedAggregate = `slate: worker extension startup did not complete: ${reportedStartupDetails.join("; ")}`;
+						if (reportedStartupDetails.length === 0 || detail !== reportedAggregate) startupFailureDetail = detail;
+					},
+					observeSession: (created) => {
+						startupSession = created;
+						if (unsubscribe === undefined) unsubscribe = created.subscribe(observeWorkerEvent);
+					},
+				}));
+			} catch (error) {
+				if (this.teardownStarted) observeCancellation("session teardown");
+				throw error;
+			}
 			if (signal?.aborted === true) throw new DispatchAbort("Logical worker startup was cancelled by the caller.");
 			if (this.live.get(thread.id) !== session) throw new DispatchAbort("Logical worker startup was cancelled during session teardown.");
 			// Worker startup crosses this same request owner. A refusal recorded there
@@ -951,6 +1021,7 @@ export class ThreadManager {
 			// behaviour of becoming a FAILED episode, because by then the action was
 			// attempted; a DispatchAbort is raised only from the pre-prompt routing
 			// phase, where nothing has been spent, so it must not manufacture work.
+			if (this.teardownStarted) observeCancellation("session teardown");
 			if (error instanceof DispatchAbort) {
 				aborted = signal?.aborted === true
 					? new DispatchAbort("Logical worker startup was cancelled by the caller.")
@@ -991,6 +1062,11 @@ export class ThreadManager {
 			if (onAbort) signal?.removeEventListener("abort", onAbort);
 		}
 
+		if (startupFailureDetail !== undefined) {
+			routeWarn(`${startupWarningPrefix}${sanitizeForNotify(startupFailureDetail, 200)}`);
+		}
+		const cancelledDuringStartup = startupCancellation();
+
 		if (aborted && frozenCompletedFacts?.hasFacts) {
 			status = "failed";
 			diagnostics = diagnostics ?? aborted.message;
@@ -1008,17 +1084,19 @@ export class ThreadManager {
 			} finally {
 				await this.closeWorker(thread.id, session);
 			}
-			throw new Error(aborted.message);
+			throw new Error(appendLifecycleWarnings(aborted.message));
 		}
 
 		const cancelledAfterStart = workerCallStarted &&
 			(signal?.aborted === true || (session !== undefined && this.live.get(thread.id) !== session));
-		if (cancelledAfterStart && frozenCompletedFacts?.hasFacts) {
+		const cancelledAction = cancelledDuringStartup || cancelledAfterStart;
+		if (cancelledAction && frozenCompletedFacts?.hasFacts) {
 			status = "failed";
-			diagnostics ??= signal?.aborted === true ? "cancelled by the caller" : "cancelled during session teardown";
+			if (cancelledDuringStartup) diagnostics = cancellationReason();
+			else diagnostics ??= signal?.aborted === true ? "cancelled by the caller" : "cancelled during session teardown";
 		}
-		if (cancelledAfterStart && !frozenCompletedFacts?.hasFacts) {
-			const reason = signal?.aborted === true ? "cancelled by the caller" : "cancelled during session teardown";
+		if (cancelledAction && !frozenCompletedFacts?.hasFacts) {
+			const reason = cancelledDuringStartup ? cancellationReason() : signal?.aborted === true ? "cancelled by the caller" : "cancelled during session teardown";
 			thread.status = "cancelled";
 			thread.outcomeReason = reason;
 			thread.updatedAt = Date.now();
@@ -1031,9 +1109,9 @@ export class ThreadManager {
 				await this.closeWorker(thread.id, session);
 			}
 			if (cancellationSaveError !== undefined) {
-				throw new Error(`Thread ${thread.id} was ${reason}, and Slate could not save that terminal state: ${sanitizeForNotify(cancellationSaveError instanceof Error ? cancellationSaveError.message : String(cancellationSaveError), 200)}.`);
+				throw new Error(appendLifecycleWarnings(`Thread ${thread.id} was ${reason}, and Slate could not save that terminal state: ${sanitizeForNotify(cancellationSaveError instanceof Error ? cancellationSaveError.message : String(cancellationSaveError), 200)}.`));
 			}
-			throw new Error(`Thread ${thread.id} was ${reason}. No episode was recorded.`);
+			throw new Error(appendLifecycleWarnings(`Thread ${thread.id} was ${reason}. No episode was recorded.`));
 		}
 
 		const actionMessages = session ? session.messages.slice(messagesBefore) : [];
@@ -1081,10 +1159,15 @@ export class ThreadManager {
 				thread.outcomeReason = `${reason}; ${storageReason}`;
 				thread.updatedAt = Date.now();
 				this.store.workerCostUsd += totalActionCost;
-				try { this.store.save(); } catch { /* retain the terminal outcome in memory */ }
-				try { emit(true, "failed"); } catch { /* preserve the persistence failure */ }
+				let saveError: unknown;
+				try { this.store.save(); } catch (error) { saveError = error; }
+				if (saveError !== undefined) {
+					thread.outcomeReason += `; thread state persistence failed: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}`;
+				}
+				emit(true, "failed");
 				await this.closeWorker(thread.id, session);
-				throw new Error(`Thread ${thread.id} failed: ${sanitizeForNotify(reason, 200)}. Slate could not store episode ${episodeId}: ${storageDetail}.`);
+				const saveDetail = saveError === undefined ? "" : ` Slate could not save its terminal thread state: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`;
+				throw new Error(appendLifecycleWarnings(`Thread ${thread.id} failed: ${sanitizeForNotify(reason, 200)}. Slate could not store episode ${episodeId}: ${storageDetail}.${saveDetail}`));
 			}
 			const episode: EpisodeRecord = {
 				id: episodeId, threadId: thread.id, task: opts.task, status: "failed", file: failed.file,
@@ -1107,10 +1190,10 @@ export class ThreadManager {
 			try { this.store.save(); } catch (error) { saveError = error; }
 			await this.closeWorker(thread.id, session);
 			if (saveError !== undefined) {
-				try { emit(true, "failed"); } catch { /* preserve the persistence error */ }
-				throw new Error(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`);
+				emit(true, "failed");
+				throw new Error(appendLifecycleWarnings(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`));
 			}
-			try { emit(true, "failed"); } catch { /* preserve the failed result */ }
+			emit(true, "failed");
 			return { episodeText: failed.text, episode, thread, usage, warnings };
 		}
 		// Capture before compression so an episode-write failure does not itself
@@ -1231,29 +1314,32 @@ export class ThreadManager {
 			const storageDetail = storageCause === undefined
 				? undefined
 				: sanitizeForNotify(storageCause instanceof Error ? storageCause.message : String(storageCause), 200);
+			const compressionDetail = sanitizeForNotify(error instanceof Error ? error.message : String(error), 200);
 			thread.status = "failed";
-			thread.outcomeReason = status === "failed" && storageDetail !== undefined
-				? `${actionFailure}; failure episode persistence failed: ${storageDetail}`
-				: error instanceof Error ? error.message : String(error);
+			thread.outcomeReason = storageDetail === undefined
+				? compressionDetail
+				: status === "failed"
+					? `${actionFailure}; failure episode persistence failed: ${storageDetail}`
+					: `failure episode persistence failed: ${storageDetail}`;
 			thread.updatedAt = Date.now();
-			try {
-				this.store.save();
-			} catch {
-				/* report the original terminal failure through the stable tool boundary */
-			} finally {
-				await this.closeWorker(thread.id, session);
+			let saveError: unknown;
+			try { this.store.save(); } catch (error) { saveError = error; }
+			if (saveError !== undefined) {
+				thread.outcomeReason += `; thread state persistence failed: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}`;
 			}
+			await this.closeWorker(thread.id, session);
 			const safeEpisodeId = sanitizeForNotify(episodeId, 80);
 			lines.push(`✗ slate could not store episode ${safeEpisodeId}.`);
-			try {
-				emit(true, "failed");
-			} catch {
-				/* a broken progress channel must not replace the tool error */
-			}
-			if (status === "failed" && storageDetail !== undefined) {
-				throw new Error(`Thread ${thread.id} failed: ${sanitizeForNotify(actionFailure, 200)}. Slate could not store episode ${safeEpisodeId}: ${storageDetail}.`);
-			}
-			throw new Error(`slate could not store episode ${safeEpisodeId}.`);
+			emit(true, "failed");
+			const persistenceMessage = storageDetail !== undefined
+				? status === "failed"
+					? `Thread ${thread.id} failed: ${sanitizeForNotify(actionFailure, 200)}. Slate could not store episode ${safeEpisodeId}: ${storageDetail}.`
+					: `Slate could not store episode ${safeEpisodeId}: ${storageDetail}.`
+				: `slate could not store episode ${safeEpisodeId}.`;
+			const saveDetail = saveError === undefined
+				? ""
+				: ` Slate could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`;
+			throw new Error(appendLifecycleWarnings(`${persistenceMessage}${saveDetail}`));
 		}
 
 		const episode: EpisodeRecord = {
@@ -1294,8 +1380,8 @@ export class ThreadManager {
 			await this.closeWorker(thread.id, session);
 		}
 		if (saveError !== undefined) {
-			try { emit(true, "failed"); } catch { /* preserve the persistence error */ }
-			throw new Error(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`);
+			emit(true, "failed");
+			throw new Error(appendLifecycleWarnings(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`));
 		}
 
 		emit(true, status);
