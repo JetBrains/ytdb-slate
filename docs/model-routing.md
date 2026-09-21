@@ -102,8 +102,18 @@ licence grant.
 
 ## Configuration
 
-`router` in `.pi/slate.json` is used only for a trusted project. An untrusted
-project receives shipped defaults and no project router text or recovery state.
+Slate reads home preferences from `<getAgentDir()>/slate.json` first.
+This path defaults to `~/.pi/agent/slate.json` and respects `PI_CODING_AGENT_DIR`.
+Trusted project preferences in `.pi/slate.json` override home preferences.
+
+Objects merge recursively. Arrays, scalar values, and explicit `null` replace.
+The merged `router` is then validated as one policy. An invalid permitted file
+blocks routing even when the other file is valid.
+
+An untrusted project receives home preferences over shipped defaults, without
+project router text. When a home configuration file permits a valid policy,
+the session retains recovery preferences for successful provider and compressor
+selections. These preferences belong to the session, not to the project file.
 The resolved parent-session policy is immutable. A configuration edit requires a
 new session.
 

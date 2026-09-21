@@ -96,7 +96,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 native_tmp="$work/native-tmp"
 host_tmp="$work/host-tmp"
-mkdir -p "$native_tmp/jiti" "$host_tmp/jiti" || fail "cannot create test-private temporary directories"
+mkdir -p "$native_tmp/jiti" "$host_tmp/jiti" "$work/native-agent" "$work/host-agent" || fail "cannot create test-private temporary directories"
 lcov="$work/lcov.info"
 host_lcov="$work/host-lcov.info"
 
@@ -122,7 +122,7 @@ done
 printf 'run-tests: native node --test test/ (%s file(s); LCOV: %s)\n' "${#native_files[@]}" "$lcov"
 set +e
 (
-  cd "$repo" && TMPDIR="$native_tmp" JITI_FS_CACHE=true \
+  cd "$repo" && PI_CODING_AGENT_DIR="$work/native-agent" TMPDIR="$native_tmp" JITI_FS_CACHE=true \
     node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
     --test --experimental-test-coverage \
     --test-coverage-include='extension/**/*.ts' \
@@ -139,7 +139,7 @@ fi
 printf 'run-tests: real-Pi host node --test (%s file; separate LCOV: %s; no patch-coverage credit)\n' "${#host_files[@]}" "$host_lcov"
 set +e
 (
-  cd "$repo" && TMPDIR="$host_tmp" JITI_FS_CACHE=true \
+  cd "$repo" && PI_CODING_AGENT_DIR="$work/host-agent" TMPDIR="$host_tmp" JITI_FS_CACHE=true \
     node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
     --test --experimental-test-coverage \
     --test-coverage-include='extension/**/*.ts' \

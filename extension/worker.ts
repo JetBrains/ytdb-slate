@@ -44,12 +44,13 @@ import {
 	type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { sanitizeForNotify } from "./notify.ts";
+import { permitsSlateConfig } from "./config.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import type { LogicalModelEffort } from "./logical-model-definitions.ts";
 import type { RecoveryCandidate } from "./logical-model-recovery.ts";
 import { RequestThrottleAbort, type RequestThrottle } from "./request-throttle.ts";
 import { createWorkerReminderRuntime } from "./worker-reminder.ts";
-import { describeSpecDefect, splitModelSpec, type ThreadType } from "./state.ts";
+import { describeSpecDefect, splitModelSpec, type SlateConfig, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"] & {
@@ -423,6 +424,7 @@ export async function openWorkerSession(opts: {
 	model?: string; // "provider/id"
 	tools?: string[];
 	promptDocs?: string[]; // role-guideline doc paths, cwd-relative (default none)
+	config?: SlateConfig; // loader identity permits home-only settings without project trust
 	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
 	extensionToolNames?: string[]; // host-selected names, including tools registered during host session_start
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
@@ -484,16 +486,14 @@ export async function openWorkerSession(opts: {
 	// created: a live session keeps its system prompt until disposed; a
 	// thread reopened later (e.g. after a pi restart) re-reads the docs at
 	// their then-current content. Blocks go in separator-free — pi core
-	// joins appendSystemPrompt entries with "\n\n". Trust gate: project files
-	// are never injected into worker prompts for untrusted projects.
-	const promptDocs = ctx.isProjectTrusted() ? loadPromptDocs(ctx.cwd, opts.promptDocs ?? []) : [];
-	// Absolute load units resolved by the host (worker-extensions.ts); empty =
-	// feature off, the historical no-extensions worker. Defense in depth (CQ23):
-	// re-gate on project trust here even though the config that produced these
-	// paths is itself only loaded for trusted projects (index.ts) — an untrusted
-	// project must never load extensions into a worker, whatever a future caller
-	// passes.
-	const extensionPaths = ctx.isProjectTrusted() ? (opts.extensionPaths ?? []) : [];
+	// joins appendSystemPrompt entries with "\n\n". A standalone caller still
+	// needs project trust. Only the loader can authorize a home-only view.
+	const configPermitted = permitsSlateConfig(opts.config, trusted);
+	const docPaths = trusted ? opts.promptDocs : opts.config?.workerPromptDocs;
+	const promptDocs = configPermitted ? loadPromptDocs(ctx.cwd, docPaths ?? []) : [];
+	// Absolute units come from the host resolver, never from JSON path fields.
+	// Pi still controls which extensions are present in the host registry.
+	const extensionPaths = configPermitted ? (opts.extensionPaths ?? []) : [];
 	const workerReminder = createWorkerReminderRuntime();
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
@@ -516,9 +516,9 @@ export async function openWorkerSession(opts: {
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
-		// Writing guidance is always active for trusted projects. The reviewer
+		// Writing guidance follows permitted Slate settings. The reviewer
 		// charter is not trust-gated because it is slate's own constant.
-		appendSystemPrompt: [workerPreamble(trusted, opts.reviewerCharter === true), ...promptDocs],
+		appendSystemPrompt: [workerPreamble(configPermitted, opts.reviewerCharter === true), ...promptDocs],
 	});
 	await loader.reload();
 	const loaded = loader.getExtensions();

@@ -2,8 +2,8 @@
 
 Draft pull request mechanics for the track-based workflow (see
 track-workflow.md in this directory). This document applies ONLY when
-`workflow.draftPRs` is enabled in the project's `slate.json` (default:
-false). When it is disabled, the workflow asks no publishing-mode question and
+`workflow.draftPRs` is enabled in home or trusted project `slate.json`
+(default: false). When it is disabled, the workflow asks no publishing-mode question and
 creates no pull request. The research-log lifecycle in that mode is owned by
 track-workflow.md § Session handoff and the research log.
 

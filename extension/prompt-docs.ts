@@ -6,8 +6,8 @@
  * orchestrator docs while orchestrator mode is on (mode.ts), worker docs
  * into every worker session (worker.ts). Each role's always-loaded surface
  * then carries only what that role needs (context-as-RAM discipline, P10).
- * Both lists default to EMPTY, and callers gate the reads behind project
- * trust — an untrusted project never gets its files injected into prompts.
+ * Both lists default to EMPTY. Callers require project trust or the loader's
+ * home-only configuration. The loader resolves paths against their source.
  * Missing/unreadable files and malformed config entries are skipped
  * silently, so a configured setup works before the docs exist.
  */

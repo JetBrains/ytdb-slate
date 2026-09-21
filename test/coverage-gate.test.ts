@@ -635,7 +635,7 @@ test("run-tests makes native and real-Pi host processes mandatory, isolated, exh
   const calls = join(root, "node-calls.txt");
   const fakeNode = join(bin, "node");
   writeFileSync(fakeNode, `#!/bin/sh
-printf 'TMPDIR=%s JITI=%s ARGS=%s\\n' "$TMPDIR" "$JITI_FS_CACHE" "$*" >> ${JSON.stringify(calls)}
+printf 'TMPDIR=%s JITI=%s AGENT=%s ARGS=%s\\n' "$TMPDIR" "$JITI_FS_CACHE" "$PI_CODING_AGENT_DIR" "$*" >> ${JSON.stringify(calls)}
 case " $* " in
   *' --test '*)
     destination=''
@@ -666,7 +666,7 @@ printf 'VERDICT: PASS — fixture gate accepted native LCOV\\n'
   git(repo, "config", "user.name", "Gate Test");
   git(repo, "add", ".");
   git(repo, "commit", "-qm", "fixture");
-  const env = { PATH: `${bin}:${process.env.PATH ?? ""}`, TMPDIR: outerTmp };
+  const env = { PATH: `${bin}:${process.env.PATH ?? ""}`, TMPDIR: outerTmp, PI_CODING_AGENT_DIR: join(root, "personal-agent-must-not-be-used") };
   const passed = command(repo, "bash", ["verification/run-tests.sh"], env);
   assert.equal(passed.status, 0, `${passed.stdout}\n${passed.stderr}`);
   assert.match(passed.stdout, /GATE INPUT: TN:native-only/);
@@ -683,6 +683,9 @@ printf 'VERDICT: PASS — fixture gate accepted native LCOV\\n'
   assert.doesNotMatch(host, /smoke\.test\.ts|new\/discovered\.test\.ts/);
   assert.match(native, /native-tmp/);
   assert.match(host, /host-tmp/);
+  assert.match(native, /AGENT=\S+\/native-agent /);
+  assert.match(host, /AGENT=\S+\/host-agent /);
+  assert.doesNotMatch(native + host, /personal-agent-must-not-be-used/);
 
   writeFileSync(calls, "");
   writeFileSync(join(root, "host-fail"), "fail");

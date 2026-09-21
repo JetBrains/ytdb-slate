@@ -1,6 +1,6 @@
 # Orchestrator context budget
 
-`contextBudget` in the project's `slate.json` sets the ABSOLUTE
+`contextBudget` in home or trusted project `slate.json` sets the ABSOLUTE
 token count at which Slate pauses the orchestrator and prepares the
 fresh-session handoff. It replaces the deprecated percentage knob.
 This document is reference documentation, not workflow doctrine.
@@ -39,12 +39,16 @@ job is to stop the orchestrator before that happens.
   models, preserving continuity with the previous 40%-of-1M default
   on flagship Claude.
 
-## Configuration (`.pi/slate.json`)
+## Configuration
 
-`contextBudget` lives in `.pi/slate.json` and, like the rest of
-that file, is honored **only in trusted projects** — untrusted
-projects load no project config, so the built-in defaults apply. It
-accepts a bare positive integer — shorthand for `{"tokens": N}` —
+Set `contextBudget` in home `<getAgentDir()>/slate.json` or project
+`.pi/slate.json`. Project values apply only when the project is trusted.
+Objects merge recursively before budget validation. Arrays, scalar values,
+and explicit `null` replace the home value. Untrusted projects use home
+preferences over the built-in defaults. The [README](../README.md#configuration)
+defines file locations and error handling.
+
+The setting accepts a bare positive integer, shorthand for `{"tokens": N}`,
 or an object:
 
 ```json
@@ -117,9 +121,9 @@ half-window floor keeps small-window models usable.
 ## Writing-reminder cadence
 
 The effective context budget does not set the hidden writing-reminder cadence.
-In every trusted project with orchestrator mode active, Slate counts completed
-turns. The default interval is 4 turns. The configured range is 1 through 20
-turns. The `writing.remindTurns` key sets the interval.
+With orchestrator mode active, Slate counts completed turns if the project is
+trusted or a home configuration file exists. The default interval is 4 turns.
+The configured range is 1 through 20 turns. The `writing.remindTurns` key sets the interval.
 
 The `writing.remindOnFinding` key enables a trigger after a measured turn with a
 model-visible finding. The trigger defaults to `true`. The `writing.findings`
@@ -132,7 +136,7 @@ next-turn delivery. Slate counts aborted completed turns. It does not count a
 provider retry attempt. An abort after a tool turn does not reopen the response
 round. The counter restarts after delivery. A trusted handoff sets `forceNext`,
 which bypasses the turn cadence on the next eligible turn. It does not bypass
-trust, orchestrator mode, or the pause gate.
+the Slate configuration permission, orchestrator mode, or the pause gate.
 
 The current hidden message has a checked worst case of 1,845 UTF-8 bytes. The
 2,000-byte bound leaves a 155-byte reserve. The case includes the header, the
@@ -193,7 +197,7 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 3,637 | 12 |
 | trusted shipped-default doctrine | 5 | 8,447 | 86 |
-| untrusted doctrine | 4 | 2,713 | 44 |
+| untrusted doctrine without a home configuration file | 4 | 2,713 | 44 |
 | draft pull requests, shipped policy | 6 | 8,614 | 88 |
 | capped workers, shipped policy | 5 | 9,794 | 96 |
 | draft plus capped workers | 6 | 9,961 | 98 |
@@ -211,6 +215,12 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | runtime boundary plus draft, routing recommendations, and capped workers | 6 | 25,675 | 97 |
 | same boundary composition plus deferred issues | 6 | 25,749 | 98 |
 | valid shipped policy plus 88 capped worker tools | 6 | 27,660 | 181 |
+
+An untrusted session with an empty home `slate.json` receives the same doctrine
+as the trusted shipped-default fixture above. It includes routing and writing
+rules. `test/config-loading.test.ts` renders both through the real entry hooks
+and checks that equality. Home preferences can change this size, just as trusted
+project preferences can.
 
 The canonical maximal baseline uses all seven shipped logical definitions, all
 three workflow options, and the fixed capped worker roster. Its five-percent
