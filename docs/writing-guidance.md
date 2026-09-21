@@ -49,8 +49,9 @@ accuracy, structure or completeness at all.
 
 ## Configuration
 
-Writing guidance and reminders need no enable switch. They are active in every
-trusted project while orchestrator mode is active.
+Writing guidance and reminders need no enable switch. While orchestrator mode
+is active, they apply when the project is trusted or a home configuration file
+exists.
 
 Slate still accepts `writing.check` and `writing.remind` for compatibility.
 They are ignored writing keys and have no effect. Remove them from `slate.json`.
@@ -80,18 +81,21 @@ section in the hidden reminder. Measurement and the status line continue when
 it is `false`. Unknown keys under `writing` also warn and are ignored. The validator is `sanitizeWritingConfig` in
 `extension/writing.ts`.
 
-Slate reads project config only for a trusted project. The doctrine, worker
-preamble, status, and reminder paths also check trust. An untrusted project
-receives none of this writing guidance.
+Slate reads home `<getAgentDir()>/slate.json` before trusted project config.
+Nested writing settings merge, with project values taking precedence.
+The doctrine, worker preamble, status, and reminders use that same permitted
+configuration. Untrusted projects cannot supply writing settings.
+Without a home file, untrusted projects receive no writing guidance.
+The [README](../README.md#configuration) defines the file and merge rules.
 
-Trusted orchestrator sessions receive four writing and design surfaces:
+Sessions with permitted Slate settings receive four writing and design surfaces:
 
 1. **The writing doctrine rule.** One numbered rule states the writing
    convention and cites this file by absolute path.
 2. **The design doctrine rule.** A final numbered rule requires the
    simplest-solution requirement, outcome-focused user-approved scope, and
    self-contained design updates.
-3. **The worker preamble sentence.** Every trusted worker thread receives one
+3. **The worker preamble sentence.** Every worker with permitted settings receives one
    extra sentence of writing guidance in its preamble.
 4. **The turn status line.** In an interactive session, the Slate status line
    gains `writing <n> fail, <m> style / <w> turns`. The default window is ten
@@ -171,7 +175,7 @@ session-file path.
 Every reminder gate must be open:
 
 - orchestrator mode is on
-- the project is trusted
+- the project is trusted or a home configuration file exists
 - Slate is not paused
 - the cadence or finding trigger is ready, or a handoff forces the next reminder
 - no reminder has been sent in the current response round

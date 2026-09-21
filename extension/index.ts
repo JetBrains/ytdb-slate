@@ -23,18 +23,19 @@
  *                 failover fallbacks (what a new worker thread defaults to)
  *   logical-model-runtime.ts — frozen parent-session policy and recovery state
  *
- * Optional project configuration lives at `<config dir>/slate.json`. Slate reads
- * it only for a trusted project. `router.models` uses include, add, replace, and
- * exclude lists of provider-free logical names. `router.compressor.models` is an
+ * Optional home configuration lives at `<agent dir>/slate.json`. Trusted project
+ * configuration at `<config dir>/slate.json` overrides it recursively.
+ * `router.models` uses include, add, replace, and exclude lists of provider-free
+ * logical names. `router.compressor.models` is an
  * independent ordered list. Legacy physical router, episodeModel, and
  * modelFailover keys are reported and ignored without migration. Context-budget,
  * worker-extension, workflow, prompt, cache, request-throttle, and writing
  * settings remain independent.
  */
 
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_DIR_NAME, getAgentDir, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { loadConfig, permitsSlateConfig } from "./config.ts";
 import type { CompressorRetryPolicy } from "./logical-model-adapters.ts";
 import { RecoveryOwnership } from "./logical-model-recovery.ts";
 import { createBaseModelTracker, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
@@ -47,7 +48,6 @@ import {
 	sanitizeWorkflowConfig,
 	SlateStore,
 	warnRemovedCacheKeyShards,
-	type SlateConfig,
 } from "./state.ts";
 import { createRequestThrottle, sanitizeRequestThrottle } from "./request-throttle.ts";
 import { createSessionPromptCacheKey, ThreadManager, type ThreadSessionScope } from "./threads.ts";
@@ -59,28 +59,6 @@ import {
 	type WorkerExtensionSet,
 } from "./worker-extensions.ts";
 import { sanitizeWritingConfig } from "./writing.ts";
-
-function loadConfig(cwd: string, warn: (message: string) => void): SlateConfig {
-	const file = join(cwd, CONFIG_DIR_NAME, "slate.json");
-	try {
-		if (!existsSync(file)) return {};
-		if (existsSync(file)) {
-			// JSON.parse accepts any JSON value; only a non-null plain object is a
-			// usable config — a literal `null`, array, or scalar would crash
-			// consumers, so anything else falls through to defaults, silently,
-			// like any other malformed config.
-			const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-			if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-				return parsed as SlateConfig;
-			}
-		}
-	} catch {
-		warn(`slate: ${CONFIG_DIR_NAME}/slate.json could not be parsed. Logical model policy is blocked.`);
-		return { router: null };
-	}
-	warn(`slate: ${CONFIG_DIR_NAME}/slate.json must contain one JSON object. Logical model policy is blocked.`);
-	return { router: null };
-}
 
 export default function (pi: ExtensionAPI) {
 	const store = new SlateStore(pi);
@@ -135,11 +113,10 @@ export default function (pi: ExtensionAPI) {
 		logicalSessionEpoch += 1;
 		await manager.disposeAll();
 		logicalRuntime?.resetPreferences();
-		// Trust gate: project config steers prompts, models, and tool lists, so
-		// it is honored only for trusted projects; untrusted → built-in defaults.
+		// Select permitted Slate sources without changing pi project trust.
 		const trusted = ctx.isProjectTrusted();
 		const warn = (msg: string) => (ctx.hasUI ? ctx.ui.notify(msg, "warning") : console.warn(msg));
-		const config = trusted ? loadConfig(ctx.cwd, warn) : {};
+		const config = loadConfig(ctx.cwd, trusted, warn);
 		try {
 			compressorRetryPolicy = Object.freeze(SettingsManager.create(ctx.cwd, getAgentDir(), {
 				projectTrusted: trusted,
@@ -185,7 +162,7 @@ export default function (pi: ExtensionAPI) {
 		baseModel.seed(ctx.model, ctx.model ? readLiveEffort(pi) : undefined);
 		// One policy and preference owner for this parent session. Later Track 9
 		// consumers must receive this same object rather than resolving again.
-		logicalRuntime = createLogicalRuntime({ trusted, projectConfig: config, warn, ownership: lifecycleRecoveryOwnership });
+		logicalRuntime = createLogicalRuntime({ trusted: permitsSlateConfig(config, trusted), projectConfig: config, warn, ownership: lifecycleRecoveryOwnership });
 		for (const error of logicalRuntime.criticalErrors) warn(`slate: logical model policy blocked — ${error}`);
 		const selected = ctx.model
 			? logicalRuntime.reverseMap({ provider: ctx.model.provider, model: ctx.model.id })

@@ -21,7 +21,9 @@ export interface LogicalPolicyResolution {
 	warnings: readonly string[];
 }
 export interface ResolveLogicalPolicyInput {
+	// Permission to consume this Slate view, not pi's project-trust decision.
 	trusted: boolean;
+	// Historical name. Production passes the permitted home/project merge.
 	projectConfig?: unknown;
 }
 

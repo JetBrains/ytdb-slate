@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { loadConfig, permitsSlateConfig } from "../extension/config.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
 import { ThreadManager } from "../extension/threads.ts";
 import { registerSlateTools } from "../extension/tools.ts";
 import { openWorkerSession, type WorkerSession } from "../extension/worker.ts";
+import { createWorkerExtensionResolver } from "../extension/worker-extensions.ts";
 
 function context(cwd: string): ExtensionContext {
   return {
@@ -60,6 +62,89 @@ const tool = (name: string, text: string) => `({
   parameters: { type: "object", properties: {}, additionalProperties: false },
   async execute() { return { content: [{ type: "text", text: ${JSON.stringify(text)} }], details: {} }; }
 })`;
+
+test("home settings reach a real manager worker without trusting project settings or instructions", { timeout: 10000 }, async (t) => {
+  await isolatedWorkerTest(t, async (root) => {
+    const agent = process.env.PI_CODING_AGENT_DIR!;
+    mkdirSync(agent, { recursive: true });
+    mkdirSync(join(root, ".pi"), { recursive: true });
+    const settings = '{"defaultProvider":"test","defaultModel":"home-default"}';
+    writeFileSync(join(agent, "settings.json"), settings);
+    writeFileSync(join(agent, "worker.md"), "HOME WORKER DOCUMENT");
+    writeFileSync(join(agent, "AGENTS.md"), "HOME AGENTS CONTEXT");
+    writeFileSync(join(root, "AGENTS.md"), "PROJECT AGENTS CONTEXT");
+    writeFileSync(join(root, ".pi", "SYSTEM.md"), "UNTRUSTED SYSTEM OVERRIDE");
+    writeFileSync(join(root, ".pi", "settings.json"), '{"defaultModel":"untrusted-default"}');
+    writeFileSync(join(root, ".pi", "slate.json"), '{"workerPromptDocs":["evil.md"],"router":null}');
+    const marker = join(root, "home-worker.txt");
+    const path = fixture(root, `import { writeFileSync } from "node:fs";
+export default function (pi) {
+  pi.registerTool(${tool("home_fixture", "home extension")});
+  pi.on("session_start", (_event, ctx) => {
+    writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ trusted: ctx.isProjectTrusted(), prompt: ctx.getSystemPrompt() }));
+    throw new Error("stop before any provider request");
+  });
+}`);
+    writeFileSync(join(agent, "slate.json"), JSON.stringify({ workerPromptDocs: ["worker.md"], workerExtensions: ["fixture"], router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, costRating: 50, effort: "off", preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }] } } }));
+    const ctx = context(root);
+    ctx.isProjectTrusted = () => false;
+    const config = loadConfig(root, false, assert.fail);
+    const host = { getAllTools: () => [{ name: "home_fixture", description: "home extension", sourceInfo: { source: "fixture", origin: "path", path } }] } as unknown as ExtensionAPI;
+    const extensions = createWorkerExtensionResolver(host, () => config.workerExtensions ?? [], assert.fail);
+    assert.deepEqual(extensions().paths, [path]);
+    const manager = new ThreadManager(
+      new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI), config, extensions,
+      createLogicalRuntime({ trusted: permitsSlateConfig(config, false), projectConfig: config }),
+    );
+    try {
+      const result = await manager.dispatch({ model: "fixture", reason: "home config fixture", task: "capture startup", type: "general" }, ctx, undefined);
+      assert.equal(result.episode.status, "failed");
+      assert.match(result.episodeText, /stop before any provider request/);
+      const captured = JSON.parse(readFileSync(marker, "utf8"));
+      assert.equal(captured.trusted, false);
+      assert.match(captured.prompt, /HOME WORKER DOCUMENT/);
+      assert.match(captured.prompt, /HOME AGENTS CONTEXT/);
+      assert.match(captured.prompt, /PROJECT AGENTS CONTEXT/);
+      assert.match(captured.prompt, /Do not use semicolons or contractions/);
+      assert.doesNotMatch(captured.prompt, /UNTRUSTED SYSTEM OVERRIDE/);
+      assert.equal(readFileSync(join(agent, "settings.json"), "utf8"), settings);
+    } finally { await manager.disposeAll(); }
+  });
+});
+
+test("trusted workers preserve home and project AGENTS context without home Slate settings", { timeout: 10000 }, async (t) => {
+  await isolatedWorkerTest(t, async (root) => {
+    const agent = process.env.PI_CODING_AGENT_DIR!;
+    mkdirSync(agent, { recursive: true });
+    writeFileSync(join(agent, "AGENTS.md"), "HOME AGENTS CONTEXT");
+    writeFileSync(join(root, "AGENTS.md"), "PROJECT AGENTS CONTEXT");
+    const config = loadConfig(root, true, assert.fail);
+    const session = await openWorkerSession({ ctx: context(root), config });
+    try {
+      assert.match(session.systemPrompt, /HOME AGENTS CONTEXT/);
+      assert.match(session.systemPrompt, /PROJECT AGENTS CONTEXT/);
+      assert.equal(existsSync(join(agent, "slate.json")), false);
+    } finally { await session.shutdownWorker(); }
+  });
+});
+
+test("standalone untrusted workers reject JSON permission flags and supplied content", { timeout: 10000 }, async (t) => {
+  await isolatedWorkerTest(t, async (root) => {
+    const doc = join(root, "role.md");
+    const marker = join(root, "extension-ran");
+    writeFileSync(doc, "FORGED WORKER DOCUMENT");
+    const path = fixture(root, `import { writeFileSync } from "node:fs"; export default function () { writeFileSync(${JSON.stringify(marker)}, "ran"); }`);
+    const ctx = context(root);
+    ctx.isProjectTrusted = () => false;
+    const config = JSON.parse('{"trusted":true,"homeOnly":true}');
+    config.workerPromptDocs = [doc];
+    const session = await openWorkerSession({ ctx, config, promptDocs: [doc], extensionPaths: [path] });
+    try {
+      assert.doesNotMatch(session.agent.state.systemPrompt, /FORGED WORKER DOCUMENT|Do not use semicolons or contractions/);
+      assert.equal(existsSync(marker), false);
+    } finally { await session.shutdownWorker(); }
+  });
+});
 
 test("real worker startup activates factory and session_start tools, keeps Slate tools excluded, and shuts down once", { timeout: 10000 }, async (t) => {
   await isolatedWorkerTest(t, async (root, reports) => {

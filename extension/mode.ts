@@ -28,6 +28,7 @@ import {
 	TRACK_WORKFLOW_DOC,
 	WRITING_GUIDANCE_DOC,
 } from "./paths.ts";
+import { permitsSlateConfig } from "./config.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import {
 	displayThreadType,
@@ -341,10 +342,10 @@ threads execute. Rules:
 /**
  * Project doctrine extension (config doctrineExtraPath): read at prompt-
  * assembly time so edits are picked up live, appended AFTER the numbered
- * rules under a labeled section, headed by the configured (cwd-relative)
+ * rules under a labeled section, headed by the source-resolved
  * path as given in config. Missing/unreadable/empty file or a non-string
  * path → no block, silently (matches the malformed-config behavior of
- * prompt-docs.ts). Never injected for untrusted projects. Blocks carry NO
+ * prompt-docs.ts). Requires permitted Slate configuration. Blocks carry NO
  * separators — the call site prefixes them, like the prompt-doc blocks.
  */
 function loadDoctrineExtra(cwd: string, config: SlateConfig, trusted: boolean): string[] {
@@ -432,7 +433,7 @@ export function registerSlateMode(
 	let pendingErrorTurn = false;
 	let previousTurnHadTools = false;
 
-	const writingIsActive = (ctx: ExtensionContext): boolean => store.orchestratorMode && ctx.isProjectTrusted();
+	const writingIsActive = (ctx: ExtensionContext): boolean => store.orchestratorMode && permitsSlateConfig(getConfig(), ctx.isProjectTrusted());
 	const writingIsVisible = (ctx: ExtensionContext): boolean => ctx.hasUI && writingIsActive(ctx);
 
 	const updateWidget = () => {
@@ -545,11 +546,8 @@ export function registerSlateMode(
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (!store.orchestratorMode) return;
 		const config = getConfig();
-		// Trust gate: project-derived prompt content (role docs, doctrine extra,
-		// review-perspectives pointer) is injected only for trusted projects.
-		// Config itself is already trust-gated at load (index.ts); checking again
-		// here keeps the file reads safe regardless of where config came from.
-		const trusted = ctx.isProjectTrusted();
+		// Untrusted callers need the loader's home-only view, not a JSON flag.
+		const trusted = permitsSlateConfig(config, ctx.isProjectTrusted());
 		// Doc CONTENTS are re-read from disk on every agent start, so edits are
 		// picked up live; the doc PATH LIST comes from config, which reloads
 		// only on session_start (index.ts).
@@ -625,7 +623,7 @@ export function registerSlateMode(
 			!writingReminderGateOpen(
 				{
 					orchestratorMode: store.orchestratorMode,
-					trusted: ctx.isProjectTrusted(),
+					trusted: permitsSlateConfig(getConfig(), ctx.isProjectTrusted()),
 					paused: store.paused,
 				},
 				runtime.sentThisRound,

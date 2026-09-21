@@ -436,6 +436,7 @@ export class ThreadManager {
 					model: args.open.model,
 					tools: args.tools,
 					promptDocs: this.config.workerPromptDocs,
+					config: this.config,
 					extensionPaths: extensions.paths,
 					extensionToolNames: extensions.toolNames,
 					reviewerCharter: isJudgementThreadType(type),

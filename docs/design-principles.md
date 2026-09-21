@@ -218,7 +218,7 @@ track with no proved focus area uses the same ordinary selection rule.
 Repo-local note (not from the report): the P7 guard was originally
 absolute — workers loaded no extensions, so Slate's `thread` tool simply
 never existed for them. The optional `workerExtensions` key (`slate.json`,
-trusted projects only — see the README config reference) relaxes that: it
+home or trusted project settings — see the README config reference) relaxes that: it
 whitelists extensions the host session has ALREADY loaded and loads them
 into every worker. The guard therefore no longer rests on "workers load
 nothing" but on a narrower, more precise invariant: no worker can ever
@@ -333,11 +333,12 @@ the load-on-demand discipline the extension itself prescribes:
 
 The same discipline applies to worker guidance. Slate adds its compact
 reviewer evidence charter only to reviewer and adversarial thread types.
-`prompt-docs.ts` injects consuming-project role guidance (orchestrator via
+`prompt-docs.ts` injects configured role guidance (orchestrator via
 `before_agent_start`, workers via `appendSystemPrompt`). Defaults are
-compiled into `prompt-docs.ts`; a consuming project supplies its own
+compiled into `prompt-docs.ts`. Home or trusted project settings supply
 documents through the optional `slate.json` keys `orchestratorPromptDocs`
-/ `workerPromptDocs`. Each role's always-loaded surface carries only its
+and `workerPromptDocs`. The loader resolves home paths from the agent directory
+and project paths from the project root. Each role's always-loaded surface carries only its
 own rules; the rest stays on demand.
 
 Injecting this full document every turn would be self-defeating: it would

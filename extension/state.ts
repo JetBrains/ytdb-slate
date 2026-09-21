@@ -779,13 +779,13 @@ export interface SlateConfig {
 	pauseThresholdPercent?: number; // DEPRECATED: legacy percent-based auto-pause (default 40); applies only when set AND contextBudget is absent or entirely invalid (invalid sanitizes to absent — a partially invalid object stays budget mode)
 	contextBudget?: number | ContextBudgetObject; // absolute orchestrator token budget; bare number = { tokens: N }; {} opts into built-in defaults (256k, 400k for anthropic/*) — see handoff.ts
 	orchestratorModeDefault?: boolean; // seed orchestrator mode ON for fresh interactive sessions (unsaved until first real mutation)
-	orchestratorPromptDocs?: string[]; // role-guideline docs appended to the orchestrator prompt (cwd-relative paths, default none)
-	workerPromptDocs?: string[]; // role-guideline docs appended to worker system prompts (cwd-relative paths, default none)
+	orchestratorPromptDocs?: string[]; // role-guideline docs appended to the orchestrator prompt (source-relative paths resolved by config.ts)
+	workerPromptDocs?: string[]; // role-guideline docs appended to worker system prompts (source-relative paths resolved by config.ts)
 	workflow?: WorkflowConfig | SanitizedWorkflowConfig; // raw or session-sanitized workflow controls (both default false)
 	modelFailover?: unknown; // legacy key, ignored visibly by logical policy resolution
 	preserveGlobalModelDefault?: boolean; // restore the user's GLOBAL pi model defaults (defaultProvider/defaultModel/defaultThinkingLevel) after a slate-initiated model switch — failover and handoff adoption (default true; only an explicit false disables it) — see model-default.ts
-	doctrineExtraPath?: string; // cwd-relative markdown appended to the orchestrator doctrine (project-doctrine section)
-	reviewPerspectivesPath?: string; // cwd-relative markdown with additional project-specific review perspectives
+	doctrineExtraPath?: string; // source-relative markdown appended to the orchestrator doctrine
+	reviewPerspectivesPath?: string; // source-relative markdown with additional review perspectives
 	router?: LogicalRouterConfig; // trusted logical-model policy, validated as one blocking unit
 	writing?: WritingConfig; // always-active writing guidance and configurable reminder cadence — see writing.ts
 }
