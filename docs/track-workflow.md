@@ -88,10 +88,11 @@ adversarial review is required, validation and final approval form one gate.
 <!-- design-review-policy:end -->
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
-[pr-publishing.md](pr-publishing.md). Ask once before implementation whether the
-change uses one pull request per track or one umbrella pull request. When
-publishing is disabled, ask no pull-request-mode question. The retained research
-log is the durable workflow record.
+[pr-publishing.md](pr-publishing.md) and resolve the mode before implementation.
+Apply the user-decision-reuse rule below. Reuse an applicable explicit answer,
+and ask only if the mode remains unresolved. When publishing is disabled, ask
+no pull-request-mode question. The retained research log is the durable workflow
+record.
 
 ## Track size and split
 
@@ -217,6 +218,48 @@ The scope-exception rule and the self-contained message rule govern every
 workflow phase. Their position beside re-confirmation does not limit them to
 pre-implementation work.
 
+<!-- user-decision-reuse:begin -->
+Before asking the user for information or a decision, the orchestrator assesses
+applicable evidence and prior explicit user answers. Use a fact that applicable
+evidence or a prior answer already establishes. Do not ask the user for that fact
+again while its source remains applicable. Evidence can establish facts. It
+cannot grant user authorization.
+
+A prior answer applies only when all of these conditions hold:
+
+1. The answer covers the current fact or decision and the relevant part of its
+   scope.
+2. Its stated and implied conditions remain current. New evidence does not
+   materially change the available choices or their consequences.
+3. Every required prerequisite was complete when the user gave the answer.
+   Prerequisites include any investigation or review that must precede the
+   decision.
+
+A clear correction supersedes the earlier answer for the part it corrects. Two
+answers that conflict without a clear correction leave that part unresolved.
+Reuse every covered part and ask only for the unresolved remainder. A material
+change alters a choice, scope, condition, or consequence. Reopen only the part
+that the material change affects, and explain that change before asking again.
+
+Reassess evidence and answer applicability at every existing reassessment
+boundary. These boundaries include new-track planning, focus reconfirmation,
+and resume reconciliation. Reassessment is mandatory, but it does not require
+a repeated question when the prior answer still applies. It also does not grant
+automatic approval for a changed decision.
+
+This rule governs every workflow instruction to ask the user. A more specific
+ask instruction sets timing or content. It does not require a question about a
+fact or decision that this rule already settles.
+
+Batch independent questions when one request reduces user effort. Do not move a
+question before an investigation or review that it depends on. Record the
+source answer and its applicable scope in the existing workflow record.
+Independent change and track risk records remain separate assessments, but they
+may cite the same applicable approval. Reuse never removes a required review,
+changes decision authority, or turns planning approval into track or final
+acceptance. Final change acceptance remains a separate blocking decision.
+<!-- user-decision-reuse:end -->
+
 <!-- requirement-investigation-workflow:begin -->
 After two ordinary fix rounds leave the same approved requirement incomplete,
 stop repair dispatch before another repair. The requirement is the exact
@@ -245,8 +288,9 @@ verbatim retention of every tool result.
 
 Before each track implementation, assess whether the approved design and
 completed design gates cover the track's proved areas and planned behavior. A
-new track created after the original confirmation gate needs user approval of
-its independent risk record before implementation starts. If that planning
+new track created after the original confirmation gate needs an applicable
+user approval of its independent risk record before implementation starts. If
+that planning
 newly proves a DESIGN-TRIGGERING area, enter or re-enter the design sequence
 before the affected implementation. Present the necessary new, revised, or
 materially clarified high-level design, its delta, and the reason to the user.
@@ -431,7 +475,8 @@ Resume in this fixed order:
 4. Reconcile the declared file list, track table, coverage register, proved
    focus areas, risk record, and live diff.
 5. Re-run any stale precondition check.
-6. Continue only after answering: **What changed since the last state summary,
+6. Apply the user-decision reuse rule before asking any question.
+7. Continue only after answering: **What changed since the last state summary,
    and does it change focus, scope, or required gates?**
 
 A mismatch pauses work. Reconcile it in the log. Use the selected mode's marker
