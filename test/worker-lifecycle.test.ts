@@ -528,6 +528,70 @@ export default function (pi) {
   });
 });
 
+test("real Pi keeps independent startup failures and suppresses only their exact aggregate replay", { timeout: 30000 }, async (t) => {
+  for (const scenario of ["loader-collision", "collision", "loader", "handlers", "loader-handlers", "repeated-handlers"] as const) {
+    await t.test(scenario, { timeout: 10000 }, async (t) => {
+      await isolatedWorkerTest(t, async (root) => {
+        const controller = new AbortController();
+        const state = { cancel: () => controller.abort(), handlers: 0, shutdowns: 0 };
+        const symbol = Symbol.for(`slate-startup-reports:${root}`);
+        (globalThis as Record<symbol, unknown>)[symbol] = state;
+        const stateSource = `const state = globalThis[Symbol.for(${JSON.stringify(Symbol.keyFor(symbol))})];`;
+        const paths: string[] = [];
+        if (scenario.includes("loader")) {
+          paths.push(fixture(root, `${stateSource}
+export default function () { state.cancel(); throw new Error("LOADER_CANARY"); }`));
+        }
+        if (scenario.includes("collision")) {
+          paths.push(fixture(root, `${stateSource}
+export default function (pi) { state.cancel(); pi.registerTool(${tool("read", "collision")}); }`));
+        }
+        if (scenario.includes("handlers")) {
+          paths.push(fixture(root, `${stateSource}
+export default function (pi) {
+  pi.on("session_start", () => { state.cancel(); state.handlers++; throw new Error("HANDLER_CANARY"); });
+  pi.on("session_start", () => { state.handlers++; throw new Error(${JSON.stringify(scenario === "repeated-handlers" ? "HANDLER_CANARY" : "SECOND_CANARY")}); });
+  pi.on("session_shutdown", () => { state.shutdowns++; });
+}`));
+        }
+        const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, costRating: 50, effort: "off", preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }] } } } });
+        const snapshots: unknown[] = [];
+        const store = new SlateStore({
+          appendEntry(_customType: string, data: unknown) { snapshots.push(structuredClone(data)); },
+        } as unknown as ExtensionAPI);
+        const manager = new ThreadManager(store, {}, () => ({ units: [], paths, toolNames: [] }), runtime);
+        try {
+          await assert.rejects(
+            manager.dispatch({ model: "fixture", reason: "independent startup reports", task: "must not prompt", type: "general" }, context(root), controller.signal),
+            (error: Error) => {
+              assert.match(error.message, /cancelled by the caller/);
+              assert.equal(error.message.match(/LOADER_CANARY/g)?.length ?? 0, scenario.includes("loader") ? 1 : 0);
+              assert.equal(error.message.match(/overwrite a slate or pi built-in tool/g)?.length ?? 0, scenario.includes("collision") ? 1 : 0);
+              assert.equal(error.message.match(/HANDLER_CANARY/g)?.length ?? 0, scenario === "repeated-handlers" ? 2 : scenario.includes("handlers") ? 1 : 0);
+              assert.equal(error.message.match(/SECOND_CANARY/g)?.length ?? 0, scenario.includes("handlers") && scenario !== "repeated-handlers" ? 1 : 0);
+              assert.doesNotMatch(error.message, /startup did not complete/, "the aggregate must not replay handler failures");
+              return true;
+            },
+          );
+          assert.equal(state.handlers, scenario.includes("handlers") ? 2 : 0);
+          assert.equal(state.shutdowns, scenario.includes("handlers") ? 1 : 0);
+          assert.equal(store.episodes.size, 0);
+          const episodeDir = join(root, ".pi", "slate", "episodes");
+          assert.deepEqual(existsSync(episodeDir) ? readdirSync(episodeDir) : [], []);
+          const restored = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+          assert.ok(snapshots.at(-1));
+          restored.adoptSnapshot(snapshots.at(-1) as Parameters<SlateStore["adoptSnapshot"]>[0], context(root));
+          assert.equal(restored.episodes.size, 0);
+          assert.equal(restored.threads.get("t1")?.episodeId, undefined);
+        } finally {
+          await manager.disposeAll();
+          delete (globalThis as Record<symbol, unknown>)[symbol];
+        }
+      });
+    });
+  }
+});
+
 test("manager host cleanup and terminal cleanup share one shutdown operation", { timeout: 1000 }, async () => {
   const manager = new ThreadManager(new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI), {});
   let shutdownCalls = 0;

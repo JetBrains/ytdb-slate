@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -249,6 +249,8 @@ type MatrixScenario =
 	| "startup-rejected-open"
 	| "startup-teardown-completed-tool"
 	| "startup-caller-cancel-completed-tool"
+	| "startup-caller-cancel-no-fact"
+	| "startup-caller-cancel-fact-and-failure"
 	| "startup-assistant-then-command-error"
 	| "startup-assistant-then-ordinary-success"
 	| "compaction-then-cancel"
@@ -264,6 +266,8 @@ interface MatrixState {
 	startupWorkCompleted?: boolean;
 	/** Set when the independent startup handler of the rejected open ran. */
 	independentStartupFailure?: boolean;
+	/** Entered the startup failure barrier used by cancellation-order scenarios. */
+	startupFailureEntered?: () => void;
 	/** Event barriers for teardown during an admitted startup continuation. */
 	secondRequestEntered?: () => void;
 	secondRequestGate?: Promise<void>;
@@ -354,7 +358,7 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 			// The accepted startup request runs one tool. Its accepted continuation answers.
 			kind = state.primaryCalls === 1 ? "tool" : "text";
 		}
-		if (!summarizing && (state.scenario === "startup-teardown-completed-tool" || state.scenario === "startup-caller-cancel-completed-tool") && provider === "matrix-primary") {
+		if (!summarizing && (state.scenario === "startup-teardown-completed-tool" || state.scenario === "startup-caller-cancel-completed-tool" || state.scenario === "startup-caller-cancel-fact-and-failure") && provider === "matrix-primary") {
 			kind = state.primaryCalls === 1 ? "tool" : "text";
 		}
 		if (!summarizing && (state.scenario === "later-effort" || state.scenario === "compaction" || state.scenario === "compaction-refusal") && provider === "matrix-primary" && state.primaryCalls === 1) kind = "tool";
@@ -552,6 +556,7 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 	const secondRequestEntered = deferred();
 	const secondRequestGate = deferred();
 	const startupOpenGate = deferred();
+	const startupFailureEntered = deferred();
 	const startupToolEventEntered = deferred();
 	const startupToolEventGate = deferred();
 	const ordinaryRequestEntered = deferred();
@@ -577,6 +582,15 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 			startupOpenGate: startupOpenGate.promise,
 			startupToolEventEntered: startupToolEventEntered.resolve,
 			startupToolEventGate: startupToolEventGate.promise,
+		} : {}),
+		...(scenario === "startup-caller-cancel-no-fact" || scenario === "startup-caller-cancel-fact-and-failure" ? {
+			startupFailureEntered: startupFailureEntered.resolve,
+			startupOpenGate: startupOpenGate.promise,
+			shutdowns: 0,
+			...(scenario === "startup-caller-cancel-fact-and-failure" ? {
+				startupToolEventEntered: startupToolEventEntered.resolve,
+				startupToolEventGate: startupToolEventGate.promise,
+			} : {}),
 		} : {}),
 		...(scenario === "startup-assistant-then-ordinary-success" ? {
 			ordinaryRequestEntered: ordinaryRequestEntered.resolve,
@@ -660,6 +674,18 @@ export default function (pi: ExtensionAPI) {
       await state.startupOpenGate;
       return;
     }
+    if (state.scenario === "startup-caller-cancel-no-fact") {
+      state.startupFailureEntered();
+      await state.startupOpenGate;
+      throw new Error("later startup failure");
+    }
+    if (state.scenario === "startup-caller-cancel-fact-and-failure") {
+      state.startupFailureEntered();
+      pi.setThinkingLevel("max");
+      pi.sendUserMessage("startup work before later failure");
+      await state.startupOpenGate;
+      throw new Error("later startup failure");
+    }
     if (state.scenario === "startup-refusal") {
       // A trusted worker extension sends a drifted request from session_start. The
       // manager has no event subscriber yet, so only the request owner observes it.
@@ -686,7 +712,7 @@ export default function (pi: ExtensionAPI) {
     throw new Error("independent startup handler failed");
   });
   pi.on("tool_execution_end", async () => {
-    if (state.scenario !== "startup-caller-cancel-completed-tool") return;
+    if (state.scenario !== "startup-caller-cancel-completed-tool" && state.scenario !== "startup-caller-cancel-fact-and-failure") return;
     state.startupWorkCompleted = true;
     state.startupToolEventEntered();
     await state.startupToolEventGate;
@@ -697,7 +723,7 @@ export default function (pi: ExtensionAPI) {
     pi.sendUserMessage("post-closure recursive request must not reach Pi");
   });
   pi.on("session_shutdown", () => {
-    if (state.scenario !== "startup-teardown-completed-tool") return;
+    if (state.scenario !== "startup-teardown-completed-tool" && state.scenario !== "startup-caller-cancel-no-fact" && state.scenario !== "startup-caller-cancel-fact-and-failure") return;
     state.shutdowns += 1;
     throw new Error("independent shutdown cleanup failed");
   });
@@ -776,7 +802,7 @@ export default function (pi: ExtensionAPI) {
 						: `run ${scenario}`,
 			},
 			ctx,
-			scenario === "compaction-then-cancel" || scenario === "startup-caller-cancel-completed-tool"
+			scenario === "compaction-then-cancel" || scenario === "startup-caller-cancel-completed-tool" || scenario === "startup-caller-cancel-no-fact" || scenario === "startup-caller-cancel-fact-and-failure"
 				? cancelController.signal
 				: undefined,
 		);
@@ -786,6 +812,12 @@ export default function (pi: ExtensionAPI) {
 			() => { dispatchSettled = true; },
 		);
 		let result;
+		const installDisposalFailure = async () => {
+			await waitUntil(() => (manager as unknown as { live: Map<string, { dispose?: () => void }> }).live.size === 1, "the live worker before disposal injection");
+			const live = [...(manager as unknown as { live: Map<string, { dispose?: () => void }> }).live.values()][0];
+			assert.ok(live);
+			live.dispose = () => { throw new Error("independent disposal cleanup failed"); };
+		};
 		if (scenario === "startup-teardown-completed-tool") {
 			await within(secondRequestEntered.promise, "the admitted startup continuation after its completed tool", 5_000);
 			let teardownSettled = false;
@@ -811,6 +843,51 @@ export default function (pi: ExtensionAPI) {
 			startupOpenGate.resolve();
 			result = await within(dispatch, `${scenario} production ThreadManager dispatch`, 8_000);
 			await manager.disposeAll();
+		} else if (scenario === "startup-caller-cancel-no-fact") {
+			await within(startupFailureEntered.promise, "the no-fact startup failure barrier", 5_000);
+			await installDisposalFailure();
+			cancelController.abort();
+			startupOpenGate.resolve();
+			let rejectedError: unknown;
+			try {
+				await within(dispatch, `${scenario} production ThreadManager dispatch`, 8_000);
+			} catch (error) {
+				rejectedError = error;
+			}
+			assert.ok(rejectedError instanceof Error, "the no-fact cancellation must reject the caller");
+			await manager.disposeAll();
+			const episodeDir = join(project, ".pi", "slate", "episodes");
+			const episodeFileCount = existsSync(episodeDir)
+				? readdirSync(episodeDir).filter((name) => name.endsWith(".md")).length
+				: 0;
+			const restored = new SlateStore({ appendEntry() {} } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const durableSnapshot = snapshots.at(-1);
+			assert.ok(durableSnapshot, `${scenario}: a final durable snapshot exists`);
+			restored.adoptSnapshot(durableSnapshot as Parameters<SlateStore["adoptSnapshot"]>[0], ctx);
+			const transcriptDir = join(project, ".pi", "slate", "threads");
+			const transcript = readdirSync(transcriptDir)
+				.filter((name) => name.endsWith(".jsonl"))
+				.map((name) => readFileSync(join(transcriptDir, name), "utf8"))
+				.join("\n");
+			return {
+				result: undefined as never,
+				rejectedError: rejectedError as Error,
+				state,
+				restored,
+				transcript,
+				snapshotCount: snapshots.length,
+				episodeFileCount,
+				episodeBytes: undefined as never,
+				laterPrompt: undefined as never,
+			};
+		} else if (scenario === "startup-caller-cancel-fact-and-failure") {
+			await within(startupToolEventEntered.promise, "the completed startup tool before the later startup failure", 5_000);
+			await installDisposalFailure();
+			cancelController.abort();
+			startupToolEventGate.resolve();
+			startupOpenGate.resolve();
+			result = await within(dispatch, `${scenario} production ThreadManager dispatch`, 8_000);
+			await manager.disposeAll();
 		} else if (scenario === "compaction-then-cancel") {
 			await within(postCompactionEntered.promise, "the continuation that follows a successful history rewrite", 6_000);
 			assert.equal(state.compactionCalls, 1, "the rewrite must succeed before the cancellation");
@@ -827,6 +904,7 @@ export default function (pi: ExtensionAPI) {
 			await manager.disposeAll();
 		}
 
+		assert.ok(result, `${scenario}: a resolved matrix result exists`);
 		if (scenario === "compaction" || scenario === "compaction-then-cancel") {
 			assert.deepEqual(state.compactionEvents, [
 				{ phase: "start", reason: "overflow", willRetry: true },
@@ -867,7 +945,7 @@ export default function (pi: ExtensionAPI) {
 			.filter((name) => name.endsWith(".jsonl"))
 			.map((name) => readFileSync(join(transcriptDir, name), "utf8"))
 			.join("\n");
-		return { result, state, transcript, episodeBytes, laterPrompt, restored, snapshotCount: snapshots.length, episodeFileCount };
+		return { result, rejectedError: undefined as Error | undefined, state, transcript, episodeBytes, laterPrompt, restored, snapshotCount: snapshots.length, episodeFileCount };
 	} finally {
 		secondRequestGate.resolve();
 		startupOpenGate.resolve();
@@ -1106,6 +1184,46 @@ test("production ThreadManager and real Pi workers guard preflight, later-turn, 
 		assert.equal(restoredEpisode?.requestedEffort, "max");
 		assert.equal(restoredEpisode?.model, "matrix-primary/primary");
 		assert.equal(restoredEpisode?.effort, "max");
+		assert.match(restored.threads.get(result.thread.id)?.outcomeReason ?? "", /cancelled by the caller/);
+	});
+
+	await t.test("caller cancellation before later startup failure rejects with every cleanup cause and no episode", { timeout: 15_000 }, async () => {
+		const { rejectedError, state, restored, snapshotCount, episodeFileCount } =
+			await runWorkerRequestMatrixScenario("startup-caller-cancel-no-fact");
+		assert.ok(rejectedError instanceof Error);
+		assert.equal(state.primaryCalls, 0, "cancellation prevents the startup failure handler from reaching a provider");
+		assert.equal(state.toolCalls, 0);
+		assert.equal(state.shutdowns, 1, "shutdown runs once after the rejected no-fact result");
+		assert.equal(snapshotCount, 3, "queued creation, running admission, and cancelled terminal state each save once");
+		assert.equal(episodeFileCount, 0, "no episode file is written without a completed fact");
+		assert.equal(restored.episodes.size, 0);
+		assert.equal(restored.threads.get("t1")?.status, "cancelled");
+		assert.equal(restored.threads.get("t1")?.episodeId, undefined);
+		assert.match(rejectedError.message, /cancelled by the caller/);
+		for (const detail of ["later startup failure", "independent shutdown cleanup failed", "independent disposal cleanup failed"]) {
+			assert.equal(rejectedError.message.match(new RegExp(detail, "g"))?.length, 1, detail);
+		}
+	});
+
+	await t.test("caller cancellation before later startup failure retains real startup facts and separate cleanup warnings", { timeout: 15_000 }, async () => {
+		const { result, state, episodeBytes, laterPrompt, restored, episodeFileCount } =
+			await runWorkerRequestMatrixScenario("startup-caller-cancel-fact-and-failure");
+		assert.equal(state.startupWorkCompleted, true);
+		assert.equal(state.primaryCalls, 1, "the completed startup tool is the only provider request");
+		assert.equal(state.toolCalls, 1);
+		assert.equal(state.shutdowns, 1);
+		assert.equal(episodeFileCount, 1);
+		assert.equal(result.episode.status, "failed");
+		assert.match(result.thread.outcomeReason ?? "", /cancelled by the caller/);
+		assert.match(episodeBytes, /retained matrix tool result/);
+		assert.match(episodeBytes, /cancelled by the caller/);
+		assert.doesNotMatch(episodeBytes, /later startup failure|independent shutdown cleanup failed|independent disposal cleanup failed/);
+		for (const detail of ["later startup failure", "independent shutdown cleanup failed", "independent disposal cleanup failed"]) {
+			assert.equal(result.warnings.join("\n").match(new RegExp(detail, "g"))?.length, 1, detail);
+		}
+		assert.match(laterPrompt, /retained matrix tool result/);
+		assert.match(laterPrompt, /cancelled by the caller/);
+		assert.equal(restored.episodes.get(result.episode.id)?.status, "failed");
 		assert.match(restored.threads.get(result.thread.id)?.outcomeReason ?? "", /cancelled by the caller/);
 	});
 
