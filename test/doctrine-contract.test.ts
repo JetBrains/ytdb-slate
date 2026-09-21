@@ -114,7 +114,7 @@ test("logical doctrine production renders match published portable measurements"
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3566, lines: 12, paths: 0 });
   assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8376, lines: 86, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2713, lines: 44, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true } }, true, false, undefined, capped)), { portable: 9964, lines: 99, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9915, lines: 98, paths: 6 });
 });
 
 test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
@@ -347,7 +347,7 @@ test("doctrine states research-log, packet, and reviewer rules", { timeout: 5000
   assert.doesNotMatch(doctrine, /Verification or gate machinery receives the general implementation reviewer|engaged focus areas|Review every track with Reviewer I/);
 });
 
-test("rule 8 renders the exact research-log and draft-publishing tails", { timeout: 5000 }, async () => {
+test("rule 8 renders exact feature-off and enabled publishing tails", { timeout: 5000 }, async () => {
   const local = (await renderDoctrine()).replace(/\s+/g, " ");
   assert.ok(local.includes("Durable workflow records anchor in the retained repo-root research log per the workflow doc."));
   assert.doesNotMatch(local, /repo-root workflow log/);
@@ -362,8 +362,27 @@ test("rule 8 renders the exact research-log and draft-publishing tails", { timeo
   assert.ok(published.includes("Umbrella: one PR. Only user merges."));
   assert.ok(published.includes(`Mechanics: ${PR_PUBLISHING_DOC}.`));
   assert.doesNotMatch(published, /repo-root (?:workflow|research) log/);
+
+  const combined = (await renderDoctrine(undefined, { workflow: { draftPRs: true, routingRecommendations: true } })).replace(/\s+/g, " ");
+  assert.ok(combined.includes("Ask once: per-track or umbrella PRs? Record it. Keep tracks mergeable. Only users merge."));
+  assert.ok(combined.includes(`Follow ${PR_PUBLISHING_DOC}.`));
+  assert.doesNotMatch(combined, /Per-track: user merges, reports/);
 });
 
+test("routing-recommendation doctrine is trusted, opt-in, and feature-off inert", { timeout: 5000 }, async () => {
+  const pointer = "At change completion, follow Lifecycle's routing-recommendation rule before final acceptance.";
+  const absent = await renderDoctrine();
+  const disabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: false } });
+  const enabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: true } });
+  assert.equal(disabled, absent);
+  assert.ok(enabled.includes(pointer));
+  assert.ok(enabled.replace(/\s+/g, " ").includes("Durable workflow records anchor in the retained repo-root research log"));
+
+  const untrustedAbsent = await renderDoctrine(undefined, {}, false);
+  const untrustedEnabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: true } }, false);
+  assert.equal(untrustedEnabled, untrustedAbsent);
+  assert.equal(untrustedEnabled.includes(pointer), false);
+});
 
 test("follow-up issue doctrine renders after review only when enabled", { timeout: 5000 }, async () => {
   const sentence = "After review, ask the user which deferred items become tracked issues.";

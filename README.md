@@ -152,6 +152,7 @@ Pi can refresh a prompt cache by sending background requests. Slate disables tho
 | `workerPromptDocs` | string[] | `[]` | Project markdown files whose **contents** are appended to every worker-thread system prompt. |
 | `workflow.draftPRs` | boolean | `false` | Enable draft-PR publishing. Before implementation, ask once whether each track gets its own pull request or all tracks share one umbrella pull request. |
 | `workflow.followUpIssues` | boolean | `false` | When true, the orchestrator asks which deferred items become tracked issues. Deferred items are always reported whatever the value. |
+| `workflow.routingRecommendations` | boolean | `false` | Before final acceptance, add evidence-bounded routing advice for logical models dispatched during the current change. The advice is optional and never edits routing files. |
 | `writing.check` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Guidance is automatic in trusted projects during orchestrator mode. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remind` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Reminder gates are orchestrator mode, project trust, no pause, turn cadence or finding trigger, handoff force, and one-per-response-round control. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remindPercent` | number | ignored | This retired key remains accepted and ignored. Slate emits a notice. Replace it with `writing.remindTurns`, which counts completed turns instead of a token-budget share. |
@@ -175,7 +176,7 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
   "maxConcurrent": 4,
   "orchestratorPromptDocs": ["docs/agents/orchestrator-guidelines.md"],
   "workerPromptDocs": ["docs/agents/thread-guidelines.md"],
-  "workflow": { "draftPRs": true, "followUpIssues": false },
+  "workflow": { "draftPRs": true, "followUpIssues": false, "routingRecommendations": false },
   "writing": { "remindTurns": 4, "remindOnFinding": true, "sentenceWordLimit": 25, "statusWindowTurns": 10, "findings": true },
   "doctrineExtraPath": "docs/agents/workflow-additions.md",
   "reviewPerspectivesPath": "docs/agents/review-perspectives.md",

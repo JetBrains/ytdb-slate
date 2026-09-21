@@ -258,15 +258,24 @@ function buildDoctrine(
 	runtime: Readonly<LogicalRuntime> | undefined,
 ): string {
 	// Rule 8 tail: draft publishing adds one up-front mode choice and its branch
-	// order. Otherwise durable records live in the research log.
+	// order. Otherwise durable records live in the research log. The completion
+	// pointer is trusted and opt-in. Its combined publishing form cites the full
+	// publishing rules so the fixed whole-doctrine boundary keeps its headroom.
+	const routingRecommendations = trusted && config.workflow?.routingRecommendations === true;
 	const rule8Tail =
 		config.workflow?.draftPRs === true
-			? `Ask once: per-track or umbrella PRs? Record. Keep tracks mergeable. Per-track:
+			? routingRecommendations
+				? `Ask once: per-track or umbrella PRs? Record it. Keep tracks mergeable.
+   Only users merge. Follow ${PR_PUBLISHING_DOC}.`
+				: `Ask once: per-track or umbrella PRs? Record. Keep tracks mergeable. Per-track:
    user merges, reports. Verify expected PR reached expected default. Update it
    to the merge, then branch fresh. Umbrella: one PR. Only user merges.
    Mechanics: ${PR_PUBLISHING_DOC}.`
 			: `Durable workflow records anchor in the retained repo-root research
    log per the workflow doc.`;
+	const routingRecommendationTail = routingRecommendations
+		? "\n   At change completion, follow Lifecycle's routing-recommendation rule before final acceptance."
+		: "";
 	const followUpTail = trusted && config.workflow?.followUpIssues === true
 		? "\n   After review, ask the user which deferred items become tracked issues."
 		: "";
@@ -310,7 +319,7 @@ threads execute. Rules:
    before its adversarial design review, final design approval, and blocking
    track acceptance. REVIEWER-ONLY or no-area tracks need no track acceptance.
    Final acceptance always blocks.
-   ${rule8Tail}
+   ${rule8Tail}${routingRecommendationTail}
 9. Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow it.
    For no-area model choice, follow Lifecycle. Skip the read when that file is
    already in your context.${rule9Tail}${followUpTail}

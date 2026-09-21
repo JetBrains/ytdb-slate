@@ -54,7 +54,7 @@ test("project configuration selects the exact approved logical defaults", () => 
   const config = JSON.parse(readFileSync(join(process.cwd(), ".pi", "slate.json"), "utf8"));
   assert.deepEqual(config, {
     orchestratorModeDefault: true,
-    workflow: { draftPRs: true },
+    workflow: { draftPRs: true, routingRecommendations: true },
     router: {
       models: { include: COMPLETE_DEFAULTS.map((row) => row.model) },
       compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] },

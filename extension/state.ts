@@ -702,16 +702,18 @@ export interface ContextBudgetObject {
 /** Trusted logical-model policy configuration. The resolver validates its closed grammar. */
 export type LogicalRouterConfig = unknown;
 
-/** Optional raw workflow publishing and deferred-issue controls. */
+/** Optional raw workflow publishing and completion controls. */
 export interface WorkflowConfig {
 	draftPRs?: boolean;
 	followUpIssues?: boolean;
+	routingRecommendations?: boolean;
 }
 
 /** Sanitized workflow shape. draftPRs stays unvalidated until issue 164 resolves it. */
 export interface SanitizedWorkflowConfig {
 	draftPRs?: unknown;
 	followUpIssues: boolean;
+	routingRecommendations: boolean;
 }
 
 /** Display a rejected workflow value without letting serialization abort session startup. */
@@ -732,20 +734,26 @@ function quotedWorkflowValue(value: unknown): string {
 	return sanitizeForNotify(text);
 }
 
-/** Validate the deferred-issue switch while preserving an own draft publishing value. */
+/** Validate workflow switches while preserving an own draft publishing value. */
 export function sanitizeWorkflowConfig(raw: unknown, warn: (msg: string) => void): SanitizedWorkflowConfig {
-	if (raw === undefined) return { followUpIssues: false };
-	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { followUpIssues: false };
-	const value = raw as { draftPRs?: unknown; followUpIssues?: unknown };
-	const hasOwn = (key: "draftPRs" | "followUpIssues") => Object.prototype.hasOwnProperty.call(value, key);
+	const defaults = { followUpIssues: false, routingRecommendations: false };
+	if (raw === undefined) return defaults;
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return defaults;
+	const value = raw as { draftPRs?: unknown; followUpIssues?: unknown; routingRecommendations?: unknown };
+	const hasOwn = (key: "draftPRs" | "followUpIssues" | "routingRecommendations") => Object.prototype.hasOwnProperty.call(value, key);
 	const draftPRs = hasOwn("draftPRs") ? { draftPRs: value.draftPRs } : {};
-	const candidate = hasOwn("followUpIssues") ? value.followUpIssues : undefined;
-	if (candidate === undefined) return { ...draftPRs, followUpIssues: false };
-	if (typeof candidate === "boolean") return { ...draftPRs, followUpIssues: candidate };
-	warn(
-		`slate: ignoring workflow.followUpIssues ${quotedWorkflowValue(candidate)}. Expected true or false. Slate uses false.`,
-	);
-	return { ...draftPRs, followUpIssues: false };
+	const booleanValue = (key: "followUpIssues" | "routingRecommendations"): boolean => {
+		const candidate = hasOwn(key) ? value[key] : undefined;
+		if (candidate === undefined) return false;
+		if (typeof candidate === "boolean") return candidate;
+		warn(`slate: ignoring workflow.${key} ${quotedWorkflowValue(candidate)}. Expected true or false. Slate uses false.`);
+		return false;
+	};
+	return {
+		...draftPRs,
+		followUpIssues: booleanValue("followUpIssues"),
+		routingRecommendations: booleanValue("routingRecommendations"),
+	};
 }
 
 /** Writing configuration. Ignored writing keys remain accepted for compatibility. */

@@ -450,6 +450,29 @@ together with the gate verdict for that range. It is the review-accounting
 authority for those ranges. At delivery, a live register produces the one-line
 coverage conclusion required below.
 
+### Routing recommendations at change completion
+
+When trusted configuration sets `workflow.routingRecommendations` to `true`, the
+orchestrator adds routing advice to the final report before it asks for final
+acceptance. The advice covers only logical models named in action records for the
+current change. Use the current-change workflow context to set that boundary. Do
+not scan unrelated actions from the full session history.
+
+Treat the logical-model name as a selection fact. It does not prove which
+physical model executed after recovery. State direct observations separately
+from tentative inferences. Tie each recommendation to the evidence that supports
+it. Keep the advice short and ready to copy.
+
+Recommend changes to existing guidance or cautions first. Recommend another
+entry change only when empirical evidence is sufficient for that specific
+change. Do not derive broad capability claims from weak evidence. Do not invent
+a recommendation when the records support none. No empty or no-evidence block is
+required.
+
+The advice is advisory. It never authorizes a model selection or roster change.
+It never edits configuration, routing, or model files. A user decision and the
+ordinary workflow govern any later change.
+
 ## Delivery and termination
 
 Every completed track reaches the user through the track packet defined in

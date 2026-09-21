@@ -231,6 +231,34 @@ keeps each filename. The whole-doctrine verification ceiling of 25,800 portable
 characters is separate. [context-budget.md](context-budget.md) publishes the
 current measured fixtures.
 
+## Completion recommendations
+
+Trusted projects can set `workflow.routingRecommendations` to `true`. At change
+completion, the orchestrator then offers short routing advice in the final
+report before final acceptance. The setting defaults to `false`.
+
+The evidence set contains only current-change action records that name a
+dispatched logical model. Current workflow context defines the change boundary.
+The orchestrator does not treat all session history as evidence. An action with
+no logical-model record supplies no model evidence.
+
+A recorded logical name proves the selection. It does not prove which physical
+model executed. Recovery can change the physical route. Final `model` and
+`effort` prove only Slate's latest accepted local Pi handoff, under the limits in
+§ Action contract. A failover is not evidence that one logical model has better
+capability than another.
+
+The advice separates direct observation from tentative inference. Each
+recommendation names its evidence. Existing guidance and cautions are the first
+adjustment targets. Changes to effort, ratings, provider permissions, provider
+preference, or membership need sufficient empirical evidence for that exact
+change. One result does not support a broad benchmark or capability claim.
+
+The advice is optional, advisory, and ready to copy. Weak evidence produces no
+invented recommendation and requires no placeholder block. The feature does not
+edit any file. It does not authorize a model selection, a new model, or a roster
+change.
+
 ## Common recovery
 
 Pi retries the active physical route first with its active effort. Slate begins a
