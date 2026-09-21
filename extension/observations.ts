@@ -87,24 +87,112 @@ export function hasZeroFindings(text: string): boolean {
 	return lines.at(-1) === "No findings.";
 }
 
-function boundedObservation(text: string): { content: Buffer; truncated: boolean } {
-	const source = Buffer.from(text, "utf8");
-	if (source.byteLength <= OBSERVATIONS_MAX_BYTES) return { content: source, truncated: false };
+function truncateUtf8Buffer(source: Buffer, maxBytes: number): Buffer {
+	if (source.byteLength <= maxBytes) return source;
 
-	let end = OBSERVATIONS_MAX_BYTES;
+	let end = maxBytes;
 	const decoder = new TextDecoder("utf-8", { fatal: true });
-	let prefix = "";
 	while (end > 0) {
 		try {
-			prefix = decoder.decode(source.subarray(0, end));
-			break;
+			decoder.decode(source.subarray(0, end));
+			return source.subarray(0, end);
 		} catch {
 			end--;
 		}
 	}
-	// The marker is outside the safety ceiling by design. It can put the stored
-	// file slightly over the cap so truncated output is never mistaken for whole.
-	return { content: Buffer.from(`${prefix}${OBSERVATIONS_TRUNCATION_MARK}`, "utf8"), truncated: true };
+	return Buffer.alloc(0);
+}
+
+function extractBoundedObservation(content: unknown): { content: Buffer; truncated: boolean } | undefined {
+	if (content === undefined || content === null) return undefined;
+
+	let items: readonly unknown[];
+	if (typeof content === "string") {
+		if (content.length === 0) return undefined;
+		items = [{ type: "text", text: content }];
+	} else if (Array.isArray(content)) {
+		items = content;
+	} else {
+		return undefined;
+	}
+
+	let hasEligibleTextBlock = false;
+	let retainedBytes = 0;
+	let truncated = false;
+	const chunks: Buffer[] = [];
+
+	for (const item of items) {
+		let text: string;
+		if (typeof item === "object" && item !== null) {
+			const part = item as { type?: unknown; text?: unknown };
+			if (part.type !== "text" || typeof part.text !== "string") {
+				continue;
+			}
+			text = part.text;
+		} else {
+			continue;
+		}
+
+		const isFirstTextBlock = !hasEligibleTextBlock;
+		hasEligibleTextBlock = true;
+
+		if (!isFirstTextBlock) {
+			if (retainedBytes + 1 <= OBSERVATIONS_MAX_BYTES) {
+				chunks.push(Buffer.from("\n", "utf8"));
+				retainedBytes += 1;
+			} else {
+				truncated = true;
+				break;
+			}
+		}
+
+		const budget = OBSERVATIONS_MAX_BYTES - retainedBytes;
+		if (budget === 0) {
+			if (text.length > 0) {
+				truncated = true;
+				break;
+			}
+			continue;
+		}
+
+		if (text.length <= budget) {
+			const buf = Buffer.from(text, "utf8");
+			if (buf.byteLength <= budget) {
+				chunks.push(buf);
+				retainedBytes += buf.byteLength;
+			} else {
+				const truncatedBuf = truncateUtf8Buffer(buf, budget);
+				chunks.push(truncatedBuf);
+				retainedBytes += truncatedBuf.byteLength;
+				truncated = true;
+				break;
+			}
+		} else {
+			truncated = true;
+			let takeChars = budget;
+			if (takeChars < text.length && text.charCodeAt(takeChars - 1) >= 0xD800 && text.charCodeAt(takeChars - 1) <= 0xDBFF) {
+				takeChars++;
+			}
+			const sliceStr = text.slice(0, takeChars);
+			const buf = Buffer.from(sliceStr, "utf8");
+			const truncatedBuf = truncateUtf8Buffer(buf, budget);
+			chunks.push(truncatedBuf);
+			retainedBytes += truncatedBuf.byteLength;
+			break;
+		}
+	}
+
+	if (!hasEligibleTextBlock) return undefined;
+	if (retainedBytes === 0 && !truncated) return undefined;
+
+	if (truncated) {
+		chunks.push(Buffer.from(OBSERVATIONS_TRUNCATION_MARK, "utf8"));
+	}
+
+	return {
+		content: Buffer.concat(chunks),
+		truncated,
+	};
 }
 
 /**
@@ -121,13 +209,14 @@ function boundedObservation(text: string): { content: Buffer; truncated: boolean
  * sanitizer, the episode header and the reader rule to say nothing an operator
  * can act on differently.
  */
-export function captureObservation(cwd: string, episodeId: string, text: string | undefined): ObservationCapture {
-	if (text === undefined) return { stored: false, reason: "no-final-message", grammar: "absent" };
-	if (text.length === 0) return { stored: false, reason: "no-final-text", grammar: "absent" };
+export function captureObservation(cwd: string, episodeId: string, content: unknown): ObservationCapture {
+	if (content === undefined) return { stored: false, reason: "no-final-message", grammar: "absent" };
 
-	const bounded = boundedObservation(text);
+	const bounded = extractBoundedObservation(content);
+	if (!bounded) return { stored: false, reason: "no-final-text", grammar: "absent" };
+
 	// Grammar describes the exact bounded text written below. Decoding is safe
-	// because boundedObservation preserves UTF-8 boundaries and adds a UTF-8 marker.
+	// because bounded observation preserves UTF-8 boundaries and adds a UTF-8 marker.
 	const boundedText = bounded.content.toString("utf8");
 	const grammar = findingsGrammar(boundedText);
 	const zeroFindings = hasZeroFindings(boundedText);

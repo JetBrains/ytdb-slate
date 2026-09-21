@@ -15,7 +15,6 @@ import { WorkerRetryEvidence, executeRecovery, type CompressorRetryPolicy } from
 import type { LogicalRuntime } from "./logical-model-runtime.ts";
 import type { RecoveryAdmission, RecoveryCandidate } from "./logical-model-recovery.ts";
 import {
-	boundedCompletedText,
 	compressEpisode,
 	createCompletedFactRecorder,
 	EpisodePersistenceError,
@@ -162,11 +161,6 @@ interface WorkerAssistantMsg {
 		cost?: { total?: number };
 	};
 	content?: Array<{ type: string; text?: string }>;
-}
-
-/** Preserve a bounded suffix of final assistant text in emitted order. */
-function assistantMessageText(message: WorkerAssistantMsg): string {
-	return boundedCompletedText(message.content);
 }
 
 /**
@@ -1217,7 +1211,7 @@ export class ThreadManager {
 		};
 		try {
 			const finalMessage = lastAssistantMessage(actionMessages);
-			observation = captureObservation(ctx.cwd, episodeId, finalMessage ? assistantMessageText(finalMessage) : undefined);
+			observation = captureObservation(ctx.cwd, episodeId, finalMessage ? (finalMessage.content ?? []) : undefined);
 			const warningsBeforeObservation = warnings.length;
 			if (!observation.stored && observation.reason === "write-failed" && "warning" in observation) routeWarn(observation.warning);
 			const judgementType = isJudgementThreadType(thread.type);
