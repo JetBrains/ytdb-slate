@@ -250,6 +250,7 @@ type MatrixScenario =
 	| "startup-teardown-completed-tool"
 	| "startup-caller-cancel-completed-tool"
 	| "startup-assistant-then-command-error"
+	| "startup-assistant-then-ordinary-success"
 	| "compaction-then-cancel"
 	| "recovery-compaction-refusal";
 
@@ -269,6 +270,9 @@ interface MatrixState {
 	startupOpenGate?: Promise<void>;
 	startupToolEventEntered?: () => void;
 	startupToolEventGate?: Promise<void>;
+	/** Event barriers that hold the ordinary response after startup completes. */
+	ordinaryRequestEntered?: () => void;
+	ordinaryRequestGate?: Promise<void>;
 	/** Event barriers for the continuation that follows a successful history rewrite. */
 	postCompactionEntered?: () => void;
 	postCompactionGate?: Promise<void>;
@@ -299,10 +303,14 @@ function matrixModel(provider: string, id: string): Model<any> {
 	} as Model<any>;
 }
 
-function matrixMessage(selected: Model<any>, kind: "tool" | "error" | "overflow" | "text" | "summary"): AssistantMessage {
+function matrixMessage(
+	selected: Model<any>,
+	kind: "tool" | "error" | "overflow" | "text" | "summary",
+	text?: string,
+): AssistantMessage {
 	const content = kind === "tool"
 		? [{ type: "toolCall" as const, id: "host-call-1", name: "host_probe", arguments: {} }]
-		: kind === "error" || kind === "overflow" ? [] : [{ type: "text" as const, text: kind === "summary" ? "matrix summary" : "matrix done" }];
+		: kind === "error" || kind === "overflow" ? [] : [{ type: "text" as const, text: text ?? (kind === "summary" ? "matrix summary" : "matrix done") }];
 	const stopReason = kind === "tool" ? "toolUse" : kind === "error" || kind === "overflow" ? "error" : "stop";
 	return {
 		role: "assistant",
@@ -356,7 +364,10 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 			// continuation the caller cancels.
 			kind = state.primaryCalls === 1 ? "tool" : state.primaryCalls === 2 ? "overflow" : "text";
 		}
-		const output = matrixMessage(requestModel, kind);
+		const responseText = !summarizing && state.scenario === "startup-assistant-then-ordinary-success" && provider === "matrix-primary"
+			? state.primaryCalls === 1 ? "startup completed fact" : "ordinary action success"
+			: undefined;
+		const output = matrixMessage(requestModel, kind, responseText);
 		const events = createAssistantMessageEventStream();
 		const publish = () => {
 			events.push({ type: "start", partial: { ...output, stopReason: "pending" } });
@@ -366,6 +377,9 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 		if (!summarizing && state.scenario === "startup-teardown-completed-tool" && provider === "matrix-primary" && state.primaryCalls === 2) {
 			state.secondRequestEntered?.();
 			void state.secondRequestGate?.then(() => queueMicrotask(publish));
+		} else if (!summarizing && state.scenario === "startup-assistant-then-ordinary-success" && provider === "matrix-primary" && state.primaryCalls === 2) {
+			state.ordinaryRequestEntered?.();
+			void state.ordinaryRequestGate?.then(() => queueMicrotask(publish));
 		} else if (!summarizing && state.scenario === "compaction-then-cancel" && provider === "matrix-primary" && state.primaryCalls >= 4) {
 			state.postCompactionEntered?.();
 			void state.postCompactionGate?.then(() => queueMicrotask(publish));
@@ -540,6 +554,8 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 	const startupOpenGate = deferred();
 	const startupToolEventEntered = deferred();
 	const startupToolEventGate = deferred();
+	const ordinaryRequestEntered = deferred();
+	const ordinaryRequestGate = deferred();
 	const postCompactionEntered = deferred();
 	const postCompactionGate = deferred();
 	const cancelController = new AbortController();
@@ -561,6 +577,10 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 			startupOpenGate: startupOpenGate.promise,
 			startupToolEventEntered: startupToolEventEntered.resolve,
 			startupToolEventGate: startupToolEventGate.promise,
+		} : {}),
+		...(scenario === "startup-assistant-then-ordinary-success" ? {
+			ordinaryRequestEntered: ordinaryRequestEntered.resolve,
+			ordinaryRequestGate: ordinaryRequestGate.promise,
 		} : {}),
 		...(scenario === "compaction-then-cancel" ? {
 			postCompactionEntered: postCompactionEntered.resolve,
@@ -629,7 +649,7 @@ export default function (pi: ExtensionAPI) {
     await new Promise((resolve) => setImmediate(resolve));
   }
   pi.on("session_start", async () => {
-    if (state.scenario === "startup-assistant-then-command-error") {
+    if (state.scenario === "startup-assistant-then-command-error" || state.scenario === "startup-assistant-then-ordinary-success") {
       pi.setThinkingLevel("max");
       await settleStartupRun(() => { pi.sendUserMessage("accepted startup assistant fact"); });
       return;
@@ -682,7 +702,7 @@ export default function (pi: ExtensionAPI) {
     throw new Error("independent shutdown cleanup failed");
   });
   pi.on("agent_end", () => {
-    if (state.scenario === "startup-refusal" || state.scenario === "startup-accepted-then-refused" || state.scenario === "startup-rejected-open" || state.scenario === "startup-assistant-then-command-error") {
+    if (state.scenario === "startup-refusal" || state.scenario === "startup-accepted-then-refused" || state.scenario === "startup-rejected-open" || state.scenario === "startup-assistant-then-command-error" || state.scenario === "startup-assistant-then-ordinary-success") {
       if (state.resolveStartupRun) {
         state.startupRunEnded = true;
         state.resolveStartupRun();
@@ -749,12 +769,21 @@ export default function (pi: ExtensionAPI) {
 				model: "matrix",
 				reason: `real Pi ${scenario}`,
 				type: "general",
-				task: scenario === "startup-assistant-then-command-error" ? "/boom" : `run ${scenario}`,
+				task: scenario === "startup-assistant-then-command-error"
+					? "/boom"
+					: scenario === "startup-assistant-then-ordinary-success"
+						? "ordinary action after startup"
+						: `run ${scenario}`,
 			},
 			ctx,
 			scenario === "compaction-then-cancel" || scenario === "startup-caller-cancel-completed-tool"
 				? cancelController.signal
 				: undefined,
+		);
+		let dispatchSettled = false;
+		void dispatch.then(
+			() => { dispatchSettled = true; },
+			() => { dispatchSettled = true; },
 		);
 		let result;
 		if (scenario === "startup-teardown-completed-tool") {
@@ -767,6 +796,14 @@ export default function (pi: ExtensionAPI) {
 			startupOpenGate.resolve();
 			result = await within(dispatch, `${scenario} production ThreadManager dispatch`, 8_000);
 			await within(teardown, "manager teardown after durable startup retention", 5_000);
+		} else if (scenario === "startup-assistant-then-ordinary-success") {
+			await within(ordinaryRequestEntered.promise, "the ordinary provider request after startup completion", 5_000);
+			assert.equal(state.startupRunEnded, true, "the startup operation ends before the ordinary provider request starts");
+			await Promise.resolve();
+			assert.equal(dispatchSettled, false, "completed startup output cannot settle the action while the ordinary response is gated");
+			ordinaryRequestGate.resolve();
+			result = await within(dispatch, `${scenario} production ThreadManager dispatch`, 8_000);
+			await manager.disposeAll();
 		} else if (scenario === "startup-caller-cancel-completed-tool") {
 			await within(startupToolEventEntered.promise, "the completed startup tool event before caller cancellation", 5_000);
 			cancelController.abort();
@@ -835,6 +872,7 @@ export default function (pi: ExtensionAPI) {
 		secondRequestGate.resolve();
 		startupOpenGate.resolve();
 		startupToolEventGate.resolve();
+		ordinaryRequestGate.resolve();
 		postCompactionGate.resolve();
 		if (manager) await manager.disposeAll();
 		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
@@ -990,6 +1028,29 @@ test("production ThreadManager and real Pi workers guard preflight, later-turn, 
 		assert.equal(result.episode.effort, "max");
 		assert.ok(result.warnings.some((warning) => warning.includes("Slate route contract violation.")), result.warnings.join("\n"));
 		assert.match(result.episodeText, /Slate route contract violation/);
+	});
+
+	await t.test("ordinary success after startup assistant output owns the action result", { timeout: 15_000 }, async () => {
+		const { result, state, transcript, episodeBytes, laterPrompt, restored } =
+			await runWorkerRequestMatrixScenario("startup-assistant-then-ordinary-success");
+		assert.equal(state.startupRunEnded, true);
+		assert.equal(state.primaryCalls, 2, "the completed startup request and later ordinary request each reach Pi once");
+		assert.equal(state.fallbackCalls, 0);
+		assert.equal(state.otherCalls, 0);
+		assert.equal(result.episode.status, "ok", "the ordinary assistant response classifies the action");
+		assert.equal(result.thread.status, "successful");
+		assert.equal(result.thread.outcomeReason, undefined);
+		assert.match(transcript, /startup completed fact/);
+		assert.match(transcript, /ordinary action success/);
+		assert.match(episodeBytes, /STATUS: OK/);
+		assert.match(episodeBytes, /startup completed fact/, "startup output remains a completed fact");
+		assert.match(episodeBytes, /ordinary action success/, "the ordinary success remains the action response");
+		assert.doesNotMatch(episodeBytes, /> failure:/);
+		assert.match(laterPrompt, /startup completed fact/);
+		assert.match(laterPrompt, /ordinary action success/);
+		const restoredEpisode = restored.episodes.get(result.episode.id);
+		assert.equal(restoredEpisode?.status, "ok");
+		assert.equal(restored.threads.get(result.thread.id)?.status, "successful");
 	});
 
 	await t.test("startup assistant output cannot turn a throwing no-response slash command into success", { timeout: 15_000 }, async () => {
