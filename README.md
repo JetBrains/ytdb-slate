@@ -163,7 +163,7 @@ Pi can refresh a prompt cache by sending background requests. Slate disables tho
 | `workerPromptDocs` | string[] | `[]` | Markdown files whose **contents** are appended to every worker-thread system prompt. |
 | `workflow.draftPRs` | boolean | `false` | Enable draft-PR publishing. Before implementation, ask once whether each track gets its own pull request or all tracks share one umbrella pull request. |
 | `workflow.followUpIssues` | boolean | `false` | When true, the orchestrator asks which deferred items become tracked issues. Deferred items are always reported whatever the value. |
-| `workflow.routingRecommendations` | boolean | `false` | Before final acceptance, add evidence-bounded routing advice for logical models dispatched during the current change. The advice is optional and never edits routing files. |
+| `workflow.routingRecommendations` | boolean | `false` | Before final acceptance, add an evidence-bounded model-routing field for logical models dispatched during the current change. The enabled field always appears. It reports when no change is recommended and never edits routing files. |
 | `writing.check` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Guidance is automatic during orchestrator mode when the project is trusted or a home file exists. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remind` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Reminder gates require orchestrator mode, permitted Slate settings, no pause, and a ready trigger. Delivery is limited to one reminder per response round. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
 | `writing.remindPercent` | number | ignored | This retired key remains accepted and ignored. Slate emits a notice. Replace it with `writing.remindTurns`, which counts completed turns instead of a token-budget share. |
@@ -244,6 +244,7 @@ Home preferences do not change pi's project-trust decision. Pi's independent ins
 In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths make the block's character count depend on your install location. [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
 
 - `docs/track-workflow.md` — the focus-area lifecycle for research, design, implementation, review, and delivery
+- `docs/delivery-packages.md` — the compact track and change package format, read only before package preparation
 - `docs/pr-publishing.md` — per-track and umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
 - `docs/review-rules.md` — reviewer composition, the composite test-quality role, evidence standards, findings, and fix gates
 - `docs/design-principles.md` — Slate's own design rationale

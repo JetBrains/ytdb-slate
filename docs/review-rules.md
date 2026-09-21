@@ -517,11 +517,11 @@ Apply this ordered test to each finding that is not waived, moot, or rejected:
 4. Record every other finding with the ignored disposition.
 
 <!-- track-acceptance:begin -->
-A track packet can follow machine-review termination. It reports every ignored
-finding. User acceptance of a track is blocking when that track proves at least
-one DESIGN-TRIGGERING area. A track with only REVIEWER-ONLY areas, or no proved
-area, has no mandatory track-acceptance gate. Without mandatory track
-acceptance, an applicable marker waits for completed machine gates, the packet,
+A track package can follow machine-review termination. Before the package, the
+durable delivery record accounts for every ignored finding. User acceptance of
+a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
+A track with only REVIEWER-ONLY areas, or no proved area, has no mandatory track-acceptance gate. Without mandatory track
+acceptance, an applicable marker waits for completed machine gates, the package,
 and resolved blocking user notes. In per-track mode, pull-request readiness
 waits for the same steps, and the user's merge supplies the boundary before the
 next track starts. In a

@@ -25,6 +25,7 @@
 // =============================================================================
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -347,6 +348,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-escalation-routing",
 	"contract-requirement-investigation",
 	"contract-test-composite",
+	"contract-delivery-packages",
 	"contract-review-charters",
 	"contract-dispatch-context",
 	"contract-section-targets",
@@ -1823,10 +1825,11 @@ try {
 			const blast = readFileSync(join(REPO, "docs", "blast-radius.md"), "utf8");
 			const reviews = readFileSync(join(REPO, "docs", "review-rules.md"), "utf8");
 			const userNotes = readFileSync(join(REPO, "docs", "user-notes.md"), "utf8");
+			const deliveryPackages = readFileSync(join(REPO, "docs", "delivery-packages.md"), "utf8");
 			const publishing = readFileSync(join(REPO, "docs", "pr-publishing.md"), "utf8");
 			const principles = readFileSync(join(REPO, "docs", "design-principles.md"), "utf8");
 			const projectReadme = readFileSync(join(REPO, "README.md"), "utf8");
-			const workflowDocs = [workflow, reviews, blast, userNotes, publishing].join("\n");
+			const workflowDocs = [workflow, reviews, blast, userNotes, deliveryPackages, publishing].join("\n");
 			const block = (source, name) => {
 				const begin = `<!-- ${name}:begin -->`;
 				const end = `<!-- ${name}:end -->`;
@@ -2130,9 +2133,10 @@ proved set. A missed area follows the late-area route below. For an area that no
 longer engages, record the failed trigger part and present a removal proposal to
 the user at once. The area remains proved, with all of its gates and reviewers,
 until the user approves removal. Rejection preserves the proved area. Keep every
-reviewer that already covered completed work. The track packet reports every
-addition, proposed or approved removal, SKIPPED state, user decision, and
-reviewer-coverage decision.
+reviewer that already covered completed work. The durable delivery record
+reports every addition, proposed or approved removal, SKIPPED state, user
+decision, and reviewer-coverage decision. A package puts any unresolved
+requested decision or relevant risk under **Needs attention**.
 
 When the orchestrator or implementer discovers a late area, the orchestrator
 presents its four-part proof to the user at once. Approval recomputes the
@@ -2374,7 +2378,7 @@ per-track implementer report.`;
 				["late areas require immediate user decision, complete-set transitions, completed-range coverage, and no retrospective design gate", /presents its four-part proof to the user at once/.test(riskLifecycle) && /Approval recomputes the\s+complete required routine reviewer set/.test(riskLifecycle) && /Every newly required routine reviewer\s+perspective reviews the completed range/.test(riskLifecycle) && /Completed work\s+receives no retrospective design gate/.test(riskLifecycle), riskLifecycle],
 				["NAMED, SKIPPED, and file type do not create routine reviewers", /`NAMED` and `SKIPPED` areas do not select reviewers/.test(reviews) && /Code, mixed, and\s+documentation-only status do not select reviewers/.test(reviews), reviews.slice(0, 4000)],
 				["no-area orchestrator choice uses ordinary logical guidance without a tier threshold or mandatory user gate", /the orchestrator selects a\s+logical model under the ordinary action guidance/.test(workflow) && /action fit, capability, cost, guidance, and cautions/.test(workflow) && /uses no\s+sourced-tier threshold, highest-tier fallback, or mandatory user-choice gate/.test(workflow) && /ordinary logical-model membership, fixed effort, and dispatch restrictions/.test(workflow), workflow.match(/For implementation of a track with no proved area[\s\S]*?(?=\n\n\[blast-radius)/)?.[0]],
-				["zero-area routine review and user-fix verification have separate verdicts", /empty set reports\s+routine implementation review as `NOT REQUIRED`/.test(workflow) && /including when the track has no proved area[\s\S]*?separate from routine implementation review/.test(workflow) && /routine implementation review and user-requested-fix\s+verification as separate verdicts/.test(userNotes), { workflow: workflow.match(/For a user-review fix range[\s\S]*?(?=\n\nThe correction)/)?.[0], report: userNotes.match(/The report gives routine implementation review[\s\S]*?(?=\n\nThe coverage register)/)?.[0] }],
+				["zero-area routine review and user-fix verification have separate durable verdicts", /empty set reports\s+routine implementation review as `NOT REQUIRED`/.test(workflow) && /including when the track has no proved area[\s\S]*?separate from routine implementation review/.test(workflow) && /durable record gives routine implementation review and user-requested-fix\s+verification as separate verdicts/.test(userNotes), { workflow: workflow.match(/For a user-review fix range[\s\S]*?(?=\n\nThe correction)/)?.[0], record: userNotes.match(/The durable record gives routine implementation review[\s\S]*?(?=\n\nThe coverage register)/)?.[0] }],
 				["P11 is one exact independently specified policy unit", p11Resolution.count === 1 && p11 === expectedP11, { resolution: p11Resolution, expected: expectedP11 }],
 				["missing and duplicate P11 units fail closed across P12, end-of-file, and alternate-number boundaries", missingP11Source !== principles && missingP11.count === 0 && missingP11.text === "" && [duplicateP11WithP12, duplicateP11AtEnd, duplicateP11WithP13].every(({ count, text }) => count === 2 && text === ""), { missingP11, duplicateP11WithP12, duplicateP11AtEnd, duplicateP11WithP13 }],
 				["benign text outside P11 preserves one exact unit", benignP11.count === 1 && benignP11.text === expectedP11, benignP11],
@@ -2423,7 +2427,7 @@ per-track implementer report.`;
 					document: "Where a marker applies, it waits for required track acceptance and every requested fix. In per-track mode, the user's merge supplies acceptance and the boundary before the next track starts.",
 				}),
 				boundaryWithoutAcceptance: Object.freeze({
-					document: "Without mandatory track acceptance, an applicable marker waits for completed machine gates, the packet, and resolved blocking user notes. In per-track mode, pull-request readiness waits for the same steps, and the user's merge supplies the boundary before the next track starts.",
+					document: "Without mandatory track acceptance, an applicable marker waits for completed machine gates, the package, and resolved blocking user notes. In per-track mode, pull-request readiness waits for the same steps, and the user's merge supplies the boundary before the next track starts.",
 				}),
 			});
 			/** A segment that renders one canonical fact. A plain string is local framing. */
@@ -2704,9 +2708,9 @@ earlier gates only to identify the governing rule set.`),
 					where: "docs/track-workflow.md § Delivery and termination",
 					rendering: "document",
 					source: workflow,
-					extract: regionUnit(/^## Delivery and termination\n\n([\s\S]*?)(?=\n\nDone means)/gm),
+					extract: regionUnit(/^(Every completed track reaches the user[\s\S]*?)(?=\n\nDone means)/gm),
 					segments: [
-						"Every completed track reaches the user through the track packet defined in [user-notes.md](user-notes.md) § Track packets.",
+						"Every completed track reaches the user through the track package defined in [delivery-packages.md](delivery-packages.md) § Track package.",
 						fact("blocking"),
 						fact("boundaryWithAcceptance"),
 						fact("noMandatory"),
@@ -2721,7 +2725,7 @@ earlier gates only to identify the governing rule set.`),
 					source: reviews,
 					extract: markedUnit("track-acceptance"),
 					segments: [
-						"A track packet can follow machine-review termination. It reports every ignored finding.",
+						"A track package can follow machine-review termination. Before the package, the durable delivery record accounts for every ignored finding.",
 						fact("blocking"),
 						fact("noMandatory"),
 						fact("boundaryWithoutAcceptance"),
@@ -2731,16 +2735,16 @@ earlier gates only to identify the governing rule set.`),
 				},
 				{
 					id: "user-notes-packet",
-					where: "docs/user-notes.md § Track packets",
+					where: "docs/user-notes.md § Package acceptance and note timing",
 					rendering: "document",
 					source: userNotes,
-					extract: regionUnit(/^(The packet states which acceptance rule applies\.[\s\S]*?)(?=\n\n## Receiving and routing a user note)/gm),
+					extract: regionUnit(/^(The track package states which acceptance rule applies\.[\s\S]*?)(?=\n\n## Receiving and routing a user note)/gm),
 					segments: [
-						"The packet states which acceptance rule applies.",
+						"The track package states which acceptance rule applies.",
 						fact("blocking"),
 						fact("boundaryWithAcceptance"),
 						fact("noMandatory"),
-						"Its packet reports progress and every requested decision.",
+						"Its package reports progress and every requested decision.",
 						fact("boundaryWithoutAcceptance"),
 						fact("merger"),
 						fact("finalBlocking"),
@@ -3184,13 +3188,238 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				["the published scope states one dispatch copy, possible history resend, separate charters, and no total-cost or runtime-limit promise", /The focused-reference figure measures one reference copy in one implementation\s+dispatch/.test(contextBudget) && /Worker history\s+can\s+resend that reference/.test(contextBudget) && /do not imply that one\s+reviewer receives all four charters/.test(contextBudget) && /not a total\s+conversation-size or billing promise/.test(contextBudget) && /add no runtime limit/.test(contextBudget), contextBudget.match(/### Implementation reference[\s\S]*?(?=^## Using GPT)/m)?.[0]],
 			]);
 
+			const packageContract = block(deliveryPackages, "delivery-package-contract");
+			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "661cad11c80caeb0cd8c05575dc6bdd8d781ff0410acecd50b8bc063f241db9a";
+			const acceptsPackageContract = (source) => {
+				const owned = block(source, "delivery-package-contract");
+				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
+			};
+			const swapFirstPackageLabels = deliveryPackages
+				.replace("**Result**", "**resolver-temporary-label**")
+				.replace("**Needs attention**", "**Result**")
+				.replace("**resolver-temporary-label**", "**Needs attention**");
+			const packageMutations = [
+				["field-order", swapFirstPackageLabels],
+				["verification-heading", deliveryPackages.replace("## Durable accounting", "## Verification\n\nAll checks passed.\n\n## Durable accounting")],
+				["unconditional-attention", deliveryPackages.replace("Omit this field when none\nexists.", "Always include this field, even when none exists.")],
+				["duplicate-single-track", deliveryPackages.replace("Do not send a track package\nand then repeat the same facts in a second change package.", "Send a track package and then repeat the same facts in a second change package.")],
+				["narrow-accounting", deliveryPackages.replace("all check results and limits", "failed check results only")],
+				["on-demand-menu", deliveryPackages.replace("Do not add a file table", "Add a list of material available on request")],
+				["optional-enabled-routing", deliveryPackages.replace("always\ninclude **Model-routing recommendations**", "optionally\ninclude **Model-routing recommendations**")],
+				["enabled-disabled-routing", deliveryPackages.replace("When the setting is disabled, omit the field.", "When the setting is disabled, include the field.")],
+				["label-outside-owned-block", deliveryPackages.replace("<!-- delivery-package-contract:begin -->", "**Result**\n<!-- delivery-package-contract:begin -->").replace("**Result**\n<What", "<What")],
+				["acceptance-pointer", deliveryPackages.replace("Follow\n[track-workflow.md](track-workflow.md) § Delivery and termination", "Ignore\n[track-workflow.md](track-workflow.md) § Delivery and termination")],
+			];
+			const packageMutationOutcomes = packageMutations.map(([id, source]) => ({ id, changed: source !== deliveryPackages, accepted: acceptsPackageContract(source) }));
+			const missingPackageBoundary = acceptsPackageContract(deliveryPackages.replace("<!-- delivery-package-contract:end -->", ""));
+			const duplicatePackageBoundary = block(`${deliveryPackages}\n<!-- delivery-package-contract:begin -->\nduplicate\n<!-- delivery-package-contract:end -->`, "delivery-package-contract");
+			const additivePackageSource = `${deliveryPackages}\n\nPackages may add any useful section.`;
+			const packageHeadings = [...packageContract.text.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
+			const packageTemplates = [...packageContract.text.matchAll(/```markdown\n([\s\S]*?)```/g)].map((match) => [...match[1].matchAll(/^\*\*(.+)\*\*$/gm)].map((label) => label[1]));
+
+			const expectedDisabledAccounting = normalizeText(`When draft publishing is disabled, the final Git record does not exist before
+final acceptance. Use this sequence:
+
+1. Before every intermediate track package in a multi-track change, confirm
+   that the retained research log contains all required accounting to date.
+   The package references the exact range and the retained research log as the
+   current accounting source. Do not claim that the final commit exists.
+2. Before a single-track combined package or the final change package in a
+   multi-track change, complete the accounting in the retained research log.
+   Keep the log and every implementer report through final acceptance.
+3. After final acceptance, create the final squashed delivery commit. Copy all
+   required accounting from the research log into the commit body as part of
+   that commit creation.
+4. Verify that the commit body contains the required accounting. Only then
+   delete the research log and every implementer report.
+
+A publishing-disabled single-track change starts at step 2. A
+publishing-disabled multi-track change repeats step 1 for each track, then runs
+steps 2 through 4. No package requires a future commit body before that commit
+exists.`);
+			const resolveDisabledAccounting = (source) => markedUnit("publishing-disabled-accounting")(source);
+			const acceptsDisabledAccounting = (source) => {
+				const resolved = resolveDisabledAccounting(source);
+				return resolved.count === 1 && resolved.text === expectedDisabledAccounting;
+			};
+			const disabledAccountingMutations = [
+				["future-intermediate-record", deliveryPackages.replace("the retained research log as the\n   current accounting source", "the final squashed commit body as the\n   current accounting source")],
+				["missing-final-transfer", deliveryPackages.replace("Copy all\n   required accounting from the research log into the commit body as part of\n   that commit creation.", "Create the commit without copying the accounting from the research log.")],
+				["cleanup-before-verification", deliveryPackages.replace("Verify that the commit body contains the required accounting. Only then\n   delete", "Delete before verifying that the commit body contains the required accounting. Then\n   restore")],
+				["missing-single-track-route", deliveryPackages.replace("A publishing-disabled single-track change starts at step 2.", "A publishing-disabled single-track change has no accounting route.")],
+			];
+			const disabledAccountingMutationOutcomes = disabledAccountingMutations.map(([id, source]) => ({ id, changed: source !== deliveryPackages, accepted: acceptsDisabledAccounting(source) }));
+			const missingDisabledAccountingBoundary = resolveDisabledAccounting(deliveryPackages.replace("<!-- publishing-disabled-accounting:end -->", ""));
+			const duplicateDisabledAccountingBoundary = resolveDisabledAccounting(`${deliveryPackages}\n\n<!-- publishing-disabled-accounting:begin -->\nduplicate\n<!-- publishing-disabled-accounting:end -->`);
+
+			const expectedPackageLoading = normalizeText(`Immediately before preparing any track package or final change package, read
+[delivery-packages.md](delivery-packages.md). Skip the read when that document
+is already in context. This is the only workflow stage that loads the document.
+Do not read it at session start or during routine planning, implementation, or
+review. The document owns package presentation only. Continue to read
+[user-notes.md](user-notes.md) at each feedback and note-accounting trigger that
+it defines.`);
+			const resolvePackageLoading = (source) => markedUnit("delivery-package-loading")(source);
+			// Scan the shipped documentation surface, not a roster of current readers.
+			const packageDocuments = new Map([["README.md", projectReadme]]);
+			const discoverPackageDocs = (directory) => {
+				for (const entry of readdirSync(join(REPO, directory), { withFileTypes: true })) {
+					const file = `${directory}/${entry.name}`;
+					if (entry.isDirectory()) discoverPackageDocs(file);
+					else if (entry.name.endsWith(".md")) packageDocuments.set(file, readFileSync(join(REPO, file), "utf8"));
+				}
+			};
+			discoverPackageDocs("docs");
+			const packageReferenceContexts = (documents) => [...documents].sort(([a], [b]) => a.localeCompare(b)).flatMap(([file, source]) => {
+				// This is a literal-source boundary, not Markdown interpretation. No
+				// link spelling, code block, or comment can hide a filename occurrence.
+				const contexts = [];
+				const headingCounts = new Map();
+				let headings = [];
+				let paragraph = [];
+				const flush = () => {
+					const text = normalizeText(paragraph.join("\n"));
+					if (text.includes("delivery-packages.md")) contexts.push({ file, headings: [...headings], text });
+					paragraph = [];
+				};
+				for (const line of source.split(/\r?\n/)) {
+					const heading = /^(#{1,6})\s+/.exec(line);
+					const standalone = /^\s*\||^\s*<!--.*-->\s*$/.test(line);
+					if (!line.trim() || heading || standalone || /^\s*(?:[-+*]|\d+[.)])\s+/.test(line)) flush();
+					if (heading) {
+						headings = headings.filter((ancestor) => /^#+/.exec(ancestor)[0].length < heading[1].length);
+						headings.push(normalizeText(line));
+						const key = JSON.stringify(headings);
+						headingCounts.set(key, (headingCounts.get(key) ?? 0) + 1);
+					}
+					paragraph.push(line);
+					if (heading || standalone) flush();
+				}
+				flush();
+				return contexts.map((context) => ({ ...context, uniqueOwner: context.headings.every((_, index) => headingCounts.get(JSON.stringify(context.headings.slice(0, index + 1))) === 1) }));
+			});
+			const expectedWorkflowReferenceTexts = [
+				normalizeText("| orchestrator | track or change package | [delivery-packages.md](delivery-packages.md) | § Package preparation |"),
+				normalizeText(`Recommend changes to existing guidance or cautions first. Recommend another
+entry change only when empirical evidence is sufficient for that specific
+change. Do not derive broad capability claims from weak evidence. Do not invent
+a recommendation when the records support none. In that case, use the exact
+no-change statement required by
+[delivery-packages.md](delivery-packages.md) § Change package.`),
+				expectedPackageLoading,
+				normalizeText(`Every completed track reaches the user through the track package defined in
+[delivery-packages.md](delivery-packages.md) § Track package. User acceptance of
+a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
+Where a marker applies, it waits for required track acceptance and every
+requested fix.
+In per-track mode, the user's merge supplies acceptance and the boundary before
+the next track starts. A track with only REVIEWER-ONLY areas, or no proved area,
+has no mandatory track-acceptance gate.
+In a single-track change, any blocking track acceptance and final change
+acceptance are one event. Final change acceptance is always blocking.`),
+				normalizeText(`Delivery is the selected publishing mode's final accepted merge on the default
+development branch. When publishing is disabled, the final package asks for
+acceptance while the research log and every implementer report remain retained.
+After acceptance, copy the required accounting from the log into the final
+squashed commit body as part of creating that commit. Verify the body before
+calling the commit delivery. This sequence applies to single-track and
+multi-track changes. Intermediate multi-track packages continue to use the
+retained research log as their current accounting source. Explicit abandonment
+is the other delivery outcome. Resolve or hand every open question to the user.
+Follow [user-notes.md](user-notes.md) for feedback and note accounting. Follow
+[delivery-packages.md](delivery-packages.md) for the final user-facing package
+and the complete accounting sequence. Delete the retained local log and every
+implementer report only after the whole change reaches delivery and the required
+accounting is verified in its final record. The untracked-retention rule in
+§ Session handoff and the research log keeps the local files out of the pull
+request. On abandonment, offer their content for archival first.`),
+			];
+			const reviewedReference = (file, headings, text) => ({ file, headings, text: normalizeText(text), uniqueOwner: true });
+			const expectedPackageReferenceContexts = [
+				reviewedReference("README.md", ["# ytdb-slate", "## Shipped docs"], "- `docs/delivery-packages.md` — the compact track and change package format, read only before package preparation"),
+				reviewedReference("docs/model-routing.md", ["# Logical-model routing and recovery", "## Completion recommendations"], `The advice is advisory and ready to copy. When the feature is enabled, the
+change package always includes its routing field. Weak evidence produces no
+invented recommendation. It produces the exact no-change statement required by
+[delivery-packages.md](delivery-packages.md) § Change package. The feature does
+not edit any file. It does not authorize a model selection, a new model, or a
+roster change.`),
+				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Description rules"], `- **Delivery accounting** — the conclusions that
+  [delivery-packages.md](delivery-packages.md) § Durable accounting requires.
+  Update this subsection from the research log before each package. Keep private
+  reasoning and private data out of it.`),
+				...expectedWorkflowReferenceTexts.map((text, index) => reviewedReference("docs/track-workflow.md", [
+					"# Track-based development workflow",
+					...(index === 0 ? [] : index === 1
+						? ["## Review coverage", "### Routing recommendations at change completion"]
+						: ["## Delivery and termination"]),
+				], text)),
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers"], `[delivery-packages.md](delivery-packages.md) owns the short user-facing package
+format. Other workflow documents may call a track package a **track packet** and
+a change package a **final report**. Those terms do not change the feedback or
+accounting rules in this document.`),
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Package acceptance and note timing"], `Every completed track reaches the user through the track package defined in
+[delivery-packages.md](delivery-packages.md) § Track package. The research log
+keeps the full working evidence. The delivery record keeps the required durable
+accounting. The package references that record and the diff.`),
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `A single-track change uses the combined package defined in
+[delivery-packages.md](delivery-packages.md) § Single-track combined package. A
+multi-track change uses the separate change package defined in that document.
+Package preparation does not delay or replace the feedback triggers above.`),
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `Before final acceptance, the research log provides full accounting for the
+current work. The transfer defined in
+[delivery-packages.md](delivery-packages.md) § Durable accounting follows the
+reachable record lifecycle. Draft publishing copies the required conclusions to
+the pull-request description before each package. Without draft publishing,
+intermediate and final-acceptance packages use the retained research log as the
+current accounting source. After final acceptance, commit creation copies the
+required conclusions into the final squashed commit body. Cleanup waits for
+verification of that body. The accounting covers:`),
+			].sort((a, b) => a.file.localeCompare(b.file));
+			const acceptsPackageLoading = (source) => {
+				const resolved = resolvePackageLoading(source);
+				const documents = new Map(packageDocuments).set("docs/track-workflow.md", source);
+				return resolved.count === 1 && resolved.text === expectedPackageLoading && JSON.stringify(packageReferenceContexts(documents)) === JSON.stringify(expectedPackageReferenceContexts);
+			};
+			const packageLoadingMutations = [
+				["owned-unit-eager-replacement", workflow.replace(/Immediately\s+before\s+preparing\s+any\s+track\s+package\s+or\s+final\s+change\s+package/, "At session start")],
+				["eager-append", `${workflow}\n\nAt session start, read [delivery-packages.md](delivery-packages.md).`],
+				["count-preserving-actor-replacement", workflow.replace("| orchestrator | track or change package | [delivery-packages.md](delivery-packages.md) | § Package preparation |", "At session start, read [delivery-packages.md](delivery-packages.md).")],
+			];
+			const packageLoadingMutationOutcomes = packageLoadingMutations.map(([id, source]) => ({ id, changed: source !== workflow, accepted: acceptsPackageLoading(source) }));
+			const missingLoadingBoundary = resolvePackageLoading(workflow.replace("<!-- delivery-package-loading:end -->", ""));
+			const duplicateLoadingBoundary = resolvePackageLoading(`${workflow}\n\n<!-- delivery-package-loading:begin -->\nduplicate\n<!-- delivery-package-loading:end -->`);
+
+			const workflowFlat = normalizeText(workflow);
+			const publishingFlat = normalizeText(publishing);
+			const userNotesFlat = normalizeText(userNotes);
+			const stalePackageRules = [workflow, reviews, userNotes, readFileSync(join(REPO, "docs", "model-routing.md"), "utf8"), projectReadme].join("\n");
+			const modeSource = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
+			checkAll("contract-delivery-packages", "one exact package-policy block owns field order, conditional sections, enabled routing, single-track output, and durable accounting. One exact loading unit limits the document read to package preparation. Every literal filename reference in shipped documentation has a reviewed context and heading owner", [
+				["the complete package document and its owned contract resolve once and match the reviewed SHA-256 digest", packageContract.count === 1 && packageContract.endCount === 1 && acceptsPackageContract(deliveryPackages), { count: packageContract.count, endCount: packageContract.endCount, digest: digest(deliveryPackages) }],
+				["the structural heading and template-label rosters keep the approved order", packageHeadings.join() === "Package preparation,Track package,Track <number>: <name>,Change package,Change: <name>,Single-track combined package,Durable accounting" && JSON.stringify(packageTemplates) === JSON.stringify([["Result", "Needs attention", "References", "Next step"], ["Outcome", "Goal status", "Remaining concerns", "References", "Model-routing recommendations", "Decision"]]), { packageHeadings, packageTemplates }],
+				["order, verification, attention, duplication, accounting, menu, routing, ownership, and acceptance-pointer mutations each change the source and fail", packageMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageMutationOutcomes],
+				["missing and duplicated package boundaries and additive rules outside the owned block fail closed", !missingPackageBoundary && duplicatePackageBoundary.count === 2 && duplicatePackageBoundary.endCount === 2 && !acceptsPackageContract(additivePackageSource), { missingPackageBoundary, duplicatePackageBoundary, additiveAccepted: acceptsPackageContract(additivePackageSource) }],
+				["the package document delegates acceptance policy to the canonical workflow unit", !Object.values(ACCEPTANCE_FACTS).some((entry) => typeof entry.document === "string" && deliveryPackages.includes(entry.document)) && packageContract.text.includes("Follow\n[track-workflow.md](track-workflow.md) § Delivery and termination"), Object.values(ACCEPTANCE_FACTS).filter((entry) => typeof entry.document === "string" && deliveryPackages.includes(entry.document))],
+				["the publishing-disabled accounting unit gives single-track and multi-track packages reachable sources, then transfers and verifies the final commit before cleanup", acceptsDisabledAccounting(deliveryPackages), resolveDisabledAccounting(deliveryPackages)],
+				["future-record, missing-transfer, early-cleanup, and missing-single-track counterfactuals each change the accounting sequence and fail", disabledAccountingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), disabledAccountingMutationOutcomes],
+				["missing and duplicated publishing-disabled accounting boundaries fail closed", missingDisabledAccountingBoundary.count === 0 && missingDisabledAccountingBoundary.text === "" && duplicateDisabledAccountingBoundary.count === 2 && duplicateDisabledAccountingBoundary.text === "", { missingDisabledAccountingBoundary, duplicateDisabledAccountingBoundary }],
+				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("**Delivery accounting** — the conclusions that [delivery-packages.md](delivery-packages.md) § Durable accounting requires. Update this subsection from the research log before each package.") && publishingFlat.includes("Before each track or change package, copy the required delivery accounting from the research log into the description.") && workflowFlat.includes("After acceptance, copy the required accounting from the log into the final squashed commit body as part of creating that commit. Verify the body before calling the commit delivery.") && workflowFlat.includes("Intermediate multi-track packages continue to use the retained research log as their current accounting source.") && userNotesFlat.includes("Without draft publishing, intermediate and final-acceptance packages use the retained research log as the current accounting source.") && userNotesFlat.includes("After final acceptance, commit creation copies the required conclusions into the final squashed commit body. Cleanup waits for verification of that body."), { workflow: workflow.match(/Delivery is the selected publishing mode[\s\S]*?(?=\n\nAim for a delivery body)/)?.[0], publishing: publishing.match(/\*\*Delivery accounting\*\*[\s\S]*?(?=\n- \*\*Verification approach)/)?.[0], userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
+				["the workflow loading unit and every literal filename context across README and recursive docs equal independent expectations", acceptsPackageLoading(workflow), { loading: resolvePackageLoading(workflow), contexts: packageReferenceContexts(packageDocuments) }],
+				["owned-unit, appended, and count-preserving actor-table eager-load mutations each change the source and fail", packageLoadingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageLoadingMutationOutcomes],
+				["missing and duplicated loading boundaries fail closed", missingLoadingBoundary.count === 0 && missingLoadingBoundary.text === "" && duplicateLoadingBoundary.count === 2 && duplicateLoadingBoundary.text === "", { missingLoadingBoundary, duplicateLoadingBoundary }],
+				["the exported path resolves to the exact package document without entering mode imports", paths.DELIVERY_PACKAGES_DOC === join(REPO, "docs", "delivery-packages.md") && readFileSync(paths.DELIVERY_PACKAGES_DOC, "utf8") === deliveryPackages && !modeSource.includes("DELIVERY_PACKAGES_DOC"), { path: paths.DELIVERY_PACKAGES_DOC, modeImport: modeSource.includes("DELIVERY_PACKAGES_DOC") }],
+				["former verbose and optional-routing rules are absent from active copies", !/these twelve fields|No empty or no-evidence block|required no placeholder block|requires no placeholder block|Omit the block when|omission is not a failed gate|advice is optional and never edits/i.test(stalePackageRules), stalePackageRules.match(/.{0,80}(?:these twelve fields|no-evidence block|placeholder block|omit the block|omission is not|advice is optional).{0,100}/i)?.[0]],
+			]);
+
 			const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 			const headingCount = (source, name) => (source.match(new RegExp(`^## ${escapeRegex(name)}$`, "gm")) ?? []).length;
 			const targetDocs = [
 				["track-workflow.md", workflow, ["Lifecycle and phases", "Focus classes and gates", "Confirmation gate", "Risk planning and reconciliation", "Track intention block and implementer response", "Session handoff and the research log", "Resume order and reconciliation", "Review coverage", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
 				["review-rules.md", reviews, ["Reviewer sets, merge rule and charters", "Findings and output", "Reviewer evidence standards", "Observation files and evidence recovery", "Fix loop and gate verdicts", "Stuck-fix consultation", "Termination and deferred-work routing"]],
 				["blast-radius.md", blast, ["Focus states and track constraints", "Focus areas and their gates", "Optional path declarations", "Lifecycle rules owned by the spine", "Halt and focus re-derivation", "Review coverage and the coverage register", "Commit discipline for drift and boundaries"]],
-				["user-notes.md", userNotes, ["Track packets", "Receiving and routing a user note", "Note queue and drain", "Override log", "Register entry shape", "Mandatory escalation set", "User note accounting", "Final report"]],
+				["user-notes.md", userNotes, ["Package acceptance and note timing", "Receiving and routing a user note", "Note queue and drain", "Override log", "Register entry shape", "Mandatory escalation set", "User note accounting", "Durable final accounting"]],
+				["delivery-packages.md", deliveryPackages, ["Package preparation", "Track package", "Change package", "Single-track combined package", "Durable accounting"]],
 				["pr-publishing.md", publishing, ["Creation", "Description rules", "Tracks table", "Keeping the PR in sync", "Ready-for-review flip", "After the flip", "After the merge"]],
 			];
 			const headingDefects = targetDocs.flatMap(([file, source, names]) => names.flatMap((name) => headingCount(source, name) === 1 ? [] : [`${file} § ${name} → ${headingCount(source, name)}`]));
@@ -3198,7 +3427,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const metacharHeading = "Focus classes (proved) [gate]";
 			const metacharSource = `## ${metacharHeading}\n`;
 			const defectiveHeadingCount = (source, name) => (source.match(new RegExp(`^## ${name}$`, "gm")) ?? []).length;
-			checkAll("contract-section-targets", "every named level-two target across all five workflow documents exists exactly once, and duplicate headings fail the predicate", [
+			checkAll("contract-section-targets", "every named level-two target across all six workflow documents exists exactly once, and duplicate headings fail the predicate", [
 				["all named targets are unique", headingDefects.length === 0, headingDefects],
 				["regex escaping handles metacharacters", escapeRegex(metacharHeading) === "Focus classes \\(proved\\) \\[gate\\]", escapeRegex(metacharHeading)],
 				["escaped fabricated heading matches exactly once", headingCount(metacharSource, metacharHeading) === 1, headingCount(metacharSource, metacharHeading)],

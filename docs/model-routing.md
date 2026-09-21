@@ -265,10 +265,12 @@ adjustment targets. Changes to effort, ratings, provider permissions, provider
 preference, or membership need sufficient empirical evidence for that exact
 change. One result does not support a broad benchmark or capability claim.
 
-The advice is optional, advisory, and ready to copy. Weak evidence produces no
-invented recommendation and requires no placeholder block. The feature does not
-edit any file. It does not authorize a model selection, a new model, or a roster
-change.
+The advice is advisory and ready to copy. When the feature is enabled, the
+change package always includes its routing field. Weak evidence produces no
+invented recommendation. It produces the exact no-change statement required by
+[delivery-packages.md](delivery-packages.md) § Change package. The feature does
+not edit any file. It does not authorize a model selection, a new model, or a
+roster change.
 
 ## Common recovery
 

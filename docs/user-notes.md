@@ -1,61 +1,39 @@
-# User notes, track packets and user-facing registers
+# User notes and user-facing registers
 
-This document governs the user surfaces after the user validates the design.
-A **user note** is one piece of user feedback on a delivered track packet.
-An **observation** is a worker evidence file and never user feedback.
+This document governs user feedback and its durable accounting after the user
+validates the design. A **user note** is one piece of user feedback on a
+delivered track package. An **observation** is a worker evidence file and never
+user feedback.
 
-The orchestrator reads this document at every track-packet boundary. It also
+[delivery-packages.md](delivery-packages.md) owns the short user-facing package
+format. Other workflow documents may call a track package a **track packet** and
+a change package a **final report**. Those terms do not change the feedback or
+accounting rules in this document.
+
+The orchestrator reads this document at every track-package boundary. It also
 reads it at the first recorded user note, at a drain with a non-empty note
-queue, and at the first owner triage.
+queue, and at the first owner triage. Reading the package-format document does
+not satisfy these triggers.
 
-## Track packets
+## Package acceptance and note timing
 
-Every completed track reaches the user in a track packet. Every packet has
-these twelve fields:
+Every completed track reaches the user through the track package defined in
+[delivery-packages.md](delivery-packages.md) § Track package. The research log
+keeps the full working evidence. The delivery record keeps the required durable
+accounting. The package references that record and the diff.
 
-1. the track intent.
-2. a file table with added and removed line counts for each changed file.
-3. when an approved high-level design exists, its differences since the last
-   presentation or a statement that no difference exists. When no approved
-   high-level design exists, state that this field does not apply.
-4. evidence from the required tests and checks.
-5. the cumulative implementation commit reference, as defined in
-   [track-workflow.md](track-workflow.md) § Lifecycle and phases. With draft
-   publishing enabled, include the current pull-request link and state whether
-   the selected mode is per-track or umbrella. For a later per-track packet,
-   also name the prior track's merged default-branch boundary. When publishing
-   is disabled, state that no pull request exists.
-6. the places where the user's judgment matters. For each requested decision,
-   state every option and its consequence. State that no decision is requested
-   when none exists.
-7. the proved-area summary. Give one line for every focus area. Each line states
-   the area, the proof outcome, and a short risk phrase. Include every area that
-   the committed-difference comparison added or proposed for removal. State the
-   user's decision on each proposed removal.
-8. every finding recorded with the ignored disposition.
-9. the commit range that contains the track. Before a per-track pull request
-   merges, give the reviewed branch range. Record the durable merged range in
-   the research log after the user merges it.
-10. the machine-review outcome, with finding counts by type, severity, and
-    disposition.
-11. override-log entries created for this track.
-12. every escalation raised for the track and its recorded disposition.
-
-The track packet references the diff and never inlines it. It states where to
-find the diff. The user may ask for any part of it.
-
-The packet states which acceptance rule applies. User acceptance of a track is
-blocking when that track proves at least one DESIGN-TRIGGERING area. Where a
-marker applies, it waits for required track acceptance and every requested fix.
-In per-track mode, the user's merge supplies acceptance and the boundary before
-the next track starts. A track with only REVIEWER-ONLY areas, or no proved area,
-has no mandatory track-acceptance gate. Its packet reports progress and every
-requested decision. Without mandatory track acceptance, an applicable marker
-waits for completed machine gates, the packet, and resolved blocking user notes.
-In per-track mode, pull-request readiness waits for the same steps, and the
-user's merge supplies the boundary before the next track starts. In a
-single-track change, any blocking track acceptance and final change acceptance
-are one event. Final change acceptance is always blocking.
+The track package states which acceptance rule applies. User acceptance of a
+track is blocking when that track proves at least one DESIGN-TRIGGERING area.
+Where a marker applies, it waits for required track acceptance and every
+requested fix. In per-track mode, the user's merge supplies acceptance and the
+boundary before the next track starts. A track with only REVIEWER-ONLY areas,
+or no proved area, has no mandatory track-acceptance gate. Its package reports
+progress and every requested decision. Without mandatory track acceptance, an
+applicable marker waits for completed machine gates, the package, and resolved
+blocking user notes. In per-track mode, pull-request readiness waits for the
+same steps, and the user's merge supplies the boundary before the next track
+starts. In a single-track change, any blocking track acceptance and final
+change acceptance are one event. Final change acceptance is always blocking.
 
 
 ## Receiving and routing a user note
@@ -189,19 +167,22 @@ A change with no user note records one line that no note arrived. A change with
 notes accounts for every note individually. An unanswered note is never treated
 as accepted or resolved.
 
-## Final report
+## Durable final accounting
 
-A single-track change puts its final report in the track packet and delivery
-record. A multi-track change produces a separate final report.
+A single-track change uses the combined package defined in
+[delivery-packages.md](delivery-packages.md) § Single-track combined package. A
+multi-track change uses the separate change package defined in that document.
+Package preparation does not delay or replace the feedback triggers above.
 
-When trusted configuration enables `workflow.routingRecommendations`, the final
-report places a short routing-advice block before the request for final
-acceptance. The block follows the evidence and authority limits in
-[track-workflow.md](track-workflow.md) § Routing recommendations at change
-completion. Omit the block when the current-change records support no
-recommendation. The omission is not a failed gate.
-
-The final report provides full accounting for:
+Before final acceptance, the research log provides full accounting for the
+current work. The transfer defined in
+[delivery-packages.md](delivery-packages.md) § Durable accounting follows the
+reachable record lifecycle. Draft publishing copies the required conclusions to
+the pull-request description before each package. Without draft publishing,
+intermediate and final-acceptance packages use the retained research log as the
+current accounting source. After final acceptance, commit creation copies the
+required conclusions into the final squashed commit body. Cleanup waits for
+verification of that body. The accounting covers:
 
 - every finding and its disposition.
 - every user note, acknowledgement, route, blocking reading and disposition.
@@ -213,13 +194,13 @@ The final report provides full accounting for:
 The delivery record carries a one-line index of every ignored finding. Each
 entry carries the identifier, location and one-line summary.
 
-The report gives routine implementation review and user-requested-fix
+The durable record gives routine implementation review and user-requested-fix
 verification as separate verdicts. The routine line concludes whether the full
 required reviewer set covered the range. It states `NOT REQUIRED` when the
 track has no proved area and does not claim Reviewer I coverage. When a
 user-requested-fix range exists, another line gives its dedicated gate verdict.
 
 The coverage register stays in the research log. Neither its entries nor its
-size enter a packet or the final report. The detailed register never leaves the
-research log. The one-line coverage conclusion is the only coverage-register
-result that leaves it.
+size enter a user-facing package. The detailed register never leaves the
+research log. Its one-line coverage conclusion enters the durable delivery
+record.

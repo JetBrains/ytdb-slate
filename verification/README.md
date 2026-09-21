@@ -593,6 +593,36 @@ provider-free table, sanitation, positional numbering, excluded source data,
 exact portable sizes, and growth bounds. A headless load smoke test does not
 enter orchestrator mode and does not replace these checks.
 
+## Delivery-document reference boundary
+
+`contract-delivery-packages` keeps the exact package-preparation-only loading
+unit, package-document digest, accounting sequence, and acceptance delegation.
+It also scans `README.md` and every recursively discovered `.md` file under
+`docs/`. The package whitelist ships these inputs. Discovery includes new and
+unreferenced documents without a maintained file list.
+
+Every literal `delivery-packages.md` occurrence must belong to an explicitly
+reviewed context. The roster records the document, heading ancestry, and complete
+paragraph, list item, or table row. It requires unique owning headings and the
+same reference-context order within each document. Additions, removals, changed
+text, duplicate contexts, and moves to another document or heading fail. Moving
+text within the same heading past only unrelated prose is not distinguished.
+Whitespace normalization allows line wrapping within a context. Unrelated prose
+and new documents without the literal filename remain unrestricted.
+
+This is a bounded source check, not a Markdown parser or a semantic reading
+check. Blank lines, ATX headings, list-item starts, table rows, and standalone
+HTML comments delimit contexts. The scanner examines literal filenames even in
+comments and code. It does not resolve aliases, encoded filenames, or eager-read
+instructions that omit the literal filename. Those forms remain outside the
+approved guarantee.
+
+`test/delivery-reference-contract.test.ts` runs disposable mutations through the
+real strict resolver wrapper. Each negative case requires exit 1 and a failed
+`contract-delivery-packages` result. Positive controls require the full suite to
+pass. Run this test and the strict resolver suite after changing the scanner,
+its reviewed roster, or a reference-bearing documentation context.
+
 ## Doctrine measurement basis
 
 Portable measurement removes every exact installed documentation-directory
