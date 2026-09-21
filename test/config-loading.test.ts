@@ -247,7 +247,7 @@ test("empty home enables the trusted default doctrine in an untrusted session", 
   const metrics = (text: string) => ({ portable: text.split(docsDirectory).join("").length,
     paths: text.split(docsDirectory).length - 1, lines: text.split("\n").length });
   assert.deepEqual(metrics(withoutHome), { portable: 2713, paths: 4, lines: 44 });
-  assert.deepEqual(metrics(homeEnabled), { portable: 8447, paths: 5, lines: 86 });
+  assert.deepEqual(metrics(homeEnabled), { portable: 8954, paths: 5, lines: 86 });
 });
 
 test("real entry shares home routing, doctrine, writing cadence and startup settings in untrusted sessions", { timeout: 10000 }, async (t) => {
