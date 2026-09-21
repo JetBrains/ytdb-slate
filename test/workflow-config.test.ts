@@ -11,54 +11,58 @@ function sanitize(raw: unknown): { result: ReturnType<typeof sanitizeWorkflowCon
 test("workflow deferred-issue prompt accepts true", () => {
   const { result, warnings } = sanitize({ followUpIssues: true });
   assert.equal(result.followUpIssues, true);
+  assert.equal(result.routingRecommendations, false);
   assert.deepEqual(warnings, []);
 });
 
 test("workflow deferred-issue prompt accepts false", () => {
   const { result, warnings } = sanitize({ followUpIssues: false });
   assert.equal(result.followUpIssues, false);
+  assert.equal(result.routingRecommendations, false);
   assert.deepEqual(warnings, []);
 });
 
 test("workflow deferred-issue prompt defaults to false when the key is absent", () => {
   const { result, warnings } = sanitize({});
   assert.equal(result.followUpIssues, false);
+  assert.equal(result.routingRecommendations, false);
   assert.deepEqual(warnings, []);
 });
 
 test("workflow deferred-issue prompt defaults to false when workflow is absent", () => {
   const { result, warnings } = sanitize(undefined);
-  assert.deepEqual(result, { followUpIssues: false });
+  assert.deepEqual(result, { followUpIssues: false, routingRecommendations: false });
   assert.deepEqual(warnings, []);
 });
 
 test("workflow deferred-issue prompt defaults to false when workflow is null", () => {
   const { result, warnings } = sanitize(null);
-  assert.deepEqual(result, { followUpIssues: false });
+  assert.deepEqual(result, { followUpIssues: false, routingRecommendations: false });
   assert.deepEqual(warnings, []);
 });
 
 test("workflow deferred-issue prompt defaults to false when workflow is an array", () => {
   const { result, warnings } = sanitize([]);
-  assert.deepEqual(result, { followUpIssues: false });
+  assert.deepEqual(result, { followUpIssues: false, routingRecommendations: false });
   assert.deepEqual(warnings, []);
 });
 
 test("workflow deferred-issue prompt defaults to false when workflow is a string", () => {
   const { result, warnings } = sanitize("invalid workflow");
-  assert.deepEqual(result, { followUpIssues: false });
+  assert.deepEqual(result, { followUpIssues: false, routingRecommendations: false });
   assert.deepEqual(warnings, []);
 });
 
 test("workflow deferred-issue prompt defaults to false when workflow is a number", () => {
   const { result, warnings } = sanitize(42);
-  assert.deepEqual(result, { followUpIssues: false });
+  assert.deepEqual(result, { followUpIssues: false, routingRecommendations: false });
   assert.deepEqual(warnings, []);
 });
 
 test("workflow deferred-issue prompt warns and defaults to false for a non-boolean value", () => {
   const { result, warnings } = sanitize({ followUpIssues: "yes" });
   assert.equal(result.followUpIssues, false);
+  assert.equal(result.routingRecommendations, false);
   assert.deepEqual(warnings, [
     'slate: ignoring workflow.followUpIssues "yes". Expected true or false. Slate uses false.',
   ]);
@@ -68,6 +72,7 @@ test("workflow sanitization preserves draftPRs beside deferred-issue prompt", ()
   const { result, warnings } = sanitize({ draftPRs: "unchanged", followUpIssues: true });
   assert.equal(result.draftPRs, "unchanged");
   assert.equal(result.followUpIssues, true);
+  assert.equal(result.routingRecommendations, false);
   assert.deepEqual(warnings, []);
 });
 
@@ -104,7 +109,7 @@ test("workflow deferred-issue prompt contains a deeply nested invalid value", ()
 test("workflow deferred-issue prompt ignores an inherited value", () => {
   const workflow = Object.create({ followUpIssues: true }) as Record<string, unknown>;
   const { result, warnings } = sanitize(workflow);
-  assert.deepEqual(result, { followUpIssues: false });
+  assert.deepEqual(result, { followUpIssues: false, routingRecommendations: false });
   assert.deepEqual(warnings, []);
 });
 
@@ -112,7 +117,37 @@ test("workflow sanitization drops inherited draftPRs", () => {
   const workflow = Object.create({ draftPRs: true }) as Record<string, unknown>;
   workflow.followUpIssues = false;
   const { result, warnings } = sanitize(workflow);
-  assert.deepEqual(result, { followUpIssues: false });
+  assert.deepEqual(result, { followUpIssues: false, routingRecommendations: false });
   assert.equal(Object.prototype.hasOwnProperty.call(result, "draftPRs"), false);
   assert.deepEqual(warnings, []);
+});
+
+test("workflow routing recommendations accept true and false", () => {
+  assert.deepEqual(sanitize({ routingRecommendations: true }), {
+    result: { followUpIssues: false, routingRecommendations: true }, warnings: [],
+  });
+  assert.deepEqual(sanitize({ routingRecommendations: false }), {
+    result: { followUpIssues: false, routingRecommendations: false }, warnings: [],
+  });
+});
+
+test("workflow routing recommendations warn and default invalid values to false", () => {
+  const { result, warnings } = sanitize({ routingRecommendations: "yes" });
+  assert.deepEqual(result, { followUpIssues: false, routingRecommendations: false });
+  assert.deepEqual(warnings, [
+    'slate: ignoring workflow.routingRecommendations "yes". Expected true or false. Slate uses false.',
+  ]);
+});
+
+test("workflow routing recommendations ignore an inherited value", () => {
+  const workflow = Object.create({ routingRecommendations: true }) as Record<string, unknown>;
+  assert.deepEqual(sanitize(workflow), {
+    result: { followUpIssues: false, routingRecommendations: false }, warnings: [],
+  });
+});
+
+test("workflow sanitization preserves every own workflow key", () => {
+  assert.deepEqual(sanitize({ draftPRs: "unchanged", followUpIssues: true, routingRecommendations: true }), {
+    result: { draftPRs: "unchanged", followUpIssues: true, routingRecommendations: true }, warnings: [],
+  });
 });

@@ -1354,16 +1354,24 @@ try {
 			draft: metrics(await doctrine(EMPTY_EXT, () => activeRuntime, true, { workflow: { draftPRs: true } })),
 			extensions: metrics(await doctrineFor(capped)),
 			allTails: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { draftPRs: true } })),
-			maximal: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true } })),
+			followUp: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { followUpIssues: true } })),
+			routing: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { routingRecommendations: true } })),
+			draftFollowUp: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true } })),
+			draftRouting: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { draftPRs: true, routingRecommendations: true } })),
+			followUpRouting: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { followUpIssues: true, routingRecommendations: true } })),
+			maximal: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } })),
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
 			prompt: { portable: 3566, lines: 12, paths: 0 }, trusted: { portable: 8376, lines: 86, paths: 5 },
 			untrusted: { portable: 2713, lines: 44, paths: 4 }, draft: { portable: 8543, lines: 88, paths: 6 },
 			extensions: { portable: 9723, lines: 96, paths: 5 }, allTails: { portable: 9890, lines: 98, paths: 6 },
-			maximal: { portable: 9964, lines: 99, paths: 6 }, dogfood: { portable: 9089, lines: 98, paths: 6 },
+			followUp: { portable: 9797, lines: 97, paths: 5 }, routing: { portable: 9820, lines: 97, paths: 5 },
+			draftFollowUp: { portable: 9964, lines: 99, paths: 6 }, draftRouting: { portable: 9841, lines: 97, paths: 6 },
+			followUpRouting: { portable: 9894, lines: 98, paths: 5 }, maximal: { portable: 9915, lines: 98, paths: 6 },
+			dogfood: { portable: 9040, lines: 97, paths: 6 },
 		};
-		const doctrineBaselines = [rendered.trusted, rendered.untrusted, rendered.draft, rendered.extensions, rendered.allTails, rendered.maximal, rendered.dogfood];
+		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
 			["all exact fixture literals match", JSON.stringify(rendered) === JSON.stringify(exact), { rendered, exact }],
 			["logical prompt keeps five-percent runtime reserve", Math.ceil(rendered.prompt.portable * 1.05) <= DOCTRINE_LIMITS.routingRuleChars, rendered.prompt],
@@ -1385,18 +1393,22 @@ try {
 		const lineRuntime = (count) => logicalRuntime.createLogicalRuntime({ trusted: true, documentationDirectory: docsDirectory, projectConfig: { router: { models: { add: Array.from({ length: count }, (_, i) => ({ model: `m${i}`, capabilityRating: 1, effort: "off", costRating: 1, preferredProvider: "p", providers: { p: `m${i}` }, guidelines: [], cautions: [] })) } } } });
 		const atLines = lineRuntime(93);
 		const aboveLines = lineRuntime(94);
-		const composition = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true } });
-		const deferred = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true } });
+		const featureOffDraft = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true } });
+		const featureOffTight = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true } });
+		const routingWithoutDrafts = await doctrine(capped, () => atChars, true, { workflow: { routingRecommendations: true } });
+		const routingWithFollowUp = await doctrine(capped, () => atChars, true, { workflow: { followUpIssues: true, routingRecommendations: true } });
+		const routing = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true, routingRecommendations: true } });
+		const deferred = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } });
 		const overExtensions = { units: [{ path: "/fixture/over", source: "z".repeat(128), isDirectory: true, tools: Array.from({ length: 88 }, (_, i) => ({ name: (`t${i}`).padEnd(64, "x"), description: "q".repeat(140) })) }], paths: [], toolNames: [] };
-		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true } });
+		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } });
 		const portable = (text) => text.split(docsDirectory).join("").length;
 		checkAll("doctrine-budget-boundaries", "runtime equality, first-over-limit rejection, maximum composition, and valid-router doctrine growth remain discriminatory", [
 			["19,400 accepted", atChars.promptText().length === 19400 && atChars.criticalErrors.length === 0, { length: atChars.promptText()?.length, errors: atChars.criticalErrors }],
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(composition) === 25724 && portable(deferred) === 25798 && portable(deferred) <= DOCTRINE_LIMITS.maximalChars, { composition: portable(composition), deferred: portable(deferred) }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 27638 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 25724 && portable(featureOffTight) === 25798 && portable(routingWithoutDrafts) === 25654 && portable(routingWithFollowUp) === 25728 && portable(routing) === 25675 && portable(deferred) === 25749 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 27589 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 

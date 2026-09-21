@@ -1,6 +1,6 @@
 {
   "orchestratorModeDefault": true,
-  "workflow": { "draftPRs": true },
+  "workflow": { "draftPRs": true, "routingRecommendations": true },
   "router": {
     "models": {
       "include": [

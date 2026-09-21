@@ -194,6 +194,13 @@ as accepted or resolved.
 A single-track change puts its final report in the track packet and delivery
 record. A multi-track change produces a separate final report.
 
+When trusted configuration enables `workflow.routingRecommendations`, the final
+report places a short routing-advice block before the request for final
+acceptance. The block follows the evidence and authority limits in
+[track-workflow.md](track-workflow.md) § Routing recommendations at change
+completion. Omit the block when the current-change records support no
+recommendation. The omission is not a failed gate.
+
 The final report provides full accounting for:
 
 - every finding and its disposition.
