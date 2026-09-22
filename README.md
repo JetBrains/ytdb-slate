@@ -1,51 +1,87 @@
-# ytdb-slate
+# ytdb-slate: Agent orchestration for the pi coding agent
 
 [![CI status](https://github.com/JetBrains/ytdb-slate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JetBrains/ytdb-slate/actions/workflows/ci.yml)
 
-Slate is a thread-weaving orchestration extension for the [pi coding agent](https://pi.dev).
+**Slate is a thread-weaving orchestration extension for the [pi coding agent](https://pi.dev).** It helps you guide long coding tasks while focused worker sessions research, implement, and review bounded parts of the work.
 
-The orchestrator is your main pi session. It dispatches each **bounded action** to a new **worker thread**. Each thread runs one action. A large language model compresses successful work and failed partial work into one **episode**. A failure without a worker response uses a fixed episode and no compression call. The episode retains intent, actions, findings, artifacts, open issues, and handoff notes.
+You stay in the main session and decide what to build. Slate manages context, delegates actions, preserves useful results, and applies a risk-based development workflow.
 
-The orchestrator composes episodes into later dispatches instead of re-reading raw transcripts. Slate also injects a mandatory workflow doctrine. Its gates use focus areas backed by user-approved proofs. Optional **draft-PR publishing** uses either one pull request per track or one umbrella pull request.
+- [Start using Slate](#start-using-slate)
+- [Understand how Slate works](#how-slate-works)
+- [See the roadmap](#where-slate-is-going)
+- [Configure Slate](#configuration)
+- [Read the safety boundaries](#safety-and-trust)
+- [Open the complete reference](#shipped-docs)
 
-Slate uses one trusted **logical-model policy** for action routing and recovery. Each action names a provider-free logical model and a short reason. The policy fixes effort, exact physical routes, capability and cost ratings, guidance, cautions, and bounded recovery order.
+## Start using Slate
 
-### Join our Zulip community!
+You need an installed and authenticated [pi coding agent](https://pi.dev/docs/latest/quickstart). From your project directory, install a pinned Slate version into the project:
 
-If you are interested in Slate, consider joining our [Zulip](https://youtrackdb.zulipchat.com/#narrow/channel/634235-slate)
-community.
-Tell us about exciting applications you are building, ask for help, or just chat with friends 😃
+```bash
+pi install -l npm:ytdb-slate@<version>
+```
 
+The `-l` option records the package in `.pi/settings.json`. Pi may ask you to trust the project before it loads project settings and extensions.
 
-## Why Slate?
+Pinned package specifications such as `@<version>` are deliberately skipped by `pi update --extensions` and `pi update --all`. Moving the pin is a conscious project change. Review Slate's shipped workflow documents before you update it.
 
-Long-horizon agentic work fails on context management, not model capability. Existing architectures each solve a piece of the problem and trade away the rest. Compaction is unpredictably lossy. Naive subagents isolate context but hand back only a single response string. Markdown plans go stale and get under-executed. Rigid task trees cannot adapt to information discovered mid-task, and planner/executor stacks synchronize through compress-and-return boundaries that risk dropping critical state.
+Start a new interactive pi session, then turn on orchestrator mode:
 
-Slate's answer is the **thread**: the orchestrator dispatches one bounded action at a time. The worker executes it and returns an **episode**. The orchestrator keeps the reactivity of a plain agent loop while gaining the context isolation, compaction, and parallelism that the single-context loop lacks.
+```text
+/slate on
+```
 
-| Aspect | ReAct | Markdown plan | Task trees | RLM (Recursive Language Models) | Devin / Manus / Altera | Claude Code / Codex subagents | Slate |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Planning | implicit | file | explicit tree | REPL | planning agent | plan mode | implicit / adaptive — no upfront static plan |
-| Decomposition | none | none | direct tree | REPL functions | task-based | subagent delegation | implicit |
-| Synchronization | single thread | single thread | gated steps | REPL return | reduce & return | message passing | episodes |
-| Intermediate feedback | per step | per step | on task failure | on execution end | after compress | message passing | per episode |
-| Context isolation | none | none | per subtask | per subcall | subagent | subagent | per thread |
-| Context compaction | none | none | task-based | REPL slicing | subagent compress | compaction | episode compress |
-| Parallel execution | none | none | none | in REPL | Altera only | native | native |
-| Expressivity | high | high | low | high | medium | medium | high |
-| Adaptability | yes | if plan updated | no | limited — no mid-run course correction | yes | limited by message passing | yes |
+Try a request that gives Slate a clear outcome and leaves planning open:
 
-Characterizations of third-party systems reflect their publicly described designs at the time of writing. The taxonomy is adapted from the Random Labs technical report introducing the thread-weaving "Slate" architecture (its agent ships as the npm package `@randomlabs/slate`). ytdb-slate is an independent implementation of that architecture for pi.
+```text
+Add input validation to the account settings endpoint. First research the relevant code and tests. Show me the proposed tracks and risks before implementation.
+```
 
-**Threads are not subagents:**
+Slate will ask for required decisions before it edits code. It will delegate implementation work to worker threads after the workflow gates allow that work.
 
-- **Per-episode feedback.** Each thread executes one bounded action and hands control back. The orchestrator adapts after every episode — reactive like a ReAct loop — instead of firing off a subagent and hoping the result comes back usable.
-- **Compaction at a chosen boundary.** Compression happens at a predictable point — action completion — instead of mid-stream when context overflows. The compression itself is still LLM-performed and lossy, but the boundary is chosen, not forced.
-- **Episodes compose.** A follow-up action uses a new thread. The caller passes earlier episode identifiers through `context`. Slate loads that episode content into the new worker prompt. Subagents pass back one response string. Episodes are durable, structured records.
+To leave orchestrator mode, run `/slate off`. Running `/slate` with no argument toggles the mode. See [Everyday commands](#everyday-commands) for handoff, resume, and routing commands.
 
-Full rationale: [`docs/design-principles.md`](docs/design-principles.md), shipped in the package — if this summary and that document disagree, the document wins.
+## How Slate works
 
-## Feature development workflow
+Slate uses four terms throughout this README:
+
+- **Main session:** the interactive pi session where you set goals, answer questions, and review results. In orchestrator mode, this session acts as the **orchestrator**.
+- **Bounded action:** one focused unit of work with a clear limit and expected result.
+- **Worker thread:** a new isolated pi session that performs one bounded action. A follow-up action uses another new worker thread.
+- **Episode:** a durable, structured summary of one worker action. It retains intent, actions, findings, artifacts, open issues, and handoff notes.
+
+The orchestrator dispatches bounded actions and adapts after each episode. A large language model compresses successful work and failed partial work into the episode. A failure without a worker response uses a fixed episode and no compression call.
+
+Later actions can receive earlier episode identifiers through `context`. Slate loads those episodes into the new worker prompt. The main session can therefore compose prior results without re-reading every raw worker transcript.
+
+### What Slate adds
+
+- **Context isolation.** Each worker receives the context for one action instead of the full history of the main session.
+- **Compaction at an action boundary.** Compression happens when the action ends. Compression remains model-performed and lossy, but the boundary is deliberate rather than forced by a full context window.
+- **Adaptive planning.** Control returns to the orchestrator after each episode. New evidence can change the next action.
+- **Composable results.** Episodes are durable records that later worker threads can use by reference.
+- **Parallel work.** Independent bounded actions can run in parallel while each action keeps its own worker context.
+- **Risk-based review.** User-approved risk proofs select workflow gates and agent reviewers instead of applying every review to every change.
+
+Slate follows the thread-weaving architecture introduced by the Random Labs technical report for its `@randomlabs/slate` agent. ytdb-slate is an independent implementation of that architecture for pi.
+
+The full rationale is in [`docs/design-principles.md`](docs/design-principles.md). If this summary and that document disagree, the document wins.
+
+## Where Slate is going
+
+> **Planned work:** The two priorities below describe future changes. They are not current Slate features.
+
+Spend more time deciding what to build, and less time checking code or managing agents. We are working toward that goal with two priorities:
+
+1. **Guide changes through design, not code.** Review the design without having to read the code yourself. We plan to add design documents at several levels, from system goals to component details, and keep them updated as work progresses. Agents will still review code quality and check that changes follow your approved design.
+   Follow [#361](https://github.com/JetBrains/ytdb-slate/issues/361), [#402](https://github.com/JetBrains/ytdb-slate/issues/402), [#403](https://github.com/JetBrains/ytdb-slate/issues/403), and [#404](https://github.com/JetBrains/ytdb-slate/issues/404).
+
+2. **Keep working while agents run.** Asynchronous threads will let the main session continue without waiting for each result. A redesigned terminal interface will make it easier to follow and control their work. Clear, accurate usage and cost reports will show where your resources go.
+   Follow [#269](https://github.com/JetBrains/ytdb-slate/issues/269), [#296](https://github.com/JetBrains/ytdb-slate/issues/296), [#212](https://github.com/JetBrains/ytdb-slate/issues/212), and [#38](https://github.com/JetBrains/ytdb-slate/issues/38).
+
+## Current workflow and behavior
+
+### Feature development workflow
 
 In orchestrator mode, Slate injects a mandatory track-based development workflow. Project configuration can extend it through `doctrineExtraPath`. Configuration cannot replace it.
 
@@ -54,82 +90,60 @@ concurrency defects, data loss, security weaknesses, performance degradation,
 test-quality defects, unreadable user-facing prose, licensing exposure,
 non-local logic defects, consumer contract breaks, governing-rule defects, and
 unreported failures.
-During planning, the orchestrator writes an independent risk record for the
-change and for every track. Each record has one line for every focus area. A
-NAMED line carries a four-part proof. User approval makes that area proved.
-User rejection makes it SKIPPED. Only proved areas add gates or routine
-implementation reviewers. A track with at least one proved area gets one general
-Reviewer I plus every required area specialist. A track with no proved area gets
-no routine implementation reviewer.
+
+During planning, the orchestrator writes an independent risk record for the change and for every track. Each record has one line for every focus area. A `NAMED` line carries a four-part proof. User approval makes that area proved. User rejection makes it `SKIPPED`. Only proved areas add gates or routine implementation reviewers. A track with at least one proved area gets one general Reviewer I plus every required area specialist. A track with no proved area gets no routine implementation reviewer.
 
 The workflow follows these steps:
 
-1. **Plan and confirm** — the orchestrator proposes all eleven focus lines. The user alone approves or rejects each NAMED proof.
-2. **Design** — a proved DESIGN-TRIGGERING area requires a high-level design. The user validates it before focus reconfirmation and one adversarial design review per proved DESIGN-TRIGGERING area. Final design approval follows.
-3. **Implement tracks** — each track is one coherent, independently mergeable unit with its own focus set. About 400 added plus removed lines is a planning guideline. The orchestrator estimates before splitting work. The implementer estimates during work and stops at a coherent boundary near the guideline. A small overrun may finish the nearest coherent unit and must include its reason. Lockfiles, migration files, and generated output do not count.
-4. **Review and deliver** — when a track has a proved area, one Reviewer I and every required area specialist inspect it in separate review actions. A zero-area track reports routine implementation review as `NOT REQUIRED`. Tracks with a proved DESIGN-TRIGGERING area require blocking user acceptance. Other tracks do not. Where a marker applies, it follows required machine gates, the packet, and resolution of blocking user notes. Per-track mode uses the user-merged commit instead. Final change acceptance is always blocking.
+1. **Plan and confirm.** The orchestrator proposes all eleven focus lines. The user alone approves or rejects each `NAMED` proof.
+2. **Design.** A proved `DESIGN-TRIGGERING` area requires a high-level design. The user validates it before focus reconfirmation and one adversarial design review per proved `DESIGN-TRIGGERING` area. Final design approval follows.
+3. **Implement tracks.** Each track is one coherent, independently mergeable unit with its own focus set. About 400 added plus removed lines is a planning guideline. The orchestrator estimates before splitting work. The implementer estimates during work and stops at a coherent boundary near the guideline. A small overrun may finish the nearest coherent unit and must include its reason. Lockfiles, migration files, and generated output do not count.
+4. **Review and deliver.** When a track has a proved area, one Reviewer I and every required area specialist inspect it in separate review actions. A zero-area track reports routine implementation review as `NOT REQUIRED`. Tracks with a proved `DESIGN-TRIGGERING` area require blocking user acceptance. Other tracks do not. Where a marker applies, it follows required machine gates, the packet, and resolution of blocking user notes. Per-track mode uses the user-merged commit instead. Final change acceptance is always blocking.
 
-Draft-PR publishing activates only when `workflow.draftPRs` is `true`. The orchestrator then asks once whether every track gets its own pull request. A yes answer requires user merges in sequence and a fresh branch from updated `main` for each next track. A no answer keeps one umbrella draft pull request.
+Draft pull request publishing activates only when `workflow.draftPRs` is `true`. The orchestrator then asks once whether every track gets its own pull request. A yes answer requires user merges in sequence and a fresh branch from updated `main` for each next track. A no answer keeps one umbrella draft pull request.
 
-This summary provides orientation only. The shipped docs listed below are normative.
+This summary provides orientation only. The [shipped workflow documents](#shipped-docs) are normative.
 
-## Logical-model routing and recovery
+### Logical-model routing and recovery
 
-Every `thread` call names a provider-free logical `model` and a short `reason`.
-The active policy fixes effort and permits exact provider and model pairs. Slate
-resolves one immutable policy when the parent session starts. Dispatch,
-compression, main-session recovery, doctrine, and `/slate effective` share it.
+Every `thread` call names a provider-free logical `model` and a short `reason`. The active policy fixes effort, exact physical routes, capability and cost ratings, guidance, cautions, and bounded recovery order. Slate resolves one immutable policy when the parent session starts. Dispatch, compression, main-session recovery, doctrine, and `/slate effective` share it.
 
-The shipped ordinary pool has seven definitions. A trusted project can replace
-membership, add complete definitions, replace selected fields, and exclude
-members. The independent compressor list defaults to Sonnet at `medium`.
-Untrusted projects use home preferences over the shipped policy and consume no project router data.
-Critical errors block logical work. Legacy physical-router keys produce named
-warnings and receive no automatic migration.
+The shipped ordinary pool has seven definitions. A trusted project can replace membership, add complete definitions, replace selected fields, and exclude members. The independent compressor list defaults to Sonnet at `medium`. Untrusted projects use home preferences over the shipped policy and consume no project router data. Critical errors block logical work. Legacy physical-router keys produce named warnings and receive no automatic migration.
 
-Pi retries the active physical route first. Slate advances only after Pi reports
-known retry exhaustion. Recovery tries another permitted provider for the same
-logical model before it moves through the ordinary or compressor order. Unknown
-outcomes and cancellation stop recovery. One operation owns recovery. An
-overlapping operation receives a visible busy refusal. Slate does not queue or
-replay it.
+Pi retries the active physical route first. Slate advances only after Pi reports known retry exhaustion. Recovery tries another permitted provider for the same logical model before it moves through the ordinary or compressor order. Unknown outcomes and cancellation stop recovery. One operation owns recovery. An overlapping operation receives a visible busy refusal. Slate does not queue or replay it.
 
-Pi 0.85.1 model and effort switches are session-only unless persistence is
-requested. Slate retains its saved-default compatibility guard for explicit
-persistence and older behavior. Slate retains bounded completed worker output
-when compression fails or is cancelled. A failed episode write can prevent an
-episode. A failed final state save can leave episode bytes without a proved
-durable reference. Both failures remain visible. A remembered later compressor
-starts later actions at that entry and does not move backward until preference
-reset. This is an accepted limitation. `extension/index.ts` is the supported
-package entry.
-The new logical-runtime exports are internal and unstable. The same rule applies
-to retry-evidence exports, which classify provider retry outcomes.
-[`docs/model-routing.md`](docs/model-routing.md) defines the complete contract.
+Pi 0.85.1 model and effort switches are session-only unless persistence is requested. Slate retains its saved-default compatibility guard for explicit persistence and older behavior. Slate retains bounded completed worker output when compression fails or is cancelled. A failed episode write can prevent an episode. A failed final state save can leave episode bytes without a proved durable reference. Both failures remain visible.
 
-## Writing guidance
+A remembered later compressor starts later actions at that entry and does not move backward until preference reset. This is an accepted limitation. `extension/index.ts` is the supported package entry. Logical-runtime exports and retry-evidence exports are internal and unstable. Retry-evidence exports classify provider retry outcomes. [`docs/model-routing.md`](docs/model-routing.md) defines the complete contract.
+
+### Writing guidance
 
 Writing guidance and checker findings are active in orchestrator mode when the project is trusted or a home configuration file exists. Slate adds one doctrine rule for writing and another for design discipline. It also adds a status value such as `writing 2 fail, 3 style / 10 turns` in interactive sessions. The value reports model-visible findings in the latest ten measured prose turns. Each worker with permitted Slate settings gets a shorter reminder about reader understanding, semicolons, and contractions.
 
 The guidance has prompt cost. Each orchestrator system prompt contains both doctrine rules. You pay for this text on every turn. Each worker with permitted Slate settings also gets the preamble addition.
 
-> **No conformance claim:** This is a dictionary-free proxy. It embeds no controlled vocabulary and claims no ASD-STE100 conformance.
-
-The shipped CLI checks plain files, JSONL records, and unified diffs. See [`docs/writing-guidance.md`](docs/writing-guidance.md) for its rules, limits, output, and command examples.
+The shipped command checks plain files, JSON Lines records, and unified diffs. See [`docs/writing-guidance.md`](docs/writing-guidance.md) for its rules, limits, output, and command examples.
 
 Slate sends hidden reminders after completed turns. The default cadence is four completed turns. A model-visible finding can trigger an immediate reminder when that option is enabled. The reminder carries the writing and conversation title, three retained style rules, ten writing requirements, and seven design requirements. A findings section appears only when the latest measured turn carries a model-visible finding. The requirements exclude research logs, worker task text, and this project's agent instruction file.
 
-## Install
+## Everyday commands
 
-Install into a project (pinned, project-scoped — recorded in `.pi/settings.json`):
+| Command | Current behavior |
+| --- | --- |
+| `/slate on` | Turn on orchestrator mode. Slate removes tactical tools from the main session and expects delegation through worker threads. |
+| `/slate off` | Turn off orchestrator mode and restore the earlier tool set. |
+| `/slate` | Toggle orchestrator mode. |
+| `/slate effective` | Show the effective logical-model policy and remembered route selections. |
+| `/slate handoff [focus]` | Prepare a new-session handoff, with an optional focus. |
+| `/slate resume` | Clear a context-budget pause and accept user prompts again. |
 
-```bash
-pi install -l npm:ytdb-slate@<version>
-```
+## Community
 
-> **Note on pinning:** pinned specs (`@<version>`) are deliberately skipped by `pi update --extensions` / `pi update --all`. Bumping the pin is a conscious project change — review Slate's shipped workflow docs for changes when you do.
+Join the [Slate Zulip community](https://youtrackdb.zulipchat.com/#narrow/channel/634235-slate) to share what you are building, ask for help, or discuss the project.
 
 ## Configuration
+
+### Configuration files and merging
 
 Slate reads two optional configuration files at session start:
 
@@ -142,9 +156,23 @@ A missing file is valid. An unreadable file, invalid JSON, or a root that is not
 
 Home preferences also apply in untrusted projects. Without a home file, existing project behavior and defaults stay unchanged. Configuration edits require a new session.
 
-Paths in `orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`, and `reviewPerspectivesPath` belong to the file that supplies the value. Relative home paths start at the agent directory. Relative project paths start at the project root, not `.pi`. Absolute paths stay absolute. See [Trust](#trust) for the security boundary.
+Paths in `orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`, and `reviewPerspectivesPath` belong to the file that supplies the value. Relative home paths start at the agent directory. Relative project paths start at the project root, not `.pi`. Absolute paths stay absolute. See [Safety and trust](#safety-and-trust) for the security boundary.
 
 Pi can refresh a prompt cache by sending background requests. Slate disables those requests in every worker because they bypass its request limits. This does not disable prompt caching for ordinary worker requests. The main session and saved pi settings stay unchanged.
+
+### Common starting point
+
+Create `.pi/slate.json` when you want new interactive sessions to start in orchestrator mode:
+
+```json
+{
+  "orchestratorModeDefault": true
+}
+```
+
+The project must be trusted before Slate reads this file. Start a new session after any configuration change.
+
+### Complete option reference
 
 | Key | Type | Default | Semantics |
 | --- | --- | --- | --- |
@@ -177,7 +205,9 @@ Pi can refresh a prompt cache by sending background requests. Slate disables tho
 | `router.models` | object | shipped seven-model pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Within each model definition, lists and provider maps replace shipped fields. The home and project configuration files merge first. |
 | `router.compressor.models` | array of `{ model, effort }` | `[{"model":"claude-sonnet-5","effort":"medium"}]` | Independent ordered compressor list. An explicit empty list blocks work. |
 
-Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point them at markdown files that actually exist in **your** project):
+### Extended example
+
+The `docs/agents/...` values below are placeholders. Point them at Markdown files that exist in your project.
 
 ```json
 {
@@ -200,9 +230,15 @@ Example `.pi/slate.json` (the `docs/agents/...` paths are placeholders — point
 
 Remove `writing.check` and `writing.remind` when copying an older configuration. Current Slate reports these ignored writing keys.
 
+### Document path warning
+
 > **Silent skip:** document-path errors produce no warning. Slate skips missing, unreadable, or empty files selected by `orchestratorPromptDocs`, `workerPromptDocs`, and `doctrineExtraPath`. For `reviewPerspectivesPath`, Slate omits the pointer only when the file is missing. Slate does not read that file at injection time, so an unreadable or empty file is still cited. Verify your paths after copying the example.
 
-**Worker extensions (`workerExtensions`).** By default worker threads load no project or discovered extensions. Slate supplies one internal reminder component to every worker session. After tool results reach its handler, the component tells the worker to issue independent tool calls in one turn. It sends the reminder once for each such turn. The reminder persists in the worker transcript and stays hidden from the user in the normal terminal interface. The component is not gated on project trust.
+## Safety and trust
+
+### Worker extensions (`workerExtensions`)
+
+By default worker threads load no project or discovered extensions. Slate supplies one internal reminder component to every worker session. After tool results reach its handler, the component tells the worker to issue independent tool calls in one turn. It sends the reminder once for each such turn. The reminder persists in the worker transcript and stays hidden from the user in the normal terminal interface. The component is not gated on project trust.
 
 This key is a list of regex patterns that select extensions the **host session has already loaded** and load them into every worker too. Each pattern is matched **unanchored** (unlike `contextBudget.overrides`, which is anchored) against a load unit's recorded source spec (e.g. `npm:pi-web-search@1.3.1`), its load-unit path, or the entry path of any tool that unit contributes, so a bare package name matches:
 
@@ -227,13 +263,15 @@ For project and discovered extensions, pi's discovery, project-trust gating, and
 
 The load-time recursion guard behind this — and the risks it does and does not cover — is in [`docs/design-principles.md`](docs/design-principles.md).
 
-**Worker provider registrations.** Every worker inherits host extension provider registrations that are absent after the worker session is constructed. This behavior is independent of `workerExtensions`. It supports provider-only extensions that register no tools. The worker's own registration wins by provider id, even when one side uses a native provider and the other uses the config form. A built-in provider is not an extension registration, so a host extension override of a built-in is inherited.
+### Worker provider registrations
+
+Every worker inherits host extension provider registrations that are absent after the worker session is constructed. This behavior is independent of `workerExtensions`. It supports provider-only extensions that register no tools. The worker's own registration wins by provider id, even when one side uses a native provider and the other uses the config form. A built-in provider is not an extension registration, so a host extension override of a built-in is inherited.
 
 Inheritance happens after worker session construction and before route authentication or the first model request. Slate copies current registrations and reuses their provider functions. Nested config values and native provider objects can remain shared by reference. A worker uses its own pi credential resolution, but inherited provider authentication callbacks and configured keys can read or update the same credential files and third-party state that the host uses. Slate does not copy host event handlers such as `before_provider_headers`, `before_provider_request`, or `after_provider_response`. Provider extensions that depend on those handlers will not behave the same in a worker.
 
 A worker extension can register the same provider id during construction. Its registration takes precedence. Slate does not synchronize later host changes or intercept later worker registrations. Pi can merge a later partial worker registration with inherited config. That merge can retain inherited credentials while changing the endpoint. This accepted startup-only boundary requires extension authors to replace provider configuration carefully. Compatibility with specific third-party provider extensions has not been verified.
 
-## Trust
+### Project trust boundary
 
 Slate excludes untrusted project Slate configuration and content selected through that configuration. Home preferences remain active, including documents and host extensions selected by those preferences. A home document path can point into a working tree, so select those paths carefully.
 
@@ -241,21 +279,28 @@ Home preferences do not change pi's project-trust decision. Pi's independent ins
 
 ## Shipped docs
 
-In orchestrator mode, Slate appends a short **doctrine** (a block of numbered rules) to the orchestrator's system prompt each turn. The doctrine does not embed the workflow docs — it cites them by **absolute path**, resolved inside the installed package (not your project), and the orchestrator reads them on demand. Those embedded paths make the block's character count depend on your install location. [`docs/context-budget.md`](docs/context-budget.md) has the measured sizes, with and without the optional rules, and the arithmetic for your own install:
+This section is the complete reference document roster.
 
-- `docs/track-workflow.md` — the focus-area lifecycle for research, design, implementation, review, and delivery
-- `docs/delivery-packages.md` — the compact track and change package format, read only before package preparation
-- `docs/pr-publishing.md` — per-track and umbrella draft-PR publishing (cited only when `workflow.draftPRs` is `true`)
-- `docs/review-rules.md` — reviewer composition, the composite test-quality role, evidence standards, findings, and fix gates
-- `docs/design-principles.md` — Slate's own design rationale
-- `docs/context-budget.md` — the orchestrator `contextBudget`: defaults, per-model overrides, the window clamp, and the pricing rationale (also **reference documentation**, not cited by the doctrine)
-- `docs/writing-guidance.md` — the always-active writing convention, ignored writing keys, status line, and checker CLI
-- `docs/model-routing.md` — the logical-model policy, exact defaults, configuration, common recovery, history, and accepted limitations. The doctrine cites this absolute path for trusted sessions.
-Project-specific additions layer on top — they extend, not replace, the shipped doctrine — via two distinct mechanisms:
+In orchestrator mode, Slate appends a short **doctrine**, which is a block of numbered rules, to the orchestrator system prompt each turn. The doctrine does not embed the workflow documents. It cites them by absolute path inside the installed package, and the orchestrator reads them when needed.
 
-- **Content injection**: `doctrineExtraPath` (appended to the doctrine itself, re-read at each prompt assembly) and `orchestratorPromptDocs` / `workerPromptDocs` (appended to the respective system prompts).
-- **Pointer**: `reviewPerspectivesPath` is cited by path from the doctrine's review rule and read on demand, like the shipped docs.
+The embedded paths make the block size depend on your install location. [`docs/context-budget.md`](docs/context-budget.md) gives measured sizes with and without optional rules. It also gives the arithmetic for your own installation.
+
+- [`docs/blast-radius.md`](docs/blast-radius.md) defines the eleven focus areas, proof requirements, track constraints, and review coverage.
+- [`docs/context-budget.md`](docs/context-budget.md) defines `contextBudget` defaults, per-model overrides, the window clamp, and pricing rationale. It is reference documentation and is not cited by the doctrine.
+- [`docs/delivery-packages.md`](docs/delivery-packages.md) — the compact track and change package format, read only before package preparation
+- [`docs/design-principles.md`](docs/design-principles.md) gives Slate's design rationale.
+- [`docs/model-routing.md`](docs/model-routing.md) defines the logical-model policy, exact defaults, configuration, common recovery, history, and accepted limitations. The doctrine cites its absolute path for trusted sessions.
+- [`docs/pr-publishing.md`](docs/pr-publishing.md) defines per-track and umbrella draft pull request publishing. The doctrine cites it only when `workflow.draftPRs` is `true`.
+- [`docs/review-rules.md`](docs/review-rules.md) defines reviewer composition, the combined test-quality role, evidence standards, findings, and fix gates.
+- [`docs/track-workflow.md`](docs/track-workflow.md) defines the focus-area lifecycle for research, design, implementation, review, and delivery.
+- [`docs/user-notes.md`](docs/user-notes.md) defines how Slate records, classifies, and resolves user notes during development.
+- [`docs/writing-guidance.md`](docs/writing-guidance.md) defines the writing convention, ignored writing keys, status line, and checker command.
+
+Project-specific additions extend the shipped doctrine. They do not replace it:
+
+- **Content injection:** `doctrineExtraPath` appends content to the doctrine and is read again at each prompt assembly. `orchestratorPromptDocs` and `workerPromptDocs` append content to their respective system prompts.
+- **Pointer:** `reviewPerspectivesPath` is cited by path from the doctrine's review rule and read when needed, like the shipped documents.
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).
