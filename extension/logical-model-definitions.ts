@@ -85,12 +85,12 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
 		model: "gpt-5.6-terra", capabilityRating: 50, effort: "max", costRating: 55,
 		preferredProvider: "openai", providers: providers("openai", "gpt-5.6-terra"),
-		guidelines: [], cautions: [], source: source(),
+		guidelines: ["prefer for implementing and reviewing user-facing prose", "prefer for routine text management, including organizing research logs"], cautions: [], source: source(),
 	},
 	{
 		model: "gpt-5.6-sol", capabilityRating: 58, effort: "high", costRating: 40,
 		preferredProvider: "openai", providers: providers("openai", "gpt-5.6-sol"),
-		guidelines: ["default thread choice", "prefer for changes that amend prose or governing rules expressed in prose", "this Sol preference overrides the general Flash preference", "the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol preference", "Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help.", "Switching models should have a concrete reason."], cautions: [SOL_CAUTION], source: source(),
+		guidelines: ["default thread choice", "prefer for changes that amend governing rules expressed in prose", "this Sol governing-rule preference overrides the general Flash preference", "the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol governing-rule preference", "Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help.", "Switching models should have a concrete reason."], cautions: [SOL_CAUTION], source: source(),
 	},
 	{
 		model: "gemini-3.8-flash", capabilityRating: 55, effort: "medium", costRating: 30,
@@ -106,7 +106,7 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
 		model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60,
 		preferredProvider: "openai", providers: providers("openai", "gpt-6-astra"),
-		guidelines: ["prefer when available for design and code reviewers of focus areas that trigger high-level design", "this Astra preference overrides the Sol prose preference", "security work", "performance work", "Do not select Astra as the default implementer. Use Astra for review only when assigned to a specific focus area. Use Astra for research when appropriate. If a lower-capability model repeatedly fails at implementation, first ask Astra to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Astra as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."],
+		guidelines: ["prefer when available for design and code reviewers of focus areas that trigger high-level design", "this Astra preference overrides the Sol governing-rule preference", "security work", "performance work", "Do not select Astra as the default implementer. Use Astra for review only when assigned to a specific focus area. Use Astra for research when appropriate. If a lower-capability model repeatedly fails at implementation, first ask Astra to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Astra as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."],
 		cautions: [], source: source(),
 	},
 ];
