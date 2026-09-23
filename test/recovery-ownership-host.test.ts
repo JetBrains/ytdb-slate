@@ -370,7 +370,7 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 		if (summarizing) {
 			state.compactionCalls++;
 			const prompt = extractContextText(_context);
-			if (prompt.includes("This is the PREFIX of a turn that was too large to keep")) {
+			if (prompt.includes("# Instructions\nThe messages above are earlier context from an ongoing conversation.")) {
 				summaryKind = "turn-prefix";
 				state.compactionTurnPrefixCalls++;
 			} else {
