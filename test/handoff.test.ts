@@ -552,6 +552,32 @@ test("setup writes the successor-bound entry before session_start even without a
   });
 });
 
+test("a saved parent keeps its state and identifies the successor parent link", async () => {
+  await isolated(async () => {
+    const dir = join(scratch, "saved-parent-proof");
+    mkdirSync(dir, { recursive: true });
+    const parent = SessionManager.create(projectDir, dir);
+    parent.appendCustomEntry("slate-state", { format: SLATE_STATE_FORMAT, threads: [], episodes: [], orchestratorMode: true });
+    parent.appendMessage({ role: "assistant", content: [{ type: "text", text: "brief" }], provider: "p", model: "m" } as any);
+    const originalFile = parent.getSessionFile()!;
+    const successor = SessionManager.create(projectDir, dir);
+    const pi = { on() {}, appendEntry() {} } as unknown as ExtensionAPI;
+    const store = new SlateStore(pi);
+    store.orchestratorMode = true;
+    const hooks = registerSlateHandoff(pi, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
+    await hooks.startHandoff({ cwd: projectDir, model: undefined, hasUI: false, isProjectTrusted: () => true,
+      waitForIdle: async () => {}, sessionManager: parent,
+      newSession: async (options: any) => {
+        assert.equal(options.parentSession, originalFile);
+        await options.setup(successor);
+        return { cancelled: false };
+      },
+    } as any);
+    assert.match(readFileSync(originalFile, "utf8"), /slate-state/, "the parent keeps its saved state");
+    assert.equal((successor.getBranch()[0] as any).data.sessionId, successor.getSessionId());
+  });
+});
+
 test("two parent handoffs in one project write separate successor sessions", async () => {
   await isolated(async () => {
     const successors = await Promise.all([7, 9].map(async (cost) => {
