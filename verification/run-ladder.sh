@@ -1309,9 +1309,10 @@ if want P9a; then
 	# The no-op assertion targets the compatibility wrapper. The prompt sent by
 	# runadopt can independently fail on the dead provider and main recovery must
 	# remain free to report that real outcome.
-	if said "$OUT/P9a.err" "$RX_STOOD_DOWN|$RX_TRIED_RESTORE|$RX_ONLY_CHECKED"; then fail P9a "the compatibility wrapper spoke even though no Pi setter ran: $(slate_lines "$OUT/P9a.err" | grep -E "$RX_STOOD_DOWN|$RX_TRIED_RESTORE|$RX_ONLY_CHECKED" | head -1)"
+	if ! grep -q '"customType":"slate-state"' "$SUCCESSOR_FILE"; then fail P9a "successor has no adopted slate-state entry — no-op assertion would be vacuous"
+	elif said "$OUT/P9a.err" "$RX_STOOD_DOWN|$RX_TRIED_RESTORE|$RX_ONLY_CHECKED"; then fail P9a "the compatibility wrapper spoke even though no Pi setter ran: $(slate_lines "$OUT/P9a.err" | grep -E "$RX_STOOD_DOWN|$RX_TRIED_RESTORE|$RX_ONLY_CHECKED" | head -1)"
 	elif ! cmp -s "$OUT/P9a-before.json" "$OUT/P9a-after.json"; then fail P9a "settings changed"
-	else pass P9a "the exact route and fixed effort no-op called no setter, skipped compatibility post-reads under the held lock, and left settings untouched"; fi
+	else pass P9a "the successor saved adopted state; the exact route and fixed effort no-op called no setter, skipped compatibility post-reads under the held lock, and left settings untouched"; fi
 fi
 if want P9b; then
 	# Mutual exclusion of the two report verbs is the assertion; the surrounding

@@ -114,7 +114,7 @@ prerequisite makes them report NOT RUN rather than guess:
 | --- | --- |
 | `P9b` | `R7` **and** `R8` in the same run (it compares their two report verbs) |
 | `P10` | `R5a` in the same run (to confirm failure reports still reach stderr) |
-| `R4a`,`R4b`,`R5a`,`R5b`,`R5c`,`G4b`,`P8`,`P9a` | a parent session, which they create on demand — no cross-rung dependency |
+| `R4a`,`R4b`,`R5a`,`R5b`,`R5c`,`G4b`,`P8`,`P9a` | nothing: each seeds its own successor session JSONL and resumes it — no cross-rung dependency |
 | `WK1` | nothing: it launches its own two pi processes and opens its own worker sessions — no cross-rung dependency |
 
 `LAT` is informational: it prints a median wall-clock comparison and never

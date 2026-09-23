@@ -236,6 +236,95 @@ export default function (pi: ExtensionAPI) {
 	}
 });
 
+test("real Pi replacement runs handoff setup before successor adoption", { timeout: 12_000 }, async () => {
+	const root = mkdtempSync(join(tmpdir(), "slate-handoff-host-"));
+	const project = join(root, "project");
+	const agent = join(root, "agent");
+	mkdirSync(join(project, ".pi"), { recursive: true });
+	mkdirSync(agent, { recursive: true });
+	writeFileSync(join(agent, "settings.json"), "{}\n");
+	writeFileSync(join(project, ".pi", "settings.json"), "{}\n");
+	const key = `slate-handoff-host:${process.pid}:${Date.now()}`;
+	const evidence: { sawEntry: boolean; adoptedCost: number; successorId?: string } = { sawEntry: false, adoptedCost: 0 };
+	(globalThis as Record<symbol, unknown>)[Symbol.for(key)] = evidence;
+	const fixture = join(root, "handoff-extension.ts");
+	writeFileSync(fixture, `
+import { SlateStore } from ${JSON.stringify(resolve("extension/state.ts"))};
+import { registerSlateHandoff } from ${JSON.stringify(resolve("extension/handoff.ts"))};
+import { createBaseModelTracker } from ${JSON.stringify(resolve("extension/base-model.ts"))};
+const evidence = (globalThis as any)[Symbol.for(${JSON.stringify(key)})];
+export default function(pi: any) {
+  const store = new SlateStore(pi);
+  const hooks = registerSlateHandoff(pi, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
+  pi.on("session_start", (event: any, ctx: any) => {
+    if (event.reason === "new") {
+      const entry = ctx.sessionManager.getBranch().find((item: any) => item.type === "custom" && item.customType === "slate-handoff");
+      evidence.sawEntry = entry?.data?.sessionId === ctx.sessionManager.getSessionId();
+      evidence.adoptedCost = store.workerCostUsd;
+      evidence.successorId = ctx.sessionManager.getSessionId();
+    } else {
+      store.orchestratorMode = true;
+      store.workerCostUsd = 17;
+      store.save();
+    }
+  });
+  pi.registerCommand("host-handoff", { description: "Exercise the real Pi handoff path", handler: async (_args: string, ctx: any) => {
+    await hooks.startHandoff(ctx);
+  } });
+}
+`);
+	const previousAgent = process.env.PI_CODING_AGENT_DIR;
+	const previousOffline = process.env.PI_OFFLINE;
+	process.env.PI_CODING_AGENT_DIR = agent;
+	process.env.PI_OFFLINE = "1";
+	let runtime: Awaited<ReturnType<typeof createAgentSessionRuntime>> | undefined;
+	try {
+		const modelRuntime = await ModelRuntime.create({ authPath: join(agent, "auth.json"), modelsPath: join(agent, "models.json") });
+		const state = { scenario: "preflight-model" as const, primaryCalls: 0, fallbackCalls: 0, otherCalls: 0, compactionCalls: 0, compactionHistoryCalls: 0, compactionTurnPrefixCalls: 0, toolCalls: 0, modelSwitchSucceeded: false };
+		modelRuntime.registerNativeProvider(matrixProvider(state, "matrix-primary", "primary"));
+		const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
+			const services = await createAgentSessionServices({
+				cwd, agentDir, modelRuntime,
+				settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }, { projectTrusted: true }),
+				resourceLoaderOptions: { noExtensions: true, additionalExtensionPaths: [fixture] },
+			});
+			const model = modelRuntime.getModel("matrix-primary", "primary");
+			assert.ok(model);
+			const created = await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent, model, thinkingLevel: "max", noTools: "all" });
+			return { ...created, services, diagnostics: services.diagnostics };
+		};
+		runtime = await createAgentSessionRuntime(createRuntime, { cwd: project, agentDir: agent, sessionManager: SessionManager.inMemory(project) });
+		const host = runtime;
+		const bind = async (session: typeof host.session) => {
+			const unexpected = async (): Promise<never> => { throw new Error("unexpected host session action"); };
+			await session.bindExtensions({ mode: "print", commandContextActions: {
+				waitForIdle: () => session.waitForIdle(),
+				newSession: (options) => host.newSession(options),
+				fork: unexpected, navigateTree: unexpected, switchSession: unexpected, reload: unexpected,
+			} });
+		};
+		host.setRebindSession(bind);
+		await bind(host.session);
+		assert.ok(runtime.session.extensionRunner.getCommand("host-handoff"), `host command failed to load: ${JSON.stringify(runtime.diagnostics)}`);
+		assert.equal((runtime.session.sessionManager.getBranch().find((item) => item.type === "custom" && item.customType === "slate-state") as any)?.data.workerCostUsd, 17, "parent state seeded");
+		const parentId = runtime.session.sessionManager.getSessionId();
+		await within(runtime.session.prompt("/host-handoff"), "the real handoff command and kickoff", 8_000);
+		const successor = runtime.session.sessionManager;
+		assert.notEqual(successor.getSessionId(), parentId);
+		assert.equal(evidence.successorId, successor.getSessionId(), "successor session_start fired");
+		assert.equal(evidence.sawEntry, true, "setup had bound the entry before successor session_start");
+		assert.equal(evidence.adoptedCost, 17, "the adoption handler restored the parent's nonempty state");
+		assert.equal((successor.getBranch().find((item) => item.type === "custom" && item.customType === "slate-state") as any)?.data.workerCostUsd, 17);
+		assert.equal(state.primaryCalls, 1, "withSession delivered the handoff kickoff through the closed provider");
+	} finally {
+		if (runtime) await runtime.dispose();
+		if (previousAgent === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousAgent;
+		if (previousOffline === undefined) delete process.env.PI_OFFLINE; else process.env.PI_OFFLINE = previousOffline;
+		delete (globalThis as Record<symbol, unknown>)[Symbol.for(key)];
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 type MatrixScenario =
 	| "preflight-effort"
 	| "preflight-model"

@@ -489,9 +489,17 @@ test("cancel and setup failure keep the legacy file and the parent state", async
     writeFileSync(legacy, "legacy sentinel");
     for (const mode of ["cancel", "setup-error"] as const) {
       const parent = SessionManager.inMemory(projectDir);
+      parent.appendCustomEntry("slate-state", {
+        format: SLATE_STATE_FORMAT, threads: [], episodes: [], orchestratorMode: true,
+        paused: true, workerCostUsd: 13, carriedCostUsd: 0,
+      });
       const successor = SessionManager.inMemory(projectDir);
       const saved: string[] = [];
-      const pi = { on() {}, appendEntry(type: string) { saved.push(type); } } as unknown as ExtensionAPI;
+      let parentActive = true;
+      const pi = { on() {}, appendEntry(type: string) {
+        if (!parentActive) throw new Error("old extension runner was disposed");
+        saved.push(type);
+      } } as unknown as ExtensionAPI;
       const store = new SlateStore(pi);
       store.paused = true;
       const hooks = registerSlateHandoff(pi, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
@@ -499,6 +507,7 @@ test("cancel and setup failure keep the legacy file and the parent state", async
         waitForIdle: async () => {}, sessionManager: parent,
         newSession: async (options: any) => {
           if (mode === "cancel") return { cancelled: true };
+          parentActive = false; // Pi disposes the old runner before successor setup.
           await options.setup(successor);
           throw new Error("session replacement failed");
         },
@@ -507,8 +516,10 @@ test("cancel and setup failure keep the legacy file and the parent state", async
         await assert.rejects(hooks.startHandoff(ctx), /session replacement failed/);
         assert.equal(successor.getBranch().some((item) => item.type === "custom" && item.customType === "slate-handoff"), true);
       } else await hooks.startHandoff(ctx);
-      assert.equal(store.paused, false, mode);
-      assert.deepEqual(saved, ["slate-state"], mode);
+      assert.deepEqual(saved, mode === "cancel" ? ["slate-state"] : [], `${mode}: only a live parent can save`);
+      if (mode === "cancel") assert.equal(store.paused, false);
+      assert.equal(parent.getBranch().length, 1, `${mode}: the parent keeps only its last saved state`);
+      assert.equal((parent.getBranch()[0] as any).data.workerCostUsd, 13, `${mode}: saved parent cost survives`);
       assert.equal(readFileSync(legacy, "utf8"), "legacy sentinel", mode);
     }
   });
@@ -617,7 +628,10 @@ test("Pi fork and clone copy the entry but assign different session IDs", async 
   mkdirSync(sessions, { recursive: true });
   const source = SessionManager.create(projectDir, sessions);
   const originalId = source.getSessionId();
-  const handoffId = source.appendCustomEntry("slate-handoff", { sessionId: originalId, snapshot: { format: SLATE_STATE_FORMAT } });
+  const handoffId = source.appendCustomEntry("slate-handoff", { sessionId: originalId, snapshot: {
+    format: SLATE_STATE_FORMAT, threads: [], episodes: [], orchestratorMode: true,
+    paused: true, workerCostUsd: 17, carriedCostUsd: 0,
+  } });
   source.appendMessage({ role: "assistant", content: [{ type: "text", text: "seed" }], provider: "p", model: "m" } as any);
   const sourceFile = source.getSessionFile()!;
   assert.equal(readFileSync(sourceFile, "utf8").includes("slate-handoff"), true, "the saved session contains the entry");
@@ -639,6 +653,7 @@ test("Pi fork and clone copy the entry but assign different session IDs", async 
     assert.equal(copied.getBranch().some((e) => e.type === "custom" && e.customType === "slate-handoff"), true);
     await handlers.get("session_start")({}, ctx);
     assert.equal(store.orchestratorMode, false);
+    assert.equal(store.workerCostUsd, 0, "a copied entry must not adopt its original owner's cost");
   }
 });
 
