@@ -463,10 +463,11 @@ export function registerSlateHandoff(
 		try {
 			const branch = ctx.sessionManager.getBranch();
 			if (branch.some((entry) => entry.type === "custom" && entry.customType === "slate-state")) return;
+			const handoffs = branch.filter((item) => item.type === "custom" && item.customType === "slate-handoff");
+			if (handoffs.length === 0) return;
 			const sessionId = ctx.sessionManager.getSessionId();
-			const entry = [...branch].reverse().find((item) =>
-				item.type === "custom" && item.customType === "slate-handoff" &&
-				(item.data as { sessionId?: unknown } | null)?.sessionId === sessionId,
+			const entry = [...handoffs].reverse().find((item) =>
+				item.type === "custom" && (item.data as { sessionId?: unknown } | null)?.sessionId === sessionId,
 			);
 			if (!entry || entry.type !== "custom") return;
 			const pending = entry.data as SessionHandoff;

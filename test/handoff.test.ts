@@ -457,6 +457,18 @@ test("successor ID, restored state, reload, legacy file and parallel handoffs ke
   });
 });
 
+test("a session without handoff entries never asks for successor identity", async () => {
+  const handlers = new Map<string, any>();
+  const pi = { on(event: string, handler: any) { handlers.set(event, handler); }, appendEntry() { throw new Error("no handoff to save"); } } as unknown as ExtensionAPI;
+  const store = new SlateStore(pi);
+  registerSlateHandoff(pi, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
+  const ctx = { sessionManager: { getBranch: () => [], getSessionId: () => { throw new Error("no ID needed"); } } } as unknown as ExtensionContext;
+  const oldWarn = console.warn; const warnings: string[] = []; console.warn = (value?: unknown) => warnings.push(String(value));
+  try { await handlers.get("session_start")({}, ctx); } finally { console.warn = oldWarn; }
+  assert.deepEqual(warnings, []);
+  assert.equal(store.orchestratorMode, false);
+});
+
 test("invalid successor snapshot reports a refusal and does not save state", async () => {
   const handlers = new Map<string, any>();
   const pi = { on(event: string, handler: any) { handlers.set(event, handler); }, appendEntry() { throw new Error("invalid data reached save"); } } as unknown as ExtensionAPI;
