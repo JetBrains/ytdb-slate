@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createRuntimeStorageFolder, isRuntimeStorageFolder, isSlateArtifactReference, slateArtifactReference } from "../extension/artifact-names.ts";
+import slateExtension from "../extension/index.ts";
 import { captureObservation, durableObservation, type ObservationRecord } from "../extension/observations.ts";
 import { ensureRuntimeDirectory, writeSlateArtifact } from "../extension/slate-files.ts";
 import { resolveEpisodeFile, SLATE_STATE_FORMAT, SlateStore, type SlateSnapshot } from "../extension/state.ts";
@@ -68,6 +69,72 @@ test("a reload after a tree rollback chooses a new folder and keeps the earlier 
     assert.equal(readFileSync(fresh.absolutePath, "utf8"), "after reload");
     assert.notEqual(old.absolutePath, fresh.absolutePath);
   });
+});
+
+test("registered session starts isolate writes after a branch rollback, resume and fork", { timeout: 5000 }, async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "slate-session-start-artifacts-"));
+  const project = join(root, "project");
+  mkdirSync(project);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  // Use the real extension factory and event handler. Capture its store at the
+  // restore boundary without calling startRuntime from the test.
+  const originalRestore = SlateStore.prototype.restore;
+  let active: SlateStore | undefined;
+  const entries: Array<{ type: "custom"; customType: "slate-state"; data: SlateSnapshot }> = [];
+  let branch: typeof entries = [];
+  const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => unknown>>();
+  const api = {
+    on(name: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) {
+      handlers.set(name, [...(handlers.get(name) ?? []), handler]);
+    },
+    registerTool() {}, registerCommand() {}, getActiveTools: () => [], setActiveTools() {},
+    getAllTools: () => [], sendMessage() {}, getThinkingLevel: () => undefined,
+    appendEntry(name: string, data: Record<string, unknown>) {
+      assert.equal(name, "slate-state");
+      const entry = { type: "custom" as const, customType: "slate-state" as const, data: structuredClone(data) as unknown as SlateSnapshot };
+      entries.push(entry);
+      branch.push(entry);
+    },
+  };
+  const ctx = {
+    cwd: project, mode: "rpc", hasUI: false, model: undefined, modelRegistry: {},
+    isProjectTrusted: () => true,
+    sessionManager: { getBranch: () => branch, getEntries: () => entries },
+    ui: { notify() {}, setWidget() {}, setStatus() {} },
+  } as unknown as ExtensionContext;
+  SlateStore.prototype.restore = function (context: ExtensionContext) {
+    active = this;
+    return originalRestore.call(this, context);
+  };
+  try {
+    slateExtension(api as unknown as ExtensionAPI);
+    const saved: Array<{ folder: string; file: string; bytes: string; record: SlateSnapshot }> = [];
+    for (const [index, reason] of ["startup", "reload", "resume", "fork"].entries()) {
+      if (reason === "reload") branch = [entries[0]!]; // /tree selects the earlier branch.
+      for (const handler of handlers.get("session_start") ?? []) await handler({ reason }, ctx);
+      const current = active;
+      assert.ok(current, `the registered restore must run on ${reason}`);
+      if (index > 0) {
+        assert.equal(current.episodes.get("t1.e1")?.file, saved[index - 1]!.file,
+          `${reason} must restore the previous branch before writing`);
+      }
+      const folder = current.runtimeFolder;
+      assert.equal(saved.some((item) => item.folder === folder), false, `${reason} must select a new folder`);
+      const bytes = `episode written after ${reason}`;
+      const file = writeSlateArtifact({ cwd: project, folder, kind: "episodes", id: "t1.e1", content: bytes }).absolutePath;
+      current.adoptSnapshot(snapshot("t1.e1", file), ctx);
+      current.save();
+      const record = entries.at(-1)!.data;
+      saved.push({ folder, file, bytes, record });
+      for (const item of saved) {
+        assert.equal(readFileSync(item.file, "utf8"), item.bytes, `${reason} must not overwrite an earlier file`);
+        assert.equal(resolveEpisodeFile(project, item.record.episodes[0]?.file), item.file,
+          `${reason} must leave every stored record readable`);
+      }
+    }
+  } finally {
+    SlateStore.prototype.restore = originalRestore;
+  }
 });
 
 test("legacy flat and scoped episode and observation references survive one restore", () => {
