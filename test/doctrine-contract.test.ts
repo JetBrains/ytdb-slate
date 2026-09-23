@@ -116,7 +116,7 @@ test("logical doctrine production renders match published portable measurements"
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3892, lines: 11, paths: 0 });
   assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8694, lines: 84, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2705, lines: 43, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10239, lines: 96, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10231, lines: 96, paths: 6 });
 });
 
 test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
@@ -365,22 +365,16 @@ test("rule 8 renders exact feature-off and enabled publishing tails", { timeout:
   assert.ok(local.includes("Durable workflow records anchor in the retained repo-root research log per the workflow doc."));
   assert.doesNotMatch(local, /repo-root workflow log/);
   assert.equal(local.includes(PR_PUBLISHING_DOC), false);
-  assert.doesNotMatch(local, /per-track or umbrella PRs/);
+  assert.doesNotMatch(local, /Publish one umbrella draft PR/);
 
   const published = (await renderDoctrine(undefined, { workflow: { draftPRs: true } })).replace(/\s+/g, " ");
-  assert.ok(published.includes("Ask if unresolved: per-track or umbrella PRs? Record."));
-  assert.doesNotMatch(published, /Ask once: per-track or umbrella PRs/);
-  assert.ok(published.includes("Keep tracks mergeable."));
-  assert.ok(published.includes("Per-track: user merges, reports. Verify expected PR reached expected default."));
-  assert.ok(published.includes("Update it to the merge, then branch fresh."));
-  assert.ok(published.includes("Umbrella: one PR. Only user merges."));
+  assert.ok(published.includes("Publish one umbrella draft PR for the change. Keep tracks mergeable. Only users merge."));
   assert.ok(published.includes(`Mechanics: ${PR_PUBLISHING_DOC}.`));
   assert.doesNotMatch(published, /repo-root (?:workflow|research) log/);
 
   const combined = (await renderDoctrine(undefined, { workflow: { draftPRs: true, routingRecommendations: true } })).replace(/\s+/g, " ");
-  assert.ok(combined.includes("Ask if unresolved: per-track or umbrella PRs? Record. Keep tracks mergeable. Only users merge."));
+  assert.ok(combined.includes("Publish one umbrella draft PR for the change. Keep tracks mergeable. Only users merge."));
   assert.ok(combined.includes(`Follow ${PR_PUBLISHING_DOC}.`));
-  assert.doesNotMatch(combined, /Per-track: user merges, reports/);
 });
 
 test("routing-recommendation doctrine is trusted, opt-in, and feature-off inert", { timeout: 5000 }, async () => {

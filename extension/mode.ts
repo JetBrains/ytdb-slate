@@ -258,20 +258,18 @@ function buildDoctrine(
 	extensions: WorkerExtensionSet,
 	runtime: Readonly<LogicalRuntime> | undefined,
 ): string {
-	// Rule 8 tail: draft publishing adds one up-front mode choice and its branch
-	// order. Otherwise durable records live in the research log. The completion
+	// Rule 8 tail: draft publishing creates one umbrella pull request.
+	// Otherwise durable records live in the research log. The completion
 	// pointer is trusted and opt-in. Its combined publishing form cites the full
 	// publishing rules so the fixed whole-doctrine boundary keeps its headroom.
 	const routingRecommendations = trusted && config.workflow?.routingRecommendations === true;
 	const rule8Tail =
 		config.workflow?.draftPRs === true
 			? routingRecommendations
-				? `Ask if unresolved: per-track or umbrella PRs? Record. Keep tracks mergeable.
+				? `Publish one umbrella draft PR for the change. Keep tracks mergeable.
    Only users merge. Follow ${PR_PUBLISHING_DOC}.`
-				: `Ask if unresolved: per-track or umbrella PRs? Record. Keep tracks mergeable.
-   Per-track: user merges, reports. Verify expected PR reached expected default.
-   Update it to the merge, then branch fresh. Umbrella: one PR. Only user merges.
-   Mechanics: ${PR_PUBLISHING_DOC}.`
+				: `Publish one umbrella draft PR for the change. Keep tracks mergeable.
+   Only users merge. Mechanics: ${PR_PUBLISHING_DOC}.`
 			: `Durable workflow records anchor in the retained repo-root research
    log per the workflow doc.`;
 	const routingRecommendationTail = routingRecommendations

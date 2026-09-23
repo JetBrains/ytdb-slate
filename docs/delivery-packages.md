@@ -62,10 +62,8 @@ reporting progress. Name the action the user should take.>
 
 The **Result** states the completed outcome, not an activity log. The
 **References** field identifies the cumulative implementation commit or range.
-When draft publishing is enabled, it also gives the pull-request link and says
-whether the selected mode is per-track or umbrella. A later per-track package
-also names the prior merged default-branch boundary. When publishing is
-disabled, state that no pull request exists.
+When draft publishing is enabled, it also gives the umbrella pull-request
+link. When publishing is disabled, state that no pull request exists.
 
 The **Next step** states the applicable acceptance action. Follow
 [track-workflow.md](track-workflow.md) § Delivery and termination for the
@@ -90,7 +88,7 @@ Use this order:
 this field when none exists.>
 
 **References**
-<Pull request or pull requests, exact change range, diff location, and
+<Umbrella pull request when publishing is enabled, exact change range, diff location, and
 supporting accounting source or delivery record.>
 
 **Model-routing recommendations**

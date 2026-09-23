@@ -11,7 +11,7 @@ areas select design, review, and track-acceptance gates.
 | reviewer | every review | [review-rules.md](review-rules.md) | § Reviewer sets, merge rule and charters |
 | orchestrator | track or change package | [delivery-packages.md](delivery-packages.md) | § Package preparation |
 | user | feedback and note accounting | [user-notes.md](user-notes.md) | § Receiving and routing a user note |
-| publisher | draft pull request enabled | [pr-publishing.md](pr-publishing.md) | § Publishing mode |
+| publisher | draft pull request enabled | [pr-publishing.md](pr-publishing.md) | § One draft pull request |
 
 ## Lifecycle and phases
 
@@ -88,11 +88,9 @@ adversarial review is required, validation and final approval form one gate.
 <!-- design-review-policy:end -->
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
-[pr-publishing.md](pr-publishing.md) and resolve the mode before implementation.
-Apply the user-decision-reuse rule below. Reuse an applicable explicit answer,
-and ask only if the mode remains unresolved. When publishing is disabled, ask
-no pull-request-mode question. The retained research log is the durable workflow
-record.
+[pr-publishing.md](pr-publishing.md) to create one umbrella draft pull request
+before implementation. When publishing is disabled, create no pull request.
+The retained research log is the durable workflow record.
 
 ## Track size and split
 
@@ -103,9 +101,9 @@ not count. The orchestrator estimates track size before it proposes the split.
 The implementer estimates size from the work during implementation. Neither role
 needs a cumulative diff counter, a token estimate, or a total-input measurement.
 
-Plan each track as an autonomous, independently mergeable pull request, even
-when the selected publishing mode uses one umbrella pull request. Aim for a
-coherent boundary close to 400 changed lines without exceeding the guideline.
+Plan each track as an autonomous, independently mergeable unit inside the
+change. Aim for a coherent boundary close to 400 changed lines without
+exceeding the guideline.
 If the nearest coherent, independently mergeable unit needs a small overrun,
 finish that unit and report the reason. Size never permits dropping an approved
 requirement, reducing implementation or test quality, or declaring partial work
@@ -479,9 +477,8 @@ Resume in this fixed order:
 7. Continue only after answering: **What changed since the last state summary,
    and does it change focus, scope, or required gates?**
 
-A mismatch pauses work. Reconcile it in the log. Use the selected mode's marker
-or merged commits and Git history as boundary authority. The track table is
-display-only.
+A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
+history as boundary authority. The track table is display-only.
 
 ## Review coverage
 
@@ -538,9 +535,7 @@ Every completed track reaches the user through the track package defined in
 [delivery-packages.md](delivery-packages.md) § Track package. User acceptance of
 a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
 Where a marker applies, it waits for required track acceptance and every
-requested fix.
-In per-track mode, the user's merge supplies acceptance and the boundary before
-the next track starts. A track with only REVIEWER-ONLY areas, or no proved area,
+requested fix. A track with only REVIEWER-ONLY areas, or no proved area,
 has no mandatory track-acceptance gate.
 In a single-track change, any blocking track acceptance and final change
 acceptance are one event. Final change acceptance is always blocking.
@@ -559,12 +554,10 @@ invariant holds. The user accepts the final change.
 A track contributes one cumulative implementation commit and zero or more
 user-review fix commits. It also contributes zero or more correction commits,
 as defined later in [track-workflow.md](track-workflow.md) § Delivery and
-termination. In umbrella mode or with publishing disabled, each track in a
-multi-track change also contributes one marker commit. Per-track pull-request
-mode uses the merged commit instead. During machine review, the implementer
-commits fixes separately so a gate
-thread can inspect each fix difference. Before user review, squash the original
-implementation commit and every agentic-review fix commit into the cumulative
+termination. Each track in a multi-track change also contributes one marker
+commit. During machine review, the implementer commits fixes separately so a
+gate thread can inspect each fix difference. Before user review, squash the
+original implementation commit and every agentic-review fix commit into the cumulative
 implementation commit. This commit exists so the user reviews the high-level
 design, low-level design, and implementation together.
 
@@ -580,9 +573,8 @@ commit. Do not squash a user-review fix into the cumulative commit, because
 folding it back would destroy the exact state the user reviewed. Present each
 fix and obtain user acceptance. When at least one such commit exists, add their
 contiguous range to the coverage register. Dispatch one fresh gate thread to
-verify that range before adding an applicable marker, before a per-track pull
-request becomes ready, or before completing final acceptance for a single-track
-change.
+verify that range before adding an applicable marker or before completing
+final acceptance for a single-track change.
 
 For a user-review fix range, one dedicated gate thread supplies machine review
 for that range, including when the track has no proved area. This evidence-
@@ -610,7 +602,7 @@ When draft-pull-request publishing is enabled, update its current branch with a
 lease-protected force-push. The lease must prevent discarding a commit pushed
 by another party.
 
-In umbrella mode, a multi-track boundary adds one empty marker commit after
+A multi-track boundary adds one empty marker commit after
 required machine gates and the track packet are complete. All blocking user
 notes are resolved before the marker. When track acceptance is mandatory, the
 marker also waits for that acceptance and every requested fix:
@@ -619,24 +611,19 @@ marker also waits for that acceptance and every requested fix:
 git commit --allow-empty -m "Track NN complete: <short name>"
 ```
 
-Marker commits are the boundary authority in umbrella mode and when pull-request
-publishing is disabled. Track N is the range after marker N-1 through marker N.
+Marker commits are the boundary authority for multi-track changes. Track N is
+the range after marker N-1 through marker N.
 A single-track change has no marker. Rebases move markers with history. Any
 layered process that pins marker refs must re-pin after a rebase.
-
-Per-track pull-request mode uses the user-merged commit on the default branch as
-the track boundary. It adds no marker. The next track starts only after that
-merge and starts from the updated default branch. The track packet first names
-the reviewed branch range. After merge, the research log records the durable
-merged range before the next track starts.
 
 The track table lists names, one-line scopes, and status. It contains no commit
 identifier. Track numbers are append-only. Abandoned tracks are struck through.
 Numbers are never reused.
 
-Delivery is the selected publishing mode's final accepted merge on the default
-development branch. When publishing is disabled, the final package asks for
-acceptance while the research log and every implementer report remain retained.
+With draft publishing, delivery is the user's final accepted merge of the
+umbrella pull request into the default development branch. When publishing is
+disabled, the final package asks for acceptance while the research log and every
+implementer report remain retained.
 After acceptance, copy the required accounting from the log into the final
 squashed commit body as part of creating that commit. Verify the body before
 calling the commit delivery. This sequence applies to single-track and
@@ -676,5 +663,5 @@ ready for review.
 
 Added rules may not replace confirmation, design and validation gates,
 proved-focus coverage, fresh machine review, required track acceptance, the
-selected mode's boundary authority, blocking final acceptance, or
+marker commits as boundary authority, blocking final acceptance, or
 draft-pull-request safeguards.

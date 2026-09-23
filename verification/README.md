@@ -635,46 +635,46 @@ exact current production renders are:
 | shipped logical section | 0 | 3,892 | 11 |
 | trusted shipped-default doctrine | 5 | 8,694 | 84 |
 | untrusted doctrine | 4 | 2,705 | 43 |
-| draft pull requests, shipped policy | 6 | 8,870 | 86 |
+| draft pull requests, shipped policy | 6 | 8,717 | 84 |
 | capped workers, shipped policy | 5 | 10,041 | 94 |
-| draft plus capped workers | 6 | 10,217 | 96 |
+| draft plus capped workers | 6 | 10,064 | 94 |
 | deferred issues plus capped workers | 5 | 10,115 | 95 |
 | routing recommendations plus capped workers | 5 | 10,138 | 95 |
-| draft plus deferred issues and capped workers | 6 | 10,291 | 97 |
-| draft plus routing recommendations and capped workers | 6 | 10,165 | 95 |
+| draft plus deferred issues and capped workers | 6 | 10,138 | 95 |
+| draft plus routing recommendations and capped workers | 6 | 10,157 | 95 |
 | deferred issues plus routing recommendations and capped workers | 5 | 10,212 | 96 |
-| canonical maximal baseline with all workflow options | 6 | 10,239 | 96 |
-| dogfood config and extension roster | 6 | 9,364 | 95 |
-| 19,400-character policy plus draft and capped workers | 6 | 25,725 | 97 |
-| same policy plus draft and deferred issues, with routing off | 6 | 25,799 | 98 |
+| canonical maximal baseline with all workflow options | 6 | 10,231 | 96 |
+| dogfood config and extension roster | 6 | 9,356 | 95 |
+| 19,400-character policy plus draft and capped workers | 6 | 25,572 | 95 |
+| same policy plus draft and deferred issues, with routing off | 6 | 25,646 | 96 |
 | same policy plus routing recommendations and capped workers | 5 | 25,646 | 96 |
 | same policy plus deferred issues and routing recommendations, without drafts | 5 | 25,720 | 97 |
-| same policy plus draft, routing recommendations, and capped workers | 6 | 25,673 | 96 |
-| same boundary composition plus deferred issues | 6 | 25,747 | 97 |
-| valid shipped policy plus 88 capped tools | 6 | 27,913 | 179 |
+| same policy plus draft, routing recommendations, and capped workers | 6 | 25,665 | 96 |
+| same boundary composition plus deferred issues | 6 | 25,739 | 97 |
+| valid shipped policy plus 88 capped tools | 6 | 27,905 | 179 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 10,239-character baseline uses all six shipped logical models,
+The canonical 10,231-character baseline uses all six shipped logical models,
 all three workflow options, and the capped worker roster. Its required
-five-percent value is 10,751. The unchanged 25,800 whole-doctrine ceiling keeps
+five-percent value is 10,743. The unchanged 25,800 whole-doctrine ceiling keeps
 that reserve. The exact fixtures cover all eight workflow-option combinations.
 
 Runtime rejection controls are separate. A logical section at exactly 19,400
 portable characters or 105 lines is valid. A section at 19,401 characters or
 106 lines is rejected before work. The four routing-enabled boundary
-compositions and the 25,725-character and 25,799-character feature-off
+compositions and the 25,572-character and 25,646-character feature-off
 compatibility controls prove that an exact-boundary policy still fits the
 unchanged whole-doctrine ceiling. The
-25,799-character control pins the supported composition with the smallest
-margin. These controls are not reserve-bearing canonical baselines.
+25,739-character routing-enabled control pins the supported composition with
+the smallest margin. These controls are not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
-supported capped worker tools. Its 27,913 portable characters exceed the ceiling by
-2,113 characters.
+supported capped worker tools. Its 27,905 portable characters exceed the ceiling by
+2,105 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
@@ -691,7 +691,7 @@ all-tail characters, and 25,800 whole-doctrine characters.
 Re-run the strict suite after changes to active logical-model modules,
 `mode.ts`, `paths.ts`, worker-extension doctrine, state sanitizers, base-model
 tracking, episode headers, writing or reminder modules, worker prompt wiring, or
-any workflow contract read by the harness. Track-size or publishing-mode rule
+any workflow contract read by the harness. Track-size or draft-publishing rule
 changes require the strict suite because mutation checks pin those policy units.
 A model-switch or handoff change can
 also require the full ladder. The package and writing checks remain separate
