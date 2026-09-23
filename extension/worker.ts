@@ -93,7 +93,7 @@ export const WORKER_PREAMBLE = [
 ].join(" ");
 
 export const WORKER_WRITING_GUIDANCE =
-	"Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file.";
+	"Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file. Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, delivery commit bodies, release notes and issues to describe removals and past behavior.";
 
 export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code actually read (file:line
   or diff hunk) for every claim about behavior. Read third-party /

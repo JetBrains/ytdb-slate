@@ -118,13 +118,13 @@ A remembered later compressor starts later actions at that entry and does not mo
 
 ### Writing guidance
 
-Writing guidance and checker findings are active in orchestrator mode when the project is trusted or a home configuration file exists. Slate adds one doctrine rule for writing and another for design discipline. It also adds a status value such as `writing 2 fail, 3 style / 10 turns` in interactive sessions. The value reports model-visible findings in the latest ten measured prose turns. Each worker with permitted Slate settings gets a shorter reminder about reader understanding, semicolons, and contractions.
+Writing guidance and checker findings are active in orchestrator mode when the project is trusted or a home configuration file exists. Slate adds one doctrine rule for writing and another for design discipline. It also adds a status value such as `writing 2 fail, 3 style / 10 turns` in interactive sessions. The value reports model-visible findings in the latest ten measured prose turns. Each worker with permitted Slate settings gets guidance on reader understanding, semicolons and contractions. Worker guidance also says to describe only the current state in the README, docs, code comments and the project agent instruction file. Change records may describe removals.
 
 The guidance has prompt cost. Each orchestrator system prompt contains both doctrine rules. You pay for this text on every turn. Each worker with permitted Slate settings also gets the preamble addition.
 
 The shipped command checks plain files, JSON Lines records, and unified diffs. See [`docs/writing-guidance.md`](docs/writing-guidance.md) for its rules, limits, output, and command examples.
 
-Slate sends hidden reminders after completed turns. The default cadence is four completed turns. A model-visible finding can trigger an immediate reminder when that option is enabled. The reminder carries the writing and conversation title, three retained style rules, ten writing requirements, and seven design requirements. A findings section appears only when the latest measured turn carries a model-visible finding. The requirements exclude research logs, worker task text, and this project's agent instruction file.
+Slate sends hidden reminders after completed turns. The default cadence is four completed turns. A model-visible finding can trigger an immediate reminder when that option is enabled. The reminder carries the writing and conversation title, three retained style rules, ten writing requirements, and seven design requirements. A findings section appears only when the latest measured turn carries a model-visible finding. The ten writing requirements exclude research logs, worker task text and this project's agent instruction file. The separate current-state documentation rule covers the agent instruction file.
 
 ## Everyday commands
 
