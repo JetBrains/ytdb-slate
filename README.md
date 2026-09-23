@@ -202,7 +202,7 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `writing.findings` | boolean | `true` | Include the latest model-visible writing findings in the hidden reminder. An invalid value warns and falls back to `true`. Measurement and the status line continue when this value is `false`. |
 | `doctrineExtraPath` | string | — | Markdown whose **content** is appended to the orchestrator doctrine (project-specific workflow additions). |
 | `reviewPerspectivesPath` | string | — | Review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
-| `router.models` | object | shipped seven-model pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Within each model definition, lists and provider maps replace shipped fields. The home and project configuration files merge first. |
+| `router.models` | object | shipped six-model pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Within each model definition, lists and provider maps replace shipped fields. The home and project configuration files merge first. |
 | `router.compressor.models` | array of `{ model, effort }` | `[{"model":"claude-sonnet-5","effort":"medium"}]` | Independent ordered compressor list. An explicit empty list blocks work. |
 
 ### Extended example
