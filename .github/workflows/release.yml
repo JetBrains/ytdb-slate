@@ -51,8 +51,8 @@ jobs:
           current=$(node -p 'require("./package.json").version')
           node verification/release-control.mjs make-request --version "$VERSION" --base "$(git rev-parse HEAD)" --current-version "$current" --authorization "$GITHUB_RUN_ID" --notes "$root/notes.md" --out "$root/request.json"
           identity=$(node -p 'require(process.argv[1]).identity' "$root/request.json")
-          published=$(npm view ytdb-slate versions --json --registry "$REGISTRY")
-          node -e 'const x=JSON.parse(process.argv[1]),v=process.argv[2],a=Array.isArray(x)?x:[x];if(a.includes(v))throw Error(`${v} is already published`)' "$published" "$VERSION"
+          published=$(npm view ytdb-slate versions time --json --cache "$root/npm-cache" --registry "$REGISTRY") || { echo 'Cannot read the full npm package document for preparation.' >&2; exit 2; }
+          node --input-type=module -e 'import {versionUsage} from "./verification/release-control.mjs"; if(versionUsage(JSON.parse(process.argv[1]),process.argv[2]))throw Error(`${process.argv[2]} is already used by npm`)' "$published" "$VERSION"
           git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           old=
           if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null 2>&1; then
@@ -225,7 +225,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: '24.18.0', registry-url: 'https://registry.npmjs.org' }
       - name: Execute the single sealed upload
-        run: node verification/release-job.mjs upload --state state.json --archive "$(find archive -name '*.tgz')" --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --registry "$REGISTRY"
+        run: node verification/release-job.mjs upload --state state.json --archive "$(find "$PWD/archive" -maxdepth 1 -name '*.tgz' -type f)" --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --registry "$REGISTRY"
 
   registry-proof:
     needs: [identify, seal-upload, upload]
@@ -460,15 +460,37 @@ jobs:
   retire:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'retire' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions: { contents: write }
+    permissions: { contents: write, actions: read }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: release-state, fetch-depth: 0 }
-      - env: { VERSION: '${{ github.event.inputs.version }}', IDENTITY: '${{ github.event.inputs.identity }}' }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ github.sha }}', path: current-control }
+      - env: { VERSION: '${{ github.event.inputs.version }}', IDENTITY: '${{ github.event.inputs.identity }}', GH_TOKEN: '${{ github.token }}' }
         run: |
           set -euo pipefail; old=$(git rev-parse HEAD); test "$(node -p 'require("./state.json").version')" = "$VERSION"; test "$(node -p 'require("./state.json").identity')" = "$IDENTITY"; status=$(node -p 'require("./state.json").status'); if test "$status" = retired; then echo 'Authorization is already retired.'; exit 0; fi
-          sha=$(node -p 'require("./state.json").releaseSha'); parent=$(node -p 'require("./state.json").releaseParent'); node verification/release-control.mjs retire --state state.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --out next.json; mv next.json state.json
-          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json; git commit -m 'Retire merged no-upload authorization'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+          sha=$(node -p 'require("./state.json").releaseSha'); parent=$(node -p 'require("./state.json").releaseParent')
+          if test "$status" = upload-unknown; then
+            root=$(mktemp -d "$RUNNER_TEMP/retire.XXXXXX")
+            execution=$(node -p 'require("./state.json").uploadExecution')
+            run=${execution%:*}; attempt=${execution#*:}
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/attempts/$attempt" >"$root/run.json" || { echo 'Cannot read the sealed upload run attempt.' >&2; exit 2; }
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/attempts/$attempt/jobs?per_page=100" >"$root/jobs.json" || { echo 'Cannot read the sealed upload jobs.' >&2; exit 2; }
+            npm view ytdb-slate versions time --json --cache "$root/npm-cache" --registry "$REGISTRY" >"$root/package.json" || { echo 'Cannot read the full npm package document. Not-found and network errors are not absence.' >&2; exit 2; }
+            node --input-type=module - "$root" <<'NODE'
+          import fs from 'node:fs';
+          const root=process.argv[2],run=JSON.parse(fs.readFileSync(`${root}/run.json`)),jobs=JSON.parse(fs.readFileSync(`${root}/jobs.json`)),pkg=JSON.parse(fs.readFileSync(`${root}/package.json`));
+          if(!Array.isArray(jobs.jobs)||jobs.total_count!==jobs.jobs.length||jobs.jobs.filter(j=>j.name==='upload').length!==1)throw Error('Sealed upload job list must be complete and contain one upload job');
+          fs.writeFileSync(`${root}/evidence.json`,JSON.stringify({run,job:jobs.jobs.find(j=>j.name==='upload'),package:pkg}));
+          NODE
+            node current-control/verification/release-control.mjs retire --state state.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --evidence "$root/evidence.json" --out next.json
+            message='Retire observed-absent upload'
+          else
+            node verification/release-control.mjs retire --state state.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --out next.json
+            message='Retire merged no-upload authorization'
+          fi
+          mv next.json state.json
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json; git commit -m "$message"; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
 
   close:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'close' && github.ref == 'refs/heads/main'

@@ -61,13 +61,23 @@ Read the failed job and the `release-state` history before acting. Download reta
 
 A branch-creation retry for the exact same prepared request is idempotent. Copy the exact request identity from the active `release-state` record into the workflow authorization identity input. Choose `abandon` only for an unmerged prepared request with no upload attempt. The workflow checks all matching pull requests, closes an open one, tolerates a missing branch, and records abandonment. Do not close or delete the branch first.
 
-After a merged authorization fails before upload, correct the cause in normal development. Re-run the failed workflow jobs when that is enough. If the authorization must be revoked, enter its exact version and request identity, then choose `retire`. Retirement requires the exact merged identity, no upload attempt, and no active publisher. It preserves history and permanently revokes that identity. A corrected request may reuse the same unused npm version without reverting or writing `main` first.
+After a merged authorization fails before upload, correct the cause in normal development. Re-run the failed workflow jobs when that is enough. If the authorization must be revoked, enter its exact version and request identity, then choose `retire`. For an authorization with no upload attempt, retirement requires the exact merged identity and no active publisher. It preserves history and permanently revokes that identity.
+
+Preparation refuses a version found in either npm's version list or its publication-time map. A package-not-found response or a failed registry read also stops preparation. A corrected request may reuse the same unused npm version without reverting or writing `main` first.
 
 ### Unknown upload
 
 The workflow records unknown upload state before `npm publish`. A failed or interrupted upload must never be retried. The upload job checks its saved run and run-attempt pair, so a GitHub job rerun stops before npm.
 
-Enter the exact version and request identity, then choose `recover` to request failed jobs and their dependent jobs from the original run. The sealed upload authority rejects every upload rerun. If registry and installation proofs succeed, the dependent jobs can promote `latest` and create final records. The recovery job itself grants no upload or promotion authority. If registry evidence remains inconclusive, keep the state and ask npm support whether it accepted the transaction.
+Enter the exact version and request identity, then choose `recover` to request failed jobs and their dependent jobs from the original run. The sealed upload authority rejects every upload rerun. If registry and installation proofs succeed, the dependent jobs can promote `latest` and create final records. The recovery job itself grants no upload or promotion authority. If the registry shows the version, use `recover` to pursue byte and installation proofs.
+
+If the version is absent, `retire` can revoke the exact identity after a separate evidence gate. The workflow reads the sealed run attempt and its `upload` job through GitHub. The run must be complete. The job must have a completed non-success result for at least 60 minutes.
+
+The workflow reads the full npm package document with a new empty cache and requires earlier versions and publication times. The version must appear in neither the version list nor the publication-time map. A package or version not-found response, a network error, or malformed data never proves absence. Any missing evidence leaves the state unchanged.
+
+Retirement marks the upload `observed-absent` and keeps the archive fingerprint and original upload execution. A later preparation may reuse the version under a new identity. This gate records what it observed. It cannot prove that npm never accepted an upload.
+
+A wrong verdict can leave only an unpromoted version under `slate-candidate` with the sealed archive. `latest` does not move without proof. A later same-version upload fails and records an unknown outcome or a mismatch. If evidence remains inconclusive, keep the state and ask npm support whether it accepted the transaction.
 
 A failed installation proof may be retried from the failed job or through `recover`. Each attempt must match the exact release identity, version, commit, parent, and verified registry record. A new run-attempt number is valid because the installation job has no upload or promotion authority. Recovery from `published` state requests failed jobs and their dependent jobs from the original release run. The dependent jobs can record proof, promote `latest`, and create final records only after all proofs succeed. The recovery job itself receives no npm token and performs no npm write.
 
