@@ -482,6 +482,38 @@ test("invalid successor snapshot reports a refusal and does not save state", asy
   assert.match(warnings.join("\n"), /invalid successor handoff state/);
 });
 
+test("cancel and setup failure keep the legacy file and the parent state", async () => {
+  await isolated(async () => {
+    const legacy = join(projectDir, ".pi", "slate", "pending-handoff.json");
+    mkdirSync(join(projectDir, ".pi", "slate"), { recursive: true });
+    writeFileSync(legacy, "legacy sentinel");
+    for (const mode of ["cancel", "setup-error"] as const) {
+      const parent = SessionManager.inMemory(projectDir);
+      const successor = SessionManager.inMemory(projectDir);
+      const saved: string[] = [];
+      const pi = { on() {}, appendEntry(type: string) { saved.push(type); } } as unknown as ExtensionAPI;
+      const store = new SlateStore(pi);
+      store.paused = true;
+      const hooks = registerSlateHandoff(pi, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
+      const ctx = { cwd: projectDir, model: undefined, hasUI: false, isProjectTrusted: () => false,
+        waitForIdle: async () => {}, sessionManager: parent,
+        newSession: async (options: any) => {
+          if (mode === "cancel") return { cancelled: true };
+          await options.setup(successor);
+          throw new Error("session replacement failed");
+        },
+      } as any;
+      if (mode === "setup-error") {
+        await assert.rejects(hooks.startHandoff(ctx), /session replacement failed/);
+        assert.equal(successor.getBranch().some((item) => item.type === "custom" && item.customType === "slate-handoff"), true);
+      } else await hooks.startHandoff(ctx);
+      assert.equal(store.paused, false, mode);
+      assert.deepEqual(saved, ["slate-state"], mode);
+      assert.equal(readFileSync(legacy, "utf8"), "legacy sentinel", mode);
+    }
+  });
+});
+
 test("setup writes the successor-bound entry before session_start even without a session file", async () => {
   await isolated(async () => {
     const successor = SessionManager.inMemory(projectDir);
