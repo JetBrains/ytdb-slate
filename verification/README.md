@@ -193,9 +193,10 @@ Four drive modes, chosen per rung:
    permits the active fake route and the target route. The switch is proven from
    the session record (`model_change` entry), never from a log line. The success
    notice is deliberately UI-only.
-2. **End-to-end handoff adoption** — a seeded
-   `<lab>/work/.pi/slate/pending-handoff.json` whose `parentSession` matches the
-   header `--fork` writes, plus `-a` for project trust.
+2. **End-to-end handoff adoption** — a seeded successor session JSONL with a
+   `slate-handoff` custom entry bound to its header session ID. The harness
+   resumes it with `--session` and checks the saved `slate-state` entry and
+   model switch. The entry needs no shared project file or parent match.
 3. **`probe.ts`** — imports the module under test by absolute path and calls the
    real `withGlobalModelDefaultRestored` with the real `pi` and `ctx` around real
    session setters. The driver temporarily wraps `AgentSession.setModel` and

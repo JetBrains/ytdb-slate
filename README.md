@@ -275,7 +275,9 @@ A worker extension can register the same provider id during construction. Its re
 
 Slate excludes untrusted project Slate configuration and content selected through that configuration. Home preferences remain active, including documents and host extensions selected by those preferences. A home document path can point into a working tree, so select those paths carefully.
 
-Home preferences do not change pi's project-trust decision. Pi's independent instruction loading stays unchanged. In particular, this feature does not filter pi's `AGENTS.md` context files. Slate still requires project trust before it restores pending handoff state. Worker pi settings remain nonpersistent.
+Home preferences do not change pi's project-trust decision. Pi's independent instruction loading stays unchanged. In particular, this feature does not filter pi's `AGENTS.md` context files. Slate restores a handoff entry from the successor session using the same record validation as saved Slate state. The entry does not use project trust. Slate ignores old `.pi/slate/pending-handoff.json` files and leaves them untouched. Worker pi settings remain nonpersistent.
+
+The stable `slate-handoff` custom session entry contains `sessionId`, `snapshot`, and optional `model`, `thinkingLevel`, and `logicalModel`. Only a session whose identifier equals `sessionId` can adopt it. A saved `slate-state` entry takes precedence. Older Slate versions do not understand `slate-handoff`. They cannot adopt a handoff that has no saved state. An older Slate version can drop scoped records from a saved state when it restores them. The files remain on disk.
 
 ## Shipped docs
 

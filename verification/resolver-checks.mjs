@@ -1233,7 +1233,10 @@ try {
 			]);
 
 			const handoffCwd = join(WORK, "real handoff order");
-			mkdirSync(join(handoffCwd, ".pi", "slate"), { recursive: true });
+			mkdirSync(handoffCwd, { recursive: true });
+			const successorEntries = [{ type: "custom", customType: "slate-handoff", data: {
+				sessionId: "successor", snapshot: { format: "single-action-v1", threads: [], episodes: [], orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 },
+			} }];
 			const events = [];
 			let forceValue = false;
 			const runtime = {
@@ -1262,8 +1265,9 @@ try {
 					this.writingReminder.forceNext = false;
 					this.writingReminder.adoptedThisSessionStart = false;
 					this.orchestratorMode = snapshot.orchestratorMode;
+					this.snapshot = snapshot;
 				},
-				save() {},
+				save() { successorEntries.push({ type: "custom", customType: "slate-state", data: this.snapshot ?? { format: "single-action-v1" } }); },
 				set onDidChange(_value) {},
 			};
 			const handoffHandlers = {};
@@ -1273,16 +1277,10 @@ try {
 			};
 			const realHooks = handoff.registerSlateHandoff(handoffPi, adoptedStore, () => ({ writing: { check: true, remind: true } }), () => ({}));
 			mode.registerSlateMode(handoffPi, adoptedStore, realHooks, () => ({ writing: { check: true, remind: true } }), () => ({ units: [] }));
-			writeFileSync(join(handoffCwd, ".pi", "slate", "pending-handoff.json"), JSON.stringify({
-				parentSession: "parent-session",
-				createdAt: Date.now(),
-				brief: "",
-				snapshot: { threads: [], episodes: [], orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 },
-			}));
 			const handoffCtx = {
 				cwd: handoffCwd, mode: "tui", hasUI: false, model: undefined,
 				isProjectTrusted: () => true,
-				sessionManager: { getHeader: () => ({ parentSession: "parent-session" }), getEntries: () => [], getBranch: () => [] },
+				sessionManager: { getSessionId: () => "successor", getEntries: () => successorEntries, getBranch: () => successorEntries },
 				ui: { setStatus() {}, setWidget() {}, notify() {} },
 			};
 			for (const handler of handoffHandlers.session_start ?? []) await handler({}, handoffCtx);

@@ -190,8 +190,8 @@ export default function (pi: ExtensionAPI) {
 		await manager.disposeAll();
 	});
 
-	// session_start ordering (registration order): restore → adopt pending
-	// handoff → re-apply mode tools. registerSlateHandoff must therefore sit
+	// session_start ordering (registration order): restore → adopt successor
+	// session entry if no saved state → re-apply mode tools. registerSlateHandoff must therefore sit
 	// between the restore handler above and registerSlateMode below.
 	// getConfig reads the CURRENT `manager` (reassigned on session_start).
 	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel, () => logicalRuntime);

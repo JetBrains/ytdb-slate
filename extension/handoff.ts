@@ -14,17 +14,13 @@
  * contextBudget.
  *
  * /slate handoff [focus] → startHandoff(): captures the orchestrator's last
- * assistant message as the brief, writes <config dir>/slate/pending-handoff.json
- * (state snapshot + brief + parent session + live model/thinking level), and
- * opens a fresh session.
+ * assistant message as the brief, appends a hidden `slate-handoff` custom
+ * entry to the successor during newSession setup, and opens that session.
  *
- * Adoption: session replacement tears down this extension instance, so
- * in-memory state cannot cross over; and the fresh session's own file has no
- * slate-state entries for restore() to find (they live in the parent's file).
- * The pending file bridges the gap: the NEW instance's session_start handler
- * adopts the snapshot when the fresh session's parentSession header matches
- * (trusted projects only; stale files are reaped regardless of trust), and
- * then restores the captured model/thinking level — the fresh session does
+ * Adoption: session replacement tears down this extension instance. The new
+ * instance reads the successor-bound entry only when no `slate-state` entry
+ * exists on its current branch. A fork or clone has a different session ID.
+ * Then it restores the captured model/thinking level — the fresh session does
  * not inherit them: startup CLI flags (-m/--thinking) are re-applied to the
  * replacement runtime, enabledModels scoping picks its first entry, and a
  * parent resumed with a non-default session-file model falls back to the
@@ -33,8 +29,8 @@
  * the orchestrator's base model, unlike a failover fallback.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
 	CONFIG_DIR_NAME,
 	getAgentDir,
@@ -50,6 +46,7 @@ import { withGlobalModelDefaultRestored } from "./model-default.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
 	orchestratorCostUsd,
+	SLATE_STATE_FORMAT,
 	type ContextBudgetObject,
 	type ContextBudgetOverride,
 	type SlateConfig,
@@ -73,20 +70,16 @@ const ANTHROPIC_MODEL_RE = /^anthropic\/.*/;
 const BRIEF_HEADROOM_TOKENS = 32_768;
 /** Used when the merged settings cannot be read (mirrors pi's own default). */
 const FALLBACK_RESERVE_TOKENS = 16_384;
-/** A pending-handoff file older than this cannot belong to an in-flight handoff. */
-const PENDING_MAX_AGE_MS = 15 * 60 * 1000;
 const BRIEF_MAX_CHARS = 6000;
 
 // pi-coding-agent does not re-export ThinkingLevel (it lives in the transitive
 // pi-agent-core package, which is not one of our peer deps) — derive it.
 type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
 
-interface PendingHandoff {
-	parentSession: string | undefined; // undefined = in-memory session; adoption then never matches
-	createdAt: number;
-	brief: string;
-	// Live model + thinking level at handoff time. Absent in old pending files
-	// and when the parent session had no model.
+/** Stable custom session entry: `slate-handoff`. Copied entries retain this successor ID. */
+interface SessionHandoff {
+	sessionId: string;
+	// No model fields when the parent session had no model.
 	model?: { provider: string; id: string };
 	thinkingLevel?: ThinkingLevel;
 	logicalModel?: string;
@@ -96,10 +89,6 @@ interface PendingHandoff {
 export interface SlateHandoffHooks {
 	startHandoff(ctx: ExtensionCommandContext, focus?: string): Promise<void>;
 	effectiveContextBudget(contextWindow: number, ctx: ExtensionContext): number | undefined;
-}
-
-function pendingFile(cwd: string): string {
-	return join(cwd, CONFIG_DIR_NAME, "slate", "pending-handoff.json");
 }
 
 // Console-first reporting for the model-adoption block below, and for FAILURES
@@ -279,30 +268,21 @@ function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: stri
 	let base: string | undefined;
 	if (trusted) {
 		// existsSync alone is not enough: the path may be a directory or
-		// unreadable, and a throw escaping here would strand the pending-handoff
-		// file startHandoff just wrote — fall back to the default kickoff text.
+		// unreadable. Fall back to the default kickoff text.
 		try {
 			if (existsSync(template)) base = readFileSync(template, "utf8").trim();
 		} catch {
 			/* unreadable template → default kickoff */
 		}
 	}
-	// The "already restored" claim is only valid when the successor session
-	// will actually adopt the pending state — adoption is trust-gated, and the
-	// successor (same process, same cwd) shares this session's trust state, so
-	// `trusted` decides which default text is honest here.
+	// Only the project-supplied template is trust-gated. The session entry
+	// follows the same validation as saved state, including in untrusted projects.
 	if (!base) {
-		base = trusted
-			? [
-					"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
-					"Orchestrator mode and all worker threads/episodes from the previous session are already restored:",
-					"use `threads` to list them and `episode` to fetch details. Continue the work.",
-				].join("\n")
-			: [
-					"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
-					"NOTE: this project is untrusted, so slate did NOT auto-restore the previous session's threads/episodes.",
-					`Run /slate on if needed, then reconstruct context from the episode files under ${CONFIG_DIR_NAME}/slate/<runtime folder>/episodes/ (or the legacy ${CONFIG_DIR_NAME}/slate/episodes/) and continue the work.`,
-				].join("\n");
+		base = [
+			"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
+			"Orchestrator mode and all worker threads/episodes from the previous session are restored:",
+			"use `threads` to list them and `episode` to fetch details. Continue the work.",
+		].join("\n");
 	}
 	const parts = [base];
 	if (brief) parts.push("", "## Handoff brief from the previous orchestrator", "", brief);
@@ -477,34 +457,23 @@ export function registerSlateHandoff(
 		return { cancel: true };
 	});
 
-	// Adopt a pending handoff into a fresh session. Registered AFTER index.ts's
-	// restore handler (so a branch that already carries slate state wins) and
-	// BEFORE mode.ts's (so its tool restriction sees the adopted mode).
+	// Registered AFTER restore and BEFORE mode. Any saved state, even a malformed
+	// entry, wins over the handoff on every later restore.
 	pi.on("session_start", async (_event, ctx) => {
-		if (store.threads.size > 0 || store.orchestratorMode) return; // state already restored on this branch
-		const file = pendingFile(ctx.cwd);
 		try {
-			if (!existsSync(file)) return;
-			const pending = JSON.parse(readFileSync(file, "utf8")) as PendingHandoff;
-			const age = Date.now() - (pending.createdAt ?? 0);
-			// STALE reap runs regardless of trust: it deletes an abandoned runtime
-			// file without injecting any content into prompts or state, and keeps
-			// the file from lingering forever in a never-trusted project.
-			// Out-of-range timestamps are stale too: a future createdAt (negative
-			// age) or a non-numeric one (NaN age) would otherwise dodge the reap
-			// forever — a real in-flight handoff is at most minutes old.
-			if (!(age >= 0 && age < PENDING_MAX_AGE_MS)) {
-				rmSync(file, { force: true });
+			const branch = ctx.sessionManager.getBranch();
+			if (branch.some((entry) => entry.type === "custom" && entry.customType === "slate-state")) return;
+			const sessionId = ctx.sessionManager.getSessionId();
+			const entry = [...branch].reverse().find((item) =>
+				item.type === "custom" && item.customType === "slate-handoff" &&
+				(item.data as { sessionId?: unknown } | null)?.sessionId === sessionId,
+			);
+			if (!entry || entry.type !== "custom") return;
+			const pending = entry.data as SessionHandoff;
+			if (!pending.snapshot || typeof pending.snapshot !== "object" || pending.snapshot.format !== SLATE_STATE_FORMAT) {
+				reportFailure(ctx, "slate: invalid successor handoff state — no state adopted. Reload can retry after repair.");
 				return;
 			}
-			// Trust gate (ADOPTION only): the pending file is project-local state a
-			// cloned repo could ship pre-seeded. Never adopt its content in an
-			// untrusted project — but leave a FRESH file untouched: the user may
-			// grant trust shortly after, within the handoff window.
-			if (!ctx.isProjectTrusted()) return;
-			// Never adopt into an unrelated session.
-			const matches = !!pending.parentSession && pending.parentSession === ctx.sessionManager.getHeader()?.parentSession;
-			if (!matches) return;
 			store.adoptSnapshot(pending.snapshot, ctx);
 			store.writingReminder.forceNext = true;
 			store.writingReminder.adoptedThisSessionStart = true;
@@ -518,12 +487,11 @@ export function registerSlateHandoff(
 					ctx,
 					`slate: could not persist restored handoff state — ${sanitizeForNotify(
 						error instanceof Error ? error.message : String(error),
-					)}. Handoff remains paused. Reload can retry the pending handoff.`,
+					)}. Handoff remains paused. Reload can retry the session entry.`,
 				);
 				return;
 			}
 			getRuntime()?.resetPreferences();
-			rmSync(file, { force: true });
 			if (ctx.hasUI) {
 				const t = store.threads.size;
 				const e = store.episodes.size;
@@ -541,7 +509,7 @@ export function registerSlateHandoff(
 			// pi.setModel can THROW on a failed live auth check despite its
 			// Promise<boolean> contract — a restore failure must never unwind a
 			// committed adoption.
-			// The pending file is disk JSON: honor the captured model only as an
+			// The session entry can contain edited JSON: honor the captured model only as an
 			// object with non-empty string provider/id — a malformed {"model":{}}
 			// must not count as "already live" via undefined === undefined.
 			const spec = pending.model;
@@ -566,7 +534,7 @@ export function registerSlateHandoff(
 					reportFailure(ctx, `slate: handoff state is restored but ${label} has no allowed fixed effort. Handoff remains paused; choose a logical model.`);
 					return;
 				}
-				const owner = runtime.ownership.acquire(`slate:handoff:${pending.parentSession ?? "unknown"}`, SAVED_DEFAULT_RESOURCE_KEY);
+				const owner = runtime.ownership.acquire(`slate:handoff:${sessionId}`, SAVED_DEFAULT_RESOURCE_KEY);
 				if (owner.kind === "busy") {
 					reportFailure(ctx, `slate: handoff model adoption is busy on ${owner.resource}. No second model switch was started. Handoff remains paused; retry later.`);
 					return;
@@ -671,8 +639,8 @@ export function registerSlateHandoff(
 			} else {
 				reportFailure(ctx, "slate: handoff state is restored without a usable model identity. Handoff remains paused; choose a logical model.");
 			}
-		} catch {
-			/* a broken pending file must never break session start */
+		} catch (error) {
+			reportFailure(ctx, `slate: could not adopt successor handoff — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`);
 		}
 	});
 
@@ -685,10 +653,7 @@ export function registerSlateHandoff(
 		// then — a thinking level is meaningless without a model to clamp it
 		// against, and adoption skips the whole restore when model is absent.
 		const model = ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined;
-		const pending: PendingHandoff = {
-			parentSession,
-			createdAt: Date.now(),
-			brief,
+		const handoff = {
 			model,
 			thinkingLevel: model ? pi.getThinkingLevel() : undefined,
 			logicalModel: model ? getBaseModel().currentLogicalIdentity() : undefined,
@@ -704,35 +669,24 @@ export function registerSlateHandoff(
 				carriedCostUsd: store.carriedCostUsd + orchestratorCostUsd(ctx),
 			},
 		};
-		const file = pendingFile(ctx.cwd);
-		mkdirSync(dirname(file), { recursive: true });
-		writeFileSync(file, `${JSON.stringify(pending, null, 2)}\n`, "utf8");
-
 		const kickoff = buildKickoff(ctx.cwd, ctx.isProjectTrusted(), brief, focus);
-		// catch, NOT finally: on success the NEW session's adoption handler has
-		// already consumed and deleted the pending file (session_start fires
-		// inside newSession) — cleaning up there would be wrong.
 		try {
 			const { cancelled } = await ctx.newSession({
-				parentSession,
+				...(parentSession ? { parentSession } : {}),
+				setup: async (successor) => {
+					const entry: SessionHandoff = { ...handoff, sessionId: successor.getSessionId() };
+					successor.appendCustomEntry("slate-handoff", entry as unknown as Record<string, unknown>);
+				},
 				withSession: async (fresh) => {
 					await fresh.sendUserMessage(kickoff);
 				},
 			});
 			if (cancelled) {
-				// Left behind, the pending file could be adopted by an unintended fork
-				// or session sharing this parent within the 15-min window.
-				rmSync(file, { force: true });
 				store.paused = false;
 				store.save();
-				if (ctx.hasUI) ctx.ui.notify("slate: handoff cancelled — pause cleared, pending state removed.", "warning");
+				if (ctx.hasUI) ctx.ui.notify("slate: handoff cancelled — pause cleared.", "warning");
 			}
 		} catch (error) {
-			try {
-				rmSync(file, { force: true });
-			} catch {
-				/* ignore */
-			}
 			// Best-effort: if the replacement partially happened, the old pi/ctx
 			// are stale and these calls themselves throw.
 			try {
@@ -740,7 +694,7 @@ export function registerSlateHandoff(
 				store.save();
 				if (ctx.hasUI) {
 					ctx.ui.notify(
-						`slate: handoff failed — ${error instanceof Error ? error.message : String(error)}. Pause cleared; pending state removed.`,
+						`slate: handoff failed — ${error instanceof Error ? error.message : String(error)}. Pause cleared.`,
 						"error",
 					);
 				}

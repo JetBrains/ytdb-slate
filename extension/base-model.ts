@@ -134,7 +134,7 @@
  * that is belt-and-braces, not a gap here). The INPUT side is deliberately
  * defensive in the same way for the opposite reason: the specs handed in come
  * from pi's registry, from a config map and — in handoff adoption — from a
- * pending-handoff FILE on disk, so none of them is trusted on its declared type.
+ * successor session entry, so none of them is trusted on its declared type.
  *
  * PURE, AND CLOCK-FREE. The tracker touches nothing: no pi, no filesystem, no
  * timers, no clock. It is a reducer over its ingest points (seed, observe,
